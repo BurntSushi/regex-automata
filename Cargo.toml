@@ -1,0 +1,31 @@
+[package]
+publish = false
+name = "regex-automata"
+version = "0.0.1"  #:version
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = "Automata construction and matching using regular expressions."
+documentation = "https://docs.rs/regex-automata"
+homepage = "https://github.com/BurntSushi/regex-automata"
+repository = "https://github.com/BurntSushi/regex-automata"
+readme = "README.md"
+keywords = ["regex", "dfa", "automata", "automaton", "nfa"]
+license = "Unlicense/MIT"
+categories = ["text-processing"]
+exclude = ["/.travis.yml", "/appveyor.yml", "/ci/*", "/scripts/*"]
+
+[badges]
+travis-ci = { repository = "BurntSushi/regex-automata" }
+appveyor = { repository = "BurntSushi/regex-automata" }
+
+[lib]
+bench = false
+
+[dependencies]
+regex-syntax = "0.6.4"
+utf8-ranges = "1"
+
+[profile.release]
+debug = true
+
+[profile.bench]
+debug = true
