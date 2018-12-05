@@ -1,10 +1,63 @@
 use std::cell::RefCell;
 use std::iter;
 
-use regex_syntax::Parser;
+use regex_syntax::ParserBuilder;
 use regex_syntax::hir::{self, Hir, HirKind};
 
 use error::{Error, Result};
+
+#[derive(Clone, Debug)]
+pub struct NFABuilder {
+    anchored: bool,
+    allow_invalid_utf8: bool,
+}
+
+impl NFABuilder {
+    pub fn new() -> NFABuilder {
+        NFABuilder {
+            anchored: false,
+            allow_invalid_utf8: false,
+        }
+    }
+
+    pub fn build(&self, expr: &Hir) -> Result<NFA> {
+        let nfa = NFA::empty();
+        let mut start = nfa.add_empty();
+        if !self.anchored {
+            let compiled =
+                if self.allow_invalid_utf8 {
+                    nfa.compile(&Hir::repetition(hir::Repetition {
+                        kind: hir::RepetitionKind::ZeroOrMore,
+                        greedy: false,
+                        hir: Box::new(Hir::any(true)),
+                    }))?
+                } else {
+                    nfa.compile(&Hir::repetition(hir::Repetition {
+                        kind: hir::RepetitionKind::ZeroOrMore,
+                        greedy: false,
+                        hir: Box::new(Hir::any(false)),
+                    }))?
+                };
+            nfa.patch(start, compiled.start);
+            start = compiled.end;
+        }
+        let compiled = nfa.compile(expr)?;
+        let match_id = nfa.add_match();
+        nfa.patch(start, compiled.start);
+        nfa.patch(compiled.end, match_id);
+        Ok(nfa)
+    }
+
+    pub fn anchored(&mut self, yes: bool) -> &mut NFABuilder {
+        self.anchored = yes;
+        self
+    }
+
+    pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut NFABuilder {
+        self.allow_invalid_utf8 = yes;
+        self
+    }
+}
 
 #[derive(Debug)]
 pub struct NFA {
@@ -30,10 +83,6 @@ struct ThompsonRef {
 impl NFA {
     pub fn empty() -> NFA {
         NFA { states: RefCell::new(vec![]) }
-    }
-
-    pub fn from_pattern(pattern: &str) -> Result<NFA> {
-        NFA::from_hir(&Parser::new().parse(pattern).map_err(Error::syntax)?)
     }
 
     pub fn from_hir(expr: &Hir) -> Result<NFA> {

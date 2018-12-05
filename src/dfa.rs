@@ -48,9 +48,34 @@ impl DFA {
         self.states[from].transitions[input as usize] = to;
     }
 
+    pub fn is_match(&self, bytes: &[u8]) -> bool {
+        let mut state = self.start;
+        if state == DEAD {
+            return false;
+        } else if self.states[state].is_match {
+            return true;
+        }
+        for (i, &b) in bytes.iter().enumerate() {
+            state = self.states[state].transitions[b as usize];
+            if state == DEAD {
+                return false;
+            } else if self.states[state].is_match {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn find(&self, bytes: &[u8]) -> Option<usize> {
         let mut state = self.start;
-        let mut last_match = None;
+        let mut last_match =
+            if state == DEAD {
+                return None;
+            } else if self.states[state].is_match {
+                Some(0)
+            } else {
+                None
+            };
         for (i, &b) in bytes.iter().enumerate() {
             state = self.states[state].transitions[b as usize];
             if state == DEAD {
@@ -149,6 +174,7 @@ fn escape(b: u8) -> String {
 
 #[cfg(test)]
 mod tests {
+    use builder::DFABuilder;
     use super::*;
 
     fn print_automata(pattern: &str) {
@@ -177,8 +203,9 @@ mod tests {
     }
 
     fn build_automata(pattern: &str) -> (NFA, DFA) {
-        let nfa = NFA::from_pattern(pattern).unwrap();
-        let dfa = DFA::from_nfa(&nfa);
+        let builder = DFABuilder::new();
+        let nfa = builder.build_nfa(pattern).unwrap();
+        let dfa = builder.build(pattern).unwrap();
         (nfa, dfa)
     }
 
@@ -215,5 +242,7 @@ mod tests {
         // let string = "zz";
         // let bytes = string.as_bytes();
         // println!("{:?}", dfa.find(bytes));
+
+        print_automata(r"[01]*1[01]{5}");
     }
 }

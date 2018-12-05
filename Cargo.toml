@@ -12,6 +12,7 @@ keywords = ["regex", "dfa", "automata", "automaton", "nfa"]
 license = "Unlicense/MIT"
 categories = ["text-processing"]
 exclude = ["/.travis.yml", "/appveyor.yml", "/ci/*", "/scripts/*"]
+autotests = false
 
 [badges]
 travis-ci = { repository = "BurntSushi/regex-automata" }
@@ -23,6 +24,20 @@ bench = false
 [dependencies]
 regex-syntax = "0.6.4"
 utf8-ranges = "1"
+
+[[test]]
+path = "tests/tests.rs"
+name = "default"
+
+[profile.dev]
+# Running tests takes too long in debug mode, so we forcefully always build
+# with optimizations. Unfortunate, but, ¯\_(ツ)_/¯.
+opt-level = 3
+
+[profile.test]
+# Running tests takes too long in debug mode, so we forcefully always build
+# with optimizations. Unfortunate, but, ¯\_(ツ)_/¯.
+opt-level = 3
 
 [profile.release]
 debug = true

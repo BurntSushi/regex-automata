@@ -2,7 +2,7 @@ use regex_syntax::ParserBuilder;
 
 use dfa::DFA;
 use error::{Error, Result};
-use nfa::NFA;
+use nfa::{NFA, NFABuilder};
 
 /// A builder for constructing a deterministic finite automaton from regular
 /// expressions.
@@ -14,6 +14,7 @@ use nfa::NFA;
 #[derive(Clone, Debug)]
 pub struct DFABuilder {
     parser: ParserBuilder,
+    nfa: NFABuilder,
     minimize: bool,
 }
 
@@ -22,6 +23,7 @@ impl DFABuilder {
     pub fn new() -> DFABuilder {
         DFABuilder {
             parser: ParserBuilder::new(),
+            nfa: NFABuilder::new(),
             minimize: false,
         }
     }
@@ -31,13 +33,39 @@ impl DFABuilder {
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
     pub fn build(&self, pattern: &str) -> Result<DFA> {
-        let hir = self.parser.build().parse(pattern).map_err(Error::syntax)?;
-        let nfa = NFA::from_hir(&hir)?;
+        let nfa = self.build_nfa(pattern)?;
         let mut dfa = DFA::from_nfa(&nfa);
         if self.minimize {
             dfa.minimize();
         }
         Ok(dfa)
+    }
+
+    /// Builds an NFA from the given pattern.
+    pub(crate) fn build_nfa(&self, pattern: &str) -> Result<NFA> {
+        let hir = self.parser.build().parse(pattern).map_err(Error::syntax)?;
+        Ok(self.nfa.build(&hir)?)
+    }
+
+    /// Set whether matching must be anchored at the beginning of the input.
+    ///
+    /// When enabled, a match must begin at the start of the input. When
+    /// disabled, the DFA will act as if the pattern started with a `.*?`,
+    /// which enables a match to appear anywhere.
+    ///
+    /// By default this is disabled.
+    pub fn anchored(&mut self, yes: bool) -> &mut DFABuilder {
+        self.nfa.anchored(yes);
+        self
+    }
+
+    /// Enable or disable the case insensitive flag by default.
+    ///
+    /// By default this is disabled. It may alternatively be selectively
+    /// enabled in the regular expression itself via the `i` flag.
+    pub fn case_insensitive(&mut self, yes: bool) -> &mut DFABuilder {
+        self.parser.case_insensitive(yes);
+        self
     }
 
     /// Enable verbose mode in the regular expression.
@@ -50,15 +78,6 @@ impl DFABuilder {
     /// regular expression by using the `x` flag regardless of this setting.
     pub fn ignore_whitespace(&mut self, yes: bool) -> &mut DFABuilder {
         self.parser.ignore_whitespace(yes);
-        self
-    }
-
-    /// Enable or disable the case insensitive flag by default.
-    ///
-    /// By default this is disabled. It may alternatively be selectively
-    /// enabled in the regular expression itself via the `i` flag.
-    pub fn case_insensitive(&mut self, yes: bool) -> &mut DFABuilder {
-        self.parser.case_insensitive(yes);
         self
     }
 
@@ -106,6 +125,7 @@ impl DFABuilder {
     /// can result in matching positions that aren't valid UTF-8 boundaries.
     pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut DFABuilder {
         self.parser.allow_invalid_utf8(yes);
+        self.nfa.allow_invalid_utf8(yes);
         self
     }
 
