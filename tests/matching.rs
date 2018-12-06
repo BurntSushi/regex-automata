@@ -51,11 +51,36 @@ impl SuiteTest {
 }
 
 #[test]
-fn suite() {
+fn suite_dfa() {
     let builder = DFABuilder::new();
 
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
+        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
+            None => continue,
+            Some(dfa) => dfa,
+        };
+        test.run_is_match(|x| dfa.is_match(x));
+        test.run_find_end(|x| dfa.find(x));
+    }
+}
+
+#[test]
+fn suite_dfa_minimal() {
+    let mut builder = DFABuilder::new();
+    builder.minimize(true);
+
+    let tests = SuiteTest::collection(fowler::TESTS);
+    for test in &tests {
+        // TODO: These tests take too long with minimization. Make
+        // minimization faster.
+        if test.name.starts_with("repetition_10") {
+            continue;
+        }
+        if test.name.starts_with("repetition_11") {
+            continue;
+        }
+
         let dfa = match ignore_unsupported(builder.build(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,

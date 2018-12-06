@@ -68,14 +68,14 @@ impl<'a> Minimizer<'a> {
             }
         }
 
-        let mut state_to_part = vec![dfa::DEAD; self.dfa.states.len()];
+        let mut state_to_part = vec![dfa::DEAD; self.dfa.len()];
         for p in &self.partitions {
             p.iter(|id| state_to_part[id] = p.first());
         }
 
-        let mut minimal_ids = vec![dfa::DEAD; self.dfa.states.len()];
+        let mut minimal_ids = vec![dfa::DEAD; self.dfa.len()];
         let mut new_id = 0;
-        for (id, state) in self.dfa.states.iter().enumerate() {
+        for (id, state) in self.dfa.iter() {
             if state_to_part[id] == id {
                 minimal_ids[id] = new_id;
                 new_id += 1;
@@ -83,16 +83,16 @@ impl<'a> Minimizer<'a> {
         }
         let minimal_count = new_id;
 
-        for id in 0..self.dfa.states.len() {
+        for id in 0..self.dfa.len() {
             if state_to_part[id] != id {
                 continue;
             }
-            for next in self.dfa.states[id].transitions.iter_mut() {
+            for (_, next) in self.dfa.get_state_mut(id).iter_mut() {
                 *next = minimal_ids[state_to_part[*next]];
             }
-            self.dfa.states.swap(id, minimal_ids[id]);
+            self.dfa.swap_states(id, minimal_ids[id]);
         }
-        self.dfa.states.truncate(minimal_count);
+        self.dfa.truncate_states(minimal_count);
     }
 
     fn find_incoming_to(
@@ -113,8 +113,8 @@ impl<'a> Minimizer<'a> {
     fn initial_partitions(dfa: &DFA) -> Vec<StateSet> {
         let mut is_match = StateSet::empty();
         let mut no_match = StateSet::empty();
-        for (id, state) in dfa.states.iter().enumerate() {
-            if state.is_match {
+        for (id, state) in dfa.iter() {
+            if state.is_match() {
                 is_match.add(id);
             } else {
                 no_match.add(id);
@@ -132,12 +132,12 @@ impl<'a> Minimizer<'a> {
 
     fn incoming_transitions(dfa: &DFA) -> Vec<Vec<Vec<dfa::StateID>>> {
         let mut incoming = vec![];
-        for state in dfa.states.iter() {
+        for state in dfa.iter() {
             incoming.push(vec![vec![]; ALPHABET_SIZE]);
         }
-        for (id, state) in dfa.states.iter().enumerate() {
-            for (b, &next) in state.transitions.iter().enumerate() {
-                incoming[next][b].push(id);
+        for (id, state) in dfa.iter() {
+            for (b, next) in state.iter() {
+                incoming[next][b as usize].push(id);
             }
         }
         incoming

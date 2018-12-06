@@ -138,17 +138,12 @@ impl<'a> Determinizer<'a> {
         self.epsilon_closure(0, sparse);
         let state = self.new_state(&sparse);
         let id = self.add_state(state);
-        self.dfa.start = id;
+        self.dfa.set_start(id);
         id
     }
 
     fn add_state(&mut self, state: DeterminizerState) -> dfa::StateID {
-        let id = self.dfa.states.len();
-        self.dfa.states.push(dfa::State {
-            is_match: state.is_match,
-            ..dfa::State::empty()
-        });
-
+        let id = self.dfa.add_empty_state(state.is_match);
         let rstate = Rc::new(state);
         self.builder_states.push(rstate.clone());
         self.cache.insert(rstate, id);
