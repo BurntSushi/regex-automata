@@ -150,7 +150,7 @@ impl<'a> Determinizer<'a> {
     }
 
     fn add_state(&mut self, state: DeterminizerState) -> dfa::StateID {
-        let id = self.dfa.add_empty_state(state.is_match);
+        let id = self.dfa.add_empty_state();
         let rstate = Rc::new(state);
         self.builder_states.push(rstate.clone());
         self.cache.insert(rstate, id);

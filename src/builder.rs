@@ -38,6 +38,7 @@ impl DFABuilder {
         if self.minimize {
             dfa.minimize();
         }
+        dfa.premultiply();
         Ok(dfa)
     }
 

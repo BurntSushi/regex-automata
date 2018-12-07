@@ -124,8 +124,8 @@ impl<'a> Minimizer<'a> {
     fn initial_partitions(dfa: &DFA) -> Vec<StateSet> {
         let mut is_match = StateSet::empty();
         let mut no_match = StateSet::empty();
-        for (id, state) in dfa.iter() {
-            if state.is_match() {
+        for (id, _) in dfa.iter() {
+            if dfa.is_match_state(id) {
                 is_match.add(id);
             } else {
                 no_match.add(id);
