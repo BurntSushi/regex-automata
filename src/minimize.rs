@@ -92,7 +92,18 @@ impl<'a> Minimizer<'a> {
             }
             self.dfa.swap_states(id, minimal_ids[id]);
         }
+
+        let old_start = self.dfa.start();
+        self.dfa.set_start_state(minimal_ids[state_to_part[old_start]]);
         self.dfa.truncate_states(minimal_count);
+
+        let old_max = self.dfa.max_match_state();
+        for id in 1..self.dfa.len() {
+            if state_to_part[id] > old_max {
+                break;
+            }
+            self.dfa.set_max_match_state(id);
+        }
     }
 
     fn find_incoming_to(

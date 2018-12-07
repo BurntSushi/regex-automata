@@ -63,6 +63,13 @@ impl<'a> Determinizer<'a> {
                 }
             }
         }
+
+        let is_match: Vec<bool> = self
+            .builder_states
+            .iter()
+            .map(|s| s.is_match)
+            .collect();
+        self.dfa.shuffle_match_states(&is_match);
         self.dfa
     }
 
@@ -138,7 +145,7 @@ impl<'a> Determinizer<'a> {
         self.epsilon_closure(0, sparse);
         let state = self.new_state(&sparse);
         let id = self.add_state(state);
-        self.dfa.set_start(id);
+        self.dfa.set_start_state(id);
         id
     }
 

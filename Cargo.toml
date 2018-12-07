@@ -33,11 +33,13 @@ name = "default"
 # Running tests takes too long in debug mode, so we forcefully always build
 # with optimizations. Unfortunate, but, ¯\_(ツ)_/¯.
 opt-level = 3
+debug = true
 
 [profile.test]
 # Running tests takes too long in debug mode, so we forcefully always build
 # with optimizations. Unfortunate, but, ¯\_(ツ)_/¯.
 opt-level = 3
+debug = true
 
 [profile.release]
 debug = true

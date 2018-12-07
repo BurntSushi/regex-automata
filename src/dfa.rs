@@ -13,11 +13,9 @@ pub const ALPHABET_SIZE: usize = 256;
 pub type StateID = usize;
 
 pub struct DFA {
-    // /// The set of DFA states and their transitions. Transitions point to
-    // /// indices in this list.
-    // states: Vec<State>,
     trans: Vec<StateID>,
     is_match: Vec<bool>,
+    max_match: StateID,
     /// The initial start state. This is either `0` for an empty DFA with a
     /// single dead state or `1` for the first DFA state built.
     start: StateID,
@@ -26,9 +24,9 @@ pub struct DFA {
 impl DFA {
     pub fn empty() -> DFA {
         let mut dfa = DFA {
-            // states: vec![],
             trans: vec![],
             is_match: vec![],
+            max_match: 1,
             start: DEAD,
         };
         dfa.add_empty_state(false);
@@ -36,23 +34,20 @@ impl DFA {
     }
 
     pub fn len(&self) -> usize {
-        // self.states.len()
         self.is_match.len()
     }
 
     pub fn is_match(&self, bytes: &[u8]) -> bool {
         let mut state = self.start;
-        if state == DEAD {
-            return false;
-        } else if self.is_match[state] {
-            return true;
+        if state <= self.max_match {
+            return state != DEAD;
         }
-        for (i, &b) in bytes.iter().enumerate() {
-            state = self.trans[state * ALPHABET_SIZE + b as usize];
-            if state == DEAD {
-                return false;
-            } else if self.is_match[state] {
-                return true;
+        for &b in bytes.iter() {
+            state = unsafe {
+                *self.trans.get_unchecked(state * ALPHABET_SIZE + b as usize)
+            };
+            if state <= self.max_match {
+                return state != DEAD;
             }
         }
         false
@@ -89,7 +84,11 @@ impl DFA {
         Determinizer::new(nfa).build()
     }
 
-    pub(crate) fn set_start(&mut self, start: StateID) {
+    pub(crate) fn start(&self) -> StateID {
+        self.start
+    }
+
+    pub(crate) fn set_start_state(&mut self, start: StateID) {
         assert!(start < self.len());
         self.start = start;
     }
@@ -100,14 +99,11 @@ impl DFA {
         input: u8,
         to: StateID,
     ) {
-        // self.states[from].transitions[input as usize] = to;
         let i = (from * ALPHABET_SIZE) + (input as usize);
         self.trans[i] = to;
     }
 
     pub(crate) fn add_empty_state(&mut self, is_match: bool) -> StateID {
-        // let id = self.states.len();
-        // self.states.push(State { is_match: is_match, ..State::empty() });
         let id = self.is_match.len();
         self.is_match.push(is_match);
         self.trans.extend(0..ALPHABET_SIZE);
@@ -115,7 +111,6 @@ impl DFA {
     }
 
     pub(crate) fn get_state(&self, id: StateID) -> State {
-        // &self.states[id]
         let i = id * ALPHABET_SIZE;
         State {
             is_match: self.is_match[id],
@@ -124,12 +119,23 @@ impl DFA {
     }
 
     pub(crate) fn get_state_mut(&mut self, id: StateID) -> StateMut {
-        // &mut self.states[id]
         let i = id * ALPHABET_SIZE;
         StateMut {
             is_match: self.is_match[id],
             transitions: &mut self.trans[i..i+ALPHABET_SIZE],
         }
+    }
+
+    pub(crate) fn is_match_state(&self, id: StateID) -> bool {
+        self.is_match[id]
+    }
+
+    pub(crate) fn max_match_state(&self) -> StateID {
+        self.max_match
+    }
+
+    pub(crate) fn set_max_match_state(&mut self, id: StateID) {
+        self.max_match = id;
     }
 
     pub(crate) fn iter(&self) -> StateIter {
@@ -147,6 +153,44 @@ impl DFA {
     pub(crate) fn truncate_states(&mut self, count: usize) {
         self.trans.truncate(count * ALPHABET_SIZE);
         self.is_match.truncate(count);
+    }
+
+    pub(crate) fn shuffle_match_states(&mut self, is_match: &[bool]) {
+        if self.len() <= 2 {
+            return;
+        }
+
+        let mut first_non_match = 1;
+        while first_non_match < self.len() && is_match[first_non_match] {
+            first_non_match += 1;
+        }
+
+        let mut swaps = vec![DEAD; self.len()];
+        let mut cur = self.len() - 1;
+        while cur > first_non_match {
+            if is_match[cur] {
+                self.swap_states(cur, first_non_match);
+                swaps[cur] = first_non_match;
+                swaps[first_non_match] = cur;
+
+                first_non_match += 1;
+                while first_non_match < cur && is_match[first_non_match] {
+                    first_non_match += 1;
+                }
+            }
+            cur -= 1;
+        }
+        for id in 0..self.len() {
+            for (_, next) in self.get_state_mut(id).iter_mut() {
+                if swaps[*next] != DEAD {
+                    *next = swaps[*next];
+                }
+            }
+        }
+        if swaps[self.start] != DEAD {
+            self.start = swaps[self.start];
+        }
+        self.max_match = first_non_match - 1;
     }
 }
 
@@ -167,18 +211,10 @@ impl<'a> Iterator for StateIter<'a> {
 
 pub struct State<'a> {
     is_match: bool,
-    // transitions: Box<[StateID]>,
     transitions: &'a [StateID],
 }
 
 impl<'a> State<'a> {
-    // pub fn empty() -> State {
-        // State {
-            // is_match: false,
-            // transitions: vec![DEAD; ALPHABET_SIZE].into_boxed_slice(),
-        // }
-    // }
-
     pub fn len(&self) -> usize {
         self.transitions.len()
     }
@@ -318,11 +354,11 @@ mod tests {
         let (nfa, mut dfa) = build_automata(pattern);
 
         println!("{}", "#".repeat(100));
-        println!("PATTERN: {:?}", pattern);
-        println!("NFA:");
-        for (i, state) in nfa.states.borrow().iter().enumerate() {
-            println!("{:03X}: {:X?}", i, state);
-        }
+        // println!("PATTERN: {:?}", pattern);
+        // println!("NFA:");
+        // for (i, state) in nfa.states.borrow().iter().enumerate() {
+            // println!("{:03X}: {:X?}", i, state);
+        // }
 
         println!("{}", "~".repeat(79));
 
@@ -339,8 +375,17 @@ mod tests {
         println!("{}", "#".repeat(100));
     }
 
+    fn print_automata_counts(pattern: &str) {
+        let (nfa, mut dfa) = build_automata(pattern);
+        println!("nfa # states: {:?}", nfa.states.borrow().len());
+        println!("dfa # states: {:?}", dfa.len());
+        dfa.minimize();
+        println!("minimal dfa # states: {:?}", dfa.len());
+    }
+
     fn build_automata(pattern: &str) -> (NFA, DFA) {
-        let builder = DFABuilder::new();
+        let mut builder = DFABuilder::new();
+        builder.anchored(true).allow_invalid_utf8(true);
         let nfa = builder.build_nfa(pattern).unwrap();
         let dfa = builder.build(pattern).unwrap();
         (nfa, dfa)
@@ -380,7 +425,19 @@ mod tests {
         // let bytes = string.as_bytes();
         // println!("{:?}", dfa.find(bytes));
 
-        print_automata(r"[01]*1[01]{5}");
+        // print_automata(r"[01]*1[01]{5}");
         // print_automata(r"X(.?){0,8}Y");
+        // print_automata_counts(r"\p{alphabetic}");
+        // print_automata(r"a*b+|cdefg");
+        // print_automata(r"(..)*(...)*");
+        print_automata(r"(a+|b)?");
+
+        // let data = ::std::fs::read_to_string("/usr/share/dict/words").unwrap();
+        // let mut words: Vec<&str> = data.lines().collect();
+        // println!("{} words", words.len());
+        // words.sort_by(|w1, w2| w1.len().cmp(&w2.len()).reverse());
+        // let pattern = words.join("|");
+        // print_automata_counts(&pattern);
+        // print_automata(&pattern);
     }
 }
