@@ -2,6 +2,8 @@ use std::error;
 use std::fmt;
 use std::result;
 
+use regex_syntax;
+
 pub type Result<T> = result::Result<T, Error>;
 
 /// An error that occurred during the construction of a DFA.

@@ -30,7 +30,7 @@ impl SuiteTest {
         }
     }
 
-    fn run_is_match(&self, mut is_match: impl FnMut(&[u8]) -> bool) {
+    fn run_is_match<F: FnMut(&[u8]) -> bool>(&self, mut is_match: F) {
         assert_eq!(
             self.mat.is_some(),
             is_match(self.input),
@@ -39,7 +39,7 @@ impl SuiteTest {
         );
     }
 
-    fn run_find_end(&self, mut find: impl FnMut(&[u8]) -> Option<usize>) {
+    fn run_find_end<F: FnMut(&[u8]) -> Option<usize>>(&self, mut find: F) {
         assert_eq!(
             self.mat.map(|(_, end)| end),
             find(self.input),

@@ -31,7 +31,7 @@ impl<'a> Minimizer<'a> {
         let mut incoming = StateSet::empty();
 
         while let Some(set) = self.waiting.pop() {
-            for b in 0..=255 {
+            for b in (0usize..256).map(|b| b as u8) {
                 self.find_incoming_to(b, &set, &mut incoming);
 
                 let mut newparts = vec![];
@@ -190,7 +190,7 @@ impl StateSet {
         StateSet(Rc::new(RefCell::new(ids)))
     }
 
-    fn iter(&self, mut f: impl FnMut(dfa::StateID)) {
+    fn iter<F: FnMut(dfa::StateID)>(&self, mut f: F) {
         for &id in self.0.borrow().iter() {
             f(id);
         }

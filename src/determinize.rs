@@ -54,7 +54,7 @@ impl<'a> Determinizer<'a> {
         let mut uncompiled = vec![self.add_start(&mut sparse)];
         let mut queued: HashSet<dfa::StateID> = HashSet::new();
         while let Some(dfa_id) = uncompiled.pop() {
-            for b in 0..=255 {
+            for b in (0usize..256).map(|b| b as u8) {
                 let next_dfa_id = self.cached_state(dfa_id, b, &mut sparse);
                 self.dfa.set_transition(dfa_id, b, next_dfa_id);
                 if !queued.contains(&next_dfa_id) {
@@ -98,21 +98,19 @@ impl<'a> Determinizer<'a> {
         next_nfa_states.clear();
         for i in 0..self.builder_states[dfa_id].nfa_states.len() {
             let nfa_id = self.builder_states[dfa_id].nfa_states[i];
-            match self.nfa.states.borrow()[nfa_id] {
+            match *self.nfa.state(nfa_id) {
                 nfa::State::Range { start, end, next } => {
                     if start <= b && b <= end {
                         self.epsilon_closure(next, next_nfa_states);
                     }
                 }
-                | nfa::State::Empty { .. }
-                | nfa::State::Union { .. }
-                | nfa::State::Match => {}
+                 nfa::State::Union { .. } | nfa::State::Match => {}
             }
         }
     }
 
     fn epsilon_closure(&mut self, start: nfa::StateID, set: &mut SparseSet) {
-        if !self.nfa.states.borrow()[start].is_epsilon() {
+        if !self.nfa.state(start).is_epsilon() {
             set.insert(start);
             return;
         }
@@ -124,11 +122,8 @@ impl<'a> Determinizer<'a> {
                     break;
                 }
                 set.insert(id);
-                match self.nfa.states.borrow()[id] {
-                    nfa::State::Empty { next } => {
-                        id = next;
-                    }
-                    nfa::State::Union { ref alternates, .. } => {
+                match *self.nfa.state(id) {
+                    nfa::State::Union { ref alternates } => {
                         id = match alternates.get(0) {
                             None => break,
                             Some(&id) => id,
@@ -142,7 +137,7 @@ impl<'a> Determinizer<'a> {
     }
 
     fn add_start(&mut self, sparse: &mut SparseSet) -> dfa::StateID {
-        self.epsilon_closure(0, sparse);
+        self.epsilon_closure(self.nfa.start(), sparse);
         let state = self.new_state(&sparse);
         let id = self.add_state(state);
         self.dfa.set_start_state(id);
@@ -165,7 +160,7 @@ impl<'a> Determinizer<'a> {
         state.nfa_states.clear();
 
         for &id in set {
-            match self.nfa.states.borrow()[id] {
+            match *self.nfa.state(id) {
                 nfa::State::Range { .. } => {
                     state.nfa_states.push(id);
                 }
@@ -173,14 +168,14 @@ impl<'a> Determinizer<'a> {
                     state.is_match = true;
                     break;
                 }
-                nfa::State::Empty { .. } | nfa::State::Union { .. } => {}
+                nfa::State::Union { .. } => {}
             }
         }
         state
     }
 
     fn new_sparse_set(&self) -> SparseSet {
-        SparseSet::new(self.nfa.states.borrow().len())
+        SparseSet::new(self.nfa.len())
     }
 }
 

@@ -1,10 +1,61 @@
 use std::cell::RefCell;
+use std::fmt;
 use std::iter;
 
 use regex_syntax::ParserBuilder;
 use regex_syntax::hir::{self, Hir, HirKind};
 
 use error::{Error, Result};
+
+pub type StateID = usize;
+
+#[derive(Clone)]
+pub struct NFA {
+    start: StateID,
+    states: Vec<State>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum State {
+    Range { start: u8, end: u8, next: StateID },
+    Union { alternates: Vec<StateID> },
+    Match,
+}
+
+impl NFA {
+    pub fn len(&self) -> usize {
+        self.states.len()
+    }
+
+    pub fn start(&self) -> StateID {
+        self.start
+    }
+
+    pub fn state(&self, id: StateID) -> &State {
+        &self.states[id]
+    }
+}
+
+impl State {
+    pub fn is_epsilon(&self) -> bool {
+        match *self {
+            State::Range { .. } | State::Match => false,
+            State::Union { .. } => true,
+        }
+    }
+
+    fn remap(&mut self, remap: &[StateID]) {
+        match *self {
+            State::Range { ref mut next, .. } => *next = remap[*next],
+            State::Union { ref mut alternates } => {
+                for alt in alternates {
+                    *alt = remap[*alt];
+                }
+            }
+            State::Match => {}
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct NFABuilder {
@@ -21,31 +72,23 @@ impl NFABuilder {
     }
 
     pub fn build(&self, expr: &Hir) -> Result<NFA> {
-        let nfa = NFA::empty();
-        let mut start = nfa.add_empty();
+        let compiler = NFACompiler::new();
+        let mut start = compiler.add_empty();
         if !self.anchored {
             let compiled =
                 if self.allow_invalid_utf8 {
-                    nfa.compile(&Hir::repetition(hir::Repetition {
-                        kind: hir::RepetitionKind::ZeroOrMore,
-                        greedy: false,
-                        hir: Box::new(Hir::any(true)),
-                    }))?
+                    compiler.compile_unanchored_prefix_invalid_utf8()
                 } else {
-                    nfa.compile(&Hir::repetition(hir::Repetition {
-                        kind: hir::RepetitionKind::ZeroOrMore,
-                        greedy: false,
-                        hir: Box::new(Hir::any(false)),
-                    }))?
-                };
-            nfa.patch(start, compiled.start);
+                    compiler.compile_unanchored_prefix_valid_utf8()
+                }?;
+            compiler.patch(start, compiled.start);
             start = compiled.end;
         }
-        let compiled = nfa.compile(expr)?;
-        let match_id = nfa.add_match();
-        nfa.patch(start, compiled.start);
-        nfa.patch(compiled.end, match_id);
-        Ok(nfa)
+        let compiled = compiler.compile(expr)?;
+        let match_id = compiler.add_match();
+        compiler.patch(start, compiled.start);
+        compiler.patch(compiled.end, match_id);
+        Ok(compiler.to_nfa())
     }
 
     pub fn anchored(&mut self, yes: bool) -> &mut NFABuilder {
@@ -60,43 +103,85 @@ impl NFABuilder {
 }
 
 #[derive(Debug)]
-pub struct NFA {
-    pub states: RefCell<Vec<State>>,
+struct NFACompiler {
+    states: RefCell<Vec<BState>>,
 }
 
-pub type StateID = usize;
-
-#[derive(Debug)]
-pub enum State {
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum BState {
     Empty { next: StateID },
     Range { start: u8, end: u8, next: StateID },
-    Union { alternates: Vec<StateID>, reverse: bool },
+    Union { alternates: Vec<StateID> },
+    UnionReverse { alternates: Vec<StateID> },
     Match,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 struct ThompsonRef {
     start: StateID,
     end: StateID,
 }
 
-impl NFA {
-    pub fn empty() -> NFA {
-        NFA { states: RefCell::new(vec![]) }
+impl NFACompiler {
+    fn new() -> NFACompiler {
+        NFACompiler { states: RefCell::new(vec![]) }
     }
 
-    pub fn from_hir(expr: &Hir) -> Result<NFA> {
-        let nfa = NFA::empty();
-        let start = nfa.add_empty();
-        let compiled = nfa.compile(expr)?;
-        let match_id = nfa.add_match();
-        nfa.patch(start, compiled.start);
-        nfa.patch(compiled.end, match_id);
-        Ok(nfa)
+    fn to_nfa(&self) -> NFA {
+        let bstates = self.states.borrow();
+        let mut states = vec![];
+        let mut remap = vec![0; bstates.len()];
+        let mut empties = vec![];
+        for (id, bstate) in bstates.iter().enumerate() {
+            match *bstate {
+                BState::Empty { mut next } => {
+                    // Since we're removing empty states, we need to handle
+                    // them later since we don't yet know which new state this
+                    // empty state will be mapped to.
+                    empties.push((id, next));
+                }
+                BState::Range { start, end, next } => {
+                    remap[id] = states.len();
+                    states.push(State::Range { start, end, next });
+                }
+                BState::Union { ref alternates } => {
+                    remap[id] = states.len();
+
+                    let alternates = alternates.clone();
+                    states.push(State::Union { alternates });
+                }
+                BState::UnionReverse { ref alternates } => {
+                    remap[id] = states.len();
+
+                    let mut alternates = alternates.clone();
+                    alternates.reverse();
+                    states.push(State::Union { alternates });
+                }
+                BState::Match => {
+                    remap[id] = states.len();
+                    states.push(State::Match);
+                }
+            }
+        }
+        for (empty_id, mut empty_next) in empties {
+            // empty states can point to other empty states, forming a chain.
+            // So we must follow the chain until the end, which must point to
+            // a non-empty state, and therefore, a state that is correctly
+            // remapped.
+            while let BState::Empty { next } = bstates[empty_next] {
+                empty_next = next;
+            }
+            remap[empty_id] = remap[empty_next];
+        }
+        for state in &mut states {
+            state.remap(&remap);
+        }
+        // The compiler always begins the NFA at the first state.
+        NFA { start: remap[0], states }
     }
 
     fn compile(&self, expr: &Hir) -> Result<ThompsonRef> {
-        match expr.kind() {
+        match *expr.kind() {
             HirKind::Empty => {
                 let id = self.add_empty();
                 Ok(ThompsonRef { start: id, end: id })
@@ -111,7 +196,7 @@ impl NFA {
                 self.compile_concat(it)
             }
             HirKind::Literal(hir::Literal::Byte(b)) => {
-                Ok(self.compile_range(*b, *b))
+                Ok(self.compile_range(b, b))
             }
             HirKind::Class(hir::Class::Bytes(ref cls)) => {
                 let it = cls
@@ -167,19 +252,18 @@ impl NFA {
     ) -> Result<ThompsonRef>
     where I: Iterator<Item=Result<ThompsonRef>>
     {
-        let union = self.add_union();
+        let alternates = it.collect::<Result<Vec<ThompsonRef>>>()?;
+        assert!(!alternates.is_empty(), "alternations must be non-empty");
 
-        let mut alternate_ends = vec![];
-        for result in it {
-            let compiled = result?;
-            self.patch(union, compiled.start);
-            alternate_ends.push(compiled.end);
+        if alternates.len() == 1 {
+            return Ok(alternates[0]);
         }
-        assert!(!alternate_ends.is_empty(), "alternations must be non-empty");
 
+        let union = self.add_union();
         let empty = self.add_empty();
-        for id in alternate_ends {
-            self.patch(id, empty);
+        for compiled in alternates {
+            self.patch(union, compiled.start);
+            self.patch(compiled.end, empty);
         }
         Ok(ThompsonRef { start: union, end: empty })
     }
@@ -334,63 +418,280 @@ impl NFA {
         ThompsonRef { start: id, end: id }
     }
 
+    fn compile_unanchored_prefix_valid_utf8(&self) -> Result<ThompsonRef> {
+        self.compile(&Hir::repetition(hir::Repetition {
+            kind: hir::RepetitionKind::ZeroOrMore,
+            greedy: false,
+            hir: Box::new(Hir::any(false)),
+        }))
+    }
+
+    fn compile_unanchored_prefix_invalid_utf8(&self) -> Result<ThompsonRef> {
+        self.compile(&Hir::repetition(hir::Repetition {
+            kind: hir::RepetitionKind::ZeroOrMore,
+            greedy: false,
+            hir: Box::new(Hir::any(true)),
+        }))
+    }
+
     fn patch(&self, from: StateID, to: StateID) {
         match self.states.borrow_mut()[from] {
-            State::Empty { ref mut next } => {
+            BState::Empty { ref mut next } => {
                 *next = to;
             }
-            State::Range { ref mut next, .. } => {
+            BState::Range { ref mut next, .. } => {
                 *next = to;
             }
-            State::Union { ref mut alternates, reverse: false } => {
+            BState::Union { ref mut alternates } => {
                 alternates.push(to);
             }
-            State::Union { ref mut alternates, reverse: true } => {
-                alternates.insert(0, to);
+            BState::UnionReverse { ref mut alternates } => {
+                alternates.push(to);
             }
-            State::Match => {}
+            BState::Match => {}
         }
     }
 
     fn add_empty(&self) -> StateID {
         let id = self.states.borrow().len();
-        self.states.borrow_mut().push(State::Empty { next: 0 });
+        self.states.borrow_mut().push(BState::Empty { next: 0 });
         id
     }
 
     fn add_range(&self, start: u8, end: u8) -> StateID {
         let id = self.states.borrow().len();
-        let state = State::Range { start, end, next: 0 };
+        let state = BState::Range { start, end, next: 0 };
         self.states.borrow_mut().push(state);
         id
     }
 
     fn add_union(&self) -> StateID {
         let id = self.states.borrow().len();
-        let state = State::Union { alternates: vec![], reverse: false };
+        let state = BState::Union { alternates: vec![] };
         self.states.borrow_mut().push(state);
         id
     }
 
     fn add_reverse_union(&self) -> StateID {
         let id = self.states.borrow().len();
-        let state = State::Union { alternates: vec![], reverse: true };
+        let state = BState::UnionReverse { alternates: vec![] };
         self.states.borrow_mut().push(state);
         id
     }
 
     fn add_match(&self) -> StateID {
         let id = self.states.borrow().len();
-        self.states.borrow_mut().push(State::Match);
+        self.states.borrow_mut().push(BState::Match);
         id
     }
 }
 
-impl State {
-    pub fn is_epsilon(&self) -> bool {
+impl BState {
+    fn is_empty(&self) -> bool {
         match *self {
-            State::Range { .. } | State::Match => false,
-            State::Empty { .. } | State::Union { .. } => true,
+            BState::Empty { .. } => true,
+            _ => false,
         }
+    }
+}
+
+impl fmt::Debug for NFA {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, state) in self.states.iter().enumerate() {
+            let status = if i == self.start { '>' } else { ' ' };
+            writeln!(f, "{}{:06X}: {:X?}", status, i, state)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use regex_syntax::ParserBuilder;
+    use regex_syntax::hir::Hir;
+
+    use super::{NFA, NFABuilder, State, StateID};
+
+    fn parse(pattern: &str) -> Hir {
+        ParserBuilder::new().build().parse(pattern).unwrap()
+    }
+
+    fn build(pattern: &str) -> NFA {
+        NFABuilder::new().anchored(true).build(&parse(pattern)).unwrap()
+    }
+
+    fn s_byte(byte: u8, next: StateID) -> State {
+        State::Range { start: byte, end: byte, next }
+    }
+
+    fn s_range(start: u8, end: u8, next: StateID) -> State {
+        State::Range { start, end, next }
+    }
+
+    fn s_union(alts: &[StateID]) -> State {
+        State::Union { alternates: alts.to_vec() }
+    }
+
+    fn s_match() -> State {
+        State::Match
+    }
+
+    #[test]
+    fn errors() {
+        // unsupported anchors
+        assert!(NFABuilder::new().build(&parse(r"^")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"$")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"\A")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"\z")).is_err());
+
+        // unsupported word boundaries
+        assert!(NFABuilder::new().build(&parse(r"\b")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"\B")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"(?-u)\b")).is_err());
+    }
+
+    // Test that building an unanchored NFA has an appropriate `.*?` prefix.
+    #[test]
+    fn compile_unanchored_prefix() {
+        // When the machine can only match valid UTF-8.
+        let nfa = NFABuilder::new()
+            .anchored(false)
+            .build(&parse(r"a"))
+            .unwrap();
+        // There should be many states since the `.` in `.*?` matches any
+        // Unicode scalar value.
+        assert_eq!(31, nfa.len());
+        assert_eq!(nfa.states[30], s_match());
+        assert_eq!(nfa.states[29], s_byte(b'a', 30));
+
+        // When the machine can match invalid UTF-8.
+        let nfa = NFABuilder::new()
+            .anchored(false)
+            .allow_invalid_utf8(true)
+            .build(&parse(r"a"))
+            .unwrap();
+        assert_eq!(nfa.states, &[
+            s_union(&[2, 1]),
+            s_range(0, 255, 0),
+            s_byte(b'a', 3),
+            s_match(),
+        ]);
+    }
+
+    #[test]
+    fn compile_empty() {
+        assert_eq!(build("").states, &[
+            s_match(),
+        ]);
+    }
+
+    #[test]
+    fn compile_literal() {
+        assert_eq!(build("a").states, &[
+            s_byte(b'a', 1),
+            s_match(),
+        ]);
+        assert_eq!(build("ab").states, &[
+            s_byte(b'a', 1),
+            s_byte(b'b', 2),
+            s_match(),
+        ]);
+        assert_eq!(build("☃").states, &[
+            s_byte(0xE2, 1),
+            s_byte(0x98, 2),
+            s_byte(0x83, 3),
+            s_match(),
+        ]);
+
+        // Check that non-UTF-8 literals work.
+        let hir = ParserBuilder::new()
+            .allow_invalid_utf8(true)
+            .build()
+            .parse(r"(?-u)\xFF")
+            .unwrap();
+        let nfa = NFABuilder::new()
+            .anchored(true)
+            .allow_invalid_utf8(true)
+            .build(&hir)
+            .unwrap();
+        assert_eq!(nfa.states, &[
+            s_byte(b'\xFF', 1),
+            s_match(),
+        ]);
+    }
+
+    #[test]
+    fn compile_class() {
+        assert_eq!(build(r"[a-z]").states, &[
+            s_range(b'a', b'z', 1),
+            s_match(),
+        ]);
+        assert_eq!(build(r"[x-za-c]").states, &[
+            s_range(b'a', b'c', 3),
+            s_range(b'x', b'z', 3),
+            s_union(&[0, 1]),
+            s_match(),
+        ]);
+        assert_eq!(build(r"[\u03B1-\u03B4]").states, &[
+            s_byte(0xCE, 1),
+            s_range(0xB1, 0xB4, 2),
+            s_match(),
+        ]);
+        assert_eq!(build(r"[\u03B1-\u03B4\u{1F919}-\u{1F91E}]").states, &[
+            s_byte(0xCE, 1),
+            s_range(0xB1, 0xB4, 7),
+
+            s_byte(0xF0, 3),
+            s_byte(0x9F, 4),
+            s_byte(0xA4, 5),
+            s_range(0x99, 0x9E, 7),
+
+            s_union(&[0, 2]),
+            s_match(),
+        ]);
+    }
+
+    #[test]
+    fn compile_repetition() {
+        assert_eq!(build(r"a?").states, &[
+            s_union(&[1, 2]),
+            s_byte(b'a', 2),
+            s_match(),
+        ]);
+        assert_eq!(build(r"a??").states, &[
+            s_union(&[2, 1]),
+            s_byte(b'a', 2),
+            s_match(),
+        ]);
+    }
+
+    #[test]
+    fn compile_group() {
+        assert_eq!(build(r"ab+").states, &[
+            s_byte(b'a', 1),
+            s_byte(b'b', 2),
+            s_union(&[1, 3]),
+            s_match(),
+        ]);
+        assert_eq!(build(r"(ab)").states, &[
+            s_byte(b'a', 1),
+            s_byte(b'b', 2),
+            s_match(),
+        ]);
+        assert_eq!(build(r"(ab)+").states, &[
+            s_byte(b'a', 1),
+            s_byte(b'b', 2),
+            s_union(&[0, 3]),
+            s_match(),
+        ]);
+    }
+
+    #[test]
+    fn scratch() {
+        use DFABuilder;
+
+        let pat = r"a|b|c";
+        println!("{:?}", build(pat));
+        println!("{:?}", DFABuilder::new().anchored(true).build(pat).unwrap());
     }
 }

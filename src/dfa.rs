@@ -388,9 +388,9 @@ impl fmt::Debug for DFA {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn state_status(dfa: &DFA, id: StateID, state: &State) -> String {
             let mut status = vec![b' ', b' '];
-            if id == 0 {
+            if id == DEAD {
                 status[0] = b'D';
-            } else if id == 1 {
+            } else if id == dfa.start {
                 status[0] = b'>';
             }
             if dfa.is_match_state(id) {
@@ -468,7 +468,7 @@ mod tests {
 
     fn print_automata_counts(pattern: &str) {
         let (nfa, dfa, mdfa) = build_automata(pattern);
-        println!("nfa # states: {:?}", nfa.states.borrow().len());
+        println!("nfa # states: {:?}", nfa.len());
         println!("dfa # states: {:?}", dfa.len());
         println!("minimal dfa # states: {:?}", mdfa.len());
     }
