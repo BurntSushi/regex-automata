@@ -8,27 +8,79 @@ use minimize::Minimizer;
 use nfa::NFA;
 
 pub const DEAD: StateID = 0;
-pub const ALPHABET_SIZE: usize = 256;
+pub const ALPHABET_LEN: usize = 256;
 
 pub type StateID = usize;
 
 pub struct DFA {
+    /// The type of DFA. This enum controls how the state transition table
+    /// is interpreted. It is never correct to read the transition table
+    /// without knowing the DFA's kind.
     kind: DFAKind,
-    trans: Vec<StateID>,
-    state_count: usize,
-    max_match: StateID,
-    /// The initial start state. This is either `0` for an empty DFA with a
-    /// single dead state or `1` for the first DFA state built.
+    /// The initial start state ID.
     start: StateID,
+    /// The total number of states in this DFA. Note that a DFA always has at
+    /// least one state---the DEAD state---even the empty DFA. In particular,
+    /// the DEAD state always has ID 0 and is correspondingly always the first
+    /// state. The DEAD state is never a match state.
+    state_count: usize,
+    /// States in a DFA have a *partial* ordering such that a match state
+    /// always precedes any non-match state (except for the special DEAD
+    /// state).
+    ///
+    /// `max_match` corresponds to the last state that is a match state. This
+    /// encoding has two critical benefits. Firstly, we are not required to
+    /// store any additional per-state information about whether it is a match
+    /// state or not. Secondly, when searching with the DFA, we can do a single
+    /// comparison with `max_match` for each byte instead of two comparisons
+    /// for each byte (one testing whether it is a match and the other testing
+    /// whether we've reached a DEAD state). Namely, to determine the status
+    /// of the next state, we can do this:
+    ///
+    ///   next_state = transition[cur_state * ALPHABET_LEN + cur_byte]
+    ///   if next_state <= max_match:
+    ///       // next_state is either DEAD (no-match) or a match
+    ///       return next_state != DEAD
+    max_match: StateID,
+    /// A set of equivalence classes, where a single equivalence class
+    /// represents a set of bytes that never discriminate between a match
+    /// and a non-match in the DFA. Each equivalence class corresponds to
+    /// a single letter in this DFA's alphabet, where the maximum number of
+    /// letters is 256 (each possible value of a byte). Consequently, the
+    /// number of equivalence classes corresponds to the number of transitions
+    /// for each DFA state.
+    ///
+    /// The only time the number of equivalence classes is fewer than 256 is
+    /// if the DFA's kind uses byte classes.
+    byte_classes: Vec<u8>,
+    /// A contiguous region of memory representing the transition table in
+    /// row-major order. The representation is dense. That is, every state has
+    /// precisely the same number of transitions. The maximum number of
+    /// transitions is 256. If a DFA has been instructed to use byte classes,
+    /// then the number of transitions can be much less.
+    trans: Vec<StateID>,
 }
 
 impl DFA {
     pub fn empty() -> DFA {
+        DFA::empty_with_byte_classes(vec![])
+    }
+
+    pub(crate) fn empty_with_byte_classes(byte_classes: Vec<u8>) -> DFA {
+        assert!(byte_classes.is_empty() || byte_classes.len() == 256);
+
+        let kind =
+            if byte_classes.is_empty() {
+                DFAKind::Basic
+            } else {
+                DFAKind::ByteClass
+            };
         let mut dfa = DFA {
-            kind: DFAKind::Basic,
+            kind: kind,
             trans: vec![],
             state_count: 0,
             max_match: 1,
+            byte_classes: byte_classes,
             start: DEAD,
         };
         dfa.add_empty_state();
@@ -39,10 +91,38 @@ impl DFA {
         self.state_count
     }
 
+    pub fn alphabet_len(&self) -> usize {
+        if self.kind.is_byte_class() {
+            self.byte_classes[255] as usize + 1
+        } else {
+            ALPHABET_LEN
+        }
+    }
+
+    pub fn is_match_state(&self, id: StateID) -> bool {
+        id != DEAD && id <= self.max_match
+    }
+
+    pub fn max_match_state(&self) -> StateID {
+        self.max_match
+    }
+
+    pub fn start(&self) -> StateID {
+        self.start
+    }
+
+    pub fn kind(&self) -> &DFAKind {
+        &self.kind
+    }
+
     pub fn is_match(&self, bytes: &[u8]) -> bool {
         match self.kind {
             DFAKind::Basic => self.is_match_basic(bytes),
             DFAKind::Premultiplied => self.is_match_premultiplied(bytes),
+            DFAKind::ByteClass => self.is_match_byte_class(bytes),
+            DFAKind::PremultipliedByteClass => {
+                self.is_match_premultiplied_byte_class(bytes)
+            }
         }
     }
 
@@ -53,7 +133,7 @@ impl DFA {
         }
         for &b in bytes.iter() {
             state = unsafe {
-                *self.trans.get_unchecked(state * ALPHABET_SIZE + b as usize)
+                *self.trans.get_unchecked(state * ALPHABET_LEN + b as usize)
             };
             if state <= self.max_match {
                 return state != DEAD;
@@ -78,10 +158,50 @@ impl DFA {
         false
     }
 
+    fn is_match_byte_class(&self, bytes: &[u8]) -> bool {
+        let mut state = self.start;
+        if state <= self.max_match {
+            return state != DEAD;
+        }
+
+        let alphabet_len = self.alphabet_len();
+        for &b in bytes.iter() {
+            state = unsafe {
+                let b = *self.byte_classes.get_unchecked(b as usize);
+                *self.trans.get_unchecked(state * alphabet_len + b as usize)
+            };
+            if state <= self.max_match {
+                return state != DEAD;
+            }
+        }
+        false
+    }
+
+    fn is_match_premultiplied_byte_class(&self, bytes: &[u8]) -> bool {
+        let mut state = self.start;
+        if state <= self.max_match {
+            return state != DEAD;
+        }
+        for &b in bytes.iter() {
+            state = unsafe {
+                let b = *self.byte_classes.get_unchecked(b as usize);
+                *self.trans.get_unchecked(state + b as usize)
+            };
+            if state <= self.max_match {
+                return state != DEAD;
+            }
+        }
+        false
+    }
+
     pub fn find(&self, bytes: &[u8]) -> Option<usize> {
         match self.kind {
             DFAKind::Basic => self.find_basic(bytes),
             DFAKind::Premultiplied => self.find_premultiplied(bytes),
+            DFAKind::ByteClass => self.find_byte_class(bytes),
+            DFAKind::PremultipliedByteClass => {
+                self.find_premultiplied_byte_class(bytes)
+            }
         }
     }
 
@@ -96,7 +216,7 @@ impl DFA {
                 None
             };
         for (i, &b) in bytes.iter().enumerate() {
-            state = self.trans[state * ALPHABET_SIZE + b as usize];
+            state = self.trans[state * ALPHABET_LEN + b as usize];
             if state <= self.max_match {
                 if state == DEAD {
                     return last_match;
@@ -128,6 +248,54 @@ impl DFA {
         }
         last_match
     }
+
+    fn find_byte_class(&self, bytes: &[u8]) -> Option<usize> {
+        let mut state = self.start;
+        let mut last_match =
+            if state == DEAD {
+                return None;
+            } else if state <= self.max_match {
+                Some(0)
+            } else {
+                None
+            };
+
+        let alphabet_len = self.alphabet_len();
+        for (i, &b) in bytes.iter().enumerate() {
+            let b = self.byte_classes[b as usize];
+            state = self.trans[state * alphabet_len + b as usize];
+            if state <= self.max_match {
+                if state == DEAD {
+                    return last_match;
+                }
+                last_match = Some(i + 1);
+            }
+        }
+        last_match
+    }
+
+    fn find_premultiplied_byte_class(&self, bytes: &[u8]) -> Option<usize> {
+        let mut state = self.start;
+        let mut last_match =
+            if state == DEAD {
+                return None;
+            } else if state <= self.max_match {
+                Some(0)
+            } else {
+                None
+            };
+        for (i, &b) in bytes.iter().enumerate() {
+            let b = self.byte_classes[b as usize];
+            state = self.trans[state + b as usize];
+            if state <= self.max_match {
+                if state == DEAD {
+                    return last_match;
+                }
+                last_match = Some(i + 1);
+            }
+        }
+        last_match
+    }
 }
 
 impl DFA {
@@ -135,8 +303,41 @@ impl DFA {
         Determinizer::new(nfa).build()
     }
 
-    pub(crate) fn start(&self) -> StateID {
-        self.start
+    pub(crate) fn from_nfa_with_byte_classes(nfa: &NFA) -> DFA {
+        Determinizer::new(nfa).with_byte_classes().build()
+    }
+
+    pub(crate) fn state_id_to_offset(&self, id: StateID) -> usize {
+        if self.kind.is_premultiplied() {
+            id
+        } else {
+            id * self.alphabet_len()
+        }
+    }
+
+    pub(crate) fn byte_to_class(&self, b: u8) -> u8 {
+        if self.kind.is_byte_class() {
+            self.byte_classes[b as usize]
+        } else {
+            b
+        }
+    }
+
+    pub(crate) fn equiv_bytes(&self) -> Vec<u8> {
+        if !self.kind.is_byte_class() {
+            return (0..ALPHABET_LEN).map(|b| b as u8).collect();
+        }
+
+        let mut equivs = vec![];
+        let mut last_equiv = None;
+        for b in 0usize..256 {
+            let equiv = self.byte_classes[b];
+            if last_equiv != Some(equiv) {
+                equivs.push(b as u8);
+                last_equiv = Some(equiv);
+            }
+        }
+        equivs
     }
 
     pub(crate) fn set_start_state(&mut self, start: StateID) {
@@ -150,37 +351,32 @@ impl DFA {
         input: u8,
         to: StateID,
     ) {
-        let i = (from * ALPHABET_SIZE) + (input as usize);
+        let input = self.byte_to_class(input);
+        let i = self.state_id_to_offset(from) + input as usize;
         self.trans[i] = to;
     }
 
     pub(crate) fn add_empty_state(&mut self) -> StateID {
         let id = self.state_count;
-        self.trans.extend(0..ALPHABET_SIZE);
+        let alphabet_len = self.alphabet_len();
+        self.trans.extend(iter::repeat(DEAD).take(alphabet_len));
         self.state_count += 1;
         id
     }
 
     pub(crate) fn get_state(&self, id: StateID) -> State {
-        let i = id * ALPHABET_SIZE;
+        let i = self.state_id_to_offset(id);
         State {
-            transitions: &self.trans[i..i+ALPHABET_SIZE],
+            transitions: &self.trans[i..i+self.alphabet_len()],
         }
     }
 
     pub(crate) fn get_state_mut(&mut self, id: StateID) -> StateMut {
-        let i = id * ALPHABET_SIZE;
+        let i = self.state_id_to_offset(id);
+        let alphabet_len = self.alphabet_len();
         StateMut {
-            transitions: &mut self.trans[i..i+ALPHABET_SIZE],
+            transitions: &mut self.trans[i..i+alphabet_len],
         }
-    }
-
-    pub(crate) fn is_match_state(&self, id: StateID) -> bool {
-        id != DEAD && id <= self.max_match
-    }
-
-    pub(crate) fn max_match_state(&self) -> StateID {
-        self.max_match
     }
 
     pub(crate) fn set_max_match_state(&mut self, id: StateID) {
@@ -188,22 +384,30 @@ impl DFA {
     }
 
     pub(crate) fn iter(&self) -> StateIter {
-        let it = self.trans.chunks(ALPHABET_SIZE);
-        StateIter { kind: self.kind, it: it.enumerate() }
+        let it = self.trans.chunks(self.alphabet_len());
+        StateIter { dfa: self, it: it.enumerate() }
     }
 
     pub(crate) fn swap_states(&mut self, id1: StateID, id2: StateID) {
-        for b in 0..ALPHABET_SIZE {
-            self.trans.swap(id1 * ALPHABET_SIZE + b, id2 * ALPHABET_SIZE + b);
+        let o1 = self.state_id_to_offset(id1);
+        let o2 = self.state_id_to_offset(id2);
+        for b in 0..self.alphabet_len() {
+            self.trans.swap(o1 + b, o2 + b);
         }
     }
 
     pub(crate) fn truncate_states(&mut self, count: usize) {
-        self.trans.truncate(count * ALPHABET_SIZE);
+        let alphabet_len = self.alphabet_len();
+        self.trans.truncate(count * alphabet_len);
         self.state_count = count;
     }
 
     pub(crate) fn shuffle_match_states(&mut self, is_match: &[bool]) {
+        assert!(
+            !self.kind.is_premultiplied(),
+            "cannot finish construction of premultiplied DFA"
+        );
+
         if self.len() <= 2 {
             return;
         }
@@ -251,20 +455,21 @@ impl DFA {
             return;
         }
 
-        self.kind = self.kind.premultiplied();
+        let alphabet_len = self.alphabet_len();
         for id in 0..self.len() {
             for (_, next) in self.get_state_mut(id).iter_mut() {
-                *next = *next * ALPHABET_SIZE;
+                *next = *next * alphabet_len;
             }
         }
-        self.start *= ALPHABET_SIZE;
-        self.max_match *= ALPHABET_SIZE;
+        self.kind = self.kind.premultiplied();
+        self.start *= alphabet_len;
+        self.max_match *= alphabet_len;
     }
 }
 
 #[derive(Debug)]
 pub struct StateIter<'a> {
-    kind: DFAKind,
+    dfa: &'a DFA,
     it: iter::Enumerate<slice::Chunks<'a, StateID>>,
 }
 
@@ -274,8 +479,8 @@ impl<'a> Iterator for StateIter<'a> {
     fn next(&mut self) -> Option<(StateID, State<'a>)> {
         self.it.next().map(|(id, chunk)| {
             let state = State { transitions: chunk };
-            if self.kind.is_premultiplied() {
-                (id * ALPHABET_SIZE, state)
+            if self.dfa.kind().is_premultiplied() {
+                (id * self.dfa.alphabet_len(), state)
             } else {
                 (id, state)
             }
@@ -361,23 +566,33 @@ impl<'a> Iterator for StateTransitionIterMut<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum DFAKind {
+pub enum DFAKind {
     Basic,
     Premultiplied,
+    ByteClass,
+    PremultipliedByteClass,
 }
 
 impl DFAKind {
-    fn is_premultiplied(&self) -> bool {
+    pub fn is_byte_class(&self) -> bool {
         match *self {
-            DFAKind::Basic => false,
-            DFAKind::Premultiplied => true,
+            DFAKind::Basic | DFAKind::Premultiplied => false,
+            DFAKind::ByteClass | DFAKind::PremultipliedByteClass => true,
+        }
+    }
+
+    pub fn is_premultiplied(&self) -> bool {
+        match *self {
+            DFAKind::Basic | DFAKind::ByteClass => false,
+            DFAKind::Premultiplied | DFAKind::PremultipliedByteClass => true,
         }
     }
 
     fn premultiplied(self) -> DFAKind {
         match self {
             DFAKind::Basic => DFAKind::Premultiplied,
-            DFAKind::Premultiplied => {
+            DFAKind::ByteClass => DFAKind::PremultipliedByteClass,
+            DFAKind::Premultiplied | DFAKind::PremultipliedByteClass => {
                 panic!("DFA already has pre-multiplied state IDs")
             }
         }
@@ -515,7 +730,7 @@ mod tests {
         // print_automata_counts(r"\p{alphabetic}");
         // print_automata(r"a*b+|cdefg");
         // print_automata(r"(..)*(...)*");
-        print_automata(r"(a+|b)?");
+        print_automata(r"[ab]+");
 
         // let data = ::std::fs::read_to_string("/usr/share/dict/words").unwrap();
         // let mut words: Vec<&str> = data.lines().collect();
@@ -524,5 +739,50 @@ mod tests {
         // let pattern = words.join("|");
         // print_automata_counts(&pattern);
         // print_automata(&pattern);
+    }
+
+    #[test]
+    fn grapheme() {
+        let (nfa, dfa, mdfa) = build_automata(grapheme_pattern());
+        println!("nfa states: {:?}", nfa.len());
+        // println!("nfa classes: {:?}", nfa.byte_classes);
+
+        let bytes = dfa.len() * dfa.alphabet_len() * 8;
+        println!("dfa states: {:?} ({} bytes)", dfa.len(), bytes);
+        let bytes = mdfa.len() * mdfa.alphabet_len() * 8;
+        println!("min dfa states: {:?} ({} bytes)", mdfa.len(), bytes);
+    }
+
+    fn grapheme_pattern() -> &'static str {
+        r"(?x)
+            (?:
+                \p{gcb=CR}\p{gcb=LF}
+                |
+                [\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
+                |
+                \p{gcb=Prepend}*
+                (?:
+                    (?:
+                        (?:
+                            \p{gcb=L}*
+                            (?:\p{gcb=V}+|\p{gcb=LV}\p{gcb=V}*|\p{gcb=LVT})
+                            \p{gcb=T}*
+                        )
+                        |
+                        \p{gcb=L}+
+                        |
+                        \p{gcb=T}+
+                    )
+                    |
+                    \p{gcb=RI}\p{gcb=RI}
+                    |
+                    \p{Extended_Pictographic}
+                    (?:\p{gcb=Extend}*\p{gcb=ZWJ}\p{Extended_Pictographic})*
+                    |
+                    [^\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
+                )
+                [\p{gcb=Extend}\p{gcb=ZWJ}\p{gcb=SpacingMark}]*
+            )
+        "
     }
 }

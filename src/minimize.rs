@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use dfa::{self, ALPHABET_SIZE, DFA};
+use dfa::{self, DFA};
 
 #[derive(Debug)]
 pub struct Minimizer<'a> {
@@ -17,6 +17,11 @@ struct StateSet(Rc<RefCell<Vec<dfa::StateID>>>);
 
 impl<'a> Minimizer<'a> {
     pub fn new(dfa: &'a mut DFA) -> Minimizer<'a> {
+        assert!(
+            !dfa.kind().is_premultiplied(),
+            "cannot minimize a premultiplied DFA"
+        );
+
         let in_transitions = Minimizer::incoming_transitions(dfa);
         let partitions = Minimizer::initial_partitions(dfa);
         let waiting = vec![partitions[0].clone()];
@@ -31,7 +36,7 @@ impl<'a> Minimizer<'a> {
         let mut incoming = StateSet::empty();
 
         while let Some(set) = self.waiting.pop() {
-            for b in (0usize..256).map(|b| b as u8) {
+            for b in (0..self.dfa.alphabet_len()).map(|b| b as u8) {
                 self.find_incoming_to(b, &set, &mut incoming);
 
                 let mut newparts = vec![];
@@ -144,7 +149,7 @@ impl<'a> Minimizer<'a> {
     fn incoming_transitions(dfa: &DFA) -> Vec<Vec<Vec<dfa::StateID>>> {
         let mut incoming = vec![];
         for state in dfa.iter() {
-            incoming.push(vec![vec![]; ALPHABET_SIZE]);
+            incoming.push(vec![vec![]; dfa.alphabet_len()]);
         }
         for (id, state) in dfa.iter() {
             for (b, next) in state.iter() {

@@ -13,6 +13,7 @@ pub type StateID = usize;
 pub struct NFA {
     start: StateID,
     states: Vec<State>,
+    byte_classes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,6 +34,10 @@ impl NFA {
 
     pub fn state(&self, id: StateID) -> &State {
         &self.states[id]
+    }
+
+    pub fn byte_classes(&self) -> &[u8] {
+        &self.byte_classes
     }
 }
 
@@ -132,6 +137,7 @@ impl NFACompiler {
         let mut states = vec![];
         let mut remap = vec![0; bstates.len()];
         let mut empties = vec![];
+        let mut byteset = ByteClassSet::new();
         for (id, bstate) in bstates.iter().enumerate() {
             match *bstate {
                 BState::Empty { mut next } => {
@@ -143,6 +149,7 @@ impl NFACompiler {
                 BState::Range { start, end, next } => {
                     remap[id] = states.len();
                     states.push(State::Range { start, end, next });
+                    byteset.set_range(start, end);
                 }
                 BState::Union { ref alternates } => {
                     remap[id] = states.len();
@@ -177,7 +184,8 @@ impl NFACompiler {
             state.remap(&remap);
         }
         // The compiler always begins the NFA at the first state.
-        NFA { start: remap[0], states }
+        let byte_classes = byteset.byte_classes();
+        NFA { start: remap[0], states, byte_classes }
     }
 
     fn compile(&self, expr: &Hir) -> Result<ThompsonRef> {
@@ -495,6 +503,40 @@ impl BState {
     }
 }
 
+#[derive(Debug)]
+struct ByteClassSet(Vec<bool>);
+
+impl ByteClassSet {
+    fn new() -> Self {
+        ByteClassSet(vec![false; 256])
+    }
+
+    fn set_range(&mut self, start: u8, end: u8) {
+        debug_assert!(start <= end);
+        if start > 0 {
+            self.0[start as usize - 1] = true;
+        }
+        self.0[end as usize] = true;
+    }
+
+    fn byte_classes(&self) -> Vec<u8> {
+        let mut byte_classes = vec![0; 256];
+        let mut class = 0u8;
+        let mut i = 0;
+        loop {
+            byte_classes[i] = class as u8;
+            if i >= 255 {
+                break;
+            }
+            if self.0[i] {
+                class = class.checked_add(1).unwrap();
+            }
+            i += 1;
+        }
+        byte_classes
+    }
+}
+
 impl fmt::Debug for NFA {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (i, state) in self.states.iter().enumerate() {
@@ -510,7 +552,7 @@ mod tests {
     use regex_syntax::ParserBuilder;
     use regex_syntax::hir::Hir;
 
-    use super::{NFA, NFABuilder, State, StateID};
+    use super::{ByteClassSet, NFA, NFABuilder, State, StateID};
 
     fn parse(pattern: &str) -> Hir {
         ParserBuilder::new().build().parse(pattern).unwrap()
@@ -687,11 +729,43 @@ mod tests {
     }
 
     #[test]
-    fn scratch() {
-        use DFABuilder;
+    fn byte_classes() {
+        let mut set = ByteClassSet::new();
+        set.set_range(b'a', b'z');
 
-        let pat = r"a|b|c";
-        println!("{:?}", build(pat));
-        println!("{:?}", DFABuilder::new().anchored(true).build(pat).unwrap());
+        let classes = set.byte_classes();
+        assert_eq!(classes[0], 0);
+        assert_eq!(classes[1], 0);
+        assert_eq!(classes[2], 0);
+        assert_eq!(classes[b'a' as usize - 1], 0);
+        assert_eq!(classes[b'a' as usize], 1);
+        assert_eq!(classes[b'm' as usize], 1);
+        assert_eq!(classes[b'z' as usize], 1);
+        assert_eq!(classes[b'z' as usize + 1], 2);
+        assert_eq!(classes[254], 2);
+        assert_eq!(classes[255], 2);
+
+        let mut set = ByteClassSet::new();
+        set.set_range(0, 2);
+        set.set_range(4, 6);
+        let classes = set.byte_classes();
+        assert_eq!(classes[0], 0);
+        assert_eq!(classes[1], 0);
+        assert_eq!(classes[2], 0);
+        assert_eq!(classes[3], 1);
+        assert_eq!(classes[4], 2);
+        assert_eq!(classes[5], 2);
+        assert_eq!(classes[6], 2);
+        assert_eq!(classes[7], 3);
+        assert_eq!(classes[255], 3);
+    }
+
+    #[test]
+    fn full_byte_classes() {
+        let mut set = ByteClassSet::new();
+        for i in 0..256u16 {
+            set.set_range(i as u8, i as u8);
+        }
+        assert_eq!(set.byte_classes().len(), 256);
     }
 }

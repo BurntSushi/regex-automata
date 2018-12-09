@@ -49,12 +49,19 @@ impl<'a> Determinizer<'a> {
         }
     }
 
+    pub fn with_byte_classes(mut self) -> Determinizer<'a> {
+        let byte_classes = self.nfa.byte_classes().to_vec();
+        self.dfa = DFA::empty_with_byte_classes(byte_classes);
+        self
+    }
+
     pub fn build(mut self) -> DFA {
+        let equiv_bytes = self.dfa.equiv_bytes();
         let mut sparse = self.new_sparse_set();
         let mut uncompiled = vec![self.add_start(&mut sparse)];
         let mut queued: HashSet<dfa::StateID> = HashSet::new();
         while let Some(dfa_id) = uncompiled.pop() {
-            for b in (0usize..256).map(|b| b as u8) {
+            for &b in &equiv_bytes {
                 let next_dfa_id = self.cached_state(dfa_id, b, &mut sparse);
                 self.dfa.set_transition(dfa_id, b, next_dfa_id);
                 if !queued.contains(&next_dfa_id) {
@@ -99,12 +106,12 @@ impl<'a> Determinizer<'a> {
         for i in 0..self.builder_states[dfa_id].nfa_states.len() {
             let nfa_id = self.builder_states[dfa_id].nfa_states[i];
             match *self.nfa.state(nfa_id) {
+                nfa::State::Union { .. } | nfa::State::Match => {}
                 nfa::State::Range { start, end, next } => {
                     if start <= b && b <= end {
                         self.epsilon_closure(next, next_nfa_states);
                     }
                 }
-                 nfa::State::Union { .. } | nfa::State::Match => {}
             }
         }
     }
@@ -123,6 +130,7 @@ impl<'a> Determinizer<'a> {
                 }
                 set.insert(id);
                 match *self.nfa.state(id) {
+                    nfa::State::Range { .. } | nfa::State::Match => break,
                     nfa::State::Union { ref alternates } => {
                         id = match alternates.get(0) {
                             None => break,
@@ -130,7 +138,6 @@ impl<'a> Determinizer<'a> {
                         };
                         self.stack.extend(alternates[1..].iter().rev());
                     }
-                    nfa::State::Range { .. } | nfa::State::Match => break,
                 }
             }
         }

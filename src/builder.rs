@@ -16,6 +16,8 @@ pub struct DFABuilder {
     parser: ParserBuilder,
     nfa: NFABuilder,
     minimize: bool,
+    premultiply: bool,
+    byte_classes: bool,
 }
 
 impl DFABuilder {
@@ -25,6 +27,8 @@ impl DFABuilder {
             parser: ParserBuilder::new(),
             nfa: NFABuilder::new(),
             minimize: false,
+            premultiply: true,
+            byte_classes: true,
         }
     }
 
@@ -34,11 +38,18 @@ impl DFABuilder {
     /// is returned.
     pub fn build(&self, pattern: &str) -> Result<DFA> {
         let nfa = self.build_nfa(pattern)?;
-        let mut dfa = DFA::from_nfa(&nfa);
+        let mut dfa =
+            if self.byte_classes {
+                DFA::from_nfa_with_byte_classes(&nfa)
+            } else {
+                DFA::from_nfa(&nfa)
+            };
         if self.minimize {
             dfa.minimize();
         }
-        dfa.premultiply();
+        if self.premultiply {
+            dfa.premultiply();
+        }
         Ok(dfa)
     }
 
@@ -198,6 +209,61 @@ impl DFABuilder {
     /// This option is disabled by default.
     pub fn minimize(&mut self, yes: bool) -> &mut DFABuilder {
         self.minimize = yes;
+        self
+    }
+
+    /// Premultiply state identifiers in the DFA's transition table.
+    ///
+    /// When enabled, state identifiers are premultiplied to point to their
+    /// corresponding row in the DFA's transition table. That is, given the
+    /// `i`th state, its corresponding premultiplied identifier is `i * k`
+    /// where `k` is the alphabet size of the DFA. (The alphabet size is at
+    /// most 256, but is in practice smaller if byte classes is enabled.)
+    ///
+    /// When state identifiers are not premultiplied, then the identifier of
+    /// the `i`th state is `i`.
+    ///
+    /// The advantage of premultiplying state identifiers is that is saves
+    /// a multiplication instruction per byte when searching with the DFA.
+    /// This has been observed to lead to a 20% performance benefit in
+    /// micro-benchmarks.
+    ///
+    /// The primary disadvantage of premultiplying state identifiers is
+    /// that they require a larger integer size to represent. For example,
+    /// if your DFA has 200 states, then its premultiplied form requires
+    /// 16 bits to represent every possible state identifier, where as its
+    /// non-premultiplied form only requires 8 bits.
+    ///
+    /// This option is enabled by default.
+    pub fn premultiply(&mut self, yes: bool) -> &mut DFABuilder {
+        self.premultiply = yes;
+        self
+    }
+
+    /// Shrink the size of the DFA's alphabet by mapping bytes to their
+    /// equivalence classes.
+    ///
+    /// When enabled, each DFA will use a map from all possible bytes to their
+    /// corresponding equivalence class. Each equivalence class represents a
+    /// set of bytes that does not discriminate between a match and a non-match
+    /// in the DFA. For example, the pattern `[ab]+` has at least two
+    /// equivalence classes: a set containing `a` and `b` and a set containing
+    /// every byte except for `a` and `b`. `a` and `b` are in the same
+    /// equivalence classes because they never discriminate between a match
+    /// and a non-match.
+    ///
+    /// The advantage of this map is that the size of the transition table can
+    /// be reduced drastically from `#states * 256 * sizeof(id)` to
+    /// `#states * k * sizeof(id)` where `k` is the number of equivalence
+    /// classes.
+    ///
+    /// The disadvantage of this map is that every byte searched must be
+    /// passed through this map before it can be used to determine the next
+    /// transition. This has a small match time performance cost.
+    ///
+    /// This option is enabled by default.
+    pub fn byte_classes(&mut self, yes: bool) -> &mut DFABuilder {
+        self.byte_classes = yes;
         self
     }
 }
