@@ -18,6 +18,9 @@ fn is_match(c: &mut Criterion) {
     define(c, "is_match", "sherlock-huge", corpus, move |b| {
         let dfa = DFABuilder::new()
             .anchored(false)
+            .minimize(true)
+            .premultiply(true)
+            .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
         b.iter(|| {
@@ -29,6 +32,9 @@ fn is_match(c: &mut Criterion) {
     define(c, "is_match", "sherlock-tiny", corpus, move |b| {
         let dfa = DFABuilder::new()
             .anchored(false)
+            .minimize(true)
+            .premultiply(true)
+            .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
         b.iter(|| {
@@ -40,6 +46,9 @@ fn is_match(c: &mut Criterion) {
     define(c, "is_match", "empty", corpus, move |b| {
         let dfa = DFABuilder::new()
             .anchored(false)
+            .minimize(true)
+            .premultiply(true)
+            .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
         b.iter(|| {

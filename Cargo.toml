@@ -18,6 +18,9 @@ autotests = false
 travis-ci = { repository = "BurntSushi/regex-automata" }
 appveyor = { repository = "BurntSushi/regex-automata" }
 
+[workspace]
+members = ["bench", "regex-automata-core"]
+
 [lib]
 bench = false
 
