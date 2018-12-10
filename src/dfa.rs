@@ -3,23 +3,22 @@ use std::iter;
 use std::mem;
 use std::slice;
 
+use error::{Error, Result};
 use determinize::Determinizer;
 use dfa_ref::DFARef;
 use minimize::Minimizer;
 use nfa::NFA;
+use state_id::{StateID, dead_id, next_state_id, premultiply_overflow_error};
 
-pub const DEAD: StateID = 0;
 pub const ALPHABET_LEN: usize = 256;
 
-pub type StateID = usize;
-
-pub struct DFA {
+pub struct DFA<S = usize> {
     /// The type of DFA. This enum controls how the state transition table
     /// is interpreted. It is never correct to read the transition table
     /// without knowing the DFA's kind.
     kind: DFAKind,
     /// The initial start state ID.
-    start: StateID,
+    start: S,
     /// The total number of states in this DFA. Note that a DFA always has at
     /// least one state---the DEAD state---even the empty DFA. In particular,
     /// the DEAD state always has ID 0 and is correspondingly always the first
@@ -42,7 +41,7 @@ pub struct DFA {
     ///   if next_state <= max_match:
     ///       // next_state is either DEAD (no-match) or a match
     ///       return next_state != DEAD
-    max_match: StateID,
+    max_match: S,
     /// The total number of bytes in this DFA's alphabet. This is always
     /// equivalent to 256, unless the DFA was built with byte classes, in which
     /// case, this is equal to the number of byte classes.
@@ -64,15 +63,15 @@ pub struct DFA {
     /// precisely the same number of transitions. The maximum number of
     /// transitions is 256. If a DFA has been instructed to use byte classes,
     /// then the number of transitions can be much less.
-    trans: Vec<StateID>,
+    trans: Vec<S>,
 }
 
-impl DFA {
-    pub fn empty() -> DFA {
+impl<S: StateID> DFA<S> {
+    pub fn empty() -> DFA<S> {
         DFA::empty_with_byte_classes(vec![])
     }
 
-    pub(crate) fn empty_with_byte_classes(byte_classes: Vec<u8>) -> DFA {
+    pub(crate) fn empty_with_byte_classes(byte_classes: Vec<u8>) -> DFA<S> {
         assert!(byte_classes.is_empty() || byte_classes.len() == 256);
 
         let (kind, alphabet_len) =
@@ -83,14 +82,15 @@ impl DFA {
             };
         let mut dfa = DFA {
             kind: kind,
-            start: DEAD,
+            start: dead_id(),
             state_count: 0,
-            max_match: 1,
+            max_match: S::from_usize(1),
             alphabet_len: alphabet_len,
             byte_classes: byte_classes,
             trans: vec![],
         };
-        dfa.add_empty_state();
+        // Every state ID repr must be able to fit at least one state.
+        dfa.add_empty_state().unwrap();
         dfa
     }
 
@@ -102,7 +102,7 @@ impl DFA {
         self.as_dfa_ref().find_inline(bytes)
     }
 
-    pub fn as_dfa_ref(&self) -> DFARef {
+    pub fn as_dfa_ref(&self) -> DFARef<S> {
         DFARef {
             kind: self.kind,
             start: self.start,
@@ -113,22 +113,79 @@ impl DFA {
             trans: &self.trans,
         }
     }
+
+    /// Returns the memory usage, in bytes, of this DFA.
+    ///
+    /// The memory usage is computed based on the number of bytes used to
+    /// represent this DFA's transition table. This corresponds to heap memory
+    /// usage.
+    ///
+    /// This does **not** include the stack size used up by this DFA. To
+    /// compute that, used `std::mem::size_of::<DFA>()`.
+    pub fn memory_usage(&self) -> usize {
+        self.as_dfa_ref().memory_usage()
+    }
 }
 
-impl DFA {
-    pub(crate) fn from_nfa(nfa: &NFA) -> DFA {
+impl<S: StateID> DFA<S> {
+    pub fn to_u8(&self) -> Result<DFA<u8>> {
+        self.to_sized()
+    }
+
+    pub fn to_u16(&self) -> Result<DFA<u16>> {
+        self.to_sized()
+    }
+
+    pub fn to_u32(&self) -> Result<DFA<u32>> {
+        self.to_sized()
+    }
+
+    pub fn to_u64(&self) -> Result<DFA<u64>> {
+        self.to_sized()
+    }
+
+    pub fn to_sized<T: StateID>(&self) -> Result<DFA<T>> {
+        // Check that this DFA can fit into T's representation.
+        let mut last_state_id = self.state_count - 1;
+        if self.kind.is_premultiplied() {
+            last_state_id *= self.alphabet_len();
+        }
+        if last_state_id > T::max_id() {
+            return Err(Error::state_id_overflow(T::max_id()));
+        }
+
+        // We're off to the races. The new DFA is the same as the old one,
+        // but its transition table is truncated.
+        let mut new = DFA {
+            kind: self.kind,
+            start: T::from_usize(self.start.to_usize()),
+            state_count: self.state_count,
+            max_match: T::from_usize(self.max_match.to_usize()),
+            alphabet_len: self.alphabet_len,
+            byte_classes: self.byte_classes.clone(),
+            trans: vec![dead_id::<T>(); self.trans.len()],
+        };
+        for (i, id) in new.trans.iter_mut().enumerate() {
+            *id = T::from_usize(self.trans[i].to_usize());
+        }
+        Ok(new)
+    }
+}
+
+impl<S: StateID> DFA<S> {
+    pub(crate) fn from_nfa(nfa: &NFA) -> Result<DFA<S>> {
         Determinizer::new(nfa).build()
     }
 
-    pub(crate) fn from_nfa_with_byte_classes(nfa: &NFA) -> DFA {
+    pub(crate) fn from_nfa_with_byte_classes(nfa: &NFA) -> Result<DFA<S>> {
         Determinizer::new(nfa).with_byte_classes().build()
     }
 
-    pub(crate) fn state_id_to_offset(&self, id: StateID) -> usize {
+    pub(crate) fn state_id_to_offset(&self, id: S) -> usize {
         if self.kind.is_premultiplied() {
-            id
+            id.to_usize()
         } else {
-            id * self.alphabet_len()
+            id.to_usize() * self.alphabet_len()
         }
     }
 
@@ -165,7 +222,7 @@ impl DFA {
         self.alphabet_len
     }
 
-    pub(crate) fn start(&self) -> StateID {
+    pub(crate) fn start(&self) -> S {
         self.start
     }
 
@@ -173,46 +230,53 @@ impl DFA {
         &self.kind
     }
 
-    pub(crate) fn is_match_state(&self, id: StateID) -> bool {
-        id <= self.max_match && id != DEAD
+    pub(crate) fn is_match_state(&self, id: S) -> bool {
+        id <= self.max_match && id != dead_id()
     }
 
-    pub(crate) fn max_match_state(&self) -> StateID {
+    pub(crate) fn max_match_state(&self) -> S {
         self.max_match
     }
 
-    pub(crate) fn set_start_state(&mut self, start: StateID) {
-        assert!(start < self.len());
+    pub(crate) fn set_start_state(&mut self, start: S) {
+        assert!(start.to_usize() < self.len());
         self.start = start;
     }
 
     pub(crate) fn set_transition(
         &mut self,
-        from: StateID,
+        from: S,
         input: u8,
-        to: StateID,
+        to: S,
     ) {
         let input = self.byte_to_class(input);
         let i = self.state_id_to_offset(from) + input as usize;
         self.trans[i] = to;
     }
 
-    pub(crate) fn add_empty_state(&mut self) -> StateID {
-        let id = self.state_count;
+    pub(crate) fn add_empty_state(&mut self) -> Result<S> {
+        let id =
+            if self.state_count == 0 {
+                S::from_usize(0)
+            } else {
+                next_state_id(S::from_usize(self.state_count - 1))?
+            };
         let alphabet_len = self.alphabet_len();
-        self.trans.extend(iter::repeat(DEAD).take(alphabet_len));
-        self.state_count += 1;
-        id
+        self.trans.extend(iter::repeat(dead_id::<S>()).take(alphabet_len));
+        // This should never panic, since state_count is a usize. The
+        // transition table size would have run out of room long ago.
+        self.state_count = self.state_count.checked_add(1).unwrap();
+        Ok(id)
     }
 
-    pub(crate) fn get_state(&self, id: StateID) -> State {
+    pub(crate) fn get_state(&self, id: S) -> State<S> {
         let i = self.state_id_to_offset(id);
         State {
             transitions: &self.trans[i..i+self.alphabet_len()],
         }
     }
 
-    pub(crate) fn get_state_mut(&mut self, id: StateID) -> StateMut {
+    pub(crate) fn get_state_mut(&mut self, id: S) -> StateMut<S> {
         let i = self.state_id_to_offset(id);
         let alphabet_len = self.alphabet_len();
         StateMut {
@@ -220,16 +284,16 @@ impl DFA {
         }
     }
 
-    pub(crate) fn set_max_match_state(&mut self, id: StateID) {
+    pub(crate) fn set_max_match_state(&mut self, id: S) {
         self.max_match = id;
     }
 
-    pub(crate) fn iter(&self) -> StateIter {
+    pub(crate) fn iter(&self) -> StateIter<S> {
         let it = self.trans.chunks(self.alphabet_len());
         StateIter { dfa: self, it: it.enumerate() }
     }
 
-    pub(crate) fn swap_states(&mut self, id1: StateID, id2: StateID) {
+    pub(crate) fn swap_states(&mut self, id1: S, id2: S) {
         let o1 = self.state_id_to_offset(id1);
         let o2 = self.state_id_to_offset(id2);
         for b in 0..self.alphabet_len() {
@@ -258,13 +322,16 @@ impl DFA {
             first_non_match += 1;
         }
 
-        let mut swaps = vec![DEAD; self.len()];
+        let mut swaps: Vec<S> = vec![dead_id(); self.len()];
         let mut cur = self.len() - 1;
         while cur > first_non_match {
             if is_match[cur] {
-                self.swap_states(cur, first_non_match);
-                swaps[cur] = first_non_match;
-                swaps[first_non_match] = cur;
+                self.swap_states(
+                    S::from_usize(cur),
+                    S::from_usize(first_non_match),
+                );
+                swaps[cur] = S::from_usize(first_non_match);
+                swaps[first_non_match] = S::from_usize(cur);
 
                 first_non_match += 1;
                 while first_non_match < cur && is_match[first_non_match] {
@@ -273,17 +340,17 @@ impl DFA {
             }
             cur -= 1;
         }
-        for id in 0..self.len() {
+        for id in (0..self.len()).map(S::from_usize) {
             for (_, next) in self.get_state_mut(id).iter_mut() {
-                if swaps[*next] != DEAD {
-                    *next = swaps[*next];
+                if swaps[next.to_usize()] != dead_id() {
+                    *next = swaps[next.to_usize()];
                 }
             }
         }
-        if swaps[self.start] != DEAD {
-            self.start = swaps[self.start];
+        if swaps[self.start.to_usize()] != dead_id() {
+            self.start = swaps[self.start.to_usize()];
         }
-        self.max_match = first_non_match - 1;
+        self.max_match = S::from_usize(first_non_match - 1);
     }
 
     pub(crate) fn minimize(&mut self) {
@@ -291,62 +358,67 @@ impl DFA {
         Minimizer::new(self).run();
     }
 
-    pub(crate) fn premultiply(&mut self) {
-        if self.kind.is_premultiplied() {
-            return;
+    pub(crate) fn premultiply(&mut self) -> Result<()> {
+        if self.kind.is_premultiplied() || self.len() == 0 {
+            return Ok(());
         }
 
-        let alphabet_len = self.alphabet_len();
-        for id in 0..self.len() {
+        let alpha_len = self.alphabet_len();
+        premultiply_overflow_error(S::from_usize(self.len() - 1), alpha_len)?;
+
+        for id in (0..self.len()).map(S::from_usize) {
             for (_, next) in self.get_state_mut(id).iter_mut() {
-                *next = *next * alphabet_len;
+                *next = S::from_usize(next.to_usize() * alpha_len);
             }
         }
         self.kind = self.kind.premultiplied();
-        self.start *= alphabet_len;
-        self.max_match *= alphabet_len;
+        self.start = S::from_usize(self.start.to_usize() * alpha_len);
+        self.max_match = S::from_usize(self.max_match.to_usize() * alpha_len);
+        Ok(())
     }
 }
 
 #[derive(Debug)]
-pub struct StateIter<'a> {
-    dfa: &'a DFA,
-    it: iter::Enumerate<slice::Chunks<'a, StateID>>,
+pub struct StateIter<'a, S: StateID> {
+    dfa: &'a DFA<S>,
+    it: iter::Enumerate<slice::Chunks<'a, S>>,
 }
 
-impl<'a> Iterator for StateIter<'a> {
-    type Item = (StateID, State<'a>);
+impl<'a, S: StateID> Iterator for StateIter<'a, S> {
+    type Item = (S, State<'a, S>);
 
-    fn next(&mut self) -> Option<(StateID, State<'a>)> {
+    fn next(&mut self) -> Option<(S, State<'a, S>)> {
         self.it.next().map(|(id, chunk)| {
             let state = State { transitions: chunk };
-            if self.dfa.kind().is_premultiplied() {
-                (id * self.dfa.alphabet_len(), state)
-            } else {
-                (id, state)
-            }
+            let id =
+                if self.dfa.kind().is_premultiplied() {
+                    id * self.dfa.alphabet_len()
+                } else {
+                    id
+                };
+            (S::from_usize(id), state)
         })
     }
 }
 
-pub struct State<'a> {
-    transitions: &'a [StateID],
+pub struct State<'a, S> {
+    transitions: &'a [S],
 }
 
-impl<'a> State<'a> {
+impl<'a, S: StateID> State<'a, S> {
     pub fn len(&self) -> usize {
         self.transitions.len()
     }
 
-    pub fn get(&self, b: u8) -> StateID {
+    pub fn get(&self, b: u8) -> S {
         self.transitions[b as usize]
     }
 
-    pub fn iter(&self) -> StateTransitionIter {
+    pub fn iter(&self) -> StateTransitionIter<S> {
         StateTransitionIter { it: self.transitions.iter().enumerate() }
     }
 
-    fn sparse_transitions(&self) -> Vec<(u8, u8, StateID)> {
+    fn sparse_transitions(&self) -> Vec<(u8, u8, S)> {
         let mut ranges = vec![];
         let mut cur = None;
         for (i, &next_id) in self.transitions.iter().enumerate() {
@@ -371,37 +443,37 @@ impl<'a> State<'a> {
 }
 
 #[derive(Debug)]
-pub struct StateTransitionIter<'a> {
-    it: iter::Enumerate<slice::Iter<'a, StateID>>,
+pub struct StateTransitionIter<'a, S> {
+    it: iter::Enumerate<slice::Iter<'a, S>>,
 }
 
-impl<'a> Iterator for StateTransitionIter<'a> {
-    type Item = (u8, StateID);
+impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
+    type Item = (u8, S);
 
-    fn next(&mut self) -> Option<(u8, StateID)> {
+    fn next(&mut self) -> Option<(u8, S)> {
         self.it.next().map(|(i, &id)| (i as u8, id))
     }
 }
 
-pub struct StateMut<'a> {
-    transitions: &'a mut [StateID],
+pub struct StateMut<'a, S> {
+    transitions: &'a mut [S],
 }
 
-impl<'a> StateMut<'a> {
-    pub fn iter_mut(&mut self) -> StateTransitionIterMut {
+impl<'a, S: StateID> StateMut<'a, S> {
+    pub fn iter_mut(&mut self) -> StateTransitionIterMut<S> {
         StateTransitionIterMut { it: self.transitions.iter_mut().enumerate() }
     }
 }
 
 #[derive(Debug)]
-pub struct StateTransitionIterMut<'a> {
-    it: iter::Enumerate<slice::IterMut<'a, StateID>>,
+pub struct StateTransitionIterMut<'a, S> {
+    it: iter::Enumerate<slice::IterMut<'a, S>>,
 }
 
-impl<'a> Iterator for StateTransitionIterMut<'a> {
-    type Item = (u8, &'a mut StateID);
+impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
+    type Item = (u8, &'a mut S);
 
-    fn next(&mut self) -> Option<(u8, &'a mut StateID)> {
+    fn next(&mut self) -> Option<(u8, &'a mut S)> {
         self.it.next().map(|(i, id)| (i as u8, id))
     }
 }
@@ -440,11 +512,15 @@ impl DFAKind {
     }
 }
 
-impl fmt::Debug for DFA {
+impl<S: StateID> fmt::Debug for DFA<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn state_status(dfa: &DFA, id: StateID, state: &State) -> String {
+        fn state_status<S: StateID>(
+            dfa: &DFA<S>,
+            id: S,
+            state: &State<S>,
+        ) -> String {
             let mut status = vec![b' ', b' '];
-            if id == DEAD {
+            if id == dead_id() {
                 status[0] = b'D';
             } else if id == dfa.start {
                 status[0] = b'>';
@@ -457,26 +533,26 @@ impl fmt::Debug for DFA {
 
         for (id, state) in self.iter() {
             let status = state_status(self, id, &state);
-            writeln!(f, "{}{:04}: {:?}", status, id, state)?;
+            writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
         }
         Ok(())
     }
 }
 
-impl<'a> fmt::Debug for State<'a> {
+impl<'a, S: StateID> fmt::Debug for State<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut transitions = vec![];
         for (start, end, next_id) in self.sparse_transitions() {
-            if next_id == DEAD {
+            if next_id == dead_id() {
                 continue;
             }
             let line =
                 if start == end {
-                    format!("{} => {}", escape(start), next_id)
+                    format!("{} => {}", escape(start), next_id.to_usize())
                 } else {
                     format!(
                         "{}-{} => {}",
-                        escape(start), escape(end), next_id,
+                        escape(start), escape(end), next_id.to_usize(),
                     )
                 };
             transitions.push(line);
@@ -497,6 +573,43 @@ fn escape(b: u8) -> String {
 mod tests {
     use builder::DFABuilder;
     use super::*;
+
+    #[test]
+    fn errors_when_converting_to_smaller_dfa() {
+        let pattern = r"\w";
+        let dfa = DFABuilder::new()
+            .byte_classes(false)
+            .anchored(true)
+            .premultiply(false)
+            .build_with_size::<u16>(r"\w")
+            .unwrap();
+        assert!(dfa.to_u8().is_err());
+    }
+
+    #[test]
+    fn errors_when_determinization_would_overflow() {
+        let pattern = r"\w";
+
+        let mut builder = DFABuilder::new();
+        builder.byte_classes(false).anchored(true).premultiply(false);
+        // using u16 is fine
+        assert!(builder.build_with_size::<u16>(pattern).is_ok());
+        // // ... but u8 results in overflow (because there are >256 states)
+        assert!(builder.build_with_size::<u8>(pattern).is_err());
+    }
+
+    #[test]
+    fn errors_when_premultiply_would_overflow() {
+        let pattern = r"[a-z]";
+
+        let mut builder = DFABuilder::new();
+        builder.byte_classes(false).anchored(true).premultiply(false);
+        // without premultiplication is OK
+        assert!(builder.build_with_size::<u8>(pattern).is_ok());
+        // ... but with premultiplication overflows u8
+        builder.premultiply(true);
+        assert!(builder.build_with_size::<u8>(pattern).is_err());
+    }
 
     fn print_automata(pattern: &str) {
         println!("BUILDING AUTOMATA");
@@ -585,15 +698,13 @@ mod tests {
 
     #[test]
     fn grapheme() {
-        let (nfa, dfa, mdfa) = build_automata(grapheme_pattern());
-        // let (nfa, dfa, mdfa) = build_automata(r"\w");
+        // let (nfa, dfa, mdfa) = build_automata(grapheme_pattern());
+        let (nfa, dfa, mdfa) = build_automata(r"\w");
+        let dfa = dfa.to_u16().unwrap();
+        let mdfa = mdfa.to_u16().unwrap();
         println!("nfa states: {:?}", nfa.len());
-        // println!("nfa classes: {:?}", nfa.byte_classes);
-
-        let bytes = dfa.len() * dfa.alphabet_len() * 8;
-        println!("dfa states: {:?} ({} bytes)", dfa.len(), bytes);
-        let bytes = mdfa.len() * mdfa.alphabet_len() * 8;
-        println!("min dfa states: {:?} ({} bytes)", mdfa.len(), bytes);
+        println!("dfa states: {:?} ({} bytes)", dfa.len(), dfa.memory_usage());
+        println!("min dfa states: {:?} ({} bytes)", mdfa.len(), mdfa.memory_usage());
     }
 
     fn grapheme_pattern() -> &'static str {

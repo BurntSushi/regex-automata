@@ -26,6 +26,29 @@ pub enum ErrorKind {
     /// look-around, such as the `^` and `$` anchors and the word boundary
     /// assertion `\b`. These may be supported in the future.
     Unsupported(String),
+    /// An error that occurs when constructing a DFA would require the use of
+    /// a state ID that overflows the chosen state ID representation. For
+    /// example, if one is using `u8` for state IDs and builds a DFA with
+    /// 257 states, then the last state's ID will be `256` which cannot be
+    /// represented with `u8`.
+    ///
+    /// Typically, this error occurs in the determinization process of building
+    /// a DFA (the conversion step from NFA to DFA). It can also occur when
+    /// trying to build a smaller DFA from an existing one.
+    StateIDOverflow {
+        /// The maximum possible state ID.
+        max: usize,
+    },
+    /// An error that occurs when premultiplication of state IDs is requested,
+    /// but doing so would overflow the chosen state ID representation.
+    ///
+    /// When `max == requested_max`, then the state ID would overflow `usize`.
+    PremultiplyOverflow {
+        /// The maximum possible state id.
+        max: usize,
+        /// The maximum ID required by premultiplication.
+        requested_max: usize,
+    }
 }
 
 impl Error {
@@ -47,6 +70,17 @@ impl Error {
         let msg = r"word boundary assertions (\b and \B) are not supported";
         Error { kind: ErrorKind::Unsupported(msg.to_string()) }
     }
+
+    pub(crate) fn state_id_overflow(max: usize) -> Error {
+        Error { kind: ErrorKind::StateIDOverflow { max } }
+    }
+
+    pub(crate) fn premultiply_overflow(
+        max: usize,
+        requested_max: usize,
+    ) -> Error {
+        Error { kind: ErrorKind::PremultiplyOverflow { max, requested_max } }
+    }
 }
 
 impl error::Error for Error {
@@ -54,6 +88,12 @@ impl error::Error for Error {
         match self.kind {
             ErrorKind::Syntax(_) => "syntax error",
             ErrorKind::Unsupported(_) => "unsupported syntax",
+            ErrorKind::StateIDOverflow { .. } => {
+                "state id representation too small"
+            }
+            ErrorKind::PremultiplyOverflow { .. } => {
+                "state id representation too small for premultiplication"
+            }
         }
     }
 }
@@ -63,6 +103,34 @@ impl fmt::Display for Error {
         match self.kind {
             ErrorKind::Syntax(ref msg) => write!(f, "{}", msg),
             ErrorKind::Unsupported(ref msg) => write!(f, "{}", msg),
+            ErrorKind::StateIDOverflow { max } => {
+                write!(
+                    f,
+                    "building the DFA failed because it required building \
+                     more states that can be identified, where the maximum \
+                     ID for the chosen representation is {}",
+                    max,
+                )
+            }
+            ErrorKind::PremultiplyOverflow { max, requested_max } => {
+                if max == requested_max {
+                    write!(
+                        f,
+                        "premultiplication of states requires the ability to \
+                         represent a state ID greater than what can fit on \
+                         this platform's usize, which is {}",
+                        ::std::usize::MAX,
+                    )
+                } else {
+                    write!(
+                        f,
+                        "premultiplication of states requires the ability to \
+                         represent at least a state ID of {}, but the chosen \
+                         representation only permits a maximum state ID of {}",
+                        requested_max, max,
+                    )
+                }
+            }
         }
     }
 }

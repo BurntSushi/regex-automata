@@ -2,24 +2,26 @@ use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::rc::Rc;
 
-use dfa::{self, DFA};
+use dfa::DFA;
+use error::Result;
 use nfa::{self, NFA};
 use sparse::SparseSet;
+use state_id::{StateID, dead_id};
 
-pub struct Determinizer<'a> {
+pub struct Determinizer<'a, S> {
     /// The NFA we're converting into a DFA.
     nfa: &'a NFA,
     /// The DFA we're building.
-    dfa: DFA,
+    dfa: DFA<S>,
     /// Each DFA state being built is defined as an *ordered* set of NFA
     /// states.
     ///
     /// This is never empty. The first state is always a dummy state such that
-    /// dfa::StateID == 0 corresponds to a dead state.
+    /// a state id == 0 corresponds to a dead state.
     builder_states: Vec<Rc<DeterminizerState>>,
     /// A cache of DFA states that already exist and can be easily looked up
     /// via ordered sets of NFA states.
-    cache: HashMap<Rc<DeterminizerState>, dfa::StateID>,
+    cache: HashMap<Rc<DeterminizerState>, S>,
     /// A stack of NFA states to visit, for depth first visiting.
     stack: Vec<nfa::StateID>,
     /// Scratch space for storing an ordered sequence of NFA states, for
@@ -33,11 +35,11 @@ struct DeterminizerState {
     nfa_states: Vec<nfa::StateID>,
 }
 
-impl<'a> Determinizer<'a> {
-    pub fn new(nfa: &'a NFA) -> Determinizer<'a> {
+impl<'a, S: StateID> Determinizer<'a, S> {
+    pub fn new(nfa: &'a NFA) -> Determinizer<'a, S> {
         let dead = Rc::new(DeterminizerState::dead());
         let mut cache = HashMap::new();
-        cache.insert(dead.clone(), dfa::DEAD);
+        cache.insert(dead.clone(), dead_id());
 
         Determinizer {
             nfa: nfa,
@@ -49,20 +51,20 @@ impl<'a> Determinizer<'a> {
         }
     }
 
-    pub fn with_byte_classes(mut self) -> Determinizer<'a> {
+    pub fn with_byte_classes(mut self) -> Determinizer<'a, S> {
         let byte_classes = self.nfa.byte_classes().to_vec();
         self.dfa = DFA::empty_with_byte_classes(byte_classes);
         self
     }
 
-    pub fn build(mut self) -> DFA {
+    pub fn build(mut self) -> Result<DFA<S>> {
         let equiv_bytes = self.dfa.equiv_bytes();
         let mut sparse = self.new_sparse_set();
-        let mut uncompiled = vec![self.add_start(&mut sparse)];
-        let mut queued: HashSet<dfa::StateID> = HashSet::new();
+        let mut uncompiled = vec![self.add_start(&mut sparse)?];
+        let mut queued: HashSet<S> = HashSet::new();
         while let Some(dfa_id) = uncompiled.pop() {
             for &b in &equiv_bytes {
-                let next_dfa_id = self.cached_state(dfa_id, b, &mut sparse);
+                let next_dfa_id = self.cached_state(dfa_id, b, &mut sparse)?;
                 self.dfa.set_transition(dfa_id, b, next_dfa_id);
                 if !queued.contains(&next_dfa_id) {
                     uncompiled.push(next_dfa_id);
@@ -77,34 +79,34 @@ impl<'a> Determinizer<'a> {
             .map(|s| s.is_match)
             .collect();
         self.dfa.shuffle_match_states(&is_match);
-        self.dfa
+        Ok(self.dfa)
     }
 
     fn cached_state(
         &mut self,
-        dfa_id: dfa::StateID,
+        dfa_id: S,
         b: u8,
         sparse: &mut SparseSet,
-    ) -> dfa::StateID {
+    ) -> Result<S> {
         sparse.clear();
         self.next(dfa_id, b, sparse);
         let state = self.new_state(sparse);
         if let Some(&cached_id) = self.cache.get(&state) {
             mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
-            return cached_id;
+            return Ok(cached_id);
         }
         self.add_state(state)
     }
 
     fn next(
         &mut self,
-        dfa_id: dfa::StateID,
+        dfa_id: S,
         b: u8,
         next_nfa_states: &mut SparseSet,
     ) {
         next_nfa_states.clear();
-        for i in 0..self.builder_states[dfa_id].nfa_states.len() {
-            let nfa_id = self.builder_states[dfa_id].nfa_states[i];
+        for i in 0..self.builder_states[dfa_id.to_usize()].nfa_states.len() {
+            let nfa_id = self.builder_states[dfa_id.to_usize()].nfa_states[i];
             match *self.nfa.state(nfa_id) {
                 nfa::State::Union { .. } | nfa::State::Match => {}
                 nfa::State::Range { start, end, next } => {
@@ -143,20 +145,20 @@ impl<'a> Determinizer<'a> {
         }
     }
 
-    fn add_start(&mut self, sparse: &mut SparseSet) -> dfa::StateID {
+    fn add_start(&mut self, sparse: &mut SparseSet) -> Result<S> {
         self.epsilon_closure(self.nfa.start(), sparse);
         let state = self.new_state(&sparse);
-        let id = self.add_state(state);
+        let id = self.add_state(state)?;
         self.dfa.set_start_state(id);
-        id
+        Ok(id)
     }
 
-    fn add_state(&mut self, state: DeterminizerState) -> dfa::StateID {
-        let id = self.dfa.add_empty_state();
+    fn add_state(&mut self, state: DeterminizerState) -> Result<S> {
+        let id = self.dfa.add_empty_state()?;
         let rstate = Rc::new(state);
         self.builder_states.push(rstate.clone());
         self.cache.insert(rstate, id);
-        id
+        Ok(id)
     }
 
     fn new_state(&mut self, set: &SparseSet) -> DeterminizerState {

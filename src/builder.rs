@@ -3,6 +3,7 @@ use regex_syntax::ParserBuilder;
 use dfa::DFA;
 use error::{Error, Result};
 use nfa::{NFA, NFABuilder};
+use state_id::StateID;
 
 /// A builder for constructing a deterministic finite automaton from regular
 /// expressions.
@@ -37,18 +38,45 @@ impl DFABuilder {
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
     pub fn build(&self, pattern: &str) -> Result<DFA> {
+        self.build_with_size::<usize>(pattern)
+    }
+
+    /// Build a DFA from the given pattern using a specific representation for
+    /// the DFA's state IDs.
+    ///
+    /// If there was a problem parsing or compiling the pattern, then an error
+    /// is returned.
+    ///
+    /// The representation of state IDs is determined by the `S` type
+    /// parameter. In general, `S` is usually one of `u8`, `u16`, `u32`, `u64`
+    /// or `usize`, where `usize` is the default used for `build`. The purpose
+    /// of specifying a representation for state IDs is to reduce the memory
+    /// footprint of a DFA.
+    ///
+    /// When using this routine, the chosen state ID representation will be
+    /// used throughout determinization and minimization, if minimization was
+    /// requested. Even if the minimized DFA can fit into the chosen state ID
+    /// representation but the initial determinized DFA cannot, then this will
+    /// still return an error. To get a minimized DFA with a smaller state ID
+    /// representation, first build it with a bigger state ID representation,
+    /// and then shrink the size of the DFA using one of its conversion
+    /// routines, such as [`DFA::to_u16`](struct.DFA.html#method.to_u16).
+    pub fn build_with_size<S: StateID>(
+        &self,
+        pattern: &str,
+    ) -> Result<DFA<S>> {
         let nfa = self.build_nfa(pattern)?;
         let mut dfa =
             if self.byte_classes {
                 DFA::from_nfa_with_byte_classes(&nfa)
             } else {
                 DFA::from_nfa(&nfa)
-            };
+            }?;
         if self.minimize {
             dfa.minimize();
         }
         if self.premultiply {
-            dfa.premultiply();
+            dfa.premultiply()?;
         }
         Ok(dfa)
     }
@@ -174,8 +202,7 @@ impl DFABuilder {
     /// Minimize the DFA.
     ///
     /// When enabled, the DFA built will be minimized such that it is as small
-    /// as possible. Enabling this option is the same as building a DFA, and
-    /// then calling `minimize` on it.
+    /// as possible.
     ///
     /// Whether one enables minimization or not depends on the types of costs
     /// you're willing to pay and how much you care about its benefits. In

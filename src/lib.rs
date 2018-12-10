@@ -7,6 +7,7 @@ pub use builder::DFABuilder;
 pub use dfa::{DFA, DFAKind};
 pub use dfa_ref::DFARef;
 pub use error::{Error, ErrorKind};
+pub use state_id::StateID;
 
 mod builder;
 mod determinize;
@@ -16,3 +17,4 @@ mod error;
 mod minimize;
 mod nfa;
 mod sparse;
+mod state_id;

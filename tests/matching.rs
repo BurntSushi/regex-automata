@@ -106,6 +106,32 @@ fn suite_dfa_premultiply_byte_class_minimal() {
     run_suite_minimal(&builder);
 }
 
+// A basic sanity test that checks we can convert a DFA to a smaller
+// representation and that the resulting DFA still passes our tests.
+//
+// If tests grow minimal DFAs that cannot be represented in 16 bits, then
+// we'll either want to skip those or increase the size to test to u32.
+#[test]
+fn suite_dfa_basic_u16() {
+    let mut builder = DFABuilder::new();
+    builder.minimize(true).premultiply(false).byte_classes(true);
+
+    let tests = SuiteTest::collection(fowler::TESTS);
+    for test in &tests {
+        if skip_with_minimize(test) {
+            continue;
+        }
+
+        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
+            None => continue,
+            Some(dfa) => dfa,
+        };
+        let dfa = dfa.to_u16().unwrap();
+        test.run_is_match(|x| dfa.is_match(x));
+        test.run_find_end(|x| dfa.find(x));
+    }
+}
+
 fn run_suite(builder: &DFABuilder) {
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
@@ -121,12 +147,7 @@ fn run_suite(builder: &DFABuilder) {
 fn run_suite_minimal(builder: &DFABuilder) {
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
-        // TODO: These tests take too long with minimization. Make
-        // minimization faster.
-        if test.name.starts_with("repetition_10") {
-            continue;
-        }
-        if test.name.starts_with("repetition_11") {
+        if skip_with_minimize(test) {
             continue;
         }
 
@@ -148,4 +169,11 @@ fn ignore_unsupported<T>(res: Result<T, Error>) -> Option<T> {
         return None;
     }
     panic!("{}", err);
+}
+
+fn skip_with_minimize(test: &SuiteTest) -> bool {
+    // TODO: These tests take too long with minimization. Make
+    // minimization faster.
+    test.name.starts_with("repetition_10")
+    || test.name.starts_with("repetition_11")
 }
