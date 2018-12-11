@@ -1,4 +1,4 @@
-use regex_automata::{DFABuilder, Error, ErrorKind};
+use regex_automata::{DFA, DFABuilder, Error, ErrorKind};
 
 use fowler;
 
@@ -112,7 +112,7 @@ fn suite_dfa_premultiply_byte_class_minimal() {
 // If tests grow minimal DFAs that cannot be represented in 16 bits, then
 // we'll either want to skip those or increase the size to test to u32.
 #[test]
-fn suite_dfa_basic_u16() {
+fn suite_dfa_u16() {
     let mut builder = DFABuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
 
@@ -127,6 +127,25 @@ fn suite_dfa_basic_u16() {
             Some(dfa) => dfa,
         };
         let dfa = dfa.to_u16().unwrap();
+        test.run_is_match(|x| dfa.is_match(x));
+        test.run_find_end(|x| dfa.find(x));
+    }
+}
+
+// Another basic sanity test that checks we can serialize and then deserialize
+// a DFA, and that the resulting DFA can be used for searching correctly.
+#[test]
+fn suite_dfa_roundtrip() {
+    let mut builder = DFABuilder::new();
+    builder.minimize(false).premultiply(false).byte_classes(true);
+
+    let tests = SuiteTest::collection(fowler::TESTS);
+    for test in &tests {
+        let init_dfa = match ignore_unsupported(builder.build(test.pattern)) {
+            None => continue,
+            Some(dfa) => dfa,
+        };
+        let dfa: DFA<usize> = DFA::from_bytes(&init_dfa.to_bytes().unwrap());
         test.run_is_match(|x| dfa.is_match(x));
         test.run_find_end(|x| dfa.find(x));
     }

@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 
+extern crate byteorder;
 extern crate regex_syntax;
 extern crate utf8_ranges;
 

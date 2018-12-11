@@ -1,6 +1,9 @@
-use std::mem::size_of;
+use std::mem;
+use std::slice;
 
-use dfa::{ALPHABET_LEN, DFAKind, DFA};
+use byteorder::{ByteOrder, NativeEndian};
+
+use dfa::{ALPHABET_LEN, DFAKind};
 use state_id::{StateID, dead_id};
 
 #[derive(Clone, Copy, Debug)]
@@ -33,7 +36,99 @@ impl<'a, S: StateID> DFARef<'a, S> {
     /// This does **not** include the stack size used up by this DFA. To
     /// compute that, used `std::mem::size_of::<DFARef>()`.
     pub fn memory_usage(&self) -> usize {
-        self.byte_classes.len() + (self.trans.len() * size_of::<S>())
+        self.byte_classes.len() + (self.trans.len() * mem::size_of::<S>())
+    }
+
+    pub fn from_bytes(mut buf: &'a [u8]) -> DFARef<'a, S> {
+        // skip over label
+        match buf.iter().position(|&b| b == b'\x00') {
+            None => panic!("could not find label"),
+            Some(i) => buf = &buf[i+1..],
+        }
+
+        // check that current endianness is same as endianness of DFA
+        let endian_check = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
+        if endian_check != 0xFEFF {
+            panic!(
+                "endianness mismatch, expected 0xFEFF but got 0x{:X}. \
+                 are you trying to load a DFA serialized with a different \
+                 endianness?",
+                endian_check,
+            );
+        }
+
+        // check that the version number is supported
+        let version = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
+        if version != 1 {
+            panic!(
+                "expected version 1, but found unsupported version {}",
+                version,
+            );
+        }
+
+        // read size of state
+        let state_size = NativeEndian::read_u16(buf) as usize;
+        if state_size != mem::size_of::<S>() {
+            panic!(
+                "state size of DFA ({}) does not match \
+                 requested state size ({})",
+                state_size, mem::size_of::<S>(),
+            );
+        }
+        buf = &buf[2..];
+
+        // read DFA kind
+        let kind = DFAKind::from_byte(NativeEndian::read_u16(buf) as u8);
+        buf = &buf[2..];
+
+        // read start state
+        let start = S::from_usize(NativeEndian::read_u64(buf) as usize);
+        buf = &buf[8..];
+
+        // read state count
+        let state_count = NativeEndian::read_u64(buf) as usize;
+        buf = &buf[8..];
+
+        // read max match state
+        let max_match = S::from_usize(NativeEndian::read_u64(buf) as usize);
+        buf = &buf[8..];
+
+        // read alphabet length
+        let alphabet_len = NativeEndian::read_u64(buf) as usize;
+        buf = &buf[8..];
+
+        // read byte classes
+        let byte_classes =
+            if kind.is_byte_class() {
+                &buf[..256]
+            } else {
+                &[]
+            };
+        buf = &buf[256..];
+
+        assert_eq!(
+            0,
+            buf.as_ptr() as usize % mem::align_of::<S>(),
+            "DFA transition table is not properly aligned"
+        );
+        println!("state count: {:?}, alphabet len: {:?}", state_count, alphabet_len);
+        let len = state_count * alphabet_len;
+        assert!(
+            buf.len() >= len,
+            "insufficient transition table bytes, \
+             expected at least {} but only have {}",
+            len, buf.len()
+        );
+        let trans = unsafe {
+            slice::from_raw_parts(buf.as_ptr() as *const S, len)
+        };
+
+        DFARef {
+            kind, start, state_count, max_match,
+            alphabet_len, byte_classes, trans,
+        }
     }
 }
 

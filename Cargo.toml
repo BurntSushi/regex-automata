@@ -25,6 +25,7 @@ members = ["bench"]
 bench = false
 
 [dependencies]
+byteorder = { version = "1.2.7", default-features = false }
 regex-syntax = "0.6.4"
 utf8-ranges = "1"
 

@@ -3,6 +3,9 @@ use std::iter;
 use std::mem;
 use std::slice;
 
+use byteorder::{ByteOrder, NativeEndian};
+
+use builder::DFABuilder;
 use error::{Error, Result};
 use determinize::Determinizer;
 use dfa_ref::DFARef;
@@ -67,10 +70,27 @@ pub struct DFA<S = usize> {
 }
 
 impl<S: StateID> DFA<S> {
+    /// Parse the given regular expression using a default configuration and
+    /// return the corresponding DFA.
+    ///
+    /// The default configuration uses `usize` for state IDs, premultiplies
+    /// them and reduces the alphabet size by splitting bytes into equivalence
+    /// classes. The DFA is *not* minimized.
+    ///
+    /// If you want a non-default configuration, then use the
+    /// [`DFABuilder`](struct.DFABuilder.html)
+    /// to set your own configuration.
+    pub fn new(pattern: &str) -> Result<DFA> {
+        DFABuilder::new().build(pattern)
+    }
+
+    /// Create a new empty DFA that never matches any input.
     pub fn empty() -> DFA<S> {
         DFA::empty_with_byte_classes(vec![])
     }
 
+    /// Create a new empty DFA with the given set of byte equivalence classes.
+    /// An empty DFA never matches any input.
     pub(crate) fn empty_with_byte_classes(byte_classes: Vec<u8>) -> DFA<S> {
         assert!(byte_classes.is_empty() || byte_classes.len() == 256);
 
@@ -94,14 +114,33 @@ impl<S: StateID> DFA<S> {
         dfa
     }
 
+    /// Returns true if and only if the given bytes match this DFA.
     pub fn is_match(&self, bytes: &[u8]) -> bool {
         self.as_dfa_ref().is_match_inline(bytes)
     }
 
+    /// Returns the end offset of the leftmost first match. If no match exists,
+    /// then `None` is returned.
+    ///
+    /// The "leftmost first" match corresponds to the match with the smallest
+    /// starting offset, but where the end offset is determined by preferring
+    /// earlier branches in the original regular expression. For example,
+    /// `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam` will
+    /// match `Samwise` in `Samwise`.
+    ///
+    /// Generally speaking, the "leftmost first" match is how most backtracking
+    /// regular expressions tend to work. This is in contrast to POSIX-style
+    /// regular expressions that yield "leftmost longest" matches. Namely,
+    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise`.
     pub fn find(&self, bytes: &[u8]) -> Option<usize> {
         self.as_dfa_ref().find_inline(bytes)
     }
 
+    /// Return a borrowed version of this DFA.
+    ///
+    /// This is useful if your code demands a borrowed version of the DFA.
+    /// In particular, a `DFARef` does not specifically require any heap
+    /// memory and can be used without Rust's standard library.
     pub fn as_dfa_ref(&self) -> DFARef<S> {
         DFARef {
             kind: self.kind,
@@ -124,6 +163,127 @@ impl<S: StateID> DFA<S> {
     /// compute that, used `std::mem::size_of::<DFA>()`.
     pub fn memory_usage(&self) -> usize {
         self.as_dfa_ref().memory_usage()
+    }
+
+    pub fn from_bytes(buf: &[u8]) -> DFA<S> {
+        let dfa_ref = DFARef::from_bytes(buf);
+        DFA {
+            kind: dfa_ref.kind,
+            start: dfa_ref.start,
+            state_count: dfa_ref.state_count,
+            max_match: dfa_ref.max_match,
+            alphabet_len: dfa_ref.alphabet_len,
+            byte_classes: dfa_ref.byte_classes.to_vec(),
+            trans: dfa_ref.trans.to_vec(),
+        }
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let label = b"rust-regex-automata-dfa\x00";
+        assert_eq!(24, label.len());
+
+        let trans_size = mem::size_of::<S>() * self.trans.len();
+        let size =
+            // For human readable label.
+            label.len()
+            // endiannes check, must be equal to 0xFEFF for native endian
+            + 2
+            // For version number.
+            + 2
+            // Size of state ID representation, in bytes.
+            // Must be 1, 2, 4 or 8.
+            + 2
+            // For DFA kind.
+            + 2
+            // For start state.
+            + 8
+            // For state count.
+            + 8
+            // For max match state.
+            + 8
+            // For alphabet length.
+            + 8
+            // For byte class map.
+            + 256
+            // For transition table.
+            + trans_size;
+        // sanity check, this can be updated if need be
+        assert_eq!(320 + trans_size, size);
+        // This must always pass. It checks that the transition table is at
+        // a properly aligned address.
+        assert_eq!(0, (size - trans_size) % 8);
+
+        let mut buf = vec![0; size];
+        let mut i = 0;
+
+        // write label
+        for &b in label {
+            buf[i] = b;
+            i += 1;
+        }
+        // endianness check
+        NativeEndian::write_u16(&mut buf[i..], 0xFEFF);
+        i += 2;
+        // version number
+        NativeEndian::write_u16(&mut buf[i..], 1);
+        i += 2;
+        // size of state ID
+        let state_size = mem::size_of::<S>();
+        if ![1, 2, 4, 8].contains(&state_size) {
+            return Err(Error::serialize(&format!(
+                "state size of {} not supported, must be 1, 2, 4 or 8",
+                state_size
+            )));
+        }
+        NativeEndian::write_u16(&mut buf[i..], state_size as u16);
+        i += 2;
+        // DFA kind
+        NativeEndian::write_u16(&mut buf[i..], self.kind.to_byte() as u16);
+        i += 2;
+        // start state
+        NativeEndian::write_u64(&mut buf[i..], self.start.to_usize() as u64);
+        i += 8;
+        // state count
+        NativeEndian::write_u64(&mut buf[i..], self.state_count as u64);
+        i += 8;
+        // max match state
+        NativeEndian::write_u64(
+            &mut buf[i..],
+            self.max_match.to_usize() as u64,
+        );
+        i += 8;
+        // alphabet length
+        NativeEndian::write_u64(&mut buf[i..], self.alphabet_len as u64);
+        i += 8;
+        // byte class map
+        if self.byte_classes.is_empty() {
+            for b in (0..256).map(|b| b as u8) {
+                buf[i] = b;
+                i += 1;
+            }
+        } else {
+            for &b in &self.byte_classes {
+                buf[i] = b;
+                i += 1;
+            }
+        }
+        // transition table
+        for &id in &self.trans {
+            if state_size == 1 {
+                buf[i] = id.to_usize() as u8;
+            } else if state_size == 2 {
+                NativeEndian::write_u16(&mut buf[i..], id.to_usize() as u16);
+            } else if state_size == 4 {
+                NativeEndian::write_u32(&mut buf[i..], id.to_usize() as u32);
+            } else {
+                assert_eq!(8, state_size);
+                NativeEndian::write_u64(&mut buf[i..], id.to_usize() as u64);
+            }
+            i += state_size;
+        }
+        assert_eq!(size, i, "expected to consume entire buffer");
+
+        Ok(buf)
     }
 }
 
@@ -510,6 +670,25 @@ impl DFAKind {
             }
         }
     }
+
+    fn to_byte(&self) -> u8 {
+        match *self {
+            DFAKind::Basic => 0,
+            DFAKind::Premultiplied => 1,
+            DFAKind::ByteClass => 2,
+            DFAKind::PremultipliedByteClass => 3,
+        }
+    }
+
+    pub(crate) fn from_byte(b: u8) -> DFAKind {
+        match b {
+            0 => DFAKind::Basic,
+            1 => DFAKind::Premultiplied,
+            2 => DFAKind::ByteClass,
+            3 => DFAKind::PremultipliedByteClass,
+            _ => panic!("invalid DFA kind: 0x{:X}", b),
+        }
+    }
 }
 
 impl<S: StateID> fmt::Debug for DFA<S> {
@@ -644,7 +823,7 @@ mod tests {
 
     fn build_automata(pattern: &str) -> (NFA, DFA, DFA) {
         let mut builder = DFABuilder::new();
-        builder.anchored(true).allow_invalid_utf8(true);
+        builder.anchored(true).allow_invalid_utf8(true).byte_classes(false);
         let nfa = builder.build_nfa(pattern).unwrap();
         let dfa = builder.build(pattern).unwrap();
         let min = builder.minimize(true).build(pattern).unwrap();
@@ -653,40 +832,6 @@ mod tests {
 
     #[test]
     fn scratch() {
-        // print_automata(grapheme_pattern());
-        // let (nfa, mut dfa) = build_automata(grapheme_pattern());
-        // let (nfa, dfa) = build_automata(r"a");
-        // println!("# dfa states: {}", dfa.states.len());
-        // println!("# dfa transitions: {}", 256 * dfa.states.len());
-        // Minimizer::new(&mut dfa).run();
-        // println!("# minimal dfa states: {}", dfa.states.len());
-        // println!("# minimal dfa transitions: {}", 256 * dfa.states.len());
-        // print_automata(r"\p{any}");
-        // print_automata(r"[\u007F-\u0080]");
-
-        // println!("building...");
-        // let dfa = grapheme_dfa();
-        // let dfa = build_automata_min(r"a|\p{gcb=RI}\p{gcb=RI}|\p{gcb=RI}");
-        // println!("searching...");
-        // let string = "\u{1f1e6}\u{1f1e6}";
-        // let bytes = string.as_bytes();
-        // println!("{:?}", dfa.find(bytes));
-
-        // print_automata("a|zz|z");
-        // let dfa = build_automata_min(r"a|zz|z");
-        // println!("searching...");
-        // let string = "zz";
-        // let bytes = string.as_bytes();
-        // println!("{:?}", dfa.find(bytes));
-
-        // print_automata(r"[01]*1[01]{5}");
-        // print_automata(r"X(.?){0,8}Y");
-        // print_automata_counts(r"\p{alphabetic}");
-        // print_automata(r"a*b+|cdefg");
-        // print_automata(r"(..)*(...)*");
-        print_automata(r"(?-u:\w)");
-        print_automata_counts(r"(?-u:\w)");
-
         // let data = ::std::fs::read_to_string("/usr/share/dict/words").unwrap();
         // let mut words: Vec<&str> = data.lines().collect();
         // println!("{} words", words.len());
@@ -694,14 +839,29 @@ mod tests {
         // let pattern = words.join("|");
         // print_automata_counts(&pattern);
         // print_automata(&pattern);
+
+        // print_automata(r"[01]*1[01]{5}");
+        // print_automata(r"X(.?){0,8}Y");
+        // print_automata_counts(r"\p{alphabetic}");
+        // print_automata(r"a*b+|cdefg");
+        // print_automata(r"(..)*(...)*");
+        // print_automata(r"(?-u:\w)");
+        // print_automata_counts(r"(?-u:\w)");
+
+        let (_, _, dfa) = build_automata(r".+");
+        println!("{:?}", dfa);
+        let bytes = dfa.to_bytes().unwrap();
+        // println!("{:X?}", bytes);
+        let dfa: DFA = DFA::from_bytes(&bytes);
+        println!("{:?}", dfa);
     }
 
     #[test]
     fn grapheme() {
         // let (nfa, dfa, mdfa) = build_automata(grapheme_pattern());
         let (nfa, dfa, mdfa) = build_automata(r"\w");
-        let dfa = dfa.to_u16().unwrap();
-        let mdfa = mdfa.to_u16().unwrap();
+        let dfa = dfa.to_u32().unwrap();
+        let mdfa = mdfa.to_u32().unwrap();
         println!("nfa states: {:?}", nfa.len());
         println!("dfa states: {:?} ({} bytes)", dfa.len(), dfa.memory_usage());
         println!("min dfa states: {:?} ({} bytes)", mdfa.len(), mdfa.memory_usage());
