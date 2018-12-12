@@ -48,6 +48,16 @@ impl SuiteTest {
             self.name, self.pattern, String::from_utf8_lossy(self.input),
         );
     }
+
+    fn run_find<F: FnMut(&[u8]) -> Option<(usize, usize)>>(&self, mut find: F) {
+        assert_eq!(
+            self.mat,
+            find(self.input),
+            "match location disagreement: \
+             test: {}, pattern: {}, input: {}",
+            self.name, self.pattern, String::from_utf8_lossy(self.input),
+        );
+    }
 }
 
 #[test]
@@ -79,28 +89,28 @@ fn suite_dfa_premultiply_byte_class() {
 }
 
 #[test]
-fn suite_dfa_basic_minimal() {
+fn suite_dfa_minimal_basic() {
     let mut builder = DFABuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(false);
     run_suite_minimal(&builder);
 }
 
 #[test]
-fn suite_dfa_premultiply_minimal() {
+fn suite_dfa_minimal_premultiply() {
     let mut builder = DFABuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(false);
     run_suite_minimal(&builder);
 }
 
 #[test]
-fn suite_dfa_byte_class_minimal() {
+fn suite_dfa_minimal_byte_class() {
     let mut builder = DFABuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
     run_suite_minimal(&builder);
 }
 
 #[test]
-fn suite_dfa_premultiply_byte_class_minimal() {
+fn suite_dfa_minimal_premultiply_byte_class() {
     let mut builder = DFABuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(true);
     run_suite_minimal(&builder);
@@ -122,7 +132,7 @@ fn suite_dfa_u16() {
             continue;
         }
 
-        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
+        let dfa = match ignore_unsupported(builder.build_dfa(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
@@ -141,11 +151,13 @@ fn suite_dfa_roundtrip() {
 
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
-        let init_dfa = match ignore_unsupported(builder.build(test.pattern)) {
+        let init_dfa = match ignore_unsupported(builder.build_dfa(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
-        let dfa: DFA<usize> = DFA::from_bytes(&init_dfa.to_bytes().unwrap());
+
+        let bytes = init_dfa.to_bytes_native_endian().unwrap();
+        let dfa: DFA<usize> = DFA::from_bytes(&bytes);
         test.run_is_match(|x| dfa.is_match(x));
         test.run_find_end(|x| dfa.find(x));
     }
@@ -154,12 +166,12 @@ fn suite_dfa_roundtrip() {
 fn run_suite(builder: &DFABuilder) {
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
-        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
+        let dfa = match ignore_unsupported(builder.build_matcher(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
         test.run_is_match(|x| dfa.is_match(x));
-        test.run_find_end(|x| dfa.find(x));
+        test.run_find(|x| dfa.find(x));
     }
 }
 
@@ -170,12 +182,12 @@ fn run_suite_minimal(builder: &DFABuilder) {
             continue;
         }
 
-        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
+        let dfa = match ignore_unsupported(builder.build_matcher(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
         test.run_is_match(|x| dfa.is_match(x));
-        test.run_find_end(|x| dfa.find(x));
+        test.run_find(|x| dfa.find(x));
     }
 }
 

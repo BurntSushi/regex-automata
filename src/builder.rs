@@ -1,7 +1,10 @@
 use regex_syntax::ParserBuilder;
+use regex_syntax::hir::{Hir, HirKind};
 
+use determinize::Determinizer;
 use dfa::DFA;
 use error::{Error, Result};
+use matcher::Matcher;
 use nfa::{NFA, NFABuilder};
 use state_id::StateID;
 
@@ -19,6 +22,8 @@ pub struct DFABuilder {
     minimize: bool,
     premultiply: bool,
     byte_classes: bool,
+    reverse: bool,
+    longest_match: bool,
 }
 
 impl DFABuilder {
@@ -30,15 +35,28 @@ impl DFABuilder {
             minimize: false,
             premultiply: true,
             byte_classes: true,
+            reverse: false,
+            longest_match: false,
         }
+    }
+
+    pub fn build_matcher(&self, pattern: &str) -> Result<Matcher<'static>> {
+        let forward = self.build_dfa(pattern)?;
+        let reverse = self
+            .clone()
+            .anchored(true)
+            .reverse(true)
+            .longest_match(true)
+            .build_dfa(pattern)?;
+        Ok(Matcher::from_dfa(forward, reverse))
     }
 
     /// Build a DFA from the given pattern.
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    pub fn build(&self, pattern: &str) -> Result<DFA> {
-        self.build_with_size::<usize>(pattern)
+    pub fn build_dfa(&self, pattern: &str) -> Result<DFA> {
+        self.build_dfa_with_size::<usize>(pattern)
     }
 
     /// Build a DFA from the given pattern using a specific representation for
@@ -61,16 +79,21 @@ impl DFABuilder {
     /// representation, first build it with a bigger state ID representation,
     /// and then shrink the size of the DFA using one of its conversion
     /// routines, such as [`DFA::to_u16`](struct.DFA.html#method.to_u16).
-    pub fn build_with_size<S: StateID>(
+    pub fn build_dfa_with_size<S: StateID>(
         &self,
         pattern: &str,
     ) -> Result<DFA<S>> {
         let nfa = self.build_nfa(pattern)?;
         let mut dfa =
             if self.byte_classes {
-                DFA::from_nfa_with_byte_classes(&nfa)
+                Determinizer::new(&nfa)
+                    .with_byte_classes()
+                    .longest_match(self.longest_match)
+                    .build()
             } else {
-                DFA::from_nfa(&nfa)
+                Determinizer::new(&nfa)
+                    .longest_match(self.longest_match)
+                    .build()
             }?;
         if self.minimize {
             dfa.minimize();
@@ -83,7 +106,14 @@ impl DFABuilder {
 
     /// Builds an NFA from the given pattern.
     pub(crate) fn build_nfa(&self, pattern: &str) -> Result<NFA> {
-        let hir = self.parser.build().parse(pattern).map_err(Error::syntax)?;
+        let mut hir = self
+            .parser
+            .build()
+            .parse(pattern)
+            .map_err(Error::syntax)?;
+        if self.reverse {
+            hir = reverse_hir(hir);
+        }
         Ok(self.nfa.build(&hir)?)
     }
 
@@ -293,10 +323,56 @@ impl DFABuilder {
         self.byte_classes = yes;
         self
     }
+
+    /// Reverse the DFA.
+    pub fn reverse(&mut self, yes: bool) -> &mut DFABuilder {
+        self.reverse = yes;
+        self
+    }
+
+    /// Find the longest possible match.
+    pub fn longest_match(&mut self, yes: bool) -> &mut DFABuilder {
+        self.longest_match = yes;
+        self
+    }
 }
 
 impl Default for DFABuilder {
     fn default() -> DFABuilder {
         DFABuilder::new()
+    }
+}
+
+/// Reverse the given HIR expression.
+fn reverse_hir(expr: Hir) -> Hir {
+    match expr.into_kind() {
+        HirKind::Empty => Hir::empty(),
+        HirKind::Literal(lit) => Hir::literal(lit),
+        HirKind::Class(cls) => Hir::class(cls),
+        HirKind::Anchor(anchor) => Hir::anchor(anchor),
+        HirKind::WordBoundary(anchor) => Hir::word_boundary(anchor),
+        HirKind::Repetition(mut rep) => {
+            rep.hir = Box::new(reverse_hir(*rep.hir));
+            Hir::repetition(rep)
+        }
+        HirKind::Group(mut group) => {
+            group.hir = Box::new(reverse_hir(*group.hir));
+            Hir::group(group)
+        }
+        HirKind::Concat(exprs) => {
+            let mut reversed = vec![];
+            for e in exprs {
+                reversed.push(reverse_hir(e));
+            }
+            reversed.reverse();
+            Hir::concat(reversed)
+        }
+        HirKind::Alternation(exprs) => {
+            let mut reversed = vec![];
+            for e in exprs {
+                reversed.push(reverse_hir(e));
+            }
+            Hir::alternation(reversed)
+        }
     }
 }

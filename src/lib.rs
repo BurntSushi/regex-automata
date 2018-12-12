@@ -15,6 +15,7 @@ mod determinize;
 mod dfa;
 mod dfa_ref;
 mod error;
+mod matcher;
 mod minimize;
 mod nfa;
 mod sparse;

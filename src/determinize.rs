@@ -27,6 +27,8 @@ pub struct Determinizer<'a, S> {
     /// Scratch space for storing an ordered sequence of NFA states, for
     /// amortizing allocation.
     scratch_nfa_states: Vec<nfa::StateID>,
+    /// Whether to build a DFA that finds the longest possible match.
+    longest_match: bool,
 }
 
 #[derive(Debug, Eq, Hash, PartialEq)]
@@ -48,12 +50,18 @@ impl<'a, S: StateID> Determinizer<'a, S> {
             cache: cache,
             stack: vec![],
             scratch_nfa_states: vec![],
+            longest_match: false,
         }
     }
 
     pub fn with_byte_classes(mut self) -> Determinizer<'a, S> {
         let byte_classes = self.nfa.byte_classes().to_vec();
         self.dfa = DFA::empty_with_byte_classes(byte_classes);
+        self
+    }
+
+    pub fn longest_match(mut self, yes: bool) -> Determinizer<'a, S> {
+        self.longest_match = yes;
         self
     }
 
@@ -175,7 +183,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 }
                 nfa::State::Match => {
                     state.is_match = true;
-                    break;
+                    if !self.longest_match {
+                        break;
+                    }
                 }
                 nfa::State::Union { .. } => {}
             }
