@@ -82,7 +82,7 @@ impl<S: StateID> DFA<S> {
     /// [`DFABuilder`](struct.DFABuilder.html)
     /// to set your own configuration.
     pub fn new(pattern: &str) -> Result<DFA> {
-        DFABuilder::new().build_dfa(pattern)
+        DFABuilder::new().build(pattern)
     }
 
     /// Create a new empty DFA that never matches any input.
@@ -826,7 +826,7 @@ mod tests {
             .byte_classes(false)
             .anchored(true)
             .premultiply(false)
-            .build_dfa_with_size::<u16>(r"\w")
+            .build_with_size::<u16>(r"\w")
             .unwrap();
         assert!(dfa.to_u8().is_err());
     }
@@ -838,9 +838,9 @@ mod tests {
         let mut builder = DFABuilder::new();
         builder.byte_classes(false).anchored(true).premultiply(false);
         // using u16 is fine
-        assert!(builder.build_dfa_with_size::<u16>(pattern).is_ok());
+        assert!(builder.build_with_size::<u16>(pattern).is_ok());
         // // ... but u8 results in overflow (because there are >256 states)
-        assert!(builder.build_dfa_with_size::<u8>(pattern).is_err());
+        assert!(builder.build_with_size::<u8>(pattern).is_err());
     }
 
     #[test]
@@ -850,10 +850,10 @@ mod tests {
         let mut builder = DFABuilder::new();
         builder.byte_classes(false).anchored(true).premultiply(false);
         // without premultiplication is OK
-        assert!(builder.build_dfa_with_size::<u8>(pattern).is_ok());
+        assert!(builder.build_with_size::<u8>(pattern).is_ok());
         // ... but with premultiplication overflows u8
         builder.premultiply(true);
-        assert!(builder.build_dfa_with_size::<u8>(pattern).is_err());
+        assert!(builder.build_with_size::<u8>(pattern).is_err());
     }
 
     fn print_automata(pattern: &str) {
@@ -891,8 +891,8 @@ mod tests {
         let mut builder = DFABuilder::new();
         builder.anchored(true).allow_invalid_utf8(true).byte_classes(false).premultiply(false);
         let nfa = builder.build_nfa(pattern).unwrap();
-        let dfa = builder.build_dfa(pattern).unwrap();
-        let min = builder.minimize(true).build_dfa(pattern).unwrap();
+        let dfa = builder.build(pattern).unwrap();
+        let min = builder.minimize(true).build(pattern).unwrap();
         (nfa, dfa, min)
     }
 
@@ -913,71 +913,5 @@ mod tests {
         // print_automata(r"(..)*(...)*");
         // print_automata(r"(?-u:\w)");
         // print_automata_counts(r"(?-u:\w)");
-
-        let dfa = DFABuilder::new()
-            .reverse(true)
-            .byte_classes(false)
-            .anchored(true)
-            .premultiply(false)
-            .build_dfa("abcdef")
-            .unwrap();
-        println!("{:?}", dfa);
-
-        let m = DFABuilder::new()
-            .byte_classes(false)
-            .anchored(false)
-            .premultiply(false)
-            .allow_invalid_utf8(true)
-            .dot_matches_new_line(true)
-            .minimize(true)
-            .unicode(false)
-            .build_matcher(r"(..)*(...)*")
-            .unwrap();
-        println!("{:?}", m);
-        println!("{:?}", m.find(b"abcd"));
-    }
-
-    #[test]
-    fn grapheme() {
-        // let (nfa, dfa, mdfa) = build_automata(grapheme_pattern());
-        let (nfa, dfa, mdfa) = build_automata(r"\w");
-        let dfa = dfa.to_u32().unwrap();
-        let mdfa = mdfa.to_u32().unwrap();
-        println!("nfa states: {:?}", nfa.len());
-        println!("dfa states: {:?} ({} bytes)", dfa.len(), dfa.memory_usage());
-        println!("min dfa states: {:?} ({} bytes)", mdfa.len(), mdfa.memory_usage());
-    }
-
-    fn grapheme_pattern() -> &'static str {
-        r"(?x)
-            (?:
-                \p{gcb=CR}\p{gcb=LF}
-                |
-                [\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
-                |
-                \p{gcb=Prepend}*
-                (?:
-                    (?:
-                        (?:
-                            \p{gcb=L}*
-                            (?:\p{gcb=V}+|\p{gcb=LV}\p{gcb=V}*|\p{gcb=LVT})
-                            \p{gcb=T}*
-                        )
-                        |
-                        \p{gcb=L}+
-                        |
-                        \p{gcb=T}+
-                    )
-                    |
-                    \p{gcb=RI}\p{gcb=RI}
-                    |
-                    \p{Extended_Pictographic}
-                    (?:\p{gcb=Extend}*\p{gcb=ZWJ}\p{Extended_Pictographic})*
-                    |
-                    [^\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
-                )
-                [\p{gcb=Extend}\p{gcb=ZWJ}\p{gcb=SpacingMark}]*
-            )
-        "
     }
 }

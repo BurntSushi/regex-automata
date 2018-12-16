@@ -5,7 +5,7 @@ extern crate criterion;
 extern crate regex_automata;
 
 use criterion::{Bencher, Benchmark, Criterion, Throughput};
-use regex_automata::DFABuilder;
+use regex_automata::{DFABuilder, MatcherBuilder};
 
 use inputs::{
     SHERLOCK_HUGE, SHERLOCK_TINY, EMPTY,
@@ -16,7 +16,7 @@ mod inputs;
 fn is_match(c: &mut Criterion) {
     let corpus = SHERLOCK_HUGE.corpus;
     define(c, "is_match", "sherlock-huge", corpus, move |b| {
-        let dfa = DFABuilder::new()
+        let dfa = MatcherBuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
@@ -30,7 +30,7 @@ fn is_match(c: &mut Criterion) {
 
     let corpus = SHERLOCK_TINY.corpus;
     define(c, "is_match", "sherlock-tiny", corpus, move |b| {
-        let dfa = DFABuilder::new()
+        let dfa = MatcherBuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
@@ -44,7 +44,7 @@ fn is_match(c: &mut Criterion) {
 
     let corpus = EMPTY.corpus;
     define(c, "is_match", "empty", corpus, move |b| {
-        let dfa = DFABuilder::new()
+        let dfa = MatcherBuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)

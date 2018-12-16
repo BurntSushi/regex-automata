@@ -4,7 +4,7 @@ extern crate byteorder;
 extern crate regex_syntax;
 extern crate utf8_ranges;
 
-pub use builder::DFABuilder;
+pub use builder::{DFABuilder, MatcherBuilder};
 pub use dfa::{DFA, DFAKind};
 pub use dfa_ref::DFARef;
 pub use error::{Error, ErrorKind};

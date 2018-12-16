@@ -1,4 +1,4 @@
-use regex_automata::{DFA, DFABuilder, Error, ErrorKind};
+use regex_automata::{DFA, DFABuilder, Error, ErrorKind, MatcherBuilder};
 
 use fowler;
 
@@ -62,56 +62,56 @@ impl SuiteTest {
 
 #[test]
 fn suite_dfa_basic() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(false);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_premultiply() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(false);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_byte_class() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(true);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_premultiply_byte_class() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(true);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_basic() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(false);
     run_suite_minimal(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_premultiply() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(false);
     run_suite_minimal(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_byte_class() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
     run_suite_minimal(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_premultiply_byte_class() {
-    let mut builder = DFABuilder::new();
+    let mut builder = MatcherBuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(true);
     run_suite_minimal(&builder);
 }
@@ -132,7 +132,7 @@ fn suite_dfa_u16() {
             continue;
         }
 
-        let dfa = match ignore_unsupported(builder.build_dfa(test.pattern)) {
+        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
@@ -151,7 +151,7 @@ fn suite_dfa_roundtrip() {
 
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
-        let init_dfa = match ignore_unsupported(builder.build_dfa(test.pattern)) {
+        let init_dfa = match ignore_unsupported(builder.build(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
@@ -163,10 +163,10 @@ fn suite_dfa_roundtrip() {
     }
 }
 
-fn run_suite(builder: &DFABuilder) {
+fn run_suite(builder: &MatcherBuilder) {
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
-        let dfa = match ignore_unsupported(builder.build_matcher(test.pattern)) {
+        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
@@ -175,14 +175,14 @@ fn run_suite(builder: &DFABuilder) {
     }
 }
 
-fn run_suite_minimal(builder: &DFABuilder) {
+fn run_suite_minimal(builder: &MatcherBuilder) {
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
         if skip_with_minimize(test) {
             continue;
         }
 
-        let dfa = match ignore_unsupported(builder.build_matcher(test.pattern)) {
+        let dfa = match ignore_unsupported(builder.build(test.pattern)) {
             None => continue,
             Some(dfa) => dfa,
         };
