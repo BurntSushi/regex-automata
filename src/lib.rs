@@ -1,11 +1,15 @@
-#![allow(dead_code, unused_imports, unused_variables)]
+/*!
+TODO.
+*/
+
+#![deny(missing_docs)]
 
 extern crate byteorder;
 extern crate regex_syntax;
 extern crate utf8_ranges;
 
 pub use builder::{DFABuilder, MatcherBuilder};
-pub use dfa::{DFA, DFAKind};
+pub use dfa::DFA;
 pub use dfa_ref::DFARef;
 pub use error::{Error, ErrorKind};
 pub use matcher::Matcher;

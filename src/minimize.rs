@@ -92,7 +92,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
 
         let mut minimal_ids = vec![dead_id(); self.dfa.len()];
         let mut new_id = S::from_usize(0);
-        for (id, state) in self.dfa.iter() {
+        for (id, _) in self.dfa.iter() {
             if state_to_part[id.to_usize()] == id {
                 minimal_ids[id.to_usize()] = new_id;
                 new_id = S::from_usize(new_id.to_usize() + 1);
@@ -162,7 +162,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
 
     fn incoming_transitions(dfa: &DFA<S>) -> Vec<Vec<Vec<S>>> {
         let mut incoming = vec![];
-        for state in dfa.iter() {
+        for _ in dfa.iter() {
             incoming.push(vec![vec![]; dfa.alphabet_len()]);
         }
         for (id, state) in dfa.iter() {

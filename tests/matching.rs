@@ -157,7 +157,7 @@ fn suite_dfa_roundtrip() {
         };
 
         let bytes = init_dfa.to_bytes_native_endian().unwrap();
-        let dfa: DFA<usize> = DFA::from_bytes(&bytes);
+        let dfa: DFA<usize> = unsafe { DFA::from_bytes(&bytes) };
         test.run_is_match(|x| dfa.is_match(x));
         test.run_find_end(|x| dfa.find(x));
     }

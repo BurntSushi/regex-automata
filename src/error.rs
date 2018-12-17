@@ -28,8 +28,6 @@ pub enum ErrorKind {
     Unsupported(String),
     /// An error that occurred when attempting to serialize a DFA to bytes.
     Serialize(String),
-    /// An error that occurred when attempting to deserialize a DFA from bytes.
-    Deserialize(String),
     /// An error that occurs when constructing a DFA would require the use of
     /// a state ID that overflows the chosen state ID representation. For
     /// example, if one is using `u8` for state IDs and builds a DFA with
@@ -79,10 +77,6 @@ impl Error {
         Error { kind: ErrorKind::Serialize(message.to_string()) }
     }
 
-    pub(crate) fn deserialize(message: &str) -> Error {
-        Error { kind: ErrorKind::Deserialize(message.to_string()) }
-    }
-
     pub(crate) fn state_id_overflow(max: usize) -> Error {
         Error { kind: ErrorKind::StateIDOverflow { max } }
     }
@@ -101,7 +95,6 @@ impl error::Error for Error {
             ErrorKind::Syntax(_) => "syntax error",
             ErrorKind::Unsupported(_) => "unsupported syntax",
             ErrorKind::Serialize(_) => "serialization error",
-            ErrorKind::Deserialize(_) => "serialization error",
             ErrorKind::StateIDOverflow { .. } => {
                 "state id representation too small"
             }
@@ -119,9 +112,6 @@ impl fmt::Display for Error {
             ErrorKind::Unsupported(ref msg) => write!(f, "{}", msg),
             ErrorKind::Serialize(ref msg) => {
                 write!(f, "DFA serialization error: {}", msg)
-            }
-            ErrorKind::Deserialize(ref msg) => {
-                write!(f, "DFA deserialization error: {}", msg)
             }
             ErrorKind::StateIDOverflow { max } => {
                 write!(

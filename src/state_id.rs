@@ -41,13 +41,55 @@ pub fn next_state_id<S: StateID>(current: S) -> Result<S> {
     Ok(S::from_usize(next))
 }
 
-pub trait StateID: Clone + Copy + Debug + Eq + Hash + PartialEq + PartialOrd + Ord {
+/// A trait describing the representation of a DFA's state identifier.
+///
+/// The purpose of this trait is to safely express both the possible state
+/// identifier representations that can be used in a DFA and to convert between
+/// state identifier representations and types that can be used to efficiently
+/// index memory (such as `usize`).
+///
+/// In general, one should not need to implement this trait explicitly. In
+/// particular, this crate provides implementations for `u8`, `u16`, `u32`,
+/// `u64` and `usize`.
+///
+/// # Safety
+///
+/// This trait is unsafe because the correctness of its implementations may be
+/// relied upon by other unsafe code. For example, one possible way to
+/// implement this trait incorrectly would be to return a maximum identifier
+/// in `max_id` that is greater than the real maximum identifier. This will
+/// likely result in wrap-on-overflow semantics in release mode, which can in
+/// turn produce incorrect state identifiers. Those state identifiers may then
+/// in turn access out-of-bounds memory in a DFA's search routine, where bounds
+/// checks are explicitly elided for performance reasons.
+pub unsafe trait StateID:
+    Clone + Copy + Debug + Eq + Hash + PartialEq + PartialOrd + Ord
+{
+    /// Convert from a `usize` to this implementation's representation.
+    ///
+    /// Implementors may assume that `n <= Self::max_id`. That is, implementors
+    /// do not need to check whether `n` can fit inside this implementation's
+    /// representation.
     fn from_usize(n: usize) -> Self;
+
+    /// Convert this implementation's representation to a `usize`.
+    ///
+    /// Implementors must not return a `usize` value greater than
+    /// `Self::max_id` and must not permit overflow when converting between the
+    /// implementor's representation and `usize`. In general, the preferred
+    /// way for implementors to achieve this is to simply not provide
+    /// implementations of `StateID` that cannot fit into the target platform's
+    /// `usize`.
     fn to_usize(self) -> usize;
+
+    /// Return the maximum state identifier supported by this representation.
+    ///
+    /// Implementors must return a correct bound. Doing otherwise may result
+    /// in memory unsafety.
     fn max_id() -> usize;
 }
 
-impl StateID for usize {
+unsafe impl StateID for usize {
     #[inline]
     fn from_usize(n: usize) -> usize { n }
 
@@ -58,7 +100,7 @@ impl StateID for usize {
     fn max_id() -> usize { ::std::usize::MAX }
 }
 
-impl StateID for u8 {
+unsafe impl StateID for u8 {
     #[inline]
     fn from_usize(n: usize) -> u8 { n as u8 }
 
@@ -69,7 +111,7 @@ impl StateID for u8 {
     fn max_id() -> usize { ::std::u8::MAX as usize }
 }
 
-impl StateID for u16 {
+unsafe impl StateID for u16 {
     #[inline]
     fn from_usize(n: usize) -> u16 { n as u16 }
 
@@ -81,7 +123,7 @@ impl StateID for u16 {
 }
 
 #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-impl StateID for u32 {
+unsafe impl StateID for u32 {
     #[inline]
     fn from_usize(n: usize) -> u32 { n as u32 }
 
@@ -93,7 +135,7 @@ impl StateID for u32 {
 }
 
 #[cfg(target_pointer_width = "64")]
-impl StateID for u64 {
+unsafe impl StateID for u64 {
     #[inline]
     fn from_usize(n: usize) -> u64 { n as u64 }
 

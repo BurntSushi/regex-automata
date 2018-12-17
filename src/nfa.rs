@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::iter;
 
-use regex_syntax::ParserBuilder;
 use regex_syntax::hir::{self, Hir, HirKind};
 
 use error::{Error, Result};
@@ -491,15 +490,6 @@ impl NFACompiler {
         let id = self.states.borrow().len();
         self.states.borrow_mut().push(BState::Match);
         id
-    }
-}
-
-impl BState {
-    fn is_empty(&self) -> bool {
-        match *self {
-            BState::Empty { .. } => true,
-            _ => false,
-        }
     }
 }
 

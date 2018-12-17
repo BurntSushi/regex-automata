@@ -7,14 +7,72 @@ use byteorder::{ByteOrder, BigEndian, LittleEndian, NativeEndian};
 
 use builder::DFABuilder;
 use error::{Error, Result};
-use determinize::Determinizer;
 use dfa_ref::DFARef;
 use minimize::Minimizer;
-use nfa::NFA;
 use state_id::{StateID, dead_id, next_state_id, premultiply_overflow_error};
 
+/// The size of the alphabet in a standard DFA.
+///
+/// Specifically, this length controls the number of transitions present in
+/// each DFA state. However, when the byte class optimization is enabled,
+/// then each DFA maps the space of all possible 256 byte values to at most
+/// 256 distinct equivalence classes. In this case, the number of distinct
+/// equivalence classes corresponds to the internal alphabet of the DFA, in the
+/// sense that each DFA state has a number of transitions equal to the number
+/// of equivalence classes despite supporting matching on all possible byte
+/// values.
 pub const ALPHABET_LEN: usize = 256;
 
+/// A heap allocated table-based deterministic finite automaton (DFA).
+///
+/// A DFA represents the core matching primitive in this crate. That is,
+/// logically, all DFAs have a single start state, one or more match states
+/// and a transition table that maps the current state and the current byte of
+/// input to the next state. A DFA can use this information to implement fast
+/// searching. In particular, the use of a DFA generally makes the trade off
+/// that match speed is the most valuable characteristic, even if building the
+/// matcher may take significant time *and* space. As such, the processing of
+/// every byte of input is done with a small constant number of operations
+/// that does not vary with the pattern, its size or the size of the alphabet.
+/// If your needs don't line up with this trade off, then a DFA may not be an
+/// adequate solution to your problem.
+///
+/// A DFA can be built using the default configuration via the
+/// [`DFA::new`](struct.DFA.html#method.new) constructor. Otherwise, one can
+/// configure various aspects via the [`DFABuilder`](struct.DFABuilder.html).
+///
+/// A single DFA fundamentally supports the following operations:
+///
+/// 1. Detection of a match.
+/// 2. Location of the end of the first possible match.
+/// 3. Location of the end of the leftmost-first match.
+///
+/// A notable absence from the above list of capabilities is the location of
+/// the *start* of a match. In order to provide both the start and end of a
+/// match, *two* DFAs are required. This functionality is provided by a
+/// [`Matcher`](struct.Matcher.html), which can be built with its basic
+/// constructor, [`Matcher::new`](struct.Matcher.html#method.new), or with
+/// a [`MatcherBuilder`](struct.MatcherBuilder.html).
+///
+/// # State size
+///
+/// A `DFA` has a single type parameter, `S`, which corresponds to the
+/// representation used for the DFA's state identifiers as described by the
+/// [`StateID`](trait.StateID.html) trait. This type parameter is, by default,
+/// set to `usize`. Other valid choices provided by this crate include `u8`,
+/// `u16`, `u32` and `u64`. The primary reason for choosing a different state
+/// identifier representation than the default is to reduce the amount of
+/// memory used by a DFA. Note though, that if the chosen representation cannot
+/// accommodate the size of your DFA, then building the DFA will fail and
+/// return an error.
+///
+/// While the reduction in heap memory used by a DFA is one reason for choosing
+/// a smaller state identifier representation, another possible reason is for
+/// decreasing the serialization size of a DFA, as returned by
+/// [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian),
+/// [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
+/// or
+/// [`to_bytes_native_endian`](struct.DFA.html#method.to_bytes_native_endian).
 #[derive(Clone)]
 pub struct DFA<S = usize> {
     /// The type of DFA. This enum controls how the state transition table
@@ -24,12 +82,12 @@ pub struct DFA<S = usize> {
     /// The initial start state ID.
     start: S,
     /// The total number of states in this DFA. Note that a DFA always has at
-    /// least one state---the DEAD state---even the empty DFA. In particular,
-    /// the DEAD state always has ID 0 and is correspondingly always the first
-    /// state. The DEAD state is never a match state.
+    /// least one state---the dead state---even the empty DFA. In particular,
+    /// the dead state always has ID 0 and is correspondingly always the first
+    /// state. The dead state is never a match state.
     state_count: usize,
     /// States in a DFA have a *partial* ordering such that a match state
-    /// always precedes any non-match state (except for the special DEAD
+    /// always precedes any non-match state (except for the special dead
     /// state).
     ///
     /// `max_match` corresponds to the last state that is a match state. This
@@ -38,13 +96,13 @@ pub struct DFA<S = usize> {
     /// state or not. Secondly, when searching with the DFA, we can do a single
     /// comparison with `max_match` for each byte instead of two comparisons
     /// for each byte (one testing whether it is a match and the other testing
-    /// whether we've reached a DEAD state). Namely, to determine the status
+    /// whether we've reached a dead state). Namely, to determine the status
     /// of the next state, we can do this:
     ///
     ///   next_state = transition[cur_state * ALPHABET_LEN + cur_byte]
     ///   if next_state <= max_match:
-    ///       // next_state is either DEAD (no-match) or a match
-    ///       return next_state != DEAD
+    ///       // next_state is either dead (no-match) or a match
+    ///       return next_state != dead
     max_match: S,
     /// The total number of bytes in this DFA's alphabet. This is always
     /// equivalent to 256, unless the DFA was built with byte classes, in which
@@ -70,7 +128,7 @@ pub struct DFA<S = usize> {
     trans: Vec<S>,
 }
 
-impl<S: StateID> DFA<S> {
+impl DFA {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding DFA.
     ///
@@ -81,11 +139,40 @@ impl<S: StateID> DFA<S> {
     /// If you want a non-default configuration, then use the
     /// [`DFABuilder`](struct.DFABuilder.html)
     /// to set your own configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::DFA;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa = DFA::new("foo[0-9]+bar")?;
+    /// assert_eq!(Some(11), dfa.find(b"foo12345bar"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
     pub fn new(pattern: &str) -> Result<DFA> {
         DFABuilder::new().build(pattern)
     }
+}
 
+impl<S: StateID> DFA<S> {
+    /// Parse the given regular expression using a default configuration and
     /// Create a new empty DFA that never matches any input.
+    ///
+    /// # Example
+    ///
+    /// In order to build an empty DFA, callers must provide a type hint
+    /// indicating their choice of state identifier representation.
+    ///
+    /// ```
+    /// use regex_automata::DFA;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa: DFA<usize> = DFA::empty();
+    /// assert_eq!(None, dfa.find(b""));
+    /// assert_eq!(None, dfa.find(b"foo"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
     pub fn empty() -> DFA<S> {
         DFA::empty_with_byte_classes(vec![])
     }
@@ -116,8 +203,51 @@ impl<S: StateID> DFA<S> {
     }
 
     /// Returns true if and only if the given bytes match this DFA.
+    ///
+    /// This routine may short circuit if it knows that scanning future input
+    /// will never lead to a different result. In particular, if a DFA enters
+    /// a match state or a dead state, then this routine will return `true` or
+    /// `false`, respectively, without inspecting any future input.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::DFA;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa = DFA::new("foo[0-9]+bar")?;
+    /// assert_eq!(true, dfa.is_match(b"foo12345bar"));
+    /// assert_eq!(false, dfa.is_match(b"foobar"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
     pub fn is_match(&self, bytes: &[u8]) -> bool {
         self.as_dfa_ref().is_match_inline(bytes)
+    }
+
+    /// Returns the first position at which a match is found.
+    ///
+    /// This routine stops scanning input in precisely the same circumstances
+    /// as `is_match`. The key difference is that this routine returns the
+    /// position at which it stopped scanning input if and only if a match
+    /// was found. If no match is found, then `None` is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::DFA;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// assert_eq!(Some(4), dfa.shortest_match(b"foo12345"));
+    ///
+    /// // Normally, the end of the leftmost first match here would be 3,
+    /// // but the shortest match semantics detect a match earlier.
+    /// let dfa = DFA::new("abc|a")?;
+    /// assert_eq!(Some(1), dfa.shortest_match(b"abc"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub fn shortest_match(&self, bytes: &[u8]) -> Option<usize> {
+        self.as_dfa_ref().shortest_match_inline(bytes)
     }
 
     /// Returns the end offset of the leftmost first match. If no match exists,
@@ -132,9 +262,50 @@ impl<S: StateID> DFA<S> {
     /// Generally speaking, the "leftmost first" match is how most backtracking
     /// regular expressions tend to work. This is in contrast to POSIX-style
     /// regular expressions that yield "leftmost longest" matches. Namely,
-    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise`.
+    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
+    /// leftmost longest semantics.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::DFA;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// assert_eq!(Some(8), dfa.find(b"foo12345"));
+    ///
+    /// // Even though a match is found after reading the first byte (`a`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over latter parts.
+    /// let dfa = DFA::new("abc|a")?;
+    /// assert_eq!(Some(3), dfa.find(b"abc"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
     pub fn find(&self, bytes: &[u8]) -> Option<usize> {
         self.as_dfa_ref().find_inline(bytes)
+    }
+
+    /// Returns the start offset of the leftmost first match in reverse, by
+    /// searching from the end of the input towards the start of the input. If
+    /// no match exists, then `None` is returned.
+    ///
+    /// This routine is principally useful when used in conjunction with the
+    /// [`DFABuilder::reverse`](struct.DFABuilder.html#method.reverse)
+    /// configuration knob. In general, it's unlikely to be correct to use both
+    /// `find` and `rfind` with the same DFA.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::DFABuilder;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa = DFABuilder::new().reverse(true).build("foo[0-9]+")?;
+    /// assert_eq!(Some(0), dfa.rfind(b"foo12345"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub fn rfind(&self, bytes: &[u8]) -> Option<usize> {
+        self.as_dfa_ref().rfind_inline(bytes)
     }
 
     /// Return a borrowed version of this DFA.
@@ -142,7 +313,7 @@ impl<S: StateID> DFA<S> {
     /// This is useful if your code demands a borrowed version of the DFA.
     /// In particular, a `DFARef` does not specifically require any heap
     /// memory and can be used without Rust's standard library.
-    pub fn as_dfa_ref(&self) -> DFARef<S> {
+    pub fn as_dfa_ref<'a>(&'a self) -> DFARef<'a, S> {
         DFARef {
             kind: self.kind,
             start: self.start,
@@ -151,6 +322,19 @@ impl<S: StateID> DFA<S> {
             alphabet_len: self.alphabet_len,
             byte_classes: &self.byte_classes,
             trans: &self.trans,
+        }
+    }
+
+    /// Build an owned DFA from a borrowed DFA.
+    pub fn from_dfa_ref(dfa_ref: DFARef<S>) -> DFA<S> {
+        DFA {
+            kind: dfa_ref.kind,
+            start: dfa_ref.start,
+            state_count: dfa_ref.state_count,
+            max_match: dfa_ref.max_match,
+            alphabet_len: dfa_ref.alphabet_len,
+            byte_classes: dfa_ref.byte_classes.to_vec(),
+            trans: dfa_ref.trans.to_vec(),
         }
     }
 
@@ -197,7 +381,40 @@ impl<S: StateID> DFA<S> {
     /// an 8 byte boundary, or if the endianness of the serialized bytes is
     /// different than the endianness of the machine that is deserializing the
     /// DFA, then this routine will panic.
-    pub fn from_bytes(buf: &[u8]) -> DFA<S> {
+    ///
+    /// # Safety
+    ///
+    /// This routine is unsafe because it permits callers to provide an
+    /// arbitrary transition table with possibly incorrect transitions. While
+    /// the various serialization routines will never return an incorrect
+    /// transition table, there is no guarantee that the bytes provided here
+    /// are correct. While deserialization does many checks (as documented
+    /// above in the panic conditions), this routine does not check that the
+    /// transition table is correct. Given an incorrect transition table, it is
+    /// possible for the search routines to access out-of-bounds memory because
+    /// of explicit bounds check elision.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to serialize a DFA to raw bytes, deserialize it
+    /// and then use it for searching. Note that we first convert the DFA to
+    /// using `u16` for its state identifier representation before serializing
+    /// it. While this isn't strictly necessary, it's good practice in order to
+    /// decrease the size of the DFA and to avoid platform specific pitfalls
+    /// such as differing pointer sizes.
+    ///
+    /// ```
+    /// use regex_automata::DFA;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let initial = DFA::new("foo[0-9]+")?;
+    /// let bytes = initial.to_u16()?.to_bytes_native_endian()?;
+    /// let dfa: DFA<u16> = unsafe { DFA::from_bytes(&bytes) };
+    ///
+    /// assert_eq!(Some(8), dfa.find(b"foo12345"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub unsafe fn from_bytes(buf: &[u8]) -> DFA<S> {
         let dfa_ref = DFARef::from_bytes(buf);
         DFA {
             kind: dfa_ref.kind,
@@ -362,22 +579,59 @@ impl<S: StateID> DFA<S> {
 }
 
 impl<S: StateID> DFA<S> {
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u8` for the representation of state identifiers.
+    /// If `u8` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u8>()`.
     pub fn to_u8(&self) -> Result<DFA<u8>> {
         self.to_sized()
     }
 
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u16` for the representation of state identifiers.
+    /// If `u16` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u16>()`.
     pub fn to_u16(&self) -> Result<DFA<u16>> {
         self.to_sized()
     }
 
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u32` for the representation of state identifiers.
+    /// If `u32` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u32>()`.
     pub fn to_u32(&self) -> Result<DFA<u32>> {
         self.to_sized()
     }
 
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u64` for the representation of state identifiers.
+    /// If `u64` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u64>()`.
     pub fn to_u64(&self) -> Result<DFA<u64>> {
         self.to_sized()
     }
 
+    /// Create a new DFA whose match semantics are equivalent to this DFA, but
+    /// attempt to use `T` for the representation of state identifiers. If `T`
+    /// is insufficient to represent all state identifiers in this DFA, then
+    /// this returns an error.
+    ///
+    /// An alternative way to construct such a DFA is to use
+    /// [`DFABuilder::build_with_size`](struct.DFABuilder.html#method.build_with_size).
+    /// In general, using the builder is preferred since it will use the given
+    /// state identifier representation throughout determinization (and
+    /// minimization, if done), and thereby using less memory throughout the
+    /// entire construction process. However, these routines are necessary
+    /// in cases where, say, a minimized DFA could fit in a smaller state
+    /// identifier representation, but the initial determinized DFA would not.
     pub fn to_sized<T: StateID>(&self) -> Result<DFA<T>> {
         // Check that this DFA can fit into T's representation.
         let mut last_state_id = self.state_count - 1;
@@ -493,13 +747,6 @@ impl<S: StateID> DFA<S> {
         // transition table size would have run out of room long ago.
         self.state_count = self.state_count.checked_add(1).unwrap();
         Ok(id)
-    }
-
-    pub(crate) fn get_state(&self, id: S) -> State<S> {
-        let i = self.state_id_to_offset(id);
-        State {
-            transitions: &self.trans[i..i+self.alphabet_len()],
-        }
     }
 
     pub(crate) fn get_state_mut(&mut self, id: S) -> StateMut<S> {
@@ -632,14 +879,6 @@ pub struct State<'a, S> {
 }
 
 impl<'a, S: StateID> State<'a, S> {
-    pub fn len(&self) -> usize {
-        self.transitions.len()
-    }
-
-    pub fn get(&self, b: u8) -> S {
-        self.transitions[b as usize]
-    }
-
     pub fn iter(&self) -> StateTransitionIter<S> {
         StateTransitionIter { it: self.transitions.iter().enumerate() }
     }
@@ -762,7 +1001,6 @@ impl<S: StateID> fmt::Debug for DFA<S> {
         fn state_status<S: StateID>(
             dfa: &DFA<S>,
             id: S,
-            state: &State<S>,
         ) -> String {
             let mut status = vec![b' ', b' '];
             if id == dead_id() {
@@ -777,7 +1015,7 @@ impl<S: StateID> fmt::Debug for DFA<S> {
         }
 
         for (id, state) in self.iter() {
-            let status = state_status(self, id, &state);
+            let status = state_status(self, id);
             writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
         }
         Ok(())
@@ -817,6 +1055,7 @@ fn escape(b: u8) -> String {
 #[cfg(test)]
 mod tests {
     use builder::DFABuilder;
+    use nfa::NFA;
     use super::*;
 
     #[test]
@@ -826,7 +1065,7 @@ mod tests {
             .byte_classes(false)
             .anchored(true)
             .premultiply(false)
-            .build_with_size::<u16>(r"\w")
+            .build_with_size::<u16>(pattern)
             .unwrap();
         assert!(dfa.to_u8().is_err());
     }
@@ -858,7 +1097,7 @@ mod tests {
 
     fn print_automata(pattern: &str) {
         println!("BUILDING AUTOMATA");
-        let (nfa, dfa, mdfa) = build_automata(pattern);
+        let (_, dfa, mdfa) = build_automata(pattern);
 
         println!("{}", "#".repeat(100));
         // println!("PATTERN: {:?}", pattern);
@@ -911,7 +1150,8 @@ mod tests {
         // print_automata_counts(r"\p{alphabetic}");
         // print_automata(r"a*b+|cdefg");
         // print_automata(r"(..)*(...)*");
-        // print_automata(r"(?-u:\w)");
+        print_automata(r"(?-u:\w)");
+        print_automata_counts(r"(?-u:\w)");
         // print_automata_counts(r"(?-u:\w)");
     }
 }
