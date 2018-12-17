@@ -1,5 +1,5 @@
 use regex_syntax::ParserBuilder;
-use regex_syntax::hir::{Hir, HirKind};
+use regex_syntax::hir::{self, Hir, HirKind};
 
 use determinize::Determinizer;
 use dfa::DFA;
@@ -658,7 +658,27 @@ impl Default for DFABuilder {
 fn reverse_hir(expr: Hir) -> Hir {
     match expr.into_kind() {
         HirKind::Empty => Hir::empty(),
-        HirKind::Literal(lit) => Hir::literal(lit),
+        HirKind::Literal(hir::Literal::Byte(b)) => {
+            Hir::literal(hir::Literal::Byte(b))
+        }
+        HirKind::Literal(hir::Literal::Unicode(c)) => {
+            Hir::concat(
+                c.encode_utf8(&mut [0; 4])
+                .as_bytes()
+                .iter()
+                .cloned()
+                .rev()
+                .map(|b| {
+                    if b <= 0x7F {
+                        hir::Literal::Unicode(b as char)
+                    } else {
+                        hir::Literal::Byte(b)
+                    }
+                })
+                .map(Hir::literal)
+                .collect()
+            )
+        }
         HirKind::Class(cls) => Hir::class(cls),
         HirKind::Anchor(anchor) => Hir::anchor(anchor),
         HirKind::WordBoundary(anchor) => Hir::word_boundary(anchor),

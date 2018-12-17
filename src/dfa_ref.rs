@@ -143,7 +143,6 @@ impl<'a, S: StateID> DFARef<'a, S> {
             buf.as_ptr() as usize % mem::align_of::<S>(),
             "DFA transition table is not properly aligned"
         );
-        println!("state count: {:?}, alphabet len: {:?}", state_count, alphabet_len);
         let len = state_count * alphabet_len;
         assert!(
             buf.len() >= len,

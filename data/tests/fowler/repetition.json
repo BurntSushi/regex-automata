@@ -1,0 +1,2057 @@
+{
+  "groups": [
+    {
+      "name": "repetition",
+      "tests": [
+        {
+          "fowler_line_number": 10,
+          "pattern": "((..)|(.))",
+          "options": [],
+          "input": "",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 11,
+          "pattern": "((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 12,
+          "pattern": "((..)|(.))((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 14,
+          "pattern": "((..)|(.)){1}",
+          "options": [],
+          "input": "",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 15,
+          "pattern": "((..)|(.)){2}",
+          "options": [],
+          "input": "",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 16,
+          "pattern": "((..)|(.)){3}",
+          "options": [],
+          "input": "",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 18,
+          "pattern": "((..)|(.))*",
+          "options": [],
+          "input": "",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 20,
+          "pattern": "((..)|(.))",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            null,
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 21,
+          "pattern": "((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "a",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 22,
+          "pattern": "((..)|(.))((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "a",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 24,
+          "pattern": "((..)|(.)){1}",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            null,
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 25,
+          "pattern": "((..)|(.)){2}",
+          "options": [],
+          "input": "a",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 26,
+          "pattern": "((..)|(.)){3}",
+          "options": [],
+          "input": "a",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 28,
+          "pattern": "((..)|(.))*",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            null,
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 30,
+          "pattern": "((..)|(.))",
+          "options": [],
+          "input": "aa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 31,
+          "pattern": "((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            null,
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            },
+            null,
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 32,
+          "pattern": "((..)|(.))((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aa",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 34,
+          "pattern": "((..)|(.)){1}",
+          "options": [],
+          "input": "aa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 35,
+          "pattern": "((..)|(.)){2}",
+          "options": [],
+          "input": "aa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 1,
+              "end": 2
+            },
+            null,
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 36,
+          "pattern": "((..)|(.)){3}",
+          "options": [],
+          "input": "aa",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 38,
+          "pattern": "((..)|(.))*",
+          "options": [],
+          "input": "aa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 40,
+          "pattern": "((..)|(.))",
+          "options": [],
+          "input": "aaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 41,
+          "pattern": "((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaa",
+          "full_match": {
+            "start": 0,
+            "end": 3
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 3
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null,
+            {
+              "start": 2,
+              "end": 3
+            },
+            null,
+            {
+              "start": 2,
+              "end": 3
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 42,
+          "pattern": "((..)|(.))((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaa",
+          "full_match": {
+            "start": 0,
+            "end": 3
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 3
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            null,
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            },
+            null,
+            {
+              "start": 1,
+              "end": 2
+            },
+            {
+              "start": 2,
+              "end": 3
+            },
+            null,
+            {
+              "start": 2,
+              "end": 3
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 44,
+          "pattern": "((..)|(.)){1}",
+          "options": [],
+          "input": "aaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 46,
+          "pattern": "((..)|(.)){2}",
+          "options": [],
+          "input": "aaa",
+          "full_match": {
+            "start": 0,
+            "end": 3
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 3
+            },
+            {
+              "start": 2,
+              "end": 3
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 2,
+              "end": 3
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 47,
+          "pattern": "((..)|(.)){3}",
+          "options": [],
+          "input": "aaa",
+          "full_match": {
+            "start": 0,
+            "end": 3
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 3
+            },
+            {
+              "start": 2,
+              "end": 3
+            },
+            null,
+            {
+              "start": 2,
+              "end": 3
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 50,
+          "pattern": "((..)|(.))*",
+          "options": [],
+          "input": "aaa",
+          "full_match": {
+            "start": 0,
+            "end": 3
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 3
+            },
+            {
+              "start": 2,
+              "end": 3
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 2,
+              "end": 3
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 52,
+          "pattern": "((..)|(.))",
+          "options": [],
+          "input": "aaaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 53,
+          "pattern": "((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null,
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 54,
+          "pattern": "((..)|(.))((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null,
+            {
+              "start": 2,
+              "end": 3
+            },
+            null,
+            {
+              "start": 2,
+              "end": 3
+            },
+            {
+              "start": 3,
+              "end": 4
+            },
+            null,
+            {
+              "start": 3,
+              "end": 4
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 56,
+          "pattern": "((..)|(.)){1}",
+          "options": [],
+          "input": "aaaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 57,
+          "pattern": "((..)|(.)){2}",
+          "options": [],
+          "input": "aaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 59,
+          "pattern": "((..)|(.)){3}",
+          "options": [],
+          "input": "aaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 3,
+              "end": 4
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 3,
+              "end": 4
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 61,
+          "pattern": "((..)|(.))*",
+          "options": [],
+          "input": "aaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 63,
+          "pattern": "((..)|(.))",
+          "options": [],
+          "input": "aaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 64,
+          "pattern": "((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null,
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 65,
+          "pattern": "((..)|(.))((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 5
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 5
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null,
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null,
+            {
+              "start": 4,
+              "end": 5
+            },
+            null,
+            {
+              "start": 4,
+              "end": 5
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 67,
+          "pattern": "((..)|(.)){1}",
+          "options": [],
+          "input": "aaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 68,
+          "pattern": "((..)|(.)){2}",
+          "options": [],
+          "input": "aaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 70,
+          "pattern": "((..)|(.)){3}",
+          "options": [],
+          "input": "aaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 5
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 5
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 4,
+              "end": 5
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 73,
+          "pattern": "((..)|(.))*",
+          "options": [],
+          "input": "aaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 5
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 5
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 4,
+              "end": 5
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 75,
+          "pattern": "((..)|(.))",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 76,
+          "pattern": "((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null,
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 77,
+          "pattern": "((..)|(.))((..)|(.))((..)|(.))",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null,
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null,
+            {
+              "start": 4,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 6
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 79,
+          "pattern": "((..)|(.)){1}",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 2
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 80,
+          "pattern": "((..)|(.)){2}",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 4
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            {
+              "start": 2,
+              "end": 4
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 81,
+          "pattern": "((..)|(.)){3}",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 6
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 83,
+          "pattern": "((..)|(.))*",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 6
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 90,
+          "pattern": "X(.?){0,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 91,
+          "pattern": "X(.?){1,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 92,
+          "pattern": "X(.?){2,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 93,
+          "pattern": "X(.?){3,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 94,
+          "pattern": "X(.?){4,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 95,
+          "pattern": "X(.?){5,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 96,
+          "pattern": "X(.?){6,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 97,
+          "pattern": "X(.?){7,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 7,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 98,
+          "pattern": "X(.?){8,}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 100,
+          "pattern": "X(.?){0,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 102,
+          "pattern": "X(.?){1,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 104,
+          "pattern": "X(.?){2,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 106,
+          "pattern": "X(.?){3,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 108,
+          "pattern": "X(.?){4,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 110,
+          "pattern": "X(.?){5,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 112,
+          "pattern": "X(.?){6,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 114,
+          "pattern": "X(.?){7,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 115,
+          "pattern": "X(.?){8,8}Y",
+          "options": [],
+          "input": "X1234567Y",
+          "full_match": {
+            "start": 0,
+            "end": 9
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 9
+            },
+            {
+              "start": 8,
+              "end": 8
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 126,
+          "pattern": "(a|ab|c|bcd){0,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 127,
+          "pattern": "(a|ab|c|bcd){1,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 128,
+          "pattern": "(a|ab|c|bcd){2,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 3,
+              "end": 6
+            },
+            {
+              "start": 6,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 129,
+          "pattern": "(a|ab|c|bcd){3,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 3,
+              "end": 6
+            },
+            {
+              "start": 6,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 130,
+          "pattern": "(a|ab|c|bcd){4,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 131,
+          "pattern": "(a|ab|c|bcd){0,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 132,
+          "pattern": "(a|ab|c|bcd){1,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 133,
+          "pattern": "(a|ab|c|bcd){2,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 3,
+              "end": 6
+            },
+            {
+              "start": 6,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 134,
+          "pattern": "(a|ab|c|bcd){3,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 3,
+              "end": 6
+            },
+            {
+              "start": 6,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 135,
+          "pattern": "(a|ab|c|bcd){4,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 136,
+          "pattern": "(a|ab|c|bcd)*(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 137,
+          "pattern": "(a|ab|c|bcd)+(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 143,
+          "pattern": "(ab|a|c|bcd){0,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 145,
+          "pattern": "(ab|a|c|bcd){1,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 147,
+          "pattern": "(ab|a|c|bcd){2,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 149,
+          "pattern": "(ab|a|c|bcd){3,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 150,
+          "pattern": "(ab|a|c|bcd){4,}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 152,
+          "pattern": "(ab|a|c|bcd){0,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 154,
+          "pattern": "(ab|a|c|bcd){1,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 156,
+          "pattern": "(ab|a|c|bcd){2,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 158,
+          "pattern": "(ab|a|c|bcd){3,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 159,
+          "pattern": "(ab|a|c|bcd){4,10}(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 161,
+          "pattern": "(ab|a|c|bcd)*(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 163,
+          "pattern": "(ab|a|c|bcd)+(d*)",
+          "options": [],
+          "input": "ababcd",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 4,
+              "end": 5
+            },
+            {
+              "start": 5,
+              "end": 6
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -29,6 +29,13 @@ byteorder = { version = "1.2.7", default-features = false }
 regex-syntax = "0.6.4"
 utf8-ranges = "1"
 
+[dev-dependencies]
+lazy_static = "1.2.0"
+serde = "1.0.82"
+serde_bytes = "0.10.4"
+serde_derive = "1.0.82"
+serde_json = "1.0.33"
+
 [[test]]
 path = "tests/tests.rs"
 name = "default"

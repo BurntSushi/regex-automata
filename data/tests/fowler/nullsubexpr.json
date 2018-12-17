@@ -1,0 +1,1013 @@
+{
+  "groups": [
+    {
+      "name": "nullsubexpr",
+      "tests": [
+        {
+          "fowler_line_number": 3,
+          "pattern": "(a*)*",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 5,
+          "pattern": "(a*)*",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 6,
+          "pattern": "(a*)*",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 7,
+          "pattern": "(a*)*",
+          "options": [],
+          "input": "aaaaaax",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 8,
+          "pattern": "(a*)+",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 9,
+          "pattern": "(a*)+",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            },
+            {
+              "start": 0,
+              "end": 0
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 10,
+          "pattern": "(a*)+",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 11,
+          "pattern": "(a*)+",
+          "options": [],
+          "input": "aaaaaax",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 12,
+          "pattern": "(a+)*",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 13,
+          "pattern": "(a+)*",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 14,
+          "pattern": "(a+)*",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 15,
+          "pattern": "(a+)*",
+          "options": [],
+          "input": "aaaaaax",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 16,
+          "pattern": "(a+)+",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 17,
+          "pattern": "(a+)+",
+          "options": [],
+          "input": "x",
+          "full_match": null,
+          "captures": [
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 18,
+          "pattern": "(a+)+",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 19,
+          "pattern": "(a+)+",
+          "options": [],
+          "input": "aaaaaax",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 21,
+          "pattern": "([a]*)*",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 23,
+          "pattern": "([a]*)*",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 24,
+          "pattern": "([a]*)*",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 25,
+          "pattern": "([a]*)*",
+          "options": [],
+          "input": "aaaaaax",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 26,
+          "pattern": "([a]*)+",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 27,
+          "pattern": "([a]*)+",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            },
+            {
+              "start": 0,
+              "end": 0
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 28,
+          "pattern": "([a]*)+",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 29,
+          "pattern": "([a]*)+",
+          "options": [],
+          "input": "aaaaaax",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 30,
+          "pattern": "([^b]*)*",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 32,
+          "pattern": "([^b]*)*",
+          "options": [],
+          "input": "b",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 33,
+          "pattern": "([^b]*)*",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 34,
+          "pattern": "([^b]*)*",
+          "options": [],
+          "input": "aaaaaab",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 35,
+          "pattern": "([ab]*)*",
+          "options": [],
+          "input": "a",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 36,
+          "pattern": "([ab]*)*",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 37,
+          "pattern": "([ab]*)*",
+          "options": [],
+          "input": "ababab",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 38,
+          "pattern": "([ab]*)*",
+          "options": [],
+          "input": "bababa",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 39,
+          "pattern": "([ab]*)*",
+          "options": [],
+          "input": "b",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 40,
+          "pattern": "([ab]*)*",
+          "options": [],
+          "input": "bbbbbb",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 41,
+          "pattern": "([ab]*)*",
+          "options": [],
+          "input": "aaaabcde",
+          "full_match": {
+            "start": 0,
+            "end": 5
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 5
+            },
+            {
+              "start": 0,
+              "end": 5
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 42,
+          "pattern": "([^a]*)*",
+          "options": [],
+          "input": "b",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 43,
+          "pattern": "([^a]*)*",
+          "options": [],
+          "input": "bbbbbb",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 45,
+          "pattern": "([^a]*)*",
+          "options": [],
+          "input": "aaaaaa",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 46,
+          "pattern": "([^ab]*)*",
+          "options": [],
+          "input": "ccccxx",
+          "full_match": {
+            "start": 0,
+            "end": 6
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 6
+            },
+            {
+              "start": 0,
+              "end": 6
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 48,
+          "pattern": "([^ab]*)*",
+          "options": [],
+          "input": "ababab",
+          "full_match": {
+            "start": 0,
+            "end": 0
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 0
+            },
+            null
+          ]
+        },
+        {
+          "fowler_line_number": 50,
+          "pattern": "((z)+|a)*",
+          "options": [],
+          "input": "zabcde",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 69,
+          "pattern": "(a*)*(x)",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            null,
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 70,
+          "pattern": "(a*)*(x)",
+          "options": [],
+          "input": "ax",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 71,
+          "pattern": "(a*)*(x)",
+          "options": [],
+          "input": "axa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 73,
+          "pattern": "(a*)+(x)",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 0
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 74,
+          "pattern": "(a*)+(x)",
+          "options": [],
+          "input": "ax",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 75,
+          "pattern": "(a*)+(x)",
+          "options": [],
+          "input": "axa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 77,
+          "pattern": "(a*){2}(x)",
+          "options": [],
+          "input": "x",
+          "full_match": {
+            "start": 0,
+            "end": 1
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 1
+            },
+            {
+              "start": 0,
+              "end": 0
+            },
+            {
+              "start": 0,
+              "end": 1
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 78,
+          "pattern": "(a*){2}(x)",
+          "options": [],
+          "input": "ax",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 1,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        },
+        {
+          "fowler_line_number": 79,
+          "pattern": "(a*){2}(x)",
+          "options": [],
+          "input": "axa",
+          "full_match": {
+            "start": 0,
+            "end": 2
+          },
+          "captures": [
+            {
+              "start": 0,
+              "end": 2
+            },
+            {
+              "start": 1,
+              "end": 1
+            },
+            {
+              "start": 1,
+              "end": 2
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "groups": [{
+    "name": "unicode",
+    "tests": [{
+      "pattern": "☃",
+      "input": "☃",
+      "full_match": {"start": 0, "end": 3}
+    }]
+  }]
+}

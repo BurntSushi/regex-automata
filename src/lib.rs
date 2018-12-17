@@ -8,6 +8,7 @@ pub use builder::{DFABuilder, MatcherBuilder};
 pub use dfa::{DFA, DFAKind};
 pub use dfa_ref::DFARef;
 pub use error::{Error, ErrorKind};
+pub use matcher::Matcher;
 pub use state_id::StateID;
 
 mod builder;
