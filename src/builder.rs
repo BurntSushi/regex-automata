@@ -4,11 +4,11 @@ use regex_syntax::hir::{self, Hir, HirKind};
 use determinize::Determinizer;
 use dfa::DFA;
 use error::{Error, Result};
-use matcher::Matcher;
+use regex::Regex;
 use nfa::{NFA, NFABuilder};
 use state_id::StateID;
 
-/// A builder for a matcher based on deterministic finite automatons.
+/// A builder for a regex based on deterministic finite automatons.
 ///
 /// This builder permits configuring several aspects of the construction
 /// process such as case insensitivity, Unicode support and various options
@@ -17,32 +17,32 @@ use state_id::StateID;
 ///
 /// This build generally constructs two DFAs, where one is responsible for
 /// finding the end of a match and the other is responsible for finding the
-/// start of a match. If you only need to detect whether something matcher,
+/// start of a match. If you only need to detect whether something matched,
 /// or only the end of a match, then you should use a
 /// [`DFABuilder`](struct.DFABuilder.html)
 /// to construct a single DFA, which is cheaper than building two DFAs.
 #[derive(Clone, Debug)]
-pub struct MatcherBuilder {
+pub struct RegexBuilder {
     dfa: DFABuilder,
 }
 
-impl MatcherBuilder {
-    /// Create a new matcher builder with the default configuration.
-    pub fn new() -> MatcherBuilder {
-        MatcherBuilder {
+impl RegexBuilder {
+    /// Create a new regex builder with the default configuration.
+    pub fn new() -> RegexBuilder {
+        RegexBuilder {
             dfa: DFABuilder::new(),
         }
     }
 
-    /// Build a matcher from the given pattern.
+    /// Build a regex from the given pattern.
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    pub fn build(&self, pattern: &str) -> Result<Matcher<'static>> {
+    pub fn build(&self, pattern: &str) -> Result<Regex<'static>> {
         self.build_with_size::<usize>(pattern)
     }
 
-    /// Build a matcher from the given pattern using a specific representation
+    /// Build a regex from the given pattern using a specific representation
     /// for the underlying DFA state IDs.
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
@@ -62,12 +62,12 @@ impl MatcherBuilder {
     /// representation, first build it with a bigger state ID representation,
     /// and then shrink the sizes of the DFAs using one of its conversion
     /// routines, such as [`DFA::to_u16`](struct.DFA.html#method.to_u16).
-    /// Finally, reconstitute the matcher via
-    /// [`Matcher::from_dfa`](struct.Matcher.html#method.from_dfa).
+    /// Finally, reconstitute the regex via
+    /// [`Regex::from_dfa`](struct.Regex.html#method.from_dfa).
     pub fn build_with_size<S: StateID>(
         &self,
         pattern: &str,
-    ) -> Result<Matcher<'static, S>> {
+    ) -> Result<Regex<'static, S>> {
         let forward = self.dfa.build_with_size(pattern)?;
         let reverse = self.dfa
             .clone()
@@ -75,17 +75,17 @@ impl MatcherBuilder {
             .reverse(true)
             .longest_match(true)
             .build_with_size(pattern)?;
-        Ok(Matcher::from_dfa(forward, reverse))
+        Ok(Regex::from_dfa(forward, reverse))
     }
 
     /// Set whether matching must be anchored at the beginning of the input.
     ///
     /// When enabled, a match must begin at the start of the input. When
-    /// disabled, the matcher will act as if the pattern started with a `.*?`,
+    /// disabled, the regex will act as if the pattern started with a `.*?`,
     /// which enables a match to appear anywhere.
     ///
     /// By default this is disabled.
-    pub fn anchored(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn anchored(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.anchored(yes);
         self
     }
@@ -94,7 +94,7 @@ impl MatcherBuilder {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `i` flag.
-    pub fn case_insensitive(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn case_insensitive(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.case_insensitive(yes);
         self
     }
@@ -107,7 +107,7 @@ impl MatcherBuilder {
     ///
     /// By default, this is disabled. It may be selectively enabled in the
     /// regular expression by using the `x` flag regardless of this setting.
-    pub fn ignore_whitespace(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn ignore_whitespace(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.ignore_whitespace(yes);
         self
     }
@@ -116,7 +116,7 @@ impl MatcherBuilder {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `s` flag.
-    pub fn dot_matches_new_line(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn dot_matches_new_line(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.dot_matches_new_line(yes);
         self
     }
@@ -125,7 +125,7 @@ impl MatcherBuilder {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `U` flag.
-    pub fn swap_greed(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn swap_greed(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.swap_greed(yes);
         self
     }
@@ -138,7 +138,7 @@ impl MatcherBuilder {
     /// Note that unless `allow_invalid_utf8` is enabled (it's disabled by
     /// default), a regular expression will fail to parse if Unicode mode is
     /// disabled and a sub-expression could possibly match invalid UTF-8.
-    pub fn unicode(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn unicode(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.unicode(yes);
         self
     }
@@ -154,7 +154,7 @@ impl MatcherBuilder {
     /// word boundary (uttered as `(?-u:\B)` in the concrete syntax) will cause
     /// the parser to return an error. Namely, a negated ASCII word boundary
     /// can result in matching positions that aren't valid UTF-8 boundaries.
-    pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.allow_invalid_utf8(yes);
         self
     }
@@ -184,14 +184,14 @@ impl MatcherBuilder {
     /// in a nest depth of `1`. In general, a nest limit is not something that
     /// manifests in an obvious way in the concrete syntax, therefore, it
     /// should not be used in a granular way.
-    pub fn nest_limit(&mut self, limit: u32) -> &mut MatcherBuilder {
+    pub fn nest_limit(&mut self, limit: u32) -> &mut RegexBuilder {
         self.dfa.nest_limit(limit);
         self
     }
 
     /// Minimize the underlying DFAs.
     ///
-    /// When enabled, the DFAs powering the resulting matcher will be minimized
+    /// When enabled, the DFAs powering the resulting regex will be minimized
     /// such that it is as small as possible.
     ///
     /// Whether one enables minimization or not depends on the types of costs
@@ -224,7 +224,7 @@ impl MatcherBuilder {
     ///    (up to state renaming), then the languages are equivalent.
     ///
     /// This option is disabled by default.
-    pub fn minimize(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn minimize(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.minimize(yes);
         self
     }
@@ -252,7 +252,7 @@ impl MatcherBuilder {
     /// non-premultiplied form only requires 8 bits.
     ///
     /// This option is enabled by default.
-    pub fn premultiply(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn premultiply(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.premultiply(yes);
         self
     }
@@ -279,15 +279,15 @@ impl MatcherBuilder {
     /// transition. This has a small match time performance cost.
     ///
     /// This option is enabled by default.
-    pub fn byte_classes(&mut self, yes: bool) -> &mut MatcherBuilder {
+    pub fn byte_classes(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.byte_classes(yes);
         self
     }
 }
 
-impl Default for MatcherBuilder {
-    fn default() -> MatcherBuilder {
-        MatcherBuilder::new()
+impl Default for RegexBuilder {
+    fn default() -> RegexBuilder {
+        RegexBuilder::new()
     }
 }
 
@@ -300,11 +300,11 @@ impl Default for MatcherBuilder {
 /// performing DFA minimization) can come with a substantial additional cost.
 ///
 /// This builder always constructs a *single* DFA. As such, this builder can
-/// only be used to construct matchers that either detect the presence of a
+/// only be used to construct regexes that either detect the presence of a
 /// match or find the end location of a match. A single DFA cannot produce both
 /// the start and end of a match. For that information, use a
-/// [`Matcher`](struct.Matcher.html), which can be similarly configured using
-/// [`MatcherBuilder`](struct.MatcherBuilder.html).
+/// [`Regex`](struct.Regex.html), which can be similarly configured using
+/// [`RegexBuilder`](struct.RegexBuilder.html).
 #[derive(Clone, Debug)]
 pub struct DFABuilder {
     parser: ParserBuilder,
@@ -613,7 +613,7 @@ impl DFABuilder {
     /// Generally speaking, a reverse DFA is most useful for finding the start
     /// of a match, since a single forward DFA is only capable of finding the
     /// end of a match. This start of match handling is done for you
-    /// automatically if you build a [`Matcher`](struct.Matcher.html).
+    /// automatically if you build a [`Regex`](struct.Regex.html).
     pub fn reverse(&mut self, yes: bool) -> &mut DFABuilder {
         self.reverse = yes;
         self

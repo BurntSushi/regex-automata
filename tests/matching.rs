@@ -1,4 +1,4 @@
-use regex_automata::{DFA, DFABuilder, Error, ErrorKind, MatcherBuilder};
+use regex_automata::{DFA, DFABuilder, Error, ErrorKind, RegexBuilder};
 
 use fowler;
 
@@ -62,56 +62,56 @@ impl SuiteTest {
 
 #[test]
 fn suite_dfa_basic() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(false);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_premultiply() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(false);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_byte_class() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(true);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_premultiply_byte_class() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(true);
     run_suite(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_basic() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(false);
     run_suite_minimal(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_premultiply() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(false);
     run_suite_minimal(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_byte_class() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
     run_suite_minimal(&builder);
 }
 
 #[test]
 fn suite_dfa_minimal_premultiply_byte_class() {
-    let mut builder = MatcherBuilder::new();
+    let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(true);
     run_suite_minimal(&builder);
 }
@@ -163,7 +163,7 @@ fn suite_dfa_roundtrip() {
     }
 }
 
-fn run_suite(builder: &MatcherBuilder) {
+fn run_suite(builder: &RegexBuilder) {
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
         let dfa = match ignore_unsupported(builder.build(test.pattern)) {
@@ -175,7 +175,7 @@ fn run_suite(builder: &MatcherBuilder) {
     }
 }
 
-fn run_suite_minimal(builder: &MatcherBuilder) {
+fn run_suite_minimal(builder: &RegexBuilder) {
     let tests = SuiteTest::collection(fowler::TESTS);
     for test in &tests {
         if skip_with_minimize(test) {

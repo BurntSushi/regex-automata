@@ -8,6 +8,6 @@ extern crate serde_derive;
 extern crate serde_json;
 
 mod fowler;
-mod load;
+mod collection;
 mod matching;
 mod suite;

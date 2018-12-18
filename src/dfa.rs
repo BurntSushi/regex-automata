@@ -31,7 +31,7 @@ pub const ALPHABET_LEN: usize = 256;
 /// input to the next state. A DFA can use this information to implement fast
 /// searching. In particular, the use of a DFA generally makes the trade off
 /// that match speed is the most valuable characteristic, even if building the
-/// matcher may take significant time *and* space. As such, the processing of
+/// regex may take significant time *and* space. As such, the processing of
 /// every byte of input is done with a small constant number of operations
 /// that does not vary with the pattern, its size or the size of the alphabet.
 /// If your needs don't line up with this trade off, then a DFA may not be an
@@ -50,9 +50,9 @@ pub const ALPHABET_LEN: usize = 256;
 /// A notable absence from the above list of capabilities is the location of
 /// the *start* of a match. In order to provide both the start and end of a
 /// match, *two* DFAs are required. This functionality is provided by a
-/// [`Matcher`](struct.Matcher.html), which can be built with its basic
-/// constructor, [`Matcher::new`](struct.Matcher.html#method.new), or with
-/// a [`MatcherBuilder`](struct.MatcherBuilder.html).
+/// [`Regex`](struct.Regex.html), which can be built with its basic
+/// constructor, [`Regex::new`](struct.Regex.html#method.new), or with
+/// a [`RegexBuilder`](struct.RegexBuilder.html).
 ///
 /// # State size
 ///

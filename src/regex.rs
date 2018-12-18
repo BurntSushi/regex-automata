@@ -1,6 +1,6 @@
 use std::fmt;
 
-use builder::MatcherBuilder;
+use builder::RegexBuilder;
 use dfa::DFA;
 use dfa_ref::DFARef;
 use error::Result;
@@ -9,39 +9,39 @@ use state_id::StateID;
 /// A regular expression that uses deterministic finite automata for fast
 /// searching.
 #[derive(Clone)]
-pub struct Matcher<'a, S = usize> {
+pub struct Regex<'a, S = usize> {
     forward: OwnOrBorrow<'a, S>,
     reverse: OwnOrBorrow<'a, S>,
 }
 
-impl Matcher<'static, usize> {
+impl Regex<'static, usize> {
     /// Parse the given regular expression using a default configuration and
-    /// return the corresponding matcher.
+    /// return the corresponding regex.
     ///
     /// The default configuration uses `usize` for state IDs, premultiplies
     /// them and reduces the alphabet size by splitting bytes into equivalence
     /// classes. The underlying DFAs are *not* minimized.
     ///
     /// If you want a non-default configuration, then use the
-    /// [`MatcherBuilder`](struct.MatcherBuilder.html)
+    /// [`RegexBuilder`](struct.RegexBuilder.html)
     /// to set your own configuration.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Matcher;
+    /// use regex_automata::Regex;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let matcher = Matcher::new("foo[0-9]+bar")?;
-    /// assert_eq!(Some((3, 14)), matcher.find(b"zzzfoo12345barzzz"));
+    /// let re = Regex::new("foo[0-9]+bar")?;
+    /// assert_eq!(Some((3, 14)), re.find(b"zzzfoo12345barzzz"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn new(pattern: &str) -> Result<Matcher<'static, usize>> {
-        MatcherBuilder::new().build(pattern)
+    pub fn new(pattern: &str) -> Result<Regex<'static, usize>> {
+        RegexBuilder::new().build(pattern)
     }
 }
 
-impl<'a, S: StateID> Matcher<'a, S> {
+impl<'a, S: StateID> Regex<'a, S> {
     /// Returns true if and only if the given bytes match.
     ///
     /// This routine may short circuit if it knows that scanning future input
@@ -52,10 +52,10 @@ impl<'a, S: StateID> Matcher<'a, S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Matcher;
+    /// use regex_automata::Regex;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let re = Matcher::new("foo[0-9]+bar")?;
+    /// let re = Regex::new("foo[0-9]+bar")?;
     /// assert_eq!(true, re.is_match(b"foo12345bar"));
     /// assert_eq!(false, re.is_match(b"foobar"));
     /// # Ok(()) }; example().unwrap()
@@ -74,15 +74,15 @@ impl<'a, S: StateID> Matcher<'a, S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Matcher;
+    /// use regex_automata::Regex;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let re = Matcher::new("foo[0-9]+")?;
+    /// let re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(Some(4), re.shortest_match(b"foo12345"));
     ///
     /// // Normally, the end of the leftmost first match here would be 3,
     /// // but the shortest match semantics detect a match earlier.
-    /// let re = Matcher::new("abc|a")?;
+    /// let re = Regex::new("abc|a")?;
     /// assert_eq!(Some(1), re.shortest_match(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -108,16 +108,16 @@ impl<'a, S: StateID> Matcher<'a, S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Matcher;
+    /// use regex_automata::Regex;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let re = Matcher::new("foo[0-9]+")?;
+    /// let re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(Some((3, 11)), re.find(b"zzzfoo12345zzz"));
     ///
     /// // Even though a match is found after reading the first byte (`a`),
     /// // the leftmost first match semantics demand that we find the earliest
     /// // match that prefers earlier parts of the pattern over latter parts.
-    /// let re = Matcher::new("abc|a")?;
+    /// let re = Regex::new("abc|a")?;
     /// assert_eq!(Some((0, 3)), re.find(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -134,8 +134,8 @@ impl<'a, S: StateID> Matcher<'a, S> {
     }
 }
 
-impl<'a, S: StateID> Matcher<'a, S> {
-    /// Build a new matcher from its constituent forward and reverse DFAs.
+impl<'a, S: StateID> Regex<'a, S> {
+    /// Build a new regex from its constituent forward and reverse DFAs.
     ///
     /// It's not currently possible for a caller using this crate's public API
     /// to correctly use this method since the `DFABuilder` does not expose the
@@ -143,24 +143,24 @@ impl<'a, S: StateID> Matcher<'a, S> {
     pub(crate) fn from_dfa(
         forward: DFA<S>,
         reverse: DFA<S>,
-    ) -> Matcher<'static, S> {
-        Matcher {
+    ) -> Regex<'static, S> {
+        Regex {
             forward: OwnOrBorrow::Owned(forward),
             reverse: OwnOrBorrow::Owned(reverse),
         }
     }
 
-    /// Build a new matcher from its constituent forward and reverse borrowed
+    /// Build a new regex from its constituent forward and reverse borrowed
     /// DFAs.
     ///
-    /// This is useful when deserializing a matcher from some arbitrary
+    /// This is useful when deserializing a regex from some arbitrary
     /// memory region. Note that currently, it is not possible to correctly
     /// build these DFAs directly using a `DFABuilder`. In particular, the
     /// forward and reverse DFAs given here *must* be DFAs corresponding to a
     /// previously built regex and retrieved using the
-    /// [`Matcher::forward`](struct.Matcher.html#method.forward)
+    /// [`Regex::forward`](struct.Regex.html#method.forward)
     /// and
-    /// [`Matcher::reverse`](struct.Matcher.html#method.reverse)
+    /// [`Regex::reverse`](struct.Regex.html#method.reverse)
     /// methods.
     ///
     /// # Example
@@ -170,22 +170,22 @@ impl<'a, S: StateID> Matcher<'a, S> {
     /// it later to build a regex.
     ///
     /// ```
-    /// use regex_automata::Matcher;
+    /// use regex_automata::Regex;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let initial_re = Matcher::new("foo[0-9]+")?;
+    /// let initial_re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(true, initial_re.is_match(b"foo123"));
     ///
     /// let (fwd, rev) = (initial_re.forward(), initial_re.reverse());
-    /// let re = Matcher::from_dfa_refs(fwd, rev);
+    /// let re = Regex::from_dfa_refs(fwd, rev);
     /// assert_eq!(true, initial_re.is_match(b"foo123"));
     /// # Ok(()) }; example().unwrap()
     /// ```
     pub fn from_dfa_refs(
         forward: DFARef<'a, S>,
         reverse: DFARef<'a, S>,
-    ) -> Matcher<'a, S> {
-        Matcher {
+    ) -> Regex<'a, S> {
+        Regex {
             forward: OwnOrBorrow::Borrowed(forward),
             reverse: OwnOrBorrow::Borrowed(reverse),
         }
@@ -214,9 +214,9 @@ enum OwnOrBorrow<'a, S = usize> {
     Borrowed(DFARef<'a, S>),
 }
 
-impl<'a, S: StateID> fmt::Debug for Matcher<'a, S> {
+impl<'a, S: StateID> fmt::Debug for Regex<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Matcher")
+        f.debug_struct("Regex")
             .field("forward", &self.forward)
             .field("reverse", &self.reverse)
             .finish()
