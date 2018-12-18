@@ -9,7 +9,11 @@ lazy_static! {
         col.extend(RegexTestGroups::fowler_basic());
         col.extend(RegexTestGroups::fowler_nullsubexpr());
         col.extend(RegexTestGroups::fowler_repetition());
+        // TODO: Include these tests. We need a way to not run them with
+        // minimization though, since it's quite slow at the moment.
+        // col.extend(RegexTestGroups::fowler_repetition_long());
         col.extend(RegexTestGroups::unicode());
+        col.extend(RegexTestGroups::invalid_utf8());
         col
     };
 }
@@ -48,6 +52,10 @@ pub struct RegexTest {
 #[serde(rename_all = "kebab-case")]
 pub enum RegexTestOption {
     CaseInsensitive,
+    NoUnicode,
+    Escaped,
+    #[serde(rename = "invalid-utf8")]
+    InvalidUTF8,
 }
 
 #[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
@@ -81,7 +89,15 @@ impl RegexTestCollection {
 
 impl RegexTestGroups {
     fn load(slice: &[u8]) -> RegexTestGroups {
-        serde_json::from_slice(slice).unwrap()
+        let mut data: RegexTestGroups = serde_json::from_slice(slice).unwrap();
+        for group in &mut data.groups {
+            for test in &mut group.tests {
+                if test.options.contains(&RegexTestOption::Escaped) {
+                    test.input = unescape_bytes(&test.input);
+                }
+            }
+        }
+        data
     }
 
     fn fowler_basic() -> RegexTestGroups {
@@ -99,8 +115,18 @@ impl RegexTestGroups {
         RegexTestGroups::load(raw)
     }
 
+    fn fowler_repetition_long() -> RegexTestGroups {
+        let raw = include_bytes!("../data/tests/fowler/repetition-long.json");
+        RegexTestGroups::load(raw)
+    }
+
     fn unicode() -> RegexTestGroups {
         let raw = include_bytes!("../data/tests/unicode.json");
+        RegexTestGroups::load(raw)
+    }
+
+    fn invalid_utf8() -> RegexTestGroups {
+        let raw = include_bytes!("../data/tests/invalid-utf8.json");
         RegexTestGroups::load(raw)
     }
 }
@@ -223,14 +249,16 @@ impl fmt::Display for RegexTestFailure {
             pattern: {}\n    \
             pattern (escape): {}\n    \
             input: {}\n    \
-            input (escape): {}",
+            input (escape): {}\n    \
+            input (hex): {}",
             self.group,
             self.kind.fmt(&self.test)?,
             self.test.options,
             self.test.pattern,
             escape_default(&self.test.pattern),
             nice_raw_bytes(&self.test.input),
-            escape_bytes(&self.test.input)
+            escape_bytes(&self.test.input),
+            hex_bytes(&self.test.input)
         )
     }
 }
@@ -290,6 +318,17 @@ fn escape_bytes(bytes: &[u8]) -> String {
     String::from_utf8(escaped).unwrap()
 }
 
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|&b| format!(r"\x{:02X}", b)).collect()
+}
+
 fn escape_default(s: &str) -> String {
     s.chars().flat_map(|c| c.escape_default()).collect()
+}
+
+fn unescape_bytes(bytes: &[u8]) -> Vec<u8> {
+    use std::str;
+    use unescape::unescape;
+
+    unescape(&str::from_utf8(bytes).expect("all input must be valid UTF-8"))
 }

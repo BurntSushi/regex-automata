@@ -11,3 +11,4 @@ mod fowler;
 mod collection;
 mod matching;
 mod suite;
+mod unescape;

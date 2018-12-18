@@ -1,0 +1,11 @@
+{
+  "groups": [{
+    "name": "unicode-literal",
+    "tests": [{
+      "options": ["escaped", "invalid-utf8", "no-unicode"],
+      "pattern": "\\xFF",
+      "input": "\\xFF",
+      "full_match": {"start": 0, "end": 1}
+    }]
+  }]
+}

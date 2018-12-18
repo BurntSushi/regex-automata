@@ -61,28 +61,28 @@ impl SuiteTest {
 }
 
 #[test]
-fn suite_dfa_basic() {
+fn suite_dfa_unmin_basic() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(false);
     run_suite(&builder);
 }
 
 #[test]
-fn suite_dfa_premultiply() {
+fn suite_dfa_unmin_premultiply() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(false);
     run_suite(&builder);
 }
 
 #[test]
-fn suite_dfa_byte_class() {
+fn suite_dfa_unmin_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(true);
     run_suite(&builder);
 }
 
 #[test]
-fn suite_dfa_premultiply_byte_class() {
+fn suite_dfa_unmin_premultiply_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(true);
     run_suite(&builder);
