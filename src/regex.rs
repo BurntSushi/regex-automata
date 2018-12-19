@@ -140,7 +140,7 @@ impl<'a, S: StateID> Regex<'a, S> {
     /// It's not currently possible for a caller using this crate's public API
     /// to correctly use this method since the `DFABuilder` does not expose the
     /// necessary options to correctly build the reverse DFA.
-    pub(crate) fn from_dfa(
+    pub(crate) fn from_dfas(
         forward: DFA<S>,
         reverse: DFA<S>,
     ) -> Regex<'static, S> {
@@ -205,6 +205,76 @@ impl<'a, S: StateID> Regex<'a, S> {
             OwnOrBorrow::Owned(ref dfa) => dfa.as_dfa_ref(),
             OwnOrBorrow::Borrowed(dfa) => dfa,
         }
+    }
+}
+
+impl<'a, S: StateID> Regex<'a, S> {
+    /// Create a new regex whose match semantics are equivalent to this regex,
+    /// but attempt to use `u8` for the representation of state identifiers.
+    /// If `u8` is insufficient to represent all state identifiers in this
+    /// regex, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u8>()`.
+    pub fn to_u8(&self) -> Result<Regex<'static, u8>> {
+        self.to_sized()
+    }
+
+    /// Create a new regex whose match semantics are equivalent to this regex,
+    /// but attempt to use `u16` for the representation of state identifiers.
+    /// If `u16` is insufficient to represent all state identifiers in this
+    /// regex, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u16>()`.
+    pub fn to_u16(&self) -> Result<Regex<'static, u16>> {
+        self.to_sized()
+    }
+
+    /// Create a new regex whose match semantics are equivalent to this regex,
+    /// but attempt to use `u32` for the representation of state identifiers.
+    /// If `u32` is insufficient to represent all state identifiers in this
+    /// regex, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u32>()`.
+    pub fn to_u32(&self) -> Result<Regex<'static, u32>> {
+        self.to_sized()
+    }
+
+    /// Create a new regex whose match semantics are equivalent to this regex,
+    /// but attempt to use `u64` for the representation of state identifiers.
+    /// If `u64` is insufficient to represent all state identifiers in this
+    /// regex, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u64>()`.
+    pub fn to_u64(&self) -> Result<Regex<'static, u64>> {
+        self.to_sized()
+    }
+
+    /// Create a new regex whose match semantics are equivalent to this regex,
+    /// but attempt to use `T` for the representation of state identifiers. If
+    /// `T` is insufficient to represent all state identifiers in this regex,
+    /// then this returns an error.
+    ///
+    /// An alternative way to construct such a regex is to use
+    /// [`RegexBuilder::build_with_size`](struct.RegexBuilder.html#method.build_with_size).
+    /// In general, using the builder is preferred since it will use the
+    /// given state identifier representation throughout determinization (and
+    /// minimization, if done), and thereby using less memory throughout the
+    /// entire construction process. However, these routines are necessary
+    /// in cases where, say, a minimized regex could fit in a smaller state
+    /// identifier representation, but the initial determinized regex would
+    /// not.
+    pub fn to_sized<T: StateID>(&self) -> Result<Regex<'static, T>> {
+        use self::OwnOrBorrow::*;
+
+        let forward = match self.forward {
+            Owned(ref dfa) => dfa.to_sized::<T>()?,
+            Borrowed(dfa) => DFA::from_dfa_ref(dfa).to_sized::<T>()?,
+        };
+        let reverse = match self.reverse {
+            Owned(ref dfa) => dfa.to_sized::<T>()?,
+            Borrowed(dfa) => DFA::from_dfa_ref(dfa).to_sized::<T>()?,
+        };
+        Ok(Regex::from_dfas(forward, reverse))
     }
 }
 

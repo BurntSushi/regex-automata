@@ -75,7 +75,7 @@ impl RegexBuilder {
             .reverse(true)
             .longest_match(true)
             .build_with_size(pattern)?;
-        Ok(Regex::from_dfa(forward, reverse))
+        Ok(Regex::from_dfas(forward, reverse))
     }
 
     /// Set whether matching must be anchored at the beginning of the input.

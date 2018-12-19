@@ -1,14 +1,15 @@
-use regex_automata::{Error, ErrorKind, Regex, RegexBuilder};
+use regex_automata::{DFARef, Regex, RegexBuilder};
 
-use collection::{SUITE, RegexTest, RegexTestOption};
+use collection::{SUITE, RegexTester};
 
 #[test]
 fn unminimized_standard() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(false);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new().skip_expensive();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
 #[test]
@@ -16,8 +17,9 @@ fn unminimized_premultiply() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(false);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new().skip_expensive();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
 #[test]
@@ -25,8 +27,9 @@ fn unminimized_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(false).byte_classes(true);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
 #[test]
@@ -34,8 +37,9 @@ fn unminimized_premultiply_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(false).premultiply(true).byte_classes(true);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
 #[test]
@@ -43,8 +47,9 @@ fn minimized_standard() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(false);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new().skip_expensive();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
 #[test]
@@ -52,8 +57,9 @@ fn minimized_premultiply() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(false);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new().skip_expensive();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
 #[test]
@@ -61,8 +67,9 @@ fn minimized_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new().skip_expensive();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
 #[test]
@@ -70,77 +77,57 @@ fn minimized_premultiply_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(true);
 
-    SUITE.tester().is_match(&mut *regex_builder_is_match(&builder)).assert();
-    SUITE.tester().find(&mut *regex_builder_find(&builder)).assert();
+    let mut tester = RegexTester::new().skip_expensive();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
 }
 
-/// Create a closure built from the given builder that can be used to run a
-/// suite's `is_match` tests.
-fn regex_builder_is_match(
-    builder: &RegexBuilder,
-) -> Box<FnMut(&RegexTest) -> Option<bool>>
-{
-    let mut builder = builder.clone();
-    Box::new(move |test| {
-        build_regex(&mut builder, test).map(|m| m.is_match(&test.input))
-    })
-}
+// A basic sanity test that checks we can convert a regex to a smaller
+// representation and that the resulting regex still passes our tests.
+//
+// If tests grow minimal regexes that cannot be represented in 16 bits, then
+// we'll either want to skip those or increase the size to test to u32.
+#[test]
+fn u16() {
+    let mut builder = RegexBuilder::new();
+    builder.minimize(true).premultiply(false).byte_classes(true);
 
-/// Create a closure built from the given builder that can be used to run a
-/// suite's `find` tests.
-fn regex_builder_find(
-    builder: &RegexBuilder,
-) -> Box<FnMut(&RegexTest) -> Option<Option<(usize, usize)>>>
-{
-    let mut builder = builder.clone();
-    Box::new(move |test| {
-        build_regex(&mut builder, test).map(|m| m.find(&test.input))
-    })
-}
+    let mut tester = RegexTester::new().skip_expensive();
+    for test in SUITE.tests() {
+        let builder = builder.clone();
+        let re: Regex<usize> = match tester.build_regex(builder, test) {
+            None => continue,
+            Some(re) => re,
+        };
+        let re = re.to_u16().unwrap();
 
-/// Build a regex from the given builder using the given test's configuration.
-///
-/// If the test demands unsupported features, then this returns `None`. If the
-/// test reports an invalid regex, then this panics with an error and fails
-/// the current test.
-fn build_regex(
-    builder: &mut RegexBuilder,
-    test: &RegexTest,
-) -> Option<Regex<'static>> {
-    regex_builder_apply_options(builder, &test.options);
-    ignore_unsupported(builder.build(&test.pattern))
-}
-
-/// Apply the given test options to the given builder.
-fn regex_builder_apply_options(
-    builder: &mut RegexBuilder,
-    opts: &[RegexTestOption],
-) {
-    for opt in opts {
-        match *opt {
-            RegexTestOption::CaseInsensitive => {
-                builder.case_insensitive(true);
-            }
-            RegexTestOption::NoUnicode => {
-                builder.unicode(false);
-            }
-            RegexTestOption::Escaped => {}
-            RegexTestOption::InvalidUTF8 => {
-                builder.allow_invalid_utf8(true);
-            }
-        }
+        tester.test_is_match(test, &re);
+        tester.test_find(test, &re);
     }
 }
 
-/// If the given result is an error and is unsupported, then return `None`.
-/// Otherwise, for any other error, panic.
-fn ignore_unsupported<T>(res: Result<T, Error>) -> Option<T> {
-    let err = match res {
-        Ok(t) => return Some(t),
-        Err(err) => err,
-    };
-    if let ErrorKind::Unsupported(_) = *err.kind() {
-        return None;
+// Another basic sanity test that checks we can serialize and then deserialize
+// a regex, and that the resulting regex can be used for searching correctly.
+#[test]
+fn serialization_roundtrip() {
+    let mut builder = RegexBuilder::new();
+    builder.minimize(true).premultiply(false).byte_classes(true);
+
+    let mut tester = RegexTester::new().skip_expensive();
+    for test in SUITE.tests() {
+        let builder = builder.clone();
+        let re: Regex<usize> = match tester.build_regex(builder, test) {
+            None => continue,
+            Some(re) => re,
+        };
+
+        let fwd_bytes = re.forward().to_bytes_native_endian().unwrap();
+        let rev_bytes = re.reverse().to_bytes_native_endian().unwrap();
+        let fwd: DFARef<usize> = unsafe { DFARef::from_bytes(&fwd_bytes) };
+        let rev: DFARef<usize> = unsafe { DFARef::from_bytes(&rev_bytes) };
+        let re = Regex::from_dfa_refs(fwd, rev);
+
+        tester.test_is_match(test, &re);
+        tester.test_find(test, &re);
     }
-    panic!("{}", err);
 }

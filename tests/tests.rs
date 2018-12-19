@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[macro_use]
 extern crate lazy_static;
 extern crate regex_automata;
@@ -7,8 +9,6 @@ extern crate serde_bytes;
 extern crate serde_derive;
 extern crate serde_json;
 
-mod fowler;
 mod collection;
-mod matching;
 mod suite;
 mod unescape;

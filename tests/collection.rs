@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt::{self, Write};
 
+use regex_automata::{ErrorKind, Regex, RegexBuilder, StateID};
 use serde_json;
 
 lazy_static! {
@@ -9,9 +10,7 @@ lazy_static! {
         col.extend(RegexTestGroups::fowler_basic());
         col.extend(RegexTestGroups::fowler_nullsubexpr());
         col.extend(RegexTestGroups::fowler_repetition());
-        // TODO: Include these tests. We need a way to not run them with
-        // minimization though, since it's quite slow at the moment.
-        // col.extend(RegexTestGroups::fowler_repetition_long());
+        col.extend(RegexTestGroups::fowler_repetition_long());
         col.extend(RegexTestGroups::unicode());
         col.extend(RegexTestGroups::invalid_utf8());
         col
@@ -37,7 +36,7 @@ pub struct RegexTestGroup {
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegexTest {
     #[serde(default)]
-    pub fowler_line_number: Option<u64>,
+    pub group_name: String,
     #[serde(default)]
     pub options: Vec<RegexTestOption>,
     pub pattern: String,
@@ -46,6 +45,8 @@ pub struct RegexTest {
     pub full_match: Option<Match>,
     #[serde(default)]
     pub captures: Vec<Option<Match>>,
+    #[serde(default)]
+    pub fowler_line_number: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -82,8 +83,8 @@ impl RegexTestCollection {
         }
     }
 
-    pub fn tester(&self) -> RegexTester {
-        RegexTester { collection: self }
+    pub fn tests(&self) -> impl Iterator<Item=&RegexTest> {
+        self.groups.values().flat_map(|g| g.tests.iter())
     }
 }
 
@@ -92,6 +93,7 @@ impl RegexTestGroups {
         let mut data: RegexTestGroups = serde_json::from_slice(slice).unwrap();
         for group in &mut data.groups {
             for test in &mut group.tests {
+                test.group_name = group.name.clone();
                 if test.options.contains(&RegexTestOption::Escaped) {
                     test.input = unescape_bytes(&test.input);
                 }
@@ -132,69 +134,128 @@ impl RegexTestGroups {
 }
 
 #[derive(Debug)]
-pub struct RegexTester<'a> {
-    collection: &'a RegexTestCollection,
+pub struct RegexTester {
+    results: RegexTestResults,
+    skip_expensive: bool,
 }
 
-impl<'a> RegexTester<'a> {
-    pub fn is_match<F>(
-        &self,
-        mut is_match: F,
-    ) -> RegexTestResults
-    where F: FnMut(&RegexTest) -> Option<bool>
-    {
-        let mut results = RegexTestResults::new();
-        for group in self.collection.groups.values() {
-            for test in group.tests.iter() {
-                let got = match is_match(test) {
-                    None => continue,
-                    Some(got) => got,
-                };
-                let expected = test.full_match.is_some();
-                if got == expected {
-                    results.succeeded += 1;
-                    continue;
-                }
-                results.failed.push(RegexTestFailure {
-                    group: group.name.clone(),
-                    test: test.clone(),
-                    kind: RegexTestFailureKind::IsMatch,
-                });
-            }
+impl RegexTester {
+    pub fn new() -> RegexTester {
+        RegexTester {
+            results: RegexTestResults::default(),
+            skip_expensive: false,
         }
-        results
     }
 
-    pub fn find<F>(
+    pub fn skip_expensive(mut self) -> RegexTester {
+        self.skip_expensive = true;
+        self
+    }
+
+    pub fn assert(&self) {
+        self.results.assert();
+    }
+
+    pub fn test_all<'a, I: Iterator<Item=&'a RegexTest>>(
+        &mut self,
+        builder: RegexBuilder,
+        tests: I,
+    ) {
+        for test in tests {
+            let builder = builder.clone();
+            let re: Regex<usize> = match self.build_regex(builder, test) {
+                None => continue,
+                Some(re) => re,
+            };
+            self.test_is_match(test, &re);
+            self.test_find(test, &re);
+        }
+    }
+
+    pub fn build_regex<S: StateID>(
         &self,
-        mut find: F,
-    ) -> RegexTestResults
-    where F: FnMut(&RegexTest) -> Option<Option<(usize, usize)>>
-    {
-        let mut results = RegexTestResults::new();
-        for group in self.collection.groups.values() {
-            for test in group.tests.iter() {
-                let got = match find(test) {
-                    None => continue,
-                    Some(None) => None,
-                    Some(Some((start, end))) => Some(Match { start, end }),
-                };
-                if got == test.full_match {
-                    results.succeeded += 1;
-                    continue;
+        mut builder: RegexBuilder,
+        test: &RegexTest,
+    ) -> Option<Regex<'static, S>> {
+        if self.skip(test) {
+            return None;
+        }
+        self.apply_options(test, &mut builder);
+        match builder.build_with_size::<S>(&test.pattern) {
+            Ok(re) => Some(re),
+            Err(err) => {
+                if let ErrorKind::Unsupported(_) = *err.kind() {
+                    None
+                } else {
+                    panic!("failed to build '{:?}': {}", test.pattern, err);
                 }
-                results.failed.push(RegexTestFailure {
-                    group: group.name.clone(),
-                    test: test.clone(),
-                    kind: RegexTestFailureKind::Find { got },
-                });
             }
         }
-        results
+    }
+
+    pub fn test_is_match<'a, S: StateID>(
+        &mut self,
+        test: &RegexTest,
+        re: &Regex<'a, S>,
+    ) {
+        let got = re.is_match(&test.input);
+        let expected = test.full_match.is_some();
+        if got == expected {
+            self.results.succeeded += 1;
+            return;
+        }
+        self.results.failed.push(RegexTestFailure {
+            test: test.clone(),
+            kind: RegexTestFailureKind::IsMatch,
+        });
+    }
+
+    pub fn test_find<'a, S: StateID>(
+        &mut self,
+        test: &RegexTest,
+        re: &Regex<'a, S>,
+    ) {
+        let got = re
+            .find(&test.input)
+            .map(|(start, end)| Match { start, end });
+        if got == test.full_match {
+            self.results.succeeded += 1;
+            return;
+        }
+        self.results.failed.push(RegexTestFailure {
+            test: test.clone(),
+            kind: RegexTestFailureKind::Find { got },
+        });
+    }
+
+    fn skip(&self, test: &RegexTest) -> bool {
+        if self.skip_expensive {
+            if test.group_name == "repetition-long" {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn apply_options(&self, test: &RegexTest, builder: &mut RegexBuilder) {
+        for opt in &test.options {
+            match *opt {
+                RegexTestOption::CaseInsensitive => {
+                    builder.case_insensitive(true);
+                }
+                RegexTestOption::NoUnicode => {
+                    builder.unicode(false);
+                }
+                RegexTestOption::Escaped => {}
+                RegexTestOption::InvalidUTF8 => {
+                    builder.allow_invalid_utf8(true);
+                }
+            }
+        }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct RegexTestResults {
     /// The number of successful tests.
     pub succeeded: usize,
@@ -204,7 +265,6 @@ pub struct RegexTestResults {
 
 #[derive(Clone, Debug)]
 pub struct RegexTestFailure {
-    group: String,
     test: RegexTest,
     kind: RegexTestFailureKind,
 }
@@ -251,7 +311,7 @@ impl fmt::Display for RegexTestFailure {
             input: {}\n    \
             input (escape): {}\n    \
             input (hex): {}",
-            self.group,
+            self.test.group_name,
             self.kind.fmt(&self.test)?,
             self.test.options,
             self.test.pattern,
