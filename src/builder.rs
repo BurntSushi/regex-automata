@@ -616,6 +616,7 @@ impl DFABuilder {
     /// automatically if you build a [`Regex`](struct.Regex.html).
     pub fn reverse(&mut self, yes: bool) -> &mut DFABuilder {
         self.reverse = yes;
+        self.nfa.reverse(yes);
         self
     }
 

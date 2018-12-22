@@ -1,18 +1,29 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fmt::{self, Write};
 
 use regex_automata::{ErrorKind, Regex, RegexBuilder, StateID};
 use serde_json;
 
+macro_rules! load {
+    ($col:ident, $path:expr) => {
+        $col.extend(RegexTestGroups::load(
+            include_bytes!(concat!("../data/tests/", $path))
+        ));
+    }
+}
+
 lazy_static! {
     pub static ref SUITE: RegexTestCollection = {
         let mut col = RegexTestCollection::new();
-        col.extend(RegexTestGroups::fowler_basic());
-        col.extend(RegexTestGroups::fowler_nullsubexpr());
-        col.extend(RegexTestGroups::fowler_repetition());
-        col.extend(RegexTestGroups::fowler_repetition_long());
-        col.extend(RegexTestGroups::unicode());
-        col.extend(RegexTestGroups::invalid_utf8());
+        load!(col, "fowler/basic.json");
+        load!(col, "fowler/nullsubexpr.json");
+        load!(col, "fowler/repetition.json");
+        load!(col, "fowler/repetition-long.json");
+        load!(col, "unicode.json");
+        load!(col, "invalid-utf8.json");
+        load!(col, "flags.json");
+        load!(col, "crazy.json");
         col
     };
 }
@@ -36,6 +47,8 @@ pub struct RegexTestGroup {
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegexTest {
     #[serde(default)]
+    pub id: String,
+    #[serde(default)]
     pub group_name: String,
     #[serde(default)]
     pub options: Vec<RegexTestOption>,
@@ -52,6 +65,7 @@ pub struct RegexTest {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum RegexTestOption {
+    Anchored,
     CaseInsensitive,
     NoUnicode,
     Escaped,
@@ -78,13 +92,22 @@ impl RegexTestCollection {
                 self.groups
                     .get_mut(&group.name)
                     .unwrap()
-                    .tests.extend(group.tests);
+                    .tests
+                    .extend(group.tests);
+            }
+        }
+
+        let mut id = 1;
+        for group in self.groups.values_mut() {
+            for test in group.tests.iter_mut() {
+                test.id = id.to_string();
+                id += 1;
             }
         }
     }
 
-    pub fn tests(&self) -> impl Iterator<Item=&RegexTest> {
-        self.groups.values().flat_map(|g| g.tests.iter())
+    pub fn tests(&self) -> Vec<&RegexTest> {
+        self.groups.values().flat_map(|g| g.tests.iter()).collect()
     }
 }
 
@@ -101,50 +124,36 @@ impl RegexTestGroups {
         }
         data
     }
-
-    fn fowler_basic() -> RegexTestGroups {
-        let raw = include_bytes!("../data/tests/fowler/basic.json");
-        RegexTestGroups::load(raw)
-    }
-
-    fn fowler_nullsubexpr() -> RegexTestGroups {
-        let raw = include_bytes!("../data/tests/fowler/nullsubexpr.json");
-        RegexTestGroups::load(raw)
-    }
-
-    fn fowler_repetition() -> RegexTestGroups {
-        let raw = include_bytes!("../data/tests/fowler/repetition.json");
-        RegexTestGroups::load(raw)
-    }
-
-    fn fowler_repetition_long() -> RegexTestGroups {
-        let raw = include_bytes!("../data/tests/fowler/repetition-long.json");
-        RegexTestGroups::load(raw)
-    }
-
-    fn unicode() -> RegexTestGroups {
-        let raw = include_bytes!("../data/tests/unicode.json");
-        RegexTestGroups::load(raw)
-    }
-
-    fn invalid_utf8() -> RegexTestGroups {
-        let raw = include_bytes!("../data/tests/invalid-utf8.json");
-        RegexTestGroups::load(raw)
-    }
 }
 
 #[derive(Debug)]
 pub struct RegexTester {
     results: RegexTestResults,
     skip_expensive: bool,
+    whitelist: BTreeSet<String>,
+    blacklist: BTreeSet<String>,
 }
 
 impl RegexTester {
     pub fn new() -> RegexTester {
-        RegexTester {
+        let mut tester = RegexTester {
             results: RegexTestResults::default(),
             skip_expensive: false,
+            whitelist: BTreeSet::new(),
+            blacklist: BTreeSet::new(),
+        };
+        for x in env::var("REGEX_TEST").unwrap_or("".to_string()).split(",") {
+            let x = x.trim();
+            if x.is_empty() {
+                continue;
+            }
+            if x.starts_with("-") {
+                tester = tester.blacklist(&x[1..]);
+            } else {
+                tester = tester.whitelist(x);
+            }
         }
+        tester
     }
 
     pub fn skip_expensive(mut self) -> RegexTester {
@@ -152,15 +161,27 @@ impl RegexTester {
         self
     }
 
+    pub fn whitelist(mut self, group_name: &str) -> RegexTester {
+        self.whitelist.insert(group_name.to_string());
+        self
+    }
+
+    pub fn blacklist(mut self, group_name: &str) -> RegexTester {
+        self.blacklist.insert(group_name.to_string());
+        self
+    }
+
     pub fn assert(&self) {
         self.results.assert();
     }
 
-    pub fn test_all<'a, I: Iterator<Item=&'a RegexTest>>(
+    pub fn test_all<'a, I, T>(
         &mut self,
         builder: RegexBuilder,
         tests: I,
-    ) {
+    ) where I: IntoIterator<IntoIter=T, Item=&'a RegexTest>,
+            T: Iterator<Item=&'a RegexTest>
+    {
         for test in tests {
             let builder = builder.clone();
             let re: Regex<usize> = match self.build_regex(builder, test) {
@@ -201,7 +222,7 @@ impl RegexTester {
         let got = re.is_match(&test.input);
         let expected = test.full_match.is_some();
         if got == expected {
-            self.results.succeeded += 1;
+            self.results.succeeded.push(test.clone());
             return;
         }
         self.results.failed.push(RegexTestFailure {
@@ -219,7 +240,7 @@ impl RegexTester {
             .find(&test.input)
             .map(|(start, end)| Match { start, end });
         if got == test.full_match {
-            self.results.succeeded += 1;
+            self.results.succeeded.push(test.clone());
             return;
         }
         self.results.failed.push(RegexTestFailure {
@@ -234,12 +255,30 @@ impl RegexTester {
                 return true;
             }
         }
+        if !self.blacklist.is_empty() {
+            if self.blacklist.contains(&test.id) {
+                return true;
+            }
+            if self.blacklist.contains(&test.group_name) {
+                return true;
+            }
+        }
+        if !self.whitelist.is_empty() {
+            if !self.whitelist.contains(&test.id)
+                && !self.whitelist.contains(&test.group_name)
+            {
+                return true;
+            }
+        }
         false
     }
 
     fn apply_options(&self, test: &RegexTest, builder: &mut RegexBuilder) {
         for opt in &test.options {
             match *opt {
+                RegexTestOption::Anchored => {
+                    builder.anchored(true);
+                }
                 RegexTestOption::CaseInsensitive => {
                     builder.case_insensitive(true);
                 }
@@ -257,8 +296,8 @@ impl RegexTester {
 
 #[derive(Clone, Debug, Default)]
 pub struct RegexTestResults {
-    /// The number of successful tests.
-    pub succeeded: usize,
+    /// Tests that succeeded.
+    pub succeeded: Vec<RegexTest>,
     /// Failed tests, indexed by group name.
     pub failed: Vec<RegexTestFailure>,
 }
@@ -277,7 +316,7 @@ pub enum RegexTestFailureKind {
 
 impl RegexTestResults {
     fn new() -> RegexTestResults {
-        RegexTestResults { succeeded: 0, failed: vec![] }
+        RegexTestResults { succeeded: vec![], failed: vec![] }
     }
 
     pub fn assert(&self) {
@@ -289,7 +328,7 @@ impl RegexTestResults {
             .iter()
             .map(|f| f.to_string())
             .collect::<Vec<String>>()
-            .join("\n");
+            .join("\n\n");
         panic!(
             "found {} failures:\n{}\n{}\n{}",
             self.failed.len(),
@@ -305,6 +344,7 @@ impl fmt::Display for RegexTestFailure {
         write!(
             f,
             "{}: {}\n    \
+            id: {}\n    \
             options: {:?}\n    \
             pattern: {}\n    \
             pattern (escape): {}\n    \
@@ -313,6 +353,7 @@ impl fmt::Display for RegexTestFailure {
             input (hex): {}",
             self.test.group_name,
             self.kind.fmt(&self.test)?,
+            self.test.id,
             self.test.options,
             self.test.pattern,
             escape_default(&self.test.pattern),

@@ -1,0 +1,46 @@
+{
+  "groups": [{
+    "name": "flags",
+    "tests": [{
+      "pattern": "(?i)abc",
+      "input": "ABC",
+      "full_match": {"start": 0, "end": 3}
+    }, {
+      "pattern": "(?i)a(?-i)bc",
+      "input": "Abc",
+      "full_match": {"start": 0, "end": 3}
+    }, {
+      "pattern": "(?i)a(?-i)bc",
+      "input": "ABC",
+      "full_match": null
+    }, {
+      "pattern": "(?is)a.",
+      "input": "A\n",
+      "full_match": {"start": 0, "end": 2}
+    }, {
+      "pattern": "(?is)a.(?-is)a.",
+      "input": "A\nab",
+      "full_match": {"start": 0, "end": 4}
+    }, {
+      "pattern": "(?is)a.(?-is)a.",
+      "input": "A\na\n",
+      "full_match": null
+    }, {
+      "pattern": "(?is)a.(?-is:a.)?",
+      "input": "A\na\n",
+      "full_match": {"start": 0, "end": 2}
+    }, {
+      "pattern": "(?U)a+",
+      "input": "aa",
+      "full_match": {"start": 0, "end": 1}
+    }, {
+      "pattern": "(?U)a+?",
+      "input": "aa",
+      "full_match": {"start": 0, "end": 2}
+    }, {
+      "pattern": "(?U)(?-U)a+",
+      "input": "aa",
+      "full_match": {"start": 0, "end": 2}
+    }]
+  }]
+}

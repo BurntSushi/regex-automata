@@ -65,6 +65,7 @@ impl State {
 pub struct NFABuilder {
     anchored: bool,
     allow_invalid_utf8: bool,
+    reverse: bool,
 }
 
 impl NFABuilder {
@@ -72,11 +73,16 @@ impl NFABuilder {
         NFABuilder {
             anchored: false,
             allow_invalid_utf8: false,
+            reverse: false,
         }
     }
 
     pub fn build(&self, expr: &Hir) -> Result<NFA> {
-        let compiler = NFACompiler::new();
+        let compiler = NFACompiler {
+            states: RefCell::new(vec![]),
+            reverse: self.reverse,
+        };
+
         let mut start = compiler.add_empty();
         if !self.anchored {
             let compiled =
@@ -104,11 +110,17 @@ impl NFABuilder {
         self.allow_invalid_utf8 = yes;
         self
     }
+
+    pub fn reverse(&mut self, yes: bool) -> &mut NFABuilder {
+        self.reverse = yes;
+        self
+    }
 }
 
 #[derive(Debug)]
 struct NFACompiler {
     states: RefCell<Vec<BState>>,
+    reverse: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -127,10 +139,6 @@ struct ThompsonRef {
 }
 
 impl NFACompiler {
-    fn new() -> NFACompiler {
-        NFACompiler { states: RefCell::new(vec![]) }
-    }
-
     fn to_nfa(&self) -> NFA {
         let bstates = self.states.borrow();
         let mut states = vec![];
@@ -407,10 +415,24 @@ impl NFACompiler {
             .iter()
             .flat_map(|rng| Utf8Sequences::new(rng.start(), rng.end()))
             .map(|seq| {
-                let it = seq.as_slice()
-                    .iter()
-                    .map(|rng| Ok(self.compile_range(rng.start, rng.end)));
-                self.compile_concat(it)
+                if self.reverse {
+                    self.compile_concat(
+                        seq.as_slice()
+                            .iter()
+                            .rev()
+                            .map(|rng| {
+                                Ok(self.compile_range(rng.start, rng.end))
+                            })
+                    )
+                } else {
+                    self.compile_concat(
+                        seq.as_slice()
+                            .iter()
+                            .map(|rng| {
+                                Ok(self.compile_range(rng.start, rng.end))
+                            })
+                    )
+                }
             });
         self.compile_alternation(it)
     }
