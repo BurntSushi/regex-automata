@@ -3,11 +3,12 @@ use std::env;
 use std::fmt::{self, Write};
 
 use regex_automata::{ErrorKind, Regex, RegexBuilder, StateID};
-use serde_json;
+use toml;
 
 macro_rules! load {
     ($col:ident, $path:expr) => {
-        $col.extend(RegexTestGroups::load(
+        $col.extend(RegexTests::load(
+            concat!("../data/tests/", $path),
             include_bytes!(concat!("../data/tests/", $path))
         ));
     }
@@ -16,46 +17,38 @@ macro_rules! load {
 lazy_static! {
     pub static ref SUITE: RegexTestCollection = {
         let mut col = RegexTestCollection::new();
-        load!(col, "fowler/basic.json");
-        load!(col, "fowler/nullsubexpr.json");
-        load!(col, "fowler/repetition.json");
-        load!(col, "fowler/repetition-long.json");
-        load!(col, "unicode.json");
-        load!(col, "invalid-utf8.json");
-        load!(col, "flags.json");
-        load!(col, "crazy.json");
+        load!(col, "fowler/basic.toml");
+        load!(col, "fowler/nullsubexpr.toml");
+        load!(col, "fowler/repetition.toml");
+        load!(col, "fowler/repetition-long.toml");
+        load!(col, "crazy.toml");
+        load!(col, "flags.toml");
+        load!(col, "invalid-utf8.toml");
+        load!(col, "unicode.toml");
         col
     };
 }
 
 #[derive(Clone, Debug)]
 pub struct RegexTestCollection {
-    pub groups: BTreeMap<String, RegexTestGroup>,
+    pub by_name: BTreeMap<String, RegexTest>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct RegexTestGroups {
-    pub groups: Vec<RegexTestGroup>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct RegexTestGroup {
-    pub name: String,
+pub struct RegexTests {
     pub tests: Vec<RegexTest>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegexTest {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub group_name: String,
+    pub name: String,
     #[serde(default)]
     pub options: Vec<RegexTestOption>,
     pub pattern: String,
     #[serde(with = "serde_bytes")]
     pub input: Vec<u8>,
-    pub full_match: Option<Match>,
+    #[serde(rename = "matches")]
+    pub matches: Vec<Match>,
     #[serde(default)]
     pub captures: Vec<Option<Match>>,
     #[serde(default)]
@@ -81,45 +74,31 @@ pub struct Match {
 
 impl RegexTestCollection {
     fn new() -> RegexTestCollection {
-        RegexTestCollection { groups: BTreeMap::new() }
+        RegexTestCollection { by_name: BTreeMap::new() }
     }
 
-    fn extend(&mut self, groups: RegexTestGroups) {
-        for group in groups.groups {
-            if !self.groups.contains_key(&group.name) {
-                self.groups.insert(group.name.clone(), group);
-            } else {
-                self.groups
-                    .get_mut(&group.name)
-                    .unwrap()
-                    .tests
-                    .extend(group.tests);
+    fn extend(&mut self, tests: RegexTests) {
+        for test in tests.tests {
+            let name = test.name.clone();
+            if self.by_name.contains_key(&name) {
+                panic!("found duplicate test {}", name);
             }
-        }
-
-        let mut id = 1;
-        for group in self.groups.values_mut() {
-            for test in group.tests.iter_mut() {
-                test.id = id.to_string();
-                id += 1;
-            }
+            self.by_name.insert(name, test);
         }
     }
 
     pub fn tests(&self) -> Vec<&RegexTest> {
-        self.groups.values().flat_map(|g| g.tests.iter()).collect()
+        self.by_name.values().collect()
     }
 }
 
-impl RegexTestGroups {
-    fn load(slice: &[u8]) -> RegexTestGroups {
-        let mut data: RegexTestGroups = serde_json::from_slice(slice).unwrap();
-        for group in &mut data.groups {
-            for test in &mut group.tests {
-                test.group_name = group.name.clone();
-                if test.options.contains(&RegexTestOption::Escaped) {
-                    test.input = unescape_bytes(&test.input);
-                }
+impl RegexTests {
+    fn load(path: &str, slice: &[u8]) -> RegexTests {
+        let mut data: RegexTests = toml::from_slice(slice)
+            .expect(&format!("failed to load {}", path));
+        for test in &mut data.tests {
+            if test.options.contains(&RegexTestOption::Escaped) {
+                test.input = unescape_bytes(&test.input);
             }
         }
         data
@@ -161,13 +140,13 @@ impl RegexTester {
         self
     }
 
-    pub fn whitelist(mut self, group_name: &str) -> RegexTester {
-        self.whitelist.insert(group_name.to_string());
+    pub fn whitelist(mut self, name: &str) -> RegexTester {
+        self.whitelist.insert(name.to_string());
         self
     }
 
-    pub fn blacklist(mut self, group_name: &str) -> RegexTester {
-        self.blacklist.insert(group_name.to_string());
+    pub fn blacklist(mut self, name: &str) -> RegexTester {
+        self.blacklist.insert(name.to_string());
         self
     }
 
@@ -208,7 +187,12 @@ impl RegexTester {
                 if let ErrorKind::Unsupported(_) = *err.kind() {
                     None
                 } else {
-                    panic!("failed to build '{:?}': {}", test.pattern, err);
+                    panic!(
+                        "failed to build {:?} with pattern '{:?}': {}",
+                        test.name,
+                        test.pattern,
+                        err
+                    );
                 }
             }
         }
@@ -220,7 +204,7 @@ impl RegexTester {
         re: &Regex<'a, S>,
     ) {
         let got = re.is_match(&test.input);
-        let expected = test.full_match.is_some();
+        let expected = test.matches.len() >= 1;
         if got == expected {
             self.results.succeeded.push(test.clone());
             return;
@@ -239,7 +223,7 @@ impl RegexTester {
         let got = re
             .find(&test.input)
             .map(|(start, end)| Match { start, end });
-        if got == test.full_match {
+        if got == test.matches.get(0).map(|&m| m) {
             self.results.succeeded.push(test.clone());
             return;
         }
@@ -251,22 +235,17 @@ impl RegexTester {
 
     fn skip(&self, test: &RegexTest) -> bool {
         if self.skip_expensive {
-            if test.group_name == "repetition-long" {
+            if test.name.starts_with("repetition-long") {
                 return true;
             }
         }
         if !self.blacklist.is_empty() {
-            if self.blacklist.contains(&test.id) {
-                return true;
-            }
-            if self.blacklist.contains(&test.group_name) {
+            if self.blacklist.contains(&test.name) {
                 return true;
             }
         }
         if !self.whitelist.is_empty() {
-            if !self.whitelist.contains(&test.id)
-                && !self.whitelist.contains(&test.group_name)
-            {
+            if !self.whitelist.contains(&test.name) {
                 return true;
             }
         }
@@ -344,16 +323,14 @@ impl fmt::Display for RegexTestFailure {
         write!(
             f,
             "{}: {}\n    \
-            id: {}\n    \
             options: {:?}\n    \
             pattern: {}\n    \
             pattern (escape): {}\n    \
             input: {}\n    \
             input (escape): {}\n    \
             input (hex): {}",
-            self.test.group_name,
+            self.test.name,
             self.kind.fmt(&self.test)?,
-            self.test.id,
             self.test.options,
             self.test.pattern,
             escape_default(&self.test.pattern),
@@ -369,7 +346,7 @@ impl RegexTestFailureKind {
         let mut buf = String::new();
         match *self {
             RegexTestFailureKind::IsMatch => {
-                if let Some(m) = test.full_match {
+                if let Some(&m) = test.matches.get(0) {
                     write!(buf, "expected match (at {}), but none found", m)?
                 } else {
                     write!(buf, "expected no match, but found a match")?
@@ -379,7 +356,7 @@ impl RegexTestFailureKind {
                 write!(
                     buf,
                     "expected {:?}, but found {:?}",
-                    test.full_match,
+                    test.matches.get(0),
                     got
                 )?
             }
