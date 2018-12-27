@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 
@@ -8,6 +8,13 @@ use nfa::{self, NFA};
 use sparse::SparseSet;
 use state_id::{StateID, dead_id};
 
+/// A determinizer converts an NFA to a DFA.
+///
+/// The type variable `S` refers to the chosen state identifier representation
+/// used for the DFA.
+///
+/// The lifetime variable `'a` refers to the lifetime of the NFA being
+/// converted to a DFA.
 pub struct Determinizer<'a, S> {
     /// The NFA we're converting into a DFA.
     nfa: &'a NFA,
@@ -40,7 +47,7 @@ struct DeterminizerState {
 impl<'a, S: StateID> Determinizer<'a, S> {
     pub fn new(nfa: &'a NFA) -> Determinizer<'a, S> {
         let dead = Rc::new(DeterminizerState::dead());
-        let mut cache = HashMap::new();
+        let mut cache = HashMap::default();
         cache.insert(dead.clone(), dead_id());
 
         Determinizer {
@@ -69,14 +76,14 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         let equiv_bytes = self.dfa.equiv_bytes();
         let mut sparse = self.new_sparse_set();
         let mut uncompiled = vec![self.add_start(&mut sparse)?];
-        let mut queued: HashSet<S> = HashSet::new();
         while let Some(dfa_id) = uncompiled.pop() {
             for &b in &equiv_bytes {
-                let next_dfa_id = self.cached_state(dfa_id, b, &mut sparse)?;
+                let (next_dfa_id, is_new) = self.cached_state(
+                    dfa_id, b, &mut sparse,
+                )?;
                 self.dfa.set_transition(dfa_id, b, next_dfa_id);
-                if !queued.contains(&next_dfa_id) {
+                if is_new {
                     uncompiled.push(next_dfa_id);
-                    queued.insert(next_dfa_id);
                 }
             }
         }
@@ -95,15 +102,15 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         dfa_id: S,
         b: u8,
         sparse: &mut SparseSet,
-    ) -> Result<S> {
+    ) -> Result<(S, bool)> {
         sparse.clear();
         self.next(dfa_id, b, sparse);
         let state = self.new_state(sparse);
         if let Some(&cached_id) = self.cache.get(&state) {
             mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
-            return Ok(cached_id);
+            return Ok((cached_id, false));
         }
-        self.add_state(state)
+        self.add_state(state).map(|s| (s, true))
     }
 
     fn next(
@@ -119,7 +126,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 nfa::State::Union { .. } | nfa::State::Match => {}
                 nfa::State::Range { start, end, next } => {
                     if start <= b && b <= end {
-                        self.epsilon_closure(next, next_nfa_states);
+                        if !next_nfa_states.contains(next) {
+                            self.epsilon_closure(next, next_nfa_states);
+                        }
                     }
                 }
             }

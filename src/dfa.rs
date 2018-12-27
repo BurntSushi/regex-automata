@@ -665,6 +665,18 @@ impl<S: StateID> DFA<S> {
         self.state_count = count;
     }
 
+    /// This routine shuffles all match states in this DFA---according to the
+    /// given map---to the beginning of the DFA such that every non-match state
+    /// appears after every match state. (With one exception: the special dead
+    /// state remains as the first state.) The given map should have length
+    /// exactly equivalent to the number of states in this DFA.
+    ///
+    /// The purpose of doing this shuffling is to avoid the need to store
+    /// additional state to determine whether a state is a match state or not.
+    /// It also enables a single conditional in the core matching loop instead
+    /// of two.
+    ///
+    /// This updates `self.max_match` to point to the last matching state.
     pub(crate) fn shuffle_match_states(&mut self, is_match: &[bool]) {
         assert!(
             !self.kind.is_premultiplied(),
@@ -1002,21 +1014,24 @@ mod tests {
         println!("{}", "#".repeat(100));
     }
 
-    fn print_automata_counts(pattern: &str) {
-        let (nfa, dfa, mdfa) = build_automata(pattern);
-        println!("nfa # states: {:?}", nfa.len());
-        println!("dfa # states: {:?}", dfa.len());
-        println!("minimal dfa # states: {:?}", mdfa.len());
-    }
+    // fn print_automata_counts(pattern: &str) {
+        // let (nfa, dfa, mdfa) = build_automata(pattern);
+        // println!("nfa # states: {:?}", nfa.len());
+        // println!("dfa # states: {:?}", dfa.len());
+        // println!("minimal dfa # states: {:?}", mdfa.len());
+    // }
 
     fn build_automata(pattern: &str) -> (NFA, DFA, DFA) {
         let mut builder = DFABuilder::new();
-        builder.byte_classes(false).premultiply(false);
+        builder.byte_classes(true).premultiply(false);
         builder.anchored(true);
-        builder.allow_invalid_utf8(true);
+        builder.allow_invalid_utf8(false);
         let nfa = builder.build_nfa(pattern).unwrap();
         let dfa = builder.build(pattern).unwrap();
         let min = builder.minimize(true).build(pattern).unwrap();
+
+        let bs = min.to_u16().unwrap().to_bytes_little_endian().unwrap();
+        ::std::fs::write("/tmp/scratch.dfa", &bs).unwrap();
         (nfa, dfa, min)
     }
 
@@ -1035,8 +1050,11 @@ mod tests {
         // print_automata_counts(r"\p{alphabetic}");
         // print_automata(r"a*b+|cdefg");
         // print_automata(r"(..)*(...)*");
-        print_automata_counts(r"");
-        print_automata(r".*?");
+
+        // let pattern = r"\p{any}*?\p{Other_Uppercase}";
+        let pattern = r"\p{any}*?\w+";
+        print_automata(pattern);
+        // print_automata_counts(pattern);
         // print_automata_counts(r"(?-u:\w)");
     }
 }
