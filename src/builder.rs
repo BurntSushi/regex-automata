@@ -1,5 +1,4 @@
 use regex_syntax::ParserBuilder;
-use regex_syntax::hir::{self, Hir, HirKind};
 
 use determinize::Determinizer;
 use dfa::DFA;
@@ -146,14 +145,9 @@ impl RegexBuilder {
     /// When enabled, the builder will permit the construction of a regular
     /// expression that may match invalid UTF-8.
     ///
-    /// When disabled (the default), the parser is guaranteed to produce
-    /// an expression that will only ever match valid UTF-8 (otherwise, the
-    /// builder will return an error).
-    ///
-    /// Perhaps surprisingly, when invalid UTF-8 isn't allowed, a negated ASCII
-    /// word boundary (uttered as `(?-u:\B)` in the concrete syntax) will cause
-    /// the parser to return an error. Namely, a negated ASCII word boundary
-    /// can result in matching positions that aren't valid UTF-8 boundaries.
+    /// When disabled (the default), the builder is guaranteed to produce a
+    /// regex that will only ever match valid UTF-8 (otherwise, the builder
+    /// will return an error).
     pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut RegexBuilder {
         self.dfa.allow_invalid_utf8(yes);
         self
@@ -385,15 +379,12 @@ impl DFABuilder {
 
     /// Builds an NFA from the given pattern.
     pub(crate) fn build_nfa(&self, pattern: &str) -> Result<NFA> {
-        let mut hir = self
+        let hir = self
             .parser
             .build()
             .parse(pattern)
             .map_err(Error::syntax)?;
-        if self.reverse {
-            hir = reverse_hir(hir);
-        }
-        Ok(self.nfa.build(&hir)?)
+        Ok(self.nfa.build(hir)?)
     }
 
     /// Set whether matching must be anchored at the beginning of the input.
@@ -464,14 +455,9 @@ impl DFABuilder {
     /// When enabled, the builder will permit the construction of a regular
     /// expression that may match invalid UTF-8.
     ///
-    /// When disabled (the default), the parser is guaranteed to produce
-    /// an expression that will only ever match valid UTF-8 (otherwise, the
-    /// builder will return an error).
-    ///
-    /// Perhaps surprisingly, when invalid UTF-8 isn't allowed, a negated ASCII
-    /// word boundary (uttered as `(?-u:\B)` in the concrete syntax) will cause
-    /// the parser to return an error. Namely, a negated ASCII word boundary
-    /// can result in matching positions that aren't valid UTF-8 boundaries.
+    /// When disabled (the default), the builder is guaranteed to produce a
+    /// regex that will only ever match valid UTF-8 (otherwise, the builder
+    /// will return an error).
     pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut DFABuilder {
         self.parser.allow_invalid_utf8(yes);
         self.nfa.allow_invalid_utf8(yes);
@@ -607,10 +593,10 @@ impl DFABuilder {
     ///
     /// A DFA reversal is performed by reversing all of the concatenated
     /// sub-expressions in the original pattern, recursively. The resulting
-    /// DFA can now be used to match the pattern starting from the end of a
-    /// string instead of the beginning of a string.
+    /// DFA can be used to match the pattern starting from the end of a string
+    /// instead of the beginning of a string.
     ///
-    /// Generally speaking, a reverse DFA is most useful for finding the start
+    /// Generally speaking, a reversed DFA is most useful for finding the start
     /// of a match, since a single forward DFA is only capable of finding the
     /// end of a match. This start of match handling is done for you
     /// automatically if you build a [`Regex`](struct.Regex.html).
@@ -652,59 +638,5 @@ impl DFABuilder {
 impl Default for DFABuilder {
     fn default() -> DFABuilder {
         DFABuilder::new()
-    }
-}
-
-/// Reverse the given HIR expression.
-fn reverse_hir(expr: Hir) -> Hir {
-    match expr.into_kind() {
-        HirKind::Empty => Hir::empty(),
-        HirKind::Literal(hir::Literal::Byte(b)) => {
-            Hir::literal(hir::Literal::Byte(b))
-        }
-        HirKind::Literal(hir::Literal::Unicode(c)) => {
-            Hir::concat(
-                c.encode_utf8(&mut [0; 4])
-                .as_bytes()
-                .iter()
-                .cloned()
-                .rev()
-                .map(|b| {
-                    if b <= 0x7F {
-                        hir::Literal::Unicode(b as char)
-                    } else {
-                        hir::Literal::Byte(b)
-                    }
-                })
-                .map(Hir::literal)
-                .collect()
-            )
-        }
-        HirKind::Class(cls) => Hir::class(cls),
-        HirKind::Anchor(anchor) => Hir::anchor(anchor),
-        HirKind::WordBoundary(anchor) => Hir::word_boundary(anchor),
-        HirKind::Repetition(mut rep) => {
-            rep.hir = Box::new(reverse_hir(*rep.hir));
-            Hir::repetition(rep)
-        }
-        HirKind::Group(mut group) => {
-            group.hir = Box::new(reverse_hir(*group.hir));
-            Hir::group(group)
-        }
-        HirKind::Concat(exprs) => {
-            let mut reversed = vec![];
-            for e in exprs {
-                reversed.push(reverse_hir(e));
-            }
-            reversed.reverse();
-            Hir::concat(reversed)
-        }
-        HirKind::Alternation(exprs) => {
-            let mut reversed = vec![];
-            for e in exprs {
-                reversed.push(reverse_hir(e));
-            }
-            Hir::alternation(reversed)
-        }
     }
 }

@@ -1,7 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt::{self, Write};
 
+use regex;
 use regex_automata::{ErrorKind, Regex, RegexBuilder, StateID};
 use toml;
 
@@ -23,7 +24,8 @@ lazy_static! {
         load!(col, "fowler/repetition-long.toml");
         load!(col, "crazy.toml");
         load!(col, "flags.toml");
-        load!(col, "invalid-utf8.toml");
+        load!(col, "iter.toml");
+        load!(col, "no-unicode.toml");
         load!(col, "unicode.toml");
         col
     };
@@ -109,8 +111,8 @@ impl RegexTests {
 pub struct RegexTester {
     results: RegexTestResults,
     skip_expensive: bool,
-    whitelist: BTreeSet<String>,
-    blacklist: BTreeSet<String>,
+    whitelist: Vec<regex::Regex>,
+    blacklist: Vec<regex::Regex>,
 }
 
 impl RegexTester {
@@ -118,8 +120,8 @@ impl RegexTester {
         let mut tester = RegexTester {
             results: RegexTestResults::default(),
             skip_expensive: false,
-            whitelist: BTreeSet::new(),
-            blacklist: BTreeSet::new(),
+            whitelist: vec![],
+            blacklist: vec![],
         };
         for x in env::var("REGEX_TEST").unwrap_or("".to_string()).split(",") {
             let x = x.trim();
@@ -141,12 +143,12 @@ impl RegexTester {
     }
 
     pub fn whitelist(mut self, name: &str) -> RegexTester {
-        self.whitelist.insert(name.to_string());
+        self.whitelist.push(regex::Regex::new(name).unwrap());
         self
     }
 
     pub fn blacklist(mut self, name: &str) -> RegexTester {
-        self.blacklist.insert(name.to_string());
+        self.blacklist.push(regex::Regex::new(name).unwrap());
         self
     }
 
@@ -169,6 +171,13 @@ impl RegexTester {
             };
             self.test_is_match(test, &re);
             self.test_find(test, &re);
+            // Some tests (namely, fowler) are designed only to detect the
+            // first match even if there are more subsequent matches. To that
+            // end, we only test match iteration when the number of matches
+            // expected is not 1.
+            if test.matches.len() != 1 {
+                self.test_find_iter(test, &re);
+            }
         }
     }
 
@@ -233,6 +242,25 @@ impl RegexTester {
         });
     }
 
+    pub fn test_find_iter<'a, S: StateID>(
+        &mut self,
+        test: &RegexTest,
+        re: &Regex<'a, S>,
+    ) {
+        let got: Vec<Match> = re
+            .find_iter(&test.input)
+            .map(|(start, end)| Match { start, end })
+            .collect();
+        if got == test.matches {
+            self.results.succeeded.push(test.clone());
+            return;
+        }
+        self.results.failed.push(RegexTestFailure {
+            test: test.clone(),
+            kind: RegexTestFailureKind::FindIter { got },
+        });
+    }
+
     fn skip(&self, test: &RegexTest) -> bool {
         if self.skip_expensive {
             if test.name.starts_with("repetition-long") {
@@ -240,12 +268,12 @@ impl RegexTester {
             }
         }
         if !self.blacklist.is_empty() {
-            if self.blacklist.contains(&test.name) {
+            if self.blacklist.iter().any(|re| re.is_match(&test.name)) {
                 return true;
             }
         }
         if !self.whitelist.is_empty() {
-            if !self.whitelist.contains(&test.name) {
+            if !self.whitelist.iter().any(|re| re.is_match(&test.name)) {
                 return true;
             }
         }
@@ -291,6 +319,7 @@ pub struct RegexTestFailure {
 pub enum RegexTestFailureKind {
     IsMatch,
     Find { got: Option<Match> },
+    FindIter { got: Vec<Match> },
 }
 
 impl RegexTestResults {
@@ -357,6 +386,14 @@ impl RegexTestFailureKind {
                     buf,
                     "expected {:?}, but found {:?}",
                     test.matches.get(0),
+                    got
+                )?
+            }
+            RegexTestFailureKind::FindIter { ref got } => {
+                write!(
+                    buf,
+                    "expected {:?}, but found {:?}",
+                    test.matches,
                     got
                 )?
             }

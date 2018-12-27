@@ -982,14 +982,12 @@ mod tests {
 
     fn print_automata(pattern: &str) {
         println!("BUILDING AUTOMATA");
-        let (_, dfa, mdfa) = build_automata(pattern);
+        let (nfa, dfa, mdfa) = build_automata(pattern);
 
         println!("{}", "#".repeat(100));
-        // println!("PATTERN: {:?}", pattern);
-        // println!("NFA:");
-        // for (i, state) in nfa.states.borrow().iter().enumerate() {
-            // println!("{:03X}: {:X?}", i, state);
-        // }
+        println!("PATTERN: {:?}", pattern);
+        println!("NFA:");
+        println!("{:?}", nfa);
 
         println!("{}", "~".repeat(79));
 
@@ -1013,7 +1011,9 @@ mod tests {
 
     fn build_automata(pattern: &str) -> (NFA, DFA, DFA) {
         let mut builder = DFABuilder::new();
-        builder.anchored(true).allow_invalid_utf8(true).byte_classes(false).premultiply(false);
+        builder.byte_classes(false).premultiply(false);
+        builder.anchored(true);
+        builder.allow_invalid_utf8(true);
         let nfa = builder.build_nfa(pattern).unwrap();
         let dfa = builder.build(pattern).unwrap();
         let min = builder.minimize(true).build(pattern).unwrap();
@@ -1035,8 +1035,8 @@ mod tests {
         // print_automata_counts(r"\p{alphabetic}");
         // print_automata(r"a*b+|cdefg");
         // print_automata(r"(..)*(...)*");
-        print_automata(r"(?-u:\w)");
-        print_automata_counts(r"(?-u:\w)");
+        print_automata_counts(r"");
+        print_automata(r".*?");
         // print_automata_counts(r"(?-u:\w)");
     }
 }

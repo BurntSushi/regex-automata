@@ -1,5 +1,3 @@
-use std::fmt;
-
 use builder::RegexBuilder;
 use dfa::DFA;
 use dfa_ref::DFARef;
@@ -8,8 +6,8 @@ use state_id::StateID;
 
 /// A regular expression that uses deterministic finite automata for fast
 /// searching.
-#[derive(Clone)]
-pub struct Regex<'a, S = usize> {
+#[derive(Clone, Debug)]
+pub struct Regex<'a, S: StateID = usize> {
     forward: OwnOrBorrow<'a, S>,
     reverse: OwnOrBorrow<'a, S>,
 }
@@ -131,6 +129,36 @@ impl<'a, S: StateID> Regex<'a, S> {
             .rfind(&input[..end])
             .expect("reverse search must match if forward search does");
         Some((start, end))
+    }
+
+    /// Returns an iterator over all non-overlapping leftmost first matches
+    /// in the given bytes. If no match exists, then the iterator yields no
+    /// elements.
+    ///
+    /// Note that if the regex can match the empty string, then it is
+    /// possible for the iterator to yield a zero-width match at a location
+    /// that is not a valid UTF-8 boundary (for example, between the code units
+    /// of a UTF-8 encoded codepoint). This can happen regardless of whether
+    /// [`allow_invalid_utf8`](struct.RegexBuilder.html#method.allow_invalid_utf8)
+    /// was enabled or not.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::Regex;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let re = Regex::new("foo[0-9]+")?;
+    /// let text = b"foo1 foo12 foo123";
+    /// let matches: Vec<(usize, usize)> = re.find_iter(text).collect();
+    /// assert_eq!(matches, vec![(0, 4), (5, 10), (11, 17)]);
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub fn find_iter<'r, 't>(
+        &'r self,
+        input: &'t [u8],
+    ) -> Matches<'a, 'r, 't, S> {
+        Matches::new(self, input)
     }
 }
 
@@ -278,30 +306,70 @@ impl<'a, S: StateID> Regex<'a, S> {
     }
 }
 
-#[derive(Clone)]
-enum OwnOrBorrow<'a, S = usize> {
+#[derive(Clone, Debug)]
+enum OwnOrBorrow<'a, S: StateID = usize> {
     Owned(DFA<S>),
     Borrowed(DFARef<'a, S>),
 }
 
-impl<'a, S: StateID> fmt::Debug for Regex<'a, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Regex")
-            .field("forward", &self.forward)
-            .field("reverse", &self.reverse)
-            .finish()
+/// An iterator over all non-overlapping matches for a particular search.
+///
+/// The iterator yields a `(usize, usize)` value until no more matches could be
+/// found. The first `usize` is the start of the match (inclusive) while the
+/// second `usize` is the end of the match (exclusive).
+///
+/// `S` is the type used to represent state identifiers in the underlying
+/// regex. The lifetime variables are as follows:
+///
+/// * `'d` is the lifetime of the underlying DFA transition table. If the regex
+///   is built using the owned [`DFA`](struct.DFA.html) type, then this is
+///   always equivalent to the `'static` lifetime.
+/// * `'r` is the lifetime of the regular expression value itself.
+/// * `'t` is the lifetime of the text being searched.
+#[derive(Clone, Debug)]
+pub struct Matches<'d, 'r, 't, S: StateID = usize> {
+    re: &'r Regex<'d, S>,
+    text: &'t [u8],
+    last_end: usize,
+    last_match: Option<usize>,
+}
+
+impl<'d, 'r, 't, S: StateID> Matches<'d, 'r, 't, S> {
+    fn new(re: &'r Regex<'d, S>, text: &'t [u8]) -> Matches<'d, 'r, 't, S> {
+        Matches {
+            re: re,
+            text: text,
+            last_end: 0,
+            last_match: None,
+        }
     }
 }
 
-impl<'a, S: StateID> fmt::Debug for OwnOrBorrow<'a, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            OwnOrBorrow::Owned(ref dfa) => {
-                f.debug_tuple("Owned").field(dfa).finish()
-            }
-            OwnOrBorrow::Borrowed(ref dfa) => {
-                f.debug_tuple("Borrowed").field(dfa).finish()
-            }
+impl<'d, 'r, 't, S: StateID> Iterator for Matches<'d, 'r, 't, S> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<(usize, usize)> {
+        if self.last_end > self.text.len() {
+            return None;
         }
+        let (s, e) = match self.re.find(&self.text[self.last_end..]) {
+            None => return None,
+            Some((s, e)) => (self.last_end + s, self.last_end + e),
+        };
+        if s == e {
+            // This is an empty match. To ensure we make progress, start
+            // the next search at the smallest possible starting position
+            // of the next match following this one.
+            self.last_end = e + 1;
+            // Don't accept empty matches immediately following a match.
+            // Just move on to the next match.
+            if Some(e) == self.last_match {
+                return self.next();
+            }
+        } else {
+            self.last_end = e;
+        }
+        self.last_match = Some(e);
+        Some((s, e))
     }
 }

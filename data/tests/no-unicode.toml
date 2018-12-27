@@ -120,3 +120,19 @@ name = "no-unicode6"
 pattern = '\s+'
 input = " \u1680"
 matches = [[0, 4]]
+
+
+[[tests]]
+# See: https://github.com/rust-lang/regex/issues/484
+name = "no-unicode-iter1"
+pattern = ''
+input = "☃"
+matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
+
+[[tests]]
+# See: https://github.com/rust-lang/regex/issues/484
+options = ['escaped']
+name = "no-unicode-iter2"
+pattern = ''
+input = 'b\xFFr'
+matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
