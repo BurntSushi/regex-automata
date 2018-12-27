@@ -108,7 +108,6 @@ fn define_compile(
         });
     });
     // TODO: Minimization is too slow to benchmark for now...
-    /*
     define(c, &group, "minimized-noclasses", &[], move |b| {
         b.iter(|| {
             let result = DFABuilder::new()
@@ -131,7 +130,6 @@ fn define_compile(
             assert!(result.is_ok());
         });
     });
-    */
 }
 
 fn define(

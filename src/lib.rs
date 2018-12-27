@@ -23,5 +23,5 @@ mod error;
 mod regex;
 mod minimize;
 mod nfa;
-mod sparse;
+mod sparse_set;
 mod state_id;

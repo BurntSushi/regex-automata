@@ -191,8 +191,7 @@ impl RegexTester {
         }
         self.apply_options(test, &mut builder);
 
-        let start = ::std::time::Instant::now();
-        let r = match builder.build_with_size::<S>(&test.pattern) {
+        match builder.build_with_size::<S>(&test.pattern) {
             Ok(re) => Some(re),
             Err(err) => {
                 if let ErrorKind::Unsupported(_) = *err.kind() {
@@ -206,10 +205,7 @@ impl RegexTester {
                     );
                 }
             }
-        };
-        let elapsed = ::std::time::Instant::now().duration_since(start);
-        println!("{}: {:?}", test.name, elapsed);
-        r
+        }
     }
 
     pub fn test_is_match<'a, S: StateID>(
