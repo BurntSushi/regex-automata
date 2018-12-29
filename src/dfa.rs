@@ -723,7 +723,8 @@ impl<S: StateID> DFA<S> {
         self.max_match = S::from_usize(first_non_match - 1);
     }
 
-    pub(crate) fn minimize(&mut self) {
+    #[doc(hidden)]
+    pub fn minimize(&mut self) {
         assert!(!self.kind.is_premultiplied());
         Minimizer::new(self).run();
     }

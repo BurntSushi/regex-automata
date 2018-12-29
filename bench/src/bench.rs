@@ -109,25 +109,31 @@ fn define_compile(
     });
     // TODO: Minimization is too slow to benchmark for now...
     define(c, &group, "minimized-noclasses", &[], move |b| {
+        let mut dfa = DFABuilder::new()
+            .anchored(true)
+            .minimize(false)
+            .premultiply(false)
+            .byte_classes(false)
+            .build(pattern)
+            .unwrap();
+        let old = dfa.memory_usage();
         b.iter(|| {
-            let result = DFABuilder::new()
-                .anchored(true)
-                .minimize(true)
-                .premultiply(false)
-                .byte_classes(false)
-                .build(pattern);
-            assert!(result.is_ok());
+            dfa.minimize();
+            assert!(dfa.memory_usage() <= old);
         });
     });
     define(c, &group, "minimized-classes", &[], move |b| {
+        let mut dfa = DFABuilder::new()
+            .anchored(true)
+            .minimize(false)
+            .premultiply(false)
+            .byte_classes(true)
+            .build(pattern)
+            .unwrap();
+        let old = dfa.memory_usage();
         b.iter(|| {
-            let result = DFABuilder::new()
-                .anchored(true)
-                .minimize(true)
-                .premultiply(false)
-                .byte_classes(true)
-                .build(pattern);
-            assert!(result.is_ok());
+            dfa.minimize();
+            assert!(dfa.memory_usage() <= old);
         });
     });
 }

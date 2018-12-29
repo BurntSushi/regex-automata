@@ -67,7 +67,7 @@ fn minimized_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
 
-    let mut tester = RegexTester::new().skip_expensive();
+    let mut tester = RegexTester::new();
     tester.test_all(builder, SUITE.tests());
     tester.assert();
 }
@@ -77,7 +77,7 @@ fn minimized_premultiply_byte_class() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(true).byte_classes(true);
 
-    let mut tester = RegexTester::new().skip_expensive();
+    let mut tester = RegexTester::new();
     tester.test_all(builder, SUITE.tests());
     tester.assert();
 }
@@ -92,7 +92,7 @@ fn u16() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
 
-    let mut tester = RegexTester::new().skip_expensive();
+    let mut tester = RegexTester::new();
     for test in SUITE.tests() {
         let builder = builder.clone();
         let re: Regex<usize> = match tester.build_regex(builder, test) {
@@ -113,7 +113,7 @@ fn serialization_roundtrip() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(true);
 
-    let mut tester = RegexTester::new().skip_expensive();
+    let mut tester = RegexTester::new();
     for test in SUITE.tests() {
         let builder = builder.clone();
         let re: Regex<usize> = match tester.build_regex(builder, test) {
