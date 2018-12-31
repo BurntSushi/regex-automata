@@ -225,6 +225,23 @@ impl RegexTester {
         });
     }
 
+    pub fn test_is_match_sparse<'a, S: StateID>(
+        &mut self,
+        test: &RegexTest,
+        re: &::regex_automata::SparseDFA<S>,
+    ) {
+        let got = re.is_match(&test.input);
+        let expected = test.matches.len() >= 1;
+        if got == expected {
+            self.results.succeeded.push(test.clone());
+            return;
+        }
+        self.results.failed.push(RegexTestFailure {
+            test: test.clone(),
+            kind: RegexTestFailureKind::IsMatch,
+        });
+    }
+
     pub fn test_find<'a, S: StateID>(
         &mut self,
         test: &RegexTest,

@@ -106,6 +106,25 @@ fn u16() {
     }
 }
 
+// Test that sparse DFAs work using the standard configuration.
+#[test]
+fn sparse_unminimized_standard() {
+    let mut builder = RegexBuilder::new();
+    builder.minimize(false).premultiply(false).byte_classes(false);
+
+    let mut tester = RegexTester::new().skip_expensive();
+    for test in SUITE.tests() {
+        let builder = builder.clone();
+        let re: Regex<usize> = match tester.build_regex(builder, test) {
+            None => continue,
+            Some(re) => re,
+        };
+        let re = ::regex_automata::DFA::from_dfa_ref(re.forward()).to_sparse_dfa().unwrap();
+
+        tester.test_is_match_sparse(test, &re);
+    }
+}
+
 // Another basic sanity test that checks we can serialize and then deserialize
 // a regex, and that the resulting regex can be used for searching correctly.
 #[test]

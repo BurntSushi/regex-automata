@@ -7,15 +7,36 @@ extern crate regex_automata;
 use criterion::{Bencher, Benchmark, Criterion, Throughput};
 use regex_automata::{DFABuilder, RegexBuilder};
 
-use inputs::{
-    SHERLOCK_HUGE, SHERLOCK_TINY, EMPTY,
-};
+use inputs::*;
 
 mod inputs;
 
 fn is_match(c: &mut Criterion) {
-    let corpus = SHERLOCK_HUGE.corpus;
+    let corpus = SHERLOCK_HUGE;
     define(c, "is-match", "sherlock-huge", corpus, move |b| {
+        // let dfa = RegexBuilder::new()
+            // .anchored(false)
+            // .minimize(true)
+            // .premultiply(true)
+            // .byte_classes(false)
+            // .build(r"\p{Greek}")
+            // .unwrap();
+        let dfa = DFABuilder::new()
+            .anchored(false)
+            .minimize(true)
+            .premultiply(true)
+            .byte_classes(false)
+            .build(r"\p{Greek}")
+            .unwrap();
+        let dfa = dfa.to_sparse_dfa().unwrap();
+        b.iter(|| {
+            assert!(!dfa.is_match(corpus));
+        });
+    });
+
+    let corpus = OPEN_ZH_SMALL;
+    // let corpus = SHERLOCK_SMALL;
+    define(c, "is-match", "sherlock-small", corpus, move |b| {
         let dfa = RegexBuilder::new()
             .anchored(false)
             .minimize(true)
@@ -23,34 +44,61 @@ fn is_match(c: &mut Criterion) {
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
+        // let dfa = DFABuilder::new()
+            // .anchored(false)
+            // .minimize(true)
+            // .premultiply(true)
+            // .byte_classes(false)
+            // .allow_invalid_utf8(false)
+            // .build(r"\p{Greek}")
+            // // .build(r"\p{Ideographic}")
+            // // .build(r"zZzZzZzZzZ")
+            // .unwrap();
+        // let dfa = dfa.to_sparse_dfa().unwrap();
         b.iter(|| {
             assert!(!dfa.is_match(corpus));
         });
     });
 
-    let corpus = SHERLOCK_TINY.corpus;
+    let corpus = SHERLOCK_TINY;
     define(c, "is-match", "sherlock-tiny", corpus, move |b| {
-        let dfa = RegexBuilder::new()
+        // let dfa = RegexBuilder::new()
+            // .anchored(false)
+            // .minimize(true)
+            // .premultiply(true)
+            // .byte_classes(false)
+            // .build(r"\p{Greek}")
+            // .unwrap();
+        let dfa = DFABuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
+        let dfa = dfa.to_sparse_dfa().unwrap();
         b.iter(|| {
             assert!(!dfa.is_match(corpus));
         });
     });
 
-    let corpus = EMPTY.corpus;
+    let corpus = EMPTY;
     define(c, "is-match", "empty", corpus, move |b| {
-        let dfa = RegexBuilder::new()
+        // let dfa = RegexBuilder::new()
+            // .anchored(false)
+            // .minimize(true)
+            // .premultiply(true)
+            // .byte_classes(false)
+            // .build(r"\p{Greek}")
+            // .unwrap();
+        let dfa = DFABuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
+        let dfa = dfa.to_sparse_dfa().unwrap();
         b.iter(|| {
             assert!(!dfa.is_match(corpus));
         });

@@ -8,6 +8,7 @@ use builder::DFABuilder;
 use error::{Error, Result};
 use dfa_ref::DFARef;
 use minimize::Minimizer;
+use sparse::SparseDFA;
 use state_id::{StateID, dead_id, next_state_id, premultiply_overflow_error};
 
 /// The size of the alphabet in a standard DFA.
@@ -337,6 +338,16 @@ impl<S: StateID> DFA<S> {
         }
     }
 
+    /// TODO...
+    pub fn to_sparse_dfa_sized<T: StateID>(&self) -> Result<SparseDFA<T>> {
+        SparseDFA::from_dfa_sized(self)
+    }
+
+    /// TODO...
+    pub fn to_sparse_dfa(&self) -> Result<SparseDFA<S>> {
+        self.to_sparse_dfa_sized::<S>()
+    }
+
     /// Returns the memory usage, in bytes, of this DFA.
     ///
     /// The memory usage is computed based on the number of bytes used to
@@ -554,6 +565,14 @@ impl<S: StateID> DFA<S> {
         }
     }
 
+    pub(crate) fn state_id_to_index(&self, id: S) -> usize {
+        if self.kind.is_premultiplied() {
+            id.to_usize() / self.alphabet_len()
+        } else {
+            id.to_usize()
+        }
+    }
+
     pub(crate) fn byte_to_class(&self, b: u8) -> u8 {
         if self.kind.is_byte_class() {
             self.byte_classes[b as usize]
@@ -593,6 +612,10 @@ impl<S: StateID> DFA<S> {
 
     pub(crate) fn kind(&self) -> &DFAKind {
         &self.kind
+    }
+
+    pub(crate) fn byte_classes(&self) -> &[u8] {
+        &self.byte_classes
     }
 
     pub(crate) fn is_match_state(&self, id: S) -> bool {
@@ -777,7 +800,7 @@ pub struct State<'a, S> {
 }
 
 impl<'a, S: StateID> State<'a, S> {
-    pub fn iter(&self) -> StateTransitionIter<S> {
+    pub(crate) fn iter(&self) -> StateTransitionIter<S> {
         StateTransitionIter { it: self.transitions.iter().enumerate() }
     }
 
@@ -951,6 +974,7 @@ fn escape(b: u8) -> String {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use builder::DFABuilder;
     use nfa::NFA;
@@ -1024,15 +1048,13 @@ mod tests {
 
     fn build_automata(pattern: &str) -> (NFA, DFA, DFA) {
         let mut builder = DFABuilder::new();
-        builder.byte_classes(true).premultiply(false);
-        builder.anchored(true);
+        builder.byte_classes(false).premultiply(false);
+        builder.anchored(false);
         builder.allow_invalid_utf8(false);
         let nfa = builder.build_nfa(pattern).unwrap();
         let dfa = builder.build(pattern).unwrap();
         let min = builder.minimize(true).build(pattern).unwrap();
 
-        let bs = min.to_u16().unwrap().to_bytes_little_endian().unwrap();
-        ::std::fs::write("/tmp/scratch.dfa", &bs).unwrap();
         (nfa, dfa, min)
     }
 
@@ -1053,9 +1075,66 @@ mod tests {
         // print_automata(r"(..)*(...)*");
 
         // let pattern = r"\p{any}*?\p{Other_Uppercase}";
-        let pattern = r"\p{any}*?\w+";
-        print_automata(pattern);
+        // let pattern = r"\p{any}*?\w+";
         // print_automata_counts(pattern);
         // print_automata_counts(r"(?-u:\w)");
+
+        // let pattern = r"\p{Greek}";
+        // let pattern = r"zZzZzZzZzZ";
+        // let pattern = grapheme_pattern();
+        let pattern = r"\p{Ideographic}";
+        print_automata(pattern);
+        let (_, _, dfa) = build_automata(pattern);
+        let sparse = dfa.to_sparse_dfa_sized::<u16>().unwrap();
+        println!("{:?}", sparse);
+
+        // BREADCRUMBS: Look into sparse representation. Opporunities for
+        // wins?
+        //
+        // Look at performance for computing next state. Naive find? Binary
+        // search? memchr? Test on DFAs with smaller states. On DFAs with
+        // larger states, naive search loses big time.
+        //
+        // When should we overhaul crate to use DFA trait? Maybe before we
+        // dig into the above? Would be easier to manuever I guess.
+
+        println!(
+            "dense mem: {:?}, sparse mem: {:?}",
+            dfa.memory_usage(),
+            sparse.memory_usage(),
+        );
+    }
+
+    fn grapheme_pattern() -> &'static str {
+        r"(?x)
+            (?:
+                \p{gcb=CR}\p{gcb=LF}
+                |
+                [\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
+                |
+                \p{gcb=Prepend}*
+                (?:
+                    (?:
+                        (?:
+                            \p{gcb=L}*
+                            (?:\p{gcb=V}+|\p{gcb=LV}\p{gcb=V}*|\p{gcb=LVT})
+                            \p{gcb=T}*
+                        )
+                        |
+                        \p{gcb=L}+
+                        |
+                        \p{gcb=T}+
+                    )
+                    |
+                    \p{gcb=RI}\p{gcb=RI}
+                    |
+                    \p{Extended_Pictographic}
+                    (?:\p{gcb=Extend}*\p{gcb=ZWJ}\p{Extended_Pictographic})*
+                    |
+                    [^\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
+                )
+                [\p{gcb=Extend}\p{gcb=ZWJ}\p{gcb=SpacingMark}]*
+            )
+    "
     }
 }

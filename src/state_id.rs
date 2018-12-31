@@ -1,5 +1,8 @@
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::mem::size_of;
+
+use byteorder::{ByteOrder, NativeEndian};
 
 use error::{Error, Result};
 
@@ -41,6 +44,17 @@ pub fn next_state_id<S: StateID>(current: S) -> Result<S> {
     Ok(S::from_usize(next))
 }
 
+/// Convert the given `usize` to the chosen state identifier representation.
+/// If the given value cannot fit in the chosen representation, then an error
+/// is returned.
+pub fn usize_to_state_id<S: StateID>(value: usize) -> Result<S> {
+    if value > S::max_id() {
+        Err(Error::state_id_overflow(S::max_id()))
+    } else {
+        Ok(S::from_usize(value))
+    }
+}
+
 /// A trait describing the representation of a DFA's state identifier.
 ///
 /// The purpose of this trait is to safely express both the possible state
@@ -50,7 +64,8 @@ pub fn next_state_id<S: StateID>(current: S) -> Result<S> {
 ///
 /// In general, one should not need to implement this trait explicitly. In
 /// particular, this crate provides implementations for `u8`, `u16`, `u32`,
-/// `u64` and `usize`.
+/// `u64` and `usize`. (`u32` and `u64` are only provided for targets that can
+/// represent all corresponding values in a `usize`.)
 ///
 /// # Safety
 ///
@@ -87,6 +102,20 @@ pub unsafe trait StateID:
     /// Implementors must return a correct bound. Doing otherwise may result
     /// in memory unsafety.
     fn max_id() -> usize;
+
+    /// Read a single state identifier from the given slice of bytes in native
+    /// endian format.
+    ///
+    /// Implementors may assume that the given slice has length at least
+    /// `size_of::<Self>()`.
+    fn read_bytes(slice: &[u8]) -> Self;
+
+    /// Write this state identifier to the given slice of bytes in native
+    /// endian format.
+    ///
+    /// Implementors may assume that the given slice has length at least
+    /// `size_of::<Self>()`.
+    fn write_bytes(self, slice: &mut [u8]);
 }
 
 unsafe impl StateID for usize {
@@ -98,6 +127,16 @@ unsafe impl StateID for usize {
 
     #[inline]
     fn max_id() -> usize { ::std::usize::MAX }
+
+    #[inline]
+    fn read_bytes(slice: &[u8]) -> Self {
+        NativeEndian::read_uint(slice, size_of::<usize>()) as usize
+    }
+
+    #[inline]
+    fn write_bytes(self, slice: &mut [u8]) {
+        NativeEndian::write_uint(slice, self as u64, size_of::<usize>())
+    }
 }
 
 unsafe impl StateID for u8 {
@@ -109,6 +148,16 @@ unsafe impl StateID for u8 {
 
     #[inline]
     fn max_id() -> usize { ::std::u8::MAX as usize }
+
+    #[inline]
+    fn read_bytes(slice: &[u8]) -> Self {
+        slice[0]
+    }
+
+    #[inline]
+    fn write_bytes(self, slice: &mut [u8]) {
+        slice[0] = self;
+    }
 }
 
 unsafe impl StateID for u16 {
@@ -120,6 +169,16 @@ unsafe impl StateID for u16 {
 
     #[inline]
     fn max_id() -> usize { ::std::u16::MAX as usize }
+
+    #[inline]
+    fn read_bytes(slice: &[u8]) -> Self {
+        NativeEndian::read_u16(slice)
+    }
+
+    #[inline]
+    fn write_bytes(self, slice: &mut [u8]) {
+        NativeEndian::write_u16(slice, self)
+    }
 }
 
 #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
@@ -132,6 +191,16 @@ unsafe impl StateID for u32 {
 
     #[inline]
     fn max_id() -> usize { ::std::u32::MAX as usize }
+
+    #[inline]
+    fn read_bytes(slice: &[u8]) -> Self {
+        NativeEndian::read_u32(slice)
+    }
+
+    #[inline]
+    fn write_bytes(self, slice: &mut [u8]) {
+        NativeEndian::write_u32(slice, self)
+    }
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -144,4 +213,14 @@ unsafe impl StateID for u64 {
 
     #[inline]
     fn max_id() -> usize { ::std::u64::MAX as usize }
+
+    #[inline]
+    fn read_bytes(slice: &[u8]) -> Self {
+        NativeEndian::read_u64(slice)
+    }
+
+    #[inline]
+    fn write_bytes(self, slice: &mut [u8]) {
+        NativeEndian::write_u64(slice, self)
+    }
 }
