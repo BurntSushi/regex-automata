@@ -4,6 +4,7 @@ use std::iter;
 
 use regex_syntax::hir::{self, Hir, HirKind};
 
+use classes::ByteClasses;
 use error::{Error, Result};
 
 /// The representation for an NFA state identifier.
@@ -25,7 +26,11 @@ pub struct NFA {
     /// identifier. Two bytes in the same equivalence class cannot discriminate
     /// between a match or a non-match. This map can be used to shrink the
     /// total size of a DFA's transition table with a small match-time cost.
-    byte_classes: Vec<u8>,
+    ///
+    /// Note that the NFA's transitions are *not* defined in terms of these
+    /// equivalence classes. The NFA's transitions are defined on the original
+    /// byte values.
+    byte_classes: ByteClasses,
 }
 
 /// A state in a final compiled NFA.
@@ -62,7 +67,7 @@ impl NFA {
     /// Return the set of equivalence classes for this NFA. The slice returned
     /// always has length 256 and maps each possible byte value to its
     /// corresponding equivalence class ID (which is never more than 255).
-    pub fn byte_classes(&self) -> &[u8] {
+    pub fn byte_classes(&self) -> &ByteClasses {
         &self.byte_classes
     }
 }
@@ -685,12 +690,12 @@ impl ByteClassSet {
     /// Convert this boolean set to a map that maps all byte values to their
     /// corresponding equivalence class. The last mapping indicates the largest
     /// equivalence class identifier (which is never bigger than 255).
-    fn byte_classes(&self) -> Vec<u8> {
-        let mut byte_classes = vec![0; 256];
+    fn byte_classes(&self) -> ByteClasses {
+        let mut classes = ByteClasses::empty();
         let mut class = 0u8;
         let mut i = 0;
         loop {
-            byte_classes[i] = class as u8;
+            classes.set(i as u8, class as u8);
             if i >= 255 {
                 break;
             }
@@ -699,7 +704,7 @@ impl ByteClassSet {
             }
             i += 1;
         }
-        byte_classes
+        classes
     }
 }
 
@@ -964,30 +969,30 @@ mod tests {
         set.set_range(b'a', b'z');
 
         let classes = set.byte_classes();
-        assert_eq!(classes[0], 0);
-        assert_eq!(classes[1], 0);
-        assert_eq!(classes[2], 0);
-        assert_eq!(classes[b'a' as usize - 1], 0);
-        assert_eq!(classes[b'a' as usize], 1);
-        assert_eq!(classes[b'm' as usize], 1);
-        assert_eq!(classes[b'z' as usize], 1);
-        assert_eq!(classes[b'z' as usize + 1], 2);
-        assert_eq!(classes[254], 2);
-        assert_eq!(classes[255], 2);
+        assert_eq!(classes.get(0), 0);
+        assert_eq!(classes.get(1), 0);
+        assert_eq!(classes.get(2), 0);
+        assert_eq!(classes.get(b'a' - 1), 0);
+        assert_eq!(classes.get(b'a'), 1);
+        assert_eq!(classes.get(b'm'), 1);
+        assert_eq!(classes.get(b'z'), 1);
+        assert_eq!(classes.get(b'z' + 1), 2);
+        assert_eq!(classes.get(254), 2);
+        assert_eq!(classes.get(255), 2);
 
         let mut set = ByteClassSet::new();
         set.set_range(0, 2);
         set.set_range(4, 6);
         let classes = set.byte_classes();
-        assert_eq!(classes[0], 0);
-        assert_eq!(classes[1], 0);
-        assert_eq!(classes[2], 0);
-        assert_eq!(classes[3], 1);
-        assert_eq!(classes[4], 2);
-        assert_eq!(classes[5], 2);
-        assert_eq!(classes[6], 2);
-        assert_eq!(classes[7], 3);
-        assert_eq!(classes[255], 3);
+        assert_eq!(classes.get(0), 0);
+        assert_eq!(classes.get(1), 0);
+        assert_eq!(classes.get(2), 0);
+        assert_eq!(classes.get(3), 1);
+        assert_eq!(classes.get(4), 2);
+        assert_eq!(classes.get(5), 2);
+        assert_eq!(classes.get(6), 2);
+        assert_eq!(classes.get(7), 3);
+        assert_eq!(classes.get(255), 3);
     }
 
     #[test]
@@ -996,6 +1001,6 @@ mod tests {
         for i in 0..256u16 {
             set.set_range(i as u8, i as u8);
         }
-        assert_eq!(set.byte_classes().len(), 256);
+        assert_eq!(set.byte_classes().alphabet_len(), 256);
     }
 }

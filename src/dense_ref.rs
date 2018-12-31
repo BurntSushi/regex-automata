@@ -3,6 +3,7 @@ use std::slice;
 
 use byteorder::{ByteOrder, BigEndian, LittleEndian, NativeEndian};
 
+use classes::ByteClasses;
 use error::{Error, Result};
 use dense::{ALPHABET_LEN, DenseDFAKind};
 use state_id::{StateID, dead_id};
@@ -23,17 +24,17 @@ use state_id::{StateID, dead_id};
 /// heap. See [`DenseDFARef::from_bytes`](struct.DenseDFARef.html#method.from_bytes) for
 /// an example.
 #[derive(Clone, Copy, Debug)]
-pub struct DenseDFARef<'a, S = usize> {
+pub struct DenseDFARef<T, S> {
     pub(crate) kind: DenseDFAKind,
     pub(crate) start: S,
     pub(crate) state_count: usize,
     pub(crate) max_match: S,
     pub(crate) alphabet_len: usize,
-    pub(crate) byte_classes: &'a [u8],
-    pub(crate) trans: &'a [S],
+    pub(crate) byte_classes: ByteClasses,
+    pub(crate) trans: T,
 }
 
-impl<'a, S: StateID> DenseDFARef<'a, S> {
+impl<T: AsRef<[S]>, S: StateID> DenseDFARef<T, S> {
     /// Returns true if and only if the given bytes match this DFA.
     ///
     /// This routine may short circuit if it knows that scanning future input
@@ -150,9 +151,154 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
     /// This does **not** include the stack size used up by this DFA. To
     /// compute that, used `std::mem::size_of::<DenseDFARef>()`.
     pub fn memory_usage(&self) -> usize {
-        self.byte_classes.len() + (self.trans.len() * mem::size_of::<S>())
+        self.trans().len() * mem::size_of::<S>()
     }
 
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub(crate) fn to_bytes<A: ByteOrder>(&self) -> Result<Vec<u8>> {
+        let label = b"rust-regex-automata-dfa\x00";
+        assert_eq!(24, label.len());
+
+        let trans_size = mem::size_of::<S>() * self.trans().len();
+        let size =
+            // For human readable label.
+            label.len()
+            // endiannes check, must be equal to 0xFEFF for native endian
+            + 2
+            // For version number.
+            + 2
+            // Size of state ID representation, in bytes.
+            // Must be 1, 2, 4 or 8.
+            + 2
+            // For DFA kind.
+            + 2
+            // For start state.
+            + 8
+            // For state count.
+            + 8
+            // For max match state.
+            + 8
+            // For alphabet length.
+            + 8
+            // For byte class map.
+            + 256
+            // For transition table.
+            + trans_size;
+        // sanity check, this can be updated if need be
+        assert_eq!(320 + trans_size, size);
+        // This must always pass. It checks that the transition table is at
+        // a properly aligned address.
+        assert_eq!(0, (size - trans_size) % 8);
+
+        let mut buf = vec![0; size];
+        let mut i = 0;
+
+        // write label
+        for &b in label {
+            buf[i] = b;
+            i += 1;
+        }
+        // endianness check
+        A::write_u16(&mut buf[i..], 0xFEFF);
+        i += 2;
+        // version number
+        A::write_u16(&mut buf[i..], 1);
+        i += 2;
+        // size of state ID
+        let state_size = mem::size_of::<S>();
+        if ![1, 2, 4, 8].contains(&state_size) {
+            return Err(Error::serialize(&format!(
+                "state size of {} not supported, must be 1, 2, 4 or 8",
+                state_size
+            )));
+        }
+        A::write_u16(&mut buf[i..], state_size as u16);
+        i += 2;
+        // DFA kind
+        A::write_u16(&mut buf[i..], self.kind.to_byte() as u16);
+        i += 2;
+        // start state
+        A::write_u64(&mut buf[i..], self.start.to_usize() as u64);
+        i += 8;
+        // state count
+        A::write_u64(&mut buf[i..], self.state_count as u64);
+        i += 8;
+        // max match state
+        A::write_u64(
+            &mut buf[i..],
+            self.max_match.to_usize() as u64,
+        );
+        i += 8;
+        // alphabet length
+        A::write_u64(&mut buf[i..], self.alphabet_len as u64);
+        i += 8;
+        // byte class map
+        for b in (0..256).map(|b| b as u8) {
+            buf[i] = self.byte_classes.get(b);
+            i += 1;
+        }
+        // transition table
+        for &id in self.trans() {
+            if state_size == 1 {
+                buf[i] = id.to_usize() as u8;
+            } else if state_size == 2 {
+                A::write_u16(&mut buf[i..], id.to_usize() as u16);
+            } else if state_size == 4 {
+                A::write_u32(&mut buf[i..], id.to_usize() as u32);
+            } else {
+                assert_eq!(8, state_size);
+                A::write_u64(&mut buf[i..], id.to_usize() as u64);
+            }
+            i += state_size;
+        }
+        assert_eq!(size, i, "expected to consume entire buffer");
+
+        Ok(buf)
+    }
+
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in little
+    /// endian format.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_little_endian(&self) -> Result<Vec<u8>> {
+        self.to_bytes::<LittleEndian>()
+    }
+
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in big
+    /// endian format.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_big_endian(&self) -> Result<Vec<u8>> {
+        self.to_bytes::<BigEndian>()
+    }
+
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in native
+    /// endian format. Generally, it is better to pick an explicit endianness
+    /// using either `to_bytes_little_endian` or `to_bytes_big_endian`. This
+    /// routine is useful in tests where the DFA is serialized and deserialized
+    /// on the same platform.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_native_endian(&self) -> Result<Vec<u8>> {
+        self.to_bytes::<NativeEndian>()
+    }
+}
+
+impl<'a, S: StateID> DenseDFARef<&'a [S], S> {
     /// Deserialize a DFA with a specific state identifier representation.
     ///
     /// Deserializing a DFA using this routine will **not** allocate any heap
@@ -207,12 +353,14 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
     /// # fn example() -> Result<(), regex_automata::Error> {
     /// let initial = DenseDFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_u16()?.to_bytes_native_endian()?;
-    /// let dfa: DenseDFARef<u16> = unsafe { DenseDFARef::from_bytes(&bytes) };
+    /// let dfa: DenseDFARef<&[u16], u16> = unsafe {
+    ///     DenseDFARef::from_bytes(&bytes)
+    /// };
     ///
     /// assert_eq!(Some(8), dfa.find(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub unsafe fn from_bytes(mut buf: &'a [u8]) -> DenseDFARef<'a, S> {
+    pub unsafe fn from_bytes(mut buf: &'a [u8]) -> DenseDFARef<&'a [S], S> {
         // skip over label
         match buf.iter().position(|&b| b == b'\x00') {
             None => panic!("could not find label"),
@@ -273,12 +421,7 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         buf = &buf[8..];
 
         // read byte classes
-        let byte_classes =
-            if kind.is_byte_class() {
-                &buf[..256]
-            } else {
-                &[]
-            };
+        let byte_classes = ByteClasses::from_slice(&buf[..256]);
         buf = &buf[256..];
 
         assert_eq!(
@@ -300,159 +443,9 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
             alphabet_len, byte_classes, trans,
         }
     }
-
-    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary.
-    ///
-    /// If the state identifier representation of this DFA has a size different
-    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
-    /// implementations of `StateID` provided by this crate satisfy this
-    /// requirement.
-    pub(crate) fn to_bytes<T: ByteOrder>(&self) -> Result<Vec<u8>> {
-        let label = b"rust-regex-automata-dfa\x00";
-        assert_eq!(24, label.len());
-
-        let trans_size = mem::size_of::<S>() * self.trans.len();
-        let size =
-            // For human readable label.
-            label.len()
-            // endiannes check, must be equal to 0xFEFF for native endian
-            + 2
-            // For version number.
-            + 2
-            // Size of state ID representation, in bytes.
-            // Must be 1, 2, 4 or 8.
-            + 2
-            // For DFA kind.
-            + 2
-            // For start state.
-            + 8
-            // For state count.
-            + 8
-            // For max match state.
-            + 8
-            // For alphabet length.
-            + 8
-            // For byte class map.
-            + 256
-            // For transition table.
-            + trans_size;
-        // sanity check, this can be updated if need be
-        assert_eq!(320 + trans_size, size);
-        // This must always pass. It checks that the transition table is at
-        // a properly aligned address.
-        assert_eq!(0, (size - trans_size) % 8);
-
-        let mut buf = vec![0; size];
-        let mut i = 0;
-
-        // write label
-        for &b in label {
-            buf[i] = b;
-            i += 1;
-        }
-        // endianness check
-        T::write_u16(&mut buf[i..], 0xFEFF);
-        i += 2;
-        // version number
-        T::write_u16(&mut buf[i..], 1);
-        i += 2;
-        // size of state ID
-        let state_size = mem::size_of::<S>();
-        if ![1, 2, 4, 8].contains(&state_size) {
-            return Err(Error::serialize(&format!(
-                "state size of {} not supported, must be 1, 2, 4 or 8",
-                state_size
-            )));
-        }
-        T::write_u16(&mut buf[i..], state_size as u16);
-        i += 2;
-        // DFA kind
-        T::write_u16(&mut buf[i..], self.kind.to_byte() as u16);
-        i += 2;
-        // start state
-        T::write_u64(&mut buf[i..], self.start.to_usize() as u64);
-        i += 8;
-        // state count
-        T::write_u64(&mut buf[i..], self.state_count as u64);
-        i += 8;
-        // max match state
-        T::write_u64(
-            &mut buf[i..],
-            self.max_match.to_usize() as u64,
-        );
-        i += 8;
-        // alphabet length
-        T::write_u64(&mut buf[i..], self.alphabet_len as u64);
-        i += 8;
-        // byte class map
-        if self.byte_classes.is_empty() {
-            for b in (0..256).map(|b| b as u8) {
-                buf[i] = b;
-                i += 1;
-            }
-        } else {
-            for &b in self.byte_classes {
-                buf[i] = b;
-                i += 1;
-            }
-        }
-        // transition table
-        for &id in self.trans {
-            if state_size == 1 {
-                buf[i] = id.to_usize() as u8;
-            } else if state_size == 2 {
-                T::write_u16(&mut buf[i..], id.to_usize() as u16);
-            } else if state_size == 4 {
-                T::write_u32(&mut buf[i..], id.to_usize() as u32);
-            } else {
-                assert_eq!(8, state_size);
-                T::write_u64(&mut buf[i..], id.to_usize() as u64);
-            }
-            i += state_size;
-        }
-        assert_eq!(size, i, "expected to consume entire buffer");
-
-        Ok(buf)
-    }
-
-    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in little
-    /// endian format.
-    ///
-    /// If the state identifier representation of this DFA has a size different
-    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
-    /// implementations of `StateID` provided by this crate satisfy this
-    /// requirement.
-    pub fn to_bytes_little_endian(&self) -> Result<Vec<u8>> {
-        self.to_bytes::<LittleEndian>()
-    }
-
-    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in big
-    /// endian format.
-    ///
-    /// If the state identifier representation of this DFA has a size different
-    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
-    /// implementations of `StateID` provided by this crate satisfy this
-    /// requirement.
-    pub fn to_bytes_big_endian(&self) -> Result<Vec<u8>> {
-        self.to_bytes::<BigEndian>()
-    }
-
-    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in native
-    /// endian format. Generally, it is better to pick an explicit endianness
-    /// using either `to_bytes_little_endian` or `to_bytes_big_endian`. This
-    /// routine is useful in tests where the DFA is serialized and deserialized
-    /// on the same platform.
-    ///
-    /// If the state identifier representation of this DFA has a size different
-    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
-    /// implementations of `StateID` provided by this crate satisfy this
-    /// requirement.
-    pub fn to_bytes_native_endian(&self) -> Result<Vec<u8>> {
-        self.to_bytes::<NativeEndian>()
-    }
 }
 
-impl<'a, S: StateID> DenseDFARef<'a, S> {
+impl<T: AsRef<[S]>, S: StateID> DenseDFARef<T, S> {
     fn start(&self) -> S {
         self.start
     }
@@ -469,13 +462,17 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         id == dead_id()
     }
 
+    fn trans(&self) -> &[S] {
+        self.trans.as_ref()
+    }
+
     #[allow(dead_code)]
     fn next_state(
         &self,
         current: S,
         input: u8,
     ) -> S {
-        self.trans[current.to_usize() * ALPHABET_LEN + input as usize]
+        self.trans()[current.to_usize() * ALPHABET_LEN + input as usize]
     }
 
     unsafe fn next_state_unchecked(
@@ -483,7 +480,7 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         current: S,
         input: u8,
     ) -> S {
-        *self.trans.get_unchecked(
+        *self.trans().get_unchecked(
             current.to_usize() * ALPHABET_LEN + input as usize,
         )
     }
@@ -494,7 +491,7 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         current: S,
         input: u8,
     ) -> S {
-        self.trans[current.to_usize() + input as usize]
+        self.trans()[current.to_usize() + input as usize]
     }
 
     unsafe fn next_state_premultiplied_unchecked(
@@ -502,7 +499,7 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         current: S,
         input: u8,
     ) -> S {
-        *self.trans.get_unchecked(current.to_usize() + input as usize)
+        *self.trans().get_unchecked(current.to_usize() + input as usize)
     }
 
     #[allow(dead_code)]
@@ -511,8 +508,8 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         current: S,
         input: u8,
     ) -> S {
-        let input = self.byte_classes[input as usize];
-        self.trans[current.to_usize() * self.alphabet_len + input as usize]
+        let input = self.byte_classes.get(input);
+        self.trans()[current.to_usize() * self.alphabet_len + input as usize]
     }
 
     unsafe fn next_state_byte_class_unchecked(
@@ -520,8 +517,8 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         current: S,
         input: u8,
     ) -> S {
-        let input = *self.byte_classes.get_unchecked(input as usize);
-        *self.trans.get_unchecked(
+        let input = self.byte_classes.get_unchecked(input);
+        *self.trans().get_unchecked(
             current.to_usize() * self.alphabet_len + input as usize,
         )
     }
@@ -532,8 +529,8 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         current: S,
         input: u8,
     ) -> S {
-        let input = self.byte_classes[input as usize];
-        self.trans[current.to_usize() + input as usize]
+        let input = self.byte_classes.get(input);
+        self.trans()[current.to_usize() + input as usize]
     }
 
     unsafe fn next_state_premultiplied_byte_class_unchecked(
@@ -541,12 +538,12 @@ impl<'a, S: StateID> DenseDFARef<'a, S> {
         current: S,
         input: u8,
     ) -> S {
-        let input = *self.byte_classes.get_unchecked(input as usize);
-        *self.trans.get_unchecked(current.to_usize() + input as usize)
+        let input = self.byte_classes.get_unchecked(input);
+        *self.trans().get_unchecked(current.to_usize() + input as usize)
     }
 }
 
-impl<'a, S: StateID> DenseDFARef<'a, S> {
+impl<T: AsRef<[S]>, S: StateID> DenseDFARef<T, S> {
     #[inline(always)]
     pub(crate) fn is_match_inline(&self, bytes: &[u8]) -> bool {
         match self.kind {

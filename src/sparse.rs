@@ -7,25 +7,34 @@
 
 use std::fmt;
 use std::iter;
+use std::marker::PhantomData;
 use std::mem::size_of;
 
 use byteorder::{ByteOrder, NativeEndian};
 
+use classes::ByteClasses;
 use dense::DenseDFA;
 use dfa::DFA;
 use error::Result;
 use state_id::{StateID, dead_id, usize_to_state_id};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
     Standard(SparseDFAStandard<T, S>),
     ByteClass(SparseDFAByteClass<T, S>),
+    /// Hints that destructuring should not be exhaustive.
+    ///
+    /// This enum may grow additional variants, so this makes sure clients
+    /// don't count on exhaustive matching. (Otherwise, adding a new variant
+    /// could break existing code.)
+    #[doc(hidden)]
+    __Nonexhaustive,
 }
 
 impl<S: StateID> SparseDFA<Vec<u8>, S> {
-    pub(crate) fn from_dfa_sized<T: StateID>(
-        dfa: &DenseDFA<S>,
-    ) -> Result<SparseDFA<Vec<u8>, T>> {
+    pub(crate) fn from_dfa_sized<T: AsRef<[S]>, A: StateID>(
+        dfa: &DenseDFA<T, S>,
+    ) -> Result<SparseDFA<Vec<u8>, A>> {
         SparseDFARepr::from_dfa_sized(dfa).map(|r| r.into_sparse_dfa())
     }
 }
@@ -42,6 +51,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
             SparseDFA::ByteClass(SparseDFAByteClass(ref r)) => {
                 SparseDFA::ByteClass(SparseDFAByteClass(r.as_ref()))
             }
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -59,6 +69,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
             SparseDFA::ByteClass(SparseDFAByteClass(ref r)) => {
                 SparseDFA::ByteClass(SparseDFAByteClass(r.to_owned()))
             }
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -78,6 +89,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => &r.0,
             SparseDFA::ByteClass(ref r) => &r.0,
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -105,6 +117,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.next_state(current, input),
             SparseDFA::ByteClass(ref r) => r.next_state(current, input),
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -123,6 +136,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.is_match(bytes),
             SparseDFA::ByteClass(ref r) => r.is_match(bytes),
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -130,6 +144,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.shortest_match(bytes),
             SparseDFA::ByteClass(ref r) => r.shortest_match(bytes),
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -137,6 +152,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.find(bytes),
             SparseDFA::ByteClass(ref r) => r.find(bytes),
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -144,6 +160,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.rfind(bytes),
             SparseDFA::ByteClass(ref r) => r.rfind(bytes),
+            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -206,7 +223,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFAByteClass<T, S> {
     }
 
     fn next_state(&self, current: S, input: u8) -> S {
-        let input = self.0.byte_classes()[input as usize];
+        let input = self.0.byte_classes.get(input);
         self.0.state(current).next(input)
     }
 
@@ -215,25 +232,20 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFAByteClass<T, S> {
     }
 }
 
+/// The underlying representation of a sparse DFA. This is shared by all of
+/// the different variants of a sparse DFA.
 #[derive(Clone)]
 struct SparseDFARepr<T: AsRef<[u8]>, S: StateID = usize> {
     start: S,
     state_count: usize,
     max_match: S,
-    byte_classes: T,
+    byte_classes: ByteClasses,
     trans: T,
-}
-
-#[derive(Clone, Debug)]
-struct State<'a> {
-    ntrans: usize,
-    input_ranges: &'a [u8],
-    next: &'a [u8],
 }
 
 impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
     fn into_sparse_dfa(self) -> SparseDFA<T, S> {
-        if self.byte_classes().is_empty() {
+        if self.byte_classes.is_singleton() {
             SparseDFA::Standard(SparseDFAStandard(self))
         } else {
             SparseDFA::ByteClass(SparseDFAByteClass(self))
@@ -245,7 +257,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
-            byte_classes: self.byte_classes(),
+            byte_classes: self.byte_classes.clone(),
             trans: self.trans(),
         }
     }
@@ -255,7 +267,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
-            byte_classes: self.byte_classes().to_vec(),
+            byte_classes: self.byte_classes.clone(),
             trans: self.trans().to_vec(),
         }
     }
@@ -265,18 +277,26 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
     /// This is marked as inline because it doesn't seem to get inlined
     /// otherwise, which leads to a fairly significant performance loss (~25%).
     #[inline]
-    fn state(&self, id: S) -> State {
+    fn state<'a>(&'a self, id: S) -> State<'a, S> {
         let mut pos = id.to_usize();
         let ntrans = NativeEndian::read_u16(&self.trans()[pos..]) as usize;
         pos += 2;
         let input_ranges = &self.trans()[pos..pos + (ntrans * 2)];
         pos += 2 * ntrans;
         let next = &self.trans()[pos..pos + (ntrans * size_of::<S>())];
-        State { ntrans, input_ranges, next }
+        State { _state_id_repr: PhantomData, ntrans, input_ranges, next }
+    }
+
+    /// Return an iterator over all of the states in this DFA.
+    ///
+    /// The iterator returned yields tuples, where the first element is the
+    /// state ID and the second element is the state itself.
+    fn states<'a>(&'a self) -> StateIter<'a, T, S> {
+        StateIter { dfa: self, id: dead_id() }
     }
 
     fn memory_usage(&self) -> usize {
-        self.byte_classes().len() + self.trans().len()
+        self.trans().len()
     }
 
     fn start_state(&self) -> S {
@@ -295,19 +315,15 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
         id == dead_id()
     }
 
-    fn byte_classes(&self) -> &[u8] {
-        self.byte_classes.as_ref()
-    }
-
     fn trans(&self) -> &[u8] {
         self.trans.as_ref()
     }
 }
 
 impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
-    fn from_dfa_sized<T: StateID>(
-        dfa: &DenseDFA<S>,
-    ) -> Result<SparseDFARepr<Vec<u8>, T>> {
+    fn from_dfa_sized<T: AsRef<[S]>, A: StateID>(
+        dfa: &DenseDFA<T, S>,
+    ) -> Result<SparseDFARepr<Vec<u8>, A>> {
         let state_count = dfa.len();
 
         // In order to build the transition table, we need to be able to write
@@ -328,7 +344,7 @@ impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
         // built in the first pass.
 
         let mut trans = vec![];
-        let mut remap: Vec<T> = vec![dead_id(); state_count];
+        let mut remap: Vec<A> = vec![dead_id(); state_count];
         for (old_id, state) in dfa.iter() {
             let pos = trans.len();
             remap[dfa.state_id_to_index(old_id)] = usize_to_state_id(pos)?;
@@ -348,7 +364,7 @@ impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
             NativeEndian::write_u16(&mut trans[pos..], trans_count);
 
             // zero-fill the actual transitions
-            let zeros = trans_count as usize * size_of::<T>();
+            let zeros = trans_count as usize * size_of::<A>();
             trans.extend(iter::repeat(0).take(zeros));
         }
 
@@ -360,14 +376,14 @@ impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
                 if next != dead_id() {
                     let next = remap[dfa.state_id_to_index(next)];
                     next.write_bytes(&mut trans[pos..]);
-                    pos += size_of::<T>();
+                    pos += size_of::<A>();
                 }
             }
         }
 
         let start = remap[dfa.state_id_to_index(dfa.start())];
         let max_match = remap[dfa.state_id_to_index(dfa.max_match_state())];
-        let byte_classes = dfa.byte_classes().to_vec();
+        let byte_classes = dfa.byte_classes().clone();
         Ok(SparseDFARepr {
             start, state_count, max_match, byte_classes, trans,
         })
@@ -392,70 +408,72 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for SparseDFARepr<T, S> {
             String::from_utf8(status).unwrap()
         }
 
-        let mut state_offset_map = vec![dead_id(); self.state_count];
-        let mut index = 0;
-        let mut pos = 0;
-        while pos < self.trans().len() {
-            state_offset_map[index] = S::from_usize(pos);
-
-            let ntrans = NativeEndian::read_u16(&self.trans()[pos..]) as usize;
-            pos += 2 + (2 * ntrans);
-            for i in 0..ntrans {
-                let next = S::read_bytes(&self.trans()[pos..]).to_usize();
-                pos += size_of::<S>();
-            }
-            index += 1;
-        }
-
-        let mut index = 0;
-        let mut pos = 0;
-        while pos < self.trans().len() {
-            let ntrans = NativeEndian::read_u16(&self.trans()[pos..]) as usize;
-            pos += 2;
-            let inputs = &self.trans()[pos..pos+(2 * ntrans)];
-            pos += 2 * ntrans;
-
-            let mut transitions = vec![];
-            for i in 0..ntrans {
-                let next = S::read_bytes(&self.trans()[pos..]).to_usize();
-                pos += size_of::<S>();
-                if next == dead_id() {
-                    continue;
-                }
-
-                let (b1, b2) = (inputs[i * 2], inputs[i * 2 + 1]);
-                if b1 == b2 {
-                    transitions.push(format!("{} => {}", escape(b1), next));
-                } else {
-                    transitions.push(
-                        format!("{}-{} => {}", escape(b1), escape(b2), next),
-                    );
-                }
-            }
-
-            let id = state_offset_map[index];
+        write!(f, "\n")?;
+        for (id, state) in self.states() {
             let status = state_status(self, id);
-            let state = transitions.join(", ");
-            writeln!(f, "{}{:04}: {}", status, id.to_usize(), state)?;
-
-            index += 1;
+            writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
         }
         Ok(())
     }
 }
 
-impl<'a> State<'a> {
+/// An iterator over all states in a sparse DFA.
+///
+/// This iterator yields tuples, where the first element is the state ID and
+/// the second element is the state itself.
+#[derive(Debug)]
+struct StateIter<'a, T: AsRef<[u8]>, S: StateID = usize> {
+    dfa: &'a SparseDFARepr<T, S>,
+    id: S,
+}
+
+impl<'a, T: AsRef<[u8]>, S: StateID> Iterator for StateIter<'a, T, S> {
+    type Item = (S, State<'a, S>);
+
+    fn next(&mut self) -> Option<(S, State<'a, S>)> {
+        if self.id.to_usize() >= self.dfa.trans().len() {
+            return None;
+        }
+        let id = self.id;
+        let state = self.dfa.state(id);
+        self.id = S::from_usize(self.id.to_usize() + state.bytes());
+        Some((id, state))
+    }
+}
+
+/// A representation of a sparse DFA state that can be cheaply materialized
+/// from a state identifier.
+#[derive(Clone)]
+struct State<'a, S: StateID = usize> {
+    /// The state identifier representation used by the DFA from which this
+    /// state was extracted. Since our transition table is compacted in a
+    /// &[u8], we don't actually use the state ID type parameter explicitly
+    /// anywhere, so we fake it. This prevents callers from using an incorrect
+    /// state ID representation to read from this state.
+    _state_id_repr: PhantomData<S>,
+    /// The number of transitions in this state.
+    ntrans: usize,
+    /// Pairs of input ranges, where there is one pair for each transition.
+    /// Each pair specifies an inclusive start and end byte range for the
+    /// corresponding transition.
+    input_ranges: &'a [u8],
+    /// Transitions to the next state. This slice contains native endian
+    /// encoded state identifiers, with `S` as the representation. Thus, there
+    /// are `ntrans * size_of::<S>()` bytes in this slice.
+    next: &'a [u8],
+}
+
+impl<'a, S: StateID> State<'a, S> {
     /// Searches for the next transition given an input byte. If no such
     /// transition could be found, then a dead state is returned.
-    fn next<S: StateID>(&self, input: u8) -> S {
+    fn next(&self, input: u8) -> S {
         // This straight linear search was observed to be much better than
         // binary search on ASCII haystacks, likely because a binary search
         // visits the ASCII case last but a linear search sees it first. A
         // binary search does do a little better on non-ASCII haystacks, but
         // not by much. There might be a better trade off lurking here.
         for i in 0..self.ntrans {
-            let start = self.input_ranges[i * 2];
-            let end = self.input_ranges[i * 2 + 1];
+            let (start, end) = self.range(i);
             if start <= input && input <= end {
                 return self.next_at(i)
             }
@@ -468,9 +486,50 @@ impl<'a> State<'a> {
         dead_id()
     }
 
+    /// Returns the inclusive input byte range for the ith transition in this
+    /// state.
+    fn range(&self, i: usize) -> (u8, u8) {
+        (self.input_ranges[i * 2], self.input_ranges[i * 2 + 1])
+    }
+
     /// Returns the next state for the ith transition in this state.
-    fn next_at<S: StateID>(&self, i: usize) -> S {
+    fn next_at(&self, i: usize) -> S {
         S::read_bytes(&self.next[i * size_of::<S>()..])
+    }
+
+    /// Return the total number of bytes that this state consumes in its
+    /// encoded form.
+    fn bytes(&self) -> usize {
+        2 + (self.ntrans * 2) + (self.ntrans * size_of::<S>())
+    }
+}
+
+impl<'a, S: StateID> fmt::Debug for State<'a, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut transitions = vec![];
+        for i in 0..self.ntrans {
+            let next = self.next_at(i);
+            if next == dead_id() {
+                continue;
+            }
+
+            let (start, end) = self.range(i);
+            if start == end {
+                transitions.push(
+                    format!("{} => {}", escape(start), next.to_usize()),
+                );
+            } else {
+                transitions.push(
+                    format!(
+                        "{}-{} => {}",
+                        escape(start),
+                        escape(end),
+                        next.to_usize(),
+                    ),
+                );
+            }
+        }
+        write!(f, "{}", transitions.join(", "))
     }
 }
 

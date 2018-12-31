@@ -20,6 +20,7 @@ pub use state_id::StateID;
 #[macro_use]
 mod macros;
 mod builder;
+mod classes;
 mod determinize;
 mod dense;
 mod dense_ref;

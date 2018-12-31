@@ -37,7 +37,7 @@ impl RegexBuilder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    pub fn build(&self, pattern: &str) -> Result<Regex<'static>> {
+    pub fn build(&self, pattern: &str) -> Result<Regex<Vec<usize>, usize>> {
         self.build_with_size::<usize>(pattern)
     }
 
@@ -66,7 +66,7 @@ impl RegexBuilder {
     pub fn build_with_size<S: StateID>(
         &self,
         pattern: &str,
-    ) -> Result<Regex<'static, S>> {
+    ) -> Result<Regex<Vec<S>, S>> {
         let forward = self.dfa.build_with_size(pattern)?;
         let reverse = self.dfa
             .clone()
@@ -328,7 +328,7 @@ impl DenseDFABuilder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    pub fn build(&self, pattern: &str) -> Result<DenseDFA> {
+    pub fn build(&self, pattern: &str) -> Result<DenseDFA<Vec<usize>, usize>> {
         self.build_with_size::<usize>(pattern)
     }
 
@@ -355,7 +355,7 @@ impl DenseDFABuilder {
     pub fn build_with_size<S: StateID>(
         &self,
         pattern: &str,
-    ) -> Result<DenseDFA<S>> {
+    ) -> Result<DenseDFA<Vec<S>, S>> {
         let nfa = self.build_nfa(pattern)?;
         let mut dfa =
             if self.byte_classes {

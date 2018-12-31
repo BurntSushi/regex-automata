@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 
-use dense::DenseDFA;
+use dense;
 use error::Result;
 use nfa::{self, NFA};
 use sparse_set::SparseSet;
 use state_id::{StateID, dead_id};
+
+type DFARepr<S> = dense::DenseDFA<Vec<S>, S>;
 
 /// A determinizer converts an NFA to a DFA.
 ///
@@ -26,7 +28,7 @@ pub struct Determinizer<'a, S: StateID> {
     /// The NFA we're converting into a DFA.
     nfa: &'a NFA,
     /// The DFA we're building.
-    dfa: DenseDFA<S>,
+    dfa: DFARepr<S>,
     /// Each DFA state being built is defined as an *ordered* set of NFA
     /// states, along with a flag indicating whether the state is a match
     /// state or not.
@@ -65,7 +67,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
 
         Determinizer {
             nfa: nfa,
-            dfa: DenseDFA::empty(),
+            dfa: DFARepr::empty(),
             builder_states: vec![dead],
             cache: cache,
             stack: vec![],
@@ -77,8 +79,8 @@ impl<'a, S: StateID> Determinizer<'a, S> {
     /// Instruct the determinizer to use equivalence classes as the transition
     /// alphabet instead of all possible byte values.
     pub fn with_byte_classes(mut self) -> Determinizer<'a, S> {
-        let byte_classes = self.nfa.byte_classes().to_vec();
-        self.dfa = DenseDFA::empty_with_byte_classes(byte_classes);
+        let byte_classes = self.nfa.byte_classes().clone();
+        self.dfa = DFARepr::empty_with_byte_classes(byte_classes);
         self
     }
 
@@ -93,12 +95,13 @@ impl<'a, S: StateID> Determinizer<'a, S> {
     /// Build the DFA. If there was a problem constructing the DFA (e.g., if
     /// the chosen state identifier representation is too small), then an error
     /// is returned.
-    pub fn build(mut self) -> Result<DenseDFA<S>> {
-        let equiv_bytes = self.dfa.equiv_bytes();
+    pub fn build(mut self) -> Result<DFARepr<S>> {
+        let representative_bytes: Vec<u8> =
+            self.dfa.byte_classes().representatives().collect();
         let mut sparse = self.new_sparse_set();
         let mut uncompiled = vec![self.add_start(&mut sparse)?];
         while let Some(dfa_id) = uncompiled.pop() {
-            for &b in &equiv_bytes {
+            for &b in &representative_bytes {
                 let (next_dfa_id, is_new) = self.cached_state(
                     dfa_id, b, &mut sparse,
                 )?;

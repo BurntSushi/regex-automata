@@ -5,6 +5,7 @@ use std::slice;
 use byteorder::{BigEndian, LittleEndian, NativeEndian};
 
 use builder::DenseDFABuilder;
+use classes::ByteClasses;
 use error::{Error, Result};
 use dense_ref::DenseDFARef;
 use minimize::Minimizer;
@@ -74,7 +75,7 @@ pub const ALPHABET_LEN: usize = 256;
 /// or
 /// [`to_bytes_native_endian`](struct.DenseDFA.html#method.to_bytes_native_endian).
 #[derive(Clone)]
-pub struct DenseDFA<S = usize> {
+pub struct DenseDFA<T, S> {
     /// The type of DFA. This enum controls how the state transition table
     /// is interpreted. It is never correct to read the transition table
     /// without knowing the DFA's kind.
@@ -119,16 +120,16 @@ pub struct DenseDFA<S = usize> {
     /// The only time the number of equivalence classes is fewer than 256 is
     /// if the DFA's kind uses byte classes. If the DFA doesn't use byte
     /// classes, then this vector is empty.
-    byte_classes: Vec<u8>,
+    byte_classes: ByteClasses,
     /// A contiguous region of memory representing the transition table in
     /// row-major order. The representation is dense. That is, every state has
     /// precisely the same number of transitions. The maximum number of
     /// transitions is 256. If a DFA has been instructed to use byte classes,
     /// then the number of transitions can be much less.
-    trans: Vec<S>,
+    trans: T,
 }
 
-impl DenseDFA {
+impl DenseDFA<Vec<usize>, usize> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding DFA.
     ///
@@ -150,12 +151,12 @@ impl DenseDFA {
     /// assert_eq!(Some(11), dfa.find(b"foo12345bar"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn new(pattern: &str) -> Result<DenseDFA> {
+    pub fn new(pattern: &str) -> Result<DenseDFA<Vec<usize>, usize>> {
         DenseDFABuilder::new().build(pattern)
     }
 }
 
-impl<S: StateID> DenseDFA<S> {
+impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// Parse the given regular expression using a default configuration and
     /// Create a new empty DFA that never matches any input.
     ///
@@ -168,25 +169,25 @@ impl<S: StateID> DenseDFA<S> {
     /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa: DenseDFA<usize> = DenseDFA::empty();
+    /// let dfa: DenseDFA<Vec<usize>, usize> = DenseDFA::empty();
     /// assert_eq!(None, dfa.find(b""));
     /// assert_eq!(None, dfa.find(b"foo"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn empty() -> DenseDFA<S> {
-        DenseDFA::empty_with_byte_classes(vec![])
+    pub fn empty() -> DenseDFA<Vec<S>, S> {
+        DenseDFA::empty_with_byte_classes(ByteClasses::singletons())
     }
 
     /// Create a new empty DFA with the given set of byte equivalence classes.
     /// An empty DFA never matches any input.
-    pub(crate) fn empty_with_byte_classes(byte_classes: Vec<u8>) -> DenseDFA<S> {
-        assert!(byte_classes.is_empty() || byte_classes.len() == 256);
-
+    pub(crate) fn empty_with_byte_classes(
+        byte_classes: ByteClasses,
+    ) -> DenseDFA<Vec<S>, S> {
         let (kind, alphabet_len) =
-            if byte_classes.is_empty() {
+            if byte_classes.is_singleton() {
                 (DenseDFAKind::Basic, ALPHABET_LEN)
             } else {
-                (DenseDFAKind::ByteClass, byte_classes[255] as usize + 1)
+                (DenseDFAKind::ByteClass, byte_classes.alphabet_len())
             };
         let mut dfa = DenseDFA {
             kind: kind,
@@ -201,7 +202,9 @@ impl<S: StateID> DenseDFA<S> {
         dfa.add_empty_state().unwrap();
         dfa
     }
+}
 
+impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// Returns true if and only if the given bytes match this DFA.
     ///
     /// This routine may short circuit if it knows that scanning future input
@@ -313,33 +316,33 @@ impl<S: StateID> DenseDFA<S> {
     /// This is useful if your code demands a borrowed version of the DFA.
     /// In particular, a `DenseDFARef` does not specifically require any heap
     /// memory and can be used without Rust's standard library.
-    pub fn as_dfa_ref<'a>(&'a self) -> DenseDFARef<'a, S> {
+    pub fn as_dfa_ref<'a>(&'a self) -> DenseDFARef<&'a [S], S> {
         DenseDFARef {
             kind: self.kind,
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
             alphabet_len: self.alphabet_len,
-            byte_classes: &self.byte_classes,
-            trans: &self.trans,
+            byte_classes: self.byte_classes.clone(),
+            trans: self.trans.as_ref(),
         }
     }
 
     /// Build an owned DFA from a borrowed DFA.
-    pub fn from_dfa_ref(dfa_ref: DenseDFARef<S>) -> DenseDFA<S> {
+    pub fn from_dfa_ref(dfa_ref: DenseDFARef<T, S>) -> DenseDFA<Vec<S>, S> {
         DenseDFA {
             kind: dfa_ref.kind,
             start: dfa_ref.start,
             state_count: dfa_ref.state_count,
             max_match: dfa_ref.max_match,
             alphabet_len: dfa_ref.alphabet_len,
-            byte_classes: dfa_ref.byte_classes.to_vec(),
-            trans: dfa_ref.trans.to_vec(),
+            byte_classes: dfa_ref.byte_classes.clone(),
+            trans: dfa_ref.trans.as_ref().to_vec(),
         }
     }
 
     /// TODO...
-    pub fn to_sparse_dfa_sized<T: StateID>(&self) -> Result<SparseDFA<Vec<u8>, T>> {
+    pub fn to_sparse_dfa_sized<A: StateID>(&self) -> Result<SparseDFA<Vec<u8>, A>> {
         SparseDFA::from_dfa_sized(self)
     }
 
@@ -360,6 +363,44 @@ impl<S: StateID> DenseDFA<S> {
         self.as_dfa_ref().memory_usage()
     }
 
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in little
+    /// endian format.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_little_endian(&self) -> Result<Vec<u8>> {
+        self.as_dfa_ref().to_bytes::<LittleEndian>()
+    }
+
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in big
+    /// endian format.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_big_endian(&self) -> Result<Vec<u8>> {
+        self.as_dfa_ref().to_bytes::<BigEndian>()
+    }
+
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in native
+    /// endian format. Generally, it is better to pick an explicit endianness
+    /// using either `to_bytes_little_endian` or `to_bytes_big_endian`. This
+    /// routine is useful in tests where the DFA is serialized and deserialized
+    /// on the same platform.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_native_endian(&self) -> Result<Vec<u8>> {
+        self.as_dfa_ref().to_bytes::<NativeEndian>()
+    }
+}
+
+impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// Deserialize a DFA with a specific state identifier representation.
     ///
     /// Deserializing a DFA using this routine will allocate new heap memory
@@ -420,12 +461,14 @@ impl<S: StateID> DenseDFA<S> {
     /// # fn example() -> Result<(), regex_automata::Error> {
     /// let initial = DenseDFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_u16()?.to_bytes_native_endian()?;
-    /// let dfa: DenseDFA<u16> = unsafe { DenseDFA::from_bytes(&bytes) };
+    /// let dfa: DenseDFA<Vec<u16>, u16> = unsafe {
+    ///     DenseDFA::from_bytes(&bytes)
+    /// };
     ///
     /// assert_eq!(Some(8), dfa.find(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub unsafe fn from_bytes(buf: &[u8]) -> DenseDFA<S> {
+    pub unsafe fn from_bytes(buf: &[u8]) -> DenseDFA<Vec<S>, S> {
         let dfa_ref = DenseDFARef::from_bytes(buf);
         DenseDFA {
             kind: dfa_ref.kind,
@@ -433,56 +476,20 @@ impl<S: StateID> DenseDFA<S> {
             state_count: dfa_ref.state_count,
             max_match: dfa_ref.max_match,
             alphabet_len: dfa_ref.alphabet_len,
-            byte_classes: dfa_ref.byte_classes.to_vec(),
+            byte_classes: dfa_ref.byte_classes.clone(),
             trans: dfa_ref.trans.to_vec(),
         }
     }
-
-    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in little
-    /// endian format.
-    ///
-    /// If the state identifier representation of this DFA has a size different
-    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
-    /// implementations of `StateID` provided by this crate satisfy this
-    /// requirement.
-    pub fn to_bytes_little_endian(&self) -> Result<Vec<u8>> {
-        self.as_dfa_ref().to_bytes::<LittleEndian>()
-    }
-
-    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in big
-    /// endian format.
-    ///
-    /// If the state identifier representation of this DFA has a size different
-    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
-    /// implementations of `StateID` provided by this crate satisfy this
-    /// requirement.
-    pub fn to_bytes_big_endian(&self) -> Result<Vec<u8>> {
-        self.as_dfa_ref().to_bytes::<BigEndian>()
-    }
-
-    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in native
-    /// endian format. Generally, it is better to pick an explicit endianness
-    /// using either `to_bytes_little_endian` or `to_bytes_big_endian`. This
-    /// routine is useful in tests where the DFA is serialized and deserialized
-    /// on the same platform.
-    ///
-    /// If the state identifier representation of this DFA has a size different
-    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
-    /// implementations of `StateID` provided by this crate satisfy this
-    /// requirement.
-    pub fn to_bytes_native_endian(&self) -> Result<Vec<u8>> {
-        self.as_dfa_ref().to_bytes::<NativeEndian>()
-    }
 }
 
-impl<S: StateID> DenseDFA<S> {
+impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// Create a new DFA whose match semantics are equivalent to this DFA,
     /// but attempt to use `u8` for the representation of state identifiers.
     /// If `u8` is insufficient to represent all state identifiers in this
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u8>()`.
-    pub fn to_u8(&self) -> Result<DenseDFA<u8>> {
+    pub fn to_u8(&self) -> Result<DenseDFA<Vec<u8>, u8>> {
         self.to_sized()
     }
 
@@ -492,7 +499,7 @@ impl<S: StateID> DenseDFA<S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u16>()`.
-    pub fn to_u16(&self) -> Result<DenseDFA<u16>> {
+    pub fn to_u16(&self) -> Result<DenseDFA<Vec<u16>, u16>> {
         self.to_sized()
     }
 
@@ -502,7 +509,7 @@ impl<S: StateID> DenseDFA<S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u32>()`.
-    pub fn to_u32(&self) -> Result<DenseDFA<u32>> {
+    pub fn to_u32(&self) -> Result<DenseDFA<Vec<u32>, u32>> {
         self.to_sized()
     }
 
@@ -512,7 +519,7 @@ impl<S: StateID> DenseDFA<S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u64>()`.
-    pub fn to_u64(&self) -> Result<DenseDFA<u64>> {
+    pub fn to_u64(&self) -> Result<DenseDFA<Vec<u64>, u64>> {
         self.to_sized()
     }
 
@@ -529,35 +536,35 @@ impl<S: StateID> DenseDFA<S> {
     /// entire construction process. However, these routines are necessary
     /// in cases where, say, a minimized DFA could fit in a smaller state
     /// identifier representation, but the initial determinized DFA would not.
-    pub fn to_sized<T: StateID>(&self) -> Result<DenseDFA<T>> {
+    pub fn to_sized<A: StateID>(&self) -> Result<DenseDFA<Vec<A>, A>> {
         // Check that this DFA can fit into T's representation.
         let mut last_state_id = self.state_count - 1;
         if self.kind.is_premultiplied() {
             last_state_id *= self.alphabet_len();
         }
-        if last_state_id > T::max_id() {
-            return Err(Error::state_id_overflow(T::max_id()));
+        if last_state_id > A::max_id() {
+            return Err(Error::state_id_overflow(A::max_id()));
         }
 
         // We're off to the races. The new DFA is the same as the old one,
         // but its transition table is truncated.
         let mut new = DenseDFA {
             kind: self.kind,
-            start: T::from_usize(self.start.to_usize()),
+            start: A::from_usize(self.start.to_usize()),
             state_count: self.state_count,
-            max_match: T::from_usize(self.max_match.to_usize()),
+            max_match: A::from_usize(self.max_match.to_usize()),
             alphabet_len: self.alphabet_len,
             byte_classes: self.byte_classes.clone(),
-            trans: vec![dead_id::<T>(); self.trans.len()],
+            trans: vec![dead_id::<A>(); self.trans().len()],
         };
         for (i, id) in new.trans.iter_mut().enumerate() {
-            *id = T::from_usize(self.trans[i].to_usize());
+            *id = A::from_usize(self.trans()[i].to_usize());
         }
         Ok(new)
     }
 }
 
-impl<S: StateID> DenseDFA<S> {
+impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     pub(crate) fn state_id_to_offset(&self, id: S) -> usize {
         if self.kind.is_premultiplied() {
             id.to_usize()
@@ -575,28 +582,7 @@ impl<S: StateID> DenseDFA<S> {
     }
 
     pub(crate) fn byte_to_class(&self, b: u8) -> u8 {
-        if self.kind.is_byte_class() {
-            self.byte_classes[b as usize]
-        } else {
-            b
-        }
-    }
-
-    pub(crate) fn equiv_bytes(&self) -> Vec<u8> {
-        if !self.kind.is_byte_class() {
-            return (0..ALPHABET_LEN).map(|b| b as u8).collect();
-        }
-
-        let mut equivs = vec![];
-        let mut last_equiv = None;
-        for b in 0usize..256 {
-            let equiv = self.byte_classes[b];
-            if last_equiv != Some(equiv) {
-                equivs.push(b as u8);
-                last_equiv = Some(equiv);
-            }
-        }
-        equivs
+        self.byte_classes.get(b)
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -615,7 +601,7 @@ impl<S: StateID> DenseDFA<S> {
         &self.kind
     }
 
-    pub(crate) fn byte_classes(&self) -> &[u8] {
+    pub(crate) fn byte_classes(&self) -> &ByteClasses {
         &self.byte_classes
     }
 
@@ -627,6 +613,17 @@ impl<S: StateID> DenseDFA<S> {
         self.max_match
     }
 
+    fn trans(&self) -> &[S] {
+        self.trans.as_ref()
+    }
+
+    pub(crate) fn iter(&self) -> StateIter<T, S> {
+        let it = self.trans().chunks(self.alphabet_len());
+        StateIter { dfa: self, it: it.enumerate() }
+    }
+}
+
+impl<S: StateID> DenseDFA<Vec<S>, S> {
     pub(crate) fn set_start_state(&mut self, start: S) {
         assert!(start.to_usize() < self.len());
         self.start = start;
@@ -668,11 +665,6 @@ impl<S: StateID> DenseDFA<S> {
 
     pub(crate) fn set_max_match_state(&mut self, id: S) {
         self.max_match = id;
-    }
-
-    pub(crate) fn iter(&self) -> StateIter<S> {
-        let it = self.trans.chunks(self.alphabet_len());
-        StateIter { dfa: self, it: it.enumerate() }
     }
 
     pub(crate) fn swap_states(&mut self, id1: S, id2: S) {
@@ -773,13 +765,12 @@ impl<S: StateID> DenseDFA<S> {
     }
 }
 
-#[derive(Debug)]
-pub struct StateIter<'a, S: StateID> {
-    dfa: &'a DenseDFA<S>,
+pub struct StateIter<'a, T, S> {
+    dfa: &'a DenseDFA<T, S>,
     it: iter::Enumerate<slice::Chunks<'a, S>>,
 }
 
-impl<'a, S: StateID> Iterator for StateIter<'a, S> {
+impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
     type Item = (S, State<'a, S>);
 
     fn next(&mut self) -> Option<(S, State<'a, S>)> {
@@ -874,13 +865,6 @@ pub enum DenseDFAKind {
 }
 
 impl DenseDFAKind {
-    pub fn is_byte_class(&self) -> bool {
-        match *self {
-            DenseDFAKind::Basic | DenseDFAKind::Premultiplied => false,
-            DenseDFAKind::ByteClass | DenseDFAKind::PremultipliedByteClass => true,
-        }
-    }
-
     pub fn is_premultiplied(&self) -> bool {
         match *self {
             DenseDFAKind::Basic | DenseDFAKind::ByteClass => false,
@@ -918,10 +902,10 @@ impl DenseDFAKind {
     }
 }
 
-impl<S: StateID> fmt::Debug for DenseDFA<S> {
+impl<T: AsRef<[S]>, S: StateID> fmt::Debug for DenseDFA<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn state_status<S: StateID>(
-            dfa: &DenseDFA<S>,
+        fn state_status<T: AsRef<[S]>, S: StateID>(
+            dfa: &DenseDFA<T, S>,
             id: S,
         ) -> String {
             let mut status = vec![b' ', b' '];
@@ -1081,10 +1065,10 @@ mod tests {
         // print_automata_counts(r"(?-u:\w)");
 
         // let pattern = r"\p{Greek}";
-        // let pattern = r"zZzZzZzZzZ";
+        let pattern = r"zZzZzZzZzZ";
         // let pattern = grapheme_pattern();
         // let pattern = r"\p{Ideographic}";
-        let pattern = r"\w";
+        // let pattern = r"\w";
         print_automata(pattern);
         let (_, _, dfa) = build_automata(pattern);
         let sparse = dfa.to_sparse_dfa_sized::<u16>().unwrap();
