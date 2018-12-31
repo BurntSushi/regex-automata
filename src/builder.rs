@@ -1,7 +1,7 @@
 use regex_syntax::ParserBuilder;
 
 use determinize::Determinizer;
-use dfa::DFA;
+use dense::DenseDFA;
 use error::{Error, Result};
 use regex::Regex;
 use nfa::{NFA, NFABuilder};
@@ -18,18 +18,18 @@ use state_id::StateID;
 /// finding the end of a match and the other is responsible for finding the
 /// start of a match. If you only need to detect whether something matched,
 /// or only the end of a match, then you should use a
-/// [`DFABuilder`](struct.DFABuilder.html)
+/// [`DenseDFABuilder`](struct.DenseDFABuilder.html)
 /// to construct a single DFA, which is cheaper than building two DFAs.
 #[derive(Clone, Debug)]
 pub struct RegexBuilder {
-    dfa: DFABuilder,
+    dfa: DenseDFABuilder,
 }
 
 impl RegexBuilder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> RegexBuilder {
         RegexBuilder {
-            dfa: DFABuilder::new(),
+            dfa: DenseDFABuilder::new(),
         }
     }
 
@@ -60,7 +60,7 @@ impl RegexBuilder {
     /// still return an error. To get a minimized DFA with a smaller state ID
     /// representation, first build it with a bigger state ID representation,
     /// and then shrink the sizes of the DFAs using one of its conversion
-    /// routines, such as [`DFA::to_u16`](struct.DFA.html#method.to_u16).
+    /// routines, such as [`DenseDFA::to_u16`](struct.DenseDFA.html#method.to_u16).
     /// Finally, reconstitute the regex via
     /// [`Regex::from_dfa`](struct.Regex.html#method.from_dfa).
     pub fn build_with_size<S: StateID>(
@@ -300,7 +300,7 @@ impl Default for RegexBuilder {
 /// [`Regex`](struct.Regex.html), which can be similarly configured using
 /// [`RegexBuilder`](struct.RegexBuilder.html).
 #[derive(Clone, Debug)]
-pub struct DFABuilder {
+pub struct DenseDFABuilder {
     parser: ParserBuilder,
     nfa: NFABuilder,
     minimize: bool,
@@ -310,10 +310,10 @@ pub struct DFABuilder {
     longest_match: bool,
 }
 
-impl DFABuilder {
-    /// Create a new DFA builder with the default configuration.
-    pub fn new() -> DFABuilder {
-        DFABuilder {
+impl DenseDFABuilder {
+    /// Create a new DenseDFA builder with the default configuration.
+    pub fn new() -> DenseDFABuilder {
+        DenseDFABuilder {
             parser: ParserBuilder::new(),
             nfa: NFABuilder::new(),
             minimize: false,
@@ -328,7 +328,7 @@ impl DFABuilder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    pub fn build(&self, pattern: &str) -> Result<DFA> {
+    pub fn build(&self, pattern: &str) -> Result<DenseDFA> {
         self.build_with_size::<usize>(pattern)
     }
 
@@ -351,11 +351,11 @@ impl DFABuilder {
     /// still return an error. To get a minimized DFA with a smaller state ID
     /// representation, first build it with a bigger state ID representation,
     /// and then shrink the size of the DFA using one of its conversion
-    /// routines, such as [`DFA::to_u16`](struct.DFA.html#method.to_u16).
+    /// routines, such as [`DenseDFA::to_u16`](struct.DenseDFA.html#method.to_u16).
     pub fn build_with_size<S: StateID>(
         &self,
         pattern: &str,
-    ) -> Result<DFA<S>> {
+    ) -> Result<DenseDFA<S>> {
         let nfa = self.build_nfa(pattern)?;
         let mut dfa =
             if self.byte_classes {
@@ -394,7 +394,7 @@ impl DFABuilder {
     /// which enables a match to appear anywhere.
     ///
     /// By default this is disabled.
-    pub fn anchored(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn anchored(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.nfa.anchored(yes);
         self
     }
@@ -403,7 +403,7 @@ impl DFABuilder {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `i` flag.
-    pub fn case_insensitive(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn case_insensitive(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.parser.case_insensitive(yes);
         self
     }
@@ -416,7 +416,7 @@ impl DFABuilder {
     ///
     /// By default, this is disabled. It may be selectively enabled in the
     /// regular expression by using the `x` flag regardless of this setting.
-    pub fn ignore_whitespace(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn ignore_whitespace(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.parser.ignore_whitespace(yes);
         self
     }
@@ -425,7 +425,7 @@ impl DFABuilder {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `s` flag.
-    pub fn dot_matches_new_line(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn dot_matches_new_line(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.parser.dot_matches_new_line(yes);
         self
     }
@@ -434,7 +434,7 @@ impl DFABuilder {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `U` flag.
-    pub fn swap_greed(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn swap_greed(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.parser.swap_greed(yes);
         self
     }
@@ -447,7 +447,7 @@ impl DFABuilder {
     /// Note that unless `allow_invalid_utf8` is enabled (it's disabled by
     /// default), a regular expression will fail to parse if Unicode mode is
     /// disabled and a sub-expression could possibly match invalid UTF-8.
-    pub fn unicode(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn unicode(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.parser.unicode(yes);
         self
     }
@@ -458,7 +458,7 @@ impl DFABuilder {
     /// When disabled (the default), the builder is guaranteed to produce a
     /// regex that will only ever match valid UTF-8 (otherwise, the builder
     /// will return an error).
-    pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.parser.allow_invalid_utf8(yes);
         self.nfa.allow_invalid_utf8(yes);
         self
@@ -489,7 +489,7 @@ impl DFABuilder {
     /// in a nest depth of `1`. In general, a nest limit is not something that
     /// manifests in an obvious way in the concrete syntax, therefore, it
     /// should not be used in a granular way.
-    pub fn nest_limit(&mut self, limit: u32) -> &mut DFABuilder {
+    pub fn nest_limit(&mut self, limit: u32) -> &mut DenseDFABuilder {
         self.parser.nest_limit(limit);
         self
     }
@@ -529,7 +529,7 @@ impl DFABuilder {
     ///    (up to state renaming), then the languages are equivalent.
     ///
     /// This option is disabled by default.
-    pub fn minimize(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn minimize(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.minimize = yes;
         self
     }
@@ -557,7 +557,7 @@ impl DFABuilder {
     /// non-premultiplied form only requires 8 bits.
     ///
     /// This option is enabled by default.
-    pub fn premultiply(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn premultiply(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.premultiply = yes;
         self
     }
@@ -584,7 +584,7 @@ impl DFABuilder {
     /// transition. This has a small match time performance cost.
     ///
     /// This option is enabled by default.
-    pub fn byte_classes(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn byte_classes(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.byte_classes = yes;
         self
     }
@@ -600,7 +600,7 @@ impl DFABuilder {
     /// of a match, since a single forward DFA is only capable of finding the
     /// end of a match. This start of match handling is done for you
     /// automatically if you build a [`Regex`](struct.Regex.html).
-    pub fn reverse(&mut self, yes: bool) -> &mut DFABuilder {
+    pub fn reverse(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.reverse = yes;
         self.nfa.reverse(yes);
         self
@@ -629,14 +629,14 @@ impl DFABuilder {
     /// DFA for finding the start of a match. In this case, we must find the
     /// earliest possible matching position in order to satisfy leftmost-first
     /// semantics.
-    fn longest_match(&mut self, yes: bool) -> &mut DFABuilder {
+    fn longest_match(&mut self, yes: bool) -> &mut DenseDFABuilder {
         self.longest_match = yes;
         self
     }
 }
 
-impl Default for DFABuilder {
-    fn default() -> DFABuilder {
-        DFABuilder::new()
+impl Default for DenseDFABuilder {
+    fn default() -> DenseDFABuilder {
+        DenseDFABuilder::new()
     }
 }

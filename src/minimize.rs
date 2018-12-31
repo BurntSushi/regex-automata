@@ -3,7 +3,7 @@ use std::fmt;
 use std::mem;
 use std::rc::Rc;
 
-use dfa::DFA;
+use dense::DenseDFA;
 use state_id::{StateID, dead_id};
 
 /// An implementation of Hopcroft's algorithm for minimizing DFAs.
@@ -35,7 +35,7 @@ use state_id::{StateID, dead_id};
 ///    of this might be large Unicode classes, which are generated in way that
 ///    can create a lot of redundant states.
 pub struct Minimizer<'a, S> {
-    dfa: &'a mut DFA<S>,
+    dfa: &'a mut DenseDFA<S>,
     in_transitions: Vec<Vec<Vec<S>>>,
     partitions: Vec<StateSet<S>>,
     waiting: Vec<StateSet<S>>,
@@ -68,10 +68,10 @@ impl<'a, S: StateID> fmt::Debug for Minimizer<'a, S> {
 struct StateSet<S>(Rc<RefCell<Vec<S>>>);
 
 impl<'a, S: StateID> Minimizer<'a, S> {
-    pub fn new(dfa: &'a mut DFA<S>) -> Minimizer<'a, S> {
+    pub fn new(dfa: &'a mut DenseDFA<S>) -> Minimizer<'a, S> {
         assert!(
             !dfa.kind().is_premultiplied(),
-            "cannot minimize a premultiplied DFA"
+            "cannot minimize a premultiplied DenseDFA"
         );
 
         let in_transitions = Minimizer::incoming_transitions(dfa);
@@ -185,7 +185,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         incoming.canonicalize();
     }
 
-    fn initial_partitions(dfa: &DFA<S>) -> Vec<StateSet<S>> {
+    fn initial_partitions(dfa: &DenseDFA<S>) -> Vec<StateSet<S>> {
         let mut is_match = StateSet::empty();
         let mut no_match = StateSet::empty();
         for (id, _) in dfa.iter() {
@@ -205,7 +205,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         sets
     }
 
-    fn incoming_transitions(dfa: &DFA<S>) -> Vec<Vec<Vec<S>>> {
+    fn incoming_transitions(dfa: &DenseDFA<S>) -> Vec<Vec<Vec<S>>> {
         let mut incoming = vec![];
         for _ in dfa.iter() {
             incoming.push(vec![vec![]; dfa.alphabet_len()]);

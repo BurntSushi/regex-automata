@@ -1,4 +1,4 @@
-use regex_automata::{DFARef, Regex, RegexBuilder};
+use regex_automata::{DenseDFARef, Regex, RegexBuilder};
 
 use collection::{SUITE, RegexTester};
 
@@ -119,7 +119,7 @@ fn sparse_unminimized_standard() {
             None => continue,
             Some(re) => re,
         };
-        let re = ::regex_automata::DFA::from_dfa_ref(re.forward()).to_sparse_dfa().unwrap();
+        let re = ::regex_automata::DenseDFA::from_dfa_ref(re.forward()).to_sparse_dfa().unwrap();
 
         tester.test_is_match_sparse(test, &re);
     }
@@ -142,8 +142,12 @@ fn serialization_roundtrip() {
 
         let fwd_bytes = re.forward().to_bytes_native_endian().unwrap();
         let rev_bytes = re.reverse().to_bytes_native_endian().unwrap();
-        let fwd: DFARef<usize> = unsafe { DFARef::from_bytes(&fwd_bytes) };
-        let rev: DFARef<usize> = unsafe { DFARef::from_bytes(&rev_bytes) };
+        let fwd: DenseDFARef<usize> = unsafe {
+            DenseDFARef::from_bytes(&fwd_bytes)
+        };
+        let rev: DenseDFARef<usize> = unsafe {
+            DenseDFARef::from_bytes(&rev_bytes)
+        };
         let re = Regex::from_dfa_refs(fwd, rev);
 
         tester.test_is_match(test, &re);

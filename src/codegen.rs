@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 
-use dfa::DFA;
+use dense::DFA;
 use state_id::StateID;
 
 macro_rules! wstr {

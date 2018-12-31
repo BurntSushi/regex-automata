@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 
-use dfa::DFA;
+use dense::DenseDFA;
 use error::Result;
 use nfa::{self, NFA};
 use sparse_set::SparseSet;
@@ -26,7 +26,7 @@ pub struct Determinizer<'a, S: StateID> {
     /// The NFA we're converting into a DFA.
     nfa: &'a NFA,
     /// The DFA we're building.
-    dfa: DFA<S>,
+    dfa: DenseDFA<S>,
     /// Each DFA state being built is defined as an *ordered* set of NFA
     /// states, along with a flag indicating whether the state is a match
     /// state or not.
@@ -65,7 +65,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
 
         Determinizer {
             nfa: nfa,
-            dfa: DFA::empty(),
+            dfa: DenseDFA::empty(),
             builder_states: vec![dead],
             cache: cache,
             stack: vec![],
@@ -78,7 +78,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
     /// alphabet instead of all possible byte values.
     pub fn with_byte_classes(mut self) -> Determinizer<'a, S> {
         let byte_classes = self.nfa.byte_classes().to_vec();
-        self.dfa = DFA::empty_with_byte_classes(byte_classes);
+        self.dfa = DenseDFA::empty_with_byte_classes(byte_classes);
         self
     }
 
@@ -93,7 +93,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
     /// Build the DFA. If there was a problem constructing the DFA (e.g., if
     /// the chosen state identifier representation is too small), then an error
     /// is returned.
-    pub fn build(mut self) -> Result<DFA<S>> {
+    pub fn build(mut self) -> Result<DenseDFA<S>> {
         let equiv_bytes = self.dfa.equiv_bytes();
         let mut sparse = self.new_sparse_set();
         let mut uncompiled = vec![self.add_start(&mut sparse)?];

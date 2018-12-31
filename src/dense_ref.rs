@@ -4,27 +4,27 @@ use std::slice;
 use byteorder::{ByteOrder, BigEndian, LittleEndian, NativeEndian};
 
 use error::{Error, Result};
-use dfa::{ALPHABET_LEN, DFAKind};
+use dense::{ALPHABET_LEN, DenseDFAKind};
 use state_id::{StateID, dead_id};
 
 /// A borrowed table-based deterministic finite automaton (DFA).
 ///
-/// A `DFARef` is effectively a borrowed version of [`DFA`](struct.DFA.html).
-/// In particular, the documentation for `DFA` applies equally well to this
+/// A `DenseDFARef` is effectively a borrowed version of [`DenseDFA`](struct.DenseDFA.html).
+/// In particular, the documentation for `DenseDFA` applies equally well to this
 /// type as well.
 ///
-/// The key difference between `DFA` and `DFARef` is that the former requires
+/// The key difference between `DenseDFA` and `DenseDFARef` is that the former requires
 /// storing its transition table on the heap, where as the transition table
-/// `DFARef` can be any region in memory, including, but not limited to,
+/// `DenseDFARef` can be any region in memory, including, but not limited to,
 /// heap memory, stack memory, read-only memory or a file-backed memory map.
 ///
 /// This type is principally useful as a way of deserializing a DFA from
 /// raw bytes in constant time without copying the transition table to the
-/// heap. See [`DFARef::from_bytes`](struct.DFARef.html#method.from_bytes) for
+/// heap. See [`DenseDFARef::from_bytes`](struct.DenseDFARef.html#method.from_bytes) for
 /// an example.
 #[derive(Clone, Copy, Debug)]
-pub struct DFARef<'a, S = usize> {
-    pub(crate) kind: DFAKind,
+pub struct DenseDFARef<'a, S = usize> {
+    pub(crate) kind: DenseDFAKind,
     pub(crate) start: S,
     pub(crate) state_count: usize,
     pub(crate) max_match: S,
@@ -33,7 +33,7 @@ pub struct DFARef<'a, S = usize> {
     pub(crate) trans: &'a [S],
 }
 
-impl<'a, S: StateID> DFARef<'a, S> {
+impl<'a, S: StateID> DenseDFARef<'a, S> {
     /// Returns true if and only if the given bytes match this DFA.
     ///
     /// This routine may short circuit if it knows that scanning future input
@@ -44,10 +44,10 @@ impl<'a, S: StateID> DFARef<'a, S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFA::new("foo[0-9]+bar")?;
+    /// let dfa = DenseDFA::new("foo[0-9]+bar")?;
     /// assert_eq!(true, dfa.as_dfa_ref().is_match(b"foo12345bar"));
     /// assert_eq!(false, dfa.as_dfa_ref().is_match(b"foobar"));
     /// # Ok(()) }; example().unwrap()
@@ -66,15 +66,15 @@ impl<'a, S: StateID> DFARef<'a, S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// let dfa = DenseDFA::new("foo[0-9]+")?;
     /// assert_eq!(Some(4), dfa.as_dfa_ref().shortest_match(b"foo12345"));
     ///
     /// // Normally, the end of the leftmost first match here would be 3,
     /// // but the shortest match semantics detect a match earlier.
-    /// let dfa = DFA::new("abc|a")?;
+    /// let dfa = DenseDFA::new("abc|a")?;
     /// assert_eq!(Some(1), dfa.as_dfa_ref().shortest_match(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -100,16 +100,16 @@ impl<'a, S: StateID> DFARef<'a, S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// let dfa = DenseDFA::new("foo[0-9]+")?;
     /// assert_eq!(Some(8), dfa.as_dfa_ref().find(b"foo12345"));
     ///
     /// // Even though a match is found after reading the first byte (`a`),
     /// // the leftmost first match semantics demand that we find the earliest
     /// // match that prefers earlier parts of the pattern over latter parts.
-    /// let dfa = DFA::new("abc|a")?;
+    /// let dfa = DenseDFA::new("abc|a")?;
     /// assert_eq!(Some(3), dfa.as_dfa_ref().find(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -122,17 +122,17 @@ impl<'a, S: StateID> DFARef<'a, S> {
     /// no match exists, then `None` is returned.
     ///
     /// This routine is principally useful when used in conjunction with the
-    /// [`DFABuilder::reverse`](struct.DFABuilder.html#method.reverse)
+    /// [`DenseDFABuilder::reverse`](struct.DenseDFABuilder.html#method.reverse)
     /// configuration knob. In general, it's unlikely to be correct to use both
     /// `find` and `rfind` with the same DFA.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFABuilder;
+    /// use regex_automata::DenseDFABuilder;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFABuilder::new().reverse(true).build("foo[0-9]+")?;
+    /// let dfa = DenseDFABuilder::new().reverse(true).build("foo[0-9]+")?;
     /// assert_eq!(Some(0), dfa.as_dfa_ref().rfind(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -143,12 +143,12 @@ impl<'a, S: StateID> DFARef<'a, S> {
     /// Returns the memory usage, in bytes, of this DFA.
     ///
     /// The memory usage is computed based on the number of bytes used to
-    /// represent this DFA's transition table. For an owned `DFA`, this
-    /// corresponds to heap memory usage. For a `DFARef` built from static
+    /// represent this DFA's transition table. For an owned `DenseDFA`, this
+    /// corresponds to heap memory usage. For a `DenseDFARef` built from static
     /// data, this corresponds to the amount of static data used.
     ///
     /// This does **not** include the stack size used up by this DFA. To
-    /// compute that, used `std::mem::size_of::<DFARef>()`.
+    /// compute that, used `std::mem::size_of::<DenseDFARef>()`.
     pub fn memory_usage(&self) -> usize {
         self.byte_classes.len() + (self.trans.len() * mem::size_of::<S>())
     }
@@ -161,9 +161,9 @@ impl<'a, S: StateID> DFARef<'a, S> {
     ///
     /// The bytes given should be generated by the serialization of a DFA with
     /// either the
-    /// [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian)
+    /// [`to_bytes_little_endian`](struct.DenseDFA.html#method.to_bytes_little_endian)
     /// method or the
-    /// [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
+    /// [`to_bytes_big_endian`](struct.DenseDFA.html#method.to_bytes_big_endian)
     /// endian, depending on the endianness of the machine you are
     /// deserializing this DFA from.
     ///
@@ -184,7 +184,7 @@ impl<'a, S: StateID> DFARef<'a, S> {
     ///
     /// This routine is unsafe because it permits callers to provide an
     /// arbitrary transition table with possibly incorrect transitions. While
-    /// the various serialization routines on the `DFA` type will never return
+    /// the various serialization routines on the `DenseDFA` type will never return
     /// an incorrect transition table, there is no guarantee that the bytes
     /// provided here are correct. While deserialization does many checks (as
     /// documented above in the panic conditions), this routine does not check
@@ -202,17 +202,17 @@ impl<'a, S: StateID> DFARef<'a, S> {
     /// such as differing pointer sizes.
     ///
     /// ```
-    /// use regex_automata::{DFA, DFARef};
+    /// use regex_automata::{DenseDFA, DenseDFARef};
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let initial = DFA::new("foo[0-9]+")?;
+    /// let initial = DenseDFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_u16()?.to_bytes_native_endian()?;
-    /// let dfa: DFARef<u16> = unsafe { DFARef::from_bytes(&bytes) };
+    /// let dfa: DenseDFARef<u16> = unsafe { DenseDFARef::from_bytes(&bytes) };
     ///
     /// assert_eq!(Some(8), dfa.find(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub unsafe fn from_bytes(mut buf: &'a [u8]) -> DFARef<'a, S> {
+    pub unsafe fn from_bytes(mut buf: &'a [u8]) -> DenseDFARef<'a, S> {
         // skip over label
         match buf.iter().position(|&b| b == b'\x00') {
             None => panic!("could not find label"),
@@ -225,7 +225,7 @@ impl<'a, S: StateID> DFARef<'a, S> {
         if endian_check != 0xFEFF {
             panic!(
                 "endianness mismatch, expected 0xFEFF but got 0x{:X}. \
-                 are you trying to load a DFA serialized with a different \
+                 are you trying to load a DenseDFA serialized with a different \
                  endianness?",
                 endian_check,
             );
@@ -245,7 +245,7 @@ impl<'a, S: StateID> DFARef<'a, S> {
         let state_size = NativeEndian::read_u16(buf) as usize;
         if state_size != mem::size_of::<S>() {
             panic!(
-                "state size of DFA ({}) does not match \
+                "state size of DenseDFA ({}) does not match \
                  requested state size ({})",
                 state_size, mem::size_of::<S>(),
             );
@@ -253,7 +253,7 @@ impl<'a, S: StateID> DFARef<'a, S> {
         buf = &buf[2..];
 
         // read DFA kind
-        let kind = DFAKind::from_byte(NativeEndian::read_u16(buf) as u8);
+        let kind = DenseDFAKind::from_byte(NativeEndian::read_u16(buf) as u8);
         buf = &buf[2..];
 
         // read start state
@@ -284,7 +284,7 @@ impl<'a, S: StateID> DFARef<'a, S> {
         assert_eq!(
             0,
             buf.as_ptr() as usize % mem::align_of::<S>(),
-            "DFA transition table is not properly aligned"
+            "DenseDFA transition table is not properly aligned"
         );
         let len = state_count * alphabet_len;
         assert!(
@@ -295,7 +295,7 @@ impl<'a, S: StateID> DFARef<'a, S> {
         );
 
         let trans = slice::from_raw_parts(buf.as_ptr() as *const S, len);
-        DFARef {
+        DenseDFARef {
             kind, start, state_count, max_match,
             alphabet_len, byte_classes, trans,
         }
@@ -452,7 +452,7 @@ impl<'a, S: StateID> DFARef<'a, S> {
     }
 }
 
-impl<'a, S: StateID> DFARef<'a, S> {
+impl<'a, S: StateID> DenseDFARef<'a, S> {
     fn start(&self) -> S {
         self.start
     }
@@ -546,14 +546,14 @@ impl<'a, S: StateID> DFARef<'a, S> {
     }
 }
 
-impl<'a, S: StateID> DFARef<'a, S> {
+impl<'a, S: StateID> DenseDFARef<'a, S> {
     #[inline(always)]
     pub(crate) fn is_match_inline(&self, bytes: &[u8]) -> bool {
         match self.kind {
-            DFAKind::Basic => self.is_match_basic(bytes),
-            DFAKind::Premultiplied => self.is_match_premultiplied(bytes),
-            DFAKind::ByteClass => self.is_match_byte_class(bytes),
-            DFAKind::PremultipliedByteClass => {
+            DenseDFAKind::Basic => self.is_match_basic(bytes),
+            DenseDFAKind::Premultiplied => self.is_match_premultiplied(bytes),
+            DenseDFAKind::ByteClass => self.is_match_byte_class(bytes),
+            DenseDFAKind::PremultipliedByteClass => {
                 self.is_match_premultiplied_byte_class(bytes)
             }
         }
@@ -578,10 +578,10 @@ impl<'a, S: StateID> DFARef<'a, S> {
     #[inline(always)]
     pub(crate) fn shortest_match_inline(&self, bytes: &[u8]) -> Option<usize> {
         match self.kind {
-            DFAKind::Basic => self.shortest_match_basic(bytes),
-            DFAKind::Premultiplied => self.shortest_match_premultiplied(bytes),
-            DFAKind::ByteClass => self.shortest_match_byte_class(bytes),
-            DFAKind::PremultipliedByteClass => {
+            DenseDFAKind::Basic => self.shortest_match_basic(bytes),
+            DenseDFAKind::Premultiplied => self.shortest_match_premultiplied(bytes),
+            DenseDFAKind::ByteClass => self.shortest_match_byte_class(bytes),
+            DenseDFAKind::PremultipliedByteClass => {
                 self.shortest_match_premultiplied_byte_class(bytes)
             }
         }
@@ -613,10 +613,10 @@ impl<'a, S: StateID> DFARef<'a, S> {
     #[inline(always)]
     pub(crate) fn find_inline(&self, bytes: &[u8]) -> Option<usize> {
         match self.kind {
-            DFAKind::Basic => self.find_basic(bytes),
-            DFAKind::Premultiplied => self.find_premultiplied(bytes),
-            DFAKind::ByteClass => self.find_byte_class(bytes),
-            DFAKind::PremultipliedByteClass => {
+            DenseDFAKind::Basic => self.find_basic(bytes),
+            DenseDFAKind::Premultiplied => self.find_premultiplied(bytes),
+            DenseDFAKind::ByteClass => self.find_byte_class(bytes),
+            DenseDFAKind::PremultipliedByteClass => {
                 self.find_premultiplied_byte_class(bytes)
             }
         }
@@ -641,10 +641,10 @@ impl<'a, S: StateID> DFARef<'a, S> {
     #[inline(always)]
     pub(crate) fn rfind_inline(&self, bytes: &[u8]) -> Option<usize> {
         match self.kind {
-            DFAKind::Basic => self.rfind_basic(bytes),
-            DFAKind::Premultiplied => self.rfind_premultiplied(bytes),
-            DFAKind::ByteClass => self.rfind_byte_class(bytes),
-            DFAKind::PremultipliedByteClass => {
+            DenseDFAKind::Basic => self.rfind_basic(bytes),
+            DenseDFAKind::Premultiplied => self.rfind_premultiplied(bytes),
+            DenseDFAKind::ByteClass => self.rfind_byte_class(bytes),
+            DenseDFAKind::PremultipliedByteClass => {
                 self.rfind_premultiplied_byte_class(bytes)
             }
         }

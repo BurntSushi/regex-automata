@@ -1,6 +1,6 @@
 use builder::RegexBuilder;
-use dfa::DFA;
-use dfa_ref::DFARef;
+use dense::DenseDFA;
+use dense_ref::DenseDFARef;
 use error::Result;
 use state_id::StateID;
 
@@ -166,11 +166,11 @@ impl<'a, S: StateID> Regex<'a, S> {
     /// Build a new regex from its constituent forward and reverse DFAs.
     ///
     /// It's not currently possible for a caller using this crate's public API
-    /// to correctly use this method since the `DFABuilder` does not expose the
+    /// to correctly use this method since the `DenseDFABuilder` does not expose the
     /// necessary options to correctly build the reverse DFA.
     pub(crate) fn from_dfas(
-        forward: DFA<S>,
-        reverse: DFA<S>,
+        forward: DenseDFA<S>,
+        reverse: DenseDFA<S>,
     ) -> Regex<'static, S> {
         Regex {
             forward: OwnOrBorrow::Owned(forward),
@@ -183,7 +183,7 @@ impl<'a, S: StateID> Regex<'a, S> {
     ///
     /// This is useful when deserializing a regex from some arbitrary
     /// memory region. Note that currently, it is not possible to correctly
-    /// build these DFAs directly using a `DFABuilder`. In particular, the
+    /// build these DFAs directly using a `DenseDFABuilder`. In particular, the
     /// forward and reverse DFAs given here *must* be DFAs corresponding to a
     /// previously built regex and retrieved using the
     /// [`Regex::forward`](struct.Regex.html#method.forward)
@@ -210,8 +210,8 @@ impl<'a, S: StateID> Regex<'a, S> {
     /// # Ok(()) }; example().unwrap()
     /// ```
     pub fn from_dfa_refs(
-        forward: DFARef<'a, S>,
-        reverse: DFARef<'a, S>,
+        forward: DenseDFARef<'a, S>,
+        reverse: DenseDFARef<'a, S>,
     ) -> Regex<'a, S> {
         Regex {
             forward: OwnOrBorrow::Borrowed(forward),
@@ -220,7 +220,7 @@ impl<'a, S: StateID> Regex<'a, S> {
     }
 
     /// Return the underlying DFA responsible for forward matching.
-    pub fn forward<'b>(&'b self) -> DFARef<'b, S> {
+    pub fn forward<'b>(&'b self) -> DenseDFARef<'b, S> {
         match self.forward {
             OwnOrBorrow::Owned(ref dfa) => dfa.as_dfa_ref(),
             OwnOrBorrow::Borrowed(dfa) => dfa,
@@ -228,7 +228,7 @@ impl<'a, S: StateID> Regex<'a, S> {
     }
 
     /// Return the underlying DFA responsible for reverse matching.
-    pub fn reverse<'b>(&'b self) -> DFARef<'b, S> {
+    pub fn reverse<'b>(&'b self) -> DenseDFARef<'b, S> {
         match self.reverse {
             OwnOrBorrow::Owned(ref dfa) => dfa.as_dfa_ref(),
             OwnOrBorrow::Borrowed(dfa) => dfa,
@@ -296,11 +296,11 @@ impl<'a, S: StateID> Regex<'a, S> {
 
         let forward = match self.forward {
             Owned(ref dfa) => dfa.to_sized::<T>()?,
-            Borrowed(dfa) => DFA::from_dfa_ref(dfa).to_sized::<T>()?,
+            Borrowed(dfa) => DenseDFA::from_dfa_ref(dfa).to_sized::<T>()?,
         };
         let reverse = match self.reverse {
             Owned(ref dfa) => dfa.to_sized::<T>()?,
-            Borrowed(dfa) => DFA::from_dfa_ref(dfa).to_sized::<T>()?,
+            Borrowed(dfa) => DenseDFA::from_dfa_ref(dfa).to_sized::<T>()?,
         };
         Ok(Regex::from_dfas(forward, reverse))
     }
@@ -308,8 +308,8 @@ impl<'a, S: StateID> Regex<'a, S> {
 
 #[derive(Clone, Debug)]
 enum OwnOrBorrow<'a, S: StateID = usize> {
-    Owned(DFA<S>),
-    Borrowed(DFARef<'a, S>),
+    Owned(DenseDFA<S>),
+    Borrowed(DenseDFARef<'a, S>),
 }
 
 /// An iterator over all non-overlapping matches for a particular search.
@@ -322,7 +322,7 @@ enum OwnOrBorrow<'a, S: StateID = usize> {
 /// regex. The lifetime variables are as follows:
 ///
 /// * `'d` is the lifetime of the underlying DFA transition table. If the regex
-///   is built using the owned [`DFA`](struct.DFA.html) type, then this is
+///   is built using the owned [`DenseDFA`](struct.DenseDFA.html) type, then this is
 ///   always equivalent to the `'static` lifetime.
 /// * `'r` is the lifetime of the regular expression value itself.
 /// * `'t` is the lifetime of the text being searched.

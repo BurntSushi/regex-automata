@@ -4,9 +4,9 @@ use std::slice;
 
 use byteorder::{BigEndian, LittleEndian, NativeEndian};
 
-use builder::DFABuilder;
+use builder::DenseDFABuilder;
 use error::{Error, Result};
-use dfa_ref::DFARef;
+use dense_ref::DenseDFARef;
 use minimize::Minimizer;
 use sparse::SparseDFA;
 use state_id::{StateID, dead_id, next_state_id, premultiply_overflow_error};
@@ -38,8 +38,8 @@ pub const ALPHABET_LEN: usize = 256;
 /// adequate solution to your problem.
 ///
 /// A DFA can be built using the default configuration via the
-/// [`DFA::new`](struct.DFA.html#method.new) constructor. Otherwise, one can
-/// configure various aspects via the [`DFABuilder`](struct.DFABuilder.html).
+/// [`DenseDFA::new`](struct.DenseDFA.html#method.new) constructor. Otherwise, one can
+/// configure various aspects via the [`DenseDFABuilder`](struct.DenseDFABuilder.html).
 ///
 /// A single DFA fundamentally supports the following operations:
 ///
@@ -56,7 +56,7 @@ pub const ALPHABET_LEN: usize = 256;
 ///
 /// # State size
 ///
-/// A `DFA` has a single type parameter, `S`, which corresponds to the
+/// A `DenseDFA` has a single type parameter, `S`, which corresponds to the
 /// representation used for the DFA's state identifiers as described by the
 /// [`StateID`](trait.StateID.html) trait. This type parameter is, by default,
 /// set to `usize`. Other valid choices provided by this crate include `u8`,
@@ -69,16 +69,16 @@ pub const ALPHABET_LEN: usize = 256;
 /// While the reduction in heap memory used by a DFA is one reason for choosing
 /// a smaller state identifier representation, another possible reason is for
 /// decreasing the serialization size of a DFA, as returned by
-/// [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian),
-/// [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
+/// [`to_bytes_little_endian`](struct.DenseDFA.html#method.to_bytes_little_endian),
+/// [`to_bytes_big_endian`](struct.DenseDFA.html#method.to_bytes_big_endian)
 /// or
-/// [`to_bytes_native_endian`](struct.DFA.html#method.to_bytes_native_endian).
+/// [`to_bytes_native_endian`](struct.DenseDFA.html#method.to_bytes_native_endian).
 #[derive(Clone)]
-pub struct DFA<S = usize> {
+pub struct DenseDFA<S = usize> {
     /// The type of DFA. This enum controls how the state transition table
     /// is interpreted. It is never correct to read the transition table
     /// without knowing the DFA's kind.
-    kind: DFAKind,
+    kind: DenseDFAKind,
     /// The initial start state ID.
     start: S,
     /// The total number of states in this DFA. Note that a DFA always has at
@@ -128,7 +128,7 @@ pub struct DFA<S = usize> {
     trans: Vec<S>,
 }
 
-impl DFA {
+impl DenseDFA {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding DFA.
     ///
@@ -137,25 +137,25 @@ impl DFA {
     /// classes. The DFA is *not* minimized.
     ///
     /// If you want a non-default configuration, then use the
-    /// [`DFABuilder`](struct.DFABuilder.html)
+    /// [`DenseDFABuilder`](struct.DenseDFABuilder.html)
     /// to set your own configuration.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFA::new("foo[0-9]+bar")?;
+    /// let dfa = DenseDFA::new("foo[0-9]+bar")?;
     /// assert_eq!(Some(11), dfa.find(b"foo12345bar"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn new(pattern: &str) -> Result<DFA> {
-        DFABuilder::new().build(pattern)
+    pub fn new(pattern: &str) -> Result<DenseDFA> {
+        DenseDFABuilder::new().build(pattern)
     }
 }
 
-impl<S: StateID> DFA<S> {
+impl<S: StateID> DenseDFA<S> {
     /// Parse the given regular expression using a default configuration and
     /// Create a new empty DFA that never matches any input.
     ///
@@ -165,30 +165,30 @@ impl<S: StateID> DFA<S> {
     /// indicating their choice of state identifier representation.
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa: DFA<usize> = DFA::empty();
+    /// let dfa: DenseDFA<usize> = DenseDFA::empty();
     /// assert_eq!(None, dfa.find(b""));
     /// assert_eq!(None, dfa.find(b"foo"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn empty() -> DFA<S> {
-        DFA::empty_with_byte_classes(vec![])
+    pub fn empty() -> DenseDFA<S> {
+        DenseDFA::empty_with_byte_classes(vec![])
     }
 
     /// Create a new empty DFA with the given set of byte equivalence classes.
     /// An empty DFA never matches any input.
-    pub(crate) fn empty_with_byte_classes(byte_classes: Vec<u8>) -> DFA<S> {
+    pub(crate) fn empty_with_byte_classes(byte_classes: Vec<u8>) -> DenseDFA<S> {
         assert!(byte_classes.is_empty() || byte_classes.len() == 256);
 
         let (kind, alphabet_len) =
             if byte_classes.is_empty() {
-                (DFAKind::Basic, ALPHABET_LEN)
+                (DenseDFAKind::Basic, ALPHABET_LEN)
             } else {
-                (DFAKind::ByteClass, byte_classes[255] as usize + 1)
+                (DenseDFAKind::ByteClass, byte_classes[255] as usize + 1)
             };
-        let mut dfa = DFA {
+        let mut dfa = DenseDFA {
             kind: kind,
             start: dead_id(),
             state_count: 0,
@@ -212,10 +212,10 @@ impl<S: StateID> DFA<S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFA::new("foo[0-9]+bar")?;
+    /// let dfa = DenseDFA::new("foo[0-9]+bar")?;
     /// assert_eq!(true, dfa.is_match(b"foo12345bar"));
     /// assert_eq!(false, dfa.is_match(b"foobar"));
     /// # Ok(()) }; example().unwrap()
@@ -234,15 +234,15 @@ impl<S: StateID> DFA<S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// let dfa = DenseDFA::new("foo[0-9]+")?;
     /// assert_eq!(Some(4), dfa.shortest_match(b"foo12345"));
     ///
     /// // Normally, the end of the leftmost first match here would be 3,
     /// // but the shortest match semantics detect a match earlier.
-    /// let dfa = DFA::new("abc|a")?;
+    /// let dfa = DenseDFA::new("abc|a")?;
     /// assert_eq!(Some(1), dfa.shortest_match(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -268,16 +268,16 @@ impl<S: StateID> DFA<S> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// let dfa = DenseDFA::new("foo[0-9]+")?;
     /// assert_eq!(Some(8), dfa.find(b"foo12345"));
     ///
     /// // Even though a match is found after reading the first byte (`a`),
     /// // the leftmost first match semantics demand that we find the earliest
     /// // match that prefers earlier parts of the pattern over latter parts.
-    /// let dfa = DFA::new("abc|a")?;
+    /// let dfa = DenseDFA::new("abc|a")?;
     /// assert_eq!(Some(3), dfa.find(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -290,17 +290,17 @@ impl<S: StateID> DFA<S> {
     /// no match exists, then `None` is returned.
     ///
     /// This routine is principally useful when used in conjunction with the
-    /// [`DFABuilder::reverse`](struct.DFABuilder.html#method.reverse)
+    /// [`DenseDFABuilder::reverse`](struct.DenseDFABuilder.html#method.reverse)
     /// configuration knob. In general, it's unlikely to be correct to use both
     /// `find` and `rfind` with the same DFA.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DFABuilder;
+    /// use regex_automata::DenseDFABuilder;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DFABuilder::new().reverse(true).build("foo[0-9]+")?;
+    /// let dfa = DenseDFABuilder::new().reverse(true).build("foo[0-9]+")?;
     /// assert_eq!(Some(0), dfa.rfind(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -311,10 +311,10 @@ impl<S: StateID> DFA<S> {
     /// Return a borrowed version of this DFA.
     ///
     /// This is useful if your code demands a borrowed version of the DFA.
-    /// In particular, a `DFARef` does not specifically require any heap
+    /// In particular, a `DenseDFARef` does not specifically require any heap
     /// memory and can be used without Rust's standard library.
-    pub fn as_dfa_ref<'a>(&'a self) -> DFARef<'a, S> {
-        DFARef {
+    pub fn as_dfa_ref<'a>(&'a self) -> DenseDFARef<'a, S> {
+        DenseDFARef {
             kind: self.kind,
             start: self.start,
             state_count: self.state_count,
@@ -326,8 +326,8 @@ impl<S: StateID> DFA<S> {
     }
 
     /// Build an owned DFA from a borrowed DFA.
-    pub fn from_dfa_ref(dfa_ref: DFARef<S>) -> DFA<S> {
-        DFA {
+    pub fn from_dfa_ref(dfa_ref: DenseDFARef<S>) -> DenseDFA<S> {
+        DenseDFA {
             kind: dfa_ref.kind,
             start: dfa_ref.start,
             state_count: dfa_ref.state_count,
@@ -355,7 +355,7 @@ impl<S: StateID> DFA<S> {
     /// usage.
     ///
     /// This does **not** include the stack size used up by this DFA. To
-    /// compute that, used `std::mem::size_of::<DFA>()`.
+    /// compute that, used `std::mem::size_of::<DenseDFA>()`.
     pub fn memory_usage(&self) -> usize {
         self.as_dfa_ref().memory_usage()
     }
@@ -367,9 +367,9 @@ impl<S: StateID> DFA<S> {
     ///
     /// The bytes given should be generated by the serialization of a DFA with
     /// either the
-    /// [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian)
+    /// [`to_bytes_little_endian`](struct.DenseDFA.html#method.to_bytes_little_endian)
     /// method or the
-    /// [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
+    /// [`to_bytes_big_endian`](struct.DenseDFA.html#method.to_bytes_big_endian)
     /// endian, depending on the endianness of the machine you are
     /// deserializing this DFA from.
     ///
@@ -380,9 +380,10 @@ impl<S: StateID> DFA<S> {
     ///
     /// If you're loading a DFA from a memory mapped file or static memory,
     /// then you probably want to use
-    /// [`DFARef::from_bytes`](struct.DFARef.html#method.from_bytes)
-    /// instead. In particular, using `DFARef` will not use any heap memory,
-    /// is suitable for `no_std` environments and is a constant time operation.
+    /// [`DenseDFARef::from_bytes`](struct.DenseDFARef.html#method.from_bytes)
+    /// instead. In particular, using `DenseDFARef` will not use any heap
+    /// memory, is suitable for `no_std` environments and is a constant time
+    /// operation.
     ///
     /// # Panics
     ///
@@ -414,19 +415,19 @@ impl<S: StateID> DFA<S> {
     /// such as differing pointer sizes.
     ///
     /// ```
-    /// use regex_automata::DFA;
+    /// use regex_automata::DenseDFA;
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let initial = DFA::new("foo[0-9]+")?;
+    /// let initial = DenseDFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_u16()?.to_bytes_native_endian()?;
-    /// let dfa: DFA<u16> = unsafe { DFA::from_bytes(&bytes) };
+    /// let dfa: DenseDFA<u16> = unsafe { DenseDFA::from_bytes(&bytes) };
     ///
     /// assert_eq!(Some(8), dfa.find(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub unsafe fn from_bytes(buf: &[u8]) -> DFA<S> {
-        let dfa_ref = DFARef::from_bytes(buf);
-        DFA {
+    pub unsafe fn from_bytes(buf: &[u8]) -> DenseDFA<S> {
+        let dfa_ref = DenseDFARef::from_bytes(buf);
+        DenseDFA {
             kind: dfa_ref.kind,
             start: dfa_ref.start,
             state_count: dfa_ref.state_count,
@@ -474,14 +475,14 @@ impl<S: StateID> DFA<S> {
     }
 }
 
-impl<S: StateID> DFA<S> {
+impl<S: StateID> DenseDFA<S> {
     /// Create a new DFA whose match semantics are equivalent to this DFA,
     /// but attempt to use `u8` for the representation of state identifiers.
     /// If `u8` is insufficient to represent all state identifiers in this
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u8>()`.
-    pub fn to_u8(&self) -> Result<DFA<u8>> {
+    pub fn to_u8(&self) -> Result<DenseDFA<u8>> {
         self.to_sized()
     }
 
@@ -491,7 +492,7 @@ impl<S: StateID> DFA<S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u16>()`.
-    pub fn to_u16(&self) -> Result<DFA<u16>> {
+    pub fn to_u16(&self) -> Result<DenseDFA<u16>> {
         self.to_sized()
     }
 
@@ -501,7 +502,7 @@ impl<S: StateID> DFA<S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u32>()`.
-    pub fn to_u32(&self) -> Result<DFA<u32>> {
+    pub fn to_u32(&self) -> Result<DenseDFA<u32>> {
         self.to_sized()
     }
 
@@ -511,7 +512,7 @@ impl<S: StateID> DFA<S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u64>()`.
-    pub fn to_u64(&self) -> Result<DFA<u64>> {
+    pub fn to_u64(&self) -> Result<DenseDFA<u64>> {
         self.to_sized()
     }
 
@@ -521,14 +522,14 @@ impl<S: StateID> DFA<S> {
     /// this returns an error.
     ///
     /// An alternative way to construct such a DFA is to use
-    /// [`DFABuilder::build_with_size`](struct.DFABuilder.html#method.build_with_size).
+    /// [`DenseDFABuilder::build_with_size`](struct.DenseDFABuilder.html#method.build_with_size).
     /// In general, using the builder is preferred since it will use the given
     /// state identifier representation throughout determinization (and
     /// minimization, if done), and thereby using less memory throughout the
     /// entire construction process. However, these routines are necessary
     /// in cases where, say, a minimized DFA could fit in a smaller state
     /// identifier representation, but the initial determinized DFA would not.
-    pub fn to_sized<T: StateID>(&self) -> Result<DFA<T>> {
+    pub fn to_sized<T: StateID>(&self) -> Result<DenseDFA<T>> {
         // Check that this DFA can fit into T's representation.
         let mut last_state_id = self.state_count - 1;
         if self.kind.is_premultiplied() {
@@ -540,7 +541,7 @@ impl<S: StateID> DFA<S> {
 
         // We're off to the races. The new DFA is the same as the old one,
         // but its transition table is truncated.
-        let mut new = DFA {
+        let mut new = DenseDFA {
             kind: self.kind,
             start: T::from_usize(self.start.to_usize()),
             state_count: self.state_count,
@@ -556,7 +557,7 @@ impl<S: StateID> DFA<S> {
     }
 }
 
-impl<S: StateID> DFA<S> {
+impl<S: StateID> DenseDFA<S> {
     pub(crate) fn state_id_to_offset(&self, id: S) -> usize {
         if self.kind.is_premultiplied() {
             id.to_usize()
@@ -610,7 +611,7 @@ impl<S: StateID> DFA<S> {
         self.start
     }
 
-    pub(crate) fn kind(&self) -> &DFAKind {
+    pub(crate) fn kind(&self) -> &DenseDFAKind {
         &self.kind
     }
 
@@ -703,7 +704,7 @@ impl<S: StateID> DFA<S> {
     pub(crate) fn shuffle_match_states(&mut self, is_match: &[bool]) {
         assert!(
             !self.kind.is_premultiplied(),
-            "cannot finish construction of premultiplied DFA"
+            "cannot finish construction of premultiplied DenseDFA"
         );
 
         if self.len() <= 2 {
@@ -774,7 +775,7 @@ impl<S: StateID> DFA<S> {
 
 #[derive(Debug)]
 pub struct StateIter<'a, S: StateID> {
-    dfa: &'a DFA<S>,
+    dfa: &'a DenseDFA<S>,
     it: iter::Enumerate<slice::Chunks<'a, S>>,
 }
 
@@ -865,62 +866,62 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum DFAKind {
+pub enum DenseDFAKind {
     Basic,
     Premultiplied,
     ByteClass,
     PremultipliedByteClass,
 }
 
-impl DFAKind {
+impl DenseDFAKind {
     pub fn is_byte_class(&self) -> bool {
         match *self {
-            DFAKind::Basic | DFAKind::Premultiplied => false,
-            DFAKind::ByteClass | DFAKind::PremultipliedByteClass => true,
+            DenseDFAKind::Basic | DenseDFAKind::Premultiplied => false,
+            DenseDFAKind::ByteClass | DenseDFAKind::PremultipliedByteClass => true,
         }
     }
 
     pub fn is_premultiplied(&self) -> bool {
         match *self {
-            DFAKind::Basic | DFAKind::ByteClass => false,
-            DFAKind::Premultiplied | DFAKind::PremultipliedByteClass => true,
+            DenseDFAKind::Basic | DenseDFAKind::ByteClass => false,
+            DenseDFAKind::Premultiplied | DenseDFAKind::PremultipliedByteClass => true,
         }
     }
 
-    fn premultiplied(self) -> DFAKind {
+    fn premultiplied(self) -> DenseDFAKind {
         match self {
-            DFAKind::Basic => DFAKind::Premultiplied,
-            DFAKind::ByteClass => DFAKind::PremultipliedByteClass,
-            DFAKind::Premultiplied | DFAKind::PremultipliedByteClass => {
-                panic!("DFA already has pre-multiplied state IDs")
+            DenseDFAKind::Basic => DenseDFAKind::Premultiplied,
+            DenseDFAKind::ByteClass => DenseDFAKind::PremultipliedByteClass,
+            DenseDFAKind::Premultiplied | DenseDFAKind::PremultipliedByteClass => {
+                panic!("DenseDFA already has pre-multiplied state IDs")
             }
         }
     }
 
     pub(crate) fn to_byte(&self) -> u8 {
         match *self {
-            DFAKind::Basic => 0,
-            DFAKind::Premultiplied => 1,
-            DFAKind::ByteClass => 2,
-            DFAKind::PremultipliedByteClass => 3,
+            DenseDFAKind::Basic => 0,
+            DenseDFAKind::Premultiplied => 1,
+            DenseDFAKind::ByteClass => 2,
+            DenseDFAKind::PremultipliedByteClass => 3,
         }
     }
 
-    pub(crate) fn from_byte(b: u8) -> DFAKind {
+    pub(crate) fn from_byte(b: u8) -> DenseDFAKind {
         match b {
-            0 => DFAKind::Basic,
-            1 => DFAKind::Premultiplied,
-            2 => DFAKind::ByteClass,
-            3 => DFAKind::PremultipliedByteClass,
-            _ => panic!("invalid DFA kind: 0x{:X}", b),
+            0 => DenseDFAKind::Basic,
+            1 => DenseDFAKind::Premultiplied,
+            2 => DenseDFAKind::ByteClass,
+            3 => DenseDFAKind::PremultipliedByteClass,
+            _ => panic!("invalid DenseDFA kind: 0x{:X}", b),
         }
     }
 }
 
-impl<S: StateID> fmt::Debug for DFA<S> {
+impl<S: StateID> fmt::Debug for DenseDFA<S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn state_status<S: StateID>(
-            dfa: &DFA<S>,
+            dfa: &DenseDFA<S>,
             id: S,
         ) -> String {
             let mut status = vec![b' ', b' '];
@@ -976,14 +977,14 @@ fn escape(b: u8) -> String {
 #[cfg(test)]
 #[allow(dead_code)]
 mod tests {
-    use builder::DFABuilder;
+    use builder::DenseDFABuilder;
     use nfa::NFA;
     use super::*;
 
     #[test]
     fn errors_when_converting_to_smaller_dfa() {
         let pattern = r"\w";
-        let dfa = DFABuilder::new()
+        let dfa = DenseDFABuilder::new()
             .byte_classes(false)
             .anchored(true)
             .premultiply(false)
@@ -996,7 +997,7 @@ mod tests {
     fn errors_when_determinization_would_overflow() {
         let pattern = r"\w";
 
-        let mut builder = DFABuilder::new();
+        let mut builder = DenseDFABuilder::new();
         builder.byte_classes(false).anchored(true).premultiply(false);
         // using u16 is fine
         assert!(builder.build_with_size::<u16>(pattern).is_ok());
@@ -1008,7 +1009,7 @@ mod tests {
     fn errors_when_premultiply_would_overflow() {
         let pattern = r"[a-z]";
 
-        let mut builder = DFABuilder::new();
+        let mut builder = DenseDFABuilder::new();
         builder.byte_classes(false).anchored(true).premultiply(false);
         // without premultiplication is OK
         assert!(builder.build_with_size::<u8>(pattern).is_ok());
@@ -1046,8 +1047,8 @@ mod tests {
         // println!("minimal dfa # states: {:?}", mdfa.len());
     // }
 
-    fn build_automata(pattern: &str) -> (NFA, DFA, DFA) {
-        let mut builder = DFABuilder::new();
+    fn build_automata(pattern: &str) -> (NFA, DenseDFA, DenseDFA) {
+        let mut builder = DenseDFABuilder::new();
         builder.byte_classes(false).premultiply(false);
         builder.anchored(false);
         builder.allow_invalid_utf8(false);

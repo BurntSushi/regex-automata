@@ -5,7 +5,7 @@ extern crate criterion;
 extern crate regex_automata;
 
 use criterion::{Bencher, Benchmark, Criterion, Throughput};
-use regex_automata::{DFABuilder, RegexBuilder};
+use regex_automata::{DenseDFABuilder, RegexBuilder};
 
 use inputs::*;
 
@@ -21,7 +21,7 @@ fn is_match(c: &mut Criterion) {
             // .byte_classes(false)
             // .build(r"\p{Greek}")
             // .unwrap();
-        let dfa = DFABuilder::new()
+        let dfa = DenseDFABuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
@@ -44,7 +44,7 @@ fn is_match(c: &mut Criterion) {
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        // let dfa = DFABuilder::new()
+        // let dfa = DenseDFABuilder::new()
             // .anchored(false)
             // .minimize(true)
             // .premultiply(true)
@@ -69,7 +69,7 @@ fn is_match(c: &mut Criterion) {
             // .byte_classes(false)
             // .build(r"\p{Greek}")
             // .unwrap();
-        let dfa = DFABuilder::new()
+        let dfa = DenseDFABuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
@@ -91,7 +91,7 @@ fn is_match(c: &mut Criterion) {
             // .byte_classes(false)
             // .build(r"\p{Greek}")
             // .unwrap();
-        let dfa = DFABuilder::new()
+        let dfa = DenseDFABuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
@@ -135,7 +135,7 @@ fn define_compile(
     let group = format!("compile/{}", group_name);
     define(c, &group, "unminimized-noclasses", &[], move |b| {
         b.iter(|| {
-            let result = DFABuilder::new()
+            let result = DenseDFABuilder::new()
                 .anchored(true)
                 .minimize(false)
                 .premultiply(false)
@@ -146,7 +146,7 @@ fn define_compile(
     });
     define(c, &group, "unminimized-classes", &[], move |b| {
         b.iter(|| {
-            let result = DFABuilder::new()
+            let result = DenseDFABuilder::new()
                 .anchored(true)
                 .minimize(false)
                 .premultiply(false)
@@ -157,7 +157,7 @@ fn define_compile(
     });
     // TODO: Minimization is too slow to benchmark for now...
     define(c, &group, "minimized-noclasses", &[], move |b| {
-        let mut dfa = DFABuilder::new()
+        let mut dfa = DenseDFABuilder::new()
             .anchored(true)
             .minimize(false)
             .premultiply(false)
@@ -171,7 +171,7 @@ fn define_compile(
         });
     });
     define(c, &group, "minimized-classes", &[], move |b| {
-        let mut dfa = DFABuilder::new()
+        let mut dfa = DenseDFABuilder::new()
             .anchored(true)
             .minimize(false)
             .premultiply(false)

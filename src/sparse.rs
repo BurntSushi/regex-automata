@@ -6,7 +6,7 @@ use std::mem::size_of;
 
 use byteorder::{ByteOrder, NativeEndian};
 
-use dfa::{ALPHABET_LEN, DFA};
+use dense::{ALPHABET_LEN, DenseDFA};
 use error::Result;
 use state_id::{StateID, dead_id, usize_to_state_id};
 
@@ -22,7 +22,7 @@ pub struct SparseDFA<S: StateID = usize> {
 
 impl<S: StateID> SparseDFA<S> {
     pub(crate) fn from_dfa_sized<T: StateID>(
-        dfa: &DFA<S>,
+        dfa: &DenseDFA<S>,
     ) -> Result<SparseDFA<T>> {
         let kind =
             if dfa.kind().is_byte_class() {
