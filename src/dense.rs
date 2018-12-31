@@ -339,12 +339,12 @@ impl<S: StateID> DenseDFA<S> {
     }
 
     /// TODO...
-    pub fn to_sparse_dfa_sized<T: StateID>(&self) -> Result<SparseDFA<T>> {
+    pub fn to_sparse_dfa_sized<T: StateID>(&self) -> Result<SparseDFA<Vec<u8>, T>> {
         SparseDFA::from_dfa_sized(self)
     }
 
     /// TODO...
-    pub fn to_sparse_dfa(&self) -> Result<SparseDFA<S>> {
+    pub fn to_sparse_dfa(&self) -> Result<SparseDFA<Vec<u8>, S>> {
         self.to_sparse_dfa_sized::<S>()
     }
 
@@ -1050,7 +1050,7 @@ mod tests {
     fn build_automata(pattern: &str) -> (NFA, DenseDFA, DenseDFA) {
         let mut builder = DenseDFABuilder::new();
         builder.byte_classes(false).premultiply(false);
-        builder.anchored(false);
+        builder.anchored(true);
         builder.allow_invalid_utf8(false);
         let nfa = builder.build_nfa(pattern).unwrap();
         let dfa = builder.build(pattern).unwrap();
@@ -1083,7 +1083,8 @@ mod tests {
         // let pattern = r"\p{Greek}";
         // let pattern = r"zZzZzZzZzZ";
         // let pattern = grapheme_pattern();
-        let pattern = r"\p{Ideographic}";
+        // let pattern = r"\p{Ideographic}";
+        let pattern = r"\w";
         print_automata(pattern);
         let (_, _, dfa) = build_automata(pattern);
         let sparse = dfa.to_sparse_dfa_sized::<u16>().unwrap();
@@ -1101,7 +1102,7 @@ mod tests {
 
         println!(
             "dense mem: {:?}, sparse mem: {:?}",
-            dfa.memory_usage(),
+            dfa.to_u16().unwrap().memory_usage(),
             sparse.memory_usage(),
         );
     }

@@ -3,7 +3,7 @@ use std::env;
 use std::fmt::{self, Write};
 
 use regex;
-use regex_automata::{ErrorKind, Regex, RegexBuilder, StateID};
+use regex_automata::{DFA, ErrorKind, Regex, RegexBuilder, StateID};
 use toml;
 
 macro_rules! load {
@@ -225,10 +225,10 @@ impl RegexTester {
         });
     }
 
-    pub fn test_is_match_sparse<'a, S: StateID>(
+    pub fn test_is_match_sparse<'a, T: AsRef<[u8]>, S: StateID>(
         &mut self,
         test: &RegexTest,
-        re: &::regex_automata::SparseDFA<S>,
+        re: &::regex_automata::SparseDFA<T, S>,
     ) {
         let got = re.is_match(&test.input);
         let expected = test.matches.len() >= 1;
