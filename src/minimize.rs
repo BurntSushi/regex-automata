@@ -6,7 +6,7 @@ use std::rc::Rc;
 use dense;
 use state_id::{StateID, dead_id};
 
-type DFARepr<S> = dense::DenseDFA<Vec<S>, S>;
+type DFARepr<S> = dense::Repr<Vec<S>, S>;
 
 /// An implementation of Hopcroft's algorithm for minimizing DFAs.
 ///
@@ -36,7 +36,7 @@ type DFARepr<S> = dense::DenseDFA<Vec<S>, S>;
 ///    fewer states to deal with, then it should run faster. A prime example
 ///    of this might be large Unicode classes, which are generated in way that
 ///    can create a lot of redundant states.
-pub struct Minimizer<'a, S> {
+pub(crate) struct Minimizer<'a, S> {
     dfa: &'a mut DFARepr<S>,
     in_transitions: Vec<Vec<Vec<S>>>,
     partitions: Vec<StateSet<S>>,
@@ -71,11 +71,6 @@ struct StateSet<S>(Rc<RefCell<Vec<S>>>);
 
 impl<'a, S: StateID> Minimizer<'a, S> {
     pub fn new(dfa: &'a mut DFARepr<S>) -> Minimizer<'a, S> {
-        assert!(
-            !dfa.kind().is_premultiplied(),
-            "cannot minimize a premultiplied DenseDFA"
-        );
-
         let in_transitions = Minimizer::incoming_transitions(dfa);
         let partitions = Minimizer::initial_partitions(dfa);
         let waiting = vec![partitions[0].clone()];
@@ -128,14 +123,14 @@ impl<'a, S: StateID> Minimizer<'a, S> {
             }
         }
 
-        let mut state_to_part = vec![dead_id(); self.dfa.len()];
+        let mut state_to_part = vec![dead_id(); self.dfa.state_count()];
         for p in &self.partitions {
             p.iter(|id| state_to_part[id.to_usize()] = p.min());
         }
 
-        let mut minimal_ids = vec![dead_id(); self.dfa.len()];
+        let mut minimal_ids = vec![dead_id(); self.dfa.state_count()];
         let mut new_id = S::from_usize(0);
-        for (id, _) in self.dfa.iter() {
+        for (id, _) in self.dfa.states() {
             if state_to_part[id.to_usize()] == id {
                 minimal_ids[id.to_usize()] = new_id;
                 new_id = S::from_usize(new_id.to_usize() + 1);
@@ -143,7 +138,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         }
         let minimal_count = new_id.to_usize();
 
-        for id in (0..self.dfa.len()).map(S::from_usize) {
+        for id in (0..self.dfa.state_count()).map(S::from_usize) {
             if state_to_part[id.to_usize()] != id {
                 continue;
             }
@@ -153,14 +148,14 @@ impl<'a, S: StateID> Minimizer<'a, S> {
             self.dfa.swap_states(id, minimal_ids[id.to_usize()]);
         }
 
-        let old_start = self.dfa.start();
+        let old_start = self.dfa.start_state();
         self.dfa.set_start_state(
             minimal_ids[state_to_part[old_start.to_usize()].to_usize()],
         );
         self.dfa.truncate_states(minimal_count);
 
         let old_max = self.dfa.max_match_state();
-        for id in (1..self.dfa.len()).map(S::from_usize) {
+        for id in (1..self.dfa.state_count()).map(S::from_usize) {
             if state_to_part[id.to_usize()] > old_max {
                 break;
             }
@@ -190,7 +185,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
     fn initial_partitions(dfa: &DFARepr<S>) -> Vec<StateSet<S>> {
         let mut is_match = StateSet::empty();
         let mut no_match = StateSet::empty();
-        for (id, _) in dfa.iter() {
+        for (id, _) in dfa.states() {
             if dfa.is_match_state(id) {
                 is_match.add(id);
             } else {
@@ -209,11 +204,11 @@ impl<'a, S: StateID> Minimizer<'a, S> {
 
     fn incoming_transitions(dfa: &DFARepr<S>) -> Vec<Vec<Vec<S>>> {
         let mut incoming = vec![];
-        for _ in dfa.iter() {
+        for _ in dfa.states() {
             incoming.push(vec![vec![]; dfa.alphabet_len()]);
         }
-        for (id, state) in dfa.iter() {
-            for (b, next) in state.iter() {
+        for (id, state) in dfa.states() {
+            for (b, next) in state.transitions() {
                 incoming[next.to_usize()][b as usize].push(id);
             }
         }

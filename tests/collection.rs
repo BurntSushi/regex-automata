@@ -3,7 +3,8 @@ use std::env;
 use std::fmt::{self, Write};
 
 use regex;
-use regex_automata::{DFA, ErrorKind, Regex, RegexBuilder, StateID};
+use regex_automata::{DFA, DenseDFA, ErrorKind, Regex, RegexBuilder, StateID};
+use regex_automata::sparse::SparseDFA;
 use toml;
 
 macro_rules! load {
@@ -165,10 +166,11 @@ impl RegexTester {
     {
         for test in tests {
             let builder = builder.clone();
-            let re: Regex<usize> = match self.build_regex(builder, test) {
-                None => continue,
-                Some(re) => re,
-            };
+            let re: Regex<DenseDFA<Vec<usize>, usize>> =
+                match self.build_regex(builder, test) {
+                    None => continue,
+                    Some(re) => re,
+                };
             self.test_is_match(test, &re);
             self.test_find(test, &re);
             // Some tests (namely, fowler) are designed only to detect the
@@ -185,7 +187,7 @@ impl RegexTester {
         &self,
         mut builder: RegexBuilder,
         test: &RegexTest,
-    ) -> Option<Regex<'static, S>> {
+    ) -> Option<Regex<DenseDFA<Vec<S>, S>>> {
         if self.skip(test) {
             return None;
         }
@@ -208,10 +210,10 @@ impl RegexTester {
         }
     }
 
-    pub fn test_is_match<'a, S: StateID>(
+    pub fn test_is_match<'a, D: DFA>(
         &mut self,
         test: &RegexTest,
-        re: &Regex<'a, S>,
+        re: &Regex<D>,
     ) {
         let got = re.is_match(&test.input);
         let expected = test.matches.len() >= 1;
@@ -228,7 +230,7 @@ impl RegexTester {
     pub fn test_is_match_sparse<'a, T: AsRef<[u8]>, S: StateID>(
         &mut self,
         test: &RegexTest,
-        re: &::regex_automata::SparseDFA<T, S>,
+        re: &SparseDFA<T, S>,
     ) {
         let got = re.is_match(&test.input);
         let expected = test.matches.len() >= 1;
@@ -242,10 +244,10 @@ impl RegexTester {
         });
     }
 
-    pub fn test_find<'a, S: StateID>(
+    pub fn test_find<'a, D: DFA>(
         &mut self,
         test: &RegexTest,
-        re: &Regex<'a, S>,
+        re: &Regex<D>,
     ) {
         let got = re
             .find(&test.input)
@@ -260,10 +262,10 @@ impl RegexTester {
         });
     }
 
-    pub fn test_find_iter<'a, S: StateID>(
+    pub fn test_find_iter<'a, D: DFA>(
         &mut self,
         test: &RegexTest,
-        re: &Regex<'a, S>,
+        re: &Regex<D>,
     ) {
         let got: Vec<Match> = re
             .find_iter(&test.input)

@@ -1,18 +1,17 @@
 use builder::RegexBuilder;
 use dense::DenseDFA;
-use dense_ref::DenseDFARef;
+use dfa::DFA;
 use error::Result;
-use state_id::StateID;
 
 /// A regular expression that uses deterministic finite automata for fast
 /// searching.
 #[derive(Clone, Debug)]
-pub struct Regex<T: AsRef<[S]>, S: StateID> {
-    forward: OwnOrBorrow<T, S>,
-    reverse: OwnOrBorrow<T, S>,
+pub struct Regex<D: DFA> {
+    forward: D,
+    reverse: D,
 }
 
-impl Regex<Vec<usize>, usize> {
+impl Regex<DenseDFA<Vec<usize>, usize>> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding regex.
     ///
@@ -34,12 +33,12 @@ impl Regex<Vec<usize>, usize> {
     /// assert_eq!(Some((3, 14)), re.find(b"zzzfoo12345barzzz"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn new(pattern: &str) -> Result<Regex<Vec<usize>, usize>> {
+    pub fn new(pattern: &str) -> Result<Regex<DenseDFA<Vec<usize>, usize>>> {
         RegexBuilder::new().build(pattern)
     }
 }
 
-impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
+impl<D: DFA> Regex<D> {
     /// Returns true if and only if the given bytes match.
     ///
     /// This routine may short circuit if it knows that scanning future input
@@ -157,29 +156,13 @@ impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
     pub fn find_iter<'r, 't>(
         &'r self,
         input: &'t [u8],
-    ) -> Matches<'r, 't, T, S> {
+    ) -> Matches<'r, 't, D> {
         Matches::new(self, input)
     }
 }
 
-impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
+impl<D: DFA> Regex<D> {
     /// Build a new regex from its constituent forward and reverse DFAs.
-    ///
-    /// It's not currently possible for a caller using this crate's public API
-    /// to correctly use this method since the `DenseDFABuilder` does not expose the
-    /// necessary options to correctly build the reverse DFA.
-    pub(crate) fn from_dfas(
-        forward: DenseDFA<T, S>,
-        reverse: DenseDFA<T, S>,
-    ) -> Regex<T, S> {
-        Regex {
-            forward: OwnOrBorrow::Owned(forward),
-            reverse: OwnOrBorrow::Owned(reverse),
-        }
-    }
-
-    /// Build a new regex from its constituent forward and reverse borrowed
-    /// DFAs.
     ///
     /// This is useful when deserializing a regex from some arbitrary
     /// memory region. Note that currently, it is not possible to correctly
@@ -205,46 +188,26 @@ impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
     /// assert_eq!(true, initial_re.is_match(b"foo123"));
     ///
     /// let (fwd, rev) = (initial_re.forward(), initial_re.reverse());
-    /// let re = Regex::from_dfa_refs(fwd, rev);
+    /// let re = Regex::from_dfas(fwd, rev);
     /// assert_eq!(true, initial_re.is_match(b"foo123"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn from_dfa_refs(
-        forward: DenseDFARef<T, S>,
-        reverse: DenseDFARef<T, S>,
-    ) -> Regex<T, S> {
-        Regex {
-            forward: OwnOrBorrow::Borrowed(forward),
-            reverse: OwnOrBorrow::Borrowed(reverse),
-        }
+    pub fn from_dfas(forward: D, reverse: D) -> Regex<D> {
+        Regex { forward, reverse }
     }
 
     /// Return the underlying DFA responsible for forward matching.
-    pub fn forward<'b>(&'b self) -> DenseDFARef<&'b [S], S> {
-        match self.forward {
-            OwnOrBorrow::Owned(ref dfa) => dfa.as_dfa_ref(),
-            OwnOrBorrow::Borrowed(_) => unimplemented!(),
-                // DenseDFARef {
-                    // kind: dfa.kind,
-                    // start: dfa.start,
-                    // state_count: dfa.state_count,
-                    // max_match: dfa.max_match,
-                    // alphabet_len: dfa.alphabet_len,
-                    // byte_classes: dfa.byte_classes.clone(),
-                    // trans: dfa.trans.as_ref(),
-                // }
-        }
+    pub fn forward(&self) -> &D {
+        &self.forward
     }
 
     /// Return the underlying DFA responsible for reverse matching.
-    pub fn reverse<'b>(&'b self) -> DenseDFARef<&'b [S], S> {
-        match self.reverse {
-            OwnOrBorrow::Owned(ref dfa) => dfa.as_dfa_ref(),
-            OwnOrBorrow::Borrowed(_) => unimplemented!(),
-        }
+    pub fn reverse(&self) -> &D {
+        &self.reverse
     }
 }
 
+/*
 impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
     /// Create a new regex whose match semantics are equivalent to this regex,
     /// but attempt to use `u8` for the representation of state identifiers.
@@ -316,12 +279,7 @@ impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
         Ok(Regex::from_dfas(forward, reverse))
     }
 }
-
-#[derive(Clone, Debug)]
-enum OwnOrBorrow<T: AsRef<[S]>, S: StateID> {
-    Owned(DenseDFA<T, S>),
-    Borrowed(DenseDFARef<T, S>),
-}
+*/
 
 /// An iterator over all non-overlapping matches for a particular search.
 ///
@@ -338,15 +296,15 @@ enum OwnOrBorrow<T: AsRef<[S]>, S: StateID> {
 /// * `'r` is the lifetime of the regular expression value itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
-pub struct Matches<'r, 't, T: AsRef<[S]>, S: StateID> {
-    re: &'r Regex<T, S>,
+pub struct Matches<'r, 't, D: DFA> {
+    re: &'r Regex<D>,
     text: &'t [u8],
     last_end: usize,
     last_match: Option<usize>,
 }
 
-impl<'r, 't, T: AsRef<[S]>, S: StateID> Matches<'r, 't, T, S> {
-    fn new(re: &'r Regex<T, S>, text: &'t [u8]) -> Matches<'r, 't, T, S> {
+impl<'r, 't, D: DFA> Matches<'r, 't, D> {
+    fn new(re: &'r Regex<D>, text: &'t [u8]) -> Matches<'r, 't, D> {
         Matches {
             re: re,
             text: text,
@@ -356,7 +314,7 @@ impl<'r, 't, T: AsRef<[S]>, S: StateID> Matches<'r, 't, T, S> {
     }
 }
 
-impl<'r, 't, T: AsRef<[S]>, S: StateID> Iterator for Matches<'r, 't, T, S> {
+impl<'r, 't, D: DFA> Iterator for Matches<'r, 't, D> {
     type Item = (usize, usize);
 
     fn next(&mut self) -> Option<(usize, usize)> {

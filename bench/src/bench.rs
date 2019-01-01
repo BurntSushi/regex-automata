@@ -28,7 +28,7 @@ fn is_match(c: &mut Criterion) {
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        let dfa = dfa.to_sparse_dfa().unwrap();
+        let dfa = dfa.to_sparse().unwrap();
         b.iter(|| {
             assert!(!dfa.is_match(corpus));
         });
@@ -37,26 +37,18 @@ fn is_match(c: &mut Criterion) {
     // let corpus = OPEN_ZH_SMALL;
     let corpus = SHERLOCK_SMALL;
     define(c, "is-match", "sherlock-small", corpus, move |b| {
-        // let dfa = RegexBuilder::new()
-            // .anchored(false)
-            // .minimize(true)
-            // .premultiply(true)
-            // .byte_classes(false)
-            // .build(r"\p{Greek}")
-            // .unwrap();
-        let dfa = DenseDFABuilder::new()
+        let re = RegexBuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
             .byte_classes(false)
-            .allow_invalid_utf8(false)
             .build(r"\p{Greek}")
-            // .build(r"\p{Ideographic}")
-            // .build(r"zZzZzZzZzZ")
+            // // .build(r"\p{Ideographic}")
+            // // .build(r"zZzZzZzZzZ")
             .unwrap();
-        let dfa = dfa.to_sparse_dfa().unwrap();
+        let re = re.forward().to_sparse().unwrap();
         b.iter(|| {
-            assert!(!dfa.is_match(corpus));
+            assert!(!re.is_match(corpus));
         });
     });
 
@@ -76,7 +68,7 @@ fn is_match(c: &mut Criterion) {
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        let dfa = dfa.to_sparse_dfa().unwrap();
+        let dfa = dfa.to_sparse().unwrap();
         b.iter(|| {
             assert!(!dfa.is_match(corpus));
         });
@@ -98,7 +90,7 @@ fn is_match(c: &mut Criterion) {
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        let dfa = dfa.to_sparse_dfa().unwrap();
+        let dfa = dfa.to_sparse().unwrap();
         b.iter(|| {
             assert!(!dfa.is_match(corpus));
         });

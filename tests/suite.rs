@@ -1,4 +1,4 @@
-use regex_automata::{DenseDFARef, Regex, RegexBuilder};
+use regex_automata::{DenseDFA, Regex, RegexBuilder};
 
 use collection::{SUITE, RegexTester};
 
@@ -82,6 +82,7 @@ fn minimized_premultiply_byte_class() {
     tester.assert();
 }
 
+/*
 // A basic sanity test that checks we can convert a regex to a smaller
 // representation and that the resulting regex still passes our tests.
 //
@@ -95,16 +96,18 @@ fn u16() {
     let mut tester = RegexTester::new();
     for test in SUITE.tests() {
         let builder = builder.clone();
-        let re: Regex<usize> = match tester.build_regex(builder, test) {
-            None => continue,
-            Some(re) => re,
-        };
+        let re: Regex<DenseDFA<Vec<usize>, usize>> =
+            match tester.build_regex(builder, test) {
+                None => continue,
+                Some(re) => re,
+            };
         let re = re.to_u16().unwrap();
 
         tester.test_is_match(test, &re);
         tester.test_find(test, &re);
     }
 }
+*/
 
 // Test that sparse DFAs work using the standard configuration.
 #[test]
@@ -115,11 +118,12 @@ fn sparse_unminimized_standard() {
     let mut tester = RegexTester::new().skip_expensive();
     for test in SUITE.tests() {
         let builder = builder.clone();
-        let re: Regex<usize> = match tester.build_regex(builder, test) {
-            None => continue,
-            Some(re) => re,
-        };
-        let re = ::regex_automata::DenseDFA::from_dfa_ref(re.forward()).to_sparse_dfa().unwrap();
+        let re: Regex<DenseDFA<Vec<usize>, usize>> =
+            match tester.build_regex(builder, test) {
+                None => continue,
+                Some(re) => re,
+            };
+        let re = re.forward().to_sparse().unwrap();
 
         tester.test_is_match_sparse(test, &re);
     }
@@ -135,20 +139,21 @@ fn serialization_roundtrip() {
     let mut tester = RegexTester::new();
     for test in SUITE.tests() {
         let builder = builder.clone();
-        let re: Regex<usize> = match tester.build_regex(builder, test) {
-            None => continue,
-            Some(re) => re,
-        };
+        let re: Regex<DenseDFA<Vec<usize>, usize>> =
+            match tester.build_regex(builder, test) {
+                None => continue,
+                Some(re) => re,
+            };
 
         let fwd_bytes = re.forward().to_bytes_native_endian().unwrap();
         let rev_bytes = re.reverse().to_bytes_native_endian().unwrap();
-        let fwd: DenseDFARef<usize> = unsafe {
-            DenseDFARef::from_bytes(&fwd_bytes)
+        let fwd: DenseDFA<&[usize], usize> = unsafe {
+            DenseDFA::from_bytes(&fwd_bytes)
         };
-        let rev: DenseDFARef<usize> = unsafe {
-            DenseDFARef::from_bytes(&rev_bytes)
+        let rev: DenseDFA<&[usize], usize> = unsafe {
+            DenseDFA::from_bytes(&rev_bytes)
         };
-        let re = Regex::from_dfa_refs(fwd, rev);
+        let re = Regex::from_dfas(fwd, rev);
 
         tester.test_is_match(test, &re);
         tester.test_find(test, &re);

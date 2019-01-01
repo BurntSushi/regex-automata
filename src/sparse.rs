@@ -13,15 +13,15 @@ use std::mem::size_of;
 use byteorder::{ByteOrder, NativeEndian};
 
 use classes::ByteClasses;
-use dense::DenseDFA;
+use dense;
 use dfa::DFA;
 use error::Result;
 use state_id::{StateID, dead_id, usize_to_state_id};
 
 #[derive(Clone, Debug)]
 pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
-    Standard(SparseDFAStandard<T, S>),
-    ByteClass(SparseDFAByteClass<T, S>),
+    Standard(Standard<T, S>),
+    ByteClass(ByteClass<T, S>),
     /// Hints that destructuring should not be exhaustive.
     ///
     /// This enum may grow additional variants, so this makes sure clients
@@ -32,10 +32,10 @@ pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
 }
 
 impl<S: StateID> SparseDFA<Vec<u8>, S> {
-    pub(crate) fn from_dfa_sized<T: AsRef<[S]>, A: StateID>(
-        dfa: &DenseDFA<T, S>,
+    pub(crate) fn from_dense_sized<T: AsRef<[S]>, A: StateID>(
+        dfa: &dense::Repr<T, S>,
     ) -> Result<SparseDFA<Vec<u8>, A>> {
-        SparseDFARepr::from_dfa_sized(dfa).map(|r| r.into_sparse_dfa())
+        Repr::from_dense_sized(dfa).map(|r| r.into_sparse_dfa())
     }
 }
 
@@ -45,11 +45,11 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
     /// the same state identifier representation.
     pub fn as_ref<'a>(&'a self) -> SparseDFA<&'a [u8], S> {
         match *self {
-            SparseDFA::Standard(SparseDFAStandard(ref r)) => {
-                SparseDFA::Standard(SparseDFAStandard(r.as_ref()))
+            SparseDFA::Standard(Standard(ref r)) => {
+                SparseDFA::Standard(Standard(r.as_ref()))
             }
-            SparseDFA::ByteClass(SparseDFAByteClass(ref r)) => {
-                SparseDFA::ByteClass(SparseDFAByteClass(r.as_ref()))
+            SparseDFA::ByteClass(ByteClass(ref r)) => {
+                SparseDFA::ByteClass(ByteClass(r.as_ref()))
             }
             SparseDFA::__Nonexhaustive => unreachable!(),
         }
@@ -63,11 +63,11 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
     /// on the heap.
     pub fn to_owned(&self) -> SparseDFA<Vec<u8>, S> {
         match *self {
-            SparseDFA::Standard(SparseDFAStandard(ref r)) => {
-                SparseDFA::Standard(SparseDFAStandard(r.to_owned()))
+            SparseDFA::Standard(Standard(ref r)) => {
+                SparseDFA::Standard(Standard(r.to_owned()))
             }
-            SparseDFA::ByteClass(SparseDFAByteClass(ref r)) => {
-                SparseDFA::ByteClass(SparseDFAByteClass(r.to_owned()))
+            SparseDFA::ByteClass(ByteClass(ref r)) => {
+                SparseDFA::ByteClass(ByteClass(r.to_owned()))
             }
             SparseDFA::__Nonexhaustive => unreachable!(),
         }
@@ -85,7 +85,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
         self.repr().memory_usage()
     }
 
-    fn repr(&self) -> &SparseDFARepr<T, S> {
+    fn repr(&self) -> &Repr<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => &r.0,
             SparseDFA::ByteClass(ref r) => &r.0,
@@ -166,11 +166,11 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
 }
 
 #[derive(Clone, Debug)]
-pub struct SparseDFAStandard<T: AsRef<[u8]>, S: StateID = usize>(
-    SparseDFARepr<T, S>,
+pub struct Standard<T: AsRef<[u8]>, S: StateID = usize>(
+    Repr<T, S>,
 );
 
-impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFAStandard<T, S> {
+impl<T: AsRef<[u8]>, S: StateID> DFA for Standard<T, S> {
     type ID = S;
 
     fn start_state(&self) -> S {
@@ -199,11 +199,11 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFAStandard<T, S> {
 }
 
 #[derive(Clone, Debug)]
-pub struct SparseDFAByteClass<T: AsRef<[u8]>, S: StateID = usize>(
-    SparseDFARepr<T, S>,
+pub struct ByteClass<T: AsRef<[u8]>, S: StateID = usize>(
+    Repr<T, S>,
 );
 
-impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFAByteClass<T, S> {
+impl<T: AsRef<[u8]>, S: StateID> DFA for ByteClass<T, S> {
     type ID = S;
 
     fn start_state(&self) -> S {
@@ -235,7 +235,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFAByteClass<T, S> {
 /// The underlying representation of a sparse DFA. This is shared by all of
 /// the different variants of a sparse DFA.
 #[derive(Clone)]
-struct SparseDFARepr<T: AsRef<[u8]>, S: StateID = usize> {
+struct Repr<T: AsRef<[u8]>, S: StateID = usize> {
     start: S,
     state_count: usize,
     max_match: S,
@@ -243,17 +243,17 @@ struct SparseDFARepr<T: AsRef<[u8]>, S: StateID = usize> {
     trans: T,
 }
 
-impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
+impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
     fn into_sparse_dfa(self) -> SparseDFA<T, S> {
         if self.byte_classes.is_singleton() {
-            SparseDFA::Standard(SparseDFAStandard(self))
+            SparseDFA::Standard(Standard(self))
         } else {
-            SparseDFA::ByteClass(SparseDFAByteClass(self))
+            SparseDFA::ByteClass(ByteClass(self))
         }
     }
 
-    fn as_ref<'a>(&'a self) -> SparseDFARepr<&'a [u8], S> {
-        SparseDFARepr {
+    fn as_ref<'a>(&'a self) -> Repr<&'a [u8], S> {
+        Repr {
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
@@ -262,8 +262,8 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
         }
     }
 
-    fn to_owned(&self) -> SparseDFARepr<Vec<u8>, S> {
-        SparseDFARepr {
+    fn to_owned(&self) -> Repr<Vec<u8>, S> {
+        Repr {
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
@@ -320,11 +320,11 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFARepr<T, S> {
     }
 }
 
-impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
-    fn from_dfa_sized<T: AsRef<[S]>, A: StateID>(
-        dfa: &DenseDFA<T, S>,
-    ) -> Result<SparseDFARepr<Vec<u8>, A>> {
-        let state_count = dfa.len();
+impl<S: StateID> Repr<Vec<u8>, S> {
+    fn from_dense_sized<T: AsRef<[S]>, A: StateID>(
+        dfa: &dense::Repr<T, S>,
+    ) -> Result<Repr<Vec<u8>, A>> {
+        let state_count = dfa.state_count();
 
         // In order to build the transition table, we need to be able to write
         // state identifiers for each of the "next" transitions in each state.
@@ -345,7 +345,7 @@ impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
 
         let mut trans = vec![];
         let mut remap: Vec<A> = vec![dead_id(); state_count];
-        for (old_id, state) in dfa.iter() {
+        for (old_id, state) in dfa.states() {
             let pos = trans.len();
             remap[dfa.state_id_to_index(old_id)] = usize_to_state_id(pos)?;
             // zero-filled space for the transition count
@@ -369,7 +369,7 @@ impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
         }
 
         let mut pos = 0;
-        for (_, state) in dfa.iter() {
+        for (_, state) in dfa.states() {
             let trans_count = NativeEndian::read_u16(&trans[pos..]) as usize;
             pos += 2 + (2 * trans_count);
             for (b1, b2, next) in state.sparse_transitions() {
@@ -381,19 +381,19 @@ impl<S: StateID> SparseDFARepr<Vec<u8>, S> {
             }
         }
 
-        let start = remap[dfa.state_id_to_index(dfa.start())];
+        let start = remap[dfa.state_id_to_index(dfa.start_state())];
         let max_match = remap[dfa.state_id_to_index(dfa.max_match_state())];
         let byte_classes = dfa.byte_classes().clone();
-        Ok(SparseDFARepr {
+        Ok(Repr {
             start, state_count, max_match, byte_classes, trans,
         })
     }
 }
 
-impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for SparseDFARepr<T, S> {
+impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn state_status<T: AsRef<[u8]>, S: StateID>(
-            dfa: &SparseDFARepr<T, S>,
+            dfa: &Repr<T, S>,
             id: S,
         ) -> String {
             let mut status = vec![b' ', b' '];
@@ -423,7 +423,7 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for SparseDFARepr<T, S> {
 /// the second element is the state itself.
 #[derive(Debug)]
 struct StateIter<'a, T: AsRef<[u8]>, S: StateID = usize> {
-    dfa: &'a SparseDFARepr<T, S>,
+    dfa: &'a Repr<T, S>,
     id: S,
 }
 

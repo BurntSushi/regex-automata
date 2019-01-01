@@ -8,7 +8,7 @@ use nfa::{self, NFA};
 use sparse_set::SparseSet;
 use state_id::{StateID, dead_id};
 
-type DFARepr<S> = dense::DenseDFA<Vec<S>, S>;
+type DFARepr<S> = dense::Repr<Vec<S>, S>;
 
 /// A determinizer converts an NFA to a DFA.
 ///
@@ -24,7 +24,7 @@ type DFARepr<S> = dense::DenseDFA<Vec<S>, S>;
 /// The lifetime variable `'a` refers to the lifetime of the NFA being
 /// converted to a DFA.
 #[derive(Debug)]
-pub struct Determinizer<'a, S: StateID> {
+pub(crate) struct Determinizer<'a, S: StateID> {
     /// The NFA we're converting into a DFA.
     nfa: &'a NFA,
     /// The DFA we're building.
@@ -105,7 +105,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 let (next_dfa_id, is_new) = self.cached_state(
                     dfa_id, b, &mut sparse,
                 )?;
-                self.dfa.set_transition(dfa_id, b, next_dfa_id);
+                self.dfa.add_transition(dfa_id, b, next_dfa_id);
                 if is_new {
                     uncompiled.push(next_dfa_id);
                 }

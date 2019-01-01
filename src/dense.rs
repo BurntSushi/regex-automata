@@ -1,13 +1,16 @@
+#![allow(warnings)]
+
 use std::fmt;
 use std::iter;
+use std::mem;
 use std::slice;
 
-use byteorder::{BigEndian, LittleEndian, NativeEndian};
+use byteorder::{ByteOrder, BigEndian, LittleEndian, NativeEndian};
 
 use builder::DenseDFABuilder;
 use classes::ByteClasses;
+use dfa::DFA;
 use error::{Error, Result};
-use dense_ref::DenseDFARef;
 use minimize::Minimizer;
 use sparse::SparseDFA;
 use state_id::{StateID, dead_id, next_state_id, premultiply_overflow_error};
@@ -74,59 +77,34 @@ pub const ALPHABET_LEN: usize = 256;
 /// [`to_bytes_big_endian`](struct.DenseDFA.html#method.to_bytes_big_endian)
 /// or
 /// [`to_bytes_native_endian`](struct.DenseDFA.html#method.to_bytes_native_endian).
-#[derive(Clone)]
-pub struct DenseDFA<T, S> {
-    /// The type of DFA. This enum controls how the state transition table
-    /// is interpreted. It is never correct to read the transition table
-    /// without knowing the DFA's kind.
-    kind: DenseDFAKind,
-    /// The initial start state ID.
-    start: S,
-    /// The total number of states in this DFA. Note that a DFA always has at
-    /// least one state---the dead state---even the empty DFA. In particular,
-    /// the dead state always has ID 0 and is correspondingly always the first
-    /// state. The dead state is never a match state.
-    state_count: usize,
-    /// States in a DFA have a *partial* ordering such that a match state
-    /// always precedes any non-match state (except for the special dead
-    /// state).
+#[derive(Clone, Debug)]
+pub enum DenseDFA<T: AsRef<[S]>, S: StateID> {
+    Standard(Standard<T, S>),
+    ByteClass(ByteClass<T, S>),
+    Premultiplied(Premultiplied<T, S>),
+    PremultipliedByteClass(PremultipliedByteClass<T, S>),
+    /// Hints that destructuring should not be exhaustive.
     ///
-    /// `max_match` corresponds to the last state that is a match state. This
-    /// encoding has two critical benefits. Firstly, we are not required to
-    /// store any additional per-state information about whether it is a match
-    /// state or not. Secondly, when searching with the DFA, we can do a single
-    /// comparison with `max_match` for each byte instead of two comparisons
-    /// for each byte (one testing whether it is a match and the other testing
-    /// whether we've reached a dead state). Namely, to determine the status
-    /// of the next state, we can do this:
+    /// This enum may grow additional variants, so this makes sure clients
+    /// don't count on exhaustive matching. (Otherwise, adding a new variant
+    /// could break existing code.)
+    #[doc(hidden)]
+    __Nonexhaustive,
+}
+
+impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
+    /// Return the internal DFA representation.
     ///
-    ///   next_state = transition[cur_state * ALPHABET_LEN + cur_byte]
-    ///   if next_state <= max_match:
-    ///       // next_state is either dead (no-match) or a match
-    ///       return next_state != dead
-    max_match: S,
-    /// The total number of bytes in this DFA's alphabet. This is always
-    /// equivalent to 256, unless the DFA was built with byte classes, in which
-    /// case, this is equal to the number of byte classes.
-    alphabet_len: usize,
-    /// A set of equivalence classes, where a single equivalence class
-    /// represents a set of bytes that never discriminate between a match
-    /// and a non-match in the DFA. Each equivalence class corresponds to
-    /// a single letter in this DFA's alphabet, where the maximum number of
-    /// letters is 256 (each possible value of a byte). Consequently, the
-    /// number of equivalence classes corresponds to the number of transitions
-    /// for each DFA state.
-    ///
-    /// The only time the number of equivalence classes is fewer than 256 is
-    /// if the DFA's kind uses byte classes. If the DFA doesn't use byte
-    /// classes, then this vector is empty.
-    byte_classes: ByteClasses,
-    /// A contiguous region of memory representing the transition table in
-    /// row-major order. The representation is dense. That is, every state has
-    /// precisely the same number of transitions. The maximum number of
-    /// transitions is 256. If a DFA has been instructed to use byte classes,
-    /// then the number of transitions can be much less.
-    trans: T,
+    /// All variants share the same internal representation.
+    fn repr(&self) -> &Repr<T, S> {
+        match *self {
+            DenseDFA::Standard(ref r) => &r.0,
+            DenseDFA::ByteClass(ref r) => &r.0,
+            DenseDFA::Premultiplied(ref r) => &r.0,
+            DenseDFA::PremultipliedByteClass(ref r) => &r.0,
+            DenseDFA::__Nonexhaustive => unreachable!(),
+        }
+    }
 }
 
 impl DenseDFA<Vec<usize>, usize> {
@@ -144,7 +122,7 @@ impl DenseDFA<Vec<usize>, usize> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::DenseDFA;
+    /// use regex_automata::{DFA, DenseDFA};
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
     /// let dfa = DenseDFA::new("foo[0-9]+bar")?;
@@ -166,7 +144,7 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// indicating their choice of state identifier representation.
     ///
     /// ```
-    /// use regex_automata::DenseDFA;
+    /// use regex_automata::{DFA, DenseDFA};
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
     /// let dfa: DenseDFA<Vec<usize>, usize> = DenseDFA::empty();
@@ -175,182 +153,11 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// # Ok(()) }; example().unwrap()
     /// ```
     pub fn empty() -> DenseDFA<Vec<S>, S> {
-        DenseDFA::empty_with_byte_classes(ByteClasses::singletons())
-    }
-
-    /// Create a new empty DFA with the given set of byte equivalence classes.
-    /// An empty DFA never matches any input.
-    pub(crate) fn empty_with_byte_classes(
-        byte_classes: ByteClasses,
-    ) -> DenseDFA<Vec<S>, S> {
-        let (kind, alphabet_len) =
-            if byte_classes.is_singleton() {
-                (DenseDFAKind::Basic, ALPHABET_LEN)
-            } else {
-                (DenseDFAKind::ByteClass, byte_classes.alphabet_len())
-            };
-        let mut dfa = DenseDFA {
-            kind: kind,
-            start: dead_id(),
-            state_count: 0,
-            max_match: S::from_usize(1),
-            alphabet_len: alphabet_len,
-            byte_classes: byte_classes,
-            trans: vec![],
-        };
-        // Every state ID repr must be able to fit at least one state.
-        dfa.add_empty_state().unwrap();
-        dfa
+        Repr::empty().into_dense_dfa()
     }
 }
 
 impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
-    /// Returns true if and only if the given bytes match this DFA.
-    ///
-    /// This routine may short circuit if it knows that scanning future input
-    /// will never lead to a different result. In particular, if a DFA enters
-    /// a match state or a dead state, then this routine will return `true` or
-    /// `false`, respectively, without inspecting any future input.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::DenseDFA;
-    ///
-    /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DenseDFA::new("foo[0-9]+bar")?;
-    /// assert_eq!(true, dfa.is_match(b"foo12345bar"));
-    /// assert_eq!(false, dfa.is_match(b"foobar"));
-    /// # Ok(()) }; example().unwrap()
-    /// ```
-    pub fn is_match(&self, bytes: &[u8]) -> bool {
-        self.as_dfa_ref().is_match_inline(bytes)
-    }
-
-    /// Returns the first position at which a match is found.
-    ///
-    /// This routine stops scanning input in precisely the same circumstances
-    /// as `is_match`. The key difference is that this routine returns the
-    /// position at which it stopped scanning input if and only if a match
-    /// was found. If no match is found, then `None` is returned.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::DenseDFA;
-    ///
-    /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DenseDFA::new("foo[0-9]+")?;
-    /// assert_eq!(Some(4), dfa.shortest_match(b"foo12345"));
-    ///
-    /// // Normally, the end of the leftmost first match here would be 3,
-    /// // but the shortest match semantics detect a match earlier.
-    /// let dfa = DenseDFA::new("abc|a")?;
-    /// assert_eq!(Some(1), dfa.shortest_match(b"abc"));
-    /// # Ok(()) }; example().unwrap()
-    /// ```
-    pub fn shortest_match(&self, bytes: &[u8]) -> Option<usize> {
-        self.as_dfa_ref().shortest_match_inline(bytes)
-    }
-
-    /// Returns the end offset of the leftmost first match. If no match exists,
-    /// then `None` is returned.
-    ///
-    /// The "leftmost first" match corresponds to the match with the smallest
-    /// starting offset, but where the end offset is determined by preferring
-    /// earlier branches in the original regular expression. For example,
-    /// `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam` will
-    /// match `Samwise` in `Samwise`.
-    ///
-    /// Generally speaking, the "leftmost first" match is how most backtracking
-    /// regular expressions tend to work. This is in contrast to POSIX-style
-    /// regular expressions that yield "leftmost longest" matches. Namely,
-    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
-    /// leftmost longest semantics.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::DenseDFA;
-    ///
-    /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DenseDFA::new("foo[0-9]+")?;
-    /// assert_eq!(Some(8), dfa.find(b"foo12345"));
-    ///
-    /// // Even though a match is found after reading the first byte (`a`),
-    /// // the leftmost first match semantics demand that we find the earliest
-    /// // match that prefers earlier parts of the pattern over latter parts.
-    /// let dfa = DenseDFA::new("abc|a")?;
-    /// assert_eq!(Some(3), dfa.find(b"abc"));
-    /// # Ok(()) }; example().unwrap()
-    /// ```
-    pub fn find(&self, bytes: &[u8]) -> Option<usize> {
-        self.as_dfa_ref().find_inline(bytes)
-    }
-
-    /// Returns the start offset of the leftmost first match in reverse, by
-    /// searching from the end of the input towards the start of the input. If
-    /// no match exists, then `None` is returned.
-    ///
-    /// This routine is principally useful when used in conjunction with the
-    /// [`DenseDFABuilder::reverse`](struct.DenseDFABuilder.html#method.reverse)
-    /// configuration knob. In general, it's unlikely to be correct to use both
-    /// `find` and `rfind` with the same DFA.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::DenseDFABuilder;
-    ///
-    /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DenseDFABuilder::new().reverse(true).build("foo[0-9]+")?;
-    /// assert_eq!(Some(0), dfa.rfind(b"foo12345"));
-    /// # Ok(()) }; example().unwrap()
-    /// ```
-    pub fn rfind(&self, bytes: &[u8]) -> Option<usize> {
-        self.as_dfa_ref().rfind_inline(bytes)
-    }
-
-    /// Return a borrowed version of this DFA.
-    ///
-    /// This is useful if your code demands a borrowed version of the DFA.
-    /// In particular, a `DenseDFARef` does not specifically require any heap
-    /// memory and can be used without Rust's standard library.
-    pub fn as_dfa_ref<'a>(&'a self) -> DenseDFARef<&'a [S], S> {
-        DenseDFARef {
-            kind: self.kind,
-            start: self.start,
-            state_count: self.state_count,
-            max_match: self.max_match,
-            alphabet_len: self.alphabet_len,
-            byte_classes: self.byte_classes.clone(),
-            trans: self.trans.as_ref(),
-        }
-    }
-
-    /// Build an owned DFA from a borrowed DFA.
-    pub fn from_dfa_ref(dfa_ref: DenseDFARef<T, S>) -> DenseDFA<Vec<S>, S> {
-        DenseDFA {
-            kind: dfa_ref.kind,
-            start: dfa_ref.start,
-            state_count: dfa_ref.state_count,
-            max_match: dfa_ref.max_match,
-            alphabet_len: dfa_ref.alphabet_len,
-            byte_classes: dfa_ref.byte_classes.clone(),
-            trans: dfa_ref.trans.as_ref().to_vec(),
-        }
-    }
-
-    /// TODO...
-    pub fn to_sparse_dfa_sized<A: StateID>(&self) -> Result<SparseDFA<Vec<u8>, A>> {
-        SparseDFA::from_dfa_sized(self)
-    }
-
-    /// TODO...
-    pub fn to_sparse_dfa(&self) -> Result<SparseDFA<Vec<u8>, S>> {
-        self.to_sparse_dfa_sized::<S>()
-    }
-
     /// Returns the memory usage, in bytes, of this DFA.
     ///
     /// The memory usage is computed based on the number of bytes used to
@@ -360,7 +167,78 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// This does **not** include the stack size used up by this DFA. To
     /// compute that, used `std::mem::size_of::<DenseDFA>()`.
     pub fn memory_usage(&self) -> usize {
-        self.as_dfa_ref().memory_usage()
+        self.repr().memory_usage()
+    }
+}
+
+impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
+    /// TODO...
+    pub fn to_sparse(&self) -> Result<SparseDFA<Vec<u8>, S>> {
+        self.to_sparse_sized()
+    }
+
+    /// TODO...
+    pub fn to_sparse_sized<A: StateID>(
+        &self,
+    ) -> Result<SparseDFA<Vec<u8>, A>> {
+        self.repr().to_sparse_sized()
+    }
+
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u8` for the representation of state identifiers.
+    /// If `u8` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u8>()`.
+    pub fn to_u8(&self) -> Result<DenseDFA<Vec<u8>, u8>> {
+        self.to_sized()
+    }
+
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u16` for the representation of state identifiers.
+    /// If `u16` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u16>()`.
+    pub fn to_u16(&self) -> Result<DenseDFA<Vec<u16>, u16>> {
+        self.to_sized()
+    }
+
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u32` for the representation of state identifiers.
+    /// If `u32` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u32>()`.
+    pub fn to_u32(&self) -> Result<DenseDFA<Vec<u32>, u32>> {
+        self.to_sized()
+    }
+
+    /// Create a new DFA whose match semantics are equivalent to this DFA,
+    /// but attempt to use `u64` for the representation of state identifiers.
+    /// If `u64` is insufficient to represent all state identifiers in this
+    /// DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u64>()`.
+    pub fn to_u64(&self) -> Result<DenseDFA<Vec<u64>, u64>> {
+        self.to_sized()
+    }
+
+    /// Create a new DFA whose match semantics are equivalent to this DFA, but
+    /// attempt to use `A` for the representation of state identifiers. If `A`
+    /// is insufficient to represent all state identifiers in this DFA, then
+    /// this returns an error.
+    ///
+    /// An alternative way to construct such a DFA is to use
+    /// [`DenseDFABuilder::build_with_size`](struct.DenseDFABuilder.html#method.build_with_size).
+    /// In general, using the builder is preferred since it will use the given
+    /// state identifier representation throughout determinization (and
+    /// minimization, if done), and thereby using less memory throughout the
+    /// entire construction process. However, these routines are necessary
+    /// in cases where, say, a minimized DFA could fit in a smaller state
+    /// identifier representation, but the initial determinized DFA would not.
+    pub fn to_sized<A: StateID>(&self) -> Result<DenseDFA<Vec<A>, A>> {
+        self.repr().to_sized().map(|r| r.into_dense_dfa())
     }
 
     /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in little
@@ -371,7 +249,7 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// implementations of `StateID` provided by this crate satisfy this
     /// requirement.
     pub fn to_bytes_little_endian(&self) -> Result<Vec<u8>> {
-        self.as_dfa_ref().to_bytes::<LittleEndian>()
+        self.repr().to_bytes::<LittleEndian>()
     }
 
     /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in big
@@ -382,7 +260,7 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// implementations of `StateID` provided by this crate satisfy this
     /// requirement.
     pub fn to_bytes_big_endian(&self) -> Result<Vec<u8>> {
-        self.as_dfa_ref().to_bytes::<BigEndian>()
+        self.repr().to_bytes::<BigEndian>()
     }
 
     /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary, in native
@@ -396,11 +274,11 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// implementations of `StateID` provided by this crate satisfy this
     /// requirement.
     pub fn to_bytes_native_endian(&self) -> Result<Vec<u8>> {
-        self.as_dfa_ref().to_bytes::<NativeEndian>()
+        self.repr().to_bytes::<NativeEndian>()
     }
 }
 
-impl<S: StateID> DenseDFA<Vec<S>, S> {
+impl<'a, S: StateID> DenseDFA<&'a [S], S> {
     /// Deserialize a DFA with a specific state identifier representation.
     ///
     /// Deserializing a DFA using this routine will allocate new heap memory
@@ -456,90 +334,512 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// such as differing pointer sizes.
     ///
     /// ```
-    /// use regex_automata::DenseDFA;
+    /// use regex_automata::{DFA, DenseDFA};
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
     /// let initial = DenseDFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_u16()?.to_bytes_native_endian()?;
-    /// let dfa: DenseDFA<Vec<u16>, u16> = unsafe {
+    /// let dfa: DenseDFA<&[u16], u16> = unsafe {
     ///     DenseDFA::from_bytes(&bytes)
     /// };
     ///
     /// assert_eq!(Some(8), dfa.find(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub unsafe fn from_bytes(buf: &[u8]) -> DenseDFA<Vec<S>, S> {
-        let dfa_ref = DenseDFARef::from_bytes(buf);
-        DenseDFA {
-            kind: dfa_ref.kind,
-            start: dfa_ref.start,
-            state_count: dfa_ref.state_count,
-            max_match: dfa_ref.max_match,
-            alphabet_len: dfa_ref.alphabet_len,
-            byte_classes: dfa_ref.byte_classes.clone(),
-            trans: dfa_ref.trans.to_vec(),
+    pub unsafe fn from_bytes(buf: &'a [u8]) -> DenseDFA<&'a [S], S> {
+        Repr::from_bytes(buf).into_dense_dfa()
+    }
+}
+
+impl<S: StateID> DenseDFA<Vec<S>, S> {
+    /// Minimize this DFA in place.
+    ///
+    /// This is not part of the public API. It is only exposed to allow for
+    /// more granular external benchmarking.
+    #[doc(hidden)]
+    pub fn minimize(&mut self) {
+        self.repr_mut().minimize();
+    }
+
+    /// Return a mutable reference to the internal DFA representation.
+    fn repr_mut(&mut self) -> &mut Repr<Vec<S>, S> {
+        match *self {
+            DenseDFA::Standard(ref mut r) => &mut r.0,
+            DenseDFA::ByteClass(ref mut r) => &mut r.0,
+            DenseDFA::Premultiplied(ref mut r) => &mut r.0,
+            DenseDFA::PremultipliedByteClass(ref mut r) => &mut r.0,
+            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }
 
-impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
-    /// Create a new DFA whose match semantics are equivalent to this DFA,
-    /// but attempt to use `u8` for the representation of state identifiers.
-    /// If `u8` is insufficient to represent all state identifiers in this
-    /// DFA, then this returns an error.
-    ///
-    /// This is a convenience routine for `to_sized::<u8>()`.
-    pub fn to_u8(&self) -> Result<DenseDFA<Vec<u8>, u8>> {
-        self.to_sized()
+impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
+    type ID = S;
+
+    fn start_state(&self) -> S {
+        self.repr().start_state()
     }
 
-    /// Create a new DFA whose match semantics are equivalent to this DFA,
-    /// but attempt to use `u16` for the representation of state identifiers.
-    /// If `u16` is insufficient to represent all state identifiers in this
-    /// DFA, then this returns an error.
-    ///
-    /// This is a convenience routine for `to_sized::<u16>()`.
-    pub fn to_u16(&self) -> Result<DenseDFA<Vec<u16>, u16>> {
-        self.to_sized()
+    fn is_match_state(&self, id: S) -> bool {
+        self.repr().is_match_state(id)
     }
 
-    /// Create a new DFA whose match semantics are equivalent to this DFA,
-    /// but attempt to use `u32` for the representation of state identifiers.
-    /// If `u32` is insufficient to represent all state identifiers in this
-    /// DFA, then this returns an error.
-    ///
-    /// This is a convenience routine for `to_sized::<u32>()`.
-    pub fn to_u32(&self) -> Result<DenseDFA<Vec<u32>, u32>> {
-        self.to_sized()
+    fn is_possible_match_state(&self, id: S) -> bool {
+        self.repr().is_possible_match_state(id)
     }
 
-    /// Create a new DFA whose match semantics are equivalent to this DFA,
-    /// but attempt to use `u64` for the representation of state identifiers.
-    /// If `u64` is insufficient to represent all state identifiers in this
-    /// DFA, then this returns an error.
+    fn is_dead_state(&self, id: S) -> bool {
+        self.repr().is_dead_state(id)
+    }
+
+    fn next_state(&self, current: S, input: u8) -> S {
+        match *self {
+            DenseDFA::Standard(ref r) => r.next_state(current, input),
+            DenseDFA::ByteClass(ref r) => r.next_state(current, input),
+            DenseDFA::Premultiplied(ref r) => r.next_state(current, input),
+            DenseDFA::PremultipliedByteClass(ref r) => {
+                r.next_state(current, input)
+            }
+            DenseDFA::__Nonexhaustive => unreachable!(),
+        }
+    }
+
+    unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
+        match *self {
+            DenseDFA::Standard(ref r) => {
+                r.next_state_unchecked(current, input)
+            }
+            DenseDFA::ByteClass(ref r) => {
+                r.next_state_unchecked(current, input)
+            }
+            DenseDFA::Premultiplied(ref r) => {
+                r.next_state_unchecked(current, input)
+            }
+            DenseDFA::PremultipliedByteClass(ref r) => {
+                r.next_state_unchecked(current, input)
+            }
+            DenseDFA::__Nonexhaustive => unreachable!(),
+        }
+    }
+
+    // We specialize the following methods because it lets us lift the
+    // case analysis between the different types of sparse DFAs. Instead of
+    // doing the case analysis for every transition, we do it once before
+    // searching. For sparse DFAs, this doesn't seem to benefit performance as
+    // much as it does for the dense DFAs, but it's easy to do so we might as
+    // well do it.
+
+    fn is_match(&self, bytes: &[u8]) -> bool {
+        match *self {
+            DenseDFA::Standard(ref r) => r.is_match(bytes),
+            DenseDFA::ByteClass(ref r) => r.is_match(bytes),
+            DenseDFA::Premultiplied(ref r) => r.is_match(bytes),
+            DenseDFA::PremultipliedByteClass(ref r) => r.is_match(bytes),
+            DenseDFA::__Nonexhaustive => unreachable!(),
+        }
+    }
+
+    fn shortest_match(&self, bytes: &[u8]) -> Option<usize> {
+        match *self {
+            DenseDFA::Standard(ref r) => r.shortest_match(bytes),
+            DenseDFA::ByteClass(ref r) => r.shortest_match(bytes),
+            DenseDFA::Premultiplied(ref r) => r.shortest_match(bytes),
+            DenseDFA::PremultipliedByteClass(ref r) => r.shortest_match(bytes),
+            DenseDFA::__Nonexhaustive => unreachable!(),
+        }
+    }
+
+    fn find(&self, bytes: &[u8]) -> Option<usize> {
+        match *self {
+            DenseDFA::Standard(ref r) => r.find(bytes),
+            DenseDFA::ByteClass(ref r) => r.find(bytes),
+            DenseDFA::Premultiplied(ref r) => r.find(bytes),
+            DenseDFA::PremultipliedByteClass(ref r) => r.find(bytes),
+            DenseDFA::__Nonexhaustive => unreachable!(),
+        }
+    }
+
+    fn rfind(&self, bytes: &[u8]) -> Option<usize> {
+        match *self {
+            DenseDFA::Standard(ref r) => r.rfind(bytes),
+            DenseDFA::ByteClass(ref r) => r.rfind(bytes),
+            DenseDFA::Premultiplied(ref r) => r.rfind(bytes),
+            DenseDFA::PremultipliedByteClass(ref r) => r.rfind(bytes),
+            DenseDFA::__Nonexhaustive => unreachable!(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Standard<T: AsRef<[S]>, S: StateID>(Repr<T, S>);
+
+impl<T: AsRef<[S]>, S: StateID> DFA for Standard<T, S> {
+    type ID = S;
+
+    fn start_state(&self) -> S {
+        self.0.start_state()
+    }
+
+    fn is_match_state(&self, id: S) -> bool {
+        self.0.is_match_state(id)
+    }
+
+    fn is_possible_match_state(&self, id: S) -> bool {
+        self.0.is_possible_match_state(id)
+    }
+
+    fn is_dead_state(&self, id: S) -> bool {
+        self.0.is_dead_state(id)
+    }
+
+    fn next_state(&self, current: S, input: u8) -> S {
+        let o = current.to_usize() * ALPHABET_LEN + input as usize;
+        self.0.trans()[o]
+    }
+
+    unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
+        let o = current.to_usize() * ALPHABET_LEN + input as usize;
+        *self.0.trans().get_unchecked(o)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ByteClass<T: AsRef<[S]>, S: StateID>(Repr<T, S>);
+
+impl<T: AsRef<[S]>, S: StateID> DFA for ByteClass<T, S> {
+    type ID = S;
+
+    fn start_state(&self) -> S {
+        self.0.start_state()
+    }
+
+    fn is_match_state(&self, id: S) -> bool {
+        self.0.is_match_state(id)
+    }
+
+    fn is_possible_match_state(&self, id: S) -> bool {
+        self.0.is_possible_match_state(id)
+    }
+
+    fn is_dead_state(&self, id: S) -> bool {
+        self.0.is_dead_state(id)
+    }
+
+    fn next_state(&self, current: S, input: u8) -> S {
+        let input = self.0.byte_classes.get(input);
+        let o = current.to_usize() * self.0.alphabet_len() + input as usize;
+        self.0.trans()[o]
+    }
+
+    unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
+        let input = self.0.byte_classes.get_unchecked(input);
+        let o = current.to_usize() * self.0.alphabet_len() + input as usize;
+        *self.0.trans().get_unchecked(o)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Premultiplied<T: AsRef<[S]>, S: StateID>(Repr<T, S>);
+
+impl<T: AsRef<[S]>, S: StateID> DFA for Premultiplied<T, S> {
+    type ID = S;
+
+    fn start_state(&self) -> S {
+        self.0.start_state()
+    }
+
+    fn is_match_state(&self, id: S) -> bool {
+        self.0.is_match_state(id)
+    }
+
+    fn is_possible_match_state(&self, id: S) -> bool {
+        self.0.is_possible_match_state(id)
+    }
+
+    fn is_dead_state(&self, id: S) -> bool {
+        self.0.is_dead_state(id)
+    }
+
+    fn next_state(&self, current: S, input: u8) -> S {
+        let o = current.to_usize() + input as usize;
+        self.0.trans()[o]
+    }
+
+    unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
+        let o = current.to_usize() + input as usize;
+        *self.0.trans().get_unchecked(o)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct PremultipliedByteClass<T: AsRef<[S]>, S: StateID>(Repr<T, S>);
+
+impl<T: AsRef<[S]>, S: StateID> DFA for PremultipliedByteClass<T, S> {
+    type ID = S;
+
+    fn start_state(&self) -> S {
+        self.0.start_state()
+    }
+
+    fn is_match_state(&self, id: S) -> bool {
+        self.0.is_match_state(id)
+    }
+
+    fn is_possible_match_state(&self, id: S) -> bool {
+        self.0.is_possible_match_state(id)
+    }
+
+    fn is_dead_state(&self, id: S) -> bool {
+        self.0.is_dead_state(id)
+    }
+
+    fn next_state(&self, current: S, input: u8) -> S {
+        let input = self.0.byte_classes.get(input);
+        let o = current.to_usize() + input as usize;
+        self.0.trans()[o]
+    }
+
+    unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
+        let input = self.0.byte_classes.get_unchecked(input);
+        let o = current.to_usize() + input as usize;
+        *self.0.trans().get_unchecked(o)
+    }
+}
+
+/// The internal representation of a dense DFA.
+///
+/// This representation is shared by all DFA variants.
+#[derive(Clone)]
+pub(crate) struct Repr<T, S> {
+    /// Whether the state identifiers in the transition table have been
+    /// premultiplied or not.
     ///
-    /// This is a convenience routine for `to_sized::<u64>()`.
-    pub fn to_u64(&self) -> Result<DenseDFA<Vec<u64>, u64>> {
-        self.to_sized()
+    /// Premultiplied identifiers means that instead of your matching loop
+    /// looking something like this:
+    ///
+    ///   state = dfa.start
+    ///   for byte in haystack:
+    ///       next = dfa.transitions[state * len(alphabet) + byte]
+    ///       if dfa.is_match(next):
+    ///           return true
+    ///   return false
+    ///
+    /// it can instead look like this:
+    ///
+    ///   state = dfa.start
+    ///   for byte in haystack:
+    ///       next = dfa.transitions[state + byte]
+    ///       if dfa.is_match(next):
+    ///           return true
+    ///   return false
+    ///
+    /// In other words, we save a multiplication instruction in the critical
+    /// path. This turns out to be a decent performance win. The cost of using
+    /// premultiplied state ids is that they can require a bigger state id
+    /// representation.
+    premultiplied: bool,
+    /// The initial start state ID.
+    start: S,
+    /// The total number of states in this DFA. Note that a DFA always has at
+    /// least one state---the dead state---even the empty DFA. In particular,
+    /// the dead state always has ID 0 and is correspondingly always the first
+    /// state. The dead state is never a match state.
+    state_count: usize,
+    /// States in a DFA have a *partial* ordering such that a match state
+    /// always precedes any non-match state (except for the special dead
+    /// state).
+    ///
+    /// `max_match` corresponds to the last state that is a match state. This
+    /// encoding has two critical benefits. Firstly, we are not required to
+    /// store any additional per-state information about whether it is a match
+    /// state or not. Secondly, when searching with the DFA, we can do a single
+    /// comparison with `max_match` for each byte instead of two comparisons
+    /// for each byte (one testing whether it is a match and the other testing
+    /// whether we've reached a dead state). Namely, to determine the status
+    /// of the next state, we can do this:
+    ///
+    ///   next_state = transition[cur_state * alphabet_len + cur_byte]
+    ///   if next_state <= max_match:
+    ///       // next_state is either dead (no-match) or a match
+    ///       return next_state != dead
+    max_match: S,
+    /// A set of equivalence classes, where a single equivalence class
+    /// represents a set of bytes that never discriminate between a match
+    /// and a non-match in the DFA. Each equivalence class corresponds to
+    /// a single letter in this DFA's alphabet, where the maximum number of
+    /// letters is 256 (each possible value of a byte). Consequently, the
+    /// number of equivalence classes corresponds to the number of transitions
+    /// for each DFA state.
+    ///
+    /// The only time the number of equivalence classes is fewer than 256 is
+    /// if the DFA's kind uses byte classes. If the DFA doesn't use byte
+    /// classes, then this vector is empty.
+    byte_classes: ByteClasses,
+    /// A contiguous region of memory representing the transition table in
+    /// row-major order. The representation is dense. That is, every state has
+    /// precisely the same number of transitions. The maximum number of
+    /// transitions is 256. If a DFA has been instructed to use byte classes,
+    /// then the number of transitions can be much less.
+    ///
+    /// In practice, T is either Vec<S> or &[S].
+    trans: T,
+}
+
+impl<S: StateID> Repr<Vec<S>, S> {
+    /// Create a new empty DFA with singleton byte classes (every byte is its
+    /// own equivalence class).
+    pub fn empty() -> Repr<Vec<S>, S> {
+        Repr::empty_with_byte_classes(ByteClasses::singletons())
+    }
+
+    /// Create a new empty DFA with the given set of byte equivalence classes.
+    /// An empty DFA never matches any input.
+    pub fn empty_with_byte_classes(
+        byte_classes: ByteClasses,
+    ) -> Repr<Vec<S>, S> {
+        let mut dfa = Repr {
+            premultiplied: false,
+            start: dead_id(),
+            state_count: 0,
+            max_match: S::from_usize(1),
+            byte_classes: byte_classes,
+            trans: vec![],
+        };
+        // Every state ID repr must be able to fit at least one state.
+        dfa.add_empty_state().unwrap();
+        dfa
+    }
+}
+
+impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
+    /// Convert this internal DFA representation to a DenseDFA based on its
+    /// transition table access pattern.
+    pub fn into_dense_dfa(self) -> DenseDFA<T, S> {
+        match (self.premultiplied, self.byte_classes.is_singleton()) {
+            // no premultiplication, no byte classes
+            (false, true) => DenseDFA::Standard(Standard(self)),
+            // no premultiplication, yes byte classes
+            (false, false) => DenseDFA::ByteClass(ByteClass(self)),
+            // yes premultiplication, no byte classes
+            (true, true) => DenseDFA::Premultiplied(Premultiplied(self)),
+            // yes premultiplication, yes byte classes
+            (true, false) => {
+                DenseDFA::PremultipliedByteClass(PremultipliedByteClass(self))
+            }
+        }
+    }
+
+    /// Return the starting state of this DFA.
+    ///
+    /// All searches using this DFA must begin at this state. There is exactly
+    /// one starting state for every DFA. A starting state may be a dead state
+    /// or a matching state or neither.
+    pub fn start_state(&self) -> S {
+        self.start
+    }
+
+    /// Returns true if and only if the given identifier corresponds to a dead
+    /// state.
+    pub fn is_dead_state(&self, id: S) -> bool {
+        id == dead_id()
+    }
+
+    /// Returns true if and only if the given identifier corresponds to a match
+    /// state.
+    pub fn is_match_state(&self, id: S) -> bool {
+        id <= self.max_match && id != dead_id()
+    }
+
+    /// Returns true if and only if the given identifier could correspond to
+    /// either a match state or a dead state. If this returns false, then the
+    /// given identifier does not correspond to either a match state or a dead
+    /// state.
+    pub fn is_possible_match_state(&self, id: S) -> bool {
+        id <= self.max_match
+    }
+
+    /// Returns the maximum identifier for which a match state can exist.
+    ///
+    /// More specifically, the return identifier always corresponds to either
+    /// a match state or a dead state. Namely, either
+    /// `is_match_state(returned)` or `is_dead_state(returned)` is guaranteed
+    /// to be true.
+    pub fn max_match_state(&self) -> S {
+        self.max_match
+    }
+
+    /// Return the byte classes used by this DFA.
+    pub fn byte_classes(&self) -> &ByteClasses {
+        &self.byte_classes
+    }
+
+    /// Returns an iterator over all states in this DFA.
+    ///
+    /// This iterator yields a tuple for each state. The first element of the
+    /// tuple corresponds to a state's identifier, and the second element
+    /// corresponds to the state itself (comprised of its transitions).
+    ///
+    /// If this DFA is premultiplied, then the state identifiers are in
+    /// turn premultiplied as well, making them usable without additional
+    /// modification.
+    pub fn states(&self) -> StateIter<T, S> {
+        let it = self.trans().chunks(self.alphabet_len());
+        StateIter { dfa: self, it: it.enumerate() }
+    }
+
+    /// Return the total number of states in this DFA. Every DFA has at least
+    /// 1 state, even the empty DFA.
+    pub fn state_count(&self) -> usize {
+        self.state_count
+    }
+
+    /// Return the number of elements in this DFA's alphabet.
+    ///
+    /// If this DFA doesn't use byte classes, then this is always equivalent
+    /// to 256. Otherwise, it is guaranteed to be some value less than or equal
+    /// to 256.
+    pub fn alphabet_len(&self) -> usize {
+        self.byte_classes.alphabet_len()
+    }
+
+    /// Returns the memory usage, in bytes, of this DFA.
+    pub fn memory_usage(&self) -> usize {
+        self.trans().len() * mem::size_of::<S>()
+    }
+
+    /// Convert the given state identifier to the state's index. The state's
+    /// index corresponds to the position in which it appears in the transition
+    /// table. When a DFA is NOT premultiplied, then a state's identifier is
+    /// also its index. When a DFA is premultiplied, then a state's identifier
+    /// is equal to `index * alphabet_len`. This routine reverses that.
+    pub fn state_id_to_index(&self, id: S) -> usize {
+        if self.premultiplied {
+            id.to_usize() / self.alphabet_len()
+        } else {
+            id.to_usize()
+        }
+    }
+
+    /// Return this DFA's transition table as a slice.
+    fn trans(&self) -> &[S] {
+        self.trans.as_ref()
+    }
+
+    /// Create a sparse DFA from the internal representation of a dense DFA.
+    pub fn to_sparse_sized<A: StateID>(
+        &self,
+    ) -> Result<SparseDFA<Vec<u8>, A>> {
+        SparseDFA::from_dense_sized(self)
     }
 
     /// Create a new DFA whose match semantics are equivalent to this DFA, but
-    /// attempt to use `T` for the representation of state identifiers. If `T`
+    /// attempt to use `A` for the representation of state identifiers. If `A`
     /// is insufficient to represent all state identifiers in this DFA, then
     /// this returns an error.
-    ///
-    /// An alternative way to construct such a DFA is to use
-    /// [`DenseDFABuilder::build_with_size`](struct.DenseDFABuilder.html#method.build_with_size).
-    /// In general, using the builder is preferred since it will use the given
-    /// state identifier representation throughout determinization (and
-    /// minimization, if done), and thereby using less memory throughout the
-    /// entire construction process. However, these routines are necessary
-    /// in cases where, say, a minimized DFA could fit in a smaller state
-    /// identifier representation, but the initial determinized DFA would not.
-    pub fn to_sized<A: StateID>(&self) -> Result<DenseDFA<Vec<A>, A>> {
-        // Check that this DFA can fit into T's representation.
+    pub fn to_sized<A: StateID>(&self) -> Result<Repr<Vec<A>, A>> {
+        // Check that this DFA can fit into A's representation.
         let mut last_state_id = self.state_count - 1;
-        if self.kind.is_premultiplied() {
+        if self.premultiplied {
             last_state_id *= self.alphabet_len();
         }
         if last_state_id > A::max_id() {
@@ -548,12 +848,11 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
 
         // We're off to the races. The new DFA is the same as the old one,
         // but its transition table is truncated.
-        let mut new = DenseDFA {
-            kind: self.kind,
+        let mut new = Repr {
+            premultiplied: self.premultiplied,
             start: A::from_usize(self.start.to_usize()),
             state_count: self.state_count,
             max_match: A::from_usize(self.max_match.to_usize()),
-            alphabet_len: self.alphabet_len,
             byte_classes: self.byte_classes.clone(),
             trans: vec![dead_id::<A>(); self.trans().len()],
         };
@@ -562,85 +861,294 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
         }
         Ok(new)
     }
+
+    /// Serialize a DFA to raw bytes, aligned to an 8 byte boundary.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub(crate) fn to_bytes<A: ByteOrder>(&self) -> Result<Vec<u8>> {
+        let label = b"rust-regex-automata-dfa\x00";
+        assert_eq!(24, label.len());
+
+        let trans_size = mem::size_of::<S>() * self.trans().len();
+        let size =
+            // For human readable label.
+            label.len()
+            // endiannes check, must be equal to 0xFEFF for native endian
+            + 2
+            // For version number.
+            + 2
+            // Size of state ID representation, in bytes.
+            // Must be 1, 2, 4 or 8.
+            + 2
+            // For DFA misc options.
+            + 2
+            // For start state.
+            + 8
+            // For state count.
+            + 8
+            // For max match state.
+            + 8
+            // For byte class map.
+            + 256
+            // For transition table.
+            + trans_size;
+        // sanity check, this can be updated if need be
+        assert_eq!(312 + trans_size, size);
+        // This must always pass. It checks that the transition table is at
+        // a properly aligned address.
+        assert_eq!(0, (size - trans_size) % 8);
+
+        let mut buf = vec![0; size];
+        let mut i = 0;
+
+        // write label
+        for &b in label {
+            buf[i] = b;
+            i += 1;
+        }
+        // endianness check
+        A::write_u16(&mut buf[i..], 0xFEFF);
+        i += 2;
+        // version number
+        A::write_u16(&mut buf[i..], 1);
+        i += 2;
+        // size of state ID
+        let state_size = mem::size_of::<S>();
+        if ![1, 2, 4, 8].contains(&state_size) {
+            return Err(Error::serialize(&format!(
+                "state size of {} not supported, must be 1, 2, 4 or 8",
+                state_size
+            )));
+        }
+        A::write_u16(&mut buf[i..], state_size as u16);
+        i += 2;
+        // DFA misc options
+        let mut options = 0u16;
+        if self.premultiplied {
+            options |= 0b0000_0000_0000_0001;
+        }
+        A::write_u16(&mut buf[i..], options);
+        i += 2;
+        // start state
+        A::write_u64(&mut buf[i..], self.start.to_usize() as u64);
+        i += 8;
+        // state count
+        A::write_u64(&mut buf[i..], self.state_count as u64);
+        i += 8;
+        // max match state
+        A::write_u64(
+            &mut buf[i..],
+            self.max_match.to_usize() as u64,
+        );
+        i += 8;
+        // byte class map
+        for b in (0..256).map(|b| b as u8) {
+            buf[i] = self.byte_classes.get(b);
+            i += 1;
+        }
+        // transition table
+        for &id in self.trans() {
+            if state_size == 1 {
+                buf[i] = id.to_usize() as u8;
+            } else if state_size == 2 {
+                A::write_u16(&mut buf[i..], id.to_usize() as u16);
+            } else if state_size == 4 {
+                A::write_u32(&mut buf[i..], id.to_usize() as u32);
+            } else {
+                assert_eq!(8, state_size);
+                A::write_u64(&mut buf[i..], id.to_usize() as u64);
+            }
+            i += state_size;
+        }
+        assert_eq!(size, i, "expected to consume entire buffer");
+
+        Ok(buf)
+    }
 }
 
-impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
-    pub(crate) fn state_id_to_offset(&self, id: S) -> usize {
-        if self.kind.is_premultiplied() {
-            id.to_usize()
-        } else {
-            id.to_usize() * self.alphabet_len()
+impl<'a, S: StateID> Repr<&'a [S], S> {
+    /// The implementation for deserializing a DFA from raw bytes.
+    pub unsafe fn from_bytes(mut buf: &'a [u8]) -> Repr<&'a [S], S> {
+        // skip over label
+        match buf.iter().position(|&b| b == b'\x00') {
+            None => panic!("could not find label"),
+            Some(i) => buf = &buf[i+1..],
         }
-    }
 
-    pub(crate) fn state_id_to_index(&self, id: S) -> usize {
-        if self.kind.is_premultiplied() {
-            id.to_usize() / self.alphabet_len()
-        } else {
-            id.to_usize()
+        // check that current endianness is same as endianness of DFA
+        let endian_check = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
+        if endian_check != 0xFEFF {
+            panic!(
+                "endianness mismatch, expected 0xFEFF but got 0x{:X}. \
+                 are you trying to load a DenseDFA serialized with a \
+                 different endianness?",
+                endian_check,
+            );
         }
-    }
 
-    pub(crate) fn byte_to_class(&self, b: u8) -> u8 {
-        self.byte_classes.get(b)
-    }
+        // check that the version number is supported
+        let version = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
+        if version != 1 {
+            panic!(
+                "expected version 1, but found unsupported version {}",
+                version,
+            );
+        }
 
-    pub(crate) fn len(&self) -> usize {
-        self.state_count
-    }
+        // read size of state
+        let state_size = NativeEndian::read_u16(buf) as usize;
+        if state_size != mem::size_of::<S>() {
+            panic!(
+                "state size of DenseDFA ({}) does not match \
+                 requested state size ({})",
+                state_size, mem::size_of::<S>(),
+            );
+        }
+        buf = &buf[2..];
 
-    pub(crate) fn alphabet_len(&self) -> usize {
-        self.alphabet_len
-    }
+        // read miscellaneous options
+        let kind = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
 
-    pub(crate) fn start(&self) -> S {
-        self.start
-    }
+        // read start state
+        let start = S::from_usize(NativeEndian::read_u64(buf) as usize);
+        buf = &buf[8..];
 
-    pub(crate) fn kind(&self) -> &DenseDFAKind {
-        &self.kind
-    }
+        // read state count
+        let state_count = NativeEndian::read_u64(buf) as usize;
+        buf = &buf[8..];
 
-    pub(crate) fn byte_classes(&self) -> &ByteClasses {
-        &self.byte_classes
-    }
+        // read max match state
+        let max_match = S::from_usize(NativeEndian::read_u64(buf) as usize);
+        buf = &buf[8..];
 
-    pub(crate) fn is_match_state(&self, id: S) -> bool {
-        id <= self.max_match && id != dead_id()
-    }
+        // read byte classes
+        let byte_classes = ByteClasses::from_slice(&buf[..256]);
+        buf = &buf[256..];
 
-    pub(crate) fn max_match_state(&self) -> S {
-        self.max_match
-    }
+        assert_eq!(
+            0,
+            buf.as_ptr() as usize % mem::align_of::<S>(),
+            "DenseDFA transition table is not properly aligned"
+        );
+        let len = state_count * byte_classes.alphabet_len();
+        assert!(
+            buf.len() >= len,
+            "insufficient transition table bytes, \
+             expected at least {} but only have {}",
+            len, buf.len()
+        );
 
-    fn trans(&self) -> &[S] {
-        self.trans.as_ref()
-    }
-
-    pub(crate) fn iter(&self) -> StateIter<T, S> {
-        let it = self.trans().chunks(self.alphabet_len());
-        StateIter { dfa: self, it: it.enumerate() }
+        // SAFETY: This is the only actual unsafe thing in this entire routine.
+        // The key things we need to worry about here are alignment and size.
+        // The two asserts above should cover both conditions.
+        let trans = slice::from_raw_parts(buf.as_ptr() as *const S, len);
+        Repr {
+            premultiplied: kind & 0b0000_0000_0000_0001 > 0,
+            start,
+            state_count,
+            max_match,
+            byte_classes,
+            trans,
+        }
     }
 }
 
-impl<S: StateID> DenseDFA<Vec<S>, S> {
-    pub(crate) fn set_start_state(&mut self, start: S) {
-        assert!(start.to_usize() < self.len());
+/// The following methods implement mutable routines on the internal
+/// representation of a DFA. As such, we must fix the first type parameter to
+/// a `Vec<S>` since a generic `T: AsRef<[S]>` does not permit mutation. We
+/// can get away with this because these methods are internal to the crate and
+/// are exclusively used during construction of the DFA.
+impl<S: StateID> Repr<Vec<S>, S> {
+    pub fn premultiply(&mut self) -> Result<()> {
+        if self.premultiplied || self.state_count <= 1 {
+            return Ok(());
+        }
+
+        let alpha_len = self.alphabet_len();
+        premultiply_overflow_error(
+            S::from_usize(self.state_count - 1),
+            alpha_len,
+        )?;
+
+        for id in (0..self.state_count).map(S::from_usize) {
+            for (_, next) in self.get_state_mut(id).iter_mut() {
+                *next = S::from_usize(next.to_usize() * alpha_len);
+            }
+        }
+        self.premultiplied = true;
+        self.start = S::from_usize(self.start.to_usize() * alpha_len);
+        self.max_match = S::from_usize(self.max_match.to_usize() * alpha_len);
+        Ok(())
+    }
+
+    /// Minimize this DFA using Hopcroft's algorithm.
+    ///
+    /// This cannot be called on a premultiplied DFA.
+    pub fn minimize(&mut self) {
+        assert!(!self.premultiplied, "can't minimize premultiplied DFA");
+
+        Minimizer::new(self).run();
+    }
+
+    /// Set the start state of this DFA.
+    ///
+    /// Note that a start state cannot be set on a premultiplied DFA. Instead,
+    /// DFAs should first be completely constructed and then premultiplied.
+    pub fn set_start_state(&mut self, start: S) {
+        assert!(!self.premultiplied, "can't set start on premultiplied DFA");
+        assert!(start.to_usize() < self.state_count, "invalid start state");
+
         self.start = start;
     }
 
-    pub(crate) fn set_transition(
-        &mut self,
-        from: S,
-        input: u8,
-        to: S,
-    ) {
-        let input = self.byte_to_class(input);
-        let i = self.state_id_to_offset(from) + input as usize;
-        self.trans[i] = to;
+    /// Set the maximum state identifier that could possible correspond to a
+    /// match state.
+    ///
+    /// Callers must uphold the invariant that any state identifier less than
+    /// or equal to the identifier given is either a match state or the special
+    /// dead state (which always has identifier 0 and whose transitions all
+    /// lead back to itself).
+    ///
+    /// This cannot be called on a premultiplied DFA.
+    pub fn set_max_match_state(&mut self, id: S) {
+        assert!(!self.premultiplied, "can't set match on premultiplied DFA");
+        assert!(id.to_usize() < self.state_count, "invalid max match state");
+
+        self.max_match = id;
     }
 
-    pub(crate) fn add_empty_state(&mut self) -> Result<S> {
+    /// Add the given transition to this DFA. Both the `from` and `to` states
+    /// must already exist.
+    ///
+    /// This cannot be called on a premultiplied DFA.
+    pub fn add_transition(&mut self, from: S, byte: u8, to: S) {
+        assert!(!self.premultiplied, "can't add trans to premultiplied DFA");
+        assert!(from.to_usize() < self.state_count, "invalid from state");
+        assert!(to.to_usize() < self.state_count, "invalid to state");
+
+        let class = self.byte_classes.get(byte);
+        let offset = from.to_usize() * self.alphabet_len() + class as usize;
+        self.trans[offset] = to;
+    }
+
+    /// An an empty state (a state where all transitions lead to a dead state)
+    /// and return its identifier. The identifier returned is guaranteed to
+    /// not point to any other existing state.
+    ///
+    /// If adding a state would exhaust the state identifier space (given by
+    /// `S`), then this returns an error. In practice, this means that the
+    /// state identifier representation chosen is too small.
+    ///
+    /// This cannot be called on a premultiplied DFA.
+    pub fn add_empty_state(&mut self) -> Result<S> {
+        assert!(!self.premultiplied, "can't add state to premultiplied DFA");
+
         let id =
             if self.state_count == 0 {
                 S::from_usize(0)
@@ -655,27 +1163,48 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
         Ok(id)
     }
 
-    pub(crate) fn get_state_mut(&mut self, id: S) -> StateMut<S> {
-        let i = self.state_id_to_offset(id);
+    /// Return a mutable representation of the state corresponding to the given
+    /// id. This is useful for implementing routines that manipulate DFA states
+    /// (e.g., swapping states).
+    ///
+    /// This cannot be called on a premultiplied DFA.
+    pub fn get_state_mut(&mut self, id: S) -> StateMut<S> {
+        assert!(!self.premultiplied, "can't get state in premultiplied DFA");
+
         let alphabet_len = self.alphabet_len();
+        let offset = id.to_usize() * alphabet_len;
         StateMut {
-            transitions: &mut self.trans[i..i+alphabet_len],
+            transitions: &mut self.trans[offset..offset + alphabet_len],
         }
     }
 
-    pub(crate) fn set_max_match_state(&mut self, id: S) {
-        self.max_match = id;
-    }
+    /// Swap the two states given in the transition table.
+    ///
+    /// This routine does not do anything to check the correctness of this
+    /// swap. Callers must ensure that other states pointing to id1 and id2 are
+    /// updated appropriately.
+    ///
+    /// This cannot be called on a premultiplied DFA.
+    pub fn swap_states(&mut self, id1: S, id2: S) {
+        assert!(!self.premultiplied, "can't swap states in premultiplied DFA");
 
-    pub(crate) fn swap_states(&mut self, id1: S, id2: S) {
-        let o1 = self.state_id_to_offset(id1);
-        let o2 = self.state_id_to_offset(id2);
+        let o1 = id1.to_usize() * self.alphabet_len();
+        let o2 = id2.to_usize() * self.alphabet_len();
         for b in 0..self.alphabet_len() {
             self.trans.swap(o1 + b, o2 + b);
         }
     }
 
-    pub(crate) fn truncate_states(&mut self, count: usize) {
+    /// Truncate the states in this DFA to the given count.
+    ///
+    /// This routine does not do anything to check the correctness of this
+    /// truncation. Callers must ensure that other states pointing to truncated
+    /// states are updated appropriately.
+    ///
+    /// This cannot be called on a premultiplied DFA.
+    pub fn truncate_states(&mut self, count: usize) {
+        assert!(!self.premultiplied, "can't truncate in premultiplied DFA");
+
         let alphabet_len = self.alphabet_len();
         self.trans.truncate(count * alphabet_len);
         self.state_count = count;
@@ -692,24 +1221,26 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// It also enables a single conditional in the core matching loop instead
     /// of two.
     ///
-    /// This updates `self.max_match` to point to the last matching state.
-    pub(crate) fn shuffle_match_states(&mut self, is_match: &[bool]) {
+    /// This updates `self.max_match` to point to the last matching state as
+    /// well as `self.start` if the starting state was moved.
+    pub fn shuffle_match_states(&mut self, is_match: &[bool]) {
         assert!(
-            !self.kind.is_premultiplied(),
-            "cannot finish construction of premultiplied DenseDFA"
+            !self.premultiplied,
+            "cannot shuffle match states of premultiplied DFA"
         );
+        assert_eq!(self.state_count, is_match.len());
 
-        if self.len() <= 2 {
+        if self.state_count <= 2 {
             return;
         }
 
         let mut first_non_match = 1;
-        while first_non_match < self.len() && is_match[first_non_match] {
+        while first_non_match < self.state_count && is_match[first_non_match] {
             first_non_match += 1;
         }
 
-        let mut swaps: Vec<S> = vec![dead_id(); self.len()];
-        let mut cur = self.len() - 1;
+        let mut swaps: Vec<S> = vec![dead_id(); self.state_count];
+        let mut cur = self.state_count - 1;
         while cur > first_non_match {
             if is_match[cur] {
                 self.swap_states(
@@ -726,7 +1257,7 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
             }
             cur -= 1;
         }
-        for id in (0..self.len()).map(S::from_usize) {
+        for id in (0..self.state_count).map(S::from_usize) {
             for (_, next) in self.get_state_mut(id).iter_mut() {
                 if swaps[next.to_usize()] != dead_id() {
                     *next = swaps[next.to_usize()];
@@ -738,35 +1269,48 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
         }
         self.max_match = S::from_usize(first_non_match - 1);
     }
+}
 
-    #[doc(hidden)]
-    pub fn minimize(&mut self) {
-        assert!(!self.kind.is_premultiplied());
-        Minimizer::new(self).run();
-    }
-
-    pub(crate) fn premultiply(&mut self) -> Result<()> {
-        if self.kind.is_premultiplied() || self.len() == 0 {
-            return Ok(());
-        }
-
-        let alpha_len = self.alphabet_len();
-        premultiply_overflow_error(S::from_usize(self.len() - 1), alpha_len)?;
-
-        for id in (0..self.len()).map(S::from_usize) {
-            for (_, next) in self.get_state_mut(id).iter_mut() {
-                *next = S::from_usize(next.to_usize() * alpha_len);
+impl<T: AsRef<[S]>, S: StateID> fmt::Debug for Repr<T, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn state_status<T: AsRef<[S]>, S: StateID>(
+            dfa: &Repr<T, S>,
+            id: S,
+        ) -> String {
+            let mut status = vec![b' ', b' '];
+            if id == dead_id() {
+                status[0] = b'D';
+            } else if id == dfa.start {
+                status[0] = b'>';
             }
+            if dfa.is_match_state(id) {
+                status[1] = b'*';
+            }
+            String::from_utf8(status).unwrap()
         }
-        self.kind = self.kind.premultiplied();
-        self.start = S::from_usize(self.start.to_usize() * alpha_len);
-        self.max_match = S::from_usize(self.max_match.to_usize() * alpha_len);
+
+        for (id, state) in self.states() {
+            let status = state_status(self, id);
+            writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
+        }
         Ok(())
     }
 }
 
-pub struct StateIter<'a, T, S> {
-    dfa: &'a DenseDFA<T, S>,
+/// An iterator over all states in a DFA.
+///
+/// This iterator yields a tuple for each state. The first element of the
+/// tuple corresponds to a state's identifier, and the second element
+/// corresponds to the state itself (comprised of its transitions).
+///
+/// If this DFA is premultiplied, then the state identifiers are in turn
+/// premultiplied as well, making them usable without additional modification.
+///
+/// `'a` corresponding to the lifetime of original DFA, `T` corresponds to
+/// the type of the transition table itself and `S` corresponds to the state
+/// identifier representation.
+pub(crate) struct StateIter<'a, T, S> {
+    dfa: &'a Repr<T, S>,
     it: iter::Enumerate<slice::Chunks<'a, S>>,
 }
 
@@ -777,7 +1321,7 @@ impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
         self.it.next().map(|(id, chunk)| {
             let state = State { transitions: chunk };
             let id =
-                if self.dfa.kind().is_premultiplied() {
+                if self.dfa.premultiplied {
                     id * self.dfa.alphabet_len()
                 } else {
                     id
@@ -787,16 +1331,40 @@ impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
     }
 }
 
-pub struct State<'a, S> {
+/// An immutable representation of a single DFA state.
+///
+/// `'a` correspondings to the lifetime of a DFA's transition table and `S`
+/// corresponds to the state identifier representation.
+pub(crate) struct State<'a, S> {
     transitions: &'a [S],
 }
 
 impl<'a, S: StateID> State<'a, S> {
-    pub(crate) fn iter(&self) -> StateTransitionIter<S> {
+    /// Return an iterator over all transitions in this state. This yields
+    /// a number of transitions equivalent to the alphabet length of the
+    /// corresponding DFA.
+    ///
+    /// Each transition is represented by a tuple. The first element is
+    /// the input byte for that transition and the second element is the
+    /// transitions itself.
+    pub fn transitions(&self) -> StateTransitionIter<S> {
         StateTransitionIter { it: self.transitions.iter().enumerate() }
     }
 
-    pub(crate) fn sparse_transitions(&self) -> Vec<(u8, u8, S)> {
+    /// Return an iterator over a sparse representation of the transitions in
+    /// this state. Only non-dead transitions are returned.
+    ///
+    /// The "sparse" representation in this case corresponds to a sequence of
+    /// triples. The first two elements of the triple comprise an inclusive
+    /// byte range while the last element corresponds to the transition taken
+    /// for all bytes in the range.
+    ///
+    /// This is somewhat more condensed than the classical sparse
+    /// representation (where you have an element for every non-dead
+    /// transition), but in practice, checking if a byte is in a range is very
+    /// cheap and using ranges tends to conserve quite a bit more space.
+    pub fn sparse_transitions(&self) -> Vec<(u8, u8, S)> {
+        // TODO: Turn this into an iterator and skip over dead states.
         let mut ranges = vec![];
         let mut cur = None;
         for (i, &next_id) in self.transitions.iter().enumerate() {
@@ -820,8 +1388,14 @@ impl<'a, S: StateID> State<'a, S> {
     }
 }
 
+/// An iterator over all transitions in a single DFA state. This yields
+/// a number of transitions equivalent to the alphabet length of the
+/// corresponding DFA.
+///
+/// Each transition is represented by a tuple. The first element is the input
+/// byte for that transition and the second element is the transitions itself.
 #[derive(Debug)]
-pub struct StateTransitionIter<'a, S> {
+pub(crate) struct StateTransitionIter<'a, S> {
     it: iter::Enumerate<slice::Iter<'a, S>>,
 }
 
@@ -830,101 +1404,6 @@ impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
 
     fn next(&mut self) -> Option<(u8, S)> {
         self.it.next().map(|(i, &id)| (i as u8, id))
-    }
-}
-
-pub struct StateMut<'a, S> {
-    transitions: &'a mut [S],
-}
-
-impl<'a, S: StateID> StateMut<'a, S> {
-    pub fn iter_mut(&mut self) -> StateTransitionIterMut<S> {
-        StateTransitionIterMut { it: self.transitions.iter_mut().enumerate() }
-    }
-}
-
-#[derive(Debug)]
-pub struct StateTransitionIterMut<'a, S> {
-    it: iter::Enumerate<slice::IterMut<'a, S>>,
-}
-
-impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
-    type Item = (u8, &'a mut S);
-
-    fn next(&mut self) -> Option<(u8, &'a mut S)> {
-        self.it.next().map(|(i, id)| (i as u8, id))
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum DenseDFAKind {
-    Basic,
-    Premultiplied,
-    ByteClass,
-    PremultipliedByteClass,
-}
-
-impl DenseDFAKind {
-    pub fn is_premultiplied(&self) -> bool {
-        match *self {
-            DenseDFAKind::Basic | DenseDFAKind::ByteClass => false,
-            DenseDFAKind::Premultiplied | DenseDFAKind::PremultipliedByteClass => true,
-        }
-    }
-
-    fn premultiplied(self) -> DenseDFAKind {
-        match self {
-            DenseDFAKind::Basic => DenseDFAKind::Premultiplied,
-            DenseDFAKind::ByteClass => DenseDFAKind::PremultipliedByteClass,
-            DenseDFAKind::Premultiplied | DenseDFAKind::PremultipliedByteClass => {
-                panic!("DenseDFA already has pre-multiplied state IDs")
-            }
-        }
-    }
-
-    pub(crate) fn to_byte(&self) -> u8 {
-        match *self {
-            DenseDFAKind::Basic => 0,
-            DenseDFAKind::Premultiplied => 1,
-            DenseDFAKind::ByteClass => 2,
-            DenseDFAKind::PremultipliedByteClass => 3,
-        }
-    }
-
-    pub(crate) fn from_byte(b: u8) -> DenseDFAKind {
-        match b {
-            0 => DenseDFAKind::Basic,
-            1 => DenseDFAKind::Premultiplied,
-            2 => DenseDFAKind::ByteClass,
-            3 => DenseDFAKind::PremultipliedByteClass,
-            _ => panic!("invalid DenseDFA kind: 0x{:X}", b),
-        }
-    }
-}
-
-impl<T: AsRef<[S]>, S: StateID> fmt::Debug for DenseDFA<T, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fn state_status<T: AsRef<[S]>, S: StateID>(
-            dfa: &DenseDFA<T, S>,
-            id: S,
-        ) -> String {
-            let mut status = vec![b' ', b' '];
-            if id == dead_id() {
-                status[0] = b'D';
-            } else if id == dfa.start {
-                status[0] = b'>';
-            }
-            if dfa.is_match_state(id) {
-                status[1] = b'*';
-            }
-            String::from_utf8(status).unwrap()
-        }
-
-        for (id, state) in self.iter() {
-            let status = state_status(self, id);
-            writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
-        }
-        Ok(())
     }
 }
 
@@ -948,6 +1427,45 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
         }
         write!(f, "{}", transitions.join(", "))?;
         Ok(())
+    }
+}
+
+/// A mutable representation of a single DFA state.
+///
+/// `'a` correspondings to the lifetime of a DFA's transition table and `S`
+/// corresponds to the state identifier representation.
+pub(crate) struct StateMut<'a, S> {
+    transitions: &'a mut [S],
+}
+
+impl<'a, S: StateID> StateMut<'a, S> {
+    /// Return an iterator over all transitions in this state. This yields
+    /// a number of transitions equivalent to the alphabet length of the
+    /// corresponding DFA.
+    ///
+    /// Each transition is represented by a tuple. The first element is the
+    /// input byte for that transition and the second element is a mutable
+    /// reference to the transition itself.
+    pub fn iter_mut(&mut self) -> StateTransitionIterMut<S> {
+        StateTransitionIterMut { it: self.transitions.iter_mut().enumerate() }
+    }
+}
+
+/// A mutable iterator over all transitions in a DFA state.
+///
+/// Each transition is represented by a tuple. The first element is the
+/// input byte for that transition and the second element is a mutable
+/// reference to the transition itself.
+#[derive(Debug)]
+pub(crate) struct StateTransitionIterMut<'a, S> {
+    it: iter::Enumerate<slice::IterMut<'a, S>>,
+}
+
+impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
+    type Item = (u8, &'a mut S);
+
+    fn next(&mut self) -> Option<(u8, &'a mut S)> {
+        self.it.next().map(|(i, id)| (i as u8, id))
     }
 }
 
@@ -1031,7 +1549,9 @@ mod tests {
         // println!("minimal dfa # states: {:?}", mdfa.len());
     // }
 
-    fn build_automata(pattern: &str) -> (NFA, DenseDFA, DenseDFA) {
+    fn build_automata(
+        pattern: &str,
+    ) -> (NFA, DenseDFA<Vec<usize>, usize>, DenseDFA<Vec<usize>, usize>) {
         let mut builder = DenseDFABuilder::new();
         builder.byte_classes(false).premultiply(false);
         builder.anchored(true);
@@ -1071,7 +1591,7 @@ mod tests {
         // let pattern = r"\w";
         print_automata(pattern);
         let (_, _, dfa) = build_automata(pattern);
-        let sparse = dfa.to_sparse_dfa_sized::<u16>().unwrap();
+        let sparse = dfa.to_sparse_sized::<u16>().unwrap();
         println!("{:?}", sparse);
 
         // BREADCRUMBS: Look into sparse representation. Opporunities for
