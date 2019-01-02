@@ -1,6 +1,9 @@
+#[cfg(feature = "std")]
 use dense::{self, DenseDFA};
 use dfa::DFA;
+#[cfg(feature = "std")]
 use error::Result;
+#[cfg(feature = "std")]
 use state_id::StateID;
 
 /// A regular expression that uses deterministic finite automata for fast
@@ -48,12 +51,65 @@ use state_id::StateID;
 /// assert_eq!(true, sparse_re.is_match(b"foo123"));
 /// # Ok(()) }; example().unwrap()
 /// ```
+#[cfg(feature = "std")]
 #[derive(Clone, Debug)]
 pub struct Regex<D: DFA = DenseDFA<Vec<usize>, usize>> {
     forward: D,
     reverse: D,
 }
 
+/// A regular expression that uses deterministic finite automata for fast
+/// searching.
+///
+/// A regular expression is comprised of two DFAs, a "forward" DFA and a
+/// "reverse" DFA. The forward DFA is responsible for detecting the end of a
+/// match while the reverse DFA is responsible for detecting the start of a
+/// match. Thus, in order to find the bounds of any given match, a forward
+/// search must first be run followed by a reverse search. A match found by
+/// the forward DFA guarantees that the reverse DFA will also find a match.
+///
+/// The type of the DFA used by a `Regex` corresponds to the `D` type
+/// parameter, which must satisfy the [`DFA`](trait.DFA.html) trait. Typically,
+/// `D` is either a [`DenseDFA`](enum.DenseDFA.html) or a
+/// [`SparseDFA`](enum.SparseDFA.html), where dense DFAs use more memory but
+/// search faster, while sparse DFAs use less memory but search more slowly.
+///
+/// When using this crate without the standard library, the `Regex` type has
+/// no default type parameter.
+///
+/// # Sparse DFAs
+///
+/// Since a `Regex` is generic over the `DFA` trait, it can be used with any
+/// kind of DFA. While this crate constructs dense DFAs by default, it is easy
+/// enough to build corresponding sparse DFAs, and then build a regex from
+/// them:
+///
+/// ```
+/// use regex_automata::Regex;
+///
+/// # fn example() -> Result<(), regex_automata::Error> {
+/// // First, build a regex that uses dense DFAs.
+/// let dense_re = Regex::new("foo[0-9]+")?;
+///
+/// // Second, build sparse DFAs from the forward and reverse dense DFAs.
+/// let fwd = dense_re.forward().to_sparse()?;
+/// let rev = dense_re.reverse().to_sparse()?;
+///
+/// // Third, build a new regex from the constituent sparse DFAs.
+/// let sparse_re = Regex::from_dfas(fwd, rev);
+///
+/// // A regex that uses sparse DFAs can be used just like with dense DFAs.
+/// assert_eq!(true, sparse_re.is_match(b"foo123"));
+/// # Ok(()) }; example().unwrap()
+/// ```
+#[cfg(not(feature = "std"))]
+#[derive(Clone, Debug)]
+pub struct Regex<D> {
+    forward: D,
+    reverse: D,
+}
+
+#[cfg(feature = "std")]
 impl Regex {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding regex.
@@ -348,11 +404,13 @@ impl<'r, 't, D: DFA> Iterator for Matches<'r, 't, D> {
 /// or only the end of a match, then you should use a
 /// [`dense::Builder`](dense/struct.Builder.html)
 /// to construct a single DFA, which is cheaper than building two DFAs.
+#[cfg(feature = "std")]
 #[derive(Clone, Debug)]
 pub struct RegexBuilder {
     dfa: dense::Builder,
 }
 
+#[cfg(feature = "std")]
 impl RegexBuilder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> RegexBuilder {
@@ -610,6 +668,7 @@ impl RegexBuilder {
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for RegexBuilder {
     fn default() -> RegexBuilder {
         RegexBuilder::new()

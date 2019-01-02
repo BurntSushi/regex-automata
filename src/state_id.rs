@@ -1,82 +1,93 @@
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::mem::size_of;
+use core::fmt::Debug;
+use core::hash::Hash;
+use core::mem::size_of;
 
 use byteorder::{ByteOrder, NativeEndian};
 
-use error::{Error, Result};
+#[cfg(feature = "std")]
+pub use self::std::*;
+
+#[cfg(feature = "std")]
+mod std {
+    use core::mem::size_of;
+    use byteorder::ByteOrder;
+    use error::{Error, Result};
+
+    use super::StateID;
+
+    /// Check that the premultiplication of the given state identifier can
+    /// fit into the representation indicated by `S`. If it cannot, or if it
+    /// overflows `usize` itself, then an error is returned.
+    pub fn premultiply_overflow_error<S: StateID>(
+        last_state: S,
+        alphabet_len: usize,
+    ) -> Result<()> {
+        let requested = match last_state.to_usize().checked_mul(alphabet_len) {
+            Some(requested) => requested,
+            None => return Err(Error::premultiply_overflow(0, 0)),
+        };
+        if requested > S::max_id() {
+            return Err(Error::premultiply_overflow(S::max_id(), requested));
+        }
+        Ok(())
+    }
+
+    /// Allocate the next sequential identifier for a fresh state given
+    /// the previously constructed state identified by `current`. If the
+    /// next sequential identifier would overflow `usize` or the chosen
+    /// representation indicated by `S`, then an error is returned.
+    pub fn next_state_id<S: StateID>(current: S) -> Result<S> {
+        let next = match current.to_usize().checked_add(1) {
+            Some(next) => next,
+            None => return Err(Error::state_id_overflow(::std::usize::MAX)),
+        };
+        if next > S::max_id() {
+            return Err(Error::state_id_overflow(S::max_id()));
+        }
+        Ok(S::from_usize(next))
+    }
+
+    /// Convert the given `usize` to the chosen state identifier
+    /// representation. If the given value cannot fit in the chosen
+    /// representation, then an error is returned.
+    pub fn usize_to_state_id<S: StateID>(value: usize) -> Result<S> {
+        if value > S::max_id() {
+            Err(Error::state_id_overflow(S::max_id()))
+        } else {
+            Ok(S::from_usize(value))
+        }
+    }
+
+    /// Write the given identifier to the given slice of bytes using the
+    /// specified endianness. The given slice must have length at least
+    /// `size_of::<S>()`.
+    ///
+    /// The given state identifier representation must have size 1, 2, 4 or 8.
+    pub fn write_state_id_bytes<E: ByteOrder, S: StateID>(
+        slice: &mut [u8],
+        id: S,
+    ) {
+        assert!(
+            1 == size_of::<S>()
+            || 2 == size_of::<S>()
+            || 4 == size_of::<S>()
+            || 8 == size_of::<S>()
+        );
+
+        match size_of::<S>() {
+            1 => slice[0] = id.to_usize() as u8,
+            2 => E::write_u16(slice, id.to_usize() as u16),
+            4 => E::write_u32(slice, id.to_usize() as u32),
+            8 => E::write_u64(slice, id.to_usize() as u64),
+            _ => unreachable!(),
+        }
+    }
+}
 
 /// Return the unique identifier for a DFA's dead state in the chosen
 /// representation indicated by `S`.
 pub fn dead_id<S: StateID>() -> S {
     S::from_usize(0)
-}
-
-/// Check that the premultiplication of the given state identifier can fit into
-/// the representation indicated by `S`. If it cannot, or if it overflows
-/// `usize` itself, then an error is returned.
-pub fn premultiply_overflow_error<S: StateID>(
-    last_state: S,
-    alphabet_len: usize,
-) -> Result<()> {
-    let requested_max = match last_state.to_usize().checked_mul(alphabet_len) {
-        Some(requested_max) => requested_max,
-        None => return Err(Error::premultiply_overflow(0, 0)),
-    };
-    if requested_max > S::max_id() {
-        return Err(Error::premultiply_overflow(S::max_id(), requested_max));
-    }
-    Ok(())
-}
-
-/// Allocate the next sequential identifier for a fresh state given the
-/// previously constructed state identified by `current`. If the next
-/// sequential identifier would overflow `usize` or the chosen representation
-/// indicated by `S`, then an error is returned.
-pub fn next_state_id<S: StateID>(current: S) -> Result<S> {
-    let next = match current.to_usize().checked_add(1) {
-        Some(next) => next,
-        None => return Err(Error::state_id_overflow(::std::usize::MAX)),
-    };
-    if next > S::max_id() {
-        return Err(Error::state_id_overflow(S::max_id()));
-    }
-    Ok(S::from_usize(next))
-}
-
-/// Convert the given `usize` to the chosen state identifier representation.
-/// If the given value cannot fit in the chosen representation, then an error
-/// is returned.
-pub fn usize_to_state_id<S: StateID>(value: usize) -> Result<S> {
-    if value > S::max_id() {
-        Err(Error::state_id_overflow(S::max_id()))
-    } else {
-        Ok(S::from_usize(value))
-    }
-}
-
-/// Write the given identifier to the given slice of bytes using the specified
-/// endianness. The given slice must have length at least `size_of::<S>()`.
-///
-/// The given state identifier representation must have size 1, 2, 4 or 8.
-pub fn write_state_id_bytes<E: ByteOrder, S: StateID>(
-    slice: &mut [u8],
-    id: S,
-) {
-    assert!(
-        1 == size_of::<S>()
-        || 2 == size_of::<S>()
-        || 4 == size_of::<S>()
-        || 8 == size_of::<S>()
-    );
-
-    match size_of::<S>() {
-        1 => slice[0] = id.to_usize() as u8,
-        2 => E::write_u16(slice, id.to_usize() as u16),
-        4 => E::write_u32(slice, id.to_usize() as u32),
-        8 => E::write_u64(slice, id.to_usize() as u64),
-        _ => unreachable!(),
-    }
 }
 
 /// A trait describing the representation of a DFA's state identifier.
@@ -150,7 +161,7 @@ unsafe impl StateID for usize {
     fn to_usize(self) -> usize { self }
 
     #[inline]
-    fn max_id() -> usize { ::std::usize::MAX }
+    fn max_id() -> usize { ::core::usize::MAX }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -171,7 +182,7 @@ unsafe impl StateID for u8 {
     fn to_usize(self) -> usize { self as usize }
 
     #[inline]
-    fn max_id() -> usize { ::std::u8::MAX as usize }
+    fn max_id() -> usize { ::core::u8::MAX as usize }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -192,7 +203,7 @@ unsafe impl StateID for u16 {
     fn to_usize(self) -> usize { self as usize }
 
     #[inline]
-    fn max_id() -> usize { ::std::u16::MAX as usize }
+    fn max_id() -> usize { ::core::u16::MAX as usize }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -214,7 +225,7 @@ unsafe impl StateID for u32 {
     fn to_usize(self) -> usize { self as usize }
 
     #[inline]
-    fn max_id() -> usize { ::std::u32::MAX as usize }
+    fn max_id() -> usize { ::core::u32::MAX as usize }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -236,7 +247,7 @@ unsafe impl StateID for u64 {
     fn to_usize(self) -> usize { self as usize }
 
     #[inline]
-    fn max_id() -> usize { ::std::u64::MAX as usize }
+    fn max_id() -> usize { ::core::u64::MAX as usize }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {

@@ -1,4 +1,4 @@
-use std::fmt;
+use core::fmt;
 
 /// A representation of byte oriented equivalence classes.
 ///
@@ -86,6 +86,7 @@ impl ByteClasses {
     /// hasn't been converted to equivalence classes yet. Picking an arbitrary
     /// byte from each equivalence class then permits a full exploration of
     /// the NFA instead of using every possible byte value.
+    #[cfg(feature = "std")]
     pub fn representatives(&self) -> ByteClassRepresentatives {
         ByteClassRepresentatives { classes: self, byte: 0, last_class: None }
     }
@@ -122,6 +123,7 @@ impl fmt::Debug for ByteClasses {
 }
 
 /// An iterator over representative bytes from each equivalence class.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 pub struct ByteClassRepresentatives<'a> {
     classes: &'a ByteClasses,
@@ -129,6 +131,7 @@ pub struct ByteClassRepresentatives<'a> {
     last_class: Option<u8>,
 }
 
+#[cfg(feature = "std")]
 impl<'a> Iterator for ByteClassRepresentatives<'a> {
     type Item = u8;
 

@@ -24,10 +24,14 @@ members = ["bench"]
 [lib]
 bench = false
 
+[features]
+default = ["std"]
+std = ["regex-syntax", "utf8-ranges"]
+
 [dependencies]
 byteorder = { version = "1.2.7", default-features = false }
-regex-syntax = "0.6.4"
-utf8-ranges = "1"
+regex-syntax = { version = "0.6.4", optional = true }
+utf8-ranges = { version = "1", optional = true }
 
 [dev-dependencies]
 lazy_static = "1.2.0"

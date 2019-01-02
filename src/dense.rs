@@ -1,21 +1,32 @@
-use std::fmt;
-use std::iter;
-use std::mem;
-use std::slice;
+#[cfg(feature = "std")]
+use core::fmt;
+#[cfg(feature = "std")]
+use core::iter;
+use core::mem;
+use core::slice;
 
-use byteorder::{ByteOrder, BigEndian, LittleEndian, NativeEndian};
+use byteorder::{ByteOrder, NativeEndian};
+#[cfg(feature = "std")]
+use byteorder::{BigEndian, LittleEndian};
+#[cfg(feature = "std")]
 use regex_syntax::ParserBuilder;
 
 use classes::ByteClasses;
+#[cfg(feature = "std")]
 use determinize::Determinizer;
 use dfa::DFA;
+#[cfg(feature = "std")]
 use error::{Error, Result};
+#[cfg(feature = "std")]
 use minimize::Minimizer;
+#[cfg(feature = "std")]
 use nfa::{NFA, NFABuilder};
+#[cfg(feature = "std")]
 use sparse::SparseDFA;
+use state_id::{StateID, dead_id};
+#[cfg(feature = "std")]
 use state_id::{
-    StateID,
-    dead_id, premultiply_overflow_error, next_state_id, write_state_id_bytes,
+    premultiply_overflow_error, next_state_id, write_state_id_bytes,
 };
 
 /// The size of the alphabet in a standard DFA.
@@ -171,6 +182,7 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl DenseDFA<Vec<usize>, usize> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding DFA.
@@ -198,6 +210,7 @@ impl DenseDFA<Vec<usize>, usize> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// Create a new empty DFA that never matches any input.
     ///
@@ -249,6 +262,7 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     ///
     /// Effectively, this returns a sparse DFA whose transition table lives
     /// on the heap.
+    #[cfg(feature = "std")]
     pub fn to_owned(&self) -> DenseDFA<Vec<S>, S> {
         match *self {
             DenseDFA::Standard(ref r) => {
@@ -284,6 +298,7 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
 /// Routines for converting a dense DFA to other representations, such as
 /// sparse DFAs, smaller state identifiers or raw bytes suitable for persistent
 /// storage.
+#[cfg(feature = "std")]
 impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// Convert this dense DFA to a sparse DFA.
     ///
@@ -499,6 +514,7 @@ impl<'a, S: StateID> DenseDFA<&'a [S], S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> DenseDFA<Vec<S>, S> {
     /// Minimize this DFA in place.
     ///
@@ -696,13 +712,13 @@ impl<T: AsRef<[S]>, S: StateID> DFA for ByteClass<T, S> {
     }
 
     fn next_state(&self, current: S, input: u8) -> S {
-        let input = self.0.byte_classes.get(input);
+        let input = self.0.byte_classes().get(input);
         let o = current.to_usize() * self.0.alphabet_len() + input as usize;
         self.0.trans()[o]
     }
 
     unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
-        let input = self.0.byte_classes.get_unchecked(input);
+        let input = self.0.byte_classes().get_unchecked(input);
         let o = current.to_usize() * self.0.alphabet_len() + input as usize;
         *self.0.trans().get_unchecked(o)
     }
@@ -788,13 +804,13 @@ impl<T: AsRef<[S]>, S: StateID> DFA for PremultipliedByteClass<T, S> {
     }
 
     fn next_state(&self, current: S, input: u8) -> S {
-        let input = self.0.byte_classes.get(input);
+        let input = self.0.byte_classes().get(input);
         let o = current.to_usize() + input as usize;
         self.0.trans()[o]
     }
 
     unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
-        let input = self.0.byte_classes.get_unchecked(input);
+        let input = self.0.byte_classes().get_unchecked(input);
         let o = current.to_usize() + input as usize;
         *self.0.trans().get_unchecked(o)
     }
@@ -804,6 +820,7 @@ impl<T: AsRef<[S]>, S: StateID> DFA for PremultipliedByteClass<T, S> {
 ///
 /// This representation is shared by all DFA variants.
 #[derive(Clone)]
+#[cfg_attr(not(feature = "std"), derive(Debug))]
 pub(crate) struct Repr<T, S> {
     /// Whether the state identifiers in the transition table have been
     /// premultiplied or not.
@@ -879,6 +896,7 @@ pub(crate) struct Repr<T, S> {
     trans: T,
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> Repr<Vec<S>, S> {
     /// Create a new empty DFA with singleton byte classes (every byte is its
     /// own equivalence class).
@@ -909,7 +927,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// Convert this internal DFA representation to a DenseDFA based on its
     /// transition table access pattern.
     pub fn into_dense_dfa(self) -> DenseDFA<T, S> {
-        match (self.premultiplied, self.byte_classes.is_singleton()) {
+        match (self.premultiplied, self.byte_classes().is_singleton()) {
             // no premultiplication, no byte classes
             (false, true) => DenseDFA::Standard(Standard(self)),
             // no premultiplication, yes byte classes
@@ -929,18 +947,19 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
-            byte_classes: self.byte_classes.clone(),
+            byte_classes: self.byte_classes().clone(),
             trans: self.trans(),
         }
     }
 
+    #[cfg(feature = "std")]
     fn to_owned(&self) -> Repr<Vec<S>, S> {
         Repr {
             premultiplied: self.premultiplied,
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
-            byte_classes: self.byte_classes.clone(),
+            byte_classes: self.byte_classes().clone(),
             trans: self.trans().to_vec(),
         }
     }
@@ -971,7 +990,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// given identifier does not correspond to either a match state or a dead
     /// state.
     pub fn is_match_or_dead_state(&self, id: S) -> bool {
-        id <= self.max_match
+        id <= self.max_match_state()
     }
 
     /// Returns the maximum identifier for which a match state can exist.
@@ -998,6 +1017,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// If this DFA is premultiplied, then the state identifiers are in
     /// turn premultiplied as well, making them usable without additional
     /// modification.
+    #[cfg(feature = "std")]
     pub fn states(&self) -> StateIter<T, S> {
         let it = self.trans().chunks(self.alphabet_len());
         StateIter { dfa: self, it: it.enumerate() }
@@ -1005,6 +1025,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
 
     /// Return the total number of states in this DFA. Every DFA has at least
     /// 1 state, even the empty DFA.
+    #[cfg(feature = "std")]
     pub fn state_count(&self) -> usize {
         self.state_count
     }
@@ -1015,7 +1036,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// to 256. Otherwise, it is guaranteed to be some value less than or equal
     /// to 256.
     pub fn alphabet_len(&self) -> usize {
-        self.byte_classes.alphabet_len()
+        self.byte_classes().alphabet_len()
     }
 
     /// Returns the memory usage, in bytes, of this DFA.
@@ -1028,6 +1049,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// table. When a DFA is NOT premultiplied, then a state's identifier is
     /// also its index. When a DFA is premultiplied, then a state's identifier
     /// is equal to `index * alphabet_len`. This routine reverses that.
+    #[cfg(feature = "std")]
     pub fn state_id_to_index(&self, id: S) -> usize {
         if self.premultiplied {
             id.to_usize() / self.alphabet_len()
@@ -1042,6 +1064,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     }
 
     /// Create a sparse DFA from the internal representation of a dense DFA.
+    #[cfg(feature = "std")]
     pub fn to_sparse_sized<A: StateID>(
         &self,
     ) -> Result<SparseDFA<Vec<u8>, A>> {
@@ -1052,6 +1075,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// attempt to use `A` for the representation of state identifiers. If `A`
     /// is insufficient to represent all state identifiers in this DFA, then
     /// this returns an error.
+    #[cfg(feature = "std")]
     pub fn to_sized<A: StateID>(&self) -> Result<Repr<Vec<A>, A>> {
         // Check that this DFA can fit into A's representation.
         let mut last_state_id = self.state_count - 1;
@@ -1069,7 +1093,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
             start: A::from_usize(self.start.to_usize()),
             state_count: self.state_count,
             max_match: A::from_usize(self.max_match.to_usize()),
-            byte_classes: self.byte_classes.clone(),
+            byte_classes: self.byte_classes().clone(),
             trans: vec![dead_id::<A>(); self.trans().len()],
         };
         for (i, id) in new.trans.iter_mut().enumerate() {
@@ -1084,6 +1108,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// than 1, 2, 4 or 8 bytes, then this returns an error. All
     /// implementations of `StateID` provided by this crate satisfy this
     /// requirement.
+    #[cfg(feature = "std")]
     pub(crate) fn to_bytes<A: ByteOrder>(&self) -> Result<Vec<u8>> {
         let label = b"rust-regex-automata-dfa\x00";
         assert_eq!(24, label.len());
@@ -1162,7 +1187,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
         i += 8;
         // byte class map
         for b in (0..256).map(|b| b as u8) {
-            buf[i] = self.byte_classes.get(b);
+            buf[i] = self.byte_classes().get(b);
             i += 1;
         }
         // transition table
@@ -1271,6 +1296,7 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
 /// a `Vec<S>` since a generic `T: AsRef<[S]>` does not permit mutation. We
 /// can get away with this because these methods are internal to the crate and
 /// are exclusively used during construction of the DFA.
+#[cfg(feature = "std")]
 impl<S: StateID> Repr<Vec<S>, S> {
     pub fn premultiply(&mut self) -> Result<()> {
         if self.premultiplied || self.state_count <= 1 {
@@ -1339,7 +1365,7 @@ impl<S: StateID> Repr<Vec<S>, S> {
         assert!(from.to_usize() < self.state_count, "invalid from state");
         assert!(to.to_usize() < self.state_count, "invalid to state");
 
-        let class = self.byte_classes.get(byte);
+        let class = self.byte_classes().get(byte);
         let offset = from.to_usize() * self.alphabet_len() + class as usize;
         self.trans[offset] = to;
     }
@@ -1478,22 +1504,32 @@ impl<S: StateID> Repr<Vec<S>, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: AsRef<[S]>, S: StateID> fmt::Debug for Repr<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn state_status<T: AsRef<[S]>, S: StateID>(
             dfa: &Repr<T, S>,
             id: S,
-        ) -> String {
-            let mut status = vec![b' ', b' '];
+        ) -> &'static str {
             if id == dead_id() {
-                status[0] = b'D';
-            } else if id == dfa.start {
-                status[0] = b'>';
+                if dfa.is_match_state(id) {
+                    "D*"
+                } else {
+                    "D "
+                }
+            } else if id == dfa.start_state() {
+                if dfa.is_match_state(id) {
+                    ">*"
+                } else {
+                    "> "
+                }
+            } else {
+                if dfa.is_match_state(id) {
+                    " *"
+                } else {
+                    "  "
+                }
             }
-            if dfa.is_match_state(id) {
-                status[1] = b'*';
-            }
-            String::from_utf8(status).unwrap()
         }
 
         write!(f, "\n")?;
@@ -1517,11 +1553,13 @@ impl<T: AsRef<[S]>, S: StateID> fmt::Debug for Repr<T, S> {
 /// `'a` corresponding to the lifetime of original DFA, `T` corresponds to
 /// the type of the transition table itself and `S` corresponds to the state
 /// identifier representation.
+#[cfg(feature = "std")]
 pub(crate) struct StateIter<'a, T, S> {
     dfa: &'a Repr<T, S>,
     it: iter::Enumerate<slice::Chunks<'a, S>>,
 }
 
+#[cfg(feature = "std")]
 impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
     type Item = (S, State<'a, S>);
 
@@ -1543,10 +1581,12 @@ impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
 ///
 /// `'a` correspondings to the lifetime of a DFA's transition table and `S`
 /// corresponds to the state identifier representation.
+#[cfg(feature = "std")]
 pub(crate) struct State<'a, S> {
     transitions: &'a [S],
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> State<'a, S> {
     /// Return an iterator over all transitions in this state. This yields
     /// a number of transitions equivalent to the alphabet length of the
@@ -1576,6 +1616,7 @@ impl<'a, S: StateID> State<'a, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for State<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut transitions = vec![];
@@ -1602,11 +1643,13 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
 ///
 /// Each transition is represented by a tuple. The first element is the input
 /// byte for that transition and the second element is the transitions itself.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 pub(crate) struct StateTransitionIter<'a, S> {
     it: iter::Enumerate<slice::Iter<'a, S>>,
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
     type Item = (u8, S);
 
@@ -1621,12 +1664,14 @@ impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
 /// Each transition is represented by a triple. The first two elements of the
 /// triple comprise an inclusive byte range while the last element corresponds
 /// to the transition taken for all bytes in the range.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 pub(crate) struct StateSparseTransitionIter<'a, S> {
     dense: StateTransitionIter<'a, S>,
     cur: Option<(u8, u8, S)>,
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
     type Item = (u8, u8, S);
 
@@ -1661,10 +1706,12 @@ impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
 ///
 /// `'a` correspondings to the lifetime of a DFA's transition table and `S`
 /// corresponds to the state identifier representation.
+#[cfg(feature = "std")]
 pub(crate) struct StateMut<'a, S> {
     transitions: &'a mut [S],
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> StateMut<'a, S> {
     /// Return an iterator over all transitions in this state. This yields
     /// a number of transitions equivalent to the alphabet length of the
@@ -1678,6 +1725,7 @@ impl<'a, S: StateID> StateMut<'a, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&State { transitions: self.transitions }, f)
@@ -1689,11 +1737,13 @@ impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
 /// Each transition is represented by a tuple. The first element is the
 /// input byte for that transition and the second element is a mutable
 /// reference to the transition itself.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 pub(crate) struct StateTransitionIterMut<'a, S> {
     it: iter::Enumerate<slice::IterMut<'a, S>>,
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
     type Item = (u8, &'a mut S);
 
@@ -1716,6 +1766,7 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 /// the start and end of a match. For that information, use a
 /// [`Regex`](struct.Regex.html), which can be similarly configured using
 /// [`RegexBuilder`](struct.RegexBuilder.html).
+#[cfg(feature = "std")]
 #[derive(Clone, Debug)]
 pub struct Builder {
     parser: ParserBuilder,
@@ -1728,6 +1779,7 @@ pub struct Builder {
     longest_match: bool,
 }
 
+#[cfg(feature = "std")]
 impl Builder {
     /// Create a new DenseDFA builder with the default configuration.
     pub fn new() -> Builder {
@@ -2070,6 +2122,7 @@ impl Builder {
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for Builder {
     fn default() -> Builder {
         Builder::new()
@@ -2077,6 +2130,7 @@ impl Default for Builder {
 }
 
 /// Return the given byte as its escaped string form.
+#[cfg(feature = "std")]
 fn escape(b: u8) -> String {
     use std::ascii;
 

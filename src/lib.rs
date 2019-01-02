@@ -2,28 +2,44 @@
 TODO.
 */
 
+#![deny(missing_docs)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "std")]
+extern crate core;
+
 extern crate byteorder;
+#[cfg(feature = "std")]
 extern crate regex_syntax;
+#[cfg(feature = "std")]
 extern crate utf8_ranges;
 
 pub use dense::DenseDFA;
 pub use dfa::DFA;
+#[cfg(feature = "std")]
 pub use error::{Error, ErrorKind};
-pub use regex::{Regex, RegexBuilder};
+pub use regex::Regex;
+#[cfg(feature = "std")]
+pub use regex::RegexBuilder;
 pub use sparse::SparseDFA;
 pub use state_id::StateID;
 
 mod classes;
+#[cfg(feature = "std")]
 mod determinize;
 #[path = "dense.rs"]
 mod dense_imp;
 mod dfa;
+#[cfg(feature = "std")]
 mod error;
 mod regex;
+#[cfg(feature = "std")]
 mod minimize;
+#[cfg(feature = "std")]
 mod nfa;
 #[path = "sparse.rs"]
 mod sparse_imp;
+#[cfg(feature = "std")]
 mod sparse_set;
 mod state_id;
 

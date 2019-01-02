@@ -1,16 +1,26 @@
+#[cfg(feature = "std")]
 use std::collections::HashMap;
-use std::fmt;
-use std::iter;
-use std::marker::PhantomData;
-use std::mem::size_of;
+#[cfg(feature = "std")]
+use core::fmt;
+#[cfg(feature = "std")]
+use core::iter;
+use core::marker::PhantomData;
+use core::mem::size_of;
 
-use byteorder::{ByteOrder, BigEndian, LittleEndian, NativeEndian};
+use byteorder::{ByteOrder, NativeEndian};
+#[cfg(feature = "std")]
+use byteorder::{BigEndian, LittleEndian};
 
 use classes::ByteClasses;
+#[cfg(feature = "std")]
 use dense;
 use dfa::DFA;
+#[cfg(feature = "std")]
 use error::{Error, Result};
+#[cfg(feature = "std")]
 use state_id::{StateID, dead_id, usize_to_state_id, write_state_id_bytes};
+#[cfg(not(feature = "std"))]
+use state_id::{StateID, dead_id};
 
 /// A sparse table-based deterministic finite automaton (DFA).
 ///
@@ -121,6 +131,7 @@ pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
     __Nonexhaustive,
 }
 
+#[cfg(feature = "std")]
 impl SparseDFA<Vec<u8>, usize> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding sparse DFA.
@@ -152,6 +163,7 @@ impl SparseDFA<Vec<u8>, usize> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> SparseDFA<Vec<u8>, S> {
     /// Create a new empty sparse DFA that never matches any input.
     ///
@@ -202,6 +214,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
     ///
     /// Effectively, this returns a sparse DFA whose transition table lives
     /// on the heap.
+    #[cfg(feature = "std")]
     pub fn to_owned(&self) -> SparseDFA<Vec<u8>, S> {
         match *self {
             SparseDFA::Standard(Standard(ref r)) => {
@@ -237,6 +250,7 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
 
 /// Routines for converting a sparse DFA to other representations, such as
 /// smaller state identifiers or raw bytes suitable for persistent storage.
+#[cfg(feature = "std")]
 impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
     /// Create a new sparse DFA whose match semantics are equivalent to
     /// this DFA, but attempt to use `u8` for the representation of state
@@ -565,6 +579,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for ByteClass<T, S> {
 /// The underlying representation of a sparse DFA. This is shared by all of
 /// the different variants of a sparse DFA.
 #[derive(Clone)]
+#[cfg_attr(not(feature = "std"), derive(Debug))]
 struct Repr<T: AsRef<[u8]>, S: StateID = usize> {
     start: S,
     state_count: usize,
@@ -592,6 +607,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
         }
     }
 
+    #[cfg(feature = "std")]
     fn to_owned(&self) -> Repr<Vec<u8>, S> {
         Repr {
             start: self.start,
@@ -621,6 +637,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
     ///
     /// The iterator returned yields tuples, where the first element is the
     /// state ID and the second element is the state itself.
+    #[cfg(feature = "std")]
     fn states<'a>(&'a self) -> StateIter<'a, T, S> {
         StateIter { dfa: self, id: dead_id() }
     }
@@ -653,6 +670,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
     /// DFA, but attempt to use `A` for the representation of state
     /// identifiers. If `A` is insufficient to represent all state identifiers
     /// in this DFA, then this returns an error.
+    #[cfg(feature = "std")]
     fn to_sized<A: StateID>(&self) -> Result<Repr<Vec<u8>, A>> {
         // To build the new DFA, we proceed much like the initial construction
         // of the sparse DFA. Namely, since the state ID size is changing,
@@ -704,6 +722,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
     ///
     /// Unlike dense DFAs, the result is not necessarily aligned since a
     /// sparse DFA's transition table is always read as a sequence of bytes.
+    #[cfg(feature = "std")]
     fn to_bytes<A: ByteOrder>(&self) -> Result<Vec<u8>> {
         let label = b"rust-regex-automata-sparse-dfa\x00";
         let size =
@@ -864,6 +883,7 @@ impl<'a, S: StateID> Repr<&'a [u8], S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> Repr<Vec<u8>, S> {
     /// The implementation for constructing a sparse DFA from a dense DFA.
     fn from_dense_sized<T: AsRef<[S]>, A: StateID>(
@@ -942,22 +962,32 @@ impl<S: StateID> Repr<Vec<u8>, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn state_status<T: AsRef<[u8]>, S: StateID>(
             dfa: &Repr<T, S>,
             id: S,
-        ) -> String {
-            let mut status = vec![b' ', b' '];
+        ) -> &'static str {
             if id == dead_id() {
-                status[0] = b'D';
-            } else if id == dfa.start {
-                status[0] = b'>';
+                if dfa.is_match_state(id) {
+                    "D*"
+                } else {
+                    "D "
+                }
+            } else if id == dfa.start_state() {
+                if dfa.is_match_state(id) {
+                    ">*"
+                } else {
+                    "> "
+                }
+            } else {
+                if dfa.is_match_state(id) {
+                    " *"
+                } else {
+                    "  "
+                }
             }
-            if dfa.is_match_state(id) {
-                status[1] = b'*';
-            }
-            String::from_utf8(status).unwrap()
         }
 
         write!(f, "\n")?;
@@ -973,12 +1003,14 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
 ///
 /// This iterator yields tuples, where the first element is the state ID and
 /// the second element is the state itself.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 struct StateIter<'a, T: AsRef<[u8]>, S: StateID = usize> {
     dfa: &'a Repr<T, S>,
     id: S,
 }
 
+#[cfg(feature = "std")]
 impl<'a, T: AsRef<[u8]>, S: StateID> Iterator for StateIter<'a, T, S> {
     type Item = (S, State<'a, S>);
 
@@ -1051,11 +1083,13 @@ impl<'a, S: StateID> State<'a, S> {
 
     /// Return the total number of bytes that this state consumes in its
     /// encoded form.
+    #[cfg(feature = "std")]
     fn bytes(&self) -> usize {
         2 + (self.ntrans * 2) + (self.ntrans * size_of::<S>())
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for State<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut transitions = vec![];
@@ -1087,6 +1121,7 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
 
 /// A representation of a mutable sparse DFA state that can be cheaply
 /// materialized from a state identifier.
+#[cfg(feature = "std")]
 struct StateMut<'a, S: StateID = usize> {
     /// The state identifier representation used by the DFA from which this
     /// state was extracted. Since our transition table is compacted in a
@@ -1106,6 +1141,7 @@ struct StateMut<'a, S: StateID = usize> {
     next: &'a mut [u8],
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> StateMut<'a, S> {
     /// Sets the ith transition to the given state.
     fn set_next_at(&mut self, i: usize, next: S) {
@@ -1113,6 +1149,7 @@ impl<'a, S: StateID> StateMut<'a, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let state = State {
@@ -1126,6 +1163,7 @@ impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
 }
 
 /// Return the given byte as its escaped string form.
+#[cfg(feature = "std")]
 fn escape(b: u8) -> String {
     use std::ascii;
 
