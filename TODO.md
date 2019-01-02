@@ -48,3 +48,11 @@
   path forward here is to probably build something outside of the crate and
   then see about integrating it. After all, users can implement their own
   match routines just as efficiently as what the crate provides.
+* A key downside of DFAs is that they can take up a lot of memory and can be
+  quite costly to build. Their worst case compilation time is O(2^n), where
+  n is the number of NFA states. A paper by Yang and Prasanna (2011) actually
+  seems to provide a way to character state blow up such that it is detectable.
+  If we could know whether a regex will exhibit state explosion or not, then
+  we could make an intelligent decision about whether to ahead-of-time compile
+  a DFA.
+  See: https://www.researchgate.net/profile/XU_Shutu/publication/229032602_Characterization_of_a_global_germplasm_collection_and_its_potential_utilization_for_analysis_of_complex_quantitative_traits_in_maize/links/02bfe50f914d04c837000000.pdf
