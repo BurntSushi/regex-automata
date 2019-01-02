@@ -43,17 +43,20 @@ impl ByteClasses {
     }
 
     /// Set the equivalence class for the given byte.
+    #[inline]
     pub fn set(&mut self, byte: u8, class: u8) {
         self.0[byte as usize] = class;
     }
 
     /// Get the equivalence class for the given byte.
+    #[inline]
     pub fn get(&self, byte: u8) -> u8 {
         self.0[byte as usize]
     }
 
     /// Get the equivalence class for the given byte while forcefully
     /// eliding bounds checks.
+    #[inline]
     pub unsafe fn get_unchecked(&self, byte: u8) -> u8 {
         *self.0.get_unchecked(byte as usize)
     }
@@ -61,6 +64,7 @@ impl ByteClasses {
     /// Return the total number of elements in the alphabet represented by
     /// these equivalence classes. Equivalently, this returns the total number
     /// of equivalence classes.
+    #[inline]
     pub fn alphabet_len(&self) -> usize {
         self.0[255] as usize + 1
     }
@@ -68,6 +72,7 @@ impl ByteClasses {
     /// Returns true if and only if every byte in this class maps to its own
     /// equivalence class. Equivalently, there are 256 equivalence classes
     /// and each class contains exactly one byte.
+    #[inline]
     pub fn is_singleton(&self) -> bool {
         self.alphabet_len() == 256
     }
