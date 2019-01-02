@@ -73,6 +73,12 @@ impl Error {
         Error { kind: ErrorKind::Unsupported(msg.to_string()) }
     }
 
+    pub(crate) fn unsupported_longest_match() -> Error {
+        let msg  = "unachored searches with longest match \
+                    semantics are not supported";
+        Error { kind: ErrorKind::Unsupported(msg.to_string()) }
+    }
+
     pub(crate) fn serialize(message: &str) -> Error {
         Error { kind: ErrorKind::Serialize(message.to_string()) }
     }

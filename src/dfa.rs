@@ -1,52 +1,59 @@
-#![allow(warnings)]
-
 use state_id::StateID;
 
-// BREADCRUMBS:
-//
-// So it looks like we probably want DenseDFA to be this:
-//
-//   enum DenseDFA {
-//     Standard(dense::Standard),
-//     Premultiplied(dense::Premultiplied),
-//     ByteClass(dense::ByteClass),
-//     PremultipliedByteClass(dense::PremultipliedByteClass),
-//   }
-//
-// where each of the dense::* types wrap DenseDFARepr, which is basically what
-// DenseDFA is now. We can then override the is_match/... routines on DenseDFA
-// to do case analysis once and dispatch to its inner DFA.
-//
-// Determinization and minimization then operate on DenseDFARepr.
-//
-// Do we still need DenseDFAKind? It looks like we do, so maybe determinization
-// and minimization really should just use DenseDFA.
-//
-// Now, what about DenseDFARef? Does it really need to copy the structure of
-// DenseDFA, and therefore need dense::StandardRef and so on?
-//
-// OK, it looks like we need to add a second type parameter to DenseDFA and
-// SparseDFA. Specifically, DenseDFA should use T for its transition table,
-// where T: AsRef<[StateID]>. That way, the same types can be used for both
-// Vec<S> and &[S]. This has to be threaded all the way down to DenseDFARepr.
-//
-// The upshot here is that Regex stays the course with one type parameter:
-// an implementation of the DFA trait. The ID associated type avoids needing
-// to fuss with state IDs with the Regex type directly.
-
+/// A trait describing the interface of a deterministic finite automaton (DFA).
+///
+/// Every DFA has exactly one start state and at least one dead state (which
+/// may be the same, as in the case of an empty DFA). In all cases, a state
+/// identifier of `0` must be a dead state such that `DFA::is_dead_state(0)`
+/// always returns `true`.
+///
+/// Every DFA also has zero or more match states, such that
+/// `DFA::is_match_state(id)` returns `true` if and only if `id` corresponds to
+/// a match state.
+///
+/// In general, users of this trait likely will only need to use the search
+/// routines such as `is_match`, `shortest_match`, `find` or `rfind`. The other
+/// methods are lower level and are used for walking the transitions of a DFA
+/// manually. In particular, the aforementioned search routines are implemented
+/// generically in terms of the lower level transition walking routines.
 pub trait DFA {
+    /// The representation used for state identifiers in this DFA.
+    ///
+    /// Typically, this is one of `u8`, `u16`, `u32`, `u64` or `usize`.
     type ID: StateID;
 
+    /// Return the identifier of this DFA's start state.
     fn start_state(&self) -> Self::ID;
 
+    /// Returns true if and only if the given identifier corresponds to a match
+    /// state.
     fn is_match_state(&self, id: Self::ID) -> bool;
 
-    fn is_possible_match_state(&self, id: Self::ID) -> bool;
-
+    /// Returns true if and only if the given identifier corresponds to a dead
+    /// state. When a DFA enters a dead state, it is impossible to leave and
+    /// thus can never lead to a match.
     fn is_dead_state(&self, id: Self::ID) -> bool;
 
+    /// Returns true if and only if the given identifier corresponds to either
+    /// a dead state or a match state, such that one of `is_match_state(id)`
+    /// or `is_dead_state(id)` must return true.
+    ///
+    /// Depending on the implementation of the DFA, this routine can be used
+    /// to save a branch in the core matching loop. Nevertheless,
+    /// `is_match_state(id) || is_dead_state(id)` is always a valid
+    /// implementation.
+    fn is_match_or_dead_state(&self, id: Self::ID) -> bool;
+
+    /// Given the current state that this DFA is in and the next input byte,
+    /// this method returns the identifier of the next state. The identifier
+    /// returned is always valid, but it may correspond to a dead state.
     fn next_state(&self, current: Self::ID, input: u8) -> Self::ID;
 
+    /// Like `next_state`, but its implementation may look up the next state
+    /// without memory safety checks such as bounds checks. As such, callers
+    /// must ensure that the given identifier corresponds to a valid DFA
+    /// state. Implementors must, in turn, ensure that this routine is safe
+    /// for all valid state identifiers and for all possible `u8` values.
     unsafe fn next_state_unchecked(
         &self,
         current: Self::ID,
@@ -62,6 +69,9 @@ pub trait DFA {
     ///
     /// # Example
     ///
+    /// This example shows how to use this method with a
+    /// [`DenseDFA`](enum.DenseDFA.html).
+    ///
     /// ```
     /// use regex_automata::{DFA, DenseDFA};
     ///
@@ -73,12 +83,12 @@ pub trait DFA {
     /// ```
     fn is_match(&self, bytes: &[u8]) -> bool {
         let mut state = self.start_state();
-        if self.is_possible_match_state(state) {
+        if self.is_match_or_dead_state(state) {
             return self.is_match_state(state);
         }
         for &b in bytes.iter() {
             state = unsafe { self.next_state_unchecked(state, b) };
-            if self.is_possible_match_state(state) {
+            if self.is_match_or_dead_state(state) {
                 return self.is_match_state(state);
             }
         }
@@ -93,6 +103,9 @@ pub trait DFA {
     /// was found. If no match is found, then `None` is returned.
     ///
     /// # Example
+    ///
+    /// This example shows how to use this method with a
+    /// [`DenseDFA`](enum.DenseDFA.html).
     ///
     /// ```
     /// use regex_automata::{DFA, DenseDFA};
@@ -109,12 +122,12 @@ pub trait DFA {
     /// ```
     fn shortest_match(&self, bytes: &[u8]) -> Option<usize> {
         let mut state = self.start_state();
-        if self.is_possible_match_state(state) {
+        if self.is_match_or_dead_state(state) {
             return if self.is_dead_state(state) { None } else { Some(0) };
         }
         for (i, &b) in bytes.iter().enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
-            if self.is_possible_match_state(state) {
+            if self.is_match_or_dead_state(state) {
                 return
                     if self.is_dead_state(state) {
                         None
@@ -126,22 +139,36 @@ pub trait DFA {
         None
     }
 
-    /// Returns the end offset of the leftmost first match. If no match exists,
+    /// Returns the end offset of the longest match. If no match exists,
     /// then `None` is returned.
     ///
-    /// The "leftmost first" match corresponds to the match with the smallest
-    /// starting offset, but where the end offset is determined by preferring
-    /// earlier branches in the original regular expression. For example,
-    /// `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam` will
-    /// match `Samwise` in `Samwise`.
+    /// Implementors of this trait are not required to implement any particular
+    /// match semantics (such as leftmost-first), which are instead manifest in
+    /// the DFA's topology itself.
+    ///
+    /// In particular, this method must continue searching even after it
+    /// enters a match state. The search should only terminate once it has
+    /// reached the end of the input or when it has entered a dead state. Upon
+    /// termination, the position of the last byte seen while still in a match
+    /// state is returned.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use this method with a
+    /// [`DenseDFA`](enum.DenseDFA.html). By default, a dense DFA uses
+    /// "leftmost first" match semantics.
+    ///
+    /// Leftmost first match semantics corresponds to the match with the
+    /// smallest starting offset, but where the end offset is determined by
+    /// preferring earlier branches in the original regular expression. For
+    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
+    /// will match `Samwise` in `Samwise`.
     ///
     /// Generally speaking, the "leftmost first" match is how most backtracking
     /// regular expressions tend to work. This is in contrast to POSIX-style
     /// regular expressions that yield "leftmost longest" matches. Namely,
     /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
     /// leftmost longest semantics.
-    ///
-    /// # Example
     ///
     /// ```
     /// use regex_automata::{DFA, DenseDFA};
@@ -169,7 +196,7 @@ pub trait DFA {
             };
         for (i, &b) in bytes.iter().enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
-            if self.is_possible_match_state(state) {
+            if self.is_match_or_dead_state(state) {
                 if self.is_dead_state(state) {
                     return last_match;
                 }
@@ -179,22 +206,26 @@ pub trait DFA {
         last_match
     }
 
-    /// Returns the start offset of the leftmost first match in reverse, by
-    /// searching from the end of the input towards the start of the input. If
-    /// no match exists, then `None` is returned.
-    ///
-    /// This routine is principally useful when used in conjunction with the
-    /// [`DenseDFABuilder::reverse`](struct.DenseDFABuilder.html#method.reverse)
-    /// configuration knob. In general, it's unlikely to be correct to use both
-    /// `find` and `rfind` with the same DFA.
+    /// Returns the start offset of the longest match in reverse, by searching
+    /// from the end of the input towards the start of the input. If no match
+    /// exists, then `None` is returned. In other words, this has the same
+    /// match semantics as `find`, but in reverse.
     ///
     /// # Example
     ///
+    /// This example shows how to use this method with a
+    /// [`DenseDFA`](enum.DenseDFA.html). In particular, this routine
+    /// is principally useful when used in conjunction with the
+    /// [`dense::Builder::reverse`](dense/struct.Builder.html#method.reverse)
+    /// configuration knob. In general, it's unlikely to be correct to use both
+    /// `find` and `rfind` with the same DFA since any particular DFA will only
+    /// support searching in one direction.
+    ///
     /// ```
-    /// use regex_automata::{DFA, DenseDFABuilder};
+    /// use regex_automata::{dense, DFA};
     ///
     /// # fn example() -> Result<(), regex_automata::Error> {
-    /// let dfa = DenseDFABuilder::new().reverse(true).build("foo[0-9]+")?;
+    /// let dfa = dense::Builder::new().reverse(true).build("foo[0-9]+")?;
     /// assert_eq!(Some(0), dfa.rfind(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
@@ -210,7 +241,7 @@ pub trait DFA {
             };
         for (i, &b) in bytes.iter().enumerate().rev() {
             state = unsafe { self.next_state_unchecked(state, b) };
-            if self.is_possible_match_state(state) {
+            if self.is_match_or_dead_state(state) {
                 if self.is_dead_state(state) {
                     return last_match;
                 }
@@ -232,8 +263,8 @@ impl<'a, T: DFA> DFA for &'a T {
         (**self).is_match_state(id)
     }
 
-    fn is_possible_match_state(&self, id: Self::ID) -> bool {
-        (**self).is_possible_match_state(id)
+    fn is_match_or_dead_state(&self, id: Self::ID) -> bool {
+        (**self).is_match_or_dead_state(id)
     }
 
     fn is_dead_state(&self, id: Self::ID) -> bool {

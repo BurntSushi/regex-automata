@@ -1,17 +1,60 @@
-use builder::RegexBuilder;
-use dense::DenseDFA;
+use dense::{self, DenseDFA};
 use dfa::DFA;
 use error::Result;
+use state_id::StateID;
 
 /// A regular expression that uses deterministic finite automata for fast
 /// searching.
+///
+/// A regular expression is comprised of two DFAs, a "forward" DFA and a
+/// "reverse" DFA. The forward DFA is responsible for detecting the end of a
+/// match while the reverse DFA is responsible for detecting the start of a
+/// match. Thus, in order to find the bounds of any given match, a forward
+/// search must first be run followed by a reverse search. A match found by
+/// the forward DFA guarantees that the reverse DFA will also find a match.
+///
+/// The type of the DFA used by a `Regex` corresponds to the `D` type
+/// parameter, which must satisfy the [`DFA`](trait.DFA.html) trait. Typically,
+/// `D` is either a [`DenseDFA`](enum.DenseDFA.html) or a
+/// [`SparseDFA`](enum.SparseDFA.html), where dense DFAs use more memory but
+/// search faster, while sparse DFAs use less memory but search more slowly.
+///
+/// By default, a regex's DFA type parameter is set to
+/// `DenseDFA<Vec<usize>, usize>`. For most in-memory work loads, this is the
+/// most convenient type that gives the best search performance.
+///
+/// # Sparse DFAs
+///
+/// Since a `Regex` is generic over the `DFA` trait, it can be used with any
+/// kind of DFA. While this crate constructs dense DFAs by default, it is easy
+/// enough to build corresponding sparse DFAs, and then build a regex from
+/// them:
+///
+/// ```
+/// use regex_automata::Regex;
+///
+/// # fn example() -> Result<(), regex_automata::Error> {
+/// // First, build a regex that uses dense DFAs.
+/// let dense_re = Regex::new("foo[0-9]+")?;
+///
+/// // Second, build sparse DFAs from the forward and reverse dense DFAs.
+/// let fwd = dense_re.forward().to_sparse()?;
+/// let rev = dense_re.reverse().to_sparse()?;
+///
+/// // Third, build a new regex from the constituent sparse DFAs.
+/// let sparse_re = Regex::from_dfas(fwd, rev);
+///
+/// // A regex that uses sparse DFAs can be used just like with dense DFAs.
+/// assert_eq!(true, sparse_re.is_match(b"foo123"));
+/// # Ok(()) }; example().unwrap()
+/// ```
 #[derive(Clone, Debug)]
-pub struct Regex<D: DFA> {
+pub struct Regex<D: DFA = DenseDFA<Vec<usize>, usize>> {
     forward: D,
     reverse: D,
 }
 
-impl Regex<DenseDFA<Vec<usize>, usize>> {
+impl Regex {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding regex.
     ///
@@ -33,7 +76,7 @@ impl Regex<DenseDFA<Vec<usize>, usize>> {
     /// assert_eq!(Some((3, 14)), re.find(b"zzzfoo12345barzzz"));
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn new(pattern: &str) -> Result<Regex<DenseDFA<Vec<usize>, usize>>> {
+    pub fn new(pattern: &str) -> Result<Regex> {
         RegexBuilder::new().build(pattern)
     }
 }
@@ -159,20 +202,12 @@ impl<D: DFA> Regex<D> {
     ) -> Matches<'r, 't, D> {
         Matches::new(self, input)
     }
-}
 
-impl<D: DFA> Regex<D> {
     /// Build a new regex from its constituent forward and reverse DFAs.
     ///
     /// This is useful when deserializing a regex from some arbitrary
-    /// memory region. Note that currently, it is not possible to correctly
-    /// build these DFAs directly using a `DenseDFABuilder`. In particular, the
-    /// forward and reverse DFAs given here *must* be DFAs corresponding to a
-    /// previously built regex and retrieved using the
-    /// [`Regex::forward`](struct.Regex.html#method.forward)
-    /// and
-    /// [`Regex::reverse`](struct.Regex.html#method.reverse)
-    /// methods.
+    /// memory region. This is also useful for building regexes from other
+    /// types of DFAs.
     ///
     /// # Example
     ///
@@ -189,7 +224,41 @@ impl<D: DFA> Regex<D> {
     ///
     /// let (fwd, rev) = (initial_re.forward(), initial_re.reverse());
     /// let re = Regex::from_dfas(fwd, rev);
+    /// assert_eq!(true, re.is_match(b"foo123"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    ///
+    /// This example shows how you might build smaller DFAs, and then use those
+    /// smaller DFAs to build a new regex.
+    ///
+    /// ```
+    /// use regex_automata::Regex;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let initial_re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(true, initial_re.is_match(b"foo123"));
+    ///
+    /// let fwd = initial_re.forward().to_u16()?;
+    /// let rev = initial_re.reverse().to_u16()?;
+    /// let re = Regex::from_dfas(fwd, rev);
+    /// assert_eq!(true, re.is_match(b"foo123"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    ///
+    /// This example shows how to build a `Regex` that uses sparse DFAs instead
+    /// of dense DFAs:
+    ///
+    /// ```
+    /// use regex_automata::Regex;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let initial_re = Regex::new("foo[0-9]+")?;
+    /// assert_eq!(true, initial_re.is_match(b"foo123"));
+    ///
+    /// let fwd = initial_re.forward().to_sparse()?;
+    /// let rev = initial_re.reverse().to_sparse()?;
+    /// let re = Regex::from_dfas(fwd, rev);
+    /// assert_eq!(true, re.is_match(b"foo123"));
     /// # Ok(()) }; example().unwrap()
     /// ```
     pub fn from_dfas(forward: D, reverse: D) -> Regex<D> {
@@ -207,80 +276,6 @@ impl<D: DFA> Regex<D> {
     }
 }
 
-/*
-impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
-    /// Create a new regex whose match semantics are equivalent to this regex,
-    /// but attempt to use `u8` for the representation of state identifiers.
-    /// If `u8` is insufficient to represent all state identifiers in this
-    /// regex, then this returns an error.
-    ///
-    /// This is a convenience routine for `to_sized::<u8>()`.
-    pub fn to_u8(&self) -> Result<Regex<Vec<u8>, u8>> {
-        self.to_sized()
-    }
-
-    /// Create a new regex whose match semantics are equivalent to this regex,
-    /// but attempt to use `u16` for the representation of state identifiers.
-    /// If `u16` is insufficient to represent all state identifiers in this
-    /// regex, then this returns an error.
-    ///
-    /// This is a convenience routine for `to_sized::<u16>()`.
-    pub fn to_u16(&self) -> Result<Regex<Vec<u16>, u16>> {
-        self.to_sized()
-    }
-
-    /// Create a new regex whose match semantics are equivalent to this regex,
-    /// but attempt to use `u32` for the representation of state identifiers.
-    /// If `u32` is insufficient to represent all state identifiers in this
-    /// regex, then this returns an error.
-    ///
-    /// This is a convenience routine for `to_sized::<u32>()`.
-    pub fn to_u32(&self) -> Result<Regex<Vec<u32>, u32>> {
-        self.to_sized()
-    }
-
-    /// Create a new regex whose match semantics are equivalent to this regex,
-    /// but attempt to use `u64` for the representation of state identifiers.
-    /// If `u64` is insufficient to represent all state identifiers in this
-    /// regex, then this returns an error.
-    ///
-    /// This is a convenience routine for `to_sized::<u64>()`.
-    pub fn to_u64(&self) -> Result<Regex<Vec<u64>, u64>> {
-        self.to_sized()
-    }
-
-    /// Create a new regex whose match semantics are equivalent to this regex,
-    /// but attempt to use `T` for the representation of state identifiers. If
-    /// `T` is insufficient to represent all state identifiers in this regex,
-    /// then this returns an error.
-    ///
-    /// An alternative way to construct such a regex is to use
-    /// [`RegexBuilder::build_with_size`](struct.RegexBuilder.html#method.build_with_size).
-    /// In general, using the builder is preferred since it will use the
-    /// given state identifier representation throughout determinization (and
-    /// minimization, if done), and thereby using less memory throughout the
-    /// entire construction process. However, these routines are necessary
-    /// in cases where, say, a minimized regex could fit in a smaller state
-    /// identifier representation, but the initial determinized regex would
-    /// not.
-    pub fn to_sized<A: StateID>(&self) -> Result<Regex<Vec<A>, A>> {
-        use self::OwnOrBorrow::*;
-
-        let forward = match self.forward {
-            Owned(ref dfa) => dfa.to_sized::<A>()?,
-            Borrowed(_) => unimplemented!(),
-            // Borrowed(dfa) => DenseDFA::from_dfa_ref(dfa).to_sized::<A>()?,
-        };
-        let reverse = match self.reverse {
-            Owned(ref dfa) => dfa.to_sized::<A>()?,
-            Borrowed(_) => unimplemented!(),
-            // Borrowed(dfa) => DenseDFA::from_dfa_ref(dfa).to_sized::<A>()?,
-        };
-        Ok(Regex::from_dfas(forward, reverse))
-    }
-}
-*/
-
 /// An iterator over all non-overlapping matches for a particular search.
 ///
 /// The iterator yields a `(usize, usize)` value until no more matches could be
@@ -290,9 +285,6 @@ impl<T: AsRef<[S]>, S: StateID> Regex<T, S> {
 /// `S` is the type used to represent state identifiers in the underlying
 /// regex. The lifetime variables are as follows:
 ///
-/// * `'d` is the lifetime of the underlying DFA transition table. If the regex
-///   is built using the owned [`DenseDFA`](struct.DenseDFA.html) type, then this is
-///   always equivalent to the `'static` lifetime.
 /// * `'r` is the lifetime of the regular expression value itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
@@ -340,5 +332,286 @@ impl<'r, 't, D: DFA> Iterator for Matches<'r, 't, D> {
         }
         self.last_match = Some(e);
         Some((s, e))
+    }
+}
+
+/// A builder for a regex based on deterministic finite automatons.
+///
+/// This builder permits configuring several aspects of the construction
+/// process such as case insensitivity, Unicode support and various options
+/// that impact the size of the underlying DFAs. In some cases, options (like
+/// performing DFA minimization) can come with a substantial additional cost.
+///
+/// This builder generally constructs two DFAs, where one is responsible for
+/// finding the end of a match and the other is responsible for finding the
+/// start of a match. If you only need to detect whether something matched,
+/// or only the end of a match, then you should use a
+/// [`dense::Builder`](dense/struct.Builder.html)
+/// to construct a single DFA, which is cheaper than building two DFAs.
+#[derive(Clone, Debug)]
+pub struct RegexBuilder {
+    dfa: dense::Builder,
+}
+
+impl RegexBuilder {
+    /// Create a new regex builder with the default configuration.
+    pub fn new() -> RegexBuilder {
+        RegexBuilder {
+            dfa: dense::Builder::new(),
+        }
+    }
+
+    /// Build a regex from the given pattern.
+    ///
+    /// If there was a problem parsing or compiling the pattern, then an error
+    /// is returned.
+    pub fn build(
+        &self,
+        pattern: &str,
+    ) -> Result<Regex> {
+        self.build_with_size::<usize>(pattern)
+    }
+
+    /// Build a regex from the given pattern using a specific representation
+    /// for the underlying DFA state IDs.
+    ///
+    /// If there was a problem parsing or compiling the pattern, then an error
+    /// is returned.
+    ///
+    /// The representation of state IDs is determined by the `S` type
+    /// parameter. In general, `S` is usually one of `u8`, `u16`, `u32`, `u64`
+    /// or `usize`, where `usize` is the default used for `build`. The purpose
+    /// of specifying a representation for state IDs is to reduce the memory
+    /// footprint of the underlying DFAs.
+    ///
+    /// When using this routine, the chosen state ID representation will be
+    /// used throughout determinization and minimization, if minimization was
+    /// requested. Even if the minimized DFAs can fit into the chosen state ID
+    /// representation but the initial determinized DFA cannot, then this will
+    /// still return an error. To get a minimized DFA with a smaller state ID
+    /// representation, first build it with a bigger state ID representation,
+    /// and then shrink the sizes of the DFAs using one of its conversion
+    /// routines, such as [`DenseDFA::to_u16`](enum.DenseDFA.html#method.to_u16).
+    /// Finally, reconstitute the regex via
+    /// [`Regex::from_dfa`](struct.Regex.html#method.from_dfa).
+    pub fn build_with_size<S: StateID>(
+        &self,
+        pattern: &str,
+    ) -> Result<Regex<DenseDFA<Vec<S>, S>>> {
+        let forward = self.dfa.build_with_size(pattern)?;
+        let reverse = self.dfa
+            .clone()
+            .anchored(true)
+            .reverse(true)
+            .longest_match(true)
+            .build_with_size(pattern)?;
+        Ok(Regex::from_dfas(forward, reverse))
+    }
+
+    /// Set whether matching must be anchored at the beginning of the input.
+    ///
+    /// When enabled, a match must begin at the start of the input. When
+    /// disabled, the regex will act as if the pattern started with a `.*?`,
+    /// which enables a match to appear anywhere.
+    ///
+    /// By default this is disabled.
+    pub fn anchored(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.anchored(yes);
+        self
+    }
+
+    /// Enable or disable the case insensitive flag by default.
+    ///
+    /// By default this is disabled. It may alternatively be selectively
+    /// enabled in the regular expression itself via the `i` flag.
+    pub fn case_insensitive(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.case_insensitive(yes);
+        self
+    }
+
+    /// Enable verbose mode in the regular expression.
+    ///
+    /// When enabled, verbose mode permits insigificant whitespace in many
+    /// places in the regular expression, as well as comments. Comments are
+    /// started using `#` and continue until the end of the line.
+    ///
+    /// By default, this is disabled. It may be selectively enabled in the
+    /// regular expression by using the `x` flag regardless of this setting.
+    pub fn ignore_whitespace(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.ignore_whitespace(yes);
+        self
+    }
+
+    /// Enable or disable the "dot matches any character" flag by default.
+    ///
+    /// By default this is disabled. It may alternatively be selectively
+    /// enabled in the regular expression itself via the `s` flag.
+    pub fn dot_matches_new_line(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.dot_matches_new_line(yes);
+        self
+    }
+
+    /// Enable or disable the "swap greed" flag by default.
+    ///
+    /// By default this is disabled. It may alternatively be selectively
+    /// enabled in the regular expression itself via the `U` flag.
+    pub fn swap_greed(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.swap_greed(yes);
+        self
+    }
+
+    /// Enable or disable the Unicode flag (`u`) by default.
+    ///
+    /// By default this is **enabled**. It may alternatively be selectively
+    /// disabled in the regular expression itself via the `u` flag.
+    ///
+    /// Note that unless `allow_invalid_utf8` is enabled (it's disabled by
+    /// default), a regular expression will fail to parse if Unicode mode is
+    /// disabled and a sub-expression could possibly match invalid UTF-8.
+    pub fn unicode(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.unicode(yes);
+        self
+    }
+
+    /// When enabled, the builder will permit the construction of a regular
+    /// expression that may match invalid UTF-8.
+    ///
+    /// When disabled (the default), the builder is guaranteed to produce a
+    /// regex that will only ever match valid UTF-8 (otherwise, the builder
+    /// will return an error).
+    pub fn allow_invalid_utf8(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.allow_invalid_utf8(yes);
+        self
+    }
+
+    /// Set the nesting limit used for the regular expression parser.
+    ///
+    /// The nesting limit controls how deep the abstract syntax tree is allowed
+    /// to be. If the AST exceeds the given limit (e.g., with too many nested
+    /// groups), then an error is returned by the parser.
+    ///
+    /// The purpose of this limit is to act as a heuristic to prevent stack
+    /// overflow when building a finite automaton from a regular expression's
+    /// abstract syntax tree. In particular, construction currently uses
+    /// recursion. In the future, the implementation may stop using recursion
+    /// and this option will no longer be necessary.
+    ///
+    /// This limit is not checked until the entire AST is parsed. Therefore,
+    /// if callers want to put a limit on the amount of heap space used, then
+    /// they should impose a limit on the length, in bytes, of the concrete
+    /// pattern string. In particular, this is viable since the parser will
+    /// limit itself to heap space proportional to the lenth of the pattern
+    /// string.
+    ///
+    /// Note that a nest limit of `0` will return a nest limit error for most
+    /// patterns but not all. For example, a nest limit of `0` permits `a` but
+    /// not `ab`, since `ab` requires a concatenation AST item, which results
+    /// in a nest depth of `1`. In general, a nest limit is not something that
+    /// manifests in an obvious way in the concrete syntax, therefore, it
+    /// should not be used in a granular way.
+    pub fn nest_limit(&mut self, limit: u32) -> &mut RegexBuilder {
+        self.dfa.nest_limit(limit);
+        self
+    }
+
+    /// Minimize the underlying DFAs.
+    ///
+    /// When enabled, the DFAs powering the resulting regex will be minimized
+    /// such that it is as small as possible.
+    ///
+    /// Whether one enables minimization or not depends on the types of costs
+    /// you're willing to pay and how much you care about its benefits. In
+    /// particular, minimization has worst case `O(n*k*logn)` time and `O(k*n)`
+    /// space, where `n` is the number of DFA states and `k` is the alphabet
+    /// size. In practice, minimization can be quite costly in terms of both
+    /// space and time, so it should only be done if you're willing to wait
+    /// longer to produce a DFA. In general, you might want a minimal DFA in
+    /// the following circumstances:
+    ///
+    /// 1. You would like to optimize for the size of the automaton. This can
+    ///    manifest in one of two ways. Firstly, if you're converting the
+    ///    DFA into Rust code (or a table embedded in the code), then a minimal
+    ///    DFA will translate into a corresponding reduction in code  size, and
+    ///    thus, also the final compiled binary size. Secondly, if you are
+    ///    building many DFAs and putting them on the heap, you'll be able to
+    ///    fit more if they are smaller. Note though that building a minimal
+    ///    DFA itself requires additional space; you only realize the space
+    ///    savings once the minimal DFA is constructed (at which point, the
+    ///    space used for minimization is freed).
+    /// 2. You've observed that a smaller DFA results in faster match
+    ///    performance. Naively, this isn't guaranteed since there is no
+    ///    inherent difference between matching with a bigger-than-minimal
+    ///    DFA and a minimal DFA. However, a smaller DFA may make use of your
+    ///    CPU's cache more efficiently.
+    /// 3. You are trying to establish an equivalence between regular
+    ///    languages. The standard method for this is to build a minimal DFA
+    ///    for each language and then compare them. If the DFAs are equivalent
+    ///    (up to state renaming), then the languages are equivalent.
+    ///
+    /// This option is disabled by default.
+    pub fn minimize(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.minimize(yes);
+        self
+    }
+
+    /// Premultiply state identifiers in the underlying DFA transition tables.
+    ///
+    /// When enabled, state identifiers are premultiplied to point to their
+    /// corresponding row in the DFA's transition table. That is, given the
+    /// `i`th state, its corresponding premultiplied identifier is `i * k`
+    /// where `k` is the alphabet size of the DFA. (The alphabet size is at
+    /// most 256, but is in practice smaller if byte classes is enabled.)
+    ///
+    /// When state identifiers are not premultiplied, then the identifier of
+    /// the `i`th state is `i`.
+    ///
+    /// The advantage of premultiplying state identifiers is that is saves
+    /// a multiplication instruction per byte when searching with the DFA.
+    /// This has been observed to lead to a 20% performance benefit in
+    /// micro-benchmarks.
+    ///
+    /// The primary disadvantage of premultiplying state identifiers is
+    /// that they require a larger integer size to represent. For example,
+    /// if your DFA has 200 states, then its premultiplied form requires
+    /// 16 bits to represent every possible state identifier, where as its
+    /// non-premultiplied form only requires 8 bits.
+    ///
+    /// This option is enabled by default.
+    pub fn premultiply(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.premultiply(yes);
+        self
+    }
+
+    /// Shrink the size of the underlying DFA alphabet by mapping bytes to
+    /// their equivalence classes.
+    ///
+    /// When enabled, each DFA will use a map from all possible bytes to their
+    /// corresponding equivalence class. Each equivalence class represents a
+    /// set of bytes that does not discriminate between a match and a non-match
+    /// in the DFA. For example, the pattern `[ab]+` has at least two
+    /// equivalence classes: a set containing `a` and `b` and a set containing
+    /// every byte except for `a` and `b`. `a` and `b` are in the same
+    /// equivalence classes because they never discriminate between a match
+    /// and a non-match.
+    ///
+    /// The advantage of this map is that the size of the transition table can
+    /// be reduced drastically from `#states * 256 * sizeof(id)` to
+    /// `#states * k * sizeof(id)` where `k` is the number of equivalence
+    /// classes.
+    ///
+    /// The disadvantage of this map is that every byte searched must be
+    /// passed through this map before it can be used to determine the next
+    /// transition. This has a small match time performance cost.
+    ///
+    /// This option is enabled by default.
+    pub fn byte_classes(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.byte_classes(yes);
+        self
+    }
+}
+
+impl Default for RegexBuilder {
+    fn default() -> RegexBuilder {
+        RegexBuilder::new()
     }
 }

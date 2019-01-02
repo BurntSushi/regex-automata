@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt::{self, Write};
+use std::thread;
 
 use regex;
 use regex_automata::{DFA, DenseDFA, ErrorKind, Regex, RegexBuilder, StateID};
-use regex_automata::sparse::SparseDFA;
 use toml;
 
 macro_rules! load {
@@ -110,15 +110,28 @@ impl RegexTests {
 
 #[derive(Debug)]
 pub struct RegexTester {
+    asserted: bool,
     results: RegexTestResults,
     skip_expensive: bool,
     whitelist: Vec<regex::Regex>,
     blacklist: Vec<regex::Regex>,
 }
 
+impl Drop for RegexTester {
+    fn drop(&mut self) {
+        // If we haven't asserted yet, then the test is probably buggy, so
+        // fail it. But if we're already panicking (e.g., a bug in the regex
+        // engine), then don't double-panic, which causes an immediate abort.
+        if !thread::panicking() && !self.asserted {
+            panic!("must call RegexTester::assert at end of test");
+        }
+    }
+}
+
 impl RegexTester {
     pub fn new() -> RegexTester {
         let mut tester = RegexTester {
+            asserted: false,
             results: RegexTestResults::default(),
             skip_expensive: false,
             whitelist: vec![],
@@ -153,34 +166,9 @@ impl RegexTester {
         self
     }
 
-    pub fn assert(&self) {
+    pub fn assert(&mut self) {
+        self.asserted = true;
         self.results.assert();
-    }
-
-    pub fn test_all<'a, I, T>(
-        &mut self,
-        builder: RegexBuilder,
-        tests: I,
-    ) where I: IntoIterator<IntoIter=T, Item=&'a RegexTest>,
-            T: Iterator<Item=&'a RegexTest>
-    {
-        for test in tests {
-            let builder = builder.clone();
-            let re: Regex<DenseDFA<Vec<usize>, usize>> =
-                match self.build_regex(builder, test) {
-                    None => continue,
-                    Some(re) => re,
-                };
-            self.test_is_match(test, &re);
-            self.test_find(test, &re);
-            // Some tests (namely, fowler) are designed only to detect the
-            // first match even if there are more subsequent matches. To that
-            // end, we only test match iteration when the number of matches
-            // expected is not 1.
-            if test.matches.len() != 1 {
-                self.test_find_iter(test, &re);
-            }
-        }
     }
 
     pub fn build_regex<S: StateID>(
@@ -210,28 +198,46 @@ impl RegexTester {
         }
     }
 
+    pub fn test_all<'a, I, T>(
+        &mut self,
+        builder: RegexBuilder,
+        tests: I,
+    ) where I: IntoIterator<IntoIter=T, Item=&'a RegexTest>,
+            T: Iterator<Item=&'a RegexTest>
+    {
+        for test in tests {
+            let builder = builder.clone();
+            let re: Regex = match self.build_regex(builder, test) {
+                None => continue,
+                Some(re) => re,
+            };
+            self.test(test, &re);
+        }
+    }
+
+    pub fn test<'a, D: DFA>(
+        &mut self,
+        test: &RegexTest,
+        re: &Regex<D>,
+    ) {
+        self.test_is_match(test, re);
+        self.test_find(test, re);
+        // Some tests (namely, fowler) are designed only to detect the
+        // first match even if there are more subsequent matches. To that
+        // end, we only test match iteration when the number of matches
+        // expected is not 1.
+        if test.matches.len() != 1 {
+            self.test_find_iter(test, re);
+        }
+    }
+
     pub fn test_is_match<'a, D: DFA>(
         &mut self,
         test: &RegexTest,
         re: &Regex<D>,
     ) {
-        let got = re.is_match(&test.input);
-        let expected = test.matches.len() >= 1;
-        if got == expected {
-            self.results.succeeded.push(test.clone());
-            return;
-        }
-        self.results.failed.push(RegexTestFailure {
-            test: test.clone(),
-            kind: RegexTestFailureKind::IsMatch,
-        });
-    }
+        self.asserted = false;
 
-    pub fn test_is_match_sparse<'a, T: AsRef<[u8]>, S: StateID>(
-        &mut self,
-        test: &RegexTest,
-        re: &SparseDFA<T, S>,
-    ) {
         let got = re.is_match(&test.input);
         let expected = test.matches.len() >= 1;
         if got == expected {
@@ -249,6 +255,8 @@ impl RegexTester {
         test: &RegexTest,
         re: &Regex<D>,
     ) {
+        self.asserted = false;
+
         let got = re
             .find(&test.input)
             .map(|(start, end)| Match { start, end });
@@ -267,6 +275,8 @@ impl RegexTester {
         test: &RegexTest,
         re: &Regex<D>,
     ) {
+        self.asserted = false;
+
         let got: Vec<Match> = re
             .find_iter(&test.input)
             .map(|(start, end)| Match { start, end })
@@ -358,7 +368,10 @@ impl RegexTestResults {
             .collect::<Vec<String>>()
             .join("\n\n");
         panic!(
-            "found {} failures:\n{}\n{}\n{}",
+            "found {} failures:\n{}\n{}\n{}\n\n\
+             Set the REGEX_TEST environment variable to filter tests, \n\
+             e.g., REGEX_TEST=crazy-misc,-crazy-misc2 runs every test \n\
+             whose name contains crazy-misc but not crazy-misc2\n\n",
             self.failed.len(),
             "~".repeat(79),
             failures.trim(),

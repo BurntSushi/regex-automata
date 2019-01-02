@@ -55,6 +55,30 @@ pub fn usize_to_state_id<S: StateID>(value: usize) -> Result<S> {
     }
 }
 
+/// Write the given identifier to the given slice of bytes using the specified
+/// endianness. The given slice must have length at least `size_of::<S>()`.
+///
+/// The given state identifier representation must have size 1, 2, 4 or 8.
+pub fn write_state_id_bytes<E: ByteOrder, S: StateID>(
+    slice: &mut [u8],
+    id: S,
+) {
+    assert!(
+        1 == size_of::<S>()
+        || 2 == size_of::<S>()
+        || 4 == size_of::<S>()
+        || 8 == size_of::<S>()
+    );
+
+    match size_of::<S>() {
+        1 => slice[0] = id.to_usize() as u8,
+        2 => E::write_u16(slice, id.to_usize() as u16),
+        4 => E::write_u32(slice, id.to_usize() as u32),
+        8 => E::write_u64(slice, id.to_usize() as u64),
+        _ => unreachable!(),
+    }
+}
+
 /// A trait describing the representation of a DFA's state identifier.
 ///
 /// The purpose of this trait is to safely express both the possible state

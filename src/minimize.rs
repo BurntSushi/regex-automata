@@ -192,7 +192,6 @@ impl<'a, S: StateID> Minimizer<'a, S> {
                 no_match.add(id);
             }
         }
-        assert!(!is_match.is_empty(), "must have at least one matching state");
 
         let mut sets = vec![is_match];
         if !no_match.is_empty() {

@@ -1,26 +1,116 @@
-#![allow(warnings)]
-
-// BREADCRUMBS: In the large Unicode classes, it looks like *a lot* of DFA
-// states have several transitions that all map to the same state. We could
-// potentially save a bit of space by simply storing only one state ID, and
-// saying that any match of the input byte goes to that state ID.
-
+use std::collections::HashMap;
 use std::fmt;
 use std::iter;
 use std::marker::PhantomData;
 use std::mem::size_of;
 
-use byteorder::{ByteOrder, NativeEndian};
+use byteorder::{ByteOrder, BigEndian, LittleEndian, NativeEndian};
 
 use classes::ByteClasses;
 use dense;
 use dfa::DFA;
-use error::Result;
-use state_id::{StateID, dead_id, usize_to_state_id};
+use error::{Error, Result};
+use state_id::{StateID, dead_id, usize_to_state_id, write_state_id_bytes};
 
+/// A sparse table-based deterministic finite automaton (DFA).
+///
+/// In contrast to a [dense DFA](enum.DenseDFA.html), a sparse DFA uses a
+/// more space efficient representation for its transition table. Consequently,
+/// sparse DFAs can use much less memory than dense DFAs, but this comes at a
+/// price. In particular, reading the more space efficient transitions takes
+/// more work, and consequently, searching using a sparse DFA is typically
+/// slower than a dense DFA.
+///
+/// A sparse DFA can be built using the default configuration via the
+/// [`SparseDFA::new`](enum.SparseDFA.html#method.new) constructor. Otherwise,
+/// one can configure various aspects of a dense DFA via
+/// [`dense::Builder`](dense/struct.Builder.html), and then convert a dense
+/// DFA to a sparse DFA using
+/// [`DenseDFA::to_sparse`](enum.DenseDFA.html#method.to_sparse).
+///
+/// In general, a sparse DFA supports all the same operations as a dense DFA.
+///
+/// Making the choice between a dense and sparse DFA depends on your specific
+/// work load. If you can sacrifice a bit of search time performance, then a
+/// sparse DFA might be the best choice. In particular, while sparse DFAs are
+/// probably always slower than dense DFAs, you may find that they are easily
+/// fast enough for your purposes!
+///
+/// # State size
+///
+/// A `SparseDFA` has two type parameters, `T` and `S`. `T` corresponds to
+/// the type of the DFA's transition table while `S` corresponds to the
+/// representation used for the DFA's state identifiers as described by the
+/// [`StateID`](trait.StateID.html) trait. This type parameter is typically
+/// `usize`, but other valid choices provided by this crate include `u8`,
+/// `u16`, `u32` and `u64`. The primary reason for choosing a different state
+/// identifier representation than the default is to reduce the amount of
+/// memory used by a DFA. Note though, that if the chosen representation cannot
+/// accommodate the size of your DFA, then building the DFA will fail and
+/// return an error.
+///
+/// While the reduction in heap memory used by a DFA is one reason for choosing
+/// a smaller state identifier representation, another possible reason is for
+/// decreasing the serialization size of a DFA, as returned by
+/// [`to_bytes_little_endian`](enum.SparseDFA.html#method.to_bytes_little_endian),
+/// [`to_bytes_big_endian`](enum.SparseDFA.html#method.to_bytes_big_endian)
+/// or
+/// [`to_bytes_native_endian`](enum.DenseDFA.html#method.to_bytes_native_endian).
+///
+/// The type of the transition table is typically either `Vec<u8>` or `&[u8]`,
+/// depending on where the transition table is stored. Note that this is
+/// different than a dense DFA, whose transition table is typically
+/// `Vec<S>` or `&[S]`. The reason for this is that a sparse DFA always reads
+/// its transition table from raw bytes because the table is compactly packed.
+///
+/// # Variants
+///
+/// This DFA is defined as a non-exhaustive enumeration of different types of
+/// dense DFAs. All of the variants use the same internal representation
+/// for the transition table, but they vary in how the transition table is
+/// read. A DFA's specific variant depends on the configuration options set via
+/// [`dense::Builder`](dense/struct.Builder.html). The default variant is
+/// `ByteClass`.
+///
+/// # The `DFA` trait
+///
+/// This type implements the [`DFA`](trait.DFA.html) trait, which means it
+/// can be used for searching. For example:
+///
+/// ```
+/// use regex_automata::{DFA, SparseDFA};
+///
+/// # fn example() -> Result<(), regex_automata::Error> {
+/// let dfa = SparseDFA::new("foo[0-9]+")?;
+/// assert_eq!(Some(8), dfa.find(b"foo12345"));
+/// # Ok(()) }; example().unwrap()
+/// ```
+///
+/// The `DFA` trait also provides an assortment of other lower level methods
+/// for DFAs, such as `start_state` and `next_state`. While these are correctly
+/// implemented, it is an anti-pattern to use them in performance sensitive
+/// code on the `SparseDFA` type directly. Namely, each implementation requires
+/// a branch to determine which type of sparse DFA is being used. Instead,
+/// this branch should be pushed up a layer in the code since walking the
+/// transitions of a DFA is usually a hot path. If you do need to use these
+/// lower level methods in performance critical code, then you should match on
+/// the variants of this DFA and use each variant's implementation of the `DFA`
+/// trait directly.
 #[derive(Clone, Debug)]
 pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
+    /// A standard DFA that does not use byte classes.
     Standard(Standard<T, S>),
+    /// A DFA that shrinks its alphabet to a set of equivalence classes instead
+    /// of using all possible byte values. Any two bytes belong to the same
+    /// equivalence class if and only if they can be used interchangeably
+    /// anywhere in the DFA while never discriminating between a match and a
+    /// non-match.
+    ///
+    /// Unlike dense DFAs, sparse DFAs do not tend to benefit nearly as much
+    /// from using byte classes. In some cases, using byte classes can even
+    /// marginally increase the size of a sparse DFA's transition table. The
+    /// reason for this is that a sparse DFA already compacts each state's
+    /// transitions separate from whether byte classes are used.
     ByteClass(ByteClass<T, S>),
     /// Hints that destructuring should not be exhaustive.
     ///
@@ -31,7 +121,58 @@ pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
     __Nonexhaustive,
 }
 
+impl SparseDFA<Vec<u8>, usize> {
+    /// Parse the given regular expression using a default configuration and
+    /// return the corresponding sparse DFA.
+    ///
+    /// The default configuration uses `usize` for state IDs and reduces the
+    /// alphabet size by splitting bytes into equivalence classes. The
+    /// resulting DFA is *not* minimized.
+    ///
+    /// If you want a non-default configuration, then use the
+    /// [`dense::Builder`](dense/struct.Builder.html)
+    /// to set your own configuration, and then call
+    /// [`DenseDFA::to_sparse`](enum.DenseDFA.html#method.to_sparse)
+    /// to create a sparse DFA.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{DFA, SparseDFA};
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa = SparseDFA::new("foo[0-9]+bar")?;
+    /// assert_eq!(Some(11), dfa.find(b"foo12345bar"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub fn new(pattern: &str) -> Result<SparseDFA<Vec<u8>, usize>> {
+        dense::Builder::new()
+            .build(pattern)
+            .and_then(|dense| dense.to_sparse())
+    }
+}
+
 impl<S: StateID> SparseDFA<Vec<u8>, S> {
+    /// Create a new empty sparse DFA that never matches any input.
+    ///
+    /// # Example
+    ///
+    /// In order to build an empty DFA, callers must provide a type hint
+    /// indicating their choice of state identifier representation.
+    ///
+    /// ```
+    /// use regex_automata::{DFA, SparseDFA};
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let dfa: SparseDFA<Vec<u8>, usize> = SparseDFA::empty();
+    /// assert_eq!(None, dfa.find(b""));
+    /// assert_eq!(None, dfa.find(b"foo"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub fn empty() -> SparseDFA<Vec<u8>, S> {
+        dense::DenseDFA::empty().to_sparse().unwrap()
+    }
+
     pub(crate) fn from_dense_sized<T: AsRef<[S]>, A: StateID>(
         dfa: &dense::Repr<T, S>,
     ) -> Result<SparseDFA<Vec<u8>, A>> {
@@ -94,6 +235,168 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
     }
 }
 
+/// Routines for converting a sparse DFA to other representations, such as
+/// smaller state identifiers or raw bytes suitable for persistent storage.
+impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
+    /// Create a new sparse DFA whose match semantics are equivalent to
+    /// this DFA, but attempt to use `u8` for the representation of state
+    /// identifiers. If `u8` is insufficient to represent all state identifiers
+    /// in this DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u8>()`.
+    pub fn to_u8(&self) -> Result<SparseDFA<Vec<u8>, u8>> {
+        self.to_sized()
+    }
+
+    /// Create a new sparse DFA whose match semantics are equivalent to
+    /// this DFA, but attempt to use `u16` for the representation of state
+    /// identifiers. If `u16` is insufficient to represent all state
+    /// identifiers in this DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u16>()`.
+    pub fn to_u16(&self) -> Result<SparseDFA<Vec<u8>, u16>> {
+        self.to_sized()
+    }
+
+    /// Create a new sparse DFA whose match semantics are equivalent to
+    /// this DFA, but attempt to use `u32` for the representation of state
+    /// identifiers. If `u32` is insufficient to represent all state
+    /// identifiers in this DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u32>()`.
+    pub fn to_u32(&self) -> Result<SparseDFA<Vec<u8>, u32>> {
+        self.to_sized()
+    }
+
+    /// Create a new sparse DFA whose match semantics are equivalent to
+    /// this DFA, but attempt to use `u64` for the representation of state
+    /// identifiers. If `u64` is insufficient to represent all state
+    /// identifiers in this DFA, then this returns an error.
+    ///
+    /// This is a convenience routine for `to_sized::<u64>()`.
+    pub fn to_u64(&self) -> Result<SparseDFA<Vec<u8>, u64>> {
+        self.to_sized()
+    }
+
+    /// Create a new sparse DFA whose match semantics are equivalent to
+    /// this DFA, but attempt to use `A` for the representation of state
+    /// identifiers. If `A` is insufficient to represent all state identifiers
+    /// in this DFA, then this returns an error.
+    ///
+    /// An alternative way to construct such a DFA is to use
+    /// [`DenseDFA::to_sparse_sized`](enum.DenseDFA.html#method.to_sparse_sized).
+    /// In general, picking the appropriate size upon initial construction of
+    /// a sparse DFA is preferred, since it will do the conversion in one
+    /// step instead of two.
+    pub fn to_sized<A: StateID>(&self) -> Result<SparseDFA<Vec<u8>, A>> {
+        self.repr().to_sized().map(|r| r.into_sparse_dfa())
+    }
+
+    /// Serialize a sparse DFA to raw bytes in little endian format.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_little_endian(&self) -> Result<Vec<u8>> {
+        self.repr().to_bytes::<LittleEndian>()
+    }
+
+    /// Serialize a sparse DFA to raw bytes in big endian format.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_big_endian(&self) -> Result<Vec<u8>> {
+        self.repr().to_bytes::<BigEndian>()
+    }
+
+    /// Serialize a sparse DFA to raw bytes in native endian format.
+    /// Generally, it is better to pick an explicit endianness using either
+    /// `to_bytes_little_endian` or `to_bytes_big_endian`. This routine is
+    /// useful in tests where the DFA is serialized and deserialized on the
+    /// same platform.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    pub fn to_bytes_native_endian(&self) -> Result<Vec<u8>> {
+        self.repr().to_bytes::<NativeEndian>()
+    }
+}
+
+impl<'a, S: StateID> SparseDFA<&'a [u8], S> {
+    /// Deserialize a sparse DFA with a specific state identifier
+    /// representation.
+    ///
+    /// Deserializing a DFA using this routine will never allocate heap memory.
+    /// This is also guaranteed to be a constant time operation that does not
+    /// vary with the size of the DFA.
+    ///
+    /// The bytes given should be generated by the serialization of a DFA with
+    /// either the
+    /// [`to_bytes_little_endian`](enum.DenseDFA.html#method.to_bytes_little_endian)
+    /// method or the
+    /// [`to_bytes_big_endian`](enum.DenseDFA.html#method.to_bytes_big_endian)
+    /// endian, depending on the endianness of the machine you are
+    /// deserializing this DFA from.
+    ///
+    /// If the state identifier representation is `usize`, then deserialization
+    /// is dependent on the pointer size. For this reason, it is best to
+    /// serialize DFAs using a fixed size representation for your state
+    /// identifiers, such as `u8`, `u16`, `u32` or `u64`.
+    ///
+    /// # Panics
+    ///
+    /// The bytes given should be *trusted*. In particular, if the bytes
+    /// are not a valid serialization of a DFA, or if the endianness of the
+    /// serialized bytes is different than the endianness of the machine that
+    /// is deserializing the DFA, then this routine will panic. Moreover, it
+    /// is possible for this deserialization routine to succeed even if the
+    /// given bytes do not represent a valid serialized sparse DFA.
+    ///
+    /// # Safety
+    ///
+    /// This routine is unsafe because it permits callers to provide an
+    /// arbitrary transition table with possibly incorrect transitions. While
+    /// the various serialization routines will never return an incorrect
+    /// transition table, there is no guarantee that the bytes provided here
+    /// are correct. While deserialization does many checks (as documented
+    /// above in the panic conditions), this routine does not check that the
+    /// transition table is correct. Given an incorrect transition table, it is
+    /// possible for the search routines to access out-of-bounds memory because
+    /// of explicit bounds check elision.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to serialize a DFA to raw bytes, deserialize it
+    /// and then use it for searching. Note that we first convert the DFA to
+    /// using `u16` for its state identifier representation before serializing
+    /// it. While this isn't strictly necessary, it's good practice in order to
+    /// decrease the size of the DFA and to avoid platform specific pitfalls
+    /// such as differing pointer sizes.
+    ///
+    /// ```
+    /// use regex_automata::{DFA, DenseDFA, SparseDFA};
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let sparse = SparseDFA::new("foo[0-9]+")?;
+    /// let bytes = sparse.to_u16()?.to_bytes_native_endian()?;
+    ///
+    /// let dfa: SparseDFA<&[u8], u16> = unsafe {
+    ///     SparseDFA::from_bytes(&bytes)
+    /// };
+    ///
+    /// assert_eq!(Some(8), dfa.find(b"foo12345"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub unsafe fn from_bytes(buf: &'a [u8]) -> SparseDFA<&'a [u8], S> {
+        Repr::from_bytes(buf).into_sparse_dfa()
+    }
+}
+
 impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
     type ID = S;
 
@@ -105,12 +408,12 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         self.repr().is_match_state(id)
     }
 
-    fn is_possible_match_state(&self, id: S) -> bool {
-        self.repr().is_possible_match_state(id)
-    }
-
     fn is_dead_state(&self, id: S) -> bool {
         self.repr().is_dead_state(id)
+    }
+
+    fn is_match_or_dead_state(&self, id: S) -> bool {
+        self.repr().is_match_or_dead_state(id)
     }
 
     fn next_state(&self, current: S, input: u8) -> S {
@@ -165,6 +468,14 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
     }
 }
 
+/// A standard sparse DFA that does not use premultiplication or byte classes.
+///
+/// Generally, it isn't necessary to use this type directly, since a
+/// `SparseDFA` can be used for searching directly. One possible reason why
+/// one might want to use this type directly is if you are implementing your
+/// own search routines by walking a DFA's transitions directly. In that case,
+/// you'll want to use this type (or any of the other DFA variant types)
+/// directly, since they implement `next_state` more efficiently.
 #[derive(Clone, Debug)]
 pub struct Standard<T: AsRef<[u8]>, S: StateID = usize>(
     Repr<T, S>,
@@ -181,12 +492,12 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for Standard<T, S> {
         self.0.is_match_state(id)
     }
 
-    fn is_possible_match_state(&self, id: S) -> bool {
-        self.0.is_possible_match_state(id)
-    }
-
     fn is_dead_state(&self, id: S) -> bool {
         self.0.is_dead_state(id)
+    }
+
+    fn is_match_or_dead_state(&self, id: S) -> bool {
+        self.0.is_match_or_dead_state(id)
     }
 
     fn next_state(&self, current: S, input: u8) -> S {
@@ -198,6 +509,25 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for Standard<T, S> {
     }
 }
 
+/// A sparse DFA that shrinks its alphabet.
+///
+/// Alphabet shrinking is achieved by using a set of equivalence classes
+/// instead of using all possible byte values. Any two bytes belong to the same
+/// equivalence class if and only if they can be used interchangeably anywhere
+/// in the DFA while never discriminating between a match and a non-match.
+///
+/// Unlike dense DFAs, sparse DFAs do not tend to benefit nearly as much from
+/// using byte classes. In some cases, using byte classes can even marginally
+/// increase the size of a sparse DFA's transition table. The reason for this
+/// is that a sparse DFA already compacts each state's transitions separate
+/// from whether byte classes are used.
+///
+/// Generally, it isn't necessary to use this type directly, since a
+/// `SparseDFA` can be used for searching directly. One possible reason why
+/// one might want to use this type directly is if you are implementing your
+/// own search routines by walking a DFA's transitions directly. In that case,
+/// you'll want to use this type (or any of the other DFA variant types)
+/// directly, since they implement `next_state` more efficiently.
 #[derive(Clone, Debug)]
 pub struct ByteClass<T: AsRef<[u8]>, S: StateID = usize>(
     Repr<T, S>,
@@ -214,12 +544,12 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for ByteClass<T, S> {
         self.0.is_match_state(id)
     }
 
-    fn is_possible_match_state(&self, id: S) -> bool {
-        self.0.is_possible_match_state(id)
-    }
-
     fn is_dead_state(&self, id: S) -> bool {
         self.0.is_dead_state(id)
+    }
+
+    fn is_match_or_dead_state(&self, id: S) -> bool {
+        self.0.is_match_or_dead_state(id)
     }
 
     fn next_state(&self, current: S, input: u8) -> S {
@@ -304,28 +634,241 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
     }
 
     fn is_match_state(&self, id: S) -> bool {
-        self.is_possible_match_state(id) && !self.is_dead_state(id)
-    }
-
-    fn is_possible_match_state(&self, id: S) -> bool {
-        id <= self.max_match
+        self.is_match_or_dead_state(id) && !self.is_dead_state(id)
     }
 
     fn is_dead_state(&self, id: S) -> bool {
         id == dead_id()
     }
 
+    fn is_match_or_dead_state(&self, id: S) -> bool {
+        id <= self.max_match
+    }
+
     fn trans(&self) -> &[u8] {
         self.trans.as_ref()
+    }
+
+    /// Create a new sparse DFA whose match semantics are equivalent to this
+    /// DFA, but attempt to use `A` for the representation of state
+    /// identifiers. If `A` is insufficient to represent all state identifiers
+    /// in this DFA, then this returns an error.
+    fn to_sized<A: StateID>(&self) -> Result<Repr<Vec<u8>, A>> {
+        // To build the new DFA, we proceed much like the initial construction
+        // of the sparse DFA. Namely, since the state ID size is changing,
+        // we don't actually know all of our state IDs until we've allocated
+        // all necessary space. So we do one pass that allocates all of the
+        // storage we need, and then another pass to fill in the transitions.
+
+        let mut trans = Vec::with_capacity(size_of::<A>() * self.state_count);
+        let mut map: HashMap<S, A> = HashMap::with_capacity(self.state_count);
+        for (old_id, state) in self.states() {
+            let pos = trans.len();
+            map.insert(old_id, usize_to_state_id(pos)?);
+
+            let n = state.ntrans;
+            let zeros = 2 + (n * 2) + (n * size_of::<A>());
+            trans.extend(iter::repeat(0).take(zeros));
+
+            NativeEndian::write_u16(&mut trans[pos..], n as u16);
+            let (s, e) = (pos + 2, pos + 2 + (n * 2));
+            trans[s..e].copy_from_slice(state.input_ranges);
+        }
+
+        let mut new = Repr {
+            start: map[&self.start],
+            state_count: self.state_count,
+            max_match: map[&self.max_match],
+            byte_classes: self.byte_classes.clone(),
+            trans: trans,
+        };
+        for (&old_id, &new_id) in map.iter() {
+            let old_state = self.state(old_id);
+            let mut new_state = new.state_mut(new_id);
+            for i in 0..new_state.ntrans {
+                let next = map[&old_state.next_at(i)];
+                new_state.set_next_at(i, usize_to_state_id(next.to_usize())?);
+            }
+        }
+        new.start = map[&self.start];
+        new.max_match = map[&self.max_match];
+        Ok(new)
+    }
+
+    /// Serialize a sparse DFA to raw bytes using the provided endianness.
+    ///
+    /// If the state identifier representation of this DFA has a size different
+    /// than 1, 2, 4 or 8 bytes, then this returns an error. All
+    /// implementations of `StateID` provided by this crate satisfy this
+    /// requirement.
+    ///
+    /// Unlike dense DFAs, the result is not necessarily aligned since a
+    /// sparse DFA's transition table is always read as a sequence of bytes.
+    fn to_bytes<A: ByteOrder>(&self) -> Result<Vec<u8>> {
+        let label = b"rust-regex-automata-sparse-dfa\x00";
+        let size =
+            // For human readable label.
+            label.len()
+            // endiannes check, must be equal to 0xFEFF for native endian
+            + 2
+            // For version number.
+            + 2
+            // Size of state ID representation, in bytes.
+            // Must be 1, 2, 4 or 8.
+            + 2
+            // For DFA misc options. (Currently unused.)
+            + 2
+            // For start state.
+            + 8
+            // For state count.
+            + 8
+            // For max match state.
+            + 8
+            // For byte class map.
+            + 256
+            // For transition table.
+            + self.trans().len();
+
+        let mut i = 0;
+        let mut buf = vec![0; size];
+
+        // write label
+        for &b in label {
+            buf[i] = b;
+            i += 1;
+        }
+        // endianness check
+        A::write_u16(&mut buf[i..], 0xFEFF);
+        i += 2;
+        // version number
+        A::write_u16(&mut buf[i..], 1);
+        i += 2;
+        // size of state ID
+        let state_size = size_of::<S>();
+        if ![1, 2, 4, 8].contains(&state_size) {
+            return Err(Error::serialize(&format!(
+                "state size of {} not supported, must be 1, 2, 4 or 8",
+                state_size
+            )));
+        }
+        A::write_u16(&mut buf[i..], state_size as u16);
+        i += 2;
+        // DFA misc options
+        let options = 0u16;
+        A::write_u16(&mut buf[i..], options);
+        i += 2;
+        // start state
+        A::write_u64(&mut buf[i..], self.start.to_usize() as u64);
+        i += 8;
+        // state count
+        A::write_u64(&mut buf[i..], self.state_count as u64);
+        i += 8;
+        // max match state
+        A::write_u64(
+            &mut buf[i..],
+            self.max_match.to_usize() as u64,
+        );
+        i += 8;
+        // byte class map
+        for b in (0..256).map(|b| b as u8) {
+            buf[i] = self.byte_classes.get(b);
+            i += 1;
+        }
+        // transition table
+        for (_, state) in self.states() {
+            A::write_u16(&mut buf[i..], state.ntrans as u16);
+            i += 2;
+            buf[i..i + (state.ntrans * 2)].copy_from_slice(state.input_ranges);
+            i += state.ntrans * 2;
+            for j in 0..state.ntrans {
+                write_state_id_bytes::<A, _>(&mut buf[i..], state.next_at(j));
+                i += size_of::<S>();
+            }
+        }
+
+        assert_eq!(size, i, "expected to consume entire buffer");
+
+        Ok(buf)
+    }
+}
+
+impl<'a, S: StateID> Repr<&'a [u8], S> {
+    /// The implementation for deserializing a sparse DFA from raw bytes.
+    unsafe fn from_bytes(mut buf: &'a [u8]) -> Repr<&'a [u8], S> {
+        // skip over label
+        match buf.iter().position(|&b| b == b'\x00') {
+            None => panic!("could not find label"),
+            Some(i) => buf = &buf[i+1..],
+        }
+
+        // check that current endianness is same as endianness of DFA
+        let endian_check = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
+        if endian_check != 0xFEFF {
+            panic!(
+                "endianness mismatch, expected 0xFEFF but got 0x{:X}. \
+                 are you trying to load a SparseDFA serialized with a \
+                 different endianness?",
+                endian_check,
+            );
+        }
+
+        // check that the version number is supported
+        let version = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
+        if version != 1 {
+            panic!(
+                "expected version 1, but found unsupported version {}",
+                version,
+            );
+        }
+
+        // read size of state
+        let state_size = NativeEndian::read_u16(buf) as usize;
+        if state_size != size_of::<S>() {
+            panic!(
+                "state size of SparseDFA ({}) does not match \
+                 requested state size ({})",
+                state_size, size_of::<S>(),
+            );
+        }
+        buf = &buf[2..];
+
+        // read miscellaneous options (unused)
+        let _ = NativeEndian::read_u16(buf);
+        buf = &buf[2..];
+
+        // read start state
+        let start = S::from_usize(NativeEndian::read_u64(buf) as usize);
+        buf = &buf[8..];
+
+        // read state count
+        let state_count = NativeEndian::read_u64(buf) as usize;
+        buf = &buf[8..];
+
+        // read max match state
+        let max_match = S::from_usize(NativeEndian::read_u64(buf) as usize);
+        buf = &buf[8..];
+
+        // read byte classes
+        let byte_classes = ByteClasses::from_slice(&buf[..256]);
+        buf = &buf[256..];
+
+        Repr {
+            start,
+            state_count,
+            max_match,
+            byte_classes,
+            trans: buf,
+        }
     }
 }
 
 impl<S: StateID> Repr<Vec<u8>, S> {
+    /// The implementation for constructing a sparse DFA from a dense DFA.
     fn from_dense_sized<T: AsRef<[S]>, A: StateID>(
         dfa: &dense::Repr<T, S>,
     ) -> Result<Repr<Vec<u8>, A>> {
-        let state_count = dfa.state_count();
-
         // In order to build the transition table, we need to be able to write
         // state identifiers for each of the "next" transitions in each state.
         // Our state identifiers correspond to the byte offset in the
@@ -343,22 +886,21 @@ impl<S: StateID> Repr<Vec<u8>, S> {
         // In the second pass, we fill in the transitions based on the map
         // built in the first pass.
 
-        let mut trans = vec![];
-        let mut remap: Vec<A> = vec![dead_id(); state_count];
+        let mut trans = Vec::with_capacity(size_of::<A>() * dfa.state_count());
+        let mut remap: Vec<A> = vec![dead_id(); dfa.state_count()];
         for (old_id, state) in dfa.states() {
             let pos = trans.len();
+
             remap[dfa.state_id_to_index(old_id)] = usize_to_state_id(pos)?;
             // zero-filled space for the transition count
             trans.push(0);
             trans.push(0);
 
             let mut trans_count = 0;
-            for (b1, b2, next) in state.sparse_transitions() {
-                if next != dead_id() {
-                    trans_count += 1;
-                    trans.push(b1);
-                    trans.push(b2);
-                }
+            for (b1, b2, _) in state.sparse_transitions() {
+                trans_count += 1;
+                trans.push(b1);
+                trans.push(b2);
             }
             // fill in the transition count
             NativeEndian::write_u16(&mut trans[pos..], trans_count);
@@ -368,25 +910,35 @@ impl<S: StateID> Repr<Vec<u8>, S> {
             trans.extend(iter::repeat(0).take(zeros));
         }
 
-        let mut pos = 0;
-        for (_, state) in dfa.states() {
-            let trans_count = NativeEndian::read_u16(&trans[pos..]) as usize;
-            pos += 2 + (2 * trans_count);
-            for (b1, b2, next) in state.sparse_transitions() {
-                if next != dead_id() {
-                    let next = remap[dfa.state_id_to_index(next)];
-                    next.write_bytes(&mut trans[pos..]);
-                    pos += size_of::<A>();
-                }
+        let mut new = Repr {
+            start: remap[dfa.state_id_to_index(dfa.start_state())],
+            state_count: dfa.state_count(),
+            max_match: remap[dfa.state_id_to_index(dfa.max_match_state())],
+            byte_classes: dfa.byte_classes().clone(),
+            trans: trans,
+        };
+        for (old_id, old_state) in dfa.states() {
+            let new_id = remap[dfa.state_id_to_index(old_id)];
+            let mut new_state = new.state_mut(new_id);
+            let sparse = old_state.sparse_transitions();
+            for (i, (_, _, next)) in sparse.enumerate() {
+                let next = remap[dfa.state_id_to_index(next)];
+                new_state.set_next_at(i, next);
             }
         }
+        Ok(new)
+    }
 
-        let start = remap[dfa.state_id_to_index(dfa.start_state())];
-        let max_match = remap[dfa.state_id_to_index(dfa.max_match_state())];
-        let byte_classes = dfa.byte_classes().clone();
-        Ok(Repr {
-            start, state_count, max_match, byte_classes, trans,
-        })
+    /// Return a convenient mutable representation of the given state.
+    fn state_mut<'a>(&'a mut self, id: S) -> StateMut<'a, S> {
+        let mut pos = id.to_usize();
+        let ntrans = NativeEndian::read_u16(&self.trans[pos..]) as usize;
+        pos += 2;
+
+        let size = (ntrans * 2) + (ntrans * size_of::<S>());
+        let ranges_and_next = &mut self.trans[pos..pos + size];
+        let (input_ranges, next) = ranges_and_next.split_at_mut(ntrans * 2);
+        StateMut { _state_id_repr: PhantomData, ntrans, input_ranges, next }
     }
 }
 
@@ -530,6 +1082,46 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
             }
         }
         write!(f, "{}", transitions.join(", "))
+    }
+}
+
+/// A representation of a mutable sparse DFA state that can be cheaply
+/// materialized from a state identifier.
+struct StateMut<'a, S: StateID = usize> {
+    /// The state identifier representation used by the DFA from which this
+    /// state was extracted. Since our transition table is compacted in a
+    /// &[u8], we don't actually use the state ID type parameter explicitly
+    /// anywhere, so we fake it. This prevents callers from using an incorrect
+    /// state ID representation to read from this state.
+    _state_id_repr: PhantomData<S>,
+    /// The number of transitions in this state.
+    ntrans: usize,
+    /// Pairs of input ranges, where there is one pair for each transition.
+    /// Each pair specifies an inclusive start and end byte range for the
+    /// corresponding transition.
+    input_ranges: &'a mut [u8],
+    /// Transitions to the next state. This slice contains native endian
+    /// encoded state identifiers, with `S` as the representation. Thus, there
+    /// are `ntrans * size_of::<S>()` bytes in this slice.
+    next: &'a mut [u8],
+}
+
+impl<'a, S: StateID> StateMut<'a, S> {
+    /// Sets the ith transition to the given state.
+    fn set_next_at(&mut self, i: usize, next: S) {
+        next.write_bytes(&mut self.next[i * size_of::<S>()..]);
+    }
+}
+
+impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let state = State {
+            _state_id_repr: self._state_id_repr,
+            ntrans: self.ntrans,
+            input_ranges: self.input_ranges,
+            next: self.next,
+        };
+        fmt::Debug::fmt(&state, f)
     }
 }
 

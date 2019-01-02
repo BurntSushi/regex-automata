@@ -1,7 +1,10 @@
-#![allow(warnings)]
-
 use std::fmt;
 
+/// A representation of byte oriented equivalence classes.
+///
+/// This is used in a DFA to reduce the size of the transition table. This can
+/// have a particularly large impact not only on the total size of a dense DFA,
+/// but also on compile times.
 #[derive(Clone, Copy)]
 pub struct ByteClasses([u8; 256]);
 

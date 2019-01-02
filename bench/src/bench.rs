@@ -5,7 +5,7 @@ extern crate criterion;
 extern crate regex_automata;
 
 use criterion::{Bencher, Benchmark, Criterion, Throughput};
-use regex_automata::{DFA, DenseDFABuilder, RegexBuilder};
+use regex_automata::{dense, DFA, RegexBuilder};
 
 use inputs::*;
 
@@ -14,23 +14,16 @@ mod inputs;
 fn is_match(c: &mut Criterion) {
     let corpus = SHERLOCK_HUGE;
     define(c, "is-match", "sherlock-huge", corpus, move |b| {
-        // let dfa = RegexBuilder::new()
-            // .anchored(false)
-            // .minimize(true)
-            // .premultiply(true)
-            // .byte_classes(false)
-            // .build(r"\p{Greek}")
-            // .unwrap();
-        let dfa = DenseDFABuilder::new()
+        let re = RegexBuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        let dfa = dfa.to_sparse().unwrap();
+        // let re = re.forward().to_sparse().unwrap();
         b.iter(|| {
-            assert!(!dfa.is_match(corpus));
+            assert!(!re.is_match(corpus));
         });
     });
 
@@ -43,8 +36,6 @@ fn is_match(c: &mut Criterion) {
             .premultiply(true)
             .byte_classes(false)
             .build(r"\p{Greek}")
-            // // .build(r"\p{Ideographic}")
-            // // .build(r"zZzZzZzZzZ")
             .unwrap();
         let re = re.forward().to_sparse().unwrap();
         b.iter(|| {
@@ -54,45 +45,29 @@ fn is_match(c: &mut Criterion) {
 
     let corpus = SHERLOCK_TINY;
     define(c, "is-match", "sherlock-tiny", corpus, move |b| {
-        // let dfa = RegexBuilder::new()
-            // .anchored(false)
-            // .minimize(true)
-            // .premultiply(true)
-            // .byte_classes(false)
-            // .build(r"\p{Greek}")
-            // .unwrap();
-        let dfa = DenseDFABuilder::new()
+        let re = RegexBuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        let dfa = dfa.to_sparse().unwrap();
         b.iter(|| {
-            assert!(!dfa.is_match(corpus));
+            assert!(!re.is_match(corpus));
         });
     });
 
     let corpus = EMPTY;
     define(c, "is-match", "empty", corpus, move |b| {
-        // let dfa = RegexBuilder::new()
-            // .anchored(false)
-            // .minimize(true)
-            // .premultiply(true)
-            // .byte_classes(false)
-            // .build(r"\p{Greek}")
-            // .unwrap();
-        let dfa = DenseDFABuilder::new()
+        let re = RegexBuilder::new()
             .anchored(false)
             .minimize(true)
             .premultiply(true)
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        let dfa = dfa.to_sparse().unwrap();
         b.iter(|| {
-            assert!(!dfa.is_match(corpus));
+            assert!(!re.is_match(corpus));
         });
     });
 }
@@ -127,7 +102,7 @@ fn define_compile(
     let group = format!("compile/{}", group_name);
     define(c, &group, "unminimized-noclasses", &[], move |b| {
         b.iter(|| {
-            let result = DenseDFABuilder::new()
+            let result = dense::Builder::new()
                 .anchored(true)
                 .minimize(false)
                 .premultiply(false)
@@ -138,7 +113,7 @@ fn define_compile(
     });
     define(c, &group, "unminimized-classes", &[], move |b| {
         b.iter(|| {
-            let result = DenseDFABuilder::new()
+            let result = dense::Builder::new()
                 .anchored(true)
                 .minimize(false)
                 .premultiply(false)
@@ -149,7 +124,7 @@ fn define_compile(
     });
     // TODO: Minimization is too slow to benchmark for now...
     define(c, &group, "minimized-noclasses", &[], move |b| {
-        let mut dfa = DenseDFABuilder::new()
+        let mut dfa = dense::Builder::new()
             .anchored(true)
             .minimize(false)
             .premultiply(false)
@@ -163,7 +138,7 @@ fn define_compile(
         });
     });
     define(c, &group, "minimized-classes", &[], move |b| {
-        let mut dfa = DenseDFABuilder::new()
+        let mut dfa = dense::Builder::new()
             .anchored(true)
             .minimize(false)
             .premultiply(false)

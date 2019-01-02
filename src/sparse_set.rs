@@ -6,10 +6,10 @@ use std::slice;
 /// entire set can also be done in constant time. Iteration yields elements
 /// in the order in which they were inserted.
 ///
-/// The data structure is based on: http://research.swtch.com/sparse
-/// Note though that we don't actually use uninitialized memory. We generally
-/// reuse allocations, so the initial allocation cost is bareable. However,
-/// its other properties listed above are extremely useful.
+/// The data structure is based on: http://research.swtch.com/sparse Note
+/// though that we don't actually use uninitialized memory. We generally reuse
+/// sparse sets, so the initial allocation cost is bareable. However, its other
+/// properties listed above are extremely useful.
 #[derive(Clone, Debug)]
 pub struct SparseSet {
     /// Dense contains the instruction pointers in the order in which they
