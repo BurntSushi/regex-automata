@@ -37,7 +37,7 @@ fn is_match(c: &mut Criterion) {
             .byte_classes(false)
             .build(r"\p{Greek}")
             .unwrap();
-        let re = re.forward().to_sparse().unwrap();
+        // let re = re.forward().to_sparse().unwrap();
         b.iter(|| {
             assert!(!re.is_match(corpus));
         });

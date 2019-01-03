@@ -44,6 +44,12 @@ pub trait DFA {
     /// implementation.
     fn is_match_or_dead_state(&self, id: Self::ID) -> bool;
 
+    /// Returns true if and only if this DFA is anchored.
+    ///
+    /// When a DFA is anchored, it is only allowed to report matches that
+    /// start at index `0`.
+    fn is_anchored(&self) -> bool;
+
     /// Given the current state that this DFA is in and the next input byte,
     /// this method returns the identifier of the next state. The identifier
     /// returned is always valid, but it may correspond to a dead state.
@@ -81,18 +87,9 @@ pub trait DFA {
     /// assert_eq!(false, dfa.is_match(b"foobar"));
     /// # Ok(()) }; example().unwrap()
     /// ```
+    #[inline]
     fn is_match(&self, bytes: &[u8]) -> bool {
-        let mut state = self.start_state();
-        if self.is_match_or_dead_state(state) {
-            return self.is_match_state(state);
-        }
-        for &b in bytes.iter() {
-            state = unsafe { self.next_state_unchecked(state, b) };
-            if self.is_match_or_dead_state(state) {
-                return self.is_match_state(state);
-            }
-        }
-        false
+        self.is_match_at(bytes, 0)
     }
 
     /// Returns the first position at which a match is found.
@@ -120,23 +117,9 @@ pub trait DFA {
     /// assert_eq!(Some(1), dfa.shortest_match(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
+    #[inline]
     fn shortest_match(&self, bytes: &[u8]) -> Option<usize> {
-        let mut state = self.start_state();
-        if self.is_match_or_dead_state(state) {
-            return if self.is_dead_state(state) { None } else { Some(0) };
-        }
-        for (i, &b) in bytes.iter().enumerate() {
-            state = unsafe { self.next_state_unchecked(state, b) };
-            if self.is_match_or_dead_state(state) {
-                return
-                    if self.is_dead_state(state) {
-                        None
-                    } else {
-                        Some(i + 1)
-                    };
-            }
-        }
-        None
+        self.shortest_match_at(bytes, 0)
     }
 
     /// Returns the end offset of the longest match. If no match exists,
@@ -184,26 +167,9 @@ pub trait DFA {
     /// assert_eq!(Some(3), dfa.find(b"abc"));
     /// # Ok(()) }; example().unwrap()
     /// ```
+    #[inline]
     fn find(&self, bytes: &[u8]) -> Option<usize> {
-        let mut state = self.start_state();
-        let mut last_match =
-            if self.is_dead_state(state) {
-                return None;
-            } else if self.is_match_state(state) {
-                Some(0)
-            } else {
-                None
-            };
-        for (i, &b) in bytes.iter().enumerate() {
-            state = unsafe { self.next_state_unchecked(state, b) };
-            if self.is_match_or_dead_state(state) {
-                if self.is_dead_state(state) {
-                    return last_match;
-                }
-                last_match = Some(i + 1);
-            }
-        }
-        last_match
+        self.find_at(bytes, 0)
     }
 
     /// Returns the start offset of the longest match in reverse, by searching
@@ -229,17 +195,121 @@ pub trait DFA {
     /// assert_eq!(Some(0), dfa.rfind(b"foo12345"));
     /// # Ok(()) }; example().unwrap()
     /// ```
+    #[inline]
     fn rfind(&self, bytes: &[u8]) -> Option<usize> {
+        self.rfind_at(bytes, bytes.len())
+    }
+
+    /// Returns the same as `is_match`, but starts the search at the given
+    /// offset.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == 0`.
+    #[inline]
+    fn is_match_at(&self, bytes: &[u8], start: usize) -> bool {
+        if self.is_anchored() && start > 0 {
+            return false;
+        }
+
+        let mut state = self.start_state();
+        if self.is_match_or_dead_state(state) {
+            return self.is_match_state(state);
+        }
+        for &b in bytes[start..].iter() {
+            state = unsafe { self.next_state_unchecked(state, b) };
+            if self.is_match_or_dead_state(state) {
+                return self.is_match_state(state);
+            }
+        }
+        false
+    }
+
+    /// Returns the same as `shortest_match`, but starts the search at the
+    /// given offset.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == 0`.
+    #[inline]
+    fn shortest_match_at(&self, bytes: &[u8], start: usize) -> Option<usize> {
+        if self.is_anchored() && start > 0 {
+            return None;
+        }
+
+        let mut state = self.start_state();
+        if self.is_match_or_dead_state(state) {
+            return if self.is_dead_state(state) { None } else { Some(0) };
+        }
+        for (i, &b) in bytes[start..].iter().enumerate() {
+            state = unsafe { self.next_state_unchecked(state, b) };
+            if self.is_match_or_dead_state(state) {
+                return
+                    if self.is_dead_state(state) {
+                        None
+                    } else {
+                        Some(start + i + 1)
+                    };
+            }
+        }
+        None
+    }
+
+    /// Returns the same as `find`, but starts the search at the given
+    /// offset.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == 0`.
+    #[inline]
+    fn find_at(&self, bytes: &[u8], start: usize) -> Option<usize> {
+        if self.is_anchored() && start > 0 {
+            return None;
+        }
+
         let mut state = self.start_state();
         let mut last_match =
             if self.is_dead_state(state) {
                 return None;
             } else if self.is_match_state(state) {
-                Some(0)
+                Some(start)
             } else {
                 None
             };
-        for (i, &b) in bytes.iter().enumerate().rev() {
+        for (i, &b) in bytes[start..].iter().enumerate() {
+            state = unsafe { self.next_state_unchecked(state, b) };
+            if self.is_match_or_dead_state(state) {
+                if self.is_dead_state(state) {
+                    return last_match;
+                }
+                last_match = Some(start + i + 1);
+            }
+        }
+        last_match
+    }
+
+    /// Returns the same as `rfind`, but starts the search at the given
+    /// offset.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == bytes.len()`.
+    #[inline(never)]
+    fn rfind_at(&self, bytes: &[u8], start: usize) -> Option<usize> {
+        if self.is_anchored() && start < bytes.len() {
+            return None;
+        }
+
+        let mut state = self.start_state();
+        let mut last_match =
+            if self.is_dead_state(state) {
+                return None;
+            } else if self.is_match_state(state) {
+                Some(start)
+            } else {
+                None
+            };
+        for (i, &b) in bytes[..start].iter().enumerate().rev() {
             state = unsafe { self.next_state_unchecked(state, b) };
             if self.is_match_or_dead_state(state) {
                 if self.is_dead_state(state) {
@@ -255,26 +325,37 @@ pub trait DFA {
 impl<'a, T: DFA> DFA for &'a T {
     type ID = T::ID;
 
+    #[inline]
     fn start_state(&self) -> Self::ID {
         (**self).start_state()
     }
 
+    #[inline]
     fn is_match_state(&self, id: Self::ID) -> bool {
         (**self).is_match_state(id)
     }
 
+    #[inline]
     fn is_match_or_dead_state(&self, id: Self::ID) -> bool {
         (**self).is_match_or_dead_state(id)
     }
 
+    #[inline]
     fn is_dead_state(&self, id: Self::ID) -> bool {
         (**self).is_dead_state(id)
     }
 
+    #[inline]
+    fn is_anchored(&self) -> bool {
+        (**self).is_anchored()
+    }
+
+    #[inline]
     fn next_state(&self, current: Self::ID, input: u8) -> Self::ID {
         (**self).next_state(current, input)
     }
 
+    #[inline]
     unsafe fn next_state_unchecked(
         &self,
         current: Self::ID,

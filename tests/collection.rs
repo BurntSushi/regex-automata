@@ -5,6 +5,7 @@ use std::thread;
 
 use regex;
 use regex_automata::{DFA, DenseDFA, ErrorKind, Regex, RegexBuilder, StateID};
+use serde_bytes;
 use toml;
 
 macro_rules! load {
@@ -225,8 +226,8 @@ impl RegexTester {
         // Some tests (namely, fowler) are designed only to detect the
         // first match even if there are more subsequent matches. To that
         // end, we only test match iteration when the number of matches
-        // expected is not 1.
-        if test.matches.len() != 1 {
+        // expected is not 1, or if the test name has 'iter' in it.
+        if test.name.contains("iter") || test.matches.len() != 1 {
             self.test_find_iter(test, re);
         }
     }

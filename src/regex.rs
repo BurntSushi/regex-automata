@@ -157,7 +157,7 @@ impl<D: DFA> Regex<D> {
     /// # Ok(()) }; example().unwrap()
     /// ```
     pub fn is_match(&self, input: &[u8]) -> bool {
-        self.forward().is_match(input)
+        self.is_match_at(input, 0)
     }
 
     /// Returns the first position at which a match is found.
@@ -183,7 +183,7 @@ impl<D: DFA> Regex<D> {
     /// # Ok(()) }; example().unwrap()
     /// ```
     pub fn shortest_match(&self, input: &[u8]) -> Option<usize> {
-        self.forward().shortest_match(input)
+        self.shortest_match_at(input, 0)
     }
 
     /// Returns the start and end offset of the leftmost first match. If no
@@ -218,13 +218,52 @@ impl<D: DFA> Regex<D> {
     /// # Ok(()) }; example().unwrap()
     /// ```
     pub fn find(&self, input: &[u8]) -> Option<(usize, usize)> {
-        let end = match self.forward().find(input) {
+        self.find_at(input, 0)
+    }
+
+    /// Returns the same as `is_match`, but starts the search at the given
+    /// offset.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == 0`.
+    pub fn is_match_at(&self, input: &[u8], start: usize) -> bool {
+        self.forward().is_match_at(input, start)
+    }
+
+    /// Returns the same as `shortest_match`, but starts the search at the
+    /// given offset.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == 0`.
+    pub fn shortest_match_at(
+        &self,
+        input: &[u8],
+        start: usize,
+    ) -> Option<usize> {
+        self.forward().shortest_match_at(input, start)
+    }
+
+    /// Returns the same as `find`, but starts the search at the given
+    /// offset.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == 0`.
+    pub fn find_at(
+        &self,
+        input: &[u8],
+        start: usize,
+    ) -> Option<(usize, usize)> {
+        let end = match self.forward().find_at(input, start) {
             None => return None,
             Some(end) => end,
         };
         let start = self
             .reverse()
-            .rfind(&input[..end])
+            .rfind(&input[start..end])
+            .map(|i| start + i)
             .expect("reverse search must match if forward search does");
         Some((start, end))
     }
@@ -344,7 +383,7 @@ impl<D: DFA> Regex<D> {
 /// * `'r` is the lifetime of the regular expression value itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
-pub struct Matches<'r, 't, D: DFA> {
+pub struct Matches<'r, 't, D: DFA + 'r> {
     re: &'r Regex<D>,
     text: &'t [u8],
     last_end: usize,
@@ -369,9 +408,9 @@ impl<'r, 't, D: DFA> Iterator for Matches<'r, 't, D> {
         if self.last_end > self.text.len() {
             return None;
         }
-        let (s, e) = match self.re.find(&self.text[self.last_end..]) {
+        let (s, e) = match self.re.find_at(self.text, self.last_end) {
             None => return None,
-            Some((s, e)) => (self.last_end + s, self.last_end + e),
+            Some((s, e)) => (s, e),
         };
         if s == e {
             // This is an empty match. To ensure we make progress, start

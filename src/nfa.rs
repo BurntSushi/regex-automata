@@ -16,6 +16,11 @@ pub type StateID = usize;
 /// are expressed.
 #[derive(Clone)]
 pub struct NFA {
+    /// Whether this NFA can only match at the beginning of input or not.
+    ///
+    /// When true, a match should only be reported if it begins at the 0th
+    /// index of the haystack.
+    anchored: bool,
     /// The starting state of this NFA.
     start: StateID,
     /// The state list. This list is guaranteed to be indexable by the starting
@@ -49,6 +54,11 @@ pub enum State {
 }
 
 impl NFA {
+    /// Returns true if and only if this NFA is anchored.
+    pub fn is_anchored(&self) -> bool {
+        self.anchored
+    }
+
     /// Return the number of states in this NFA.
     pub fn len(&self) -> usize {
         self.states.len()
@@ -149,7 +159,7 @@ impl NFABuilder {
         let match_id = compiler.add_match();
         compiler.patch(start, compiled.start);
         compiler.patch(compiled.end, match_id);
-        Ok(compiler.to_nfa())
+        Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() })
     }
 
     /// Set whether matching must be anchored at the beginning of the input.
@@ -317,7 +327,7 @@ impl NFACompiler {
         }
         // The compiler always begins the NFA at the first state.
         let byte_classes = byteset.byte_classes();
-        NFA { start: remap[0], states, byte_classes }
+        NFA { anchored: false, start: remap[0], states, byte_classes }
     }
 
     fn compile(&self, expr: &Hir) -> Result<ThompsonRef> {
@@ -712,7 +722,7 @@ impl fmt::Debug for NFA {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (i, state) in self.states.iter().enumerate() {
             let status = if i == self.start { '>' } else { ' ' };
-            writeln!(f, "{}{:06X}: {:X?}", status, i, state)?;
+            writeln!(f, "{}{:06X}: {:?}", status, i, state)?;
         }
         Ok(())
     }

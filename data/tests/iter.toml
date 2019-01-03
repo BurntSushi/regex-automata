@@ -75,3 +75,18 @@ name = "iter-empty11"
 pattern = 'b|()+'
 input = 'abc'
 matches = [[0, 0], [1, 2], [3, 3]]
+
+
+[[tests]]
+options = ["anchored"]
+name = "iter-anchored1"
+pattern = "a"
+input = "a"
+matches = [[0, 1]]
+
+[[tests]]
+options = ["anchored"]
+name = "iter-anchored2"
+pattern = "a"
+input = "aa"
+matches = [[0, 1]]

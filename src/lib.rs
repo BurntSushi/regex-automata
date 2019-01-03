@@ -1,5 +1,8 @@
 /*!
-TODO.
+A low level regular expression library that uses deterministic finite automata.
+It supports a rich syntax with Unicode support, has extensive options for
+configuring the best space vs time trade off for your use case and provides
+support for cheap deserialization of automata for use in `no_std` environments.
 */
 
 #![deny(missing_docs)]

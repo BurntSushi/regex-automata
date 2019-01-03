@@ -67,7 +67,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
 
         Determinizer {
             nfa: nfa,
-            dfa: DFARepr::empty(),
+            dfa: DFARepr::empty().anchored(nfa.is_anchored()),
             builder_states: vec![dead],
             cache: cache,
             stack: vec![],
@@ -80,7 +80,8 @@ impl<'a, S: StateID> Determinizer<'a, S> {
     /// alphabet instead of all possible byte values.
     pub fn with_byte_classes(mut self) -> Determinizer<'a, S> {
         let byte_classes = self.nfa.byte_classes().clone();
-        self.dfa = DFARepr::empty_with_byte_classes(byte_classes);
+        self.dfa = DFARepr::empty_with_byte_classes(byte_classes)
+            .anchored(self.nfa.is_anchored());
         self
     }
 

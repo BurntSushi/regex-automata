@@ -12,7 +12,6 @@ use byteorder::{ByteOrder, NativeEndian};
 use byteorder::{BigEndian, LittleEndian};
 
 use classes::ByteClasses;
-#[cfg(feature = "std")]
 use dense;
 use dfa::DFA;
 #[cfg(feature = "std")]
@@ -414,22 +413,32 @@ impl<'a, S: StateID> SparseDFA<&'a [u8], S> {
 impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
     type ID = S;
 
+    #[inline]
     fn start_state(&self) -> S {
         self.repr().start_state()
     }
 
+    #[inline]
     fn is_match_state(&self, id: S) -> bool {
         self.repr().is_match_state(id)
     }
 
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.repr().is_dead_state(id)
     }
 
+    #[inline]
     fn is_match_or_dead_state(&self, id: S) -> bool {
         self.repr().is_match_or_dead_state(id)
     }
 
+    #[inline]
+    fn is_anchored(&self) -> bool {
+        self.repr().is_anchored()
+    }
+
+    #[inline]
     fn next_state(&self, current: S, input: u8) -> S {
         match *self {
             SparseDFA::Standard(ref r) => r.next_state(current, input),
@@ -438,6 +447,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         }
     }
 
+    #[inline]
     unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
         self.next_state(current, input)
     }
@@ -449,34 +459,38 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
     // much as it does for the dense DFAs, but it's easy to do so we might as
     // well do it.
 
-    fn is_match(&self, bytes: &[u8]) -> bool {
+    #[inline]
+    fn is_match_at(&self, bytes: &[u8], start: usize) -> bool {
         match *self {
-            SparseDFA::Standard(ref r) => r.is_match(bytes),
-            SparseDFA::ByteClass(ref r) => r.is_match(bytes),
+            SparseDFA::Standard(ref r) => r.is_match_at(bytes, start),
+            SparseDFA::ByteClass(ref r) => r.is_match_at(bytes, start),
             SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
-    fn shortest_match(&self, bytes: &[u8]) -> Option<usize> {
+    #[inline]
+    fn shortest_match_at(&self, bytes: &[u8], start: usize) -> Option<usize> {
         match *self {
-            SparseDFA::Standard(ref r) => r.shortest_match(bytes),
-            SparseDFA::ByteClass(ref r) => r.shortest_match(bytes),
+            SparseDFA::Standard(ref r) => r.shortest_match_at(bytes, start),
+            SparseDFA::ByteClass(ref r) => r.shortest_match_at(bytes, start),
             SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
-    fn find(&self, bytes: &[u8]) -> Option<usize> {
+    #[inline]
+    fn find_at(&self, bytes: &[u8], start: usize) -> Option<usize> {
         match *self {
-            SparseDFA::Standard(ref r) => r.find(bytes),
-            SparseDFA::ByteClass(ref r) => r.find(bytes),
+            SparseDFA::Standard(ref r) => r.find_at(bytes, start),
+            SparseDFA::ByteClass(ref r) => r.find_at(bytes, start),
             SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
-    fn rfind(&self, bytes: &[u8]) -> Option<usize> {
+    #[inline]
+    fn rfind_at(&self, bytes: &[u8], start: usize) -> Option<usize> {
         match *self {
-            SparseDFA::Standard(ref r) => r.rfind(bytes),
-            SparseDFA::ByteClass(ref r) => r.rfind(bytes),
+            SparseDFA::Standard(ref r) => r.rfind_at(bytes, start),
+            SparseDFA::ByteClass(ref r) => r.rfind_at(bytes, start),
             SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
@@ -498,26 +512,37 @@ pub struct Standard<T: AsRef<[u8]>, S: StateID = usize>(
 impl<T: AsRef<[u8]>, S: StateID> DFA for Standard<T, S> {
     type ID = S;
 
+    #[inline]
     fn start_state(&self) -> S {
         self.0.start_state()
     }
 
+    #[inline]
     fn is_match_state(&self, id: S) -> bool {
         self.0.is_match_state(id)
     }
 
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.0.is_dead_state(id)
     }
 
+    #[inline]
     fn is_match_or_dead_state(&self, id: S) -> bool {
         self.0.is_match_or_dead_state(id)
     }
 
+    #[inline]
+    fn is_anchored(&self) -> bool {
+        self.0.is_anchored()
+    }
+
+    #[inline]
     fn next_state(&self, current: S, input: u8) -> S {
         self.0.state(current).next(input)
     }
 
+    #[inline]
     unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
         self.next_state(current, input)
     }
@@ -550,27 +575,38 @@ pub struct ByteClass<T: AsRef<[u8]>, S: StateID = usize>(
 impl<T: AsRef<[u8]>, S: StateID> DFA for ByteClass<T, S> {
     type ID = S;
 
+    #[inline]
     fn start_state(&self) -> S {
         self.0.start_state()
     }
 
+    #[inline]
     fn is_match_state(&self, id: S) -> bool {
         self.0.is_match_state(id)
     }
 
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.0.is_dead_state(id)
     }
 
+    #[inline]
     fn is_match_or_dead_state(&self, id: S) -> bool {
         self.0.is_match_or_dead_state(id)
     }
 
+    #[inline]
+    fn is_anchored(&self) -> bool {
+        self.0.is_anchored()
+    }
+
+    #[inline]
     fn next_state(&self, current: S, input: u8) -> S {
         let input = self.0.byte_classes.get(input);
         self.0.state(current).next(input)
     }
 
+    #[inline]
     unsafe fn next_state_unchecked(&self, current: S, input: u8) -> S {
         self.next_state(current, input)
     }
@@ -581,6 +617,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for ByteClass<T, S> {
 #[derive(Clone)]
 #[cfg_attr(not(feature = "std"), derive(Debug))]
 struct Repr<T: AsRef<[u8]>, S: StateID = usize> {
+    anchored: bool,
     start: S,
     state_count: usize,
     max_match: S,
@@ -599,6 +636,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
 
     fn as_ref<'a>(&'a self) -> Repr<&'a [u8], S> {
         Repr {
+            anchored: self.anchored,
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
@@ -610,6 +648,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
     #[cfg(feature = "std")]
     fn to_owned(&self) -> Repr<Vec<u8>, S> {
         Repr {
+            anchored: self.anchored,
             start: self.start,
             state_count: self.state_count,
             max_match: self.max_match,
@@ -662,6 +701,10 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
         id <= self.max_match
     }
 
+    fn is_anchored(&self) -> bool {
+        self.anchored
+    }
+
     fn trans(&self) -> &[u8] {
         self.trans.as_ref()
     }
@@ -694,6 +737,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
         }
 
         let mut new = Repr {
+            anchored: self.anchored,
             start: map[&self.start],
             state_count: self.state_count,
             max_match: map[&self.max_match],
@@ -773,7 +817,10 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
         A::write_u16(&mut buf[i..], state_size as u16);
         i += 2;
         // DFA misc options
-        let options = 0u16;
+        let mut options = 0u16;
+        if self.anchored {
+            options |= dense::MASK_ANCHORED;
+        }
         A::write_u16(&mut buf[i..], options);
         i += 2;
         // start state
@@ -853,8 +900,8 @@ impl<'a, S: StateID> Repr<&'a [u8], S> {
         }
         buf = &buf[2..];
 
-        // read miscellaneous options (unused)
-        let _ = NativeEndian::read_u16(buf);
+        // read miscellaneous options
+        let opts = NativeEndian::read_u16(buf);
         buf = &buf[2..];
 
         // read start state
@@ -874,6 +921,7 @@ impl<'a, S: StateID> Repr<&'a [u8], S> {
         buf = &buf[256..];
 
         Repr {
+            anchored: opts & dense::MASK_ANCHORED > 0,
             start,
             state_count,
             max_match,
@@ -931,6 +979,7 @@ impl<S: StateID> Repr<Vec<u8>, S> {
         }
 
         let mut new = Repr {
+            anchored: dfa.is_anchored(),
             start: remap[dfa.state_id_to_index(dfa.start_state())],
             state_count: dfa.state_count(),
             max_match: remap[dfa.state_id_to_index(dfa.max_match_state())],
@@ -990,11 +1039,12 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
             }
         }
 
-        write!(f, "\n")?;
+        writeln!(f, "SparseDFA(")?;
         for (id, state) in self.states() {
             let status = state_status(self, id);
             writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
         }
+        writeln!(f, ")")?;
         Ok(())
     }
 }
@@ -1005,7 +1055,7 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
 /// the second element is the state itself.
 #[cfg(feature = "std")]
 #[derive(Debug)]
-struct StateIter<'a, T: AsRef<[u8]>, S: StateID = usize> {
+struct StateIter<'a, T: AsRef<[u8]> + 'a, S: StateID + 'a = usize> {
     dfa: &'a Repr<T, S>,
     id: S,
 }

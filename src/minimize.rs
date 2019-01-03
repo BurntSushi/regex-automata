@@ -36,7 +36,7 @@ type DFARepr<S> = dense::Repr<Vec<S>, S>;
 ///    fewer states to deal with, then it should run faster. A prime example
 ///    of this might be large Unicode classes, which are generated in way that
 ///    can create a lot of redundant states.
-pub(crate) struct Minimizer<'a, S> {
+pub(crate) struct Minimizer<'a, S: 'a> {
     dfa: &'a mut DFARepr<S>,
     in_transitions: Vec<Vec<Vec<S>>>,
     partitions: Vec<StateSet<S>>,
