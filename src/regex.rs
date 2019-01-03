@@ -694,7 +694,9 @@ impl RegexBuilder {
     /// The advantage of this map is that the size of the transition table can
     /// be reduced drastically from `#states * 256 * sizeof(id)` to
     /// `#states * k * sizeof(id)` where `k` is the number of equivalence
-    /// classes.
+    /// classes. As a result, total space usage can decrease substantially.
+    /// Moreover, since a smaller alphabet is used, compilation becomes faster
+    /// as well.
     ///
     /// The disadvantage of this map is that every byte searched must be
     /// passed through this map before it can be used to determine the next
