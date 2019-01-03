@@ -11,7 +11,10 @@ readme = "README.md"
 keywords = ["regex", "dfa", "automata", "automaton", "nfa"]
 license = "Unlicense/MIT"
 categories = ["text-processing"]
-exclude = ["/.travis.yml", "/appveyor.yml", "/ci/*", "/scripts/*"]
+exclude = [
+  "/.travis.yml", "/appveyor.yml", "/ci/*", "/scripts/*",
+  "/regex-automata-debug",
+]
 autotests = false
 
 [badges]
@@ -19,7 +22,7 @@ travis-ci = { repository = "BurntSushi/regex-automata" }
 appveyor = { repository = "BurntSushi/regex-automata" }
 
 [workspace]
-members = ["bench"]
+members = ["bench", "regex-automata-debug"]
 
 [lib]
 bench = false

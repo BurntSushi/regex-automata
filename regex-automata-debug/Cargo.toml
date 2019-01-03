@@ -1,0 +1,26 @@
+[package]
+publish = false
+name = "regex-automata-debug"
+version = "0.0.1"
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = "A simple command line tool for playing with regex automatons."
+documentation = "https://docs.rs/regex-automata"
+homepage = "https://github.com/BurntSushi/regex-automata"
+repository = "https://github.com/BurntSushi/regex-automata"
+keywords = ["regex", "dfa", "automata", "automaton", "nfa"]
+license = "Unlicense/MIT"
+categories = ["text-processing"]
+autotests = false
+edition = "2018"
+
+[[bin]]
+name = "regex-automata-debug"
+path = "main.rs"
+
+[dependencies]
+regex-automata = { version = "*", path = ".." }
+
+[dependencies.clap]
+version = "2.32.0"
+default-features = false
+features = ["suggestions"]
