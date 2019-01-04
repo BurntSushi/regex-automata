@@ -34,10 +34,6 @@ impl SparseSet {
         self.dense.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.dense.is_empty()
-    }
-
     pub fn insert(&mut self, value: usize) {
         let i = self.len();
         assert!(i < self.dense.capacity());
