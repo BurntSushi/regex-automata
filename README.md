@@ -38,7 +38,7 @@ extern crate regex_automata;
 This example shows how to compile a regex using the default configuration
 and then use it to find matches in a byte string:
 
-```
+```rust
 use regex_automata::Regex;
 
 let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
