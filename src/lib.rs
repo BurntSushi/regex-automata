@@ -45,8 +45,22 @@ memory, but executes searches more quickly. If you can abide slower searches
 (somewhere around 3-5x), then sparse DFAs might make more sense since they can
 use significantly less space.
 
-Using sparse DFAs requires one to build a regex normally using dense DFAs, then
-convert those dense DFAs into sparse DFAs:
+Using sparse DFAs is as easy as using `Regex::new_sparse` instead of
+`Regex::new`:
+
+```
+use regex_automata::Regex;
+
+# fn example() -> Result<(), regex_automata::Error> {
+let re = Regex::new_sparse(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
+let text = b"2018-12-24 2016-10-08";
+let matches: Vec<(usize, usize)> = re.find_iter(text).collect();
+assert_eq!(matches, vec![(0, 10), (11, 21)]);
+# Ok(()) }; example().unwrap()
+```
+
+If you already have dense DFAs for some reason, they can be converted to sparse
+DFAs and used to build a new `Regex`. For example:
 
 ```
 use regex_automata::Regex;
@@ -95,8 +109,10 @@ assert_eq!(matches, vec![(0, 10), (11, 21)]);
 
 There are a few points worth noting here:
 
-* As with building a sparse DFA, we need to extract the raw DFAs used by the
-  regex and serialize those.
+* We need to extract the raw DFAs used by the regex and serialize those. You
+  can build the DFAs manually yourself using
+  [`dense::Builder`](dense/struct.Builder.html), but using the DFAs from a
+  `Regex` guarantees that the DFAs are built correctly.
 * We specifically convert the dense DFA to a representation that uses `u16`
   for its state identifiers using
   [`DenseDFA::to_u16`](enum.DenseDFA.html#method.to_u16). While this isn't
@@ -144,6 +160,10 @@ assert_eq!(matches, vec![(0, 10), (11, 21)]);
 # Ok(()) }; example().unwrap()
 ```
 
+Note that unlike dense DFAs, sparse DFAs have no alignment requirements.
+Conversely, dense DFAs must be be aligned to the same alignment as their
+state identifier representation.
+
 # Support for `no_std`
 
 This crate comes with a `std` feature that is enabled by default. When the
@@ -167,6 +187,10 @@ The intended workflow for `no_std` environments is thus as follows:
 Deserialization can happen anywhere. For example, with bytes embedded into a
 binary or with a file memory mapped at runtime.
 
+Note that the
+[`ucd-generate`](https://github.com/BurntSushi/ucd-generate)
+tool will do the first step for you with its `dfa` or `regex` sub-commands.
+
 # Syntax
 
 This crate supports the same syntax as the `regex` crate, since they share the
@@ -187,8 +211,8 @@ option when building a regex. By default, all searches are unanchored.
 
 # Differences with the regex crate
 
-The main goal of the [`regex`](https://docs.rs/regex) is to serve as a general
-purpose regular expression engine. It aims to automatically balance low
+The main goal of the [`regex`](https://docs.rs/regex) crate is to serve as a
+general purpose regular expression engine. It aims to automatically balance low
 compile times, fast search times and low memory usage, while also providing
 a convenient API for users. In contrast, this crate provides a lower level
 regular expression interface that is a bit less convenient while providing more

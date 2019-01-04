@@ -1,12 +1,13 @@
 use std::error::Error;
 use std::fs;
 use std::io::{self, Write};
+use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::result;
 use std::time::Instant;
 
-use regex_automata::{DFA, Regex, RegexBuilder};
+use regex_automata::{DFA, Regex, RegexBuilder, DenseDFA, SparseDFA};
 
 type Result<T> = result::Result<T, Box<Error>>;
 
@@ -134,16 +135,19 @@ impl Args {
     }
 
     fn debug(&self) -> Result<(String, usize)> {
-        let re = self.builder().build(&self.pattern)?;
         if self.sparse {
-            let re = Regex::from_dfas(
-                re.forward().to_sparse()?,
-                re.reverse().to_sparse()?,
-            );
-            let m = re.forward().memory_usage() + re.reverse().memory_usage();
+            let re = self.builder().build_sparse(&self.pattern)?;
+            let m =
+                re.forward().memory_usage()
+                + re.reverse().memory_usage()
+                + (2 * size_of::<SparseDFA<Vec<u8>, usize>>());
             Ok((format!("{:?}", re), m))
         } else {
-            let m = re.forward().memory_usage() + re.reverse().memory_usage();
+            let re = self.builder().build(&self.pattern)?;
+            let m =
+                re.forward().memory_usage()
+                + re.reverse().memory_usage()
+                + (2 * size_of::<DenseDFA<Vec<usize>, usize>>());
             Ok((format!("{:?}", re), m))
         }
     }

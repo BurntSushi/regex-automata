@@ -1298,6 +1298,13 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
 impl<'a, S: StateID> Repr<&'a [S], S> {
     /// The implementation for deserializing a DFA from raw bytes.
     unsafe fn from_bytes(mut buf: &'a [u8]) -> Repr<&'a [S], S> {
+        assert_eq!(
+            0,
+            buf.as_ptr() as usize % mem::align_of::<S>(),
+            "DenseDFA starting at address {} is not aligned to 8 bytes",
+            buf.as_ptr() as usize
+        );
+
         // skip over label
         match buf.iter().position(|&b| b == b'\x00') {
             None => panic!("could not find label"),
@@ -1357,17 +1364,18 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
         let byte_classes = ByteClasses::from_slice(&buf[..256]);
         buf = &buf[256..];
 
+        let len = state_count * byte_classes.alphabet_len();
+        let len_bytes = len * state_size;
+        assert!(
+            buf.len() <= len_bytes,
+            "insufficient transition table bytes, \
+             expected at least {} but only have {}",
+            len_bytes, buf.len()
+        );
         assert_eq!(
             0,
             buf.as_ptr() as usize % mem::align_of::<S>(),
             "DenseDFA transition table is not properly aligned"
-        );
-        let len = state_count * byte_classes.alphabet_len();
-        assert!(
-            buf.len() >= len,
-            "insufficient transition table bytes, \
-             expected at least {} but only have {}",
-            len, buf.len()
         );
 
         // SAFETY: This is the only actual unsafe thing in this entire routine.

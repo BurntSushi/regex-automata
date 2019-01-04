@@ -4,6 +4,8 @@ use dfa::DFA;
 #[cfg(feature = "std")]
 use error::Result;
 #[cfg(feature = "std")]
+use sparse::SparseDFA;
+#[cfg(feature = "std")]
 use state_id::StateID;
 
 /// A regular expression that uses deterministic finite automata for fast
@@ -134,6 +136,36 @@ impl Regex {
     /// ```
     pub fn new(pattern: &str) -> Result<Regex> {
         RegexBuilder::new().build(pattern)
+    }
+}
+
+#[cfg(feature = "std")]
+impl Regex<SparseDFA<Vec<u8>, usize>> {
+    /// Parse the given regular expression using a default configuration and
+    /// return the corresponding regex using sparse DFAs.
+    ///
+    /// The default configuration uses `usize` for state IDs, reduces the
+    /// alphabet size by splitting bytes into equivalence classes. The
+    /// underlying DFAs are *not* minimized.
+    ///
+    /// If you want a non-default configuration, then use the
+    /// [`RegexBuilder`](struct.RegexBuilder.html)
+    /// to set your own configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::Regex;
+    ///
+    /// # fn example() -> Result<(), regex_automata::Error> {
+    /// let re = Regex::new_sparse("foo[0-9]+bar")?;
+    /// assert_eq!(Some((3, 14)), re.find(b"zzzfoo12345barzzz"));
+    /// # Ok(()) }; example().unwrap()
+    /// ```
+    pub fn new_sparse(
+        pattern: &str,
+    ) -> Result<Regex<SparseDFA<Vec<u8>, usize>>> {
+        RegexBuilder::new().build_sparse(pattern)
     }
 }
 
@@ -469,6 +501,17 @@ impl RegexBuilder {
         self.build_with_size::<usize>(pattern)
     }
 
+    /// Build a regex from the given pattern using sparse DFAs.
+    ///
+    /// If there was a problem parsing or compiling the pattern, then an error
+    /// is returned.
+    pub fn build_sparse(
+        &self,
+        pattern: &str,
+    ) -> Result<Regex<SparseDFA<Vec<u8>, usize>>> {
+        self.build_with_size_sparse::<usize>(pattern)
+    }
+
     /// Build a regex from the given pattern using a specific representation
     /// for the underlying DFA state IDs.
     ///
@@ -503,6 +546,18 @@ impl RegexBuilder {
             .longest_match(true)
             .build_with_size(pattern)?;
         Ok(Regex::from_dfas(forward, reverse))
+    }
+
+    /// Build a regex from the given pattern using a specific representation
+    /// for the underlying DFA state IDs using sparse DFAs.
+    pub fn build_with_size_sparse<S: StateID>(
+        &self,
+        pattern: &str,
+    ) -> Result<Regex<SparseDFA<Vec<u8>, S>>> {
+        let re = self.build_with_size(pattern)?;
+        let fwd = re.forward().to_sparse()?;
+        let rev = re.reverse().to_sparse()?;
+        Ok(Regex::from_dfas(fwd, rev))
     }
 
     /// Set whether matching must be anchored at the beginning of the input.

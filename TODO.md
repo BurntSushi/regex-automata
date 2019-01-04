@@ -36,7 +36,7 @@
   would be endian independent where as the serialization format of the DFAs in
   this crate are endian dependent (so you need two versions of every DFA, but
   you only need to compile one of them for any given arch).
-* Experiment with unrolling the match loops.
+* Experiment with unrolling the match loops and fill out the benchmarks.
 * Add some kind of streaming API. I believe users of the library can already
   implement something for this outside of the crate, but it would be good to
   provide an official API. The key thing here is figuring out the API. I

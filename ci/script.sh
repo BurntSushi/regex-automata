@@ -11,5 +11,7 @@ cargo build --verbose --no-default-features
 
 if [ "$TRAVIS_RUST_VERSION" = "nightly" ]; then
     # compile benchmarks, but don't run them
-    cargo bench --manifest-path bench/Cargo.toml ////
+    cargo bench --verbose --manifest-path bench/Cargo.toml ////
+    # make sure the debug tool builds
+    cargo build --verbose --manifest-path regex-automata-debug/Cargo.toml
 fi
