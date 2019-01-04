@@ -20,7 +20,8 @@ install:
 build: false
 test_script:
   - cargo build --verbose
-  - cargo test --verbose
+  - cargo test --verbose --lib
+  - cargo test --verbose --doc
 branches:
   only:
     - master
