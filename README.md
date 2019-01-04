@@ -33,7 +33,7 @@ extern crate regex_automata;
 ```
 
 
-# Example: basic regex searching
+### Example: basic regex searching
 
 This example shows how to compile a regex using the default configuration
 and then use it to find matches in a byte string:
