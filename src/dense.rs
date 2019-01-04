@@ -381,6 +381,7 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u32>()`.
+    #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
     pub fn to_u32(&self) -> Result<DenseDFA<Vec<u32>, u32>> {
         self.to_sized()
     }
@@ -391,6 +392,7 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
     /// DFA, then this returns an error.
     ///
     /// This is a convenience routine for `to_sized::<u64>()`.
+    #[cfg(target_pointer_width = "64")]
     pub fn to_u64(&self) -> Result<DenseDFA<Vec<u64>, u64>> {
         self.to_sized()
     }
