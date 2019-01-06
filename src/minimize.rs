@@ -155,11 +155,13 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         self.dfa.truncate_states(minimal_count);
 
         let old_max = self.dfa.max_match_state();
-        for id in (1..self.dfa.state_count()).map(S::from_usize) {
-            if state_to_part[id.to_usize()] > old_max {
-                break;
+        self.dfa.set_max_match_state(dead_id());
+        for id in (0..(old_max.to_usize() + 1)).map(S::from_usize) {
+            let part = state_to_part[id.to_usize()];
+            let new_id = minimal_ids[part.to_usize()];
+            if new_id > self.dfa.max_match_state() {
+                self.dfa.set_max_match_state(new_id);
             }
-            self.dfa.set_max_match_state(id);
         }
     }
 

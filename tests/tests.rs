@@ -11,5 +11,6 @@ extern crate serde_derive;
 extern crate toml;
 
 mod collection;
+mod regression;
 mod suite;
 mod unescape;
