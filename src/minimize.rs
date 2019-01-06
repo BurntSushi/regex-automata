@@ -123,11 +123,23 @@ impl<'a, S: StateID> Minimizer<'a, S> {
             }
         }
 
+        // At this point, we now have a minimal partitioning of states, where
+        // each partition is an equivalence class of DFA states. Now we need to
+        // use this partioning to update the DFA to only contain one state for
+        // each partition.
+
+        // Create a map from DFA state ID to the representative ID of the
+        // equivalence class to which it belongs. The representative ID of an
+        // equivalence class of states is the minimum ID in that class.
         let mut state_to_part = vec![dead_id(); self.dfa.state_count()];
         for p in &self.partitions {
             p.iter(|id| state_to_part[id.to_usize()] = p.min());
         }
 
+        // Generate a new contiguous sequence of IDs for minimal states, and
+        // create a map from equivalence IDs to the new IDs. Thus, the new
+        // minimal ID of *any* state in the unminimized DFA can be obtained
+        // with minimals_ids[state_to_part[old_id]].
         let mut minimal_ids = vec![dead_id(); self.dfa.state_count()];
         let mut new_id = S::from_usize(0);
         for (id, _) in self.dfa.states() {
@@ -136,9 +148,14 @@ impl<'a, S: StateID> Minimizer<'a, S> {
                 new_id = S::from_usize(new_id.to_usize() + 1);
             }
         }
+        // The total number of states in the minimal DFA.
         let minimal_count = new_id.to_usize();
 
+        // Re-map this DFA in place such that the only states remaining
+        // correspond to the representative states of every equivalence class.
         for id in (0..self.dfa.state_count()).map(S::from_usize) {
+            // If this state isn't a representative for an equivalence class,
+            // then we skip it since it won't appear in the minimal DFA.
             if state_to_part[id.to_usize()] != id {
                 continue;
             }
@@ -147,13 +164,27 @@ impl<'a, S: StateID> Minimizer<'a, S> {
             }
             self.dfa.swap_states(id, minimal_ids[id.to_usize()]);
         }
+        // Trim off all unused states from the pre-minimized DFA. This
+        // represents all states that were merged into a non-singleton
+        // equivalence class of states, and appeared after the first state
+        // in each such class. (Because the state with the smallest ID in each
+        // equivalence class is its representative ID.)
+        self.dfa.truncate_states(minimal_count);
 
+        // Update the new start state, which is now just the minimal ID of
+        // whatever state the old start state was collapsed into.
         let old_start = self.dfa.start_state();
         self.dfa.set_start_state(
             minimal_ids[state_to_part[old_start.to_usize()].to_usize()],
         );
-        self.dfa.truncate_states(minimal_count);
 
+        // In order to update the ID of the maximum match state, we need to
+        // find the maximum ID among all of the match states in the minimized
+        // DFA. This is not necessarily the new ID of the unminimized maximum
+        // match state, since that could have been collapsed with a much
+        // earlier match state. Therefore, to find the new max match state,
+        // we iterate over all previous match states, find their corresponding
+        // new minimal ID, and take the maximum of those.
         let old_max = self.dfa.max_match_state();
         self.dfa.set_max_match_state(dead_id());
         for id in (0..(old_max.to_usize() + 1)).map(S::from_usize) {
