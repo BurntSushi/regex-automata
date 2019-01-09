@@ -10,6 +10,10 @@ cargo test --verbose --doc
 cargo doc --verbose --no-default-features
 cargo build --verbose --no-default-features
 
+# Validate no_std status
+rustup target add thumbv7em-none-eabihf
+cargo build --verbose --no-default-features --target thumbv7em-none-eabihf
+
 if [ "$TRAVIS_RUST_VERSION" = "nightly" ]; then
     # these tests take forever, so only do them on nightly
     cargo test --verbose --test default
