@@ -1303,8 +1303,9 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
         assert_eq!(
             0,
             buf.as_ptr() as usize % mem::align_of::<S>(),
-            "DenseDFA starting at address {} is not aligned to 8 bytes",
-            buf.as_ptr() as usize
+            "DenseDFA starting at address {} is not aligned to {} bytes",
+            buf.as_ptr() as usize,
+            mem::align_of::<S>()
         );
 
         // skip over label
