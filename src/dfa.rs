@@ -239,7 +239,7 @@ pub trait DFA {
 
         let mut state = self.start_state();
         if self.is_match_or_dead_state(state) {
-            return if self.is_dead_state(state) { None } else { Some(0) };
+            return if self.is_dead_state(state) { None } else { Some(start) };
         }
         for (i, &b) in bytes[start..].iter().enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
