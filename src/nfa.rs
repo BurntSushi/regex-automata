@@ -282,7 +282,7 @@ impl NFACompiler {
         // so the state IDs will not be the same.
         for (id, bstate) in bstates.iter().enumerate() {
             match *bstate {
-                BState::Empty { mut next } => {
+                BState::Empty { next } => {
                     // Since we're removing empty states, we need to handle
                     // them later since we don't yet know which new state this
                     // empty state will be mapped to.
