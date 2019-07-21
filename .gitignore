@@ -1,3 +1,4 @@
 /target
+/regex-automata-debug/target
 tags
 /Cargo.lock

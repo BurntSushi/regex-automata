@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use regex_automata::{DFA, Regex, RegexBuilder, DenseDFA, SparseDFA};
 
-type Result<T> = result::Result<T, Box<Error>>;
+type Result<T> = result::Result<T, Box<dyn Error>>;
 
 macro_rules! err {
     ($($tt:tt)*) => { Err(From::from(format!($($tt)*))) }
@@ -119,7 +119,7 @@ impl Args {
         Ok(fs::read(&self.file)?)
     }
 
-    fn finder(&self) -> Result<(Box<Fn(&[u8]) -> usize>, usize)> {
+    fn finder(&self) -> Result<(Box<dyn Fn(&[u8]) -> usize>, usize)> {
         let re = self.builder().build(&self.pattern)?;
         if self.sparse {
             let re = Regex::from_dfas(
@@ -164,6 +164,6 @@ impl Args {
     }
 }
 
-fn counter<D: DFA + 'static>(re: Regex<D>) -> Box<Fn(&[u8]) -> usize> {
+fn counter<D: DFA + 'static>(re: Regex<D>) -> Box<dyn Fn(&[u8]) -> usize> {
     Box::new(move |bytes| re.find_iter(bytes).count())
 }
