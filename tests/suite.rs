@@ -1,6 +1,6 @@
 use regex_automata::{DenseDFA, Regex, RegexBuilder, SparseDFA};
 
-use collection::{SUITE, RegexTester};
+use collection::{RegexTester, SUITE};
 
 #[test]
 fn unminimized_standard() {
@@ -171,12 +171,10 @@ fn serialization_roundtrip() {
 
         let fwd_bytes = re.forward().to_bytes_native_endian().unwrap();
         let rev_bytes = re.reverse().to_bytes_native_endian().unwrap();
-        let fwd: DenseDFA<&[usize], usize> = unsafe {
-            DenseDFA::from_bytes(&fwd_bytes)
-        };
-        let rev: DenseDFA<&[usize], usize> = unsafe {
-            DenseDFA::from_bytes(&rev_bytes)
-        };
+        let fwd: DenseDFA<&[usize], usize> =
+            unsafe { DenseDFA::from_bytes(&fwd_bytes) };
+        let rev: DenseDFA<&[usize], usize> =
+            unsafe { DenseDFA::from_bytes(&rev_bytes) };
         let re = Regex::from_dfas(fwd, rev);
 
         tester.test(test, &re);
@@ -212,12 +210,10 @@ fn sparse_serialization_roundtrip() {
             .unwrap()
             .to_bytes_native_endian()
             .unwrap();
-        let fwd: SparseDFA<&[u8], usize> = unsafe {
-            SparseDFA::from_bytes(&fwd_bytes)
-        };
-        let rev: SparseDFA<&[u8], usize> = unsafe {
-            SparseDFA::from_bytes(&rev_bytes)
-        };
+        let fwd: SparseDFA<&[u8], usize> =
+            unsafe { SparseDFA::from_bytes(&fwd_bytes) };
+        let rev: SparseDFA<&[u8], usize> =
+            unsafe { SparseDFA::from_bytes(&rev_bytes) };
         let re = Regex::from_dfas(fwd, rev);
 
         tester.test(test, &re);

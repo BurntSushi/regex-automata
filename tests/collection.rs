@@ -4,7 +4,7 @@ use std::fmt::{self, Write};
 use std::thread;
 
 use regex;
-use regex_automata::{DFA, DenseDFA, ErrorKind, Regex, RegexBuilder, StateID};
+use regex_automata::{DenseDFA, ErrorKind, Regex, RegexBuilder, StateID, DFA};
 use serde_bytes;
 use toml;
 
@@ -12,9 +12,9 @@ macro_rules! load {
     ($col:ident, $path:expr) => {
         $col.extend(RegexTests::load(
             concat!("../data/tests/", $path),
-            include_bytes!(concat!("../data/tests/", $path))
+            include_bytes!(concat!("../data/tests/", $path)),
         ));
-    }
+    };
 }
 
 lazy_static! {
@@ -190,21 +190,17 @@ impl RegexTester {
                 } else {
                     panic!(
                         "failed to build {:?} with pattern '{:?}': {}",
-                        test.name,
-                        test.pattern,
-                        err
+                        test.name, test.pattern, err
                     );
                 }
             }
         }
     }
 
-    pub fn test_all<'a, I, T>(
-        &mut self,
-        builder: RegexBuilder,
-        tests: I,
-    ) where I: IntoIterator<IntoIter=T, Item=&'a RegexTest>,
-            T: Iterator<Item=&'a RegexTest>
+    pub fn test_all<'a, I, T>(&mut self, builder: RegexBuilder, tests: I)
+    where
+        I: IntoIterator<IntoIter = T, Item = &'a RegexTest>,
+        T: Iterator<Item = &'a RegexTest>,
     {
         for test in tests {
             let builder = builder.clone();
@@ -216,11 +212,7 @@ impl RegexTester {
         }
     }
 
-    pub fn test<'a, D: DFA>(
-        &mut self,
-        test: &RegexTest,
-        re: &Regex<D>,
-    ) {
+    pub fn test<'a, D: DFA>(&mut self, test: &RegexTest, re: &Regex<D>) {
         self.test_is_match(test, re);
         self.test_find(test, re);
         // Some tests (namely, fowler) are designed only to detect the
@@ -251,16 +243,11 @@ impl RegexTester {
         });
     }
 
-    pub fn test_find<'a, D: DFA>(
-        &mut self,
-        test: &RegexTest,
-        re: &Regex<D>,
-    ) {
+    pub fn test_find<'a, D: DFA>(&mut self, test: &RegexTest, re: &Regex<D>) {
         self.asserted = false;
 
-        let got = re
-            .find(&test.input)
-            .map(|(start, end)| Match { start, end });
+        let got =
+            re.find(&test.input).map(|(start, end)| Match { start, end });
         if got == test.matches.get(0).map(|&m| m) {
             self.results.succeeded.push(test.clone());
             return;
@@ -386,12 +373,12 @@ impl fmt::Display for RegexTestFailure {
         write!(
             f,
             "{}: {}\n    \
-            options: {:?}\n    \
-            pattern: {}\n    \
-            pattern (escape): {}\n    \
-            input: {}\n    \
-            input (escape): {}\n    \
-            input (hex): {}",
+             options: {:?}\n    \
+             pattern: {}\n    \
+             pattern (escape): {}\n    \
+             input: {}\n    \
+             input (escape): {}\n    \
+             input (hex): {}",
             self.test.name,
             self.kind.fmt(&self.test)?,
             self.test.options,
@@ -415,22 +402,17 @@ impl RegexTestFailureKind {
                     write!(buf, "expected no match, but found a match")?
                 }
             }
-            RegexTestFailureKind::Find { got } => {
-                write!(
-                    buf,
-                    "expected {:?}, but found {:?}",
-                    test.matches.get(0),
-                    got
-                )?
-            }
-            RegexTestFailureKind::FindIter { ref got } => {
-                write!(
-                    buf,
-                    "expected {:?}, but found {:?}",
-                    test.matches,
-                    got
-                )?
-            }
+            RegexTestFailureKind::Find { got } => write!(
+                buf,
+                "expected {:?}, but found {:?}",
+                test.matches.get(0),
+                got
+            )?,
+            RegexTestFailureKind::FindIter { ref got } => write!(
+                buf,
+                "expected {:?}, but found {:?}",
+                test.matches, got
+            )?,
         }
         Ok(buf)
     }

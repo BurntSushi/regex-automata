@@ -50,7 +50,7 @@ pub enum ErrorKind {
         max: usize,
         /// The maximum ID required by premultiplication.
         requested_max: usize,
-    }
+    },
 }
 
 impl Error {
@@ -74,8 +74,8 @@ impl Error {
     }
 
     pub(crate) fn unsupported_longest_match() -> Error {
-        let msg  = "unachored searches with longest match \
-                    semantics are not supported";
+        let msg = "unachored searches with longest match \
+                   semantics are not supported";
         Error { kind: ErrorKind::Unsupported(msg.to_string()) }
     }
 
@@ -119,15 +119,13 @@ impl fmt::Display for Error {
             ErrorKind::Serialize(ref msg) => {
                 write!(f, "DFA serialization error: {}", msg)
             }
-            ErrorKind::StateIDOverflow { max } => {
-                write!(
-                    f,
-                    "building the DFA failed because it required building \
-                     more states that can be identified, where the maximum \
-                     ID for the chosen representation is {}",
-                    max,
-                )
-            }
+            ErrorKind::StateIDOverflow { max } => write!(
+                f,
+                "building the DFA failed because it required building \
+                 more states that can be identified, where the maximum \
+                 ID for the chosen representation is {}",
+                max,
+            ),
             ErrorKind::PremultiplyOverflow { max, requested_max } => {
                 if max == requested_max {
                     write!(

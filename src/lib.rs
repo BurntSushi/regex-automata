@@ -305,18 +305,18 @@ pub use sparse::SparseDFA;
 pub use state_id::StateID;
 
 mod classes;
-#[cfg(feature = "std")]
-mod determinize;
 #[path = "dense.rs"]
 mod dense_imp;
+#[cfg(feature = "std")]
+mod determinize;
 mod dfa;
 #[cfg(feature = "std")]
 mod error;
-mod regex;
 #[cfg(feature = "std")]
 mod minimize;
 #[cfg(feature = "std")]
 mod nfa;
+mod regex;
 #[path = "sparse.rs"]
 mod sparse_imp;
 #[cfg(feature = "std")]

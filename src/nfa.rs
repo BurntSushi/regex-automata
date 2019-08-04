@@ -146,12 +146,11 @@ impl NFABuilder {
 
         let mut start = compiler.add_empty();
         if !self.anchored {
-            let compiled =
-                if self.allow_invalid_utf8 {
-                    compiler.compile_unanchored_prefix_invalid_utf8()
-                } else {
-                    compiler.compile_unanchored_prefix_valid_utf8()
-                }?;
+            let compiled = if self.allow_invalid_utf8 {
+                compiler.compile_unanchored_prefix_invalid_utf8()
+            } else {
+                compiler.compile_unanchored_prefix_valid_utf8()
+            }?;
             compiler.patch(start, compiled.start);
             start = compiled.end;
         }
@@ -357,32 +356,22 @@ impl NFACompiler {
             HirKind::Class(hir::Class::Unicode(ref cls)) => {
                 self.compile_unicode_class(cls)
             }
-            HirKind::Repetition(ref rep) => {
-                self.compile_repetition(rep)
-            }
-            HirKind::Group(ref group) => {
-                self.compile(&*group.hir)
-            }
+            HirKind::Repetition(ref rep) => self.compile_repetition(rep),
+            HirKind::Group(ref group) => self.compile(&*group.hir),
             HirKind::Concat(ref exprs) => {
                 self.compile_concat(exprs.iter().map(|e| self.compile(e)))
             }
             HirKind::Alternation(ref exprs) => {
                 self.compile_alternation(exprs.iter().map(|e| self.compile(e)))
             }
-            HirKind::Anchor(_) => {
-                Err(Error::unsupported_anchor())
-            }
-            HirKind::WordBoundary(_) => {
-                Err(Error::unsupported_word())
-            }
+            HirKind::Anchor(_) => Err(Error::unsupported_anchor()),
+            HirKind::WordBoundary(_) => Err(Error::unsupported_word()),
         }
     }
 
-    fn compile_concat<I>(
-        &self,
-        mut it: I,
-    ) -> Result<ThompsonRef>
-    where I: Iterator<Item=Result<ThompsonRef>>
+    fn compile_concat<I>(&self, mut it: I) -> Result<ThompsonRef>
+    where
+        I: Iterator<Item = Result<ThompsonRef>>,
     {
         let ThompsonRef { start, mut end } = match it.next() {
             Some(result) => result?,
@@ -396,11 +385,9 @@ impl NFACompiler {
         Ok(ThompsonRef { start, end })
     }
 
-    fn compile_alternation<I>(
-        &self,
-        it: I,
-    ) -> Result<ThompsonRef>
-    where I: Iterator<Item=Result<ThompsonRef>>
+    fn compile_alternation<I>(&self, it: I) -> Result<ThompsonRef>
+    where
+        I: Iterator<Item = Result<ThompsonRef>>,
     {
         let alternates = it.collect::<Result<Vec<ThompsonRef>>>()?;
         assert!(!alternates.is_empty(), "alternations must be non-empty");
@@ -432,19 +419,17 @@ impl NFACompiler {
             hir::RepetitionKind::OneOrMore => {
                 self.compile_at_least(&rep.hir, rep.greedy, 1)
             }
-            hir::RepetitionKind::Range(ref rng) => {
-                match *rng {
-                    hir::RepetitionRange::Exactly(count) => {
-                        self.compile_exactly(&rep.hir, count)
-                    }
-                    hir::RepetitionRange::AtLeast(m) => {
-                        self.compile_at_least(&rep.hir, rep.greedy, m)
-                    }
-                    hir::RepetitionRange::Bounded(min, max) => {
-                        self.compile_bounded(&rep.hir, rep.greedy, min, max)
-                    }
+            hir::RepetitionKind::Range(ref rng) => match *rng {
+                hir::RepetitionRange::Exactly(count) => {
+                    self.compile_exactly(&rep.hir, count)
                 }
-            }
+                hir::RepetitionRange::AtLeast(m) => {
+                    self.compile_at_least(&rep.hir, rep.greedy, m)
+                }
+                hir::RepetitionRange::Bounded(min, max) => {
+                    self.compile_bounded(&rep.hir, rep.greedy, min, max)
+                }
+            },
         }
     }
 
@@ -461,13 +446,10 @@ impl NFACompiler {
         }
 
         let suffix = self.compile_concat(
-            (min..max).map(|_| self.compile_zero_or_one(expr, greedy))
+            (min..max).map(|_| self.compile_zero_or_one(expr, greedy)),
         )?;
         self.patch(prefix.end, suffix.start);
-        Ok(ThompsonRef {
-            start: prefix.start,
-            end: suffix.end,
-        })
+        Ok(ThompsonRef { start: prefix.start, end: suffix.end })
     }
 
     fn compile_at_least(
@@ -477,36 +459,33 @@ impl NFACompiler {
         n: u32,
     ) -> Result<ThompsonRef> {
         if n == 0 {
-            let union =
-                if greedy {
-                    self.add_union()
-                } else {
-                    self.add_reverse_union()
-                };
+            let union = if greedy {
+                self.add_union()
+            } else {
+                self.add_reverse_union()
+            };
             let compiled = self.compile(expr)?;
             self.patch(union, compiled.start);
             self.patch(compiled.end, union);
             Ok(ThompsonRef { start: union, end: union })
         } else if n == 1 {
             let compiled = self.compile(expr)?;
-            let union =
-                if greedy {
-                    self.add_union()
-                } else {
-                    self.add_reverse_union()
-                };
+            let union = if greedy {
+                self.add_union()
+            } else {
+                self.add_reverse_union()
+            };
             self.patch(compiled.end, union);
             self.patch(union, compiled.start);
             Ok(ThompsonRef { start: compiled.start, end: union })
         } else {
             let prefix = self.compile_exactly(expr, n - 1)?;
             let last = self.compile(expr)?;
-            let union =
-                if greedy {
-                    self.add_union()
-                } else {
-                    self.add_reverse_union()
-                };
+            let union = if greedy {
+                self.add_union()
+            } else {
+                self.add_reverse_union()
+            };
             self.patch(prefix.end, last.start);
             self.patch(last.end, union);
             self.patch(union, last.start);
@@ -520,11 +499,7 @@ impl NFACompiler {
         greedy: bool,
     ) -> Result<ThompsonRef> {
         let union =
-            if greedy {
-                self.add_union()
-            } else {
-                self.add_reverse_union()
-            };
+            if greedy { self.add_union() } else { self.add_reverse_union() };
         let compiled = self.compile(expr)?;
         let empty = self.add_empty();
         self.patch(union, compiled.start);
@@ -534,9 +509,7 @@ impl NFACompiler {
     }
 
     fn compile_exactly(&self, expr: &Hir, n: u32) -> Result<ThompsonRef> {
-        let it = iter::repeat(())
-            .take(n as usize)
-            .map(|_| self.compile(expr));
+        let it = iter::repeat(()).take(n as usize).map(|_| self.compile(expr));
         self.compile_concat(it)
     }
 
@@ -546,29 +519,20 @@ impl NFACompiler {
     ) -> Result<ThompsonRef> {
         use utf8_ranges::Utf8Sequences;
 
-        let it = cls
-            .iter()
-            .flat_map(|rng| Utf8Sequences::new(rng.start(), rng.end()))
-            .map(|seq| {
-                if self.reverse {
-                    self.compile_concat(
-                        seq.as_slice()
-                            .iter()
-                            .rev()
-                            .map(|rng| {
-                                Ok(self.compile_range(rng.start, rng.end))
-                            })
-                    )
-                } else {
-                    self.compile_concat(
-                        seq.as_slice()
-                            .iter()
-                            .map(|rng| {
-                                Ok(self.compile_range(rng.start, rng.end))
-                            })
-                    )
-                }
-            });
+        let it =
+            cls.iter()
+                .flat_map(|rng| Utf8Sequences::new(rng.start(), rng.end()))
+                .map(|seq| {
+                    if self.reverse {
+                        self.compile_concat(seq.as_slice().iter().rev().map(
+                            |rng| Ok(self.compile_range(rng.start, rng.end)),
+                        ))
+                    } else {
+                        self.compile_concat(seq.as_slice().iter().map(|rng| {
+                            Ok(self.compile_range(rng.start, rng.end))
+                        }))
+                    }
+                });
         self.compile_alternation(it)
     }
 
@@ -735,9 +699,8 @@ fn reverse_hir(expr: Hir) -> Hir {
         HirKind::Literal(hir::Literal::Byte(b)) => {
             Hir::literal(hir::Literal::Byte(b))
         }
-        HirKind::Literal(hir::Literal::Unicode(c)) => {
-            Hir::concat(
-                c.encode_utf8(&mut [0; 4])
+        HirKind::Literal(hir::Literal::Unicode(c)) => Hir::concat(
+            c.encode_utf8(&mut [0; 4])
                 .as_bytes()
                 .iter()
                 .cloned()
@@ -750,9 +713,8 @@ fn reverse_hir(expr: Hir) -> Hir {
                     }
                 })
                 .map(Hir::literal)
-                .collect()
-            )
-        }
+                .collect(),
+        ),
         HirKind::Class(cls) => Hir::class(cls),
         HirKind::Anchor(anchor) => Hir::anchor(anchor),
         HirKind::WordBoundary(anchor) => Hir::word_boundary(anchor),
@@ -784,10 +746,10 @@ fn reverse_hir(expr: Hir) -> Hir {
 
 #[cfg(test)]
 mod tests {
-    use regex_syntax::ParserBuilder;
     use regex_syntax::hir::Hir;
+    use regex_syntax::ParserBuilder;
 
-    use super::{ByteClassSet, NFA, NFABuilder, State, StateID};
+    use super::{ByteClassSet, NFABuilder, State, StateID, NFA};
 
     fn parse(pattern: &str) -> Hir {
         ParserBuilder::new().build().parse(pattern).unwrap()
@@ -831,10 +793,8 @@ mod tests {
     #[test]
     fn compile_unanchored_prefix() {
         // When the machine can only match valid UTF-8.
-        let nfa = NFABuilder::new()
-            .anchored(false)
-            .build(parse(r"a"))
-            .unwrap();
+        let nfa =
+            NFABuilder::new().anchored(false).build(parse(r"a")).unwrap();
         // There should be many states since the `.` in `.*?` matches any
         // Unicode scalar value.
         assert_eq!(31, nfa.len());
@@ -847,38 +807,33 @@ mod tests {
             .allow_invalid_utf8(true)
             .build(parse(r"a"))
             .unwrap();
-        assert_eq!(nfa.states, &[
-            s_union(&[2, 1]),
-            s_range(0, 255, 0),
-            s_byte(b'a', 3),
-            s_match(),
-        ]);
+        assert_eq!(
+            nfa.states,
+            &[
+                s_union(&[2, 1]),
+                s_range(0, 255, 0),
+                s_byte(b'a', 3),
+                s_match(),
+            ]
+        );
     }
 
     #[test]
     fn compile_empty() {
-        assert_eq!(build("").states, &[
-            s_match(),
-        ]);
+        assert_eq!(build("").states, &[s_match(),]);
     }
 
     #[test]
     fn compile_literal() {
-        assert_eq!(build("a").states, &[
-            s_byte(b'a', 1),
-            s_match(),
-        ]);
-        assert_eq!(build("ab").states, &[
-            s_byte(b'a', 1),
-            s_byte(b'b', 2),
-            s_match(),
-        ]);
-        assert_eq!(build("☃").states, &[
-            s_byte(0xE2, 1),
-            s_byte(0x98, 2),
-            s_byte(0x83, 3),
-            s_match(),
-        ]);
+        assert_eq!(build("a").states, &[s_byte(b'a', 1), s_match(),]);
+        assert_eq!(
+            build("ab").states,
+            &[s_byte(b'a', 1), s_byte(b'b', 2), s_match(),]
+        );
+        assert_eq!(
+            build("☃").states,
+            &[s_byte(0xE2, 1), s_byte(0x98, 2), s_byte(0x83, 3), s_match(),]
+        );
 
         // Check that non-UTF-8 literals work.
         let hir = ParserBuilder::new()
@@ -891,86 +846,77 @@ mod tests {
             .allow_invalid_utf8(true)
             .build(hir)
             .unwrap();
-        assert_eq!(nfa.states, &[
-            s_byte(b'\xFF', 1),
-            s_match(),
-        ]);
+        assert_eq!(nfa.states, &[s_byte(b'\xFF', 1), s_match(),]);
     }
 
     #[test]
     fn compile_class() {
-        assert_eq!(build(r"[a-z]").states, &[
-            s_range(b'a', b'z', 1),
-            s_match(),
-        ]);
-        assert_eq!(build(r"[x-za-c]").states, &[
-            s_range(b'a', b'c', 3),
-            s_range(b'x', b'z', 3),
-            s_union(&[0, 1]),
-            s_match(),
-        ]);
-        assert_eq!(build(r"[\u03B1-\u03B4]").states, &[
-            s_byte(0xCE, 1),
-            s_range(0xB1, 0xB4, 2),
-            s_match(),
-        ]);
-        assert_eq!(build(r"[\u03B1-\u03B4\u{1F919}-\u{1F91E}]").states, &[
-            s_byte(0xCE, 1),
-            s_range(0xB1, 0xB4, 7),
-
-            s_byte(0xF0, 3),
-            s_byte(0x9F, 4),
-            s_byte(0xA4, 5),
-            s_range(0x99, 0x9E, 7),
-
-            s_union(&[0, 2]),
-            s_match(),
-        ]);
+        assert_eq!(
+            build(r"[a-z]").states,
+            &[s_range(b'a', b'z', 1), s_match(),]
+        );
+        assert_eq!(
+            build(r"[x-za-c]").states,
+            &[
+                s_range(b'a', b'c', 3),
+                s_range(b'x', b'z', 3),
+                s_union(&[0, 1]),
+                s_match(),
+            ]
+        );
+        assert_eq!(
+            build(r"[\u03B1-\u03B4]").states,
+            &[s_byte(0xCE, 1), s_range(0xB1, 0xB4, 2), s_match(),]
+        );
+        assert_eq!(
+            build(r"[\u03B1-\u03B4\u{1F919}-\u{1F91E}]").states,
+            &[
+                s_byte(0xCE, 1),
+                s_range(0xB1, 0xB4, 7),
+                s_byte(0xF0, 3),
+                s_byte(0x9F, 4),
+                s_byte(0xA4, 5),
+                s_range(0x99, 0x9E, 7),
+                s_union(&[0, 2]),
+                s_match(),
+            ]
+        );
     }
 
     #[test]
     fn compile_repetition() {
-        assert_eq!(build(r"a?").states, &[
-            s_union(&[1, 2]),
-            s_byte(b'a', 2),
-            s_match(),
-        ]);
-        assert_eq!(build(r"a??").states, &[
-            s_union(&[2, 1]),
-            s_byte(b'a', 2),
-            s_match(),
-        ]);
+        assert_eq!(
+            build(r"a?").states,
+            &[s_union(&[1, 2]), s_byte(b'a', 2), s_match(),]
+        );
+        assert_eq!(
+            build(r"a??").states,
+            &[s_union(&[2, 1]), s_byte(b'a', 2), s_match(),]
+        );
     }
 
     #[test]
     fn compile_group() {
-        assert_eq!(build(r"ab+").states, &[
-            s_byte(b'a', 1),
-            s_byte(b'b', 2),
-            s_union(&[1, 3]),
-            s_match(),
-        ]);
-        assert_eq!(build(r"(ab)").states, &[
-            s_byte(b'a', 1),
-            s_byte(b'b', 2),
-            s_match(),
-        ]);
-        assert_eq!(build(r"(ab)+").states, &[
-            s_byte(b'a', 1),
-            s_byte(b'b', 2),
-            s_union(&[0, 3]),
-            s_match(),
-        ]);
+        assert_eq!(
+            build(r"ab+").states,
+            &[s_byte(b'a', 1), s_byte(b'b', 2), s_union(&[1, 3]), s_match(),]
+        );
+        assert_eq!(
+            build(r"(ab)").states,
+            &[s_byte(b'a', 1), s_byte(b'b', 2), s_match(),]
+        );
+        assert_eq!(
+            build(r"(ab)+").states,
+            &[s_byte(b'a', 1), s_byte(b'b', 2), s_union(&[0, 3]), s_match(),]
+        );
     }
 
     #[test]
     fn compile_alternation() {
-        assert_eq!(build(r"a|b").states, &[
-            s_byte(b'a', 3),
-            s_byte(b'b', 3),
-            s_union(&[0, 1]),
-            s_match(),
-        ]);
+        assert_eq!(
+            build(r"a|b").states,
+            &[s_byte(b'a', 3), s_byte(b'b', 3), s_union(&[0, 1]), s_match(),]
+        );
     }
 
     #[test]

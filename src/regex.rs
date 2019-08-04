@@ -323,10 +323,7 @@ impl<D: DFA> Regex<D> {
     /// assert_eq!(matches, vec![(0, 4), (5, 10), (11, 17)]);
     /// # Ok(()) }; example().unwrap()
     /// ```
-    pub fn find_iter<'r, 't>(
-        &'r self,
-        input: &'t [u8],
-    ) -> Matches<'r, 't, D> {
+    pub fn find_iter<'r, 't>(&'r self, input: &'t [u8]) -> Matches<'r, 't, D> {
         Matches::new(self, input)
     }
 
@@ -424,12 +421,7 @@ pub struct Matches<'r, 't, D: DFA + 'r> {
 
 impl<'r, 't, D: DFA> Matches<'r, 't, D> {
     fn new(re: &'r Regex<D>, text: &'t [u8]) -> Matches<'r, 't, D> {
-        Matches {
-            re: re,
-            text: text,
-            last_end: 0,
-            last_match: None,
-        }
+        Matches { re: re, text: text, last_end: 0, last_match: None }
     }
 }
 
@@ -485,19 +477,14 @@ pub struct RegexBuilder {
 impl RegexBuilder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> RegexBuilder {
-        RegexBuilder {
-            dfa: dense::Builder::new(),
-        }
+        RegexBuilder { dfa: dense::Builder::new() }
     }
 
     /// Build a regex from the given pattern.
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    pub fn build(
-        &self,
-        pattern: &str,
-    ) -> Result<Regex> {
+    pub fn build(&self, pattern: &str) -> Result<Regex> {
         self.build_with_size::<usize>(pattern)
     }
 
@@ -539,7 +526,8 @@ impl RegexBuilder {
         pattern: &str,
     ) -> Result<Regex<DenseDFA<Vec<S>, S>>> {
         let forward = self.dfa.build_with_size(pattern)?;
-        let reverse = self.dfa
+        let reverse = self
+            .dfa
             .clone()
             .anchored(true)
             .reverse(true)

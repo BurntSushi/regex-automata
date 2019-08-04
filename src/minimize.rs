@@ -4,7 +4,7 @@ use std::mem;
 use std::rc::Rc;
 
 use dense;
-use state_id::{StateID, dead_id};
+use state_id::{dead_id, StateID};
 
 type DFARepr<S> = dense::Repr<Vec<S>, S>;
 
@@ -101,7 +101,8 @@ impl<'a, S: StateID> Minimizer<'a, S> {
                         continue;
                     }
 
-                    let (x, y) = (scratch1.deep_clone(), scratch2.deep_clone());
+                    let (x, y) =
+                        (scratch1.deep_clone(), scratch2.deep_clone());
                     newparts.push(x.clone());
                     newparts.push(y.clone());
                     match self.find_waiting(&self.partitions[p]) {
@@ -340,7 +341,10 @@ impl<S: StateID> StateSet<S> {
                     Some(a) => a,
                 };
                 b = match itb.next() {
-                    None => { dest.add(a); break; }
+                    None => {
+                        dest.add(a);
+                        break;
+                    }
                     Some(b) => b,
                 };
             } else if a < b {
@@ -351,7 +355,10 @@ impl<S: StateID> StateSet<S> {
                 };
             } else {
                 b = match itb.next() {
-                    None => { dest.add(a); break; }
+                    None => {
+                        dest.add(a);
+                        break;
+                    }
                     Some(b) => b,
                 };
             }

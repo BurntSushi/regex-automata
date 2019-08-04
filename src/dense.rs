@@ -5,9 +5,9 @@ use core::iter;
 use core::mem;
 use core::slice;
 
-use byteorder::{ByteOrder, NativeEndian};
 #[cfg(feature = "std")]
 use byteorder::{BigEndian, LittleEndian};
+use byteorder::{ByteOrder, NativeEndian};
 #[cfg(feature = "std")]
 use regex_syntax::ParserBuilder;
 
@@ -20,13 +20,13 @@ use error::{Error, Result};
 #[cfg(feature = "std")]
 use minimize::Minimizer;
 #[cfg(feature = "std")]
-use nfa::{NFA, NFABuilder};
+use nfa::{NFABuilder, NFA};
 #[cfg(feature = "std")]
 use sparse::SparseDFA;
-use state_id::{StateID, dead_id};
+use state_id::{dead_id, StateID};
 #[cfg(feature = "std")]
 use state_id::{
-    premultiply_overflow_error, next_state_id, write_state_id_bytes,
+    next_state_id, premultiply_overflow_error, write_state_id_bytes,
 };
 
 /// The size of the alphabet in a standard DFA.
@@ -1276,10 +1276,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
         A::write_u64(&mut buf[i..], self.state_count as u64);
         i += 8;
         // max match state
-        A::write_u64(
-            &mut buf[i..],
-            self.max_match.to_usize() as u64,
-        );
+        A::write_u64(&mut buf[i..], self.max_match.to_usize() as u64);
         i += 8;
         // byte class map
         for b in (0..256).map(|b| b as u8) {
@@ -1311,7 +1308,7 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
         // skip over label
         match buf.iter().position(|&b| b == b'\x00') {
             None => panic!("could not find label"),
-            Some(i) => buf = &buf[i+1..],
+            Some(i) => buf = &buf[i + 1..],
         }
 
         // check that current endianness is same as endianness of DFA
@@ -1342,7 +1339,8 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
             panic!(
                 "state size of DenseDFA ({}) does not match \
                  requested state size ({})",
-                state_size, mem::size_of::<S>(),
+                state_size,
+                mem::size_of::<S>(),
             );
         }
         buf = &buf[2..];
@@ -1373,7 +1371,8 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
             buf.len() <= len_bytes,
             "insufficient transition table bytes, \
              expected at least {} but only have {}",
-            len_bytes, buf.len()
+            len_bytes,
+            buf.len()
         );
         assert_eq!(
             0,
@@ -1488,12 +1487,11 @@ impl<S: StateID> Repr<Vec<S>, S> {
     pub fn add_empty_state(&mut self) -> Result<S> {
         assert!(!self.premultiplied, "can't add state to premultiplied DFA");
 
-        let id =
-            if self.state_count == 0 {
-                S::from_usize(0)
-            } else {
-                next_state_id(S::from_usize(self.state_count - 1))?
-            };
+        let id = if self.state_count == 0 {
+            S::from_usize(0)
+        } else {
+            next_state_id(S::from_usize(self.state_count - 1))?
+        };
         let alphabet_len = self.alphabet_len();
         self.trans.extend(iter::repeat(dead_id::<S>()).take(alphabet_len));
         // This should never panic, since state_count is a usize. The
@@ -1673,12 +1671,11 @@ impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
     fn next(&mut self) -> Option<(S, State<'a, S>)> {
         self.it.next().map(|(id, chunk)| {
             let state = State { transitions: chunk };
-            let id =
-                if self.dfa.premultiplied {
-                    id * self.dfa.alphabet_len()
-                } else {
-                    id
-                };
+            let id = if self.dfa.premultiplied {
+                id * self.dfa.alphabet_len()
+            } else {
+                id
+            };
             (S::from_usize(id), state)
         })
     }
@@ -1728,15 +1725,16 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut transitions = vec![];
         for (start, end, next_id) in self.sparse_transitions() {
-            let line =
-                if start == end {
-                    format!("{} => {}", escape(start), next_id.to_usize())
-                } else {
-                    format!(
-                        "{}-{} => {}",
-                        escape(start), escape(end), next_id.to_usize(),
-                    )
-                };
+            let line = if start == end {
+                format!("{} => {}", escape(start), next_id.to_usize())
+            } else {
+                format!(
+                    "{}-{} => {}",
+                    escape(start),
+                    escape(end),
+                    next_id.to_usize(),
+                )
+            };
             transitions.push(line);
         }
         write!(f, "{}", transitions.join(", "))?;
@@ -1940,17 +1938,14 @@ impl Builder {
         }
 
         let nfa = self.build_nfa(pattern)?;
-        let mut dfa =
-            if self.byte_classes {
-                Determinizer::new(&nfa)
-                    .with_byte_classes()
-                    .longest_match(self.longest_match)
-                    .build()
-            } else {
-                Determinizer::new(&nfa)
-                    .longest_match(self.longest_match)
-                    .build()
-            }?;
+        let mut dfa = if self.byte_classes {
+            Determinizer::new(&nfa)
+                .with_byte_classes()
+                .longest_match(self.longest_match)
+                .build()
+        } else {
+            Determinizer::new(&nfa).longest_match(self.longest_match).build()
+        }?;
         if self.minimize {
             dfa.minimize();
         }
@@ -1962,11 +1957,7 @@ impl Builder {
 
     /// Builds an NFA from the given pattern.
     pub(crate) fn build_nfa(&self, pattern: &str) -> Result<NFA> {
-        let hir = self
-            .parser
-            .build()
-            .parse(pattern)
-            .map_err(Error::syntax)?;
+        let hir = self.parser.build().parse(pattern).map_err(Error::syntax)?;
         Ok(self.nfa.build(hir)?)
     }
 
@@ -2249,8 +2240,8 @@ fn escape(b: u8) -> String {
 #[cfg(test)]
 #[allow(dead_code)]
 mod tests {
-    use nfa::NFA;
     use super::*;
+    use nfa::NFA;
 
     #[test]
     fn errors_when_converting_to_smaller_dfa() {
@@ -2312,10 +2303,10 @@ mod tests {
     }
 
     // fn print_automata_counts(pattern: &str) {
-        // let (nfa, dfa, mdfa) = build_automata(pattern);
-        // println!("nfa # states: {:?}", nfa.len());
-        // println!("dfa # states: {:?}", dfa.len());
-        // println!("minimal dfa # states: {:?}", mdfa.len());
+    // let (nfa, dfa, mdfa) = build_automata(pattern);
+    // println!("nfa # states: {:?}", nfa.len());
+    // println!("dfa # states: {:?}", dfa.len());
+    // println!("minimal dfa # states: {:?}", mdfa.len());
     // }
 
     fn build_automata(

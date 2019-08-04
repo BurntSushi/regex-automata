@@ -244,12 +244,11 @@ pub trait DFA {
         for (i, &b) in bytes[start..].iter().enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
             if self.is_match_or_dead_state(state) {
-                return
-                    if self.is_dead_state(state) {
-                        None
-                    } else {
-                        Some(start + i + 1)
-                    };
+                return if self.is_dead_state(state) {
+                    None
+                } else {
+                    Some(start + i + 1)
+                };
             }
         }
         None
@@ -268,14 +267,13 @@ pub trait DFA {
         }
 
         let mut state = self.start_state();
-        let mut last_match =
-            if self.is_dead_state(state) {
-                return None;
-            } else if self.is_match_state(state) {
-                Some(start)
-            } else {
-                None
-            };
+        let mut last_match = if self.is_dead_state(state) {
+            return None;
+        } else if self.is_match_state(state) {
+            Some(start)
+        } else {
+            None
+        };
         for (i, &b) in bytes[start..].iter().enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
             if self.is_match_or_dead_state(state) {
@@ -301,14 +299,13 @@ pub trait DFA {
         }
 
         let mut state = self.start_state();
-        let mut last_match =
-            if self.is_dead_state(state) {
-                return None;
-            } else if self.is_match_state(state) {
-                Some(start)
-            } else {
-                None
-            };
+        let mut last_match = if self.is_dead_state(state) {
+            return None;
+        } else if self.is_match_state(state) {
+            Some(start)
+        } else {
+            None
+        };
         for (i, &b) in bytes[..start].iter().enumerate().rev() {
             state = unsafe { self.next_state_unchecked(state, b) };
             if self.is_match_or_dead_state(state) {

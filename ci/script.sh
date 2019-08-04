@@ -17,6 +17,11 @@ cargo test --verbose --doc
 cargo doc --verbose --no-default-features
 cargo build --verbose --no-default-features
 
+if [ "$TRAVIS_RUST_VERSION" = "stable" ]; then
+  rustup component add rustfmt
+  cargo fmt -- --check
+fi
+
 # Validate no_std status if this version of rust supports embedded targets
 # (starting with 1.31 stable)
 if rustup target add thumbv7em-none-eabihf; then

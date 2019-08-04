@@ -6,7 +6,7 @@ use dense;
 use error::Result;
 use nfa::{self, NFA};
 use sparse_set::SparseSet;
-use state_id::{StateID, dead_id};
+use state_id::{dead_id, StateID};
 
 type DFARepr<S> = dense::Repr<Vec<S>, S>;
 
@@ -103,9 +103,8 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         let mut uncompiled = vec![self.add_start(&mut sparse)?];
         while let Some(dfa_id) = uncompiled.pop() {
             for &b in &representative_bytes {
-                let (next_dfa_id, is_new) = self.cached_state(
-                    dfa_id, b, &mut sparse,
-                )?;
+                let (next_dfa_id, is_new) =
+                    self.cached_state(dfa_id, b, &mut sparse)?;
                 self.dfa.add_transition(dfa_id, b, next_dfa_id);
                 if is_new {
                     uncompiled.push(next_dfa_id);
@@ -117,11 +116,8 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         // the beginning. This permits a DFA's match loop to detect a match
         // condition by merely inspecting the current state's identifier, and
         // avoids the need for any additional auxiliary storage.
-        let is_match: Vec<bool> = self
-            .builder_states
-            .iter()
-            .map(|s| s.is_match)
-            .collect();
+        let is_match: Vec<bool> =
+            self.builder_states.iter().map(|s| s.is_match).collect();
         self.dfa.shuffle_match_states(&is_match);
         Ok(self.dfa)
     }
@@ -161,12 +157,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
 
     /// Compute the set of all eachable NFA states, including the full epsilon
     /// closure, from a DFA state for a single byte of input.
-    fn next(
-        &mut self,
-        dfa_id: S,
-        b: u8,
-        next_nfa_states: &mut SparseSet,
-    ) {
+    fn next(&mut self, dfa_id: S, b: u8, next_nfa_states: &mut SparseSet) {
         next_nfa_states.clear();
         for i in 0..self.builder_states[dfa_id.to_usize()].nfa_states.len() {
             let nfa_id = self.builder_states[dfa_id.to_usize()].nfa_states[i];

@@ -1,15 +1,15 @@
 #[cfg(feature = "std")]
-use std::collections::HashMap;
-#[cfg(feature = "std")]
 use core::fmt;
 #[cfg(feature = "std")]
 use core::iter;
 use core::marker::PhantomData;
 use core::mem::size_of;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
-use byteorder::{ByteOrder, NativeEndian};
 #[cfg(feature = "std")]
 use byteorder::{BigEndian, LittleEndian};
+use byteorder::{ByteOrder, NativeEndian};
 
 use classes::ByteClasses;
 use dense;
@@ -17,9 +17,9 @@ use dfa::DFA;
 #[cfg(feature = "std")]
 use error::{Error, Result};
 #[cfg(feature = "std")]
-use state_id::{StateID, dead_id, usize_to_state_id, write_state_id_bytes};
+use state_id::{dead_id, usize_to_state_id, write_state_id_bytes, StateID};
 #[cfg(not(feature = "std"))]
-use state_id::{StateID, dead_id};
+use state_id::{dead_id, StateID};
 
 /// A sparse table-based deterministic finite automaton (DFA).
 ///
@@ -507,9 +507,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
 /// you'll want to use this type (or any of the other DFA variant types)
 /// directly, since they implement `next_state` more efficiently.
 #[derive(Clone, Debug)]
-pub struct Standard<T: AsRef<[u8]>, S: StateID = usize>(
-    Repr<T, S>,
-);
+pub struct Standard<T: AsRef<[u8]>, S: StateID = usize>(Repr<T, S>);
 
 impl<T: AsRef<[u8]>, S: StateID> DFA for Standard<T, S> {
     type ID = S;
@@ -570,9 +568,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for Standard<T, S> {
 /// you'll want to use this type (or any of the other DFA variant types)
 /// directly, since they implement `next_state` more efficiently.
 #[derive(Clone, Debug)]
-pub struct ByteClass<T: AsRef<[u8]>, S: StateID = usize>(
-    Repr<T, S>,
-);
+pub struct ByteClass<T: AsRef<[u8]>, S: StateID = usize>(Repr<T, S>);
 
 impl<T: AsRef<[u8]>, S: StateID> DFA for ByteClass<T, S> {
     type ID = S;
@@ -832,10 +828,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
         A::write_u64(&mut buf[i..], self.state_count as u64);
         i += 8;
         // max match state
-        A::write_u64(
-            &mut buf[i..],
-            self.max_match.to_usize() as u64,
-        );
+        A::write_u64(&mut buf[i..], self.max_match.to_usize() as u64);
         i += 8;
         // byte class map
         for b in (0..256).map(|b| b as u8) {
@@ -866,7 +859,7 @@ impl<'a, S: StateID> Repr<&'a [u8], S> {
         // skip over label
         match buf.iter().position(|&b| b == b'\x00') {
             None => panic!("could not find label"),
-            Some(i) => buf = &buf[i+1..],
+            Some(i) => buf = &buf[i + 1..],
         }
 
         // check that current endianness is same as endianness of DFA
@@ -897,7 +890,8 @@ impl<'a, S: StateID> Repr<&'a [u8], S> {
             panic!(
                 "state size of SparseDFA ({}) does not match \
                  requested state size ({})",
-                state_size, size_of::<S>(),
+                state_size,
+                size_of::<S>(),
             );
         }
         buf = &buf[2..];
@@ -1111,7 +1105,7 @@ impl<'a, S: StateID> State<'a, S> {
         for i in 0..self.ntrans {
             let (start, end) = self.range(i);
             if start <= input && input <= end {
-                return self.next_at(i)
+                return self.next_at(i);
             }
             // We could bail early with an extra branch: if input < b1, then
             // we know we'll never find a matching transition. Interestingly,
@@ -1153,18 +1147,18 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
 
             let (start, end) = self.range(i);
             if start == end {
-                transitions.push(
-                    format!("{} => {}", escape(start), next.to_usize()),
-                );
+                transitions.push(format!(
+                    "{} => {}",
+                    escape(start),
+                    next.to_usize()
+                ));
             } else {
-                transitions.push(
-                    format!(
-                        "{}-{} => {}",
-                        escape(start),
-                        escape(end),
-                        next.to_usize(),
-                    ),
-                );
+                transitions.push(format!(
+                    "{}-{} => {}",
+                    escape(start),
+                    escape(end),
+                    next.to_usize(),
+                ));
             }
         }
         write!(f, "{}", transitions.join(", "))

@@ -5,7 +5,7 @@ extern crate criterion;
 extern crate regex_automata;
 
 use criterion::{Bencher, Benchmark, Criterion, Throughput};
-use regex_automata::{dense, DFA, RegexBuilder};
+use regex_automata::{dense, RegexBuilder, DFA};
 
 use inputs::*;
 
@@ -94,11 +94,7 @@ fn compile_muammar(c: &mut Criterion) {
     );
 }
 
-fn define_compile(
-    c: &mut Criterion,
-    group_name: &str,
-    pattern: &'static str,
-) {
+fn define_compile(c: &mut Criterion, group_name: &str, pattern: &'static str) {
     let group = format!("compile/{}", group_name);
     define(c, &group, "unminimized-noclasses", &[], move |b| {
         b.iter(|| {

@@ -9,8 +9,8 @@ pub use self::std::*;
 
 #[cfg(feature = "std")]
 mod std {
-    use core::mem::size_of;
     use byteorder::ByteOrder;
+    use core::mem::size_of;
     use error::{Error, Result};
 
     use super::StateID;
@@ -69,9 +69,9 @@ mod std {
     ) {
         assert!(
             1 == size_of::<S>()
-            || 2 == size_of::<S>()
-            || 4 == size_of::<S>()
-            || 8 == size_of::<S>()
+                || 2 == size_of::<S>()
+                || 4 == size_of::<S>()
+                || 8 == size_of::<S>()
         );
 
         match size_of::<S>() {
@@ -155,13 +155,19 @@ pub unsafe trait StateID:
 
 unsafe impl StateID for usize {
     #[inline]
-    fn from_usize(n: usize) -> usize { n }
+    fn from_usize(n: usize) -> usize {
+        n
+    }
 
     #[inline]
-    fn to_usize(self) -> usize { self }
+    fn to_usize(self) -> usize {
+        self
+    }
 
     #[inline]
-    fn max_id() -> usize { ::core::usize::MAX }
+    fn max_id() -> usize {
+        ::core::usize::MAX
+    }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -176,13 +182,19 @@ unsafe impl StateID for usize {
 
 unsafe impl StateID for u8 {
     #[inline]
-    fn from_usize(n: usize) -> u8 { n as u8 }
+    fn from_usize(n: usize) -> u8 {
+        n as u8
+    }
 
     #[inline]
-    fn to_usize(self) -> usize { self as usize }
+    fn to_usize(self) -> usize {
+        self as usize
+    }
 
     #[inline]
-    fn max_id() -> usize { ::core::u8::MAX as usize }
+    fn max_id() -> usize {
+        ::core::u8::MAX as usize
+    }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -197,13 +209,19 @@ unsafe impl StateID for u8 {
 
 unsafe impl StateID for u16 {
     #[inline]
-    fn from_usize(n: usize) -> u16 { n as u16 }
+    fn from_usize(n: usize) -> u16 {
+        n as u16
+    }
 
     #[inline]
-    fn to_usize(self) -> usize { self as usize }
+    fn to_usize(self) -> usize {
+        self as usize
+    }
 
     #[inline]
-    fn max_id() -> usize { ::core::u16::MAX as usize }
+    fn max_id() -> usize {
+        ::core::u16::MAX as usize
+    }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -219,13 +237,19 @@ unsafe impl StateID for u16 {
 #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
 unsafe impl StateID for u32 {
     #[inline]
-    fn from_usize(n: usize) -> u32 { n as u32 }
+    fn from_usize(n: usize) -> u32 {
+        n as u32
+    }
 
     #[inline]
-    fn to_usize(self) -> usize { self as usize }
+    fn to_usize(self) -> usize {
+        self as usize
+    }
 
     #[inline]
-    fn max_id() -> usize { ::core::u32::MAX as usize }
+    fn max_id() -> usize {
+        ::core::u32::MAX as usize
+    }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
@@ -241,13 +265,19 @@ unsafe impl StateID for u32 {
 #[cfg(target_pointer_width = "64")]
 unsafe impl StateID for u64 {
     #[inline]
-    fn from_usize(n: usize) -> u64 { n as u64 }
+    fn from_usize(n: usize) -> u64 {
+        n as u64
+    }
 
     #[inline]
-    fn to_usize(self) -> usize { self as usize }
+    fn to_usize(self) -> usize {
+        self as usize
+    }
 
     #[inline]
-    fn max_id() -> usize { ::core::u64::MAX as usize }
+    fn max_id() -> usize {
+        ::core::u64::MAX as usize
+    }
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
