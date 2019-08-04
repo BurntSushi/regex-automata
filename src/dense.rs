@@ -1958,7 +1958,7 @@ impl Builder {
     /// Builds an NFA from the given pattern.
     pub(crate) fn build_nfa(&self, pattern: &str) -> Result<NFA> {
         let hir = self.parser.build().parse(pattern).map_err(Error::syntax)?;
-        Ok(self.nfa.build(hir)?)
+        Ok(self.nfa.build(&hir)?)
     }
 
     /// Set whether matching must be anchored at the beginning of the input.
