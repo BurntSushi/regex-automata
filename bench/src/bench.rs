@@ -4,6 +4,8 @@
 extern crate criterion;
 extern crate regex_automata;
 
+use std::time::Duration;
+
 use criterion::{Bencher, Benchmark, Criterion, Throughput};
 use regex_automata::{dense, RegexBuilder, DFA};
 
@@ -70,6 +72,11 @@ fn is_match(c: &mut Criterion) {
             assert!(!re.is_match(corpus));
         });
     });
+}
+
+// \w has 128,640 codepoints.
+fn compile_unicode_word(c: &mut Criterion) {
+    define_compile(c, "unicode-word", r"\w");
 }
 
 // \p{Other_Math} has 1,362 codepoints
@@ -157,7 +164,11 @@ fn define(
     bench: impl FnMut(&mut Bencher) + 'static,
 ) {
     let tput = Throughput::Bytes(corpus.len() as u64);
-    let benchmark = Benchmark::new(bench_name, bench).throughput(tput);
+    let benchmark = Benchmark::new(bench_name, bench)
+        .throughput(tput)
+        .sample_size(30)
+        .warm_up_time(Duration::from_millis(500))
+        .measurement_time(Duration::from_secs(2));
     c.bench(group_name, benchmark);
 }
 
@@ -165,4 +176,5 @@ criterion_group!(g1, is_match);
 criterion_group!(g2, compile_unicode_other_math);
 criterion_group!(g3, compile_unicode_other_uppercase);
 criterion_group!(g4, compile_muammar);
-criterion_main!(g1, g2, g3, g4);
+criterion_group!(g5, compile_unicode_word);
+criterion_main!(g1, g2, g3, g4, g5);

@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::fmt;
-use std::iter;
+use std::mem;
 
 use regex_syntax::hir::{self, Hir, HirKind};
 
@@ -38,21 +38,6 @@ pub struct NFA {
     byte_classes: ByteClasses,
 }
 
-/// A state in a final compiled NFA.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum State {
-    /// A state that transitions to `next` if and only if the current input
-    /// byte is in the range `[start, end]` (inclusive).
-    Range { start: u8, end: u8, next: StateID },
-    /// An alternation such that there exists an epsilon transition to all
-    /// states in `alternates`, where matches found via earlier transitions
-    /// are preferred over later transitions.
-    Union { alternates: Vec<StateID> },
-    /// A match state. There is exactly one such occurrence of this state in
-    /// an NFA.
-    Match,
-}
-
 impl NFA {
     /// Returns true if and only if this NFA is anchored.
     pub fn is_anchored(&self) -> bool {
@@ -80,6 +65,31 @@ impl NFA {
     pub fn byte_classes(&self) -> &ByteClasses {
         &self.byte_classes
     }
+}
+
+impl fmt::Debug for NFA {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, state) in self.states.iter().enumerate() {
+            let status = if i == self.start { '>' } else { ' ' };
+            writeln!(f, "{}{:06X}: {:?}", status, i, state)?;
+        }
+        Ok(())
+    }
+}
+
+/// A state in a final compiled NFA.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum State {
+    /// A state that transitions to `next` if and only if the current input
+    /// byte is in the range `[start, end]` (inclusive).
+    Range { start: u8, end: u8, next: StateID },
+    /// An alternation such that there exists an epsilon transition to all
+    /// states in `alternates`, where matches found via earlier transitions
+    /// are preferred over later transitions.
+    Union { alternates: Vec<StateID> },
+    /// A match state. There is exactly one such occurrence of this state in
+    /// an NFA.
+    Match,
 }
 
 impl State {
@@ -135,10 +145,7 @@ impl NFABuilder {
     /// If there was a problem building the NFA, then an error is returned.
     /// For example, if the regex uses unsupported features (such as zero-width
     /// assertions), then an error is returned.
-    pub fn build(&self, mut expr: Hir) -> Result<NFA> {
-        if self.reverse {
-            expr = reverse_hir(expr);
-        }
+    pub fn build(&self, expr: &Hir) -> Result<NFA> {
         let compiler = NFACompiler {
             states: RefCell::new(vec![]),
             reverse: self.reverse,
@@ -268,7 +275,7 @@ struct ThompsonRef {
 impl NFACompiler {
     /// Convert the current intermediate NFA to its final compiled form.
     fn to_nfa(&self) -> NFA {
-        let bstates = self.states.borrow();
+        let mut bstates = self.states.borrow_mut();
         let mut states = vec![];
         let mut remap = vec![0; bstates.len()];
         let mut empties = vec![];
@@ -279,7 +286,7 @@ impl NFACompiler {
         // transitions, which are expressed in terms of state IDs. The new
         // set of states will be smaller because of partial epsilon removal,
         // so the state IDs will not be the same.
-        for (id, bstate) in bstates.iter().enumerate() {
+        for (id, bstate) in bstates.iter_mut().enumerate() {
             match *bstate {
                 BState::Empty { next } => {
                     // Since we're removing empty states, we need to handle
@@ -292,16 +299,16 @@ impl NFACompiler {
                     states.push(State::Range { start, end, next });
                     byteset.set_range(start, end);
                 }
-                BState::Union { ref alternates } => {
+                BState::Union { ref mut alternates } => {
                     remap[id] = states.len();
 
-                    let alternates = alternates.clone();
+                    let alternates = mem::replace(alternates, vec![]);
                     states.push(State::Union { alternates });
                 }
-                BState::UnionReverse { ref alternates } => {
+                BState::UnionReverse { ref mut alternates } => {
                     remap[id] = states.len();
 
-                    let mut alternates = alternates.clone();
+                    let mut alternates = mem::replace(alternates, vec![]);
                     alternates.reverse();
                     states.push(State::Union { alternates });
                 }
@@ -313,7 +320,7 @@ impl NFACompiler {
         }
         for (empty_id, mut empty_next) in empties {
             // empty states can point to other empty states, forming a chain.
-            // So we must follow the chain until the end, which must point to
+            // So we must follow the chain until the end, which must end at
             // a non-empty state, and therefore, a state that is correctly
             // remapped.
             while let BState::Empty { next } = bstates[empty_next] {
@@ -371,34 +378,43 @@ impl NFACompiler {
 
     fn compile_concat<I>(&self, mut it: I) -> Result<ThompsonRef>
     where
-        I: Iterator<Item = Result<ThompsonRef>>,
+        I: DoubleEndedIterator<Item = Result<ThompsonRef>>,
     {
-        let ThompsonRef { start, mut end } = match it.next() {
+        let first = if self.reverse { it.next_back() } else { it.next() };
+        let ThompsonRef { start, mut end } = match first {
             Some(result) => result?,
             None => return Ok(self.compile_empty()),
         };
-        for result in it {
-            let compiled = result?;
+        loop {
+            let next = if self.reverse { it.next_back() } else { it.next() };
+            let compiled = match next {
+                Some(result) => result?,
+                None => break,
+            };
             self.patch(end, compiled.start);
             end = compiled.end;
         }
         Ok(ThompsonRef { start, end })
     }
 
-    fn compile_alternation<I>(&self, it: I) -> Result<ThompsonRef>
+    fn compile_alternation<I>(&self, mut it: I) -> Result<ThompsonRef>
     where
         I: Iterator<Item = Result<ThompsonRef>>,
     {
-        let alternates = it.collect::<Result<Vec<ThompsonRef>>>()?;
-        assert!(!alternates.is_empty(), "alternations must be non-empty");
-
-        if alternates.len() == 1 {
-            return Ok(alternates[0]);
-        }
+        let first = it.next().expect("alternations must be non-empty")?;
+        let second = match it.next() {
+            None => return Ok(first),
+            Some(result) => result?,
+        };
 
         let union = self.add_union();
         let empty = self.add_empty();
-        for compiled in alternates {
+        self.patch(union, first.start);
+        self.patch(first.end, empty);
+        self.patch(union, second.start);
+        self.patch(second.end, empty);
+        for result in it {
+            let compiled = result?;
             self.patch(union, compiled.start);
             self.patch(compiled.end, empty);
         }
@@ -509,7 +525,7 @@ impl NFACompiler {
     }
 
     fn compile_exactly(&self, expr: &Hir, n: u32) -> Result<ThompsonRef> {
-        let it = iter::repeat(()).take(n as usize).map(|_| self.compile(expr));
+        let it = (0..n).map(|_| self.compile(expr));
         self.compile_concat(it)
     }
 
@@ -519,20 +535,16 @@ impl NFACompiler {
     ) -> Result<ThompsonRef> {
         use utf8_ranges::Utf8Sequences;
 
-        let it =
-            cls.iter()
-                .flat_map(|rng| Utf8Sequences::new(rng.start(), rng.end()))
-                .map(|seq| {
-                    if self.reverse {
-                        self.compile_concat(seq.as_slice().iter().rev().map(
-                            |rng| Ok(self.compile_range(rng.start, rng.end)),
-                        ))
-                    } else {
-                        self.compile_concat(seq.as_slice().iter().map(|rng| {
-                            Ok(self.compile_range(rng.start, rng.end))
-                        }))
-                    }
-                });
+        let it = cls
+            .iter()
+            .flat_map(|rng| Utf8Sequences::new(rng.start(), rng.end()))
+            .map(|seq| {
+                let it = seq
+                    .as_slice()
+                    .iter()
+                    .map(|rng| Ok(self.compile_range(rng.start, rng.end)));
+                self.compile_concat(it)
+            });
         self.compile_alternation(it)
     }
 
@@ -682,68 +694,6 @@ impl ByteClassSet {
     }
 }
 
-impl fmt::Debug for NFA {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (i, state) in self.states.iter().enumerate() {
-            let status = if i == self.start { '>' } else { ' ' };
-            writeln!(f, "{}{:06X}: {:?}", status, i, state)?;
-        }
-        Ok(())
-    }
-}
-
-/// Reverse the given HIR expression.
-fn reverse_hir(expr: Hir) -> Hir {
-    match expr.into_kind() {
-        HirKind::Empty => Hir::empty(),
-        HirKind::Literal(hir::Literal::Byte(b)) => {
-            Hir::literal(hir::Literal::Byte(b))
-        }
-        HirKind::Literal(hir::Literal::Unicode(c)) => Hir::concat(
-            c.encode_utf8(&mut [0; 4])
-                .as_bytes()
-                .iter()
-                .cloned()
-                .rev()
-                .map(|b| {
-                    if b <= 0x7F {
-                        hir::Literal::Unicode(b as char)
-                    } else {
-                        hir::Literal::Byte(b)
-                    }
-                })
-                .map(Hir::literal)
-                .collect(),
-        ),
-        HirKind::Class(cls) => Hir::class(cls),
-        HirKind::Anchor(anchor) => Hir::anchor(anchor),
-        HirKind::WordBoundary(anchor) => Hir::word_boundary(anchor),
-        HirKind::Repetition(mut rep) => {
-            rep.hir = Box::new(reverse_hir(*rep.hir));
-            Hir::repetition(rep)
-        }
-        HirKind::Group(mut group) => {
-            group.hir = Box::new(reverse_hir(*group.hir));
-            Hir::group(group)
-        }
-        HirKind::Concat(exprs) => {
-            let mut reversed = vec![];
-            for e in exprs {
-                reversed.push(reverse_hir(e));
-            }
-            reversed.reverse();
-            Hir::concat(reversed)
-        }
-        HirKind::Alternation(exprs) => {
-            let mut reversed = vec![];
-            for e in exprs {
-                reversed.push(reverse_hir(e));
-            }
-            Hir::alternation(reversed)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use regex_syntax::hir::Hir;
@@ -756,7 +706,7 @@ mod tests {
     }
 
     fn build(pattern: &str) -> NFA {
-        NFABuilder::new().anchored(true).build(parse(pattern)).unwrap()
+        NFABuilder::new().anchored(true).build(&parse(pattern)).unwrap()
     }
 
     fn s_byte(byte: u8, next: StateID) -> State {
@@ -778,15 +728,15 @@ mod tests {
     #[test]
     fn errors() {
         // unsupported anchors
-        assert!(NFABuilder::new().build(parse(r"^")).is_err());
-        assert!(NFABuilder::new().build(parse(r"$")).is_err());
-        assert!(NFABuilder::new().build(parse(r"\A")).is_err());
-        assert!(NFABuilder::new().build(parse(r"\z")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"^")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"$")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"\A")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"\z")).is_err());
 
         // unsupported word boundaries
-        assert!(NFABuilder::new().build(parse(r"\b")).is_err());
-        assert!(NFABuilder::new().build(parse(r"\B")).is_err());
-        assert!(NFABuilder::new().build(parse(r"(?-u)\b")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"\b")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"\B")).is_err());
+        assert!(NFABuilder::new().build(&parse(r"(?-u)\b")).is_err());
     }
 
     // Test that building an unanchored NFA has an appropriate `.*?` prefix.
@@ -794,7 +744,7 @@ mod tests {
     fn compile_unanchored_prefix() {
         // When the machine can only match valid UTF-8.
         let nfa =
-            NFABuilder::new().anchored(false).build(parse(r"a")).unwrap();
+            NFABuilder::new().anchored(false).build(&parse(r"a")).unwrap();
         // There should be many states since the `.` in `.*?` matches any
         // Unicode scalar value.
         assert_eq!(31, nfa.len());
@@ -805,7 +755,7 @@ mod tests {
         let nfa = NFABuilder::new()
             .anchored(false)
             .allow_invalid_utf8(true)
-            .build(parse(r"a"))
+            .build(&parse(r"a"))
             .unwrap();
         assert_eq!(
             nfa.states,
@@ -844,7 +794,7 @@ mod tests {
         let nfa = NFABuilder::new()
             .anchored(true)
             .allow_invalid_utf8(true)
-            .build(hir)
+            .build(&hir)
             .unwrap();
         assert_eq!(nfa.states, &[s_byte(b'\xFF', 1), s_match(),]);
     }
@@ -916,6 +866,14 @@ mod tests {
         assert_eq!(
             build(r"a|b").states,
             &[s_byte(b'a', 3), s_byte(b'b', 3), s_union(&[0, 1]), s_match(),]
+        );
+        assert_eq!(
+            build(r"|b").states,
+            &[s_byte(b'b', 2), s_union(&[2, 0]), s_match(),]
+        );
+        assert_eq!(
+            build(r"a|").states,
+            &[s_byte(b'a', 2), s_union(&[0, 2]), s_match(),]
         );
     }
 
