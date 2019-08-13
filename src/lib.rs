@@ -295,8 +295,6 @@ extern crate byteorder;
 extern crate fst;
 #[cfg(feature = "std")]
 extern crate regex_syntax;
-#[cfg(feature = "std")]
-extern crate utf8_ranges;
 
 pub use dense::DenseDFA;
 pub use dfa::DFA;
@@ -316,12 +314,17 @@ mod determinize;
 mod dfa;
 #[cfg(feature = "std")]
 mod error;
+#[cfg(feature = "std")]
+mod fnv;
 #[cfg(feature = "fst1")]
 mod fst1;
 #[cfg(feature = "std")]
 mod minimize;
 #[cfg(feature = "std")]
-mod nfa;
+#[doc(hidden)]
+pub mod nfa;
+#[cfg(feature = "std")]
+mod range_trie;
 mod regex;
 #[path = "sparse.rs"]
 mod sparse_imp;

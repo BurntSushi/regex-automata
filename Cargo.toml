@@ -36,15 +36,14 @@ bench = false
 
 [features]
 default = ["std"]
-std = ["regex-syntax", "utf8-ranges"]
+std = ["regex-syntax"]
 fst1 = ["std", "fst"]
 
 [dependencies]
 byteorder = { version = "1.2.7", default-features = false }
 # fst = { version = "0.3", optional = true }
 fst = { version = "*", path = "/home/andrew/code/rust/fst", optional = true }
-regex-syntax = { version = "0.6.4", optional = true }
-utf8-ranges = { version = "1", optional = true }
+regex-syntax = { version = "0.6.14", optional = true }
 
 [dev-dependencies]
 bstr = { version = "0.2", default-features = false, features = ["std"] }

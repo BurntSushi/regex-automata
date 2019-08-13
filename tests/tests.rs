@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[cfg(feature = "std")]
 #[macro_use]
 extern crate lazy_static;

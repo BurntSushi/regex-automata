@@ -1,5 +1,3 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-
 #[macro_use]
 extern crate criterion;
 extern crate regex_automata;
@@ -103,7 +101,7 @@ fn compile_muammar(c: &mut Criterion) {
 }
 
 fn define_compile(c: &mut Criterion, group_name: &str, pattern: &'static str) {
-    let group = format!("compile/{}", group_name);
+    let group = format!("fwd-compile/{}", group_name);
     define(c, &group, "unminimized-noclasses", &[], move |b| {
         b.iter(|| {
             let result = dense::Builder::new()
@@ -230,7 +228,7 @@ fn define(
         .throughput(tput)
         .sample_size(25)
         .warm_up_time(Duration::from_millis(500))
-        .measurement_time(Duration::from_secs(2));
+        .measurement_time(Duration::from_secs(3));
     c.bench(group_name, benchmark);
 }
 

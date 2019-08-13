@@ -66,10 +66,10 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         cache.insert(dead.clone(), dead_id());
 
         Determinizer {
-            nfa: nfa,
+            nfa,
             dfa: DFARepr::empty().anchored(nfa.is_anchored()),
             builder_states: vec![dead],
-            cache: cache,
+            cache,
             stack: vec![],
             scratch_nfa_states: vec![],
             longest_match: false,
@@ -163,9 +163,19 @@ impl<'a, S: StateID> Determinizer<'a, S> {
             let nfa_id = self.builder_states[dfa_id.to_usize()].nfa_states[i];
             match *self.nfa.state(nfa_id) {
                 nfa::State::Union { .. } | nfa::State::Match => {}
-                nfa::State::Range { start, end, next } => {
-                    if start <= b && b <= end {
-                        self.epsilon_closure(next, next_nfa_states);
+                nfa::State::Range { range: ref r } => {
+                    if r.start <= b && b <= r.end {
+                        self.epsilon_closure(r.next, next_nfa_states);
+                    }
+                }
+                nfa::State::Sparse { ref ranges } => {
+                    for r in ranges.iter() {
+                        if r.start > b {
+                            break;
+                        } else if r.start <= b && b <= r.end {
+                            self.epsilon_closure(r.next, next_nfa_states);
+                            break;
+                        }
                     }
                 }
             }
@@ -187,7 +197,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 }
                 set.insert(id);
                 match *self.nfa.state(id) {
-                    nfa::State::Range { .. } | nfa::State::Match => break,
+                    nfa::State::Range { .. }
+                    | nfa::State::Sparse { .. }
+                    | nfa::State::Match => break,
                     nfa::State::Union { ref alternates } => {
                         id = match alternates.get(0) {
                             None => break,
@@ -236,6 +248,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         for &id in set {
             match *self.nfa.state(id) {
                 nfa::State::Range { .. } => {
+                    state.nfa_states.push(id);
+                }
+                nfa::State::Sparse { .. } => {
                     state.nfa_states.push(id);
                 }
                 nfa::State::Match => {
