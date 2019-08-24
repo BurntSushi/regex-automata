@@ -135,16 +135,49 @@ impl NFABuilder {
     /// If there was a problem building the NFA, then an error is returned.
     /// For example, if the regex uses unsupported features (such as zero-width
     /// assertions), then an error is returned.
-    pub fn build(&self, mut expr: Hir) -> Result<NFA> {
-        if self.reverse {
-            expr = reverse_hir(expr);
-        }
+    pub fn build(&self, expr: Hir) -> Result<NFA> {
         let compiler = NFACompiler {
             states: RefCell::new(vec![]),
             reverse: self.reverse,
         };
 
-        let mut start = compiler.add_empty();
+        let start = compiler.add_empty();
+
+        self.build_internal(expr, &compiler, start, 0)?;
+        Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() })
+    }
+
+    /// Compile the given high level intermediate representation of a set of
+    /// regular expressions into an NFA.
+    ///
+    /// If there was a problem building the NFA, then an error is returned.
+    /// For example, if the regex uses unsupported features (such as zero-width
+    /// assertions), then an error is returned.
+    pub fn build_multi(&self, exprs: Vec<Hir>) -> Result<NFA> {
+        let compiler = NFACompiler {
+            states: RefCell::new(vec![]),
+            reverse: self.reverse,
+        };
+
+        let mut start = compiler.add_union();
+
+        for (i, mut expr) in exprs.into_iter().enumerate() {
+            start = self.build_internal(expr, &compiler, start, i)?;
+        }
+        Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() })
+    }
+
+    fn build_internal(
+        &self,
+        mut expr: Hir,
+        compiler: &NFACompiler,
+        mut start: StateID,
+        idx: usize,
+    ) -> Result<StateID> {
+        if self.reverse {
+            expr = reverse_hir(expr);
+        }
+
         if !self.anchored {
             let compiled = if self.allow_invalid_utf8 {
                 compiler.compile_unanchored_prefix_invalid_utf8()
@@ -155,10 +188,10 @@ impl NFABuilder {
             start = compiled.end;
         }
         let compiled = compiler.compile(&expr)?;
-        let match_id = compiler.add_match();
+        let match_id = compiler.add_match(idx);
         compiler.patch(start, compiled.start);
         compiler.patch(compiled.end, match_id);
-        Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() })
+        Ok(start)
     }
 
     /// Set whether matching must be anchored at the beginning of the input.
@@ -607,13 +640,7 @@ impl NFACompiler {
         id
     }
 
-    fn add_match(&self) -> StateID {
-        let id = self.states.borrow().len();
-        self.states.borrow_mut().push(BState::Match { match_idx: 0 });
-        id
-    }
-
-    fn add_match_indexed(&self, idx: usize) -> StateID {
+    fn add_match(&self, idx: usize) -> StateID {
         let id = self.states.borrow().len();
         self.states.borrow_mut().push(BState::Match { match_idx: idx });
         id

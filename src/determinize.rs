@@ -189,7 +189,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 }
                 set.insert(id);
                 match *self.nfa.state(id) {
-                    nfa::State::Range { .. } | nfa::State::Match { .. } => break,
+                    nfa::State::Range { .. } | nfa::State::Match { .. } => {
+                        break
+                    }
                     nfa::State::Union { ref alternates } => {
                         id = match alternates.get(0) {
                             None => break,
@@ -241,7 +243,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 nfa::State::Range { .. } => {
                     state.nfa_states.push(id);
                 }
-                nfa::State::Match { match_idx }=> {
+                nfa::State::Match { match_idx } => {
                     state.is_match = true;
                     state.match_idx = match_idx;
                     if !self.longest_match {
