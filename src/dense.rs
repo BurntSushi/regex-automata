@@ -1942,6 +1942,40 @@ impl Builder {
         self.from_nfa(&nfa)
     }
 
+    /// Build a DFA from the given patterns using a specific representation for
+    /// the DFA's state IDs.
+    ///
+    /// If there was a problem parsing or compiling the patterns, then an error
+    /// is returned.
+    ///
+    /// The representation of state IDs is determined by the `S` type
+    /// parameter. In general, `S` is usually one of `u8`, `u16`, `u32`, `u64`
+    /// or `usize`, where `usize` is the default used for `build`. The purpose
+    /// of specifying a representation for state IDs is to reduce the memory
+    /// footprint of a DFA.
+    ///
+    /// When using this routine, the chosen state ID representation will be
+    /// used throughout determinization and minimization, if minimization
+    /// was requested. Even if the minimized DFA can fit into the chosen
+    /// state ID representation but the initial determinized DFA cannot,
+    /// then this will still return an error. To get a minimized DFA with a
+    /// smaller state ID representation, first build it with a bigger state ID
+    /// representation, and then shrink the size of the DFA using one of its
+    /// conversion routines, such as
+    /// [`DenseDFA::to_u16`](enum.DenseDFA.html#method.to_u16).
+    pub fn build_multi_with_size<S: StateID>(
+        &self,
+        patterns: Vec<&str>,
+    ) -> Result<DenseDFA<Vec<S>, S>> {
+        if self.longest_match && !self.anchored {
+            return Err(Error::unsupported_longest_match());
+        }
+
+        let nfa = self.build_nfa_multi(patterns)?;
+
+        self.from_nfa(&nfa)
+    }
+
     /// Builds a DFA from the given NFA.
     pub(crate) fn from_nfa<S: StateID>(
         &self,
@@ -1969,6 +2003,17 @@ impl Builder {
     pub(crate) fn build_nfa(&self, pattern: &str) -> Result<NFA> {
         let hir = self.parser.build().parse(pattern).map_err(Error::syntax)?;
         Ok(self.nfa.build(hir)?)
+    }
+
+    /// Builds an NFA from the given patterns.
+    pub(crate) fn build_nfa_multi(&self, patterns: Vec<&str>) -> Result<NFA> {
+        let mut hirs = Vec::with_capacity(patterns.len());
+        for pattern in patterns {
+            hirs.push(
+                self.parser.build().parse(pattern).map_err(Error::syntax)?,
+            );
+        }
+        Ok(self.nfa.build_multi(hirs)?)
     }
 
     /// Set whether matching must be anchored at the beginning of the input.
