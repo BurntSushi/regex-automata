@@ -50,7 +50,7 @@ pub enum State {
     Union { alternates: Vec<StateID> },
     /// A match state. There is exactly one such occurrence of this state in
     /// an NFA.
-    Match,
+    Match { match_idx: usize },
 }
 
 impl NFA {
@@ -87,7 +87,7 @@ impl State {
     /// transitions.
     pub fn is_epsilon(&self) -> bool {
         match *self {
-            State::Range { .. } | State::Match => false,
+            State::Range { .. } | State::Match { .. } => false,
             State::Union { .. } => true,
         }
     }
@@ -106,7 +106,7 @@ impl State {
                     *alt = remap[*alt];
                 }
             }
-            State::Match => {}
+            State::Match { .. } => {}
         }
     }
 }
@@ -253,7 +253,7 @@ enum BState {
     UnionReverse { alternates: Vec<StateID> },
     /// A match state. There is exactly one such occurrence of this state in
     /// an NFA.
-    Match,
+    Match { match_idx: usize },
 }
 
 /// A value that represents the result of compiling a sub-expression of a
@@ -305,9 +305,9 @@ impl NFACompiler {
                     alternates.reverse();
                     states.push(State::Union { alternates });
                 }
-                BState::Match => {
+                BState::Match { match_idx } => {
                     remap[id] = states.len();
-                    states.push(State::Match);
+                    states.push(State::Match { match_idx });
                 }
             }
         }
@@ -576,7 +576,7 @@ impl NFACompiler {
             BState::UnionReverse { ref mut alternates } => {
                 alternates.push(to);
             }
-            BState::Match => {}
+            BState::Match { .. } => {}
         }
     }
 
@@ -609,7 +609,13 @@ impl NFACompiler {
 
     fn add_match(&self) -> StateID {
         let id = self.states.borrow().len();
-        self.states.borrow_mut().push(BState::Match);
+        self.states.borrow_mut().push(BState::Match { match_idx: 0 });
+        id
+    }
+
+    fn add_match_indexed(&self, idx: usize) -> StateID {
+        let id = self.states.borrow().len();
+        self.states.borrow_mut().push(BState::Match { match_idx: idx });
         id
     }
 }
@@ -772,7 +778,7 @@ mod tests {
     }
 
     fn s_match() -> State {
-        State::Match
+        State::Match { match_idx: 0 }
     }
 
     #[test]

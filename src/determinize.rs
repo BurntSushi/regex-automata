@@ -54,6 +54,8 @@ pub(crate) struct Determinizer<'a, S: StateID> {
 struct State {
     /// Whether this state is a match state or not.
     is_match: bool,
+    /// Which pattern this state is a match state for.
+    match_idx: usize,
     /// An ordered sequence of NFA states that make up this DFA state.
     nfa_states: Vec<nfa::StateID>,
 }
@@ -162,7 +164,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         for i in 0..self.builder_states[dfa_id.to_usize()].nfa_states.len() {
             let nfa_id = self.builder_states[dfa_id.to_usize()].nfa_states[i];
             match *self.nfa.state(nfa_id) {
-                nfa::State::Union { .. } | nfa::State::Match => {}
+                nfa::State::Union { .. } | nfa::State::Match { .. } => {}
                 nfa::State::Range { start, end, next } => {
                     if start <= b && b <= end {
                         self.epsilon_closure(next, next_nfa_states);
@@ -187,7 +189,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 }
                 set.insert(id);
                 match *self.nfa.state(id) {
-                    nfa::State::Range { .. } | nfa::State::Match => break,
+                    nfa::State::Range { .. } | nfa::State::Match { .. } => break,
                     nfa::State::Union { ref alternates } => {
                         id = match alternates.get(0) {
                             None => break,
@@ -229,6 +231,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
     fn new_state(&mut self, set: &SparseSet) -> State {
         let mut state = State {
             is_match: false,
+            match_idx: 0,
             nfa_states: mem::replace(&mut self.scratch_nfa_states, vec![]),
         };
         state.nfa_states.clear();
@@ -238,8 +241,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 nfa::State::Range { .. } => {
                     state.nfa_states.push(id);
                 }
-                nfa::State::Match => {
+                nfa::State::Match { match_idx }=> {
                     state.is_match = true;
+                    state.match_idx = match_idx;
                     if !self.longest_match {
                         break;
                     }
@@ -259,6 +263,6 @@ impl<'a, S: StateID> Determinizer<'a, S> {
 impl State {
     /// Create a new empty dead state.
     fn dead() -> State {
-        State { nfa_states: vec![], is_match: false }
+        State { nfa_states: vec![], is_match: false, match_idx: 0 }
     }
 }
