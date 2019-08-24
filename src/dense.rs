@@ -1938,6 +1938,12 @@ impl Builder {
         }
 
         let nfa = self.build_nfa(pattern)?;
+        
+        self.from_nfa(&nfa)
+    }
+    
+    /// Builds a DFA from the given NFA.
+    pub(crate) fn from_nfa<S: StateID>(&self, nfa: &NFA) -> Result<DenseDFA<Vec<S>, S>> {
         let mut dfa = if self.byte_classes {
             Determinizer::new(&nfa)
                 .with_byte_classes()
@@ -1952,6 +1958,7 @@ impl Builder {
         if self.premultiply {
             dfa.premultiply()?;
         }
+        
         Ok(dfa.into_dense_dfa())
     }
 
