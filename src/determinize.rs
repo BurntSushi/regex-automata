@@ -55,7 +55,7 @@ struct State {
     /// Whether this state is a match state or not.
     is_match: bool,
     /// Which pattern this state is a match state for.
-    match_idx: usize,
+    match_idx: Vec<usize>,
     /// An ordered sequence of NFA states that make up this DFA state.
     nfa_states: Vec<nfa::StateID>,
 }
@@ -233,7 +233,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
     fn new_state(&mut self, set: &SparseSet) -> State {
         let mut state = State {
             is_match: false,
-            match_idx: 0,
+            match_idx: Vec::with_capacity(self.nfa.num_matches()),
             nfa_states: mem::replace(&mut self.scratch_nfa_states, vec![]),
         };
         state.nfa_states.clear();
@@ -245,7 +245,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 }
                 nfa::State::Match { match_idx } => {
                     state.is_match = true;
-                    state.match_idx = match_idx;
+                    state.match_idx.push(match_idx);
                     if !self.longest_match {
                         break;
                     }
@@ -265,6 +265,6 @@ impl<'a, S: StateID> Determinizer<'a, S> {
 impl State {
     /// Create a new empty dead state.
     fn dead() -> State {
-        State { nfa_states: vec![], is_match: false, match_idx: 0 }
+        State { nfa_states: vec![], is_match: false, match_idx: vec![] }
     }
 }

@@ -24,7 +24,7 @@ pub struct NFA {
     /// The starting state of this NFA.
     start: StateID,
     /// The state list. This list is guaranteed to be indexable by the starting
-    /// state ID, and it is also guaranteed to contain exactly one `Match`
+    /// state ID, and it is also guaranteed to contain at least one `Match`
     /// state.
     states: Vec<State>,
     /// A mapping from any byte value to its corresponding equivalence class
@@ -48,7 +48,7 @@ pub enum State {
     /// states in `alternates`, where matches found via earlier transitions
     /// are preferred over later transitions.
     Union { alternates: Vec<StateID> },
-    /// A match state. There is exactly one such occurrence of this state in
+    /// A match state. There is at least one such occurrence of this state in
     /// an NFA.
     Match { match_idx: usize },
 }
@@ -79,6 +79,17 @@ impl NFA {
     /// corresponding equivalence class ID (which is never more than 255).
     pub fn byte_classes(&self) -> &ByteClasses {
         &self.byte_classes
+    }
+
+    /// Returns the number of match states in this NFA.
+    pub fn num_matches(&self) -> usize {
+        self.states
+            .iter()
+            .filter(|s| match s {
+                State::Match { .. } => true,
+                _ => false,
+            })
+            .count()
     }
 }
 
@@ -284,7 +295,7 @@ enum BState {
     /// into one Union type of state, where the latter has its epsilon
     /// transitions reversed to reflect the priority inversion.
     UnionReverse { alternates: Vec<StateID> },
-    /// A match state. There is exactly one such occurrence of this state in
+    /// A match state. There is at least one such occurrence of this state in
     /// an NFA.
     Match { match_idx: usize },
 }
