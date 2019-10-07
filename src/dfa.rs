@@ -29,6 +29,9 @@ pub trait DFA {
     /// state.
     fn is_match_state(&self, id: Self::ID) -> bool;
 
+    /// Returns a slice of pattern indexes which this state is a match state for.
+    fn match_indexes(&self, id: Self::ID) -> &[usize];
+
     /// Returns true if and only if the given identifier corresponds to a dead
     /// state. When a DFA enters a dead state, it is impossible to leave and
     /// thus can never lead to a match.
@@ -286,6 +289,67 @@ pub trait DFA {
         last_match
     }
 
+    /// Returns the same as `find`, but starts the search at the given
+    /// offset and in the given state.
+    ///
+    /// The significance of the starting point is that it takes the surrounding
+    /// context into consideration. For example, if the DFA is anchored, then
+    /// a match can only occur when `start == 0`.
+    /// 
+    /// The significance of the starting state is to resume on overlapping matches.
+    #[inline]
+    fn overlapping_find_at(&self, bytes: &[u8], start_index: usize, cur_state: &mut Self::ID, match_index: &mut usize) -> Option<(usize, usize)> {
+        if self.is_anchored() && start_index > 0 && *cur_state == self.start_state() {
+            println!("anchor early out");
+            return None;
+        }
+
+        let matches = self.match_indexes(*cur_state);
+        if *match_index < matches.len() {
+            println!("currently in match state, just return match");
+            let result = matches[*match_index];
+            println!("incrementing match index");
+            *match_index += 1;
+            return Some((start_index, result));
+        }
+        
+        println!("not currently in match state, setting match index to 0");
+        *match_index = 0;
+        
+        let mut state = *cur_state;
+        if self.is_match_or_dead_state(state) {
+            if self.is_dead_state(state) { 
+                return None; 
+            } else {
+                *match_index += 1;
+                return Some((start_index, *match_index-1))
+            }
+        }
+        
+        for (i, &b) in bytes[start_index..].iter().enumerate() {
+            state = unsafe { self.next_state_unchecked(state, b) };
+            dbg!(i);
+            dbg!(b);
+            dbg!(state);
+            dbg!(self.is_match_state(state));
+            dbg!(self.match_indexes(state));
+            if self.is_match_or_dead_state(state) {
+                return if self.is_dead_state(state) {
+                    println!("returning None");
+                    None
+                } else {
+                    println!("incrementing match index in inner loop");
+                    let matches = self.match_indexes(state);
+                    let result = matches[*match_index];
+                    *match_index += 1;
+                    Some((start_index + i + 1, result))
+                }
+            }
+        }
+        println!("returning None at end of input");
+        None
+    }
+
     /// Returns the same as `rfind`, but starts the search at the given
     /// offset.
     ///
@@ -330,6 +394,11 @@ impl<'a, T: DFA> DFA for &'a T {
     #[inline]
     fn is_match_state(&self, id: Self::ID) -> bool {
         (**self).is_match_state(id)
+    }
+
+    #[inline]
+    fn match_indexes(&self, id: Self::ID) -> &[usize] {
+        (**self).match_indexes(id)
     }
 
     #[inline]

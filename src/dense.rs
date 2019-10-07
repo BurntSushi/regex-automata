@@ -235,6 +235,11 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
     pub fn empty() -> DenseDFA<Vec<S>, S> {
         Repr::empty().into_dense_dfa()
     }
+    /// fake
+    pub fn dbg(&self) {
+        dbg!(&self.repr().max_match);
+        dbg!(&self.repr().match_map);
+    }
 }
 
 impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
@@ -557,6 +562,11 @@ impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
     }
 
     #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.repr().match_indexes(id)
+    }
+
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.repr().is_dead_state(id)
     }
@@ -686,6 +696,11 @@ impl<T: AsRef<[S]>, S: StateID> DFA for Standard<T, S> {
     }
 
     #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.0.match_indexes(id)
+    }
+
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.0.is_dead_state(id)
     }
@@ -743,6 +758,11 @@ impl<T: AsRef<[S]>, S: StateID> DFA for ByteClass<T, S> {
     #[inline]
     fn is_match_state(&self, id: S) -> bool {
         self.0.is_match_state(id)
+    }
+
+    #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.0.match_indexes(id)
     }
 
     #[inline]
@@ -807,6 +827,11 @@ impl<T: AsRef<[S]>, S: StateID> DFA for Premultiplied<T, S> {
     }
 
     #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.0.match_indexes(id)
+    }
+
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.0.is_dead_state(id)
     }
@@ -857,6 +882,11 @@ impl<T: AsRef<[S]>, S: StateID> DFA for PremultipliedByteClass<T, S> {
     #[inline]
     fn is_match_state(&self, id: S) -> bool {
         self.0.is_match_state(id)
+    }
+
+    #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.0.match_indexes(id)
     }
 
     #[inline]
@@ -972,6 +1002,12 @@ pub(crate) struct Repr<T, S> {
     ///
     /// In practice, T is either Vec<S> or &[S].
     trans: T,
+    
+    /// A contiguous region of memory representing a map from match state index
+    /// to pattern indexes which matched.
+    /// 
+    /// @@awygle TODO: make this generic and also (potentially) non-allocating.
+    pub match_map: Vec<Vec<usize>>,
 }
 
 #[cfg(feature = "std")]
@@ -995,6 +1031,7 @@ impl<S: StateID> Repr<Vec<S>, S> {
             max_match: S::from_usize(0),
             byte_classes: byte_classes,
             trans: vec![],
+            match_map: vec![],
         };
         // Every state ID repr must be able to fit at least one state.
         dfa.add_empty_state().unwrap();
@@ -1035,6 +1072,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
             max_match: self.max_match,
             byte_classes: self.byte_classes().clone(),
             trans: self.trans(),
+            match_map: self.match_map.clone(), // @@awygle TODO: this is obviously wrong with match_map as it is
         }
     }
 
@@ -1048,6 +1086,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
             max_match: self.max_match,
             byte_classes: self.byte_classes().clone(),
             trans: self.trans().to_vec(),
+            match_map: self.match_map.clone(), // @@awygle TODO: this is technically wrong with match_map as it is
         }
     }
 
@@ -1064,6 +1103,16 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// state.
     pub fn is_match_state(&self, id: S) -> bool {
         id <= self.max_match && id != dead_id()
+    }
+
+    /// Returns a slice of pattern indexes which this state is a match state for.
+    pub fn match_indexes(&self, id: S) -> &[usize] {
+        if !self.is_match_state(id) {
+            &[]
+        }
+        else {
+            &self.match_map[self.state_id_to_index(id)]
+        }
     }
 
     /// Returns true if and only if the given identifier corresponds to a dead
@@ -1188,6 +1237,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
             max_match: A::from_usize(self.max_match.to_usize()),
             byte_classes: self.byte_classes().clone(),
             trans: vec![dead_id::<A>(); self.trans().len()],
+            match_map: self.match_map.clone(), // @@awygle TODO: this is technically wrong with match_map as it is
         };
         for (i, id) in new.trans.iter_mut().enumerate() {
             *id = A::from_usize(self.trans()[i].to_usize());
@@ -1392,6 +1442,7 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
             max_match,
             byte_classes,
             trans,
+            match_map: vec![], // @@awygle TODO: hilariously incorrect
         }
     }
 }
@@ -1560,35 +1611,36 @@ impl<S: StateID> Repr<Vec<S>, S> {
     ///
     /// This updates `self.max_match` to point to the last matching state as
     /// well as `self.start` if the starting state was moved.
-    pub fn shuffle_match_states(&mut self, is_match: &[bool]) {
+    pub fn shuffle_match_states(&mut self, mut matches: Vec<Vec<usize>>) {
         assert!(
             !self.premultiplied,
             "cannot shuffle match states of premultiplied DFA"
         );
-        assert_eq!(self.state_count, is_match.len());
+        assert_eq!(self.state_count, matches.len());
 
         if self.state_count <= 1 {
             return;
         }
 
         let mut first_non_match = 1;
-        while first_non_match < self.state_count && is_match[first_non_match] {
+        while first_non_match < self.state_count && matches[first_non_match].len() > 0 {
             first_non_match += 1;
         }
 
         let mut swaps: Vec<S> = vec![dead_id(); self.state_count];
         let mut cur = self.state_count - 1;
         while cur > first_non_match {
-            if is_match[cur] {
+            if matches[cur].len() > 0 {
                 self.swap_states(
                     S::from_usize(cur),
                     S::from_usize(first_non_match),
                 );
+                matches.swap(cur, first_non_match);
                 swaps[cur] = S::from_usize(first_non_match);
                 swaps[first_non_match] = S::from_usize(cur);
 
                 first_non_match += 1;
-                while first_non_match < cur && is_match[first_non_match] {
+                while first_non_match < cur && matches[first_non_match].len() > 0 {
                     first_non_match += 1;
                 }
             }
@@ -1605,6 +1657,9 @@ impl<S: StateID> Repr<Vec<S>, S> {
             self.start = swaps[self.start.to_usize()];
         }
         self.max_match = S::from_usize(first_non_match - 1);
+        matches.truncate(first_non_match);
+        self.match_map = matches;
+        assert!(self.match_map.iter().skip(1).all(|x| x.len() > 0), "invalid match map result");
     }
 }
 

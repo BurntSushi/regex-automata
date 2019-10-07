@@ -426,6 +426,11 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
     }
 
     #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.repr().match_indexes(id)
+    }
+
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.repr().is_dead_state(id)
     }
@@ -521,6 +526,11 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for Standard<T, S> {
     fn is_match_state(&self, id: S) -> bool {
         self.0.is_match_state(id)
     }
+    
+    #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.0.match_indexes(id)
+    }
 
     #[inline]
     fn is_dead_state(&self, id: S) -> bool {
@@ -584,6 +594,11 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for ByteClass<T, S> {
     }
 
     #[inline]
+    fn match_indexes(&self, id: S) -> &[usize] {
+        self.0.match_indexes(id)
+    }
+
+    #[inline]
     fn is_dead_state(&self, id: S) -> bool {
         self.0.is_dead_state(id)
     }
@@ -621,6 +636,8 @@ struct Repr<T: AsRef<[u8]>, S: StateID = usize> {
     max_match: S,
     byte_classes: ByteClasses,
     trans: T,
+    /// @@awygle TODO: make this generic and also (potentially) non-allocating.
+    match_map: Vec<(S, Vec<usize>)>,
 }
 
 impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
@@ -640,6 +657,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
             max_match: self.max_match,
             byte_classes: self.byte_classes.clone(),
             trans: self.trans(),
+            match_map: self.match_map.clone(), // @@awygle TODO this is probably wrong...
         }
     }
 
@@ -652,6 +670,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
             max_match: self.max_match,
             byte_classes: self.byte_classes.clone(),
             trans: self.trans().to_vec(),
+            match_map: self.match_map.clone(),
         }
     }
 
@@ -689,6 +708,21 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
 
     fn is_match_state(&self, id: S) -> bool {
         self.is_match_or_dead_state(id) && !self.is_dead_state(id)
+    }
+
+    pub fn match_indexes(&self, id: S) -> &[usize] {
+        // @@awygle TODO: this is irritatingly linear - ask burntsushi if there's an id->index for sparse
+        if !self.is_match_state(id) {
+            return &[];
+        }
+        else {
+            for (state, matches) in &self.match_map {
+                if *state == id {
+                    return &matches;
+                }
+            }
+        }
+        unreachable!();
     }
 
     fn is_dead_state(&self, id: S) -> bool {
@@ -741,6 +775,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
             max_match: map[&self.max_match],
             byte_classes: self.byte_classes.clone(),
             trans: trans,
+            match_map: self.match_map.iter().map(|(state, matches)| (A::from_usize(state.to_usize()), matches.clone())).collect(),
         };
         for (&old_id, &new_id) in map.iter() {
             let old_state = self.state(old_id);
@@ -923,6 +958,7 @@ impl<'a, S: StateID> Repr<&'a [u8], S> {
             max_match,
             byte_classes,
             trans: buf,
+            match_map: vec![], // @@awygle TODO: hilariously wrong
         }
     }
 }
@@ -952,10 +988,15 @@ impl<S: StateID> Repr<Vec<u8>, S> {
 
         let mut trans = Vec::with_capacity(size_of::<A>() * dfa.state_count());
         let mut remap: Vec<A> = vec![dead_id(); dfa.state_count()];
+        let mut match_map: Vec<(A, Vec<usize>)> = Vec::with_capacity(dfa.max_match_state().to_usize());
         for (old_id, state) in dfa.states() {
             let pos = trans.len();
 
             remap[dfa.state_id_to_index(old_id)] = usize_to_state_id(pos)?;
+            if dfa.is_match_state(old_id) {
+                match_map.push((usize_to_state_id(pos)?, dfa.match_indexes(old_id).into()));
+            }
+            
             // zero-filled space for the transition count
             trans.push(0);
             trans.push(0);
@@ -973,7 +1014,7 @@ impl<S: StateID> Repr<Vec<u8>, S> {
             let zeros = trans_count as usize * size_of::<A>();
             trans.extend(iter::repeat(0).take(zeros));
         }
-
+        
         let mut new = Repr {
             anchored: dfa.is_anchored(),
             start: remap[dfa.state_id_to_index(dfa.start_state())],
@@ -981,6 +1022,7 @@ impl<S: StateID> Repr<Vec<u8>, S> {
             max_match: remap[dfa.state_id_to_index(dfa.max_match_state())],
             byte_classes: dfa.byte_classes().clone(),
             trans: trans,
+            match_map: match_map, // @@awygle TODO: prove this is right
         };
         for (old_id, old_state) in dfa.states() {
             let new_id = remap[dfa.state_id_to_index(old_id)];

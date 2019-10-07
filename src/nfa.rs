@@ -36,6 +36,8 @@ pub struct NFA {
     /// equivalence classes. The NFA's transitions are defined on the original
     /// byte values.
     byte_classes: ByteClasses,
+    /// Whether this NFA has multiple match states or not.
+    pub multi_match: bool,
 }
 
 /// A state in a final compiled NFA.
@@ -172,7 +174,7 @@ impl NFABuilder {
 
         let mut start = compiler.add_union();
 
-        for (i, mut expr) in exprs.into_iter().enumerate() {
+        for (i, expr) in exprs.into_iter().enumerate() {
             start = self.build_internal(expr, &compiler, start, i)?;
         }
         Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() })
@@ -317,6 +319,8 @@ impl NFACompiler {
         let mut remap = vec![0; bstates.len()];
         let mut empties = vec![];
         let mut byteset = ByteClassSet::new();
+        let mut seen_match = false;
+        let mut multi_match = false;
 
         // The idea here is to convert our intermediate states to their final
         // form. The only real complexity here is the process of converting
@@ -350,6 +354,12 @@ impl NFACompiler {
                     states.push(State::Union { alternates });
                 }
                 BState::Match { match_idx } => {
+                    if !seen_match {
+                        seen_match = true;
+                    }
+                    else {
+                        multi_match = true;
+                    }
                     remap[id] = states.len();
                     states.push(State::Match { match_idx });
                 }
@@ -370,7 +380,7 @@ impl NFACompiler {
         }
         // The compiler always begins the NFA at the first state.
         let byte_classes = byteset.byte_classes();
-        NFA { anchored: false, start: remap[0], states, byte_classes }
+        NFA { anchored: false, start: remap[0], states, byte_classes, multi_match }
     }
 
     fn compile(&self, expr: &Hir) -> Result<ThompsonRef> {
