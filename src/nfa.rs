@@ -148,16 +148,32 @@ impl NFABuilder {
     /// If there was a problem building the NFA, then an error is returned.
     /// For example, if the regex uses unsupported features (such as zero-width
     /// assertions), then an error is returned.
-    pub fn build(&self, expr: Hir) -> Result<NFA> {
+    pub fn build(&self, mut expr: Hir) -> Result<NFA> {
+        if self.reverse {
+            expr = reverse_hir(expr);
+        }
         let compiler = NFACompiler {
             states: RefCell::new(vec![]),
             reverse: self.reverse,
         };
 
-        let start = compiler.add_empty();
-
-        self.build_internal(expr, &compiler, start, 0)?;
-        Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() })
+        let mut start = compiler.add_empty();
+        if !self.anchored {
+            let compiled = if self.allow_invalid_utf8 {
+                compiler.compile_unanchored_prefix_invalid_utf8()
+            } else {
+                compiler.compile_unanchored_prefix_valid_utf8()
+            }?;
+            compiler.patch(start, compiled.start);
+            start = compiled.end;
+        }
+        let compiled = compiler.compile(&expr)?;
+        let match_id = compiler.add_match(0);
+        compiler.patch(start, compiled.start);
+        compiler.patch(compiled.end, match_id);
+        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() });
+        dbg!(&result);
+        return result;
     }
 
     /// Compile the given high level intermediate representation of a set of
@@ -166,18 +182,41 @@ impl NFABuilder {
     /// If there was a problem building the NFA, then an error is returned.
     /// For example, if the regex uses unsupported features (such as zero-width
     /// assertions), then an error is returned.
-    pub fn build_multi(&self, exprs: Vec<Hir>) -> Result<NFA> {
+    pub fn build_multi(&self, mut exprs: Vec<Hir>) -> Result<NFA> {
+        if self.reverse {
+            exprs = exprs.into_iter().map(|e| reverse_hir(e)).collect();
+        }
         let compiler = NFACompiler {
             states: RefCell::new(vec![]),
             reverse: self.reverse,
         };
 
-        let mut start = compiler.add_union();
-
-        for (i, expr) in exprs.into_iter().enumerate() {
-            start = self.build_internal(expr, &compiler, start, i)?;
+        let mut start = compiler.add_empty();
+        
+        if !self.anchored {
+            let compiled = if self.allow_invalid_utf8 {
+                compiler.compile_unanchored_prefix_invalid_utf8()
+            } else {
+                compiler.compile_unanchored_prefix_valid_utf8()
+            }?;
+            compiler.patch(start, compiled.start);
+            start = compiled.end;
         }
-        Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() })
+        
+        let u = compiler.add_union();
+        for (i, expr) in exprs.into_iter().enumerate() {
+            let compiled = compiler.compile(&expr)?;
+            let match_id = compiler.add_match(i);
+            let empty_id = compiler.add_empty();
+            compiler.patch(compiled.end, match_id);
+            compiler.patch(u, compiled.start);
+        }
+        
+        compiler.patch(start, u);
+        
+        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() });
+        dbg!(&result);
+        return result;
     }
 
     fn build_internal(

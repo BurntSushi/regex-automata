@@ -237,6 +237,8 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
     }
     /// fake
     pub fn dbg(&self) {
+        dbg!(&self.repr().start);
+        dbg!(&self.repr().state_count);
         dbg!(&self.repr().max_match);
         dbg!(&self.repr().match_map);
     }

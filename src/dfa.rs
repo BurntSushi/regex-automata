@@ -266,26 +266,37 @@ pub trait DFA {
     #[inline]
     fn find_at(&self, bytes: &[u8], start: usize) -> Option<usize> {
         if self.is_anchored() && start > 0 {
+            println!("anchor early out");
             return None;
         }
 
         let mut state = self.start_state();
         let mut last_match = if self.is_dead_state(state) {
+            println!("currently in dead state, die");
             return None;
         } else if self.is_match_state(state) {
+            println!("currently in match state, just return match");
             Some(start)
         } else {
+            println!("not currently in match state");
             None
         };
         for (i, &b) in bytes[start..].iter().enumerate() {
+            dbg!(i);
+            dbg!(b);
+            dbg!(state);
             state = unsafe { self.next_state_unchecked(state, b) };
+            dbg!(state);
             if self.is_match_or_dead_state(state) {
                 if self.is_dead_state(state) {
+                    println!("returning {:?}", last_match);
                     return last_match;
                 }
+                println!("saving match at {}", start+i+1);
                 last_match = Some(start + i + 1);
             }
         }
+        println!("returning {:?} at end of input", last_match);
         last_match
     }
 
@@ -300,54 +311,48 @@ pub trait DFA {
     #[inline]
     fn overlapping_find_at(&self, bytes: &[u8], start_index: usize, cur_state: &mut Self::ID, match_index: &mut usize) -> Option<(usize, usize)> {
         if self.is_anchored() && start_index > 0 && *cur_state == self.start_state() {
-            println!("anchor early out");
             return None;
         }
 
         let matches = self.match_indexes(*cur_state);
-        if *match_index < matches.len() {
-            println!("currently in match state, just return match");
-            let result = matches[*match_index];
-            println!("incrementing match index");
-            *match_index += 1;
-            return Some((start_index, result));
-        }
+        let mut state = *cur_state;
+        let mut last_match = if self.is_dead_state(state) {
+                state = self.start_state();
+                None 
+            } else if self.is_match_state(state) && *match_index < matches.len() {
+                let result = matches[*match_index];
+                *match_index += 1;
+                Some((start_index, result))
+            }
+            else {
+                None
+            };
         
-        println!("not currently in match state, setting match index to 0");
         *match_index = 0;
         
-        let mut state = *cur_state;
-        if self.is_match_or_dead_state(state) {
-            if self.is_dead_state(state) { 
-                return None; 
-            } else {
-                *match_index += 1;
-                return Some((start_index, *match_index-1))
-            }
-        }
-        
         for (i, &b) in bytes[start_index..].iter().enumerate() {
-            state = unsafe { self.next_state_unchecked(state, b) };
             dbg!(i);
             dbg!(b);
             dbg!(state);
-            dbg!(self.is_match_state(state));
-            dbg!(self.match_indexes(state));
+            state = unsafe { self.next_state_unchecked(state, b) };
+            *cur_state = state;
+            dbg!(state);
             if self.is_match_or_dead_state(state) {
-                return if self.is_dead_state(state) {
-                    println!("returning None");
-                    None
+                if self.is_dead_state(state) {
+                    println!("returning {:?}", last_match);
+                    return last_match;
+                    //state = self.start_state();
                 } else {
-                    println!("incrementing match index in inner loop");
+                    println!("saving match at {}", start_index+i+1);
                     let matches = self.match_indexes(state);
                     let result = matches[*match_index];
                     *match_index += 1;
-                    Some((start_index + i + 1, result))
+                    last_match = Some((start_index + i + 1, result))
                 }
             }
         }
-        println!("returning None at end of input");
-        None
+        println!("returning {:?} at end of input", last_match);
+        last_match
     }
 
     /// Returns the same as `rfind`, but starts the search at the given
