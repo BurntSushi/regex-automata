@@ -243,7 +243,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 nfa::State::Match { match_idx } => {
                     state.match_idx.push(match_idx);
                     // gotta keep going if we have multiple matches to deal with
-                    if !self.longest_match /*&& !self.nfa.multi_match*/ {
+                    if !self.longest_match && !self.nfa.multi_match {
                         break;
                     }
                 }

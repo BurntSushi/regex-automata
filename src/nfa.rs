@@ -171,8 +171,7 @@ impl NFABuilder {
         let match_id = compiler.add_match(0);
         compiler.patch(start, compiled.start);
         compiler.patch(compiled.end, match_id);
-        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() });
-        dbg!(&result);
+        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa(false) });
         return result;
     }
 
@@ -191,59 +190,33 @@ impl NFABuilder {
             reverse: self.reverse,
         };
 
-        let mut start = compiler.add_empty();
-        
-        if !self.anchored {
-            let compiled = if self.allow_invalid_utf8 {
-                compiler.compile_unanchored_prefix_invalid_utf8()
-            } else {
-                compiler.compile_unanchored_prefix_valid_utf8()
-            }?;
-            compiler.patch(start, compiled.start);
-            start = compiled.end;
-        }
+        let start = compiler.add_empty();
         
         let u = compiler.add_union();
+        
         for (i, expr) in exprs.into_iter().enumerate() {
-            let compiled = compiler.compile(&expr)?;
+            let mut pattern_start = u;
+            // have to deal with anchoring per-pattern
+            if !self.anchored {
+                let compiled = if self.allow_invalid_utf8 {
+                    compiler.compile_unanchored_prefix_invalid_utf8()
+                } else {
+                    compiler.compile_unanchored_prefix_valid_utf8()
+                }?;
+                compiler.patch(u, compiled.start);
+                pattern_start = compiled.end;
+            }
+            
+            let compiled_pattern = compiler.compile(&expr)?;
             let match_id = compiler.add_match(i);
-            let empty_id = compiler.add_empty();
-            compiler.patch(compiled.end, match_id);
-            compiler.patch(u, compiled.start);
+            compiler.patch(compiled_pattern.end, match_id);
+            compiler.patch(pattern_start, compiled_pattern.start);
         }
         
         compiler.patch(start, u);
         
-        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa() });
-        dbg!(&result);
+        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa(true) });
         return result;
-    }
-
-    fn build_internal(
-        &self,
-        mut expr: Hir,
-        compiler: &NFACompiler,
-        mut start: StateID,
-        idx: usize,
-    ) -> Result<StateID> {
-        if self.reverse {
-            expr = reverse_hir(expr);
-        }
-
-        if !self.anchored {
-            let compiled = if self.allow_invalid_utf8 {
-                compiler.compile_unanchored_prefix_invalid_utf8()
-            } else {
-                compiler.compile_unanchored_prefix_valid_utf8()
-            }?;
-            compiler.patch(start, compiled.start);
-            start = compiled.end;
-        }
-        let compiled = compiler.compile(&expr)?;
-        let match_id = compiler.add_match(idx);
-        compiler.patch(start, compiled.start);
-        compiler.patch(compiled.end, match_id);
-        Ok(start)
     }
 
     /// Set whether matching must be anchored at the beginning of the input.
@@ -352,14 +325,12 @@ struct ThompsonRef {
 
 impl NFACompiler {
     /// Convert the current intermediate NFA to its final compiled form.
-    fn to_nfa(&self) -> NFA {
+    fn to_nfa(&self, multi_match: bool) -> NFA {
         let bstates = self.states.borrow();
         let mut states = vec![];
         let mut remap = vec![0; bstates.len()];
         let mut empties = vec![];
         let mut byteset = ByteClassSet::new();
-        let mut seen_match = false;
-        let mut multi_match = false;
 
         // The idea here is to convert our intermediate states to their final
         // form. The only real complexity here is the process of converting
@@ -393,12 +364,6 @@ impl NFACompiler {
                     states.push(State::Union { alternates });
                 }
                 BState::Match { match_idx } => {
-                    if !seen_match {
-                        seen_match = true;
-                    }
-                    else {
-                        multi_match = true;
-                    }
                     remap[id] = states.len();
                     states.push(State::Match { match_idx });
                 }

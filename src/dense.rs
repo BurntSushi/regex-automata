@@ -235,13 +235,6 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
     pub fn empty() -> DenseDFA<Vec<S>, S> {
         Repr::empty().into_dense_dfa()
     }
-    /// fake
-    pub fn dbg(&self) {
-        dbg!(&self.repr().start);
-        dbg!(&self.repr().state_count);
-        dbg!(&self.repr().max_match);
-        dbg!(&self.repr().match_map);
-    }
 }
 
 impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
@@ -1660,6 +1653,9 @@ impl<S: StateID> Repr<Vec<S>, S> {
         }
         self.max_match = S::from_usize(first_non_match - 1);
         matches.truncate(first_non_match);
+        for v in &mut matches {
+            v.sort_unstable();
+        }
         self.match_map = matches;
         assert!(self.match_map.iter().skip(1).all(|x| x.len() > 0), "invalid match map result");
     }
