@@ -295,26 +295,35 @@ pub trait DFA {
     /// The significance of the starting point is that it takes the surrounding
     /// context into consideration. For example, if the DFA is anchored, then
     /// a match can only occur when `start == 0`.
-    /// 
+    ///
     /// The significance of the starting state is to resume on overlapping matches.
     #[inline]
-    fn overlapping_find_at(&self, bytes: &[u8], start_index: usize, cur_state: &mut Self::ID, match_index: &mut usize) -> Option<(usize, usize)> {
-        if self.is_anchored() && start_index > 0 && *cur_state == self.start_state() {
+    fn overlapping_find_at(
+        &self,
+        bytes: &[u8],
+        start_index: usize,
+        cur_state: &mut Self::ID,
+        match_index: &mut usize,
+    ) -> Option<(usize, usize)> {
+        if self.is_anchored()
+            && start_index > 0
+            && *cur_state == self.start_state()
+        {
             return None;
         }
 
         let matches = self.match_indexes(*cur_state);
         let mut state = *cur_state;
         if self.is_dead_state(state) {
-            return None ;
+            return None;
         } else if self.is_match_state(state) && *match_index < matches.len() {
             let result = matches[*match_index];
             *match_index += 1;
             return Some((start_index, result));
         }
-        
+
         *match_index = 0;
-        
+
         for (i, &b) in bytes[start_index..].iter().enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
             *cur_state = state;

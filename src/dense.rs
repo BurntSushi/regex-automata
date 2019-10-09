@@ -997,10 +997,10 @@ pub(crate) struct Repr<T, S> {
     ///
     /// In practice, T is either Vec<S> or &[S].
     trans: T,
-    
+
     /// A contiguous region of memory representing a map from match state index
     /// to pattern indexes which matched.
-    /// 
+    ///
     /// @@awygle TODO: make this generic and also (potentially) non-allocating.
     pub match_map: Vec<Vec<usize>>,
 }
@@ -1104,8 +1104,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     pub fn match_indexes(&self, id: S) -> &[usize] {
         if !self.is_match_state(id) {
             &[]
-        }
-        else {
+        } else {
             &self.match_map[self.state_id_to_index(id)]
         }
     }
@@ -1618,7 +1617,9 @@ impl<S: StateID> Repr<Vec<S>, S> {
         }
 
         let mut first_non_match = 1;
-        while first_non_match < self.state_count && matches[first_non_match].len() > 0 {
+        while first_non_match < self.state_count
+            && matches[first_non_match].len() > 0
+        {
             first_non_match += 1;
         }
 
@@ -1635,7 +1636,9 @@ impl<S: StateID> Repr<Vec<S>, S> {
                 swaps[first_non_match] = S::from_usize(cur);
 
                 first_non_match += 1;
-                while first_non_match < cur && matches[first_non_match].len() > 0 {
+                while first_non_match < cur
+                    && matches[first_non_match].len() > 0
+                {
                     first_non_match += 1;
                 }
             }
@@ -1657,7 +1660,10 @@ impl<S: StateID> Repr<Vec<S>, S> {
             v.sort_unstable();
         }
         self.match_map = matches;
-        assert!(self.match_map.iter().skip(1).all(|x| x.len() > 0), "invalid match map result");
+        assert!(
+            self.match_map.iter().skip(1).all(|x| x.len() > 0),
+            "invalid match map result"
+        );
     }
 }
 

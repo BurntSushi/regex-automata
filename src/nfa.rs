@@ -171,7 +171,8 @@ impl NFABuilder {
         let match_id = compiler.add_match(0);
         compiler.patch(start, compiled.start);
         compiler.patch(compiled.end, match_id);
-        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa(false) });
+        let result =
+            Ok(NFA { anchored: self.anchored, ..compiler.to_nfa(false) });
         return result;
     }
 
@@ -191,9 +192,9 @@ impl NFABuilder {
         };
 
         let start = compiler.add_empty();
-        
+
         let u = compiler.add_union();
-        
+
         for (i, expr) in exprs.into_iter().enumerate() {
             let mut pattern_start = u;
             // have to deal with anchoring per-pattern
@@ -206,16 +207,17 @@ impl NFABuilder {
                 compiler.patch(u, compiled.start);
                 pattern_start = compiled.end;
             }
-            
+
             let compiled_pattern = compiler.compile(&expr)?;
             let match_id = compiler.add_match(i);
             compiler.patch(compiled_pattern.end, match_id);
             compiler.patch(pattern_start, compiled_pattern.start);
         }
-        
+
         compiler.patch(start, u);
-        
-        let result = Ok(NFA { anchored: self.anchored, ..compiler.to_nfa(true) });
+
+        let result =
+            Ok(NFA { anchored: self.anchored, ..compiler.to_nfa(true) });
         return result;
     }
 
@@ -384,7 +386,13 @@ impl NFACompiler {
         }
         // The compiler always begins the NFA at the first state.
         let byte_classes = byteset.byte_classes();
-        NFA { anchored: false, start: remap[0], states, byte_classes, multi_match }
+        NFA {
+            anchored: false,
+            start: remap[0],
+            states,
+            byte_classes,
+            multi_match,
+        }
     }
 
     fn compile(&self, expr: &Hir) -> Result<ThompsonRef> {

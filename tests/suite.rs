@@ -1,5 +1,5 @@
-use regex_automata::{DenseDFA, Regex, RegexBuilder, SparseDFA, DFA};
 use regex_automata::dense;
+use regex_automata::{DenseDFA, Regex, RegexBuilder, SparseDFA, DFA};
 
 use collection::{RegexTester, SUITE};
 
@@ -225,103 +225,107 @@ fn sparse_serialization_roundtrip() {
 #[test]
 fn multi_is_match() {
     let mut builder = dense::Builder::new();
-    
+
     // A single matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert!(dfa.is_match(b"a"));
-    
+
     // A single non-matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["b"]).unwrap();
     assert!(!dfa.is_match(b"a"));
-    
+
     // A single matching pattern not at start
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert!(dfa.is_match(b"ba"));
-    
+
     // Multiple matching patterns
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert!(dfa.is_match(b"ab"));
-    
+
     // First pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert!(dfa.is_match(b"a"));
-    
+
     // Second pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert!(dfa.is_match(b"b"));
-    
+
     // Neither pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert!(!dfa.is_match(b"c"));
-    
+
     // Determinization edge case
     builder.anchored(true);
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert!(dfa.is_match(b"ac"));
-    
+
     // Anchored respected
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert!(!dfa.is_match(b"bac"));
 }
 
 #[test]
 fn multi_shortest_match() {
     let mut builder = dense::Builder::new();
-    
+
     // A single matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert_eq!(Some(1), dfa.shortest_match(b"a"));
-    
+
     // A single non-matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["b"]).unwrap();
     assert_eq!(None, dfa.shortest_match(b"a"));
-    
+
     // A single matching pattern not at start
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert_eq!(Some(2), dfa.shortest_match(b"ba"));
-    
+
     // Multiple matching patterns
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(Some(4), dfa.shortest_match(b"dddadddb"));
-    
+
     // First pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(Some(1), dfa.shortest_match(b"a"));
-    
+
     // Second pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(Some(1), dfa.shortest_match(b"b"));
-    
+
     // Neither pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(None, dfa.shortest_match(b"c"));
-    
+
     // Determinization edge case
     builder.anchored(true);
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert_eq!(Some(2), dfa.shortest_match(b"ac"));
-    
+
     // Anchored respected
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert_eq!(None, dfa.shortest_match(b"bac"));
 }
 
 #[test]
 fn multi_find() {
     let mut builder = dense::Builder::new();
-    
+
     // A single matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert_eq!(Some(1), dfa.find(b"a"));
-    
+
     // A single non-matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["b"]).unwrap();
     assert_eq!(None, dfa.find(b"a"));
-    
+
     // A single matching pattern not at start
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert_eq!(Some(2), dfa.find(b"ba"));
-    
+
     // Multiple matching patterns
     builder.premultiply(false);
     builder.unicode(false);
@@ -331,31 +335,33 @@ fn multi_find() {
     dfa.dbg();
     // @@awygle I'm not sure find actually has meaningful semantics for regex-set
     assert_eq!(Some(8), dfa.find(b"dddadddb"));
-    
+
     // Same pattern multiple times
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     // @@awygle I'm not sure find actually has meaningful semantics for regex-set
     assert_eq!(Some(6), dfa.find(b"bababa"));
-    
+
     // First pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(Some(1), dfa.find(b"a"));
-    
+
     // Second pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(Some(1), dfa.find(b"b"));
-    
+
     // Neither pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(None, dfa.find(b"c"));
-    
+
     // Determinization edge case
     builder.anchored(true);
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert_eq!(Some(2), dfa.find(b"ac"));
-    
+
     // Anchored respected
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert_eq!(None, dfa.find(b"bac"));
 }
 
@@ -363,153 +369,288 @@ fn multi_find() {
 fn multi_rfind() {
     let mut builder = dense::Builder::new();
     builder.reverse(true);
-    
+
     // A single matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert_eq!(Some(0), dfa.rfind(b"a"));
-    
+
     // A single non-matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["b"]).unwrap();
     assert_eq!(None, dfa.rfind(b"a"));
-    
+
     // A single matching pattern not at start
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     assert_eq!(Some(1), dfa.rfind(b"ba"));
-    
+
     // Multiple matching patterns
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     // @@awygle I'm not sure rfind actually has meaningful semantics for regex-set
     assert_eq!(Some(3), dfa.rfind(b"dddadddb"));
-    
+
     // First pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(Some(0), dfa.rfind(b"a"));
-    
+
     // Second pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(Some(0), dfa.rfind(b"b"));
-    
+
     // Neither pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     assert_eq!(None, dfa.rfind(b"c"));
-    
+
     // Determinization edge case
     builder.anchored(true);
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert_eq!(Some(0), dfa.rfind(b"ac"));
-    
+
     // Anchored respected
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
+    let dfa =
+        builder.build_multi_with_size::<usize>(vec!["ab", "ac"]).unwrap();
     assert_eq!(None, dfa.rfind(b"acb"));
 }
 
 #[test]
 fn overlapping_find_at() {
     let mut builder = dense::Builder::new();
-    
+
     // A single matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"a", 0, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(b"a", 0, &mut state, &mut match_index)
+        .unwrap();
     assert_eq!((1, 0), (input_idx, match_idx));
-    assert_eq!(None, dfa.overlapping_find_at(b"a", input_idx, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(b"a", input_idx, &mut state, &mut match_index)
+    );
+
     // A single non-matching pattern
     let dfa = builder.build_multi_with_size::<usize>(vec!["b"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
-    assert_eq!(None, dfa.overlapping_find_at(b"a", 0, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(b"a", 0, &mut state, &mut match_index)
+    );
+
     // A single matching pattern not at start
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"ba", 0, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(b"ba", 0, &mut state, &mut match_index)
+        .unwrap();
     assert_eq!((2, 0), (input_idx, match_idx));
-    assert_eq!(None, dfa.overlapping_find_at(b"ba", input_idx, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(
+            b"ba",
+            input_idx,
+            &mut state,
+            &mut match_index
+        )
+    );
+
     // Same pattern multiple times
     let dfa = builder.build_multi_with_size::<usize>(vec!["a"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
     let input_idx = 0;
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"bababa", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"bababa",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((2, 0), (input_idx, match_idx));
     println!("got one");
     dbg!(input_idx);
     dbg!(match_index);
     dbg!(state);
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"bababa", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"bababa",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((4, 0), (input_idx, match_idx));
     println!("got two");
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"bababa", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"bababa",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((6, 0), (input_idx, match_idx));
     println!("got three");
-    assert_eq!(None, dfa.overlapping_find_at(b"bababa", input_idx, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(
+            b"bababa",
+            input_idx,
+            &mut state,
+            &mut match_index
+        )
+    );
+
     // multiple matching patterns
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
     let input_idx = 0;
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"dddadddb", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"dddadddb",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((4, 0), (input_idx, match_idx));
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"dddadddb", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"dddadddb",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((8, 1), (input_idx, match_idx));
-    assert_eq!(None, dfa.overlapping_find_at(b"dddadddb", input_idx, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(
+            b"dddadddb",
+            input_idx,
+            &mut state,
+            &mut match_index
+        )
+    );
+
     // First pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
     let input_idx = 0;
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"a", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(b"a", input_idx, &mut state, &mut match_index)
+        .unwrap();
     assert_eq!((1, 0), (input_idx, match_idx));
-    assert_eq!(None, dfa.overlapping_find_at(b"a", input_idx, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(b"a", input_idx, &mut state, &mut match_index)
+    );
+
     // Second pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
     let input_idx = 0;
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"b", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(b"b", input_idx, &mut state, &mut match_index)
+        .unwrap();
     assert_eq!((1, 1), (input_idx, match_idx));
-    assert_eq!(None, dfa.overlapping_find_at(b"b", input_idx, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(b"b", input_idx, &mut state, &mut match_index)
+    );
+
     // Neither pattern matches
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
     let mut state = dfa.start_state();
     let mut match_index = 0;
     let input_idx = 0;
-    assert_eq!(None, dfa.overlapping_find_at(b"c", input_idx, &mut state, &mut match_index));
-    
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(b"c", input_idx, &mut state, &mut match_index)
+    );
+
     // Legit overlap
     builder.premultiply(false);
-    let dfa = builder.build_multi_with_size::<usize>(vec!["ab", "bc", "abc"]).unwrap();
+    let dfa = builder
+        .build_multi_with_size::<usize>(vec!["ab", "bc", "abc"])
+        .unwrap();
     dfa.dbg();
     let mut state = dfa.start_state();
     let mut match_index = 0;
     let input_idx = 0;
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"abcabc", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"abcabc",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((2, 0), (input_idx, match_idx));
     println!("one done");
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"abcabc", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"abcabc",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((3, 1), (input_idx, match_idx));
     println!("two done");
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"abcabc", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"abcabc",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((3, 2), (input_idx, match_idx));
     println!("three done");
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"abcabc", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"abcabc",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((5, 0), (input_idx, match_idx));
     println!("four done");
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"abcabc", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"abcabc",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((6, 1), (input_idx, match_idx));
     println!("five done");
-    let (input_idx, match_idx) = dfa.overlapping_find_at(b"abcabc", input_idx, &mut state, &mut match_index).unwrap();
+    let (input_idx, match_idx) = dfa
+        .overlapping_find_at(
+            b"abcabc",
+            input_idx,
+            &mut state,
+            &mut match_index,
+        )
+        .unwrap();
     assert_eq!((6, 2), (input_idx, match_idx));
     println!("six done");
-    assert_eq!(None, dfa.overlapping_find_at(b"abcabc", input_idx, &mut state, &mut match_index));
+    assert_eq!(
+        None,
+        dfa.overlapping_find_at(
+            b"abcabc",
+            input_idx,
+            &mut state,
+            &mut match_index
+        )
+    );
     println!("all done");
-    
 }
