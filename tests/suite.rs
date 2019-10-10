@@ -332,7 +332,6 @@ fn multi_find() {
     builder.allow_invalid_utf8(true);
     //builder.anchored(true);
     let dfa = builder.build_multi_with_size::<usize>(vec!["a", "b"]).unwrap();
-    dfa.dbg();
     // @@awygle I'm not sure find actually has meaningful semantics for regex-set
     assert_eq!(Some(8), dfa.find(b"dddadddb"));
 
@@ -469,10 +468,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((2, 0), (input_idx, match_idx));
-    println!("got one");
-    dbg!(input_idx);
-    dbg!(match_index);
-    dbg!(state);
     let (input_idx, match_idx) = dfa
         .overlapping_find_at(
             b"bababa",
@@ -482,7 +477,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((4, 0), (input_idx, match_idx));
-    println!("got two");
     let (input_idx, match_idx) = dfa
         .overlapping_find_at(
             b"bababa",
@@ -492,7 +486,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((6, 0), (input_idx, match_idx));
-    println!("got three");
     assert_eq!(
         None,
         dfa.overlapping_find_at(
@@ -579,7 +572,6 @@ fn overlapping_find_at() {
     let dfa = builder
         .build_multi_with_size::<usize>(vec!["ab", "bc", "abc"])
         .unwrap();
-    dfa.dbg();
     let mut state = dfa.start_state();
     let mut match_index = 0;
     let input_idx = 0;
@@ -592,7 +584,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((2, 0), (input_idx, match_idx));
-    println!("one done");
     let (input_idx, match_idx) = dfa
         .overlapping_find_at(
             b"abcabc",
@@ -602,7 +593,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((3, 1), (input_idx, match_idx));
-    println!("two done");
     let (input_idx, match_idx) = dfa
         .overlapping_find_at(
             b"abcabc",
@@ -612,7 +602,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((3, 2), (input_idx, match_idx));
-    println!("three done");
     let (input_idx, match_idx) = dfa
         .overlapping_find_at(
             b"abcabc",
@@ -622,7 +611,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((5, 0), (input_idx, match_idx));
-    println!("four done");
     let (input_idx, match_idx) = dfa
         .overlapping_find_at(
             b"abcabc",
@@ -632,7 +620,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((6, 1), (input_idx, match_idx));
-    println!("five done");
     let (input_idx, match_idx) = dfa
         .overlapping_find_at(
             b"abcabc",
@@ -642,7 +629,6 @@ fn overlapping_find_at() {
         )
         .unwrap();
     assert_eq!((6, 2), (input_idx, match_idx));
-    println!("six done");
     assert_eq!(
         None,
         dfa.overlapping_find_at(
@@ -652,5 +638,4 @@ fn overlapping_find_at() {
             &mut match_index
         )
     );
-    println!("all done");
 }
