@@ -5,6 +5,10 @@ use core::iter;
 use core::mem;
 use core::slice;
 
+// @@awygle TEMP
+use std::vec;
+use std::vec::Vec;
+
 #[cfg(feature = "std")]
 use byteorder::{BigEndian, LittleEndian};
 use byteorder::{ByteOrder, NativeEndian};

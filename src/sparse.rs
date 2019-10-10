@@ -7,6 +7,10 @@ use core::mem::size_of;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
+// @@awygle TEMP
+use std::vec;
+use std::vec::Vec;
+
 #[cfg(feature = "std")]
 use byteorder::{BigEndian, LittleEndian};
 use byteorder::{ByteOrder, NativeEndian};
