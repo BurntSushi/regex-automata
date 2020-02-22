@@ -5,8 +5,7 @@ It supports a rich syntax with Unicode support, has extensive options for
 configuring the best space vs time trade off for your use case and provides
 support for cheap deserialization of automata for use in `no_std` environments.
 
-[![Linux build status](https://api.travis-ci.org/BurntSushi/regex-automata.svg)](https://travis-ci.org/BurntSushi/regex-automata)
-[![Windows build status](https://ci.appveyor.com/api/projects/status/github/BurntSushi/regex-automata?svg=true)](https://ci.appveyor.com/project/BurntSushi/regex-automata)
+[![Build status](https://github.com/BurntSushi/regex-automata/workflows/ci/badge.svg)](https://github.com/BurntSushi/regex-automata/actions)
 [![](http://meritbadge.herokuapp.com/regex-automata)](https://crates.io/crates/regex-automata)
 
 Dual-licensed under MIT or the [UNLICENSE](http://unlicense.org).
