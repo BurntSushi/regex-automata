@@ -101,9 +101,19 @@ jobs:
     # Our dev dependencies are increasing their MSRV more quickly then we want
     # to, so the following are only run on non-pinned targets.
 
-    - name: Run tests
+    - name: Build examples
       if: matrix.build != 'pinned' && matrix.build != 'stable-thumb'
-      run: ${{ env.CARGO }} test --verbose ${{ env.TARGET }}
+      run: ${{ env.CARGO }} build --manifest-path examples/Cargo.toml --examples
+
+    - name: Run tests
+      if: matrix.build != 'pinned' && matrix.build != 'stable-thumb' && matrix.build != 'stable-mips'
+      run: ${{ env.CARGO }} test --verbose --features transducer ${{ env.TARGET }}
+
+    # The mips test runner is quite sluggish, so don't run the full test
+    # suite there. Unfortunate, but CI times balloon otherwise.
+    - name: Run tests
+      if: matrix.build == 'stable-mips'
+      run: ${{ env.CARGO }} test --verbose --features transducer --lib ${{ env.TARGET }}
 
     - name: Build without default features
       if: matrix.build != 'pinned'
