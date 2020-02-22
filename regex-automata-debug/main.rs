@@ -7,7 +7,7 @@ use std::process;
 use std::result;
 use std::time::Instant;
 
-use regex_automata::{DFA, Regex, RegexBuilder, DenseDFA, SparseDFA};
+use regex_automata::{DenseDFA, Regex, RegexBuilder, SparseDFA, DFA};
 
 type Result<T> = result::Result<T, Box<dyn Error>>;
 
@@ -72,7 +72,7 @@ struct Args {
 
 impl Args {
     fn parse() -> Result<Args> {
-        use clap::{App, Arg, crate_authors, crate_version};
+        use clap::{crate_authors, crate_version, App, Arg};
 
         let parsed = App::new("Search using regex-automata")
             .author(crate_authors!())
@@ -137,15 +137,13 @@ impl Args {
     fn debug(&self) -> Result<(String, usize)> {
         if self.sparse {
             let re = self.builder().build_sparse(&self.pattern)?;
-            let m =
-                re.forward().memory_usage()
+            let m = re.forward().memory_usage()
                 + re.reverse().memory_usage()
                 + (2 * size_of::<SparseDFA<Vec<u8>, usize>>());
             Ok((format!("{:?}", re), m))
         } else {
             let re = self.builder().build(&self.pattern)?;
-            let m =
-                re.forward().memory_usage()
+            let m = re.forward().memory_usage()
                 + re.reverse().memory_usage()
                 + (2 * size_of::<DenseDFA<Vec<usize>, usize>>());
             Ok((format!("{:?}", re), m))
