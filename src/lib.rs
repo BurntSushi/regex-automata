@@ -288,7 +288,11 @@ With some of the downsides out of the way, here are some positive differences:
 #[cfg(feature = "std")]
 extern crate core;
 
+#[cfg(all(test, feature = "fst1"))]
+extern crate bstr;
 extern crate byteorder;
+#[cfg(feature = "fst1")]
+extern crate fst;
 #[cfg(feature = "std")]
 extern crate regex_syntax;
 #[cfg(feature = "std")]
@@ -312,6 +316,8 @@ mod determinize;
 mod dfa;
 #[cfg(feature = "std")]
 mod error;
+#[cfg(feature = "fst1")]
+mod fst1;
 #[cfg(feature = "std")]
 mod minimize;
 #[cfg(feature = "std")]

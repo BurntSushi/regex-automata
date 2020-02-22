@@ -15,6 +15,7 @@ exclude = [
   "/regex-automata-debug",
 ]
 autotests = false
+autoexamples = false
 
 [badges]
 travis-ci = { repository = "BurntSushi/regex-automata" }
@@ -28,7 +29,7 @@ members = ["bench"]
 #
 # When we move our MSRV to Rust 2018, then we should be able to add this back
 # to the workspace.
-exclude = ["regex-automata-debug"]
+exclude = ["examples", "regex-automata-debug"]
 
 [lib]
 bench = false
@@ -36,13 +37,16 @@ bench = false
 [features]
 default = ["std"]
 std = ["regex-syntax", "utf8-ranges"]
+fst1 = ["std", "fst"]
 
 [dependencies]
 byteorder = { version = "1.2.7", default-features = false }
+fst = { version = "0.3", optional = true }
 regex-syntax = { version = "0.6.4", optional = true }
 utf8-ranges = { version = "1", optional = true }
 
 [dev-dependencies]
+bstr = { version = "0.2", default-features = false, features = ["std"] }
 lazy_static = "1.2.0"
 regex = "1.1"
 serde = "1.0.82"
