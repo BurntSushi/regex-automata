@@ -288,7 +288,11 @@ With some of the downsides out of the way, here are some positive differences:
 #[cfg(feature = "std")]
 extern crate core;
 
+#[cfg(all(test, feature = "transducer"))]
+extern crate bstr;
 extern crate byteorder;
+#[cfg(feature = "transducer")]
+extern crate fst;
 #[cfg(feature = "std")]
 extern crate regex_syntax;
 #[cfg(feature = "std")]
@@ -322,6 +326,8 @@ mod sparse_imp;
 #[cfg(feature = "std")]
 mod sparse_set;
 mod state_id;
+#[cfg(feature = "transducer")]
+mod transducer;
 
 /// Types and routines specific to dense DFAs.
 ///
