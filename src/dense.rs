@@ -2237,7 +2237,7 @@ fn escape(b: u8) -> String {
     String::from_utf8(ascii::escape_default(b).collect::<Vec<_>>()).unwrap()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 #[allow(dead_code)]
 mod tests {
     use super::*;
