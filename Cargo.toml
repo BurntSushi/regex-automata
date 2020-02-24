@@ -41,7 +41,8 @@ fst1 = ["std", "fst"]
 
 [dependencies]
 byteorder = { version = "1.2.7", default-features = false }
-fst = { version = "0.3", optional = true }
+# fst = { version = "0.3", optional = true }
+fst = { version = "*", path = "/home/andrew/code/rust/fst", optional = true }
 regex-syntax = { version = "0.6.14", optional = true }
 
 [dev-dependencies]
