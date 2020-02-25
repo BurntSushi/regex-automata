@@ -77,6 +77,7 @@ fn is_match(c: &mut Criterion) {
 // \w has 128,640 codepoints.
 fn compile_unicode_word(c: &mut Criterion) {
     define_compile(c, "unicode-word", r"\w");
+    define_compile_reverse(c, "unicode-word", r"\w");
 }
 
 // \p{Other_Math} has 1,362 codepoints
@@ -125,7 +126,6 @@ fn define_compile(c: &mut Criterion, group_name: &str, pattern: &'static str) {
             assert!(result.is_ok());
         });
     });
-    // TODO: Minimization is too slow to benchmark for now...
     define(c, &group, "minimized-noclasses", &[], move |b| {
         let mut dfa = dense::Builder::new()
             .anchored(true)
@@ -156,6 +156,68 @@ fn define_compile(c: &mut Criterion, group_name: &str, pattern: &'static str) {
     });
 }
 
+fn define_compile_reverse(
+    c: &mut Criterion,
+    group_name: &str,
+    pattern: &'static str,
+) {
+    let group = format!("rev-compile/{}", group_name);
+    define(c, &group, "unminimized-noclasses", &[], move |b| {
+        b.iter(|| {
+            let result = dense::Builder::new()
+                .reverse(true)
+                .anchored(true)
+                .minimize(false)
+                .premultiply(false)
+                .byte_classes(false)
+                .build(pattern);
+            assert!(result.is_ok());
+        });
+    });
+    define(c, &group, "unminimized-classes", &[], move |b| {
+        b.iter(|| {
+            let result = dense::Builder::new()
+                .reverse(true)
+                .anchored(true)
+                .minimize(false)
+                .premultiply(false)
+                .byte_classes(true)
+                .build(pattern);
+            assert!(result.is_ok());
+        });
+    });
+    define(c, &group, "minimized-noclasses", &[], move |b| {
+        let mut dfa = dense::Builder::new()
+            .reverse(true)
+            .anchored(true)
+            .minimize(false)
+            .premultiply(false)
+            .byte_classes(false)
+            .build(pattern)
+            .unwrap();
+        let old = dfa.memory_usage();
+        b.iter(|| {
+            dfa.minimize();
+            assert!(dfa.memory_usage() <= old);
+        });
+    });
+    define(c, &group, "minimized-classes", &[], move |b| {
+        let mut dfa = dense::Builder::new()
+            .reverse(true)
+            .anchored(true)
+            .minimize(false)
+            .premultiply(false)
+            .byte_classes(true)
+            .build(pattern)
+            .unwrap();
+        let old = dfa.memory_usage();
+        b.iter(|| {
+            dfa.minimize();
+            assert!(dfa.memory_usage() <= old);
+        });
+    });
+}
+
 fn define(
     c: &mut Criterion,
     group_name: &str,
@@ -166,7 +228,7 @@ fn define(
     let tput = Throughput::Bytes(corpus.len() as u64);
     let benchmark = Benchmark::new(bench_name, bench)
         .throughput(tput)
-        .sample_size(30)
+        .sample_size(25)
         .warm_up_time(Duration::from_millis(500))
         .measurement_time(Duration::from_secs(2));
     c.bench(group_name, benchmark);
