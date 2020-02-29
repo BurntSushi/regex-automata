@@ -993,7 +993,7 @@ impl<S: StateID> Repr<Vec<S>, S> {
             start: dead_id(),
             state_count: 0,
             max_match: S::from_usize(0),
-            byte_classes: byte_classes,
+            byte_classes,
             trans: vec![],
         };
         // Every state ID repr must be able to fit at least one state.
@@ -1380,9 +1380,9 @@ impl<'a, S: StateID> Repr<&'a [S], S> {
             "DenseDFA transition table is not properly aligned"
         );
 
-        // SAFETY: This is the only actual unsafe thing in this entire routine.
-        // The key things we need to worry about here are alignment and size.
-        // The two asserts above should cover both conditions.
+        // SAFETY: This is the only actual not-safe thing in this entire
+        // routine. The key things we need to worry about here are alignment
+        // and size. The two asserts above should cover both conditions.
         let trans = slice::from_raw_parts(buf.as_ptr() as *const S, len);
         Repr {
             premultiplied: opts & MASK_PREMULTIPLIED > 0,
@@ -1639,7 +1639,7 @@ impl<T: AsRef<[S]>, S: StateID> fmt::Debug for Repr<T, S> {
         writeln!(f, "DenseDFA(")?;
         for (id, state) in self.states() {
             let status = state_status(self, id);
-            writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
+            writeln!(f, "{}{:06}: {:?}", status, id.to_usize(), state)?;
         }
         writeln!(f, ")")?;
         Ok(())
@@ -2238,14 +2238,12 @@ fn escape(b: u8) -> String {
 }
 
 #[cfg(all(test, feature = "std"))]
-#[allow(dead_code)]
 mod tests {
     use super::*;
-    use nfa::NFA;
 
     #[test]
     fn errors_when_converting_to_smaller_dfa() {
-        let pattern = r"\w";
+        let pattern = r"\w{10}";
         let dfa = Builder::new()
             .byte_classes(false)
             .anchored(true)
@@ -2257,7 +2255,7 @@ mod tests {
 
     #[test]
     fn errors_when_determinization_would_overflow() {
-        let pattern = r"\w";
+        let pattern = r"\w{10}";
 
         let mut builder = Builder::new();
         builder.byte_classes(false).anchored(true).premultiply(false);
@@ -2280,120 +2278,32 @@ mod tests {
         assert!(builder.build_with_size::<u8>(pattern).is_err());
     }
 
-    fn print_automata(pattern: &str) {
-        println!("BUILDING AUTOMATA");
-        let (nfa, dfa, mdfa) = build_automata(pattern);
+    // let data = ::std::fs::read_to_string("/usr/share/dict/words").unwrap();
+    // let mut words: Vec<&str> = data.lines().collect();
+    // println!("{} words", words.len());
+    // words.sort_by(|w1, w2| w1.len().cmp(&w2.len()).reverse());
+    // let pattern = words.join("|");
+    // print_automata_counts(&pattern);
+    // print_automata(&pattern);
 
-        println!("{}", "#".repeat(100));
-        println!("PATTERN: {:?}", pattern);
-        println!("NFA:");
-        println!("{:?}", nfa);
+    // print_automata(r"[01]*1[01]{5}");
+    // print_automata(r"X(.?){0,8}Y");
+    // print_automata_counts(r"\p{alphabetic}");
+    // print_automata(r"a*b+|cdefg");
+    // print_automata(r"(..)*(...)*");
 
-        println!("{}", "~".repeat(79));
+    // let pattern = r"\p{any}*?\p{Other_Uppercase}";
+    // let pattern = r"\p{any}*?\w+";
+    // print_automata_counts(pattern);
+    // print_automata_counts(r"(?-u:\w)");
 
-        println!("DFA:");
-        print!("{:?}", dfa);
-        println!("{}", "~".repeat(79));
-
-        println!("Minimal DFA:");
-        print!("{:?}", mdfa);
-        println!("{}", "~".repeat(79));
-
-        println!("{}", "#".repeat(100));
-    }
-
-    // fn print_automata_counts(pattern: &str) {
-    // let (nfa, dfa, mdfa) = build_automata(pattern);
-    // println!("nfa # states: {:?}", nfa.len());
-    // println!("dfa # states: {:?}", dfa.len());
-    // println!("minimal dfa # states: {:?}", mdfa.len());
-    // }
-
-    fn build_automata(
-        pattern: &str,
-    ) -> (NFA, DenseDFA<Vec<usize>, usize>, DenseDFA<Vec<usize>, usize>) {
-        let mut builder = Builder::new();
-        builder.byte_classes(true).premultiply(false);
-        builder.anchored(true);
-        builder.allow_invalid_utf8(false);
-        let nfa = builder.build_nfa(pattern).unwrap();
-        let dfa = builder.build(pattern).unwrap();
-        let min = builder.minimize(true).build(pattern).unwrap();
-
-        (nfa, dfa, min)
-    }
-
-    #[test]
-    fn scratch() {
-        // let data = ::std::fs::read_to_string("/usr/share/dict/words").unwrap();
-        // let mut words: Vec<&str> = data.lines().collect();
-        // println!("{} words", words.len());
-        // words.sort_by(|w1, w2| w1.len().cmp(&w2.len()).reverse());
-        // let pattern = words.join("|");
-        // print_automata_counts(&pattern);
-        // print_automata(&pattern);
-
-        // print_automata(r"[01]*1[01]{5}");
-        // print_automata(r"X(.?){0,8}Y");
-        // print_automata_counts(r"\p{alphabetic}");
-        // print_automata(r"a*b+|cdefg");
-        // print_automata(r"(..)*(...)*");
-
-        // let pattern = r"\p{any}*?\p{Other_Uppercase}";
-        // let pattern = r"\p{any}*?\w+";
-        // print_automata_counts(pattern);
-        // print_automata_counts(r"(?-u:\w)");
-
-        // let pattern = r"\p{Greek}";
-        // let pattern = r"zZzZzZzZzZ";
-        // let pattern = grapheme_pattern();
-        // let pattern = r"\p{Ideographic}";
-        // let pattern = r"\w{10}"; // 51784 --> 41264
-        // let pattern = r"\w"; // 5182
-        // let pattern = r"a*";
-        // print_automata(pattern);
-        // let (_, _, dfa) = build_automata(pattern);
-        let dfa = DenseDFA::new("foo[0-9]+").unwrap();
-        let sparse = dfa.to_sparse_sized::<u8>().unwrap();
-        println!("{:?}", sparse);
-
-        println!(
-            "dense mem: {:?}, sparse mem: {:?}",
-            dfa.to_u16().unwrap().memory_usage(),
-            sparse.memory_usage(),
-        );
-    }
-
-    fn grapheme_pattern() -> &'static str {
-        r"(?x)
-            (?:
-                \p{gcb=CR}\p{gcb=LF}
-                |
-                [\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
-                |
-                \p{gcb=Prepend}*
-                (?:
-                    (?:
-                        (?:
-                            \p{gcb=L}*
-                            (?:\p{gcb=V}+|\p{gcb=LV}\p{gcb=V}*|\p{gcb=LVT})
-                            \p{gcb=T}*
-                        )
-                        |
-                        \p{gcb=L}+
-                        |
-                        \p{gcb=T}+
-                    )
-                    |
-                    \p{gcb=RI}\p{gcb=RI}
-                    |
-                    \p{Extended_Pictographic}
-                    (?:\p{gcb=Extend}*\p{gcb=ZWJ}\p{Extended_Pictographic})*
-                    |
-                    [^\p{gcb=Control}\p{gcb=CR}\p{gcb=LF}]
-                )
-                [\p{gcb=Extend}\p{gcb=ZWJ}\p{gcb=SpacingMark}]*
-            )
-    "
-    }
+    // let pattern = r"\p{Greek}";
+    // let pattern = r"zZzZzZzZzZ";
+    // let pattern = grapheme_pattern();
+    // let pattern = r"\p{Ideographic}";
+    // let pattern = r"\w{10}"; // 51784 --> 41264
+    // let pattern = r"\w"; // 5182
+    // let pattern = r"a*";
+    // print_automata(pattern);
+    // let (_, _, dfa) = build_automata(pattern);
 }

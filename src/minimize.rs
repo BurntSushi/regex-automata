@@ -35,7 +35,10 @@ type DFARepr<S> = dense::Repr<Vec<S>, S>;
 /// 3. Move parts of minimization into determinization. If minimization has
 ///    fewer states to deal with, then it should run faster. A prime example
 ///    of this might be large Unicode classes, which are generated in way that
-///    can create a lot of redundant states.
+///    can create a lot of redundant states. (Some work has been done on this
+///    point during NFA compilation via the algorithm described in the
+///    "Incremental Construction of MinimalAcyclic Finite-State Automata"
+///    paper.)
 pub(crate) struct Minimizer<'a, S: 'a> {
     dfa: &'a mut DFARepr<S>,
     in_transitions: Vec<Vec<Vec<S>>>,
@@ -59,8 +62,8 @@ impl<'a, S: StateID> fmt::Debug for Minimizer<'a, S> {
 ///
 /// It is represented by an ordered set of state identifiers. We use shared
 /// ownership so that a single state set can be in both the set of partitions
-/// and in set of waiting sets simultaneously without an additional allocation.
-/// Generally, once a state set is built, it becomes immutable.
+/// and in the set of waiting sets simultaneously without an additional
+/// allocation. Generally, once a state set is built, it becomes immutable.
 ///
 /// We use this representation because it avoids the overhead of more
 /// traditional set data structures (HashSet/BTreeSet), and also because
