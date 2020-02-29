@@ -18,9 +18,14 @@ name = "regex-automata-debug"
 path = "main.rs"
 
 [dependencies]
+anyhow = "1.0.26"
 regex-automata = { version = "*", path = ".." }
+regex-syntax = "0.6.16"
 
 [dependencies.clap]
 version = "2.33.0"
 default-features = false
 features = ["suggestions"]
+
+[profile.release]
+debug = true
