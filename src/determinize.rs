@@ -162,7 +162,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         for i in 0..self.builder_states[dfa_id.to_usize()].nfa_states.len() {
             let nfa_id = self.builder_states[dfa_id.to_usize()].nfa_states[i];
             match *self.nfa.state(nfa_id) {
-                nfa::State::Union { .. } | nfa::State::Match => {}
+                nfa::State::Union { .. }
+                | nfa::State::Fail
+                | nfa::State::Match => {}
                 nfa::State::Range { range: ref r } => {
                     if r.start <= b && b <= r.end {
                         self.epsilon_closure(r.next, next_nfa_states);
@@ -199,6 +201,7 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 match *self.nfa.state(id) {
                     nfa::State::Range { .. }
                     | nfa::State::Sparse { .. }
+                    | nfa::State::Fail
                     | nfa::State::Match => break,
                     nfa::State::Union { ref alternates } => {
                         id = match alternates.get(0) {
@@ -252,6 +255,9 @@ impl<'a, S: StateID> Determinizer<'a, S> {
                 }
                 nfa::State::Sparse { .. } => {
                     state.nfa_states.push(id);
+                }
+                nfa::State::Fail => {
+                    break;
                 }
                 nfa::State::Match => {
                     state.is_match = true;
