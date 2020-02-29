@@ -295,8 +295,6 @@ extern crate byteorder;
 extern crate fst;
 #[cfg(feature = "std")]
 extern crate regex_syntax;
-#[cfg(feature = "std")]
-extern crate utf8_ranges;
 
 pub use dense::DenseDFA;
 pub use dfa::DFA;

@@ -3,6 +3,7 @@ use std::fmt;
 use std::iter;
 
 use regex_syntax::hir::{self, Hir, HirKind};
+use regex_syntax::utf8::{Utf8Range, Utf8Sequences};
 
 use classes::ByteClasses;
 use error::{Error, Result};
@@ -517,7 +518,6 @@ impl NFACompiler {
         &self,
         cls: &hir::ClassUnicode,
     ) -> Result<ThompsonRef> {
-        use utf8_ranges::Utf8Sequences;
 
         let it =
             cls.iter()
