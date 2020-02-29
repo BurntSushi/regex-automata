@@ -43,6 +43,20 @@ fn unminimized_premultiply_byte_class() {
 }
 
 #[test]
+fn unminimized_standard_no_nfa_shrink() {
+    let mut builder = RegexBuilder::new();
+    builder
+        .minimize(false)
+        .premultiply(false)
+        .byte_classes(false)
+        .shrink(false);
+
+    let mut tester = RegexTester::new().skip_expensive();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
+}
+
+#[test]
 fn minimized_standard() {
     let mut builder = RegexBuilder::new();
     builder.minimize(true).premultiply(false).byte_classes(false);
@@ -78,6 +92,20 @@ fn minimized_premultiply_byte_class() {
     builder.minimize(true).premultiply(true).byte_classes(true);
 
     let mut tester = RegexTester::new();
+    tester.test_all(builder, SUITE.tests());
+    tester.assert();
+}
+
+#[test]
+fn minimized_standard_no_nfa_shrink() {
+    let mut builder = RegexBuilder::new();
+    builder
+        .minimize(true)
+        .premultiply(false)
+        .byte_classes(false)
+        .shrink(false);
+
+    let mut tester = RegexTester::new().skip_expensive();
     tester.test_all(builder, SUITE.tests());
     tester.assert();
 }

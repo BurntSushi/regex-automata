@@ -149,3 +149,119 @@ impl<'a> Iterator for ByteClassRepresentatives<'a> {
         None
     }
 }
+
+/// A byte class set keeps track of an *approximation* of equivalence classes
+/// of bytes during NFA construction. That is, every byte in an equivalence
+/// class cannot discriminate between a match and a non-match.
+///
+/// For example, in the regex `[ab]+`, the bytes `a` and `b` would be in the
+/// same equivalence class because it never matters whether an `a` or a `b` is
+/// seen, and no combination of `a`s and `b`s in the text can discriminate
+/// a match.
+///
+/// Note though that this does not compute the minimal set of equivalence
+/// classes. For example, in the regex `[ac]+`, both `a` and `c` are in the
+/// same equivalence class for the same reason that `a` and `b` are in the
+/// same equivalence class in the aforementioned regex. However, in this
+/// implementation, `a` and `c` are put into distinct equivalence classes.
+/// The reason for this is implementation complexity. In the future, we should
+/// endeavor to compute the minimal equivalence classes since they can have a
+/// rather large impact on the size of the DFA.
+///
+/// The representation here is 256 booleans, all initially set to false. Each
+/// boolean maps to its corresponding byte based on position. A `true` value
+/// indicates the end of an equivalence class, where its corresponding byte
+/// and all of the bytes corresponding to all previous contiguous `false`
+/// values are in the same equivalence class.
+///
+/// This particular representation only permits contiguous ranges of bytes to
+/// be in the same equivalence class, which means that we can never discover
+/// the true minimal set of equivalence classes.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub struct ByteClassSet(Vec<bool>);
+
+#[cfg(feature = "std")]
+impl ByteClassSet {
+    /// Create a new set of byte classes where all bytes are part of the same
+    /// equivalence class.
+    pub fn new() -> Self {
+        ByteClassSet(vec![false; 256])
+    }
+
+    /// Indicate the the range of byte given (inclusive) can discriminate a
+    /// match between it and all other bytes outside of the range.
+    pub fn set_range(&mut self, start: u8, end: u8) {
+        debug_assert!(start <= end);
+        if start > 0 {
+            self.0[start as usize - 1] = true;
+        }
+        self.0[end as usize] = true;
+    }
+
+    /// Convert this boolean set to a map that maps all byte values to their
+    /// corresponding equivalence class. The last mapping indicates the largest
+    /// equivalence class identifier (which is never bigger than 255).
+    pub fn byte_classes(&self) -> ByteClasses {
+        let mut classes = ByteClasses::empty();
+        let mut class = 0u8;
+        let mut i = 0;
+        loop {
+            classes.set(i as u8, class as u8);
+            if i >= 255 {
+                break;
+            }
+            if self.0[i] {
+                class = class.checked_add(1).unwrap();
+            }
+            i += 1;
+        }
+        classes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ByteClassSet;
+
+    #[test]
+    fn byte_classes() {
+        let mut set = ByteClassSet::new();
+        set.set_range(b'a', b'z');
+
+        let classes = set.byte_classes();
+        assert_eq!(classes.get(0), 0);
+        assert_eq!(classes.get(1), 0);
+        assert_eq!(classes.get(2), 0);
+        assert_eq!(classes.get(b'a' - 1), 0);
+        assert_eq!(classes.get(b'a'), 1);
+        assert_eq!(classes.get(b'm'), 1);
+        assert_eq!(classes.get(b'z'), 1);
+        assert_eq!(classes.get(b'z' + 1), 2);
+        assert_eq!(classes.get(254), 2);
+        assert_eq!(classes.get(255), 2);
+
+        let mut set = ByteClassSet::new();
+        set.set_range(0, 2);
+        set.set_range(4, 6);
+        let classes = set.byte_classes();
+        assert_eq!(classes.get(0), 0);
+        assert_eq!(classes.get(1), 0);
+        assert_eq!(classes.get(2), 0);
+        assert_eq!(classes.get(3), 1);
+        assert_eq!(classes.get(4), 2);
+        assert_eq!(classes.get(5), 2);
+        assert_eq!(classes.get(6), 2);
+        assert_eq!(classes.get(7), 3);
+        assert_eq!(classes.get(255), 3);
+    }
+
+    #[test]
+    fn full_byte_classes() {
+        let mut set = ByteClassSet::new();
+        for i in 0..256u16 {
+            set.set_range(i as u8, i as u8);
+        }
+        assert_eq!(set.byte_classes().alphabet_len(), 256);
+    }
+}

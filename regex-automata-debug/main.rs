@@ -243,16 +243,18 @@ impl Command {
             .premultiply(self.args.premultiply)
             .byte_classes(self.args.classes)
             .reverse(self.args.reverse)
-            .longest_match(self.args.longest_match);
+            .longest_match(self.args.longest_match)
+            .shrink(self.args.shrink_nfa);
         builder
     }
 
-    fn nfa_builder(&self) -> nfa::NFABuilder {
-        let mut builder = nfa::NFABuilder::new();
+    fn nfa_builder(&self) -> nfa::Builder {
+        let mut builder = nfa::Builder::new();
         builder
             .anchored(self.args.anchored)
             .allow_invalid_utf8(self.args.no_utf8)
-            .reverse(self.args.reverse);
+            .reverse(self.args.reverse)
+            .shrink(self.args.shrink_nfa);
         builder
     }
 
@@ -278,6 +280,7 @@ struct Common {
     classes: bool,
     reverse: bool,
     longest_match: bool,
+    shrink_nfa: bool,
 }
 
 impl Common {
@@ -293,6 +296,7 @@ impl Common {
             classes: m.is_present("classes"),
             reverse: m.is_present("reverse"),
             longest_match: m.is_present("longest-match"),
+            shrink_nfa: m.is_present("shrink-nfa"),
         }
     }
 }
@@ -332,6 +336,7 @@ fn app() -> clap::App<'static, 'static> {
             .arg(flag("classes").short("c"))
             .arg(flag("reverse").short("r"))
             .arg(flag("longest-match"))
+            .arg(flag("shrink-nfa"))
     };
 
     let cmd_debug = cmd("debug")

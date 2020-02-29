@@ -20,7 +20,7 @@ use error::{Error, Result};
 #[cfg(feature = "std")]
 use minimize::Minimizer;
 #[cfg(feature = "std")]
-use nfa::{NFABuilder, NFA};
+use nfa::{self, NFA};
 #[cfg(feature = "std")]
 use sparse::SparseDFA;
 use state_id::{dead_id, StateID};
@@ -1875,7 +1875,7 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 #[derive(Clone, Debug)]
 pub struct Builder {
     parser: ParserBuilder,
-    nfa: NFABuilder,
+    nfa: nfa::Builder,
     anchored: bool,
     minimize: bool,
     premultiply: bool,
@@ -1888,9 +1888,13 @@ pub struct Builder {
 impl Builder {
     /// Create a new DenseDFA builder with the default configuration.
     pub fn new() -> Builder {
+        let mut nfa = nfa::Builder::new();
+        // This is enabled by default, but we set it here anyway. Since we're
+        // building a DFA, shrinking the NFA is always a good idea.
+        nfa.shrink(true);
         Builder {
             parser: ParserBuilder::new(),
-            nfa: NFABuilder::new(),
+            nfa,
             anchored: false,
             minimize: false,
             premultiply: true,
@@ -1933,18 +1937,26 @@ impl Builder {
         &self,
         pattern: &str,
     ) -> Result<DenseDFA<Vec<S>, S>> {
+        self.build_from_nfa(&self.build_nfa(pattern)?)
+    }
+
+    /// An internal only (for now) API for building a dense DFA directly from
+    /// an NFA.
+    pub(crate) fn build_from_nfa<S: StateID>(
+        &self,
+        nfa: &NFA,
+    ) -> Result<DenseDFA<Vec<S>, S>> {
         if self.longest_match && !self.anchored {
             return Err(Error::unsupported_longest_match());
         }
 
-        let nfa = self.build_nfa(pattern)?;
         let mut dfa = if self.byte_classes {
-            Determinizer::new(&nfa)
+            Determinizer::new(nfa)
                 .with_byte_classes()
                 .longest_match(self.longest_match)
                 .build()
         } else {
-            Determinizer::new(&nfa).longest_match(self.longest_match).build()
+            Determinizer::new(nfa).longest_match(self.longest_match).build()
         }?;
         if self.minimize {
             dfa.minimize();
@@ -2218,6 +2230,17 @@ impl Builder {
         // essentially assign a higher priority to everything over the prefix
         // `.*?`.
         self.longest_match = yes;
+        self
+    }
+
+    /// Apply best effort heuristics to shrink the NFA at the expense of more
+    /// time/memory.
+    ///
+    /// This may be exposed in the future, but for now is exported for use in
+    /// the `regex-automata-debug` tool.
+    #[doc(hidden)]
+    pub fn shrink(&mut self, yes: bool) -> &mut Builder {
+        self.nfa.shrink(yes);
         self
     }
 }
