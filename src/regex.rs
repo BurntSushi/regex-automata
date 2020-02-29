@@ -750,6 +750,17 @@ impl RegexBuilder {
         self.dfa.byte_classes(yes);
         self
     }
+
+    /// Apply best effort heuristics to shrink the NFA at the expense of more
+    /// time/memory.
+    ///
+    /// This may be exposed in the future, but for now is exported for use in
+    /// the `regex-automata-debug` tool.
+    #[doc(hidden)]
+    pub fn shrink(&mut self, yes: bool) -> &mut RegexBuilder {
+        self.dfa.shrink(yes);
+        self
+    }
 }
 
 #[cfg(feature = "std")]

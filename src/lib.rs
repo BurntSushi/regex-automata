@@ -317,7 +317,8 @@ mod error;
 #[cfg(feature = "std")]
 mod minimize;
 #[cfg(feature = "std")]
-mod nfa;
+#[doc(hidden)]
+pub mod nfa;
 mod regex;
 #[path = "sparse.rs"]
 mod sparse_imp;
