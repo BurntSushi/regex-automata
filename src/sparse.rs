@@ -740,7 +740,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
             state_count: self.state_count,
             max_match: map[&self.max_match],
             byte_classes: self.byte_classes.clone(),
-            trans: trans,
+            trans,
         };
         for (&old_id, &new_id) in map.iter() {
             let old_state = self.state(old_id);
@@ -980,7 +980,7 @@ impl<S: StateID> Repr<Vec<u8>, S> {
             state_count: dfa.state_count(),
             max_match: remap[dfa.state_id_to_index(dfa.max_match_state())],
             byte_classes: dfa.byte_classes().clone(),
-            trans: trans,
+            trans,
         };
         for (old_id, old_state) in dfa.states() {
             let new_id = remap[dfa.state_id_to_index(old_id)];
@@ -1038,7 +1038,7 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
         writeln!(f, "SparseDFA(")?;
         for (id, state) in self.states() {
             let status = state_status(self, id);
-            writeln!(f, "{}{:04}: {:?}", status, id.to_usize(), state)?;
+            writeln!(f, "{}{:06}: {:?}", status, id.to_usize(), state)?;
         }
         writeln!(f, ")")?;
         Ok(())
@@ -1231,7 +1231,7 @@ fn escape(b: u8) -> String {
 /// for posterity in case we can find a way to use it.
 ///
 /// In theory, we could use the standard library's search routine if we could
-/// cast a `&[u8]` to a `&[(u8, u8)]`, but I don't believe this currently
+/// cast a `&[u8]` to a `&[(u8, u8)]`, but I don't believe this is currently
 /// guaranteed to be safe and is thus UB (since I don't think the in-memory
 /// representation of `(u8, u8)` has been nailed down).
 #[inline(always)]
