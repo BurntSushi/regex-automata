@@ -421,7 +421,7 @@ pub struct Matches<'r, 't, D: DFA + 'r> {
 
 impl<'r, 't, D: DFA> Matches<'r, 't, D> {
     fn new(re: &'r Regex<D>, text: &'t [u8]) -> Matches<'r, 't, D> {
-        Matches { re: re, text: text, last_end: 0, last_match: None }
+        Matches { re, text, last_end: 0, last_match: None }
     }
 }
 

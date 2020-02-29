@@ -341,10 +341,6 @@ pub enum RegexTestFailureKind {
 }
 
 impl RegexTestResults {
-    fn new() -> RegexTestResults {
-        RegexTestResults { succeeded: vec![], failed: vec![] }
-    }
-
     pub fn assert(&self) {
         if self.failed.is_empty() {
             return;

@@ -66,10 +66,10 @@ impl<'a, S: StateID> Determinizer<'a, S> {
         cache.insert(dead.clone(), dead_id());
 
         Determinizer {
-            nfa: nfa,
+            nfa,
             dfa: DFARepr::empty().anchored(nfa.is_anchored()),
             builder_states: vec![dead],
-            cache: cache,
+            cache,
             stack: vec![],
             scratch_nfa_states: vec![],
             longest_match: false,
