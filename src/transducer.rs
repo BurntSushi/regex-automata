@@ -47,7 +47,10 @@ mod tests {
     use crate::dense::{self, DenseDFA};
     use crate::sparse::SparseDFA;
 
-    fn search<A: Automaton>(set: &Set, aut: A) -> Vec<BString> {
+    fn search<A: Automaton, D: AsRef<[u8]>>(
+        set: &Set<D>,
+        aut: A,
+    ) -> Vec<BString> {
         let mut stream = set.search(aut).into_stream();
 
         let mut results = vec![];
