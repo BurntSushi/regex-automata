@@ -5,7 +5,7 @@ version = "0.0.0"  #:version
 edition = "2018"
 
 [dev-dependencies]
-fst = "0.3"
+fst = "0.4.0"
 regex-automata = { version = "*", path = "..", features = ["transducer"] }
 
 [[example]]
