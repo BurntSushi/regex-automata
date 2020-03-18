@@ -79,9 +79,7 @@ jobs:
     - name: Use Cross
       if: matrix.target != ''
       run: |
-        # FIXME: to work around bugs in latest cross release, install master.
-        # See: https://github.com/rust-embedded/cross/issues/357
-        cargo install --git https://github.com/rust-embedded/cross
+        cargo install cross
         echo "CARGO=cross" >> $GITHUB_ENV
         echo "TARGET=--target ${{ matrix.target }}" >> $GITHUB_ENV
 
@@ -129,7 +127,7 @@ jobs:
 
     - name: Compile debug tool
       if: matrix.build != 'pinned' && matrix.build != 'stable-thumb'
-      run: ${{ env.CARGO }} build --verbose --manifest-path regex-automata-debug/Cargo.toml ${{ env.TARGET }}
+      run: ${{ env.CARGO }} build --verbose --manifest-path regex-cli/Cargo.toml ${{ env.TARGET }}
 
     - name: Test benchmarks
       if: matrix.build != 'pinned' && matrix.build != 'stable-thumb'
@@ -153,6 +151,3 @@ jobs:
     - name: Check formatting
       run: |
         cargo fmt --all -- --check
-    - name: Check formatting for debug tool
-      run: |
-        cargo fmt --manifest-path regex-automata-debug/Cargo.toml -- --check

@@ -1,6 +1,9 @@
+/tmp
 /target
 /examples/target
 /regex-automata-debug/target
+/regex-cli/target
+/regex-test/target
 tags
 /Cargo.lock
 /examples/Cargo.lock

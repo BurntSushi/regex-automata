@@ -7,5 +7,5 @@ pub const SHERLOCK_SMALL: &'static [u8] =
 pub const SHERLOCK_TINY: &'static [u8] =
     include_bytes!("../data/sherlock-holmes-tiny.txt");
 
-pub const OPEN_ZH_SMALL: &'static [u8] =
-    include_bytes!("../data/opensubtitles2018-zh-small-utf8.txt");
+// pub const OPEN_ZH_SMALL: &'static [u8] =
+// include_bytes!("../data/opensubtitles2018-zh-small-utf8.txt");

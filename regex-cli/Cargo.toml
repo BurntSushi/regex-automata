@@ -1,0 +1,39 @@
+[package]
+publish = false
+name = "regex-cli"
+version = "0.0.1"
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = """
+A command line tool for debugging, benchmarking and generating regular
+expressions.
+"""
+documentation = "https://docs.rs/regex-cli"
+repository = "https://github.com/BurntSushi/regex-automata"
+keywords = ["regex", "cli", "debug", "nfa", "dfa"]
+license = "Unlicense/MIT"
+categories = ["text-processing"]
+autotests = false
+edition = "2018"
+
+[[bin]]
+name = "regex-cli"
+
+[dependencies]
+anyhow = "1.0.28"
+bstr = { version = "0.2.16", default-features = false, features = ["std"] }
+clap = { version = "2.33.0", default-features = false }
+memmap2 = "0.3.0"
+regex = "1.5.4"
+syntax = { package = "regex-syntax", version = "0.6.17" }
+tabwriter = "1.2.1"
+unicode-width = "0.1.7"
+
+[dependencies.automata]
+package = "regex-automata"
+path = ".."
+features = ["logging"]
+
+[dependencies.env_logger]
+version = "0.8.4"
+default-features = false
+features = ["atty", "humantime", "termcolor"]
