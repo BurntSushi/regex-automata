@@ -865,7 +865,7 @@ impl Split {
 }
 
 impl fmt::Debug for RangeTrie {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "")?;
         for (i, state) in self.states.iter().enumerate() {
             let status = if i == FINAL as usize { '*' } else { ' ' };
@@ -876,7 +876,7 @@ impl fmt::Debug for RangeTrie {
 }
 
 impl fmt::Debug for State {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rs = self
             .transitions
             .iter()
@@ -888,7 +888,7 @@ impl fmt::Debug for State {
 }
 
 impl fmt::Debug for Transition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.range.start == self.range.end {
             write!(f, "{:02X} => {:02X}", self.range.start, self.next_id)
         } else {

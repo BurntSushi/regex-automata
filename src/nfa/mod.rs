@@ -1,7 +1,7 @@
 use std::fmt;
 
-use classes::ByteClasses;
-pub use nfa::compiler::Builder;
+use crate::classes::ByteClasses;
+pub use crate::nfa::compiler::Builder;
 
 mod compiler;
 mod map;
@@ -91,7 +91,7 @@ impl NFA {
 }
 
 impl fmt::Debug for NFA {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, state) in self.states.iter().enumerate() {
             let status = if i == self.start { '>' } else { ' ' };
             writeln!(f, "{}{:06}: {:?}", status, i, state)?;
@@ -175,7 +175,7 @@ impl State {
 }
 
 impl fmt::Debug for State {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             State::Range { ref range } => range.fmt(f),
             State::Sparse { ref ranges } => {
@@ -201,7 +201,7 @@ impl fmt::Debug for State {
 }
 
 impl fmt::Debug for Transition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Transition { start, end, next } = *self;
         if self.start == self.end {
             write!(f, "{} => {}", escape(start), next)
@@ -221,8 +221,8 @@ fn escape(b: u8) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dense;
-    use dfa::DFA;
+    use crate::dense;
+    use crate::dfa::DFA;
 
     #[test]
     fn always_match() {

@@ -3,8 +3,8 @@ use std::fmt;
 use std::mem;
 use std::rc::Rc;
 
-use dense;
-use state_id::{dead_id, StateID};
+use crate::dense;
+use crate::state_id::{dead_id, StateID};
 
 type DFARepr<S> = dense::Repr<Vec<S>, S>;
 
@@ -39,7 +39,7 @@ type DFARepr<S> = dense::Repr<Vec<S>, S>;
 ///    point during NFA compilation via the algorithm described in the
 ///    "Incremental Construction of MinimalAcyclic Finite-State Automata"
 ///    paper.)
-pub(crate) struct Minimizer<'a, S: 'a> {
+pub(crate) struct Minimizer<'a, S> {
     dfa: &'a mut DFARepr<S>,
     in_transitions: Vec<Vec<Vec<S>>>,
     partitions: Vec<StateSet<S>>,
@@ -47,7 +47,7 @@ pub(crate) struct Minimizer<'a, S: 'a> {
 }
 
 impl<'a, S: StateID> fmt::Debug for Minimizer<'a, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Minimizer")
             .field("dfa", &self.dfa)
             .field("in_transitions", &self.in_transitions)

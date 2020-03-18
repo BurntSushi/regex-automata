@@ -37,11 +37,11 @@ use std::mem;
 use regex_syntax::hir::{self, Hir, HirKind};
 use regex_syntax::utf8::{Utf8Range, Utf8Sequences};
 
-use classes::ByteClassSet;
-use error::{Error, Result};
-use nfa::map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap};
-use nfa::range_trie::RangeTrie;
-use nfa::{State, StateID, Transition, NFA};
+use crate::classes::ByteClassSet;
+use crate::error::{Error, Result};
+use crate::nfa::map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap};
+use crate::nfa::range_trie::RangeTrie;
+use crate::nfa::{State, StateID, Transition, NFA};
 
 /// Config knobs for the NFA compiler. See the builder's methods for more
 /// docs on each one.

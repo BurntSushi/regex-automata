@@ -11,13 +11,15 @@ use std::collections::HashMap;
 use byteorder::{BigEndian, LittleEndian};
 use byteorder::{ByteOrder, NativeEndian};
 
-use classes::ByteClasses;
-use dense;
-use dfa::DFA;
+use crate::classes::ByteClasses;
+use crate::dense;
+use crate::dfa::DFA;
 #[cfg(feature = "std")]
-use error::{Error, Result};
+use crate::error::{Error, Result};
 #[cfg(feature = "std")]
-use state_id::{dead_id, usize_to_state_id, write_state_id_bytes, StateID};
+use crate::state_id::{
+    dead_id, usize_to_state_id, write_state_id_bytes, StateID,
+};
 #[cfg(not(feature = "std"))]
 use state_id::{dead_id, StateID};
 
@@ -1009,7 +1011,7 @@ impl<S: StateID> Repr<Vec<u8>, S> {
 
 #[cfg(feature = "std")]
 impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn state_status<T: AsRef<[u8]>, S: StateID>(
             dfa: &Repr<T, S>,
             id: S,
@@ -1051,7 +1053,7 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for Repr<T, S> {
 /// the second element is the state itself.
 #[cfg(feature = "std")]
 #[derive(Debug)]
-struct StateIter<'a, T: AsRef<[u8]> + 'a, S: StateID + 'a = usize> {
+struct StateIter<'a, T: AsRef<[u8]>, S: StateID = usize> {
     dfa: &'a Repr<T, S>,
     id: S,
 }
@@ -1137,7 +1139,7 @@ impl<'a, S: StateID> State<'a, S> {
 
 #[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for State<'a, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut transitions = vec![];
         for i in 0..self.ntrans {
             let next = self.next_at(i);
@@ -1197,7 +1199,7 @@ impl<'a, S: StateID> StateMut<'a, S> {
 
 #[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = State {
             _state_id_repr: self._state_id_repr,
             ntrans: self.ntrans,

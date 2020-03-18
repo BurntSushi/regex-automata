@@ -3,9 +3,10 @@ use std::env;
 use std::fmt::{self, Write};
 use std::thread;
 
+use lazy_static::lazy_static;
 use regex;
 use regex_automata::{DenseDFA, ErrorKind, Regex, RegexBuilder, StateID, DFA};
-use serde_bytes;
+use serde::Deserialize;
 use toml;
 
 macro_rules! load {
@@ -365,7 +366,7 @@ impl RegexTestResults {
 }
 
 impl fmt::Display for RegexTestFailure {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}: {}\n    \
@@ -415,13 +416,13 @@ impl RegexTestFailureKind {
 }
 
 impl fmt::Display for Match {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({}, {})", self.start, self.end)
     }
 }
 
 impl fmt::Debug for Match {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({}, {})", self.start, self.end)
     }
 }
@@ -454,8 +455,8 @@ fn escape_default(s: &str) -> String {
 }
 
 fn unescape_bytes(bytes: &[u8]) -> Vec<u8> {
+    use crate::unescape::unescape;
     use std::str;
-    use unescape::unescape;
 
     unescape(&str::from_utf8(bytes).expect("all input must be valid UTF-8"))
 }

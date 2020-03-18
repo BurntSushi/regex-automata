@@ -1,6 +1,6 @@
 use regex_automata::{DenseDFA, Regex, RegexBuilder, SparseDFA};
 
-use collection::{RegexTester, SUITE};
+use crate::collection::{RegexTester, SUITE};
 
 #[test]
 fn unminimized_standard() {

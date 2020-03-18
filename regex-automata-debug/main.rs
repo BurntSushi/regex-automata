@@ -284,7 +284,7 @@ struct Common {
 }
 
 impl Common {
-    fn new(m: &clap::ArgMatches) -> Common {
+    fn new(m: &clap::ArgMatches<'_>) -> Common {
         Common {
             sparse: m.is_present("sparse"),
             anchored: m.is_present("anchored"),
@@ -305,7 +305,7 @@ fn counter<D: DFA + 'static>(re: Regex<D>) -> Box<dyn Fn(&[u8]) -> usize> {
     Box::new(move |bytes| re.find_iter(bytes).count())
 }
 
-fn pattern_from_matches(m: &clap::ArgMatches) -> Result<String> {
+fn pattern_from_matches(m: &clap::ArgMatches<'_>) -> Result<String> {
     if !m.is_present("file") {
         Ok(m.value_of("pattern").unwrap().to_string())
     } else {

@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 
-use dense;
-use error::Result;
-use nfa::{self, NFA};
-use sparse_set::SparseSet;
-use state_id::{dead_id, StateID};
+use crate::dense;
+use crate::error::Result;
+use crate::nfa::{self, NFA};
+use crate::sparse_set::SparseSet;
+use crate::state_id::{dead_id, StateID};
 
 type DFARepr<S> = dense::Repr<Vec<S>, S>;
 

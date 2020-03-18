@@ -11,7 +11,7 @@ pub use self::std::*;
 mod std {
     use byteorder::ByteOrder;
     use core::mem::size_of;
-    use error::{Error, Result};
+    use crate::error::{Error, Result};
 
     use super::StateID;
 

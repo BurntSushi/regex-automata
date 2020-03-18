@@ -11,21 +11,21 @@ use byteorder::{ByteOrder, NativeEndian};
 #[cfg(feature = "std")]
 use regex_syntax::ParserBuilder;
 
-use classes::ByteClasses;
+use crate::classes::ByteClasses;
 #[cfg(feature = "std")]
-use determinize::Determinizer;
-use dfa::DFA;
+use crate::determinize::Determinizer;
+use crate::dfa::DFA;
 #[cfg(feature = "std")]
-use error::{Error, Result};
+use crate::error::{Error, Result};
 #[cfg(feature = "std")]
-use minimize::Minimizer;
+use crate::minimize::Minimizer;
 #[cfg(feature = "std")]
-use nfa::{self, NFA};
+use crate::nfa::{self, NFA};
 #[cfg(feature = "std")]
-use sparse::SparseDFA;
-use state_id::{dead_id, StateID};
+use crate::sparse::SparseDFA;
+use crate::state_id::{dead_id, StateID};
 #[cfg(feature = "std")]
-use state_id::{
+use crate::state_id::{
     next_state_id, premultiply_overflow_error, write_state_id_bytes,
 };
 
@@ -1110,7 +1110,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// turn premultiplied as well, making them usable without additional
     /// modification.
     #[cfg(feature = "std")]
-    pub fn states(&self) -> StateIter<T, S> {
+    pub fn states(&self) -> StateIter<'_, T, S> {
         let it = self.trans().chunks(self.alphabet_len());
         StateIter { dfa: self, it: it.enumerate() }
     }
@@ -1505,7 +1505,7 @@ impl<S: StateID> Repr<Vec<S>, S> {
     /// (e.g., swapping states).
     ///
     /// This cannot be called on a premultiplied DFA.
-    pub fn get_state_mut(&mut self, id: S) -> StateMut<S> {
+    pub fn get_state_mut(&mut self, id: S) -> StateMut<'_, S> {
         assert!(!self.premultiplied, "can't get state in premultiplied DFA");
 
         let alphabet_len = self.alphabet_len();
@@ -1610,7 +1610,7 @@ impl<S: StateID> Repr<Vec<S>, S> {
 
 #[cfg(feature = "std")]
 impl<T: AsRef<[S]>, S: StateID> fmt::Debug for Repr<T, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn state_status<T: AsRef<[S]>, S: StateID>(
             dfa: &Repr<T, S>,
             id: S,
@@ -1659,7 +1659,7 @@ impl<T: AsRef<[S]>, S: StateID> fmt::Debug for Repr<T, S> {
 /// the type of the transition table itself and `S` corresponds to the state
 /// identifier representation.
 #[cfg(feature = "std")]
-pub(crate) struct StateIter<'a, T: 'a, S: 'a> {
+pub(crate) struct StateIter<'a, T, S> {
     dfa: &'a Repr<T, S>,
     it: iter::Enumerate<slice::Chunks<'a, S>>,
 }
@@ -1686,7 +1686,7 @@ impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
 /// `'a` correspondings to the lifetime of a DFA's transition table and `S`
 /// corresponds to the state identifier representation.
 #[cfg(feature = "std")]
-pub(crate) struct State<'a, S: 'a> {
+pub(crate) struct State<'a, S> {
     transitions: &'a [S],
 }
 
@@ -1699,7 +1699,7 @@ impl<'a, S: StateID> State<'a, S> {
     /// Each transition is represented by a tuple. The first element is
     /// the input byte for that transition and the second element is the
     /// transitions itself.
-    pub fn transitions(&self) -> StateTransitionIter<S> {
+    pub fn transitions(&self) -> StateTransitionIter<'_, S> {
         StateTransitionIter { it: self.transitions.iter().enumerate() }
     }
 
@@ -1715,14 +1715,14 @@ impl<'a, S: StateID> State<'a, S> {
     /// representation (where you have an element for every non-dead
     /// transition), but in practice, checking if a byte is in a range is very
     /// cheap and using ranges tends to conserve quite a bit more space.
-    pub fn sparse_transitions(&self) -> StateSparseTransitionIter<S> {
+    pub fn sparse_transitions(&self) -> StateSparseTransitionIter<'_, S> {
         StateSparseTransitionIter { dense: self.transitions(), cur: None }
     }
 }
 
 #[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for State<'a, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut transitions = vec![];
         for (start, end, next_id) in self.sparse_transitions() {
             let line = if start == end {
@@ -1750,7 +1750,7 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
 /// byte for that transition and the second element is the transitions itself.
 #[cfg(feature = "std")]
 #[derive(Debug)]
-pub(crate) struct StateTransitionIter<'a, S: 'a> {
+pub(crate) struct StateTransitionIter<'a, S> {
     it: iter::Enumerate<slice::Iter<'a, S>>,
 }
 
@@ -1771,7 +1771,7 @@ impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
 /// to the transition taken for all bytes in the range.
 #[cfg(feature = "std")]
 #[derive(Debug)]
-pub(crate) struct StateSparseTransitionIter<'a, S: 'a> {
+pub(crate) struct StateSparseTransitionIter<'a, S> {
     dense: StateTransitionIter<'a, S>,
     cur: Option<(u8, u8, S)>,
 }
@@ -1812,7 +1812,7 @@ impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
 /// `'a` correspondings to the lifetime of a DFA's transition table and `S`
 /// corresponds to the state identifier representation.
 #[cfg(feature = "std")]
-pub(crate) struct StateMut<'a, S: 'a> {
+pub(crate) struct StateMut<'a, S> {
     transitions: &'a mut [S],
 }
 
@@ -1825,14 +1825,14 @@ impl<'a, S: StateID> StateMut<'a, S> {
     /// Each transition is represented by a tuple. The first element is the
     /// input byte for that transition and the second element is a mutable
     /// reference to the transition itself.
-    pub fn iter_mut(&mut self) -> StateTransitionIterMut<S> {
+    pub fn iter_mut(&mut self) -> StateTransitionIterMut<'_, S> {
         StateTransitionIterMut { it: self.transitions.iter_mut().enumerate() }
     }
 }
 
 #[cfg(feature = "std")]
 impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&State { transitions: self.transitions }, f)
     }
 }
@@ -1844,7 +1844,7 @@ impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
 /// reference to the transition itself.
 #[cfg(feature = "std")]
 #[derive(Debug)]
-pub(crate) struct StateTransitionIterMut<'a, S: 'a> {
+pub(crate) struct StateTransitionIterMut<'a, S> {
     it: iter::Enumerate<slice::IterMut<'a, S>>,
 }
 

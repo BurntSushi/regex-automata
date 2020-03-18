@@ -285,26 +285,15 @@ With some of the downsides out of the way, here are some positive differences:
 #![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use crate::dense::DenseDFA;
+pub use crate::dfa::DFA;
 #[cfg(feature = "std")]
-extern crate core;
-
-#[cfg(all(test, feature = "transducer"))]
-extern crate bstr;
-extern crate byteorder;
-#[cfg(feature = "transducer")]
-extern crate fst;
+pub use crate::error::{Error, ErrorKind};
+pub use crate::regex::Regex;
 #[cfg(feature = "std")]
-extern crate regex_syntax;
-
-pub use dense::DenseDFA;
-pub use dfa::DFA;
-#[cfg(feature = "std")]
-pub use error::{Error, ErrorKind};
-pub use regex::Regex;
-#[cfg(feature = "std")]
-pub use regex::RegexBuilder;
-pub use sparse::SparseDFA;
-pub use state_id::StateID;
+pub use crate::regex::RegexBuilder;
+pub use crate::sparse::SparseDFA;
+pub use crate::state_id::StateID;
 
 mod classes;
 #[path = "dense.rs"]
@@ -337,7 +326,7 @@ mod transducer;
 /// This module also contains a [builder](struct.Builder.html) for
 /// configuring the construction of a dense DFA.
 pub mod dense {
-    pub use dense_imp::*;
+    pub use crate::dense_imp::*;
 }
 
 /// Types and routines specific to sparse DFAs.
@@ -356,5 +345,5 @@ pub mod dense {
 /// and then calling
 /// [`DenseDFA::to_sparse`](../enum.DenseDFA.html#method.to_sparse).
 pub mod sparse {
-    pub use sparse_imp::*;
+    pub use crate::sparse_imp::*;
 }

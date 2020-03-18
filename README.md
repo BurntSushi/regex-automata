@@ -22,13 +22,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-regex-automata = "0.1"
-```
-
-and this to your crate root (if you're using Rust 2015):
-
-```rust
-extern crate regex_automata;
+regex-automata = "0.2"
 ```
 
 
