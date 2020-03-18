@@ -1,26 +1,17 @@
-#[macro_use]
-extern crate criterion;
-extern crate regex_automata;
+use criterion::{
+    criterion_group, criterion_main, Bencher, Criterion, Throughput,
+};
+use regex_automata::dfa::{dense, regex};
+use regex_automata::nfa::thompson;
 
-use std::time::Duration;
-
-use criterion::{Bencher, Benchmark, Criterion, Throughput};
-use regex_automata::{dense, RegexBuilder, DFA};
-
-use inputs::*;
+use crate::inputs::*;
 
 mod inputs;
 
 fn is_match(c: &mut Criterion) {
     let corpus = SHERLOCK_HUGE;
     define(c, "is-match", "sherlock-huge", corpus, move |b| {
-        let re = RegexBuilder::new()
-            .anchored(false)
-            .minimize(true)
-            .premultiply(true)
-            .byte_classes(false)
-            .build(r"\p{Greek}")
-            .unwrap();
+        let re = regex::Builder::new().build(r"\p{Greek}").unwrap();
         // let re = re.forward().to_sparse().unwrap();
         b.iter(|| {
             assert!(!re.is_match(corpus));
@@ -30,13 +21,7 @@ fn is_match(c: &mut Criterion) {
     // let corpus = OPEN_ZH_SMALL;
     let corpus = SHERLOCK_SMALL;
     define(c, "is-match", "sherlock-small", corpus, move |b| {
-        let re = RegexBuilder::new()
-            .anchored(false)
-            .minimize(true)
-            .premultiply(true)
-            .byte_classes(false)
-            .build(r"\p{Greek}")
-            .unwrap();
+        let re = regex::Builder::new().build(r"\p{Greek}").unwrap();
         // let re = re.forward().to_sparse().unwrap();
         b.iter(|| {
             assert!(!re.is_match(corpus));
@@ -45,13 +30,7 @@ fn is_match(c: &mut Criterion) {
 
     let corpus = SHERLOCK_TINY;
     define(c, "is-match", "sherlock-tiny", corpus, move |b| {
-        let re = RegexBuilder::new()
-            .anchored(false)
-            .minimize(true)
-            .premultiply(true)
-            .byte_classes(false)
-            .build(r"\p{Greek}")
-            .unwrap();
+        let re = regex::Builder::new().build(r"\p{Greek}").unwrap();
         b.iter(|| {
             assert!(!re.is_match(corpus));
         });
@@ -59,13 +38,7 @@ fn is_match(c: &mut Criterion) {
 
     let corpus = EMPTY;
     define(c, "is-match", "empty", corpus, move |b| {
-        let re = RegexBuilder::new()
-            .anchored(false)
-            .minimize(true)
-            .premultiply(true)
-            .byte_classes(false)
-            .build(r"\p{Greek}")
-            .unwrap();
+        let re = regex::Builder::new().build(r"\p{Greek}").unwrap();
         b.iter(|| {
             assert!(!re.is_match(corpus));
         });
@@ -102,54 +75,12 @@ fn compile_muammar(c: &mut Criterion) {
 
 fn define_compile(c: &mut Criterion, group_name: &str, pattern: &'static str) {
     let group = format!("fwd-compile/{}", group_name);
-    define(c, &group, "unminimized-noclasses", &[], move |b| {
+    define(c, &group, "default", &[], move |b| {
         b.iter(|| {
             let result = dense::Builder::new()
-                .anchored(true)
-                .minimize(false)
-                .premultiply(false)
-                .byte_classes(false)
+                .configure(dense::Config::new().anchored(true))
                 .build(pattern);
             assert!(result.is_ok());
-        });
-    });
-    define(c, &group, "unminimized-classes", &[], move |b| {
-        b.iter(|| {
-            let result = dense::Builder::new()
-                .anchored(true)
-                .minimize(false)
-                .premultiply(false)
-                .byte_classes(true)
-                .build(pattern);
-            assert!(result.is_ok());
-        });
-    });
-    define(c, &group, "minimized-noclasses", &[], move |b| {
-        let mut dfa = dense::Builder::new()
-            .anchored(true)
-            .minimize(false)
-            .premultiply(false)
-            .byte_classes(false)
-            .build(pattern)
-            .unwrap();
-        let old = dfa.memory_usage();
-        b.iter(|| {
-            dfa.minimize();
-            assert!(dfa.memory_usage() <= old);
-        });
-    });
-    define(c, &group, "minimized-classes", &[], move |b| {
-        let mut dfa = dense::Builder::new()
-            .anchored(true)
-            .minimize(false)
-            .premultiply(false)
-            .byte_classes(true)
-            .build(pattern)
-            .unwrap();
-        let old = dfa.memory_usage();
-        b.iter(|| {
-            dfa.minimize();
-            assert!(dfa.memory_usage() <= old);
         });
     });
 }
@@ -160,58 +91,13 @@ fn define_compile_reverse(
     pattern: &'static str,
 ) {
     let group = format!("rev-compile/{}", group_name);
-    define(c, &group, "unminimized-noclasses", &[], move |b| {
+    define(c, &group, "default", &[], move |b| {
         b.iter(|| {
             let result = dense::Builder::new()
-                .reverse(true)
-                .anchored(true)
-                .minimize(false)
-                .premultiply(false)
-                .byte_classes(false)
+                .configure(dense::Config::new().anchored(true))
+                .thompson(thompson::Config::new().reverse(true))
                 .build(pattern);
             assert!(result.is_ok());
-        });
-    });
-    define(c, &group, "unminimized-classes", &[], move |b| {
-        b.iter(|| {
-            let result = dense::Builder::new()
-                .reverse(true)
-                .anchored(true)
-                .minimize(false)
-                .premultiply(false)
-                .byte_classes(true)
-                .build(pattern);
-            assert!(result.is_ok());
-        });
-    });
-    define(c, &group, "minimized-noclasses", &[], move |b| {
-        let mut dfa = dense::Builder::new()
-            .reverse(true)
-            .anchored(true)
-            .minimize(false)
-            .premultiply(false)
-            .byte_classes(false)
-            .build(pattern)
-            .unwrap();
-        let old = dfa.memory_usage();
-        b.iter(|| {
-            dfa.minimize();
-            assert!(dfa.memory_usage() <= old);
-        });
-    });
-    define(c, &group, "minimized-classes", &[], move |b| {
-        let mut dfa = dense::Builder::new()
-            .reverse(true)
-            .anchored(true)
-            .minimize(false)
-            .premultiply(false)
-            .byte_classes(true)
-            .build(pattern)
-            .unwrap();
-        let old = dfa.memory_usage();
-        b.iter(|| {
-            dfa.minimize();
-            assert!(dfa.memory_usage() <= old);
         });
     });
 }
@@ -223,13 +109,12 @@ fn define(
     corpus: &[u8],
     bench: impl FnMut(&mut Bencher) + 'static,
 ) {
-    let tput = Throughput::Bytes(corpus.len() as u64);
-    let benchmark = Benchmark::new(bench_name, bench)
-        .throughput(tput)
-        .sample_size(25)
-        .warm_up_time(Duration::from_millis(500))
-        .measurement_time(Duration::from_secs(3));
-    c.bench(group_name, benchmark);
+    c.benchmark_group(group_name)
+        .throughput(Throughput::Bytes(corpus.len() as u64))
+        .sample_size(15)
+        .warm_up_time(std::time::Duration::from_millis(500))
+        .measurement_time(std::time::Duration::from_secs(2))
+        .bench_function(bench_name, bench);
 }
 
 criterion_group!(g1, is_match);
