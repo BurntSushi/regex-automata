@@ -26,6 +26,3 @@ regex-syntax = "0.6.16"
 version = "2.33.0"
 default-features = false
 features = ["suggestions"]
-
-[profile.release]
-debug = true

@@ -1,4 +1,4 @@
-use state_id::StateID;
+use crate::state_id::StateID;
 
 /// A trait describing the interface of a deterministic finite automaton (DFA).
 ///

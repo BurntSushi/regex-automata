@@ -87,7 +87,7 @@ impl ByteClasses {
     /// byte from each equivalence class then permits a full exploration of
     /// the NFA instead of using every possible byte value.
     #[cfg(feature = "std")]
-    pub fn representatives(&self) -> ByteClassRepresentatives {
+    pub fn representatives(&self) -> ByteClassRepresentatives<'_> {
         ByteClassRepresentatives { classes: self, byte: 0, last_class: None }
     }
 
@@ -108,7 +108,7 @@ impl ByteClasses {
 }
 
 impl fmt::Debug for ByteClasses {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_singleton() {
             write!(f, "ByteClasses({{singletons}})")
         } else {

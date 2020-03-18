@@ -1,13 +1,11 @@
-#[macro_use]
-extern crate criterion;
-extern crate regex_automata;
-
 use std::time::Duration;
 
-use criterion::{Bencher, Benchmark, Criterion, Throughput};
-use regex_automata::{dense, RegexBuilder, DFA};
+use criterion::{
+    criterion_group, criterion_main, Bencher, Benchmark, Criterion, Throughput,
+};
+use regex_automata::{dense, RegexBuilder};
 
-use inputs::*;
+use crate::inputs::*;
 
 mod inputs;
 

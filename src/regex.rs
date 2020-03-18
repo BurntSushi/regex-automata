@@ -1,12 +1,12 @@
 #[cfg(feature = "std")]
-use dense::{self, DenseDFA};
-use dfa::DFA;
+use crate::dense::{self, DenseDFA};
+use crate::dfa::DFA;
 #[cfg(feature = "std")]
-use error::Result;
+use crate::error::Result;
 #[cfg(feature = "std")]
-use sparse::SparseDFA;
+use crate::sparse::SparseDFA;
 #[cfg(feature = "std")]
-use state_id::StateID;
+use crate::state_id::StateID;
 
 /// A regular expression that uses deterministic finite automata for fast
 /// searching.
@@ -412,7 +412,7 @@ impl<D: DFA> Regex<D> {
 /// * `'r` is the lifetime of the regular expression value itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
-pub struct Matches<'r, 't, D: DFA + 'r> {
+pub struct Matches<'r, 't, D: DFA> {
     re: &'r Regex<D>,
     text: &'t [u8],
     last_end: usize,

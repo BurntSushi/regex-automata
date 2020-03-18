@@ -8,6 +8,7 @@ homepage = "https://github.com/BurntSushi/regex-automata"
 repository = "https://github.com/BurntSushi/regex-automata"
 license = "Unlicense/MIT"
 workspace = ".."
+edition = "2018"
 
 [lib]
 bench = false
