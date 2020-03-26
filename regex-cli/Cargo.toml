@@ -1,0 +1,42 @@
+[package]
+publish = false
+name = "regex-cli"
+version = "0.0.1"
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = """
+A command line tool for debugging, benchmarking and generating regular
+expressions.
+"""
+documentation = "https://docs.rs/regex-cli"
+repository = "https://github.com/BurntSushi/regex-automata"
+keywords = ["regex", "cli", "debug", "nfa", "dfa"]
+license = "Unlicense/MIT"
+categories = ["text-processing"]
+autotests = false
+edition = "2018"
+
+[[bin]]
+name = "regex-cli"
+
+[features]
+default = ["state-sizes"]
+
+# When enabled, users can compile regexes using different state ID
+# representations. When disabled, only pointer-sized state IDs may be used.
+# Disabling this is primarily useful for substantially decreasing compile
+# times. In particular, when enabled, a separate copy of the entire DFA
+# compilation code is compiled for every instantiation of each state ID
+# representation.
+state-sizes = []
+
+[dependencies]
+anyhow = "1.0.28"
+automata = { package = "regex-automata", version = "*", path = ".." }
+memmap = "0.7.0"
+syntax = { package = "regex-syntax", version = "0.6.17" }
+tabwriter = "1.2.1"
+unicode-width = "0.1.7"
+
+[dependencies.clap]
+version = "2.33.0"
+default-features = false
