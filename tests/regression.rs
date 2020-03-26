@@ -1,4 +1,7 @@
-use regex_automata::{dense, DFA};
+use regex_automata::{
+    dfa::{dense, Automaton},
+    NoMatch,
+};
 
 // A regression test for checking that minimization correctly translates
 // whether a state is a match state or not. Previously, it was possible for
@@ -34,9 +37,8 @@ fn minimize_sets_correct_match_states() {
         ";
 
     let dfa = dense::Builder::new()
-        .minimize(true)
-        .anchored(true)
+        .configure(dense::Config::new().anchored(true).minimize(true))
         .build(pattern)
         .unwrap();
-    assert_eq!(None, dfa.find(b"\xE2"));
+    assert_eq!(Ok(None), dfa.find_leftmost_fwd(b"\xE2"));
 }

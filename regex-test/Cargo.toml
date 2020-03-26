@@ -1,0 +1,27 @@
+[package]
+publish = false
+name = "regex-test"
+version = "0.0.0"  #:version
+authors = ["Andrew Gallant <jamslam@gmail.com>"]
+description = """
+Infrastructure for testing regexes.
+
+You probably don't want to use this crate unless you're working on a regex
+implementation.
+"""
+documentation = "https://docs.rs/regex-test"
+repository = "https://github.com/BurntSushi/regex-automata/tree/master/regex-test"
+readme = "README.md"
+keywords = ["regex", "regexp", "dfa", "automata", "test"]
+license = "Unlicense/MIT"
+edition = "2018"
+
+[lib]
+name = "regex_test"
+bench = false
+
+[dependencies]
+anyhow = "1.0.27"
+bstr = { version = "0.2.12", default-features = false, features = ["std", "serde1"] }
+serde = { version = "1.0.105", features = ["derive"] }
+toml = "0.5.6"

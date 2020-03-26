@@ -1,0 +1,73 @@
+[[tests]]
+name = "set10"
+regexes = ["a", "a"]
+input = "a"
+matches = [
+  { id = 0, offsets = [0, 1] },
+  { id = 1, offsets = [0, 1] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "set10-lefmost-first"
+regexes = ["a", "a"]
+input = "a"
+matches = [
+  { id = 0, offsets = [0, 1] },
+]
+match_kind = "leftmost-first"
+search_kind = "leftmost"
+
+[[tests]]
+name = "set20"
+regexes = ["a", "a"]
+input = "ba"
+matches = [
+  { id = 0, offsets = [1, 2] },
+  { id = 1, offsets = [1, 2] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "set30"
+regexes = ["a", "b"]
+input = "a"
+matches = [
+  { id = 0, offsets = [0, 1] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "set40"
+regexes = ["a", "b"]
+input = "b"
+matches = [
+  { id = 1, offsets = [0, 1] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "set50"
+regexes = ["a|b", "b|a"]
+input = "b"
+matches = [
+  { id = 0, offsets = [0, 1] },
+  { id = 1, offsets = [0, 1] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "set60"
+regexes = ["foo", "oo"]
+input = "foo"
+matches = [
+  { id = 0, offsets = [0, 3] },
+  { id = 1, offsets = [1, 3] },
+]
+match_kind = "all"
+search_kind = "overlapping"
