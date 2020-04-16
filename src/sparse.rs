@@ -106,6 +106,7 @@ use state_id::{dead_id, StateID};
 /// the variants of this DFA and use each variant's implementation of the `DFA`
 /// trait directly.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
     /// A standard DFA that does not use byte classes.
     Standard(Standard<T, S>),
@@ -121,13 +122,6 @@ pub enum SparseDFA<T: AsRef<[u8]>, S: StateID = usize> {
     /// reason for this is that a sparse DFA already compacts each state's
     /// transitions separate from whether byte classes are used.
     ByteClass(ByteClass<T, S>),
-    /// Hints that destructuring should not be exhaustive.
-    ///
-    /// This enum may grow additional variants, so this makes sure clients
-    /// don't count on exhaustive matching. (Otherwise, adding a new variant
-    /// could break existing code.)
-    #[doc(hidden)]
-    __Nonexhaustive,
 }
 
 #[cfg(feature = "std")]
@@ -203,7 +197,6 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
             SparseDFA::ByteClass(ByteClass(ref r)) => {
                 SparseDFA::ByteClass(ByteClass(r.as_ref()))
             }
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -222,7 +215,6 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
             SparseDFA::ByteClass(ByteClass(ref r)) => {
                 SparseDFA::ByteClass(ByteClass(r.to_owned()))
             }
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -242,7 +234,6 @@ impl<T: AsRef<[u8]>, S: StateID> SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => &r.0,
             SparseDFA::ByteClass(ref r) => &r.0,
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -445,7 +436,6 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.next_state(current, input),
             SparseDFA::ByteClass(ref r) => r.next_state(current, input),
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -466,7 +456,6 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.is_match_at(bytes, start),
             SparseDFA::ByteClass(ref r) => r.is_match_at(bytes, start),
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -475,7 +464,6 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.shortest_match_at(bytes, start),
             SparseDFA::ByteClass(ref r) => r.shortest_match_at(bytes, start),
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -484,7 +472,6 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.find_at(bytes, start),
             SparseDFA::ByteClass(ref r) => r.find_at(bytes, start),
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -493,7 +480,6 @@ impl<T: AsRef<[u8]>, S: StateID> DFA for SparseDFA<T, S> {
         match *self {
             SparseDFA::Standard(ref r) => r.rfind_at(bytes, start),
             SparseDFA::ByteClass(ref r) => r.rfind_at(bytes, start),
-            SparseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }

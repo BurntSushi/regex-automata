@@ -139,6 +139,7 @@ pub(crate) const MASK_ANCHORED: u16 = 0b0000_0000_0000_0010;
 /// the variants of this DFA and use each variant's implementation of the `DFA`
 /// trait directly.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum DenseDFA<T: AsRef<[S]>, S: StateID> {
     /// A standard DFA that does not use premultiplication or byte classes.
     Standard(Standard<T, S>),
@@ -162,13 +163,6 @@ pub enum DenseDFA<T: AsRef<[S]>, S: StateID> {
     /// The default configuration of a DFA, which uses byte classes and
     /// premultiplies its state identifiers.
     PremultipliedByteClass(PremultipliedByteClass<T, S>),
-    /// Hints that destructuring should not be exhaustive.
-    ///
-    /// This enum may grow additional variants, so this makes sure clients
-    /// don't count on exhaustive matching. (Otherwise, adding a new variant
-    /// could break existing code.)
-    #[doc(hidden)]
-    __Nonexhaustive,
 }
 
 impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
@@ -181,7 +175,6 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
             DenseDFA::ByteClass(ref r) => &r.0,
             DenseDFA::Premultiplied(ref r) => &r.0,
             DenseDFA::PremultipliedByteClass(ref r) => &r.0,
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -256,7 +249,6 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
                 let inner = PremultipliedByteClass(r.0.as_ref());
                 DenseDFA::PremultipliedByteClass(inner)
             }
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -282,7 +274,6 @@ impl<T: AsRef<[S]>, S: StateID> DenseDFA<T, S> {
                 let inner = PremultipliedByteClass(r.0.to_owned());
                 DenseDFA::PremultipliedByteClass(inner)
             }
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -538,7 +529,6 @@ impl<S: StateID> DenseDFA<Vec<S>, S> {
             DenseDFA::ByteClass(ref mut r) => &mut r.0,
             DenseDFA::Premultiplied(ref mut r) => &mut r.0,
             DenseDFA::PremultipliedByteClass(ref mut r) => &mut r.0,
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -580,7 +570,6 @@ impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
             DenseDFA::PremultipliedByteClass(ref r) => {
                 r.next_state(current, input)
             }
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -599,7 +588,6 @@ impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
             DenseDFA::PremultipliedByteClass(ref r) => {
                 r.next_state_unchecked(current, input)
             }
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -617,7 +605,6 @@ impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
             DenseDFA::PremultipliedByteClass(ref r) => {
                 r.is_match_at(bytes, start)
             }
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -632,7 +619,6 @@ impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
             DenseDFA::PremultipliedByteClass(ref r) => {
                 r.shortest_match_at(bytes, start)
             }
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -643,7 +629,6 @@ impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
             DenseDFA::ByteClass(ref r) => r.find_at(bytes, start),
             DenseDFA::Premultiplied(ref r) => r.find_at(bytes, start),
             DenseDFA::PremultipliedByteClass(ref r) => r.find_at(bytes, start),
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 
@@ -656,7 +641,6 @@ impl<T: AsRef<[S]>, S: StateID> DFA for DenseDFA<T, S> {
             DenseDFA::PremultipliedByteClass(ref r) => {
                 r.rfind_at(bytes, start)
             }
-            DenseDFA::__Nonexhaustive => unreachable!(),
         }
     }
 }
