@@ -420,6 +420,12 @@ impl<'a, S: StateID> Runner<'a, S> {
         let facts = Facts::start(start);
         self.epsilon_closure(nfa_start, facts.look_have, sparse);
         let state = self.new_state(&sparse, facts);
+        if let Some(&cached_id) = self.cache.get(&state) {
+            // Since we have a cached state, put the constructed state's
+            // memory back into our scratch space, so that it can be reused.
+            mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
+            return Ok(cached_id);
+        }
         let id = self.add_state(state)?;
         Ok(id)
     }
