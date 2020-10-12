@@ -60,7 +60,7 @@
 // Another approach, however, is to reuse an algorithm for constructing a
 // *minimal* DFA from a sorted sequence of inputs. I don't want to go into
 // the full details here, but I explain it in more depth in my blog post on
-// FSTs[1]. Note that the algorithm not invented by me, but was published
+// FSTs[1]. Note that the algorithm was not invented by me, but was published
 // in paper by Daciuk et al. in 2000 called "Incremental Construction of
 // MinimalAcyclic Finite-State Automata." Like the suffix cache approach above,
 // it is also possible to control the amount of extra memory one uses, although
@@ -76,10 +76,11 @@
 //     [BC-BF][80-BF]
 //     [BC-BF][90-BF]
 //
-// Then Daciuk's algorithm also would not work, since there is nothing to
-// handle the fact that the ranges overlap. They would need to be split apart.
-// Thankfully, Thompson's algorithm for producing byte ranges for Unicode
-// codepoint ranges meets both of our requirements.
+// Then Daciuk's algorithm would not work, since there is nothing to handle the
+// fact that the ranges overlap. They would need to be split apart. Thankfully,
+// Thompson's algorithm for producing byte ranges for Unicode codepoint ranges
+// meets both of our requirements. (A proof for this eludes me, but it appears
+// true.)
 //
 // ... however, we would also like to be able to compile UTF-8 automata in
 // reverse. We want this because in order to find the starting location of a
@@ -188,8 +189,8 @@ pub struct RangeTrie {
     /// particular order.
     states: Vec<State>,
     /// A free-list of states. When a range trie is cleared, all of its states
-    /// are added to list. Creating a new state reuses states from this list
-    /// before allocating a new one.
+    /// are added to this list. Creating a new state reuses states from this
+    /// list before allocating a new one.
     free: Vec<State>,
     /// A stack for traversing this trie to yield sequences of byte ranges in
     /// lexicographic order.
@@ -197,7 +198,7 @@ pub struct RangeTrie {
     /// A bufer that stores the current sequence during iteration.
     iter_ranges: RefCell<Vec<Utf8Range>>,
     /// A stack used for traversing the trie in order to (deeply) duplicate
-    /// a state.
+    /// a state. States are recursively duplicated when ranges are split.
     dupe_stack: Vec<NextDupe>,
     /// A stack used for traversing the trie during insertion of a new
     /// sequence of byte ranges.
@@ -264,7 +265,7 @@ impl RangeTrie {
             // here, but at the cost of more stack pushes.
             loop {
                 let state = self.state(state_id);
-                // If we're visited all transitions in this state, then pop
+                // If we've visited all transitions in this state, then pop
                 // back to the parent state.
                 if tidx >= state.transitions.len() {
                     ranges.pop();
@@ -455,8 +456,8 @@ impl RangeTrie {
     /// the given state ID and the returned state ID share nothing.
     ///
     /// This is useful during range trie insertion when a new range overlaps
-    /// with an existing range that is bigger than the new one. The part of
-    /// the existing range that does *not* overlap with the new one is that
+    /// with an existing range that is bigger than the new one. The part
+    /// of the existing range that does *not* overlap with the new one is
     /// duplicated so that adding the new range to the overlap doesn't disturb
     /// the non-overlapping portion.
     ///
@@ -594,7 +595,7 @@ impl State {
         // Benchmarks suggest that binary search is just a bit faster than
         // straight linear search. Specifically when using the debug tool:
         //
-        //   hyperfine "regex-automata-debug debug -acqr '\w{40} ecurB'"
+        //   hyperfine "regex-cli debug nfa thompson --quiet --reverse '\w{90} ecurB'"
         binary_search(&self.transitions, |t| range.start <= t.range.end)
     }
 

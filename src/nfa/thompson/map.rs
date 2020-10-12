@@ -7,10 +7,10 @@
 // These maps are used in some fairly hot code when generating NFA states for
 // large Unicode character classes.
 //
-// Instead of exposing a rich hashmap entry API, we just permit the caller
-// to produce a hash of the key directly. The hash can then be reused for both
-// lookups and insertions at the cost of leaking things a bit. But these are
-// for internal use only, so it's fine.
+// Instead of exposing a rich hashmap entry API, we just permit the caller to
+// produce a hash of the key directly. The hash can then be reused for both
+// lookups and insertions at the cost of leaking abstraction a bit. But these
+// are for internal use only, so it's fine.
 //
 // The Utf8BoundedMap is used for Daciuk's algorithm for constructing a
 // (almost) minimal DFA for large Unicode character classes in linear time.
@@ -57,7 +57,7 @@ const INIT: u64 = 14695981039346656037;
 /// Specifically, one could observe the difference with std's hashmap via
 /// something like the following benchmark:
 ///
-///   hyperfine "regex-automata-debug debug -acqr '\w{40} ecurB'"
+///   hyperfine "regex-cli debug nfa thompson --quiet --reverse '\w{40} ecurB'"
 ///
 /// But to observe that difference, you'd have to modify the code to use
 /// std's hashmap.
@@ -74,6 +74,9 @@ pub struct Utf8BoundedMap {
     /// The current version of this map. Only entries with matching versions
     /// are considered during lookups. If an entry is found with a mismatched
     /// version, then the map behaves as if the entry does not exist.
+    ///
+    /// This makes it possible to clear the map by simply incrementing the
+    /// version number instead of actually deallocating any storage.
     version: u16,
     /// The total number of entries this map can store.
     capacity: usize,
