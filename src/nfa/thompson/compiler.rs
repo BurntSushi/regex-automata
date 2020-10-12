@@ -237,7 +237,6 @@ impl Builder {
         nfa: &mut NFA,
         exprs: &[H],
     ) -> Result<(), Error> {
-        compiler.clear();
         compiler.configure(self.config);
         compiler.compile(nfa, exprs)
     }
@@ -256,10 +255,7 @@ impl Builder {
     ///
     /// This syntax configuration generally only applies when an NFA is built
     /// directly from a pattern string. If an NFA is built from an HIR, then
-    /// all syntax settings except for the "allow invalid UTF-8" setting are
-    /// ignored. Namely, the "allow invalid UTF-8" setting determines whether
-    /// the unanchored prefix that is automatically added is either `(?s:.)*?`
-    /// or `(?s-u:.)*?`.
+    /// all syntax settings are ignored.
     pub fn syntax(&mut self, config: crate::SyntaxConfig) -> &mut Builder {
         config.apply(&mut self.parser);
         self
@@ -269,12 +265,6 @@ impl Builder {
 /// A compiler that converts a regex abstract syntax to an NFA via Thompson's
 /// construction. Namely, this compiler permits epsilon transitions between
 /// states.
-///
-/// Users of this crate cannot use a compiler directly. Instead, all one can
-/// do is create one and use it via the
-/// [`Builder::build_with`](struct.Builder.html#method.build_with)
-/// method. This permits callers to reuse compilers in order to amortize
-/// allocations.
 #[derive(Clone, Debug)]
 pub struct Compiler {
     /// The set of compiled NFA states. Once a state is compiled, it is
@@ -304,8 +294,9 @@ pub struct Compiler {
 }
 
 /// A compiler intermediate state representation for an NFA that is only used
-/// during compilation. Once compilation is done, `CState`s are converted to
-/// `State`s, which have a much simpler representation.
+/// during compilation. Once compilation is done, `CState`s are converted
+/// to `State`s (defined in the parent module), which have a much simpler
+/// representation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum CState {
     /// An empty state whose only purpose is to forward the automaton to
@@ -319,7 +310,15 @@ enum CState {
     /// fashion. Transitions are ordered lexicographically by input range.
     /// As such, this may only be used when every transition has equal
     /// priority. (In practice, this is only used for encoding large UTF-8
-    /// automata.)
+    /// automata.) In contrast, a `Union` state has each alternate in order
+    /// of priority. Priority is used to implement greedy matching and also
+    /// alternations themselves, e.g., `abc|a` where `abc` has priority over
+    /// `a`.
+    ///
+    /// To clarify, it is possible to remove `Sparse` and represent all things
+    /// that `Sparse` is used for via `Union`. But this creates a more bloated
+    /// NFA with more epsilon transitions than is necessary in the special case
+    /// of character classes.
     Sparse { ranges: Vec<Transition> },
     /// A conditional epsilon transition satisfied via some sort of
     /// look-around.
@@ -329,17 +328,23 @@ enum CState {
     /// are preferred over later transitions.
     Union { alternates: Vec<StateID> },
     /// An alternation such that there exists an epsilon transition to all
-    /// states in `alternates`, where matches found via later transitions
-    /// are preferred over earlier transitions.
+    /// states in `alternates`, where matches found via later transitions are
+    /// preferred over earlier transitions.
     ///
     /// This "reverse" state exists for convenience during compilation that
-    /// permits easy construction of non-greedy combinations of NFA states.
-    /// At the end of compilation, Union and UnionReverse states are merged
-    /// into one Union type of state, where the latter has its epsilon
-    /// transitions reversed to reflect the priority inversion.
+    /// permits easy construction of non-greedy combinations of NFA states. At
+    /// the end of compilation, Union and UnionReverse states are merged into
+    /// one Union type of state, where the latter has its epsilon transitions
+    /// reversed to reflect the priority inversion.
+    ///
+    /// The "convenience" here arises from the fact that as new states are
+    /// added to the list of `alternates`, we would like that add operation
+    /// to be amortized constant time. But if we used a `Union`, we'd need to
+    /// prepend the state, which takes O(n) time. There are other approaches we
+    /// could use to solve this, but this seems simple enough.
     UnionReverse { alternates: Vec<StateID> },
     /// A match state. There is exactly one such occurrence of this state in
-    /// an NFA.
+    /// an NFA for each pattern compiled into the NFA.
     Match(PatternID),
 }
 
@@ -366,23 +371,16 @@ impl Compiler {
         }
     }
 
-    /// Clear any memory used by this compiler such that it is ready to compile
-    /// a new regex.
+    /// Configure and prepare this compiler from the builder's knobs.
     ///
-    /// It is preferrable to reuse a compiler if possible in order to reuse
-    /// allocations.
-    fn clear(&self) {
+    /// The compiler is must always reconfigured by the builder before using it
+    /// to build an NFA. Namely, this will also clear any latent state in the
+    /// compiler used during previous compilations.
+    fn configure(&mut self, config: Config) {
+        self.config = config;
         self.states.borrow_mut().clear();
         // We don't need to clear anything else since they are cleared on
         // their own and only when they are used.
-    }
-
-    /// Configure this compiler from the builder's knobs.
-    ///
-    /// The compiler is always reconfigured by the builder before using it to
-    /// build an NFA.
-    fn configure(&mut self, config: Config) {
-        self.config = config;
     }
 
     /// Convert the current intermediate NFA to its final compiled form.
@@ -403,9 +401,9 @@ impl Compiler {
         }
 
         // We always add an unanchored prefix unless we were specifically told
-        // not (for tests only), or if we know that the regex is anchored for
-        // all matches. When an unanchored prefix is not added, then the NFA's
-        // anchored and unanchored start states are equivalent.
+        // not to (for tests only), or if we know that the regex is anchored
+        // for all matches. When an unanchored prefix is not added, then the
+        // NFA's anchored and unanchored start states are equivalent.
         let all_anchored =
             exprs.iter().all(|e| e.borrow().is_anchored_start());
         let anchored = !self.config.get_unanchored_prefix() || all_anchored;
@@ -453,8 +451,6 @@ impl Compiler {
         let mut empties = self.empties.borrow_mut();
         empties.clear();
 
-        // We don't reuse allocations here becuase this is what we're
-        // returning.
         nfa.clear();
         let mut byteset = ByteClassSet::new();
 
@@ -511,7 +507,7 @@ impl Compiler {
             // So we must follow the chain until the end, which must end at
             // a non-empty state, and therefore, a state that is correctly
             // remapped. We are guaranteed to terminate because our compiler
-            // never builds a loop among empty states.
+            // never builds a loop among only empty states.
             while let CState::Empty { next } = bstates[empty_next] {
                 empty_next = next;
             }
@@ -642,25 +638,25 @@ impl Compiler {
         //
         //     >000000: 61 => 01
         //     000001: 61 => 02
-        //     000002: alt(03, 04)
+        //     000002: union(03, 04)
         //     000003: 61 => 04
-        //     000004: alt(05, 06)
+        //     000004: union(05, 06)
         //     000005: 61 => 06
-        //     000006: alt(07, 08)
+        //     000006: union(07, 08)
         //     000007: 61 => 08
         //     000008: MATCH
         //
         // And effectively, once you hit state 2, the epsilon closure will
-        // include states 3, 5, 5, 6, 7 and 8, which is quite a bit. It is
-        // better to instead compile it like so:
+        // include states 3, 5, 6, 7 and 8, which is quite a bit. It is better
+        // to instead compile it like so:
         //
         //     >000000: 61 => 01
         //      000001: 61 => 02
-        //      000002: alt(03, 08)
+        //      000002: union(03, 08)
         //      000003: 61 => 04
-        //      000004: alt(05, 08)
+        //      000004: union(05, 08)
         //      000005: 61 => 06
-        //      000006: alt(07, 08)
+        //      000006: union(07, 08)
         //      000007: 61 => 08
         //      000008: MATCH
         //
