@@ -71,3 +71,27 @@ matches = [
 ]
 match_kind = "all"
 search_kind = "overlapping"
+
+[[tests]]
+name = "set61"
+regexes = ["oo", "foo"]
+input = "foo"
+matches = [
+  { id = 1, offsets = [0, 3] },
+  { id = 0, offsets = [1, 3] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "set70"
+regexes = ["abcd", "bcd", "cd", "d"]
+input = "abcd"
+matches = [
+  { id = 0, offsets = [0, 4] },
+  { id = 1, offsets = [1, 4] },
+  { id = 2, offsets = [2, 4] },
+  { id = 3, offsets = [3, 4] },
+]
+match_kind = "all"
+search_kind = "overlapping"

@@ -258,15 +258,18 @@ impl<'a, S: StateID> Runner<'a, S> {
         }
 
         let mut facts = Facts::default();
-        if b.as_u8().map_or(false, |b| b == b'\n') {
-            facts.look_have.insert(Look::StartLine);
-        }
         // We only set the word byte if there's a word boundary look-around
         // anywhere in this regex. Otherwise, there's no point in bloating
         // the number of states if we don't have one.
         if self.nfa.has_word_boundary() {
             if b.is_word_byte() {
                 facts.state.set_from_word(true);
+            }
+        }
+        // Similarly for the start-line look-around.
+        if self.nfa.has_any_anchor() {
+            if b.as_u8().map_or(false, |b| b == b'\n') {
+                facts.look_have.insert(Look::StartLine);
             }
         }
         for &nfa_id in &sparses.cur {

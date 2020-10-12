@@ -38,12 +38,12 @@ pub const EOF: usize = ALPHABET_LEN - 1;
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct HalfMatch {
     /// The pattern ID.
-    pub pattern: PatternID,
+    pub(crate) pattern: PatternID,
     /// The offset of the match.
     ///
     /// For forward searches, the offset is exclusive. For reverse searches,
     /// the offset is inclusive.
-    pub offset: usize,
+    pub(crate) offset: usize,
 }
 
 impl HalfMatch {
