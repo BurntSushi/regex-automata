@@ -70,7 +70,7 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
         config = config.quit(b, true);
     }
     let dfa = dense::Builder::new().configure(config).build(r"\b")?;
-    let expected = HalfMatch { pattern: 0, offset: 1 };
+    let expected = HalfMatch::new(0, 1);
     assert_eq!(dfa.find_leftmost_fwd(b" a"), Ok(Some(expected)));
     Ok(())
 }
