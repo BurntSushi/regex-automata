@@ -505,7 +505,7 @@ impl fmt::Debug for Transition {
 pub struct PatternIter<'a> {
     it: std::ops::Range<PatternID>,
     /// We explicitly associate a lifetime with this iterator even though we
-    /// don't actually borrow anything for the NFA. We do this for backward
+    /// don't actually borrow anything from the NFA. We do this for backward
     /// compatibility purposes. If we ever do need to borrow something from
     /// the NFA, then we can and just get rid of this marker without breaking
     /// the public API.

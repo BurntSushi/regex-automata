@@ -24,6 +24,13 @@ pub enum MatchKind {
     // states into sets, and treat members of each set as having equivalent
     // priority, but having greater priority than all following members
     // of different sets.
+    //
+    // However, it's not clear whether it's really worth adding this. After
+    // all, leftmost-longest can be emulated when using literals by using
+    // leftmost-first and sorting the literals by length in descending order.
+    // However, this won't work for arbitrary regexes. e.g., `\w|\w\w` will
+    // always match `a` in `ab` when using leftmost-first, but leftmost-longest
+    // would match `ab`.
 }
 
 impl MatchKind {
