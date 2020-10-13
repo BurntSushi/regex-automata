@@ -95,3 +95,13 @@ matches = [
 ]
 match_kind = "all"
 search_kind = "overlapping"
+
+[[tests]]
+name = "set71"
+regexes = ["bcd", "cd", "d", "abcd"]
+input = "abcd"
+matches = [
+  { id = 3, offsets = [0, 4] },
+]
+match_kind = "leftmost-first"
+search_kind = "leftmost"
