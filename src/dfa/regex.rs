@@ -9,7 +9,7 @@ use crate::nfa::thompson;
 use crate::prefilter::{self, Prefilter};
 #[cfg(feature = "std")]
 use crate::state_id::StateID;
-use crate::{Match, MatchKind, MultiMatch, NoMatch};
+use crate::{Match, MatchError, MatchKind, MultiMatch};
 
 /// A regular expression that uses deterministic finite automata for fast
 /// searching.
@@ -496,21 +496,21 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 /// Errors will never be returned using the default configuration. So these
 /// fallible routines are only needed for particular configurations.
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
-    pub fn try_is_match(&self, input: &[u8]) -> Result<bool, NoMatch> {
+    pub fn try_is_match(&self, input: &[u8]) -> Result<bool, MatchError> {
         self.try_is_match_at(input, 0, input.len())
     }
 
     pub fn try_find_earliest(
         &self,
         input: &[u8],
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_earliest_at(input, 0, input.len())
     }
 
     pub fn try_find_leftmost(
         &self,
         input: &[u8],
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_leftmost_at(input, 0, input.len())
     }
 
@@ -518,7 +518,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         input: &[u8],
         state: &mut State<A::ID>,
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_overlapping_at(input, 0, input.len(), state)
     }
 
@@ -558,7 +558,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<bool, NoMatch> {
+    ) -> Result<bool, MatchError> {
         self.forward()
             .find_earliest_fwd_at(self.scanner().as_mut(), input, start, end)
             .map(|x| x.is_some())
@@ -575,7 +575,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_earliest_at_imp(
             self.scanner().as_mut(),
             input,
@@ -590,7 +590,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
         // Since this is the usual way that automata are used, this helps
@@ -623,7 +623,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_leftmost_at_imp(
             self.scanner().as_mut(),
             input,
@@ -638,7 +638,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
         // Since this is the usual way that automata are used, this helps
@@ -667,7 +667,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         start: usize,
         end: usize,
         state: &mut State<A::ID>,
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_overlapping_at_imp(
             self.scanner().as_mut(),
             input,
@@ -684,7 +684,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         start: usize,
         end: usize,
         state: &mut State<A::ID>,
-    ) -> Result<Option<MultiMatch>, NoMatch> {
+    ) -> Result<Option<MultiMatch>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
         // Since this is the usual way that automata are used, this helps
@@ -856,9 +856,9 @@ impl<'r, 't, A: Automaton, P: Prefilter> TryFindEarliestMatches<'r, 't, A, P> {
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for TryFindEarliestMatches<'r, 't, A, P>
 {
-    type Item = Result<MultiMatch, NoMatch>;
+    type Item = Result<MultiMatch, MatchError>;
 
-    fn next(&mut self) -> Option<Result<MultiMatch, NoMatch>> {
+    fn next(&mut self) -> Option<Result<MultiMatch, MatchError>> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -930,9 +930,9 @@ impl<'r, 't, A: Automaton, P: Prefilter> TryFindLeftmostMatches<'r, 't, A, P> {
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for TryFindLeftmostMatches<'r, 't, A, P>
 {
-    type Item = Result<MultiMatch, NoMatch>;
+    type Item = Result<MultiMatch, MatchError>;
 
-    fn next(&mut self) -> Option<Result<MultiMatch, NoMatch>> {
+    fn next(&mut self) -> Option<Result<MultiMatch, MatchError>> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -1006,9 +1006,9 @@ impl<'r, 't, A: Automaton, P: Prefilter>
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for TryFindOverlappingMatches<'r, 't, A, P>
 {
-    type Item = Result<MultiMatch, NoMatch>;
+    type Item = Result<MultiMatch, MatchError>;
 
-    fn next(&mut self) -> Option<Result<MultiMatch, NoMatch>> {
+    fn next(&mut self) -> Option<Result<MultiMatch, MatchError>> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -1207,7 +1207,7 @@ impl Default for RegexBuilder {
 
 #[inline(always)]
 fn next_unwrap(
-    item: Option<Result<MultiMatch, NoMatch>>,
+    item: Option<Result<MultiMatch, MatchError>>,
 ) -> Option<MultiMatch> {
     match item {
         None => None,

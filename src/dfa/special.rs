@@ -22,7 +22,7 @@ macro_rules! err {
 //   has run. The dead state always has an ID of 0. i.e., It is always the
 //   first state in a DFA.
 // * quit - A state that is entered whenever a byte is seen that should cause
-//   a DFA to give up and stop searching. This results in a NoMatch::Quit
+//   a DFA to give up and stop searching. This results in a MatchError::Quit
 //   error being returned. The default configuration for a DFA has no quit
 //   bytes, which means this state is unreachable by default (and can be
 //   removed during minimization). This state is only reachable when the
@@ -97,7 +97,7 @@ macro_rules! err {
 //             # A quit state means we give up. If he DFA has no quit state,
 //             # then special.quit_id == 0 == dead, which is handled by the
 //             # conditional above.
-//             return Err(NoMatch::Quit { byte, offset: offset - 1 })
+//             return Err(MatchError::Quit { byte, offset: offset - 1 })
 //         if special.min_match <= current_state <= special.max_match:
 //             last_match = Some(offset)
 //             if special.min_accel <= current_state <= special.max_accel:

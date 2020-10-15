@@ -3,7 +3,7 @@ use std::error::Error;
 use regex_automata::{
     dfa::{dense, Automaton, HalfMatch, Regex, State},
     nfa::thompson,
-    MultiMatch, NoMatch,
+    MatchError, MultiMatch,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -17,15 +17,15 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
 
     assert_eq!(
         dfa.find_earliest_fwd(b"abcxyz"),
-        Err(NoMatch::Quit { byte: b'x', offset: 3 })
+        Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
         dfa.find_leftmost_fwd(b"abcxyz"),
-        Err(NoMatch::Quit { byte: b'x', offset: 3 })
+        Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
         dfa.find_overlapping_fwd(b"abcxyz", &mut State::start()),
-        Err(NoMatch::Quit { byte: b'x', offset: 3 })
+        Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
 
     Ok(())
@@ -41,11 +41,11 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
 
     assert_eq!(
         dfa.find_earliest_rev(b"abcxyz"),
-        Err(NoMatch::Quit { byte: b'x', offset: 3 })
+        Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
         dfa.find_leftmost_rev(b"abcxyz"),
-        Err(NoMatch::Quit { byte: b'x', offset: 3 })
+        Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
 
     Ok(())

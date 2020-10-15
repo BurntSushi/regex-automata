@@ -185,57 +185,68 @@ impl MultiMatch {
     }
 }
 
-/// An error type indicating that no match could be found.
+/// An error type indicating that a search stopped prematurely without finding
+/// a match.
+///
+/// This error type implies that one cannot assume that no matches occur, since
+/// the search stopped before completing.
 ///
 /// Normally, when one searches for something, the response is either an
 /// affirmative "it was found at this location" or a negative "not found at
-/// all." While the former carries the match offset information (in addition
-/// to perhaps the specific pattern that matched, when using a multi-regex
-/// engine), the latter typically carries no information other than the fact
-/// that nothing could be found. However, due to the lower level nature of this
-/// library, it is often useful to know the position at which a search stopped.
+/// all." However, in some cases, a regex engine can be configured to stop its
+/// search before concluding whether a match exists or not. When this happens,
+/// it's important for the caller to know why the regex engine gave up and
+/// where in the input it gave up at. This error type exposes the 'why' and the
+/// 'where.'
 ///
-/// Moreover, in some cases, a search can stop for reasons other than the fact
-/// that a match could not be found. For example, the DFAs provided by this
-/// library generally cannot correctly implement Unicode word boundaries.
-/// Instead, they provide an option to eagerly support them on ASCII text
-/// (since Unicode word boundaries are equivalent to ASCII word boundaries when
-/// searching ASCII text), but will "give up" if a non-ASCII byte is seen. In
-/// such cases, one is usually required to either report the failure to the
-/// caller (unergonomic) or otherwise fall back to some other regex engine
-/// (ergonomic, but potentially costly).
+/// For example, the DFAs provided by this library generally cannot correctly
+/// implement Unicode word boundaries. Instead, they provide an option to
+/// eagerly support them on ASCII text (since Unicode word boundaries are
+/// equivalent to ASCII word boundaries when searching ASCII text), but will
+/// "give up" if a non-ASCII byte is seen. In such cases, one is usually
+/// required to either report the failure to the caller (unergonomic) or
+/// otherwise fall back to some other regex engine (ergonomic, but potentially
+/// costly).
 ///
 /// More generally, some regex engines offer the ability for callers to specify
 /// certain bytes that will trigger the regex engine to automatically quit if
 /// they are seen.
 ///
 /// Still yet, there may be other reasons for a failed match. For example,
-/// the lazy DFA provided by this crate can be configured to give up if it
+/// the hybrid DFA provided by this crate can be configured to give up if it
 /// believes that it is not efficient. This in turn permits callers to choose a
 /// different regex engine.
 ///
 /// # Advice
 ///
 /// While this form of error reporting adds complexity, it is generally
-/// possible for callers to configure regex engines to not report anything
-/// except for a `NoMatchKind::None`. Indeed, the default configuration for
-/// every regex engine in this crate is such that only `NoMatchKind::None`
-/// will be returned. Therefore, the only way to get a different kind of match
-/// error is if the regex engine is explicitly configured to do so. Options
-/// that enable this behavior document the new error conditions they imply.
+/// possible for callers to configure regex engines to never give up a search,
+/// and thus never return an error. Indeed, the default configuration for
+/// every regex engine in this crate is such it will never stop search early.
+/// Therefore, the only way to get a match error is if the regex engine is
+/// explicitly configured to do so. Options that enable this behavior document
+/// the new error conditions they imply.
 ///
 /// Regex engines for which no errors are possible for any configuration will
 /// return the normal `Option<Match>` and not use this error type at all.
 ///
 /// For example, regex engines in the `dfa` sub-module will only report
-/// `NoMatchKind::Quit` if instructed by either enabling Unicode word
-/// boundaries or by explicitly specifying one or more quit bytes.
-///
-/// In cases where `NoMatchKind::None` is guaranteed to be the only error
-/// type reported, it is idiomatic to convert a `Result<Match, NoMatch>` to a
-/// `Option<Match>`.
+/// `MatchError::Quit` if instructed by either enabling Unicode word boundaries or
+/// by explicitly specifying one or more quit bytes.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum NoMatch {
+pub enum MatchError {
+    // Note that the first version of this type was called `MatchError` and it
+    // included a third `None` variant to indicate that the search completed
+    // and no match was found. However, this was problematic for iterator
+    // APIs where the `None` sentinel for stopping iteration corresponds
+    // precisely to the "match not found" case. The fact that the `None`
+    // variant was buried inside this type was in turn quite awkward. So
+    // instead, I removed the `None` variant, renamed the type and used
+    // `Result<Option<Match>, MatchError>` in non-iterator APIs instead of the
+    // conceptually simpler `Result<Match, MatchError>`. However, we "regain"
+    // ergonomics by only putting the more complex API in the `try_` variants
+    // ("fallible") of search methods. The infallible APIs will instead just
+    // return `Option<Match>` and panic on error.
     /// The search saw a "quit" byte at which it was instructed to stop
     /// searching.
     Quit {
@@ -258,47 +269,18 @@ pub enum NoMatch {
     },
 }
 
-// BREADCRUMBS:
-//
-// I had thought we would want `Result<Match, NoMatch>` for APIs, but this
-// turns out to make iterators... weird. We could just squash the Quit or
-// GaveUp error types during iteration, but then you could git silent failures
-// masquerading as "no match." Alternatively, we would yield the Result, but
-// then exposing NoMatch::None as an iterator element doesn't make sense, since
-// it's a sentinel value indicating exhaustion.
-//
-// It looks like what we really want is to remove the NoMatch::None variant
-// and use `Option<Result<Match, NoMatch>>` instead. This is much more of a
-// mouthful, but I think is a more accurate model. Iterators can then yield the
-// `Result<Match, NoMatch>` values.
-//
-// This is not a simple API. So instead, I think the right way forward is to
-// unfortunately go back to the `Option<Match>` API, but then offer `try_*`
-// variants of everything that return `Option<Result<Match, NoMatch>>`. The
-// non-try variants would panic if a `NoMatch` occurred. This is defensible
-// because the default configuration of every regex engine would NEVER return
-// a `NoMatch`. The only way it can happen is if the caller opts into it with
-// a configuration knob. In which case, they are basically signing up to use
-// a more complex API via `try_*`.
-//
-// What about `Result<Option<Match>, NoMatch>` instead? Then iterators would
-// yield `Result<Match, NoMatch>` and callers could more easily do things like
-// `re.find_leftmost("...")?` if they really just wanted to not care about the
-// error. I'm not sure if that's a good thing, but thinking about it more, it
-// feels more natural for the `Result` to be on the outside.
-
 #[cfg(feature = "std")]
-impl std::error::Error for NoMatch {}
+impl std::error::Error for MatchError {}
 
-impl core::fmt::Display for NoMatch {
+impl core::fmt::Display for MatchError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match *self {
-            NoMatch::Quit { byte, offset } => write!(
+            MatchError::Quit { byte, offset } => write!(
                 f,
                 "quit search after observing byte \\x{:02X} at offset {}",
                 byte, offset,
             ),
-            NoMatch::GaveUp { offset } => {
+            MatchError::GaveUp { offset } => {
                 write!(f, "gave up searching at offset {}", offset)
             }
         }

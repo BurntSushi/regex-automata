@@ -1,6 +1,6 @@
 use regex_automata::{
     dfa::{dense, Automaton},
-    NoMatch,
+    MatchError,
 };
 
 // A regression test for checking that minimization correctly translates

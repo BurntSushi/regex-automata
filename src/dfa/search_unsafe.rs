@@ -1,5 +1,5 @@
 use crate::dfa::automaton::{Automaton, State};
-use crate::NoMatch;
+use crate::MatchError;
 
 /// This is marked as `inline(always)` specifically because it supports
 /// multiple modes of searching. Namely, the 'earliest' boolean getting inlined
@@ -11,7 +11,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
     start: usize,
     end: usize,
     earliest: bool,
-) -> Result<Option<usize>, NoMatch> {
+) -> Result<Option<usize>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
@@ -30,7 +30,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
             if dfa.is_dead_state(state) {
                 return Ok(last_match);
             } else if dfa.is_quit_state(state) {
-                return Err(NoMatch::Quit { byte, offset: at - 1 });
+                return Err(MatchError::Quit { byte, offset: at - 1 });
             }
             last_match = Some(at - dfa.match_offset());
             if earliest {
@@ -49,7 +49,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
                 if dfa.is_dead_state(state) {
                     return Ok(last_match);
                 } else if dfa.is_quit_state(state) {
-                    return Err(NoMatch::Quit {
+                    return Err(MatchError::Quit {
                         byte,
                         offset: offset(bytes, p) - 1,
                     });
@@ -75,7 +75,7 @@ pub fn find_rev<A: Automaton + ?Sized>(
     start: usize,
     end: usize,
     earliest: bool,
-) -> Result<Option<usize>, NoMatch> {
+) -> Result<Option<usize>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
@@ -94,7 +94,7 @@ pub fn find_rev<A: Automaton + ?Sized>(
             if dfa.is_dead_state(state) {
                 return Ok(last_match);
             } else if dfa.is_quit_state(state) {
-                return Err(NoMatch::Quit { byte, offset: at });
+                return Err(MatchError::Quit { byte, offset: at });
             }
             last_match = Some(at + dfa.match_offset());
             if earliest {
@@ -113,7 +113,7 @@ pub fn find_rev<A: Automaton + ?Sized>(
                 if dfa.is_dead_state(state) {
                     return Ok(last_match);
                 } else if dfa.is_quit_state(state) {
-                    return Err(NoMatch::Quit {
+                    return Err(MatchError::Quit {
                         byte,
                         offset: offset(bytes, p),
                     });
@@ -135,7 +135,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     mut start: usize,
     end: usize,
     caller_state: &mut State<A::ID>,
-) -> Result<Option<usize>, NoMatch> {
+) -> Result<Option<usize>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
@@ -193,7 +193,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
             if dfa.is_dead_state(state) {
                 return Ok(None);
             } else if dfa.is_quit_state(state) {
-                return Err(NoMatch::Quit { byte, offset: at - 1 });
+                return Err(MatchError::Quit { byte, offset: at - 1 });
             } else {
                 return Ok(Some(at - dfa.match_offset()));
             }
@@ -222,7 +222,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
                 return if dfa.is_dead_state(state) {
                     Ok(None)
                 } else if dfa.is_quit_state(state) {
-                    Err(NoMatch::Quit { byte, offset: offset(bytes, p) - 1 })
+                    Err(MatchError::Quit { byte, offset: offset(bytes, p) - 1 })
                 } else {
                     Ok(Some(offset(bytes, p) - dfa.match_offset()))
                 };
@@ -241,7 +241,7 @@ fn init_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<(A::ID, Option<usize>), NoMatch> {
+) -> Result<(A::ID, Option<usize>), MatchError> {
     let state = dfa.start_state_forward(bytes, start, end);
     if dfa.is_match_state(state) {
         Ok((state, Some(start - dfa.match_offset())))
@@ -255,7 +255,7 @@ fn init_rev<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<(A::ID, Option<usize>), NoMatch> {
+) -> Result<(A::ID, Option<usize>), MatchError> {
     let state = dfa.start_state_reverse(bytes, start, end);
     if dfa.is_match_state(state) {
         Ok((state, Some(end + dfa.match_offset())))
@@ -269,7 +269,7 @@ fn eof_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     end: usize,
     state: &mut A::ID,
-) -> Result<Option<usize>, NoMatch> {
+) -> Result<Option<usize>, MatchError> {
     match bytes.get(end) {
         Some(&b) => {
             *state = dfa.next_state(*state, b);
@@ -295,7 +295,7 @@ fn eof_rev<A: Automaton + ?Sized>(
     state: A::ID,
     bytes: &[u8],
     start: usize,
-) -> Result<Option<usize>, NoMatch> {
+) -> Result<Option<usize>, MatchError> {
     if start > 0 {
         if dfa.is_match_state(dfa.next_state(state, bytes[start - 1])) {
             Ok(Some(start))
