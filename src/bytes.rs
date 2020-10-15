@@ -21,15 +21,16 @@ the regex, but even without the code required to do the compilation. This, for
 example, permits one to use a pre-compiled DFA not only in environments without
 Rust's standard library, but also in environments without a heap.
 
-In the code below, whenever we insert some kind of padding, it's to enforce an
-8-byte alignment, unless otherwise noted. Namely, u64 is the largest state ID
-type supported. This is mostly done for convenience as a lowest common
-denominator. Serialized objects with state ID representations smaller than u64
-only need to be aligned to the size of the state ID representation, but all
-such alignments are compatible with an 8-byte alignment. Moreover, a forced
-8-byte alignment is only used for things that don't take up much space. When
-it matters (e.g., the transition table), the smallest possible alignment is
-used.
+In the code below, whenever we insert some kind of padding, it's to enforce
+an 8-byte alignment, unless otherwise noted. Namely, u64 is the largest
+state ID type supported. This is mostly done for convenience as a lowest
+common denominator (as opposed to using a minimal padding derived from
+the state ID representation in use). Serialized objects with state ID
+representations smaller than u64 only need to be aligned to the size of the
+state ID representation, but all such alignments are compatible with an 8-byte
+alignment. Moreover, a forced 8-byte alignment is only used for things that
+don't take up much space. When it matters (e.g., the transition table), the
+smallest possible alignment is used.
 
 Also, serialization generally requires the caller to specify endianness,
 where as deserialization always assumes native endianness (otherwise cheap

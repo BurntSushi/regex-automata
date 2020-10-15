@@ -528,8 +528,8 @@ pub struct State<S> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct StateMatch {
-    pub match_index: usize,
-    pub offset: usize,
+    pub(crate) match_index: usize,
+    pub(crate) offset: usize,
 }
 
 impl<S: StateID> State<S> {
