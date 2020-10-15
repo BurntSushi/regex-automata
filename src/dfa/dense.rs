@@ -208,14 +208,14 @@ impl Config {
     /// When set, this will attempt to implement Unicode word boundaries as if
     /// they were ASCII word boundaries. This only works when the search input
     /// is ASCII only. If a non-ASCII byte is observed while searching, then a
-    /// [`NoMatch::Quit`](../../enum.NoMatch.html#variant.Quit)
+    /// [`MatchError::Quit`](../../enum.MatchError.html#variant.Quit)
     /// error is returned.
     ///
     /// Therefore, when enabling this option, callers _must_ be prepared
-    /// to handle a `NoMatch` error during search. When using a
+    /// to handle a `MatchError` error during search. When using a
     /// [`Regex`](../struct.Regex.html), this corresponds to using the `try_`
     /// suite of methods. Alternatively, if callers can guarantee that their
-    /// input is ASCII only, then a `NoMatch::Quit` error will never be
+    /// input is ASCII only, then a `MatchError::Quit` error will never be
     /// returned while searching.
     ///
     /// If the regex pattern provided has no Unicode word boundary in it, then
@@ -241,7 +241,7 @@ impl Config {
     /// Add a "quit" byte to the DFA.
     ///
     /// When a quit byte is seen during search time, then search will return
-    /// a [`NoMatch::Quit`](../../enum.NoMatch.html#variant.Quit) error
+    /// a [`MatchError::Quit`](../../enum.MatchError.html#variant.Quit) error
     /// indicating the offset at which the search stopped.
     ///
     /// A quit byte will always overrule any other aspects of a regex. For
@@ -259,7 +259,7 @@ impl Config {
     /// building DFAs.
     ///
     /// When enabling this option, callers _must_ be prepared to handle a
-    /// `NoMatch` error during search. When using a
+    /// `MatchError` error during search. When using a
     /// [`Regex`](../struct.Regex.html), this corresponds to using the `try_`
     /// suite of methods.
     ///

@@ -2,7 +2,7 @@ use crate::dfa::search;
 use crate::prefilter::{self, Prefilter};
 use crate::state_id::StateID;
 use crate::word::is_word_byte;
-use crate::{NoMatch, PatternID};
+use crate::{MatchError, PatternID};
 
 /// The size of the alphabet in a standard DFA.
 ///
@@ -242,7 +242,7 @@ pub unsafe trait Automaton {
     fn find_earliest_fwd(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         self.find_earliest_fwd_at(None, bytes, 0, bytes.len())
     }
 
@@ -250,7 +250,7 @@ pub unsafe trait Automaton {
     fn find_earliest_rev(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         self.find_earliest_rev_at(bytes, 0, bytes.len())
     }
 
@@ -304,7 +304,7 @@ pub unsafe trait Automaton {
     fn find_leftmost_fwd(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         self.find_leftmost_fwd_at(None, bytes, 0, bytes.len())
     }
 
@@ -338,7 +338,7 @@ pub unsafe trait Automaton {
     fn find_leftmost_rev(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         self.find_leftmost_rev_at(bytes, 0, bytes.len())
     }
 
@@ -347,7 +347,7 @@ pub unsafe trait Automaton {
         &self,
         bytes: &[u8],
         state: &mut State<Self::ID>,
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         self.find_overlapping_fwd_at(None, bytes, 0, bytes.len(), state)
     }
 
@@ -364,7 +364,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_earliest_fwd(pre, self, bytes, start, end)
     }
 
@@ -374,7 +374,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_earliest_rev(self, bytes, start, end)
     }
 
@@ -391,7 +391,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_leftmost_fwd(pre, self, bytes, start, end)
     }
 
@@ -407,7 +407,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_leftmost_rev(self, bytes, start, end)
     }
 
@@ -419,7 +419,7 @@ pub unsafe trait Automaton {
         start: usize,
         end: usize,
         state: &mut State<Self::ID>,
-    ) -> Result<Option<HalfMatch>, NoMatch> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_fwd(pre, self, bytes, start, end, state)
     }
 }

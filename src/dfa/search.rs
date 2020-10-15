@@ -1,7 +1,7 @@
 use crate::dfa::accel;
 use crate::dfa::automaton::{Automaton, HalfMatch, State, StateMatch};
 use crate::prefilter::{self, Prefilter};
-use crate::NoMatch;
+use crate::MatchError;
 
 #[inline(never)]
 pub fn find_earliest_fwd<A: Automaton + ?Sized>(
@@ -10,7 +10,7 @@ pub fn find_earliest_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     if pre.is_some() {
         find_fwd(pre, true, dfa, bytes, start, end)
     } else {
@@ -25,7 +25,7 @@ pub fn find_leftmost_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     if pre.is_some() {
         find_fwd(pre, false, dfa, bytes, start, end)
     } else {
@@ -45,7 +45,7 @@ fn find_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
@@ -117,7 +117,7 @@ fn find_fwd<A: Automaton + ?Sized>(
                 return Ok(last_match);
             } else {
                 debug_assert!(dfa.is_quit_state(state));
-                return Err(NoMatch::Quit { byte, offset: at - 1 });
+                return Err(MatchError::Quit { byte, offset: at - 1 });
             }
         }
         while at < end && dfa.next_state(state, bytes[at]) == state {
@@ -133,7 +133,7 @@ pub fn find_earliest_rev<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     find_rev(true, dfa, bytes, start, end)
 }
 
@@ -143,7 +143,7 @@ pub fn find_leftmost_rev<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     find_rev(false, dfa, bytes, start, end)
 }
 
@@ -157,7 +157,7 @@ fn find_rev<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
@@ -211,7 +211,7 @@ fn find_rev<A: Automaton + ?Sized>(
                 return Ok(last_match);
             } else {
                 debug_assert!(dfa.is_quit_state(state));
-                return Err(NoMatch::Quit { byte, offset: at });
+                return Err(MatchError::Quit { byte, offset: at });
             }
         }
     }
@@ -226,7 +226,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     mut start: usize,
     end: usize,
     caller_state: &mut State<A::ID>,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     if pre.is_some() {
         find_overlapping_fwd_imp(pre, dfa, bytes, start, end, caller_state)
     } else {
@@ -242,7 +242,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     mut start: usize,
     end: usize,
     caller_state: &mut State<A::ID>,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
@@ -345,7 +345,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                 return Ok(None);
             } else {
                 debug_assert!(dfa.is_quit_state(state));
-                return Err(NoMatch::Quit { byte, offset: at - 1 });
+                return Err(MatchError::Quit { byte, offset: at - 1 });
             }
         }
     }
@@ -366,7 +366,7 @@ fn init_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<(A::ID, Option<HalfMatch>), NoMatch> {
+) -> Result<(A::ID, Option<HalfMatch>), MatchError> {
     let state = dfa.start_state_forward(bytes, start, end);
     if dfa.is_match_state(state) {
         let m = HalfMatch {
@@ -384,7 +384,7 @@ fn init_rev<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<(A::ID, Option<HalfMatch>), NoMatch> {
+) -> Result<(A::ID, Option<HalfMatch>), MatchError> {
     let state = dfa.start_state_reverse(bytes, start, end);
     if dfa.is_match_state(state) {
         let m = HalfMatch {
@@ -402,7 +402,7 @@ fn eof_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     end: usize,
     state: &mut A::ID,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     match bytes.get(end) {
         Some(&b) => {
             *state = dfa.next_state(*state, b);
@@ -434,7 +434,7 @@ fn eof_rev<A: Automaton + ?Sized>(
     state: A::ID,
     bytes: &[u8],
     start: usize,
-) -> Result<Option<HalfMatch>, NoMatch> {
+) -> Result<Option<HalfMatch>, MatchError> {
     if start > 0 {
         let state = dfa.next_state(state, bytes[start - 1]);
         if dfa.is_match_state(state) {
