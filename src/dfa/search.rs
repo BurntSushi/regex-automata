@@ -1,20 +1,23 @@
 use crate::dfa::accel;
 use crate::dfa::automaton::{Automaton, HalfMatch, State, StateMatch};
 use crate::prefilter::{self, Prefilter};
-use crate::MatchError;
+use crate::{MatchError, PatternID};
+
+// TODO: An anchored DFA should never use a prefilter.
 
 #[inline(never)]
 pub fn find_earliest_fwd<A: Automaton + ?Sized>(
     mut pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if pre.is_some() {
-        find_fwd(pre, true, dfa, bytes, start, end)
+        find_fwd(pre, true, dfa, pattern_id, bytes, start, end)
     } else {
-        find_fwd(None, true, dfa, bytes, start, end)
+        find_fwd(None, true, dfa, pattern_id, bytes, start, end)
     }
 }
 
@@ -22,14 +25,15 @@ pub fn find_earliest_fwd<A: Automaton + ?Sized>(
 pub fn find_leftmost_fwd<A: Automaton + ?Sized>(
     mut pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if pre.is_some() {
-        find_fwd(pre, false, dfa, bytes, start, end)
+        find_fwd(pre, false, dfa, pattern_id, bytes, start, end)
     } else {
-        find_fwd(None, false, dfa, bytes, start, end)
+        find_fwd(None, false, dfa, pattern_id, bytes, start, end)
     }
 }
 
@@ -42,6 +46,7 @@ fn find_fwd<A: Automaton + ?Sized>(
     mut pre: Option<&mut prefilter::Scanner>,
     earliest: bool,
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
@@ -50,7 +55,8 @@ fn find_fwd<A: Automaton + ?Sized>(
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
 
-    let (mut state, mut last_match) = init_fwd(dfa, bytes, start, end)?;
+    let (mut state, mut last_match) =
+        init_fwd(dfa, pattern_id, bytes, start, end)?;
     if earliest && last_match.is_some() {
         return Ok(last_match);
     }
@@ -130,21 +136,23 @@ fn find_fwd<A: Automaton + ?Sized>(
 #[inline(never)]
 pub fn find_earliest_rev<A: Automaton + ?Sized>(
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(true, dfa, bytes, start, end)
+    find_rev(true, dfa, pattern_id, bytes, start, end)
 }
 
 #[inline(never)]
 pub fn find_leftmost_rev<A: Automaton + ?Sized>(
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(false, dfa, bytes, start, end)
+    find_rev(false, dfa, pattern_id, bytes, start, end)
 }
 
 /// This is marked as `inline(always)` specifically because it supports
@@ -154,6 +162,7 @@ pub fn find_leftmost_rev<A: Automaton + ?Sized>(
 fn find_rev<A: Automaton + ?Sized>(
     earliest: bool,
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
@@ -162,7 +171,8 @@ fn find_rev<A: Automaton + ?Sized>(
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
 
-    let (mut state, mut last_match) = init_rev(dfa, bytes, start, end)?;
+    let (mut state, mut last_match) =
+        init_rev(dfa, pattern_id, bytes, start, end)?;
     if earliest && last_match.is_some() {
         return Ok(last_match);
     }
@@ -222,15 +232,32 @@ fn find_rev<A: Automaton + ?Sized>(
 pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     mut pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     mut start: usize,
     end: usize,
     caller_state: &mut State<A::ID>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if pre.is_some() {
-        find_overlapping_fwd_imp(pre, dfa, bytes, start, end, caller_state)
+        find_overlapping_fwd_imp(
+            pre,
+            dfa,
+            pattern_id,
+            bytes,
+            start,
+            end,
+            caller_state,
+        )
     } else {
-        find_overlapping_fwd_imp(None, dfa, bytes, start, end, caller_state)
+        find_overlapping_fwd_imp(
+            None,
+            dfa,
+            pattern_id,
+            bytes,
+            start,
+            end,
+            caller_state,
+        )
     }
 }
 
@@ -238,6 +265,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     mut pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     mut start: usize,
     end: usize,
@@ -248,7 +276,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     assert!(end <= bytes.len());
 
     let (mut state, mut last_match) = match caller_state.id() {
-        None => init_fwd(dfa, bytes, start, end)?,
+        None => init_fwd(dfa, pattern_id, bytes, start, end)?,
         Some(id) => {
             if let Some(last) = caller_state.last_match() {
                 let match_count = dfa.match_count(id);
@@ -363,11 +391,12 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
 
 fn init_fwd<A: Automaton + ?Sized>(
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<(A::ID, Option<HalfMatch>), MatchError> {
-    let state = dfa.start_state_forward(bytes, start, end);
+    let state = dfa.start_state_forward(pattern_id, bytes, start, end);
     if dfa.is_match_state(state) {
         let m = HalfMatch {
             pattern: dfa.match_pattern(state, 0),
@@ -381,11 +410,12 @@ fn init_fwd<A: Automaton + ?Sized>(
 
 fn init_rev<A: Automaton + ?Sized>(
     dfa: &A,
+    pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<(A::ID, Option<HalfMatch>), MatchError> {
-    let state = dfa.start_state_reverse(bytes, start, end);
+    let state = dfa.start_state_reverse(pattern_id, bytes, start, end);
     if dfa.is_match_state(state) {
         let m = HalfMatch {
             pattern: dfa.match_pattern(state, 0),

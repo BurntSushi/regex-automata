@@ -373,15 +373,15 @@ pub mod dense {
 ///
 /// // First, 'Sam' will match.
 /// let end1 = sparse_re.find_overlapping_fwd_at(
-///     None, haystack, 0, haystack.len(), &mut state,
+///     None, None, haystack, 0, haystack.len(), &mut state,
 /// )?;
-/// assert_eq!(end1, Some(HalfMatch { pattern: 0, offset: 3 }));
+/// assert_eq!(end1, Some(HalfMatch::new(0, 3)));
 ///
 /// // And now 'Samwise' will match.
 /// let end2 = sparse_re.find_overlapping_fwd_at(
-///     None, haystack, 3, haystack.len(), &mut state,
+///     None, None, haystack, 3, haystack.len(), &mut state,
 /// )?;
-/// assert_eq!(end2, Some(HalfMatch { pattern: 0, offset: 7 }));
+/// assert_eq!(end2, Some(HalfMatch::new(0, 7)));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 pub mod sparse {

@@ -383,26 +383,26 @@ impl<'a, S: StateID> Runner<'a, S> {
         };
 
         let id = self.add_start(sparse, nfa_start, Start::NonWordByte)?;
-        self.dfa.set_start_state(Start::NonWordByte, id);
+        self.dfa.set_start_state(Start::NonWordByte, None, id);
         dfa_state_ids.push(id);
 
         if !self.nfa.has_word_boundary() {
-            self.dfa.set_start_state(Start::WordByte, id);
+            self.dfa.set_start_state(Start::WordByte, None, id);
         } else {
             let id = self.add_start(sparse, nfa_start, Start::WordByte)?;
-            self.dfa.set_start_state(Start::WordByte, id);
+            self.dfa.set_start_state(Start::WordByte, None, id);
             dfa_state_ids.push(id);
         }
         if !self.nfa.has_any_anchor() {
-            self.dfa.set_start_state(Start::Text, id);
-            self.dfa.set_start_state(Start::Line, id);
+            self.dfa.set_start_state(Start::Text, None, id);
+            self.dfa.set_start_state(Start::Line, None, id);
         } else {
             let id = self.add_start(sparse, nfa_start, Start::Text)?;
-            self.dfa.set_start_state(Start::Text, id);
+            self.dfa.set_start_state(Start::Text, None, id);
             dfa_state_ids.push(id);
 
             let id = self.add_start(sparse, nfa_start, Start::Line)?;
-            self.dfa.set_start_state(Start::Line, id);
+            self.dfa.set_start_state(Start::Line, None, id);
             dfa_state_ids.push(id);
         }
 

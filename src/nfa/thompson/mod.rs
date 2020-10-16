@@ -550,7 +550,7 @@ mod tests {
         let nfa = NFA::always_match();
         let dfa = dense::Builder::new().build_from_nfa(&nfa).unwrap();
         let find = |input, start, end| {
-            dfa.find_leftmost_fwd_at(None, input, start, end)
+            dfa.find_leftmost_fwd_at(None, None, input, start, end)
                 .unwrap()
                 .map(|m| m.offset())
         };
@@ -568,7 +568,7 @@ mod tests {
         let nfa = NFA::never_match();
         let dfa = dense::Builder::new().build_from_nfa(&nfa).unwrap();
         let find = |input, start, end| {
-            dfa.find_leftmost_fwd_at(None, input, start, end)
+            dfa.find_leftmost_fwd_at(None, None, input, start, end)
                 .unwrap()
                 .map(|m| m.offset())
         };

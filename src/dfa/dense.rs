@@ -42,8 +42,9 @@ pub struct Config {
     anchored: Option<bool>,
     accelerate: Option<bool>,
     minimize: Option<bool>,
-    byte_classes: Option<bool>,
     match_kind: Option<MatchKind>,
+    starts_for_each_pattern: Option<bool>,
+    byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
     quit: Option<ByteSet>,
 }
@@ -140,6 +141,73 @@ impl Config {
         self
     }
 
+    /// Find the longest possible match.
+    ///
+    /// This is distinct from the default leftmost-first match semantics in
+    /// that it treats all NFA states as having equivalent priority. In other
+    /// words, the longest possible match is always found and it is not
+    /// possible to implement non-greedy match semantics when this is set. That
+    /// is, `a+` and `a+?` are equivalent when this is enabled.
+    ///
+    /// In particular, a practical issue with this option at the moment is that
+    /// it prevents unanchored searches from working correctly, since
+    /// unanchored searches are implemented by prepending an non-greedy `.*?`
+    /// to the beginning of the pattern. As stated above, non-greedy match
+    /// semantics aren't supported. Therefore, if this option is enabled and
+    /// an unanchored search is requested, then building a DFA will return an
+    /// error.
+    ///
+    /// This option is principally useful when building a reverse DFA for
+    /// finding the start of a match. If you are building a regex with
+    /// [`RegexBuilder`](struct.RegexBuilder.html), then this is handled for
+    /// you automatically. The reason why this is necessary for start of match
+    /// handling is because we want to find the earliest possible starting
+    /// position of a match to satisfy leftmost-first match semantics. When
+    /// matching in reverse, this means finding the longest possible match,
+    /// hence, this option.
+    ///
+    /// By default this is disabled.
+    pub fn match_kind(mut self, kind: MatchKind) -> Config {
+        self.match_kind = Some(kind);
+        self
+    }
+
+    /// Whether to compile a separate start state for each pattern in the
+    /// automaton.
+    ///
+    /// When enabled, a separate anchored start state is added for each pattern
+    /// in the DFA. When this start state is used, then the DFA will only
+    /// search for matches for the pattern, even if there are other patterns in
+    /// the DFA.
+    ///
+    /// The main downside of this option is that it can potentially increase
+    /// the size of the DFA and/or increase the time it takes to build the DFA.
+    ///
+    /// There are a few reasons one might want to enable this (it's disabled
+    /// by default):
+    ///
+    /// 1. When looking for the start of an overlapping match (using a reverse
+    /// DFA), doing it correctly requires starting the reverse search using the
+    /// starting state of the pattern that matched in the forward direction.
+    /// Indeed, when building a [`Regex`](../struct.Regex.html), it will
+    /// automatically enable this option when building the reverse DFA.
+    /// 2. When you want to use a DFA with multiple patterns to both search
+    /// for matches of any pattern or to search for matches of one particular
+    /// pattern while using the same DFA. (Otherwise, you would need to compile
+    /// a new DFA for each pattern.)
+    /// 3. Since the start states added for each pattern are anchored, if you
+    /// compile an unanchored DFA with one pattern while also enabling this
+    /// option, then you can use the same DFA to perform anchored or unanchored
+    /// searches. The latter you get with the standard search APIs. The former
+    /// you get from the various `_at` search methods that allow you specify a
+    /// pattern ID to search for.
+    ///
+    /// By default this is disabled.
+    pub fn starts_for_each_pattern(mut self, yes: bool) -> Config {
+        self.starts_for_each_pattern = Some(yes);
+        self
+    }
+
     /// Whether to attempt to shrink the size of the DFA's alphabet or not.
     ///
     /// This option is enabled by default and should never by disabled unless
@@ -169,37 +237,6 @@ impl Config {
     /// bytes instead of the equivalence classes.
     pub fn byte_classes(mut self, yes: bool) -> Config {
         self.byte_classes = Some(yes);
-        self
-    }
-
-    /// Find the longest possible match.
-    ///
-    /// This is distinct from the default leftmost-first match semantics in
-    /// that it treats all NFA states as having equivalent priority. In other
-    /// words, the longest possible match is always found and it is not
-    /// possible to implement non-greedy match semantics when this is set. That
-    /// is, `a+` and `a+?` are equivalent when this is enabled.
-    ///
-    /// In particular, a practical issue with this option at the moment is that
-    /// it prevents unanchored searches from working correctly, since
-    /// unanchored searches are implemented by prepending an non-greedy `.*?`
-    /// to the beginning of the pattern. As stated above, non-greedy match
-    /// semantics aren't supported. Therefore, if this option is enabled and
-    /// an unanchored search is requested, then building a DFA will return an
-    /// error.
-    ///
-    /// This option is principally useful when building a reverse DFA for
-    /// finding the start of a match. If you are building a regex with
-    /// [`RegexBuilder`](struct.RegexBuilder.html), then this is handled for
-    /// you automatically. The reason why this is necessary for start of match
-    /// handling is because we want to find the earliest possible starting
-    /// position of a match to satisfy leftmost-first match semantics. When
-    /// matching in reverse, this means finding the longest possible match,
-    /// hence, this option.
-    ///
-    /// By default this is disabled.
-    pub fn match_kind(mut self, kind: MatchKind) -> Config {
-        self.match_kind = Some(kind);
         self
     }
 
@@ -301,12 +338,16 @@ impl Config {
         self.minimize.unwrap_or(false)
     }
 
-    pub fn get_byte_classes(&self) -> bool {
-        self.byte_classes.unwrap_or(true)
-    }
-
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
+    }
+
+    pub fn get_starts_for_each_pattern(&self) -> bool {
+        self.starts_for_each_pattern.unwrap_or(false)
+    }
+
+    pub fn get_byte_classes(&self) -> bool {
+        self.byte_classes.unwrap_or(true)
     }
 
     pub fn get_unicode_word_boundary(&self) -> bool {
@@ -322,8 +363,11 @@ impl Config {
             anchored: o.anchored.or(self.anchored),
             accelerate: o.accelerate.or(self.accelerate),
             minimize: o.minimize.or(self.minimize),
-            byte_classes: o.byte_classes.or(self.byte_classes),
             match_kind: o.match_kind.or(self.match_kind),
+            starts_for_each_pattern: o
+                .starts_for_each_pattern
+                .or(self.starts_for_each_pattern),
+            byte_classes: o.byte_classes.or(self.byte_classes),
             unicode_word_boundary: o
                 .unicode_word_boundary
                 .or(self.unicode_word_boundary),
@@ -577,7 +621,7 @@ pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
-/// let expected = HalfMatch { pattern: 0, offset: 8 };
+/// let expected = HalfMatch::new(0, 8);
 /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -591,7 +635,7 @@ pub struct DFA<T, A, S = usize> {
     /// IDs act as pointers into the transition table. The specific starting
     /// state chosen for each search is dependent on the context at which the
     /// search begins.
-    sl: StartList<T, S>,
+    st: StartTable<T, S>,
     /// The set of match states and the patterns that match for each
     /// corresponding match state.
     ///
@@ -677,64 +721,6 @@ pub struct TransitionTable<T, S> {
     _state_id: PhantomData<S>,
 }
 
-/// The set of all possible starting states in a DFA.
-///
-/// The set of starting states corresponds to the possible choices one can make
-/// in terms of starting a DFA. That is, before following the first transition,
-/// you first need to select the state that you start in.
-///
-/// Normally, a DFA converted from an NFA that has a single starting state
-/// would itself just have one starting state. However, our support for look
-/// around generally requires more starting states. The correct starting state
-/// is chosen based on certain properties of the position at which we begin
-/// our search.
-///
-/// Before listing those properties, we first must define two terms:
-///
-/// * `haystack` - The bytes to execute the search. The search always starts
-///   at the beginning of `haystack` and ends before or at the end of
-///   haystack`.
-/// * `context` - The (possibly empty) bytes surrounding `haystack`. `haystack`
-///   must be contained within `context` such that `context` is at least as big
-///   as `haystack`.
-///
-/// This split is crucial for dealing with look-around. For example, consider
-/// the context `foobarbaz`, the haystack `bar` and the regex `^bar$`. This
-/// regex should _not_ match the haystack since `bar` does not appear at the
-/// beginning of the input. Similarly, the regex `\Bbar\B` should match the
-/// haystack because `bar` is not surrounded by word boundaries. But a search
-/// that does not take context into account would not permit `\B` to match
-/// since the beginning of any string matches a word boundary.
-///
-/// Thus, it follows that the starting state is chosen based on the following
-/// criteria, derived from the position at which the search starts in the
-/// `context` (corresponding to the start of `haystack`):
-///
-/// 1. If the search starts at the beginning of `context`, then the `Text`
-///    start state is used. (Since `^` corresponds to
-///    `hir::Anchor::StartText`.)
-/// 2. If the search starts at a position immediately following a line
-///    terminator, then the `Line` start state is used. (Since `(?m:^)`
-///    corresponds to `hir::Anchor::StartLine`.)
-/// 3. If the search starts at a position immediately following a byte
-///    classified as a "word" character ([_0-9a-zA-Z]), then the `WordByte`
-///    start state is used. (Since `(?-u:\b)` corresponds to a word boundary.)
-/// 4. Otherwise, if the search starts at a position immediately following
-///    a byte that is not classified as a "word" character ([^_0-9a-zA-Z]),
-///    then the `NonWordByte` start state is used. (Since `(?-u:\B)`
-///    corresponds to a not-word-boundary.)
-///
-/// TODO: Talk about anchored vs unanchored searches.
-#[derive(Clone)]
-pub struct StartList<T, S> {
-    /// The initial start state IDs.
-    ///
-    /// In practice, T is either Vec<S> or &[S].
-    list: T,
-    /// The state ID representation. This is what's actually stored in `list`.
-    _state_id: PhantomData<S>,
-}
-
 #[derive(Clone, Debug)]
 struct MatchStates<T, A, S> {
     /// Slices is a flattened sequence of pairs, where each pair points to a
@@ -785,7 +771,7 @@ impl OwnedDFA<usize> {
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+bar")?;
-    /// let expected = HalfMatch { pattern: 0, offset: 11 };
+    /// let expected = HalfMatch::new(0, 11);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -808,7 +794,7 @@ impl<S: StateID> OwnedDFA<S> {
     ///
     /// let dfa: dense::DFA<Vec<_>, _, usize> = dense::DFA::always_match()?;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 0 };
+    /// let expected = HalfMatch::new(0, 0);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"")?);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -847,7 +833,7 @@ impl<S: StateID> OwnedDFA<S> {
     ) -> Result<OwnedDFA<S>, Error> {
         Ok(DFA {
             tt: TransitionTable::minimal(classes)?,
-            sl: StartList::dead(),
+            st: StartTable::dead(),
             ms: MatchStates::empty(pattern_count),
             special: Special::new(),
             accels: Accels::empty(),
@@ -862,7 +848,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     pub fn as_ref(&self) -> DFA<&'_ [S], &'_ [u8], S> {
         DFA {
             tt: self.tt.as_ref(),
-            sl: self.sl.as_ref(),
+            st: self.st.as_ref(),
             ms: self.ms.as_ref(),
             special: self.special,
             accels: self.accels(),
@@ -879,7 +865,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     pub fn to_owned(&self) -> OwnedDFA<S> {
         DFA {
             tt: self.tt.to_owned(),
-            sl: self.sl.to_owned(),
+            st: self.st.to_owned(),
             ms: self.ms.to_owned(),
             special: self.special,
             accels: self.accels().to_owned(),
@@ -898,7 +884,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
         let state_size = mem::size_of::<S>();
         self.accels().as_bytes().len()
             + self.tt.memory_usage()
-            + self.sl.memory_usage()
+            + self.st.memory_usage()
     }
 
     /// Returns the total number of elements in the alphabet for this DFA.
@@ -986,7 +972,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// let dense = dense::DFA::new("foo[0-9]+")?;
     /// let sparse = dense.to_sparse()?;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), sparse.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1010,7 +996,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// let dense = dense::DFA::new("foo[0-9]+")?;
     /// let sparse = dense.to_sparse_sized::<u16>()?;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), sparse.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1044,7 +1030,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     ///
     /// let dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1053,7 +1039,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
         // represented by `S2` instead of `S`.
         Ok(DFA {
             tt: self.tt.as_ref().to_sized()?,
-            sl: self.sl.to_sized()?,
+            st: self.st.to_sized()?,
             ms: self.ms.to_sized()?,
             special: self.special.to_sized()?,
             accels: self.accels().to_owned(),
@@ -1096,7 +1082,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// // ignore it.
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1140,7 +1126,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// // ignore it.
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1191,7 +1177,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// // ignore it.
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1248,7 +1234,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1296,7 +1282,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1351,7 +1337,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1390,7 +1376,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1407,7 +1393,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
         + bytes::write_state_size_len()
         + 8 // unused, intended for future flexibility
         + self.tt.as_ref().write_to_len()
-        + self.sl.write_to_len()
+        + self.st.write_to_len()
         + self.ms.write_to_len()
         + self.special.write_to_len()
         + self.accels.write_to_len()
@@ -1488,7 +1474,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     /// let (bytes, _) = initial.to_sized::<u16>()?.to_bytes_native_endian();
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&bytes)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1512,7 +1498,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     /// let (bytes, pad) = initial.to_sized::<u16>()?.to_bytes_native_endian();
     /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&bytes[pad..])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1612,7 +1598,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     /// }
     ///
     /// let dfa = get_foo();
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Ok(Some(expected)), dfa.find_leftmost_fwd(b"foo12345"));
     /// ```
     ///
@@ -1631,7 +1617,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
         // return an error.
         let (dfa, nread) = unsafe { DFA::from_bytes_unchecked(slice)? };
         dfa.tt.validate()?;
-        dfa.sl.validate(&dfa.tt)?;
+        dfa.st.validate(&dfa.tt)?;
         dfa.ms.validate(&dfa)?;
         Ok((dfa, nread))
     }
@@ -1662,7 +1648,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     ///     DFA::from_bytes_unchecked(&bytes)?.0
     /// };
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1684,7 +1670,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
         let (tt, nread) = TransitionTable::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
-        let (sl, nread) = StartList::from_bytes_unchecked(&slice[nr..])?;
+        let (st, nread) = StartTable::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
         let (ms, nread) = MatchStates::from_bytes_unchecked(&slice[nr..])?;
@@ -1697,7 +1683,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
         let (accels, nread) = Accels::from_bytes(&slice[nr..])?;
         nr += nread;
 
-        Ok((DFA { tt, sl, ms, special, accels }, nr))
+        Ok((DFA { tt, st, ms, special, accels }, nr))
     }
 
     /// The implementation of the public `write_to` serialization methods,
@@ -1719,7 +1705,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
             8
         };
         nw += self.tt.as_ref().write_to::<E>(&mut dst[nw..])?;
-        nw += self.sl.write_to::<E>(&mut dst[nw..])?;
+        nw += self.st.write_to::<E>(&mut dst[nw..])?;
         nw += self.ms.write_to::<E>(&mut dst[nw..])?;
         nw += self.special.write_to::<E>(&mut dst[nw..])?;
         nw += self.accels.write_to::<E>(&mut dst[nw..])?;
@@ -1735,9 +1721,14 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
 #[cfg(feature = "std")]
 impl<S: StateID> OwnedDFA<S> {
     /// Add a start state of this DFA.
-    pub(crate) fn set_start_state(&mut self, index: Start, id: S) {
+    pub(crate) fn set_start_state(
+        &mut self,
+        index: Start,
+        pattern_id: Option<PatternID>,
+        id: S,
+    ) {
         assert!(self.tt.is_valid(id), "invalid start state");
-        self.sl.list_mut()[index.as_usize()] = id;
+        self.st.set_start(index, pattern_id, id);
     }
 
     /// Add the given transition to this DFA. Both the `from` and `to` states
@@ -2158,9 +2149,9 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
         self.tt.from_index(index)
     }
 
-    /// Return the state IDs for this DFA's start states.
+    /// Return the table of state IDs for this DFA's start states.
     pub(crate) fn starts(&self) -> &[S] {
-        self.sl.list()
+        self.st.table()
     }
 
     /// Returns the index of the match state for the given ID. If the
@@ -2330,23 +2321,25 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
     #[inline]
     fn start_state_forward(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> S {
         let index = Start::from_position_fwd(bytes, start, end);
-        self.sl.start(index)
+        self.st.start(index, pattern_id)
     }
 
     #[inline]
     fn start_state_reverse(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> S {
         let index = Start::from_position_rev(bytes, start, end);
-        self.sl.start(index)
+        self.st.start(index, pattern_id)
     }
 
     fn accelerator(&self, id: Self::ID) -> &[u8] {
@@ -2806,10 +2799,100 @@ impl<T: AsMut<[S]>, S: StateID> TransitionTable<T, S> {
     }
 }
 
-impl<'a, S: StateID> StartList<&'a [S], S> {
-    /// Deserialize a list of start state IDs starting at the beginning of
+/// The set of all possible starting states in a DFA.
+///
+/// The set of starting states corresponds to the possible choices one can make
+/// in terms of starting a DFA. That is, before following the first transition,
+/// you first need to select the state that you start in.
+///
+/// Normally, a DFA converted from an NFA that has a single starting state
+/// would itself just have one starting state. However, our support for look
+/// around generally requires more starting states. The correct starting state
+/// is chosen based on certain properties of the position at which we begin
+/// our search.
+///
+/// Before listing those properties, we first must define two terms:
+///
+/// * `haystack` - The bytes to execute the search. The search always starts
+///   at the beginning of `haystack` and ends before or at the end of
+///   haystack`.
+/// * `context` - The (possibly empty) bytes surrounding `haystack`. `haystack`
+///   must be contained within `context` such that `context` is at least as big
+///   as `haystack`.
+///
+/// This split is crucial for dealing with look-around. For example, consider
+/// the context `foobarbaz`, the haystack `bar` and the regex `^bar$`. This
+/// regex should _not_ match the haystack since `bar` does not appear at the
+/// beginning of the input. Similarly, the regex `\Bbar\B` should match the
+/// haystack because `bar` is not surrounded by word boundaries. But a search
+/// that does not take context into account would not permit `\B` to match
+/// since the beginning of any string matches a word boundary.
+///
+/// Thus, it follows that the starting state is chosen based on the following
+/// criteria, derived from the position at which the search starts in the
+/// `context` (corresponding to the start of `haystack`):
+///
+/// 1. If the search starts at the beginning of `context`, then the `Text`
+///    start state is used. (Since `^` corresponds to
+///    `hir::Anchor::StartText`.)
+/// 2. If the search starts at a position immediately following a line
+///    terminator, then the `Line` start state is used. (Since `(?m:^)`
+///    corresponds to `hir::Anchor::StartLine`.)
+/// 3. If the search starts at a position immediately following a byte
+///    classified as a "word" character ([_0-9a-zA-Z]), then the `WordByte`
+///    start state is used. (Since `(?-u:\b)` corresponds to a word boundary.)
+/// 4. Otherwise, if the search starts at a position immediately following
+///    a byte that is not classified as a "word" character ([^_0-9a-zA-Z]),
+///    then the `NonWordByte` start state is used. (Since `(?-u:\B)`
+///    corresponds to a not-word-boundary.)
+///
+/// To further complicate things, we also support constructing individual
+/// anchored start states for each pattern in the DFA. (Which is required to
+/// implement overlapping regexes correctly, but is also generally useful.)
+/// Thus, when individual start states for each pattern is enabled, then the
+/// total number of start states represented is 4 + (4 * #patterns), where the
+/// 4 comes from each of the 4 possibilities above. The first 4 represents the
+/// starting states for the entire DFA, which support searching for multiple
+/// patterns simultaneously.
+///
+/// If individual start states are disabled, then this will only store 4
+/// start states. Typically, individual start states are only enabled when
+/// constructing the reverse DFA for regex matching. But they are also useful
+/// for building DFAs that can search for a specific pattern or even to support
+/// both anchored and unanchored searches with the same DFA.
+///
+/// Note though that while the start table always has either `4` or
+/// `4 + (4 * #patterns)` starting state *ids*, the total number of states
+/// might be considerably smaller. That is, many of the IDs may just be
+/// duplicative. (For example, if a regex doesn't have a `\b` sub-pattern, then
+/// there's no reason to generate a unique starting state for handling word
+/// boundaries. Similarly for start/end anchors.)
+#[derive(Clone)]
+pub struct StartTable<T, S> {
+    /// The initial start state IDs.
+    ///
+    /// In practice, T is either Vec<S> or &[S].
+    ///
+    /// The first `stride` (currently always 4) entries always correspond to
+    /// the start states for the entire DFA. After that, there are
+    /// `stride * patterns` state IDs, where `patterns` may be zero in the
+    /// case of a DFA with no patterns or in the case where the DFA was built
+    /// without enabling starting states for each pattern.
+    table: T,
+    /// The number of starting state IDs per pattern.
+    stride: usize,
+    /// The total number of patterns for which starting states are encoded.
+    /// This may be zero for non-empty DFAs when the DFA was built without
+    /// start states for each pattern.
+    patterns: usize,
+    /// The state ID representation. This is what's actually stored in `list`.
+    _state_id: PhantomData<S>,
+}
+
+impl<'a, S: StateID> StartTable<&'a [S], S> {
+    /// Deserialize a table of start state IDs starting at the beginning of
     /// `slice`. Upon success, return the total number of bytes read along with
-    /// the list of starting state IDs.
+    /// the table of starting state IDs.
     ///
     /// If there was a problem deserializing any part of the starting IDs,
     /// then this returns an error. Notably, if the given slice does not have
@@ -2833,14 +2916,32 @@ impl<'a, S: StateID> StartList<&'a [S], S> {
     /// This guarantee is upheld by the bytes written by `write_to`.
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
-    ) -> Result<(StartList<&'a [S], S>, usize), DeserializeError> {
-        let count = bytes::try_read_u64_as_usize(slice, "start ID count")?;
+    ) -> Result<(StartTable<&'a [S], S>, usize), DeserializeError> {
+        let stride =
+            bytes::try_read_u64_as_usize(slice, "start table stride")?;
+        slice = &slice[8..];
+        let patterns =
+            bytes::try_read_u64_as_usize(slice, "start table patterns")?;
         slice = &slice[8..];
 
-        let list_bytes_len = count * core::mem::size_of::<S>();
-        let nread = 8 + list_bytes_len;
-        if slice.len() < list_bytes_len {
-            return Err(DeserializeError::buffer_too_small("start ID list"));
+        if stride != Start::count() {
+            return Err(DeserializeError::generic(
+                "invalid starting table stride",
+            ));
+        }
+        // TODO: It feels weird to invoke thompson's pattern limit here.
+        // Maybe pattern limit should be defined at the top-level?
+        if patterns > crate::nfa::thompson::pattern_limit() {
+            return Err(DeserializeError::generic(
+                "invalid number of patterns",
+            ));
+        }
+        let count =
+            stride.checked_add(stride.checked_mul(patterns).unwrap()).unwrap();
+        let table_bytes_len = count * core::mem::size_of::<S>();
+        let nread = 16 + table_bytes_len;
+        if slice.len() < table_bytes_len {
+            return Err(DeserializeError::buffer_too_small("start ID table"));
         }
         bytes::check_alignment::<S>(slice)?;
         // SAFETY: Since S is always in {usize, u8, u16, u32, u64}, all we need
@@ -2850,63 +2951,72 @@ impl<'a, S: StateID> StartList<&'a [S], S> {
         // N.B. This is the only not-safe code in this function, so we mark
         // it explicitly to call it out, even though it is technically
         // superfluous.
-        let list = unsafe {
+        let table = unsafe {
             core::slice::from_raw_parts(slice.as_ptr() as *const S, count)
         };
-        let sl = StartList { list, _state_id: PhantomData };
-        Ok((sl, nread))
+        let st =
+            StartTable { table, stride, patterns, _state_id: PhantomData };
+        Ok((st, nread))
     }
 }
 
-impl<S: StateID> StartList<Vec<S>, S> {
+impl<S: StateID> StartTable<Vec<S>, S> {
     /// Create a valid set of start states all pointing to the dead state.
-    fn dead() -> StartList<Vec<S>, S> {
-        StartList {
-            list: vec![dead_id(); Start::count()],
+    fn dead() -> StartTable<Vec<S>, S> {
+        let stride = Start::count();
+        StartTable {
+            table: vec![dead_id(); stride],
+            stride,
+            patterns: 0,
             _state_id: PhantomData,
         }
     }
 }
 
-impl<T: AsRef<[S]>, S: StateID> StartList<T, S> {
-    /// Writes a serialized form of this start list to the buffer given. If the
-    /// buffer is too small, then an error is returned. To determine how big
-    /// the buffer must be, use `write_to_len`.
+impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
+    /// Writes a serialized form of this start table to the buffer given. If
+    /// the buffer is too small, then an error is returned. To determine how
+    /// big the buffer must be, use `write_to_len`.
     fn write_to<E: Endian>(
         &self,
         mut dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
         let nwrite = self.write_to_len();
         if dst.len() < nwrite {
-            return Err(SerializeError::buffer_too_small("starting list ids"));
+            return Err(SerializeError::buffer_too_small(
+                "starting table ids",
+            ));
         }
         dst = &mut dst[..nwrite];
 
-        // write state ID count
-        E::write_u64(self.list().len() as u64, dst);
+        // write stride
+        E::write_u64(self.stride as u64, dst);
         dst = &mut dst[8..];
-
+        // write pattern count
+        E::write_u64(self.patterns as u64, dst);
+        dst = &mut dst[8..];
         // write start IDs
-        dst.copy_from_slice(self.list_bytes());
+        dst.copy_from_slice(self.table_bytes());
         Ok(nwrite)
     }
 
-    /// Returns the number of bytes the serialized form of this start ID list
+    /// Returns the number of bytes the serialized form of this start ID table
     /// will use.
     fn write_to_len(&self) -> usize {
-        8 // state ID count
-        + self.list_bytes().len()
+        8 // stride
+        + 8 // # patterns
+        + self.table_bytes().len()
     }
 
-    /// Validates that every state ID in this transition table is valid.
+    /// Validates that every state ID in this start table is valid by checking
+    /// it against the given transition table (which must be for the same DFA).
     ///
-    /// That is, every state ID can be used to correctly index a state in this
-    /// table.
+    /// That is, every state ID can be used to correctly index a state.
     fn validate(
         &self,
         tt: &TransitionTable<T, S>,
     ) -> Result<(), DeserializeError> {
-        for &id in self.list() {
+        for &id in self.table() {
             if !tt.is_valid(id) {
                 return Err(DeserializeError::generic(
                     "found invalid starting state ID",
@@ -2917,69 +3027,93 @@ impl<T: AsRef<[S]>, S: StateID> StartList<T, S> {
     }
 
     /// Converts this start list to a borrowed value.
-    fn as_ref(&self) -> StartList<&'_ [S], S> {
-        StartList { list: self.list(), _state_id: self._state_id }
+    fn as_ref(&self) -> StartTable<&'_ [S], S> {
+        StartTable {
+            table: self.table(),
+            stride: self.stride,
+            patterns: self.patterns,
+            _state_id: self._state_id,
+        }
     }
 
     /// Converts this start list to an owned value.
-    fn to_owned(&self) -> StartList<Vec<S>, S> {
-        StartList { list: self.list().to_vec(), _state_id: self._state_id }
+    fn to_owned(&self) -> StartTable<Vec<S>, S> {
+        StartTable {
+            table: self.table().to_vec(),
+            stride: self.stride,
+            patterns: self.patterns,
+            _state_id: self._state_id,
+        }
     }
 
-    /// Converts this list of starting IDs from a list that uses S as its state
-    /// ID representation to one that uses S2. If
+    /// Converts this table of starting IDs from a list that uses S as its
+    /// state ID representation to one that uses S2. If
     /// `size_of::<S2> >= size_of::<S>()`, then this always succeeds. If
     /// `size_of::<S2> < size_of::<S>()` and if S2 cannot represent every state
     /// ID in this list, then an error is returned.
-    fn to_sized<S2: StateID>(&self) -> Result<StartList<Vec<S2>, S2>, Error> {
+    fn to_sized<S2: StateID>(&self) -> Result<StartTable<Vec<S2>, S2>, Error> {
         // Check that this list can fit into S2's representation.
-        let max_state_id = match self.list().iter().cloned().max() {
+        let max_state_id = match self.table().iter().cloned().max() {
             None => {
-                return Ok(StartList { list: vec![], _state_id: PhantomData })
+                return Ok(StartTable::dead());
             }
             Some(max_state_id) => max_state_id.as_usize(),
         };
         if max_state_id > S2::max_id() {
             return Err(Error::state_id_overflow(S2::max_id()));
         }
-        let mut sl = StartList {
-            list: vec![dead_id::<S2>(); self.list().len()],
+        let mut st = StartTable {
+            table: vec![dead_id::<S2>(); self.table().len()],
+            stride: self.stride,
+            patterns: self.patterns,
             _state_id: PhantomData,
         };
-        for (i, id) in sl.list.iter_mut().enumerate() {
+        for (i, id) in st.table.iter_mut().enumerate() {
             // This is always correct since we've verified above that the
             // maximum state ID can fit into S2.
-            *id = S2::from_usize(self.list()[i].as_usize());
+            *id = S2::from_usize(self.table()[i].as_usize());
         }
-        Ok(sl)
+        Ok(st)
     }
 
-    /// Return the start state for the given index.
-    fn start(&self, index: Start) -> S {
-        self.list()[index.as_usize()]
+    /// Return the start state for the given index and pattern ID. If the
+    /// pattern ID is None, then the corresponding start state for the entire
+    /// DFA is returned. If the pattern ID is not None, then the corresponding
+    /// starting state for the given pattern is returned. If this start table
+    /// does not have individual starting states for each pattern, then this
+    /// panics.
+    fn start(&self, index: Start, pattern_id: Option<PatternID>) -> S {
+        let start_index = index.as_usize();
+        let index = match pattern_id {
+            None => start_index,
+            Some(pid) => {
+                self.stride + (self.stride * pid as usize) + start_index
+            }
+        };
+        self.table()[index]
     }
 
-    /// Returns the list as a slice of state IDs.
-    fn list(&self) -> &[S] {
-        self.list.as_ref()
+    /// Returns the table as a slice of state IDs.
+    fn table(&self) -> &[S] {
+        self.table.as_ref()
     }
 
-    /// Returns the list of start IDs as its raw byte representation.
+    /// Returns the table of start IDs as its raw byte representation.
     ///
     /// The length of the slice returned is always equivalent to
-    /// `self.list().len() * self.state_size()`.
+    /// `self.table().len() * self.state_size()`.
     ///
     /// This is generally only useful when serializing the starting IDs to raw
     /// bytes.
-    fn list_bytes(&self) -> &[u8] {
-        let list = self.list();
+    fn table_bytes(&self) -> &[u8] {
+        let table = self.table();
         // SAFETY: This is safe because S is guaranteed to be one of {usize,
         // u8, u16, u32, u64}, and because u8 always has a smaller or
         // equivalent alignment.
         unsafe {
             core::slice::from_raw_parts(
-                list.as_ptr() as *const u8,
-                list.len() * self.state_size(),
+                table.as_ptr() as *const u8,
+                table.len() * self.state_size(),
             )
         }
     }
@@ -2995,14 +3129,36 @@ impl<T: AsRef<[S]>, S: StateID> StartList<T, S> {
     ///
     /// This does not include the size of a `StartList` value itself.
     fn memory_usage(&self) -> usize {
-        self.list_bytes().len()
+        self.table_bytes().len()
     }
 }
 
-impl<T: AsMut<[S]>, S: StateID> StartList<T, S> {
-    /// Returns the list of start IDs as a mutable slice of state IDs.
-    fn list_mut(&mut self) -> &mut [S] {
-        self.list.as_mut()
+impl<T: AsMut<[S]>, S: StateID> StartTable<T, S> {
+    /// Return the start state for the given index and pattern ID. If the
+    /// pattern ID is None, then the corresponding start state for the entire
+    /// DFA is returned. If the pattern ID is not None, then the corresponding
+    /// starting state for the given pattern is returned. If this start table
+    /// does not have individual starting states for each pattern, then this
+    /// panics.
+    fn set_start(
+        &mut self,
+        index: Start,
+        pattern_id: Option<PatternID>,
+        id: S,
+    ) {
+        let start_index = index.as_usize();
+        let index = match pattern_id {
+            None => start_index,
+            Some(pid) => {
+                self.stride + (self.stride * pid as usize) + start_index
+            }
+        };
+        self.table_mut()[index] = id;
+    }
+
+    /// Returns the table as a mutable slice of state IDs.
+    fn table_mut(&mut self) -> &mut [S] {
+        self.table.as_mut()
     }
 }
 
@@ -3717,7 +3873,7 @@ impl<S: StateID> Remapper<S> {
                 *next_id = self.map[to_index(*next_id)];
             }
         }
-        for start_id in dfa.sl.list_mut().iter_mut() {
+        for start_id in dfa.st.table_mut().iter_mut() {
             *start_id = self.map[to_index(*start_id)];
         }
     }
