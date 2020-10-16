@@ -86,7 +86,7 @@ const VERSION: u64 = 2;
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 ///
-/// let expected = HalfMatch { pattern: 0, offset: 8 };
+/// let expected = HalfMatch::new(0, 8);
 /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -204,7 +204,7 @@ impl DFA<Vec<u8>, usize> {
     ///
     /// let dfa = sparse::DFA::new("foo[0-9]+bar")?;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 11 };
+    /// let expected = HalfMatch::new(0, 11);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -229,7 +229,7 @@ impl<S: StateID> DFA<Vec<u8>, S> {
     ///
     /// let dfa: sparse::DFA<Vec<u8>, usize> = sparse::DFA::always_match()?;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 0 };
+    /// let expected = HalfMatch::new(0, 0);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"")?);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -454,7 +454,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     ///
     /// let dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -507,7 +507,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// // ignore it.
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -550,7 +550,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// // ignore it.
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -600,7 +600,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// // ignore it.
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -656,7 +656,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -704,7 +704,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -759,7 +759,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -820,7 +820,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -913,7 +913,7 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     /// let bytes = initial.to_sized::<u16>()?.to_bytes_native_endian();
     /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&bytes)?.0;
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -994,7 +994,7 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     /// }
     ///
     /// let dfa = get_foo();
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Ok(Some(expected)), dfa.find_leftmost_fwd(b"foo12345"));
     /// ```
     ///
@@ -1052,7 +1052,7 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     ///     DFA::from_bytes_unchecked(&bytes)?.0
     /// };
     ///
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1184,6 +1184,7 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
     #[inline]
     fn start_state_forward(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -1195,6 +1196,7 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
     #[inline]
     fn start_state_reverse(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,

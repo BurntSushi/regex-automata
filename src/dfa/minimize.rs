@@ -201,9 +201,10 @@ impl<'a, S: StateID> Minimizer<'a, S> {
 
         // Update the new start states, which is now just the minimal ID of
         // whatever state the old start state was collapsed into.
+        // TODO: Fix this with a new start ID iterator.
         for &index in &Start::all() {
             let old_id = self.dfa.starts()[index.as_usize()];
-            self.dfa.set_start_state(index, remap(old_id));
+            self.dfa.set_start_state(index, None, remap(old_id));
         }
 
         // Update the match state pattern ID list for multi-regexes. All we

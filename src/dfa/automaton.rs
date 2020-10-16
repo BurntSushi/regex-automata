@@ -190,6 +190,7 @@ pub unsafe trait Automaton {
     /// when matching in the forward direction.
     fn start_state_forward(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -199,6 +200,7 @@ pub unsafe trait Automaton {
     /// when matching in the reverse direction.
     fn start_state_reverse(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -228,13 +230,13 @@ pub unsafe trait Automaton {
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+")?;
-    /// let expected = HalfMatch { pattern: 0, offset: 4 };
+    /// let expected = HalfMatch::new(0, 4);
     /// assert_eq!(Some(expected), dfa.find_earliest_fwd(b"foo12345")?);
     ///
     /// // Normally, the end of the leftmost first match here would be 3,
     /// // but the shortest match semantics detect a match earlier.
     /// let dfa = dense::DFA::new("abc|a")?;
-    /// let expected = HalfMatch { pattern: 0, offset: 1 };
+    /// let expected = HalfMatch::new(0, 1);
     /// assert_eq!(Some(expected), dfa.find_earliest_fwd(b"abc")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -243,7 +245,7 @@ pub unsafe trait Automaton {
         &self,
         bytes: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_earliest_fwd_at(None, bytes, 0, bytes.len())
+        self.find_earliest_fwd_at(None, None, bytes, 0, bytes.len())
     }
 
     #[inline]
@@ -251,7 +253,7 @@ pub unsafe trait Automaton {
         &self,
         bytes: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_earliest_rev_at(bytes, 0, bytes.len())
+        self.find_earliest_rev_at(None, bytes, 0, bytes.len())
     }
 
     /// Returns the end offset of the longest match. If no match exists,
@@ -289,14 +291,14 @@ pub unsafe trait Automaton {
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+")?;
-    /// let expected = HalfMatch { pattern: 0, offset: 8 };
+    /// let expected = HalfMatch::new(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     ///
     /// // Even though a match is found after reading the first byte (`a`),
     /// // the leftmost first match semantics demand that we find the earliest
     /// // match that prefers earlier parts of the pattern over latter parts.
     /// let dfa = dense::DFA::new("abc|a")?;
-    /// let expected = HalfMatch { pattern: 0, offset: 3 };
+    /// let expected = HalfMatch::new(0, 3);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"abc")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -305,7 +307,7 @@ pub unsafe trait Automaton {
         &self,
         bytes: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_leftmost_fwd_at(None, bytes, 0, bytes.len())
+        self.find_leftmost_fwd_at(None, None, bytes, 0, bytes.len())
     }
 
     /// Returns the start offset of the longest match in reverse, by searching
@@ -330,7 +332,7 @@ pub unsafe trait Automaton {
     /// let dfa = dense::Builder::new()
     ///     .thompson(thompson::Config::new().reverse(true))
     ///     .build("foo[0-9]+")?;
-    /// let expected = HalfMatch { pattern: 0, offset: 0 };
+    /// let expected = HalfMatch::new(0, 0);
     /// assert_eq!(Some(expected), dfa.find_leftmost_rev(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -339,7 +341,7 @@ pub unsafe trait Automaton {
         &self,
         bytes: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_leftmost_rev_at(bytes, 0, bytes.len())
+        self.find_leftmost_rev_at(None, bytes, 0, bytes.len())
     }
 
     #[inline]
@@ -348,7 +350,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         state: &mut State<Self::ID>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_overlapping_fwd_at(None, bytes, 0, bytes.len(), state)
+        self.find_overlapping_fwd_at(None, None, bytes, 0, bytes.len(), state)
     }
 
     /// Returns the same as `shortest_match`, but starts the search at the
@@ -361,21 +363,23 @@ pub unsafe trait Automaton {
     fn find_earliest_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_earliest_fwd(pre, self, bytes, start, end)
+        search::find_earliest_fwd(pre, self, pattern_id, bytes, start, end)
     }
 
     #[inline]
     fn find_earliest_rev_at(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_earliest_rev(self, bytes, start, end)
+        search::find_earliest_rev(self, pattern_id, bytes, start, end)
     }
 
     /// Returns the same as `find`, but starts the search at the given
@@ -388,11 +392,12 @@ pub unsafe trait Automaton {
     fn find_leftmost_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_leftmost_fwd(pre, self, bytes, start, end)
+        search::find_leftmost_fwd(pre, self, pattern_id, bytes, start, end)
     }
 
     /// Returns the same as `rfind`, but starts the search at the given
@@ -404,23 +409,27 @@ pub unsafe trait Automaton {
     #[inline]
     fn find_leftmost_rev_at(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_leftmost_rev(self, bytes, start, end)
+        search::find_leftmost_rev(self, pattern_id, bytes, start, end)
     }
 
     #[inline]
     fn find_overlapping_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
         state: &mut State<Self::ID>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_fwd(pre, self, bytes, start, end, state)
+        search::find_overlapping_fwd(
+            pre, self, pattern_id, bytes, start, end, state,
+        )
     }
 }
 
@@ -498,21 +507,23 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn start_state_forward(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> Self::ID {
-        (**self).start_state_forward(bytes, start, end)
+        (**self).start_state_forward(pattern_id, bytes, start, end)
     }
 
     #[inline]
     fn start_state_reverse(
         &self,
+        pattern_id: Option<PatternID>,
         bytes: &[u8],
         start: usize,
         end: usize,
     ) -> Self::ID {
-        (**self).start_state_reverse(bytes, start, end)
+        (**self).start_state_reverse(pattern_id, bytes, start, end)
     }
 
     fn accelerator(&self, id: Self::ID) -> &[u8] {

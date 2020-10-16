@@ -560,7 +560,13 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         end: usize,
     ) -> Result<bool, MatchError> {
         self.forward()
-            .find_earliest_fwd_at(self.scanner().as_mut(), input, start, end)
+            .find_earliest_fwd_at(
+                self.scanner().as_mut(),
+                None,
+                input,
+                start,
+                end,
+            )
             .map(|x| x.is_some())
     }
 
@@ -596,12 +602,18 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // Since this is the usual way that automata are used, this helps
         // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
-        let end = match (&fwd).find_earliest_fwd_at(pre, input, start, end)? {
-            None => return Ok(None),
-            Some(end) => end,
-        };
+        let end =
+            match (&fwd).find_earliest_fwd_at(pre, None, input, start, end)? {
+                None => return Ok(None),
+                Some(end) => end,
+            };
+        // N.B. The only time we need to tell the reverse searcher the pattern
+        // to match is in the overlapping case, since it's ambiguous. In the
+        // leftmost case, I have tentatively convinced myself that it isn't
+        // necessary and the reverse search will always find the same pattern
+        // to match as the forward search. But I lack a rigorous proof.
         let start = (&rev)
-            .find_earliest_rev_at(input, start, end.offset())?
+            .find_earliest_rev_at(None, input, start, end.offset())?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
@@ -644,13 +656,19 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // Since this is the usual way that automata are used, this helps
         // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
-        let end =
-            match (&fwd).find_leftmost_fwd_at(scanner, input, start, end)? {
-                None => return Ok(None),
-                Some(end) => end,
-            };
+        let end = match (&fwd)
+            .find_leftmost_fwd_at(scanner, None, input, start, end)?
+        {
+            None => return Ok(None),
+            Some(end) => end,
+        };
+        // N.B. The only time we need to tell the reverse searcher the pattern
+        // to match is in the overlapping case, since it's ambiguous. In the
+        // leftmost case, I have tentatively convinced myself that it isn't
+        // necessary and the reverse search will always find the same pattern
+        // to match as the forward search. But I lack a rigorous proof.
         let start = (&rev)
-            .find_leftmost_rev_at(input, start, end.offset())?
+            .find_leftmost_rev_at(None, input, start, end.offset())?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
@@ -691,21 +709,20 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
         let end = match (&fwd)
-            .find_overlapping_fwd_at(scanner, input, start, end, state)?
+            .find_overlapping_fwd_at(scanner, None, input, start, end, state)?
         {
             None => return Ok(None),
             Some(end) => end,
         };
+        // Unlike the leftmost cases, the reverse overlapping search may match
+        // a different pattern than the forward search. See test failures when
+        // using `None` instead of `Some(end.pattern())` below.
         let start = (&rev)
-            .find_leftmost_rev_at(input, 0, end.offset())?
+            // .find_leftmost_rev_at(Some(end.pattern()), input, 0, end.offset())?
+            .find_leftmost_rev_at(None, input, 0, end.offset())?
             .expect("reverse search must match if forward search does");
-        // Unlike in the leftmost cases, in the overlapping case, the reverse
-        // search may not match the same pattern as the forward search.
-        // Consider a trivial case such as searching the patterns [a, a]
-        // against 'a'. A second forward search will find the second pattern,
-        // but the same reverse search lacks the prior search context and will
-        // instead yield the first pattern.
         assert!(start.offset() <= end.offset());
+        assert_eq!(start.pattern(), end.pattern());
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
     }
 }
@@ -1145,7 +1162,10 @@ impl RegexBuilder {
             .dfa
             .clone()
             .configure(
-                dense::Config::new().anchored(true).match_kind(MatchKind::All),
+                dense::Config::new()
+                    .anchored(true)
+                    .match_kind(MatchKind::All)
+                    .starts_for_each_pattern(true),
             )
             .thompson(thompson::Config::new().reverse(true))
             .build_many_with_size(patterns)?;
