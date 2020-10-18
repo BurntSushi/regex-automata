@@ -260,7 +260,7 @@ pub fn skip_initial_padding(slice: &[u8]) -> usize {
     nread
 }
 
-/// Allocate a byte buffer of the giving size, along with some initial padding
+/// Allocate a byte buffer of the given size, along with some initial padding
 /// such that `buf[padding..]` has the same alignment as `S`. In particular,
 /// callers should treat the first N bytes (second return value) as padding
 /// bytes that must not be overwritten. In all cases, the following identity
