@@ -718,8 +718,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // a different pattern than the forward search. See test failures when
         // using `None` instead of `Some(end.pattern())` below.
         let start = (&rev)
-            // .find_leftmost_rev_at(Some(end.pattern()), input, 0, end.offset())?
-            .find_leftmost_rev_at(None, input, 0, end.offset())?
+            .find_leftmost_rev_at(Some(end.pattern()), input, 0, end.offset())?
             .expect("reverse search must match if forward search does");
         assert!(start.offset() <= end.offset());
         assert_eq!(start.pattern(), end.pattern());

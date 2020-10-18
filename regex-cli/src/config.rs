@@ -598,6 +598,44 @@ all the time.
             );
         }
         {
+            const SHORT: &str = "Add start states for each pattern.";
+            const LONG: &str = "\
+Whether to compile a separate start state for each pattern in the automaton.
+
+When enabled, a separate anchored start state is added for each pattern in the
+DFA. When this start state is used, then the DFA will only search for matches
+for the pattern, even if there are other patterns in the DFA.
+
+The main downside of this option is that it can potentially increase the size
+of the DFA and/or increase the time it takes to build the DFA.
+
+There are a few reasons one might want to enable this (it's disabled by
+default):
+
+1. When looking for the start of an overlapping match (using a reverse DFA),
+doing it correctly requires starting the reverse search using the starting
+state of the pattern that matched in the forward direction. Indeed, when
+building a [`Regex`](../struct.Regex.html), it will automatically enable this
+option when building the reverse DFA.
+
+2. When you want to use a DFA with multiple patterns to both search for matches
+of any pattern or to search for matches of one particular pattern while
+using the same DFA. (Otherwise, you would need to compile a new DFA for each
+pattern.)
+
+3. Since the start states added for each pattern are anchored, if you compile
+an unanchored DFA with one pattern while also enabling this option, then you
+can use the same DFA to perform anchored or unanchored searches. The latter you
+get with the standard search APIs. The former you get from the various `_at`
+search methods that allow you specify a pattern ID to search for.
+
+By default this is disabled.
+";
+            app = app.arg(
+                switch("starts-for-each-pattern").help(SHORT).long_help(LONG),
+            );
+        }
+        {
             const SHORT: &str =
                 "Heuristically enable Unicode word boundaries.";
             const LONG: &str = "\
@@ -687,6 +725,9 @@ The only legal values are 1, 2, 4 or 8.
             .minimize(args.is_present("minimize"))
             .byte_classes(!args.is_present("no-byte-classes"))
             .match_kind(kind)
+            .starts_for_each_pattern(
+                args.is_present("starts-for-each-pattern"),
+            )
             .unicode_word_boundary(args.is_present("unicode-word-boundary"));
         if let Some(quits) = args.value_of_lossy("quit") {
             for ch in quits.chars() {

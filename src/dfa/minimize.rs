@@ -200,11 +200,13 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         self.dfa.truncate_states(minimal_count);
 
         // Update the new start states, which is now just the minimal ID of
-        // whatever state the old start state was collapsed into.
-        // TODO: Fix this with a new start ID iterator.
-        for &index in &Start::all() {
-            let old_id = self.dfa.starts()[index.as_usize()];
-            self.dfa.set_start_state(index, None, remap(old_id));
+        // whatever state the old start state was collapsed into. Also, we
+        // collect everything before-hand to work around the borrow checker.
+        // We're already allocating so much that this is probably fine. If this
+        // turns out to be costly, then I guess add a `starts_mut` iterator.
+        let starts: Vec<_> = self.dfa.starts().collect();
+        for (old_start_id, start_type, pid) in starts {
+            self.dfa.set_start_state(start_type, pid, remap(old_start_id));
         }
 
         // Update the match state pattern ID list for multi-regexes. All we

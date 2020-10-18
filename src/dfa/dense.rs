@@ -190,11 +190,12 @@ impl Config {
     /// DFA), doing it correctly requires starting the reverse search using the
     /// starting state of the pattern that matched in the forward direction.
     /// Indeed, when building a [`Regex`](../struct.Regex.html), it will
-    /// automatically enable this option when building the reverse DFA.
+    /// automatically enable this option when building the reverse DFA
+    /// internally.
     /// 2. When you want to use a DFA with multiple patterns to both search
-    /// for matches of any pattern or to search for matches of one particular
-    /// pattern while using the same DFA. (Otherwise, you would need to compile
-    /// a new DFA for each pattern.)
+    /// for matches of any pattern or to search for anchored matches of one
+    /// particular pattern while using the same DFA. (Otherwise, you would need
+    /// to compile a new DFA for each pattern.)
     /// 3. Since the start states added for each pattern are anchored, if you
     /// compile an unanchored DFA with one pattern while also enabling this
     /// option, then you can use the same DFA to perform anchored or unanchored
@@ -203,6 +204,44 @@ impl Config {
     /// pattern ID to search for.
     ///
     /// By default this is disabled.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use this option to permit the same DFA to
+    /// run both anchored and unanchored searches for a single pattern.
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().starts_for_each_pattern(true))
+    ///     .build(r"foo[0-9]+")?;
+    /// let haystack = b"quux foo123";
+    ///
+    /// // Here's a normal unanchored search. Notice that we use 'None' for the
+    /// // pattern ID. Since the DFA was built as an unanchored machine, it
+    /// // use its default unanchored starting state.
+    /// let expected = HalfMatch::new(0, 11);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
+    ///     None, None, haystack, 0, haystack.len(),
+    /// )?);
+    /// // But now if we explicitly specify the pattern to search ('0' being
+    /// // the only pattern in the DFA), then it will use the starting state
+    /// // for that specific pattern which is always anchored. Since the
+    /// // pattern doesn't have a match at the beginning of the haystack, we
+    /// // find nothing.
+    /// assert_eq!(None, dfa.find_leftmost_fwd_at(
+    ///     None, Some(0), haystack, 0, haystack.len(),
+    /// )?);
+    /// // And finally, an anchored search is not the same as putting a '^' at
+    /// // beginning of the pattern. An anchored search can only match at the
+    /// // beginning of the *search*, which we can change:
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
+    ///     None, Some(0), haystack, 5, haystack.len(),
+    /// )?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn starts_for_each_pattern(mut self, yes: bool) -> Config {
         self.starts_for_each_pattern = Some(yes);
         self
@@ -892,6 +931,20 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
         self.accels().as_bytes().len()
             + self.tt.memory_usage()
             + self.st.memory_usage()
+    }
+
+    /// Returns true only if this DFA has starting states for each pattern.
+    ///
+    /// When a DFA has starting states for each pattern, then a search with the
+    /// DFA can be configured to only look for anchored matches of a specific
+    /// pattern. Specifically, APIs like
+    /// [`Automaton::find_earliest_fwd_at`](../trait.Automaton.html#method.find_earliest_fwd_at)
+    /// can accept a non-None `pattern_id` if and only if this method returns
+    /// true. Otherwise, calling `find_earliest_fwd_at` will panic.
+    ///
+    /// Note that if the DFA is empty, this always returns false.
+    pub fn has_starts_for_each_pattern(&self) -> bool {
+        self.st.patterns > 0
     }
 
     /// Returns the total number of elements in the alphabet for this DFA.
@@ -2000,7 +2053,17 @@ impl<S: StateID> OwnedDFA<S> {
         // delay all matches by a byte, which prevents start states from being
         // match states.
         let mut is_start: BTreeSet<S> = BTreeSet::new();
-        for &start_id in self.starts() {
+        for (start_id, _, _) in self.starts() {
+            // While there's nothing theoretically wrong with setting a start
+            // state to a dead ID (indeed, it could be an optimization!), the
+            // shuffling code below assumes that start states aren't dead. If
+            // this assumption is violated, the dead state could be shuffled
+            // to a new location, which must never happen. So if we do want
+            // to allow start states to be dead, then this assert should be
+            // removed and the code below fixed.
+            //
+            // N.B. Minimization can cause start states to be dead, but that
+            // happens after states are shuffled, so it's OK.
             assert_ne!(start_id, dead_id(), "start state cannot be dead");
             assert!(
                 !matches.contains_key(&start_id),
@@ -2158,9 +2221,13 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     }
 
     /// Return the table of state IDs for this DFA's start states.
-    pub(crate) fn starts(&self) -> &[S] {
-        self.st.table()
+    pub(crate) fn starts(&self) -> StartStateIter<'_, S> {
+        self.st.iter()
     }
+
+    // pub(crate) fn starts(&self) -> &[S] {
+    // self.st.table()
+    // }
 
     /// Returns the index of the match state for the given ID. If the
     /// given ID does not correspond to a match state, then this may
@@ -2205,14 +2272,20 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fmt::Debug for DFA<T, A, S> {
             write!(f, "\n")?;
         }
         writeln!(f, "")?;
-        for (i, &start_id) in self.starts().iter().enumerate() {
+        for (i, (start_id, sty, pid)) in self.starts().enumerate() {
             let id = if f.alternate() {
                 start_id.as_usize()
             } else {
                 self.to_index(start_id)
             };
-            let sty = Start::from_usize(i).expect("must have start type");
-            writeln!(f, "START({}): {:?} => {:06}", i, sty, id)?;
+            if i % self.st.stride == 0 {
+                let group = match pid {
+                    None => "ALL".to_string(),
+                    Some(pid) => format!("pattern: {}", pid),
+                };
+                writeln!(f, "START-GROUP({})", group)?;
+            }
+            writeln!(f, "  {:?} => {:06}", sty, id)?;
         }
         if self.pattern_count() > 1 {
             writeln!(f, "")?;
@@ -3105,6 +3178,14 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
         self.table()[index]
     }
 
+    /// Returns an iterator over all start state IDs in this table.
+    ///
+    /// Each item is a triple of: start state ID, the start state type and the
+    /// pattern ID (if any).
+    fn iter(&self) -> StartStateIter<'_, S> {
+        StartStateIter { st: self.as_ref(), i: 0 }
+    }
+
     /// Returns the table as a slice of state IDs.
     fn table(&self) -> &[S] {
         self.table.as_ref()
@@ -3171,6 +3252,41 @@ impl<T: AsMut<[S]>, S: StateID> StartTable<T, S> {
     /// Returns the table as a mutable slice of state IDs.
     fn table_mut(&mut self) -> &mut [S] {
         self.table.as_mut()
+    }
+}
+
+/// An iterator over start state IDs.
+///
+/// This iterator yields a triple of start state ID, the start state type
+/// and the pattern ID (if any). The pattern ID is None for start states
+/// corresponding to the entire DFA and non-None for start states corresponding
+/// to a specific pattern. The latter only occurs when the DFA is compiled with
+/// start states for each pattern.
+pub(crate) struct StartStateIter<'a, S> {
+    st: StartTable<&'a [S], S>,
+    i: usize,
+}
+
+impl<'a, S: StateID> Iterator for StartStateIter<'a, S> {
+    type Item = (S, Start, Option<PatternID>);
+
+    fn next(&mut self) -> Option<(S, Start, Option<PatternID>)> {
+        let i = self.i;
+        let table = self.st.table();
+        if i >= table.len() {
+            return None;
+        }
+        self.i += 1;
+
+        // This unwrap is okay since the stride of any DFA must always match
+        // the number of start state types.
+        let start_type = Start::from_usize(i % self.st.stride).unwrap();
+        if i < self.st.stride {
+            Some((table[i], start_type, None))
+        } else {
+            let pid = (i - self.st.stride) / self.st.stride;
+            Some((table[i], start_type, Some(pid as u32)))
+        }
     }
 }
 

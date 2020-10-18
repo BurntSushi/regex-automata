@@ -269,6 +269,7 @@ fn search_automaton<A: Automaton>(
                 let result = dfa
                     .find_overlapping_fwd_at(
                         None,
+                        None,
                         haystack,
                         at,
                         haystack.len(),

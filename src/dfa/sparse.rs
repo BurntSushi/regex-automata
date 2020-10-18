@@ -1655,11 +1655,10 @@ impl<S: StateID> StartList<Vec<u8>, S> {
         remap: &[S2],
     ) -> Result<StartList<Vec<u8>, S2>, Error> {
         // TODO: Shouldn't this possibly return an error?
-        let mut sl = StartList::new(dfa.starts().len());
-        for (i, &old_start_id) in dfa.starts().iter().enumerate() {
+        let mut sl = StartList::new(dfa.starts().count());
+        for (old_start_id, sty, _) in dfa.starts() {
             let new_start_id = remap[dfa.to_index(old_start_id)];
-            let start_index = Start::from_usize(i).unwrap();
-            sl.set_start(start_index, new_start_id);
+            sl.set_start(sty, new_start_id);
         }
         Ok(sl)
     }
