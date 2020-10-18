@@ -8,7 +8,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fst::Automaton
 
     #[inline]
     fn start(&self) -> S {
-        self.start_state_forward(&[], 0, 0)
+        self.start_state_forward(None, &[], 0, 0)
     }
 
     #[inline]
@@ -43,7 +43,7 @@ impl<T: AsRef<[u8]>, S: StateID> fst::Automaton for sparse::DFA<T, S> {
 
     #[inline]
     fn start(&self) -> S {
-        self.start_state_forward(&[], 0, 0)
+        self.start_state_forward(None, &[], 0, 0)
     }
 
     #[inline]

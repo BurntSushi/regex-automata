@@ -140,7 +140,7 @@ impl<'a, S: StateID> Runner<'a, S> {
             self.dfa.byte_classes().representatives().collect();
         let mut sparses = self.new_sparse_sets();
         let mut uncompiled = vec![];
-        self.add_starts(&mut sparses.cur, &mut uncompiled)?;
+        self.add_all_starts(&mut sparses.cur, &mut uncompiled)?;
         while let Some(dfa_id) = uncompiled.pop() {
             for &b in &representative_bytes {
                 if b.as_u8().map_or(false, |b| self.quit.contains(b)) {
@@ -367,49 +367,65 @@ impl<'a, S: StateID> Runner<'a, S> {
         }
     }
 
-    /// Compute the initial DFA state and return its identifier.
+    /// Compute the set of DFA start states and return their identifiers in
+    /// `dfa_state_ids`.
     ///
     /// The sparse set given is used for scratch space, and must have capacity
     /// equal to the total number of NFA states. Its contents are unspecified.
-    fn add_starts(
+    fn add_all_starts(
         &mut self,
         sparse: &mut SparseSet,
         dfa_state_ids: &mut Vec<S>,
     ) -> Result<(), Error> {
-        let nfa_start = if self.anchored {
-            self.nfa.start_anchored()
-        } else {
-            self.nfa.start_unanchored()
+        self.add_start_group(sparse, dfa_state_ids, None)?;
+        if self.dfa.has_starts_for_each_pattern() {
+            for pid in 0..self.dfa.pattern_count() {
+                self.add_start_group(sparse, dfa_state_ids, Some(pid as u32))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn add_start_group(
+        &mut self,
+        sparse: &mut SparseSet,
+        dfa_state_ids: &mut Vec<S>,
+        pattern_id: Option<PatternID>,
+    ) -> Result<(), Error> {
+        let nfa_start = match pattern_id {
+            Some(pid) => self.nfa.start_pattern(pid),
+            None if self.anchored => self.nfa.start_anchored(),
+            None => self.nfa.start_unanchored(),
         };
 
-        let id = self.add_start(sparse, nfa_start, Start::NonWordByte)?;
-        self.dfa.set_start_state(Start::NonWordByte, None, id);
+        let id = self.add_one_start(sparse, nfa_start, Start::NonWordByte)?;
+        self.dfa.set_start_state(Start::NonWordByte, pattern_id, id);
         dfa_state_ids.push(id);
 
         if !self.nfa.has_word_boundary() {
-            self.dfa.set_start_state(Start::WordByte, None, id);
+            self.dfa.set_start_state(Start::WordByte, pattern_id, id);
         } else {
-            let id = self.add_start(sparse, nfa_start, Start::WordByte)?;
-            self.dfa.set_start_state(Start::WordByte, None, id);
+            let id = self.add_one_start(sparse, nfa_start, Start::WordByte)?;
+            self.dfa.set_start_state(Start::WordByte, pattern_id, id);
             dfa_state_ids.push(id);
         }
         if !self.nfa.has_any_anchor() {
-            self.dfa.set_start_state(Start::Text, None, id);
-            self.dfa.set_start_state(Start::Line, None, id);
+            self.dfa.set_start_state(Start::Text, pattern_id, id);
+            self.dfa.set_start_state(Start::Line, pattern_id, id);
         } else {
-            let id = self.add_start(sparse, nfa_start, Start::Text)?;
-            self.dfa.set_start_state(Start::Text, None, id);
+            let id = self.add_one_start(sparse, nfa_start, Start::Text)?;
+            self.dfa.set_start_state(Start::Text, pattern_id, id);
             dfa_state_ids.push(id);
 
-            let id = self.add_start(sparse, nfa_start, Start::Line)?;
-            self.dfa.set_start_state(Start::Line, None, id);
+            let id = self.add_one_start(sparse, nfa_start, Start::Line)?;
+            self.dfa.set_start_state(Start::Line, pattern_id, id);
             dfa_state_ids.push(id);
         }
 
         Ok(())
     }
 
-    fn add_start(
+    fn add_one_start(
         &mut self,
         sparse: &mut SparseSet,
         nfa_start: thompson::StateID,
