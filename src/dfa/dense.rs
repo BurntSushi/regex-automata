@@ -493,7 +493,11 @@ impl Builder {
             ByteClasses::singletons()
         };
 
-        let mut dfa = DFA::empty(classes, nfa.match_len())?;
+        let mut dfa = DFA::empty(
+            classes,
+            nfa.match_len(),
+            self.config.get_starts_for_each_pattern(),
+        )?;
         Determinizer::new()
             .anchored(self.config.get_anchored())
             .match_kind(self.config.get_match_kind())
@@ -830,10 +834,13 @@ impl<S: StateID> OwnedDFA<S> {
     fn empty(
         classes: ByteClasses,
         pattern_count: usize,
+        starts_for_each_pattern: bool,
     ) -> Result<OwnedDFA<S>, Error> {
+        let start_pattern_count =
+            if starts_for_each_pattern { pattern_count } else { 0 };
         Ok(DFA {
             tt: TransitionTable::minimal(classes)?,
-            st: StartTable::dead(),
+            st: StartTable::dead(start_pattern_count),
             ms: MatchStates::empty(pattern_count),
             special: Special::new(),
             accels: Accels::empty(),
@@ -1994,6 +2001,7 @@ impl<S: StateID> OwnedDFA<S> {
         // match states.
         let mut is_start: BTreeSet<S> = BTreeSet::new();
         for &start_id in self.starts() {
+            assert_ne!(start_id, dead_id(), "start state cannot be dead");
             assert!(
                 !matches.contains_key(&start_id),
                 "{:?} is both a start and a match state, which is not allowed",
@@ -2616,8 +2624,8 @@ impl<S: StateID> TransitionTable<Vec<S>, S> {
     ///
     /// Both id1 and id2 must point to valid states.
     fn swap(&mut self, id1: S, id2: S) {
-        assert!(self.is_valid(id1), "invalid 'id1' state");
-        assert!(self.is_valid(id2), "invalid 'id2' state");
+        assert!(self.is_valid(id1), "invalid 'id1' state: {:?}", id1);
+        assert!(self.is_valid(id2), "invalid 'id2' state: {:?}", id2);
         for b in 0..self.classes.alphabet_len() {
             self.table.swap(id1.as_usize() + b, id2.as_usize() + b);
         }
@@ -2962,12 +2970,16 @@ impl<'a, S: StateID> StartTable<&'a [S], S> {
 
 impl<S: StateID> StartTable<Vec<S>, S> {
     /// Create a valid set of start states all pointing to the dead state.
-    fn dead() -> StartTable<Vec<S>, S> {
+    ///
+    /// When the corresponding DFA is constructed with start states for each
+    /// pattern, then `patterns` should be the number of patterns. Otherwise,
+    /// it should be zero.
+    fn dead(patterns: usize) -> StartTable<Vec<S>, S> {
         let stride = Start::count();
         StartTable {
-            table: vec![dead_id(); stride],
+            table: vec![dead_id(); stride + (stride * patterns)],
             stride,
-            patterns: 0,
+            patterns,
             _state_id: PhantomData,
         }
     }
@@ -3055,7 +3067,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
         // Check that this list can fit into S2's representation.
         let max_state_id = match self.table().iter().cloned().max() {
             None => {
-                return Ok(StartTable::dead());
+                return Ok(StartTable::dead(self.patterns));
             }
             Some(max_state_id) => max_state_id.as_usize(),
         };
