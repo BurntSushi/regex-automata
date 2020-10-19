@@ -35,7 +35,6 @@ impl Determinizer {
         let quit = Rc::new(State::dead());
         let mut cache = HashMap::default();
         cache.insert(dead.clone(), dead_id());
-        cache.insert(quit.clone(), dfa.quit_id());
 
         Runner {
             nfa,

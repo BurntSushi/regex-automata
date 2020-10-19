@@ -23,12 +23,14 @@ macro_rules! err {
 //   first state in a DFA.
 // * quit - A state that is entered whenever a byte is seen that should cause
 //   a DFA to give up and stop searching. This results in a MatchError::Quit
-//   error being returned. The default configuration for a DFA has no quit
-//   bytes, which means this state is unreachable by default (and can be
-//   removed during minimization). This state is only reachable when the
-//   caller configures the DFA to quit on certain bytes. There is always at
-//   most one of these states and it is always the second state. (Its actual
-//   ID depends on the size of the alphabet in dense DFAs.)
+//   error being returned at search time. The default configuration for a DFA
+//   has no quit bytes, which means this state is unreachable by default,
+//   although it is always present for reasons of implementation simplicity.
+//   This state is only reachable when the caller configures the DFA to quit
+//   on certain bytes. There is always exactly one of these states and it
+//   is always the second state. (Its actual ID depends on the size of the
+//   alphabet in dense DFAs, since state IDs are premultiplied in order to allow
+//   them to be used directly as indices into the transition table.)
 // * match - An accepting state, i.e., indicative of a match. There may be
 //   zero or more of these states.
 // * accelerated - A state where all of its outgoing transitions, except a
@@ -45,13 +47,8 @@ macro_rules! err {
 // overlappings can occur:
 //
 // * {dead, start} - If a DFA can never lead to a match and it is minimized,
-//   then it will typically compiled to something where all starting IDs
-//   point to the DFA's dead state.
-// * {dead, quit} - If a DFA was not configured to quit (the default), then
-//   once the DFA is minimized, the quit sentinel state will be detected as
-//   unreachable and removed. When this happens, the `quit_id` is equivalent
-//   to `0` (which is always the ID of the dead state in every DFA). If a
-//   quit state is present, then `quit_id` is guaranteed to be non-zero.
+//   then it will typically compile to something where all starting IDs point
+//   to the DFA's dead state.
 // * {match, accelerated} - It is possible for a match state to have the
 //   majority of its transitions loop back to itself, which means it's
 //   possible for a match state to be accelerated.
@@ -61,6 +58,13 @@ macro_rules! err {
 //   and start states overlap with accelerated states does not mean that
 //   match and start states overlap with each other. In fact, they are
 //   guaranteed not to overlap.
+//
+// As a special mention, every DFA always has a dead and a quit state, even
+// though from the perspective of the DFA, they are equivalent. (Indeed,
+// minimization special cases them to ensure they don't get merged.) The
+// purpose of keeping them distinct is to use the quit state as a sentinel to
+// distguish between whether a search finished successfully without finding
+// anything or whether it gave up before finishing.
 //
 // So the main problem we want to solve here is the *fast* detection of
 // whether a state is special or not. And we also want to do this while
@@ -137,7 +141,7 @@ macro_rules! err {
 // Graphically, the ranges look like this, where asterisks indicate ranges
 // that can be empty. Each 'x' is a state.
 //
-//      quit*
+//      quit
 //  dead|
 //     ||
 //     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -159,12 +163,21 @@ pub struct Special<S> {
     /// The identifier of the last special state in a DFA. A state is special
     /// if and only if its identifier is less than or equal to `max`.
     pub max: S,
+    /// The identifier of the quit state in a DFA. (There is no analogous field
+    /// for the dead state since the dead state's ID is always zero, regardless
+    /// of state ID size.)
     pub quit_id: S,
+    /// The identifier of the first match state.
     pub min_match: S,
+    /// The identifier of the last match state.
     pub max_match: S,
+    /// The identifier of the first accelerated state.
     pub min_accel: S,
+    /// The identifier of the last accelerated state.
     pub max_accel: S,
+    /// The identifier of the first start state.
     pub min_start: S,
+    /// The identifier of the last start state.
     pub max_start: S,
 }
 
@@ -451,9 +464,10 @@ impl<S: StateID> Special<S> {
     }
 
     /// Returns the total number of accel states.
-    pub fn accel_len(&self) -> usize {
+    pub fn accel_len(&self, stride: usize) -> usize {
         if self.accels() {
-            self.max_accel.as_usize() - self.min_accel.as_usize() + 1
+            (self.max_accel.as_usize() - self.min_accel.as_usize() + stride)
+                / stride
         } else {
             0
         }
