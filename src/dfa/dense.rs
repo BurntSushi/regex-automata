@@ -706,96 +706,6 @@ pub struct DFA<T, A, S = usize> {
     accels: Accels<A>,
 }
 
-/// The transition table portion of a dense DFA.
-///
-/// The transition table is the core part of the DFA in that it describes how
-/// to move from one state to another based on the input sequence observed.
-#[derive(Clone)]
-pub struct TransitionTable<T, S> {
-    /// A contiguous region of memory representing the transition table in
-    /// row-major order. The representation is dense. That is, every state
-    /// has precisely the same number of transitions. The maximum number of
-    /// transitions per state is 257 (256 for each possible byte value, plus 1
-    /// for the special EOF transition). If a DFA has been instructed to use
-    /// byte classes (the default), then the number of transitions is usually
-    /// substantially fewer.
-    ///
-    /// In practice, T is either Vec<S> or &[S].
-    table: T,
-    /// A set of equivalence classes, where a single equivalence class
-    /// represents a set of bytes that never discriminate between a match
-    /// and a non-match in the DFA. Each equivalence class corresponds to a
-    /// single character in this DFA's alphabet, where the maximum number of
-    /// characters is 257 (each possible value of a byte plus the special
-    /// EOF transition). Consequently, the number of equivalence classes
-    /// corresponds to the number of transitions for each DFA state. Note
-    /// though that the *space* used by each DFA state in the transition table
-    /// may be larger. The total space used by each DFA state is known as the
-    /// stride and is documented above.
-    ///
-    /// The only time the number of equivalence classes is fewer than 257 is
-    /// if the DFA's kind uses byte classes which is the default. Equivalence
-    /// classes should generally only be disabled when debugging, so that
-    /// the transitions themselves aren't obscured. Disabling them has no
-    /// other benefit, since the equivalence class map is always used while
-    /// searching. In the vast majority of cases, the number of equivalence
-    /// classes is substantially smaller than 257, particularly when large
-    /// Unicode classes aren't used.
-    classes: ByteClasses,
-    /// The stride of each DFA state, expressed as a power-of-two exponent.
-    ///
-    /// The stride of a DFA corresponds to the total amount of space used by
-    /// each DFA state in the transition table. This may be bigger than the
-    /// size of a DFA's alphabet, since the stride is always the smallest
-    /// power of two greater than or equal to the alphabet size.
-    ///
-    /// While this wastes space, this avoids the need for integer division
-    /// to convert between premultiplied state IDs and their corresponding
-    /// indices. Instead, we can use simple logical shifts.
-    ///
-    /// See the docs for the `stride2` method for more details.
-    stride2: usize,
-    /// The total number of states in the table. Note that a DFA always has at
-    /// least one state---the dead state---even the empty DFA. In particular,
-    /// the dead state always has ID 0 and is correspondingly always the first
-    /// state. The dead state is never a match state.
-    count: usize,
-    /// The state ID representation. This is what's actually stored in `table`.
-    _state_id: PhantomData<S>,
-}
-
-#[derive(Clone, Debug)]
-struct MatchStates<T, A, S> {
-    /// Slices is a flattened sequence of pairs, where each pair points to a
-    /// sub-slice of pattern_ids. The first element of the pair is an offset
-    /// into pattern_ids and the second element of the pair is the number
-    /// of 32-bit pattern IDs starting at that position. That is, each pair
-    /// corresponds to a single DFA match state and its corresponding match
-    /// IDs. The number of pairs always corresponds to the number of distinct
-    /// DFA match states.
-    ///
-    /// In practice, T is either Vec<S> or &[S], where S: StateID.
-    ///
-    /// It's a bit weird to use S for this since these aren't actually state
-    /// IDs. And in fact, they don't have anything to do with state IDs. But
-    /// we reuse the "state ID" abstraction because the state ID abstraction is
-    /// really just an abstraction around pointer sized fields. For example, on
-    /// a 16-bit target, S is guaranteed to be no bigger than a u16. And that's
-    /// exactly what we want here: to store pointers into some other slice,
-    /// which is all state IDs really are at the end of the day.
-    slices: T,
-    /// A flattened sequence of pattern IDs for each DFA match state. The only
-    /// way to correctly read this sequence is indirectly via `slices`.
-    ///
-    /// In practice, T is either Vec<u8> or &[u8].
-    pattern_ids: A,
-    /// The total number of unique patterns represented by these match states.
-    patterns: usize,
-    /// The 'S' type parameter isn't explicitly used above, so we need to fake
-    /// it.
-    _state_id: PhantomData<S>,
-}
-
 #[cfg(feature = "std")]
 impl OwnedDFA<usize> {
     /// Parse the given regular expression using a default configuration and
@@ -1877,6 +1787,7 @@ impl<S: StateID> OwnedDFA<S> {
         if accels.is_empty() {
             return;
         }
+        let original_accels_len = accels.len();
 
         // A remapper keeps track of state ID changes. Once we're done
         // shuffling, the remapper is used to rewrite all transitions in the
@@ -1964,16 +1875,19 @@ impl<S: StateID> OwnedDFA<S> {
         if cnormal > 0 {
             // our next available starting and normal states for swapping.
             let mut next_start_id = self.special.min_start;
-            // this is guaranteed to exist since cnormal > 0.
+            let mut cur_id = self.from_index(self.tt.count - 1);
+            // This is guaranteed to exist since cnormal > 0.
             let mut next_norm_id =
                 self.tt.next_state_id(self.special.max_start);
-            let mut cur_id = self.from_index(self.tt.count - 1);
             while cur_id >= next_norm_id {
                 if let Some(accel) = accels.remove(&cur_id) {
                     remapper.swap(self, next_start_id, cur_id);
                     remapper.swap(self, next_norm_id, cur_id);
-                    // Keep our accelerator map updated with new IDs if our
-                    // next open slot contained an accelerated state.
+                    // Keep our accelerator map updated with new IDs if the
+                    // states we swapped were also accelerated.
+                    if let Some(accel2) = accels.remove(&next_norm_id) {
+                        accels.insert(cur_id, accel2);
+                    }
                     if let Some(accel2) = accels.remove(&next_start_id) {
                         accels.insert(next_norm_id, accel2);
                     }
@@ -1987,7 +1901,15 @@ impl<S: StateID> OwnedDFA<S> {
                     next_start_id = self.tt.next_state_id(next_start_id);
                     next_norm_id = self.tt.next_state_id(next_norm_id);
                 }
-                cur_id = self.tt.prev_state_id(cur_id);
+                // This is pretty tricky, but if our 'next_norm_id' state also
+                // happened to be accelerated, then the result is that it is
+                // now in the position of cur_id, so we need to consider it
+                // again. This loop is still guaranteed to terminate though,
+                // because when accels contains cur_id, we're guaranteed to
+                // increment next_norm_id even if cur_id remains unchanged.
+                if !accels.contains_key(&cur_id) {
+                    cur_id = self.tt.prev_state_id(cur_id);
+                }
             }
         }
         // Just like we did for match states, but we want to move accelerated
@@ -2009,7 +1931,7 @@ impl<S: StateID> OwnedDFA<S> {
             }
         }
 
-        // Remap all transitions in our DFA.
+        // Remap all transitions in our DFA and assert some things.
         remapper.remap(self);
         self.set_pattern_map(&new_matches);
         self.special.set_max();
@@ -2019,6 +1941,16 @@ impl<S: StateID> OwnedDFA<S> {
             .expect(
                 "special state ranges should be consistent with state count",
             );
+        assert_eq!(
+            self.special.accel_len(self.stride()),
+            // We record the number of accelerated states initially detected
+            // since the accels map is itself mutated in the process above.
+            // If mutated incorrectly, its size may change, and thus can't be
+            // trusted as a source of truth of how many accelerated states we
+            // expected there to be.
+            original_accels_len,
+            "mismatch with expected number of accelerated states",
+        );
 
         // And finally record our accelerators. We kept our accels map updated
         // as we shuffled states above, so the accelerators should now
@@ -2225,14 +2157,15 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
         self.st.iter()
     }
 
-    // pub(crate) fn starts(&self) -> &[S] {
-    // self.st.table()
-    // }
-
     /// Returns the index of the match state for the given ID. If the
     /// given ID does not correspond to a match state, then this may
     /// panic or produce an incorrect result.
     fn match_index(&self, id: S) -> usize {
+        // This is one of the places where we rely on the fact that match
+        // states are contiguous in the transition table. Namely, that the
+        // first match state ID always corresponds to dfa.special.min_start.
+        // From there, since we know the stride, we can compute the overall
+        // index of any match state given the match state's ID.
         let min = self.special().min_match.as_usize();
         self.to_index(S::from_usize(id.as_usize() - min))
     }
@@ -2429,6 +2362,64 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
         }
         self.accels.needles(self.accelerator_index(id))
     }
+}
+
+/// The transition table portion of a dense DFA.
+///
+/// The transition table is the core part of the DFA in that it describes how
+/// to move from one state to another based on the input sequence observed.
+#[derive(Clone)]
+pub struct TransitionTable<T, S> {
+    /// A contiguous region of memory representing the transition table in
+    /// row-major order. The representation is dense. That is, every state
+    /// has precisely the same number of transitions. The maximum number of
+    /// transitions per state is 257 (256 for each possible byte value, plus 1
+    /// for the special EOF transition). If a DFA has been instructed to use
+    /// byte classes (the default), then the number of transitions is usually
+    /// substantially fewer.
+    ///
+    /// In practice, T is either Vec<S> or &[S].
+    table: T,
+    /// A set of equivalence classes, where a single equivalence class
+    /// represents a set of bytes that never discriminate between a match
+    /// and a non-match in the DFA. Each equivalence class corresponds to a
+    /// single character in this DFA's alphabet, where the maximum number of
+    /// characters is 257 (each possible value of a byte plus the special
+    /// EOF transition). Consequently, the number of equivalence classes
+    /// corresponds to the number of transitions for each DFA state. Note
+    /// though that the *space* used by each DFA state in the transition table
+    /// may be larger. The total space used by each DFA state is known as the
+    /// stride and is documented above.
+    ///
+    /// The only time the number of equivalence classes is fewer than 257 is
+    /// if the DFA's kind uses byte classes which is the default. Equivalence
+    /// classes should generally only be disabled when debugging, so that
+    /// the transitions themselves aren't obscured. Disabling them has no
+    /// other benefit, since the equivalence class map is always used while
+    /// searching. In the vast majority of cases, the number of equivalence
+    /// classes is substantially smaller than 257, particularly when large
+    /// Unicode classes aren't used.
+    classes: ByteClasses,
+    /// The stride of each DFA state, expressed as a power-of-two exponent.
+    ///
+    /// The stride of a DFA corresponds to the total amount of space used by
+    /// each DFA state in the transition table. This may be bigger than the
+    /// size of a DFA's alphabet, since the stride is always the smallest
+    /// power of two greater than or equal to the alphabet size.
+    ///
+    /// While this wastes space, this avoids the need for integer division
+    /// to convert between premultiplied state IDs and their corresponding
+    /// indices. Instead, we can use simple logical shifts.
+    ///
+    /// See the docs for the `stride2` method for more details.
+    stride2: usize,
+    /// The total number of states in the table. Note that a DFA always has at
+    /// least one state---the dead state---even the empty DFA. In particular,
+    /// the dead state always has ID 0 and is correspondingly always the first
+    /// state. The dead state is never a match state.
+    count: usize,
+    /// The state ID representation. This is what's actually stored in `table`.
+    _state_id: PhantomData<S>,
 }
 
 impl<'a, S: StateID> TransitionTable<&'a [S], S> {
@@ -3290,6 +3281,48 @@ impl<'a, S: StateID> Iterator for StartStateIter<'a, S> {
     }
 }
 
+/// This type represents that patterns that should be reported whenever a DFA
+/// enters a match state. This structure exists to support DFAs that search for
+/// matches for multiple regexes.
+///
+/// This structure relies on the fact that all match states in a DFA occur
+/// contiguously in the DFA's transition table. (See dfa/special.rs for a more
+/// detailed breakdown of the representation.) Namely, when a match occurs, we
+/// know its state ID. Since we know the start and end of the contiguous region
+/// of match states, we can use that to compute the position at which the match
+/// state occurs. That in turn is used as an offset into this structure.
+#[derive(Clone, Debug)]
+struct MatchStates<T, A, S> {
+    /// Slices is a flattened sequence of pairs, where each pair points to a
+    /// sub-slice of pattern_ids. The first element of the pair is an offset
+    /// into pattern_ids and the second element of the pair is the number
+    /// of 32-bit pattern IDs starting at that position. That is, each pair
+    /// corresponds to a single DFA match state and its corresponding match
+    /// IDs. The number of pairs always corresponds to the number of distinct
+    /// DFA match states.
+    ///
+    /// In practice, T is either Vec<S> or &[S], where S: StateID.
+    ///
+    /// It's a bit weird to use S for this since these aren't actually state
+    /// IDs. And in fact, they don't have anything to do with state IDs. But
+    /// we reuse the "state ID" abstraction because the state ID abstraction is
+    /// really just an abstraction around pointer sized fields. For example, on
+    /// a 16-bit target, S is guaranteed to be no bigger than a u16. And that's
+    /// exactly what we want here: to store pointers into some other slice,
+    /// which is all state IDs really are at the end of the day.
+    slices: T,
+    /// A flattened sequence of pattern IDs for each DFA match state. The only
+    /// way to correctly read this sequence is indirectly via `slices`.
+    ///
+    /// In practice, T is either Vec<u8> or &[u8].
+    pattern_ids: A,
+    /// The total number of unique patterns represented by these match states.
+    patterns: usize,
+    /// The 'S' type parameter isn't explicitly used above, so we need to fake
+    /// it.
+    _state_id: PhantomData<S>,
+}
+
 impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
@@ -3561,11 +3594,11 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     /// This panics if there is no match state at the given index.
     fn match_state_id(&self, dfa: &DFA<T, A, S>, index: usize) -> S {
         assert!(dfa.special.matches(), "no match states to index");
-        // This is where we rely on the fact that match states are contiguous
-        // in the transition table. Namely, that the first match state ID
-        // always corresponds to dfa.special.min_start. From there, since we
-        // know the stride, we can compute the ID of any match state given its
-        // index.
+        // This is one of the places where we rely on the fact that match
+        // states are contiguous in the transition table. Namely, that the
+        // first match state ID always corresponds to dfa.special.min_start.
+        // From there, since we know the stride, we can compute the ID of any
+        // match state given its index.
         let id = S::from_usize(
             dfa.special.min_match.as_usize() + (index << dfa.tt.stride2),
         );

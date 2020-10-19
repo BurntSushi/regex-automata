@@ -41,23 +41,7 @@ impl Patterns {
     /// or from pattern files. If no patterns could be found, then an error
     /// is returned.
     pub fn get(args: &Args) -> anyhow::Result<Patterns> {
-        if let Some(os_patterns) = args.values_of_os("pattern") {
-            if args.value_of_os("pattern-file").is_some() {
-                anyhow::bail!(
-                    "cannot provide both positional patterns and \
-                     --pattern-file"
-                );
-            }
-            let mut patterns = vec![];
-            for (i, p) in os_patterns.enumerate() {
-                let p = match p.to_str() {
-                    Some(p) => p,
-                    None => anyhow::bail!("pattern {} is not valid UTF-8", i),
-                };
-                patterns.push(p.to_string());
-            }
-            Ok(Patterns(patterns))
-        } else if let Some(pfile) = args.value_of_os("pattern-file") {
+        if let Some(pfile) = args.value_of_os("pattern-file") {
             let path = std::path::Path::new(pfile);
             let contents =
                 std::fs::read_to_string(path).with_context(|| {
@@ -65,7 +49,25 @@ impl Patterns {
                 })?;
             Ok(Patterns(contents.lines().map(|x| x.to_string()).collect()))
         } else {
-            Err(anyhow::anyhow!("no regex patterns given"))
+            if args.value_of_os("pattern-file").is_some() {
+                anyhow::bail!(
+                    "cannot provide both positional patterns and \
+                     --pattern-file"
+                );
+            }
+            let mut patterns = vec![];
+            if let Some(os_patterns) = args.values_of_os("pattern") {
+                for (i, p) in os_patterns.enumerate() {
+                    let p = match p.to_str() {
+                        Some(p) => p,
+                        None => {
+                            anyhow::bail!("pattern {} is not valid UTF-8", i)
+                        }
+                    };
+                    patterns.push(p.to_string());
+                }
+            }
+            Ok(Patterns(patterns))
         }
     }
 

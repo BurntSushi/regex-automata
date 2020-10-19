@@ -95,6 +95,8 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         let mut scratch2 = StateSet::empty();
         let mut newparts = vec![];
 
+        // This loop is basically Hopcroft's algorithm. Everything else is just
+        // shuffling data around to fit our representation.
         while let Some(set) = self.waiting.pop() {
             for b in self.dfa.byte_classes().iter() {
                 self.find_incoming_to(b, &set, &mut incoming);
@@ -103,8 +105,8 @@ impl<'a, S: StateID> Minimizer<'a, S> {
                 // 'self.partitions'. So there's no need to go through the loop
                 // below.
                 //
-                // This actually turns out to be rather large optimization.
-                // On the order of making minimization 5x faster. It's likely
+                // This actually turns out to be rather large optimization. On
+                // the order of making minimization 4-5x faster. It's likely
                 // that the vast majority of all states have very few incoming
                 // transitions.
                 if incoming.is_empty() {
