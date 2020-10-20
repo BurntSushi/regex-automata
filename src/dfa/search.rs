@@ -3,8 +3,6 @@ use crate::dfa::automaton::{Automaton, HalfMatch, State, StateMatch};
 use crate::prefilter::{self, Prefilter};
 use crate::{MatchError, PatternID};
 
-// TODO: An anchored DFA should never use a prefilter.
-
 #[inline(never)]
 pub fn find_earliest_fwd<A: Automaton + ?Sized>(
     mut pre: Option<&mut prefilter::Scanner>,
