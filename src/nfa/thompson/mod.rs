@@ -520,18 +520,6 @@ impl<'a> Iterator for PatternIter<'a> {
     }
 }
 
-/// The limit on the total number of patterns supported by the Thompson NFA
-/// compiler.
-///
-/// Generally, the limit can be expressed as
-/// `cmp::min(usize::MAX, u32::MAX) - 1`.
-pub fn pattern_limit() -> usize {
-    // The purpose of subtracting 1 here is so that the number of patterns
-    // is representable by a u32.
-    (core::cmp::min(core::usize::MAX as u64, core::u32::MAX as u64) - 1)
-        as usize
-}
-
 /// Return the given byte as its escaped string form.
 fn escape(b: u8) -> String {
     use std::ascii;

@@ -14,7 +14,9 @@ pub fn find_earliest_fwd<A: Automaton + ?Sized>(
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    if pre.is_some() {
+    // Searching with a pattern ID is always anchored, so we should never use
+    // a prefilter.
+    if pre.is_some() && pattern_id.is_none() {
         find_fwd(pre, true, dfa, pattern_id, bytes, start, end)
     } else {
         find_fwd(None, true, dfa, pattern_id, bytes, start, end)
@@ -30,7 +32,9 @@ pub fn find_leftmost_fwd<A: Automaton + ?Sized>(
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    if pre.is_some() {
+    // Searching with a pattern ID is always anchored, so we should never use
+    // a prefilter.
+    if pre.is_some() && pattern_id.is_none() {
         find_fwd(pre, false, dfa, pattern_id, bytes, start, end)
     } else {
         find_fwd(None, false, dfa, pattern_id, bytes, start, end)
@@ -238,7 +242,9 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     end: usize,
     caller_state: &mut State<A::ID>,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    if pre.is_some() {
+    // Searching with a pattern ID is always anchored, so we should never use
+    // a prefilter.
+    if pre.is_some() && pattern_id.is_none() {
         find_overlapping_fwd_imp(
             pre,
             dfa,

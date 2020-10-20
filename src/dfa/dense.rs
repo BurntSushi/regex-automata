@@ -590,7 +590,10 @@ impl Default for Builder {
 }
 
 /// A convenience alias for an owned DFA. We use this particular instantiation
-/// a lot in this crate, so it's worth giving it a name.
+/// a lot in this crate, so it's worth giving it a name. This instantiation
+/// is commonly used for mutable APIs on the DFA while building it. The main
+/// reason for making it generic is no_std support, and more generally, making
+/// it possible to load a DFA from an arbitrary slice of bytes.
 pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 
 /// A dense table-based deterministic finite automaton (DFA).
@@ -695,8 +698,8 @@ pub struct DFA<T, A, S = usize> {
     ///
     /// If a state is accelerated, then there exist only a small number of
     /// bytes that can cause the DFA to leave the state. This permits searching
-    /// to use optimized routines to find those specific bytes instead of
-    /// using the transition table.
+    /// to use optimized routines to find those specific bytes instead of using
+    /// the transition table.
     ///
     /// All accelerated states exist in a contiguous range in the DFA's
     /// transition table. See dfa/special.rs for more details on how states are
@@ -1974,8 +1977,10 @@ impl<S: StateID> OwnedDFA<S> {
     ) {
         // The determinizer always adds a quit state and it is always second.
         self.special.quit_id = self.from_index(1);
-        // If all we have are the dead and quit states, then we're done.
+        // If all we have are the dead and quit states, then we're done and
+        // the DFA will never produce a match.
         if self.tt.count <= 2 {
+            self.special.set_max();
             return;
         }
 
@@ -2961,6 +2966,23 @@ pub struct StartTable<T, S> {
     _state_id: PhantomData<S>,
 }
 
+impl<S: StateID> StartTable<Vec<S>, S> {
+    /// Create a valid set of start states all pointing to the dead state.
+    ///
+    /// When the corresponding DFA is constructed with start states for each
+    /// pattern, then `patterns` should be the number of patterns. Otherwise,
+    /// it should be zero.
+    fn dead(patterns: usize) -> StartTable<Vec<S>, S> {
+        let stride = Start::count();
+        StartTable {
+            table: vec![dead_id(); stride + (stride * patterns)],
+            stride,
+            patterns,
+            _state_id: PhantomData,
+        }
+    }
+}
+
 impl<'a, S: StateID> StartTable<&'a [S], S> {
     /// Deserialize a table of start state IDs starting at the beginning of
     /// `slice`. Upon success, return the total number of bytes read along with
@@ -3001,15 +3023,25 @@ impl<'a, S: StateID> StartTable<&'a [S], S> {
                 "invalid starting table stride",
             ));
         }
-        // TODO: It feels weird to invoke thompson's pattern limit here.
-        // Maybe pattern limit should be defined at the top-level?
-        if patterns > crate::nfa::thompson::pattern_limit() {
+        if patterns > crate::pattern_limit() {
             return Err(DeserializeError::generic(
                 "invalid number of patterns",
             ));
         }
-        let count =
-            stride.checked_add(stride.checked_mul(patterns).unwrap()).unwrap();
+        let pattern_table_size = match stride.checked_mul(patterns) {
+            Some(x) => x,
+            None => {
+                return Err(DeserializeError::generic("invalid pattern count"))
+            }
+        };
+        let count = match stride.checked_add(pattern_table_size) {
+            Some(x) => x,
+            None => {
+                return Err(DeserializeError::generic(
+                    "invalid pattern+stride",
+                ))
+            }
+        };
         let table_bytes_len = count * core::mem::size_of::<S>();
         let nread = 16 + table_bytes_len;
         if slice.len() < table_bytes_len {
@@ -3029,23 +3061,6 @@ impl<'a, S: StateID> StartTable<&'a [S], S> {
         let st =
             StartTable { table, stride, patterns, _state_id: PhantomData };
         Ok((st, nread))
-    }
-}
-
-impl<S: StateID> StartTable<Vec<S>, S> {
-    /// Create a valid set of start states all pointing to the dead state.
-    ///
-    /// When the corresponding DFA is constructed with start states for each
-    /// pattern, then `patterns` should be the number of patterns. Otherwise,
-    /// it should be zero.
-    fn dead(patterns: usize) -> StartTable<Vec<S>, S> {
-        let stride = Start::count();
-        StartTable {
-            table: vec![dead_id(); stride + (stride * patterns)],
-            stride,
-            patterns,
-            _state_id: PhantomData,
-        }
     }
 }
 
@@ -3138,12 +3153,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
         if max_state_id > S2::max_id() {
             return Err(Error::state_id_overflow(S2::max_id()));
         }
-        let mut st = StartTable {
-            table: vec![dead_id::<S2>(); self.table().len()],
-            stride: self.stride,
-            patterns: self.patterns,
-            _state_id: PhantomData,
-        };
+        let mut st = StartTable::dead(self.patterns);
         for (i, id) in st.table.iter_mut().enumerate() {
             // This is always correct since we've verified above that the
             // maximum state ID can fit into S2.
@@ -3218,12 +3228,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
 }
 
 impl<T: AsMut<[S]>, S: StateID> StartTable<T, S> {
-    /// Return the start state for the given index and pattern ID. If the
-    /// pattern ID is None, then the corresponding start state for the entire
-    /// DFA is returned. If the pattern ID is not None, then the corresponding
-    /// starting state for the given pattern is returned. If this start table
-    /// does not have individual starting states for each pattern, then this
-    /// panics.
+    /// Set the start state for the given index and pattern.
     fn set_start(
         &mut self,
         index: Start,
@@ -3272,12 +3277,12 @@ impl<'a, S: StateID> Iterator for StartStateIter<'a, S> {
         // This unwrap is okay since the stride of any DFA must always match
         // the number of start state types.
         let start_type = Start::from_usize(i % self.st.stride).unwrap();
-        if i < self.st.stride {
-            Some((table[i], start_type, None))
+        let pid = if i < self.st.stride {
+            None
         } else {
-            let pid = (i - self.st.stride) / self.st.stride;
-            Some((table[i], start_type, Some(pid as u32)))
-        }
+            Some(((i - self.st.stride) / self.st.stride) as u32)
+        };
+        Some((table[i], start_type, pid))
     }
 }
 

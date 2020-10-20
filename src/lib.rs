@@ -9,7 +9,7 @@ TODO
 pub use crate::bytes::{DeserializeError, SerializeError};
 pub use crate::config::SyntaxConfig;
 pub use crate::matching::{
-    Match, MatchError, MatchKind, MultiMatch, PatternID,
+    pattern_limit, Match, MatchError, MatchKind, MultiMatch, PatternID,
 };
 pub use crate::state_id::StateID;
 
