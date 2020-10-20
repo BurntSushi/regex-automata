@@ -285,8 +285,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> Vec<TestResult> {
         }
     };
 
-    // vec![is_match, find_matches]
-    vec![find_matches]
+    vec![is_match, find_matches]
 }
 
 fn configure_regex_builder(

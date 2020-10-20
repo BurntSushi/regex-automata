@@ -93,93 +93,8 @@ const VERSION: u64 = 2;
 #[derive(Clone)]
 pub struct DFA<T, S = usize> {
     trans: Transitions<T, S>,
-    starts: StartList<T, S>,
+    starts: StartTable<T, S>,
     special: Special<S>,
-}
-
-/// The transition table portion of a sparse DFA.
-///
-/// The transition table is the core part of the DFA in that it describes how
-/// to move from one state to another based on the input sequence observed.
-///
-/// Unlike a typical dense table based DFA, states in a sparse transition
-/// table have variable size. That is, states with more transitions use more
-/// space than states with fewer transitions. This means that finding the next
-/// transition takes more work than with a dense DFA, but also typically uses
-/// much less space.
-#[derive(Clone)]
-struct Transitions<T, S> {
-    /// The raw encoding of each state in this DFA.
-    ///
-    /// Each state has the following information:
-    ///
-    /// * A set of transitions to subsequent states. Transitions to the dead
-    ///   state are omitted.
-    /// * If the state can be accelerated, then any additional accelerator
-    ///   information.
-    /// * If the state is a match state, then the state contains all pattern
-    ///   IDs that match when in that state.
-    ///
-    /// To decode a state, use Transitions::state.
-    ///
-    /// In practice, T is either Vec<u8> or &[u8].
-    sparse: T,
-    /// A set of equivalence classes, where a single equivalence class
-    /// represents a set of bytes that never discriminate between a match
-    /// and a non-match in the DFA. Each equivalence class corresponds to a
-    /// single character in this DFA's alphabet, where the maximum number of
-    /// characters is 257 (each possible value of a byte plus the special
-    /// EOF transition). Consequently, the number of equivalence classes
-    /// corresponds to the number of transitions for each DFA state. Note
-    /// though that the *space* used by each DFA state in the transition table
-    /// may be larger. The total space used by each DFA state is known as the
-    /// stride and is documented above.
-    ///
-    /// The only time the number of equivalence classes is fewer than 257 is
-    /// if the DFA's kind uses byte classes which is the default. Equivalence
-    /// classes should generally only be disabled when debugging, so that
-    /// the transitions themselves aren't obscured. Disabling them has no
-    /// other benefit, since the equivalence class map is always used while
-    /// searching. In the vast majority of cases, the number of equivalence
-    /// classes is substantially smaller than 257, particularly when large
-    /// Unicode classes aren't used.
-    ///
-    /// N.B. Equivalence classes aren't particularly useful in a sparse DFA
-    /// in the current implementation, since equivalence classes generally tend
-    /// to correspond to continuous ranges of bytes that map to the same
-    /// transition. So in a sparse DFA, equivalence classes don't really lead
-    /// to a space savings. In the future, it would be good to try and remove
-    /// them from sparse DFAs entirely, but requires a bit of work since sparse
-    /// DFAs are built from dense DFAs, which are in turn built on top of
-    /// equivalence classes.
-    classes: ByteClasses,
-    /// The total number of states in this DFA. Note that a DFA always has at
-    /// least one state---the dead state---even the empty DFA. In particular,
-    /// the dead state always has ID 0 and is correspondingly always the first
-    /// state. The dead state is never a match state.
-    count: usize,
-    /// The total number of unique patterns represented by these match states.
-    patterns: usize,
-    /// The state ID representation.
-    _state_id: PhantomData<S>,
-}
-
-/// The set of all possible starting states in a DFA.
-///
-/// See the eponymous type in the `dense` module for more details. This type
-/// is very similar to `dense::StartList`, except that its underlying
-/// representation is `&[u8]` instead of `&[S]`. (The latter would require
-/// sparse DFAs to be aligned, which is explicitly something we do not require
-/// because we don't really need it.)
-#[derive(Clone)]
-struct StartList<T, S> {
-    /// The initial start state IDs as a contiguous list of native endian
-    /// encoded integers, represented by `S`.
-    ///
-    /// In practice, T is either Vec<u8> or &[u8].
-    list: T,
-    /// The state ID representation. This is what's actually stored in `list`.
-    _state_id: PhantomData<S>,
 }
 
 #[cfg(feature = "std")]
@@ -373,7 +288,7 @@ impl<S: StateID> DFA<Vec<u8>, S> {
                 patterns: dfa.pattern_count(),
                 _state_id: PhantomData,
             },
-            starts: StartList::from_dense_dfa(dfa, &remap)?,
+            starts: StartTable::from_dense_dfa(dfa, &remap)?,
             special: dfa.special().remap(|id| remap[dfa.to_index(id)]),
         };
         for old_state in dfa.states() {
@@ -426,6 +341,20 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// compute that, used `std::mem::size_of::<sparse::DFA>()`.
     pub fn memory_usage(&self) -> usize {
         self.trans.memory_usage() + self.starts.memory_usage()
+    }
+
+    /// Returns true only if this DFA has starting states for each pattern.
+    ///
+    /// When a DFA has starting states for each pattern, then a search with the
+    /// DFA can be configured to only look for anchored matches of a specific
+    /// pattern. Specifically, APIs like
+    /// [`Automaton::find_earliest_fwd_at`](../trait.Automaton.html#method.find_earliest_fwd_at)
+    /// can accept a non-None `pattern_id` if and only if this method returns
+    /// true. Otherwise, calling `find_earliest_fwd_at` will panic.
+    ///
+    /// Note that if the DFA is empty, this always returns false.
+    pub fn has_starts_for_each_pattern(&self) -> bool {
+        self.starts.patterns > 0
     }
 }
 
@@ -1072,7 +1001,7 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
         let (trans, nread) = Transitions::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
-        let (starts, nread) = StartList::from_bytes_unchecked(&slice[nr..])?;
+        let (starts, nread) = StartTable::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
         let (special, nread): (Special<S>, usize) =
@@ -1096,15 +1025,15 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for DFA<T, S> {
             writeln!(f, "{:06}: {:?}", state.id().as_usize(), state)?;
         }
         writeln!(f, "")?;
-        for (i, start_id) in self.starts.ids().enumerate() {
-            let sty = Start::from_usize(i).expect("must have start type");
-            writeln!(
-                f,
-                "START({}): {:?} => {:06}",
-                i,
-                sty,
-                start_id.as_usize(),
-            )?;
+        for (i, (start_id, sty, pid)) in self.starts.iter().enumerate() {
+            if i % self.starts.stride == 0 {
+                let group = match pid {
+                    None => "ALL".to_string(),
+                    Some(pid) => format!("pattern: {}", pid),
+                };
+                writeln!(f, "START-GROUP({})", group)?;
+            }
+            writeln!(f, "  {:?} => {:06}", sty, start_id.as_usize())?;
         }
         writeln!(f, "state count: {}", self.trans.count)?;
         writeln!(f, ")")?;
@@ -1178,6 +1107,15 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
 
     #[inline]
     fn match_pattern(&self, id: Self::ID, match_index: usize) -> PatternID {
+        // This is an optimization for the very common case of a DFA with a
+        // single pattern. This conditional avoids a somewhat more costly path
+        // that finds the pattern ID from the state machine, which requires
+        // a bit of slicing/pointer-chasing. This optimization tends to only
+        // matter when matches are frequent.
+        if self.trans.patterns == 1 {
+            assert_eq!(match_index, 0);
+            return 0;
+        }
         self.trans.state(id).pattern_id(match_index)
     }
 
@@ -1190,7 +1128,7 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
         end: usize,
     ) -> S {
         let index = Start::from_position_fwd(bytes, start, end);
-        self.starts.start(index)
+        self.starts.start(index, pattern_id)
     }
 
     #[inline]
@@ -1202,13 +1140,80 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
         end: usize,
     ) -> S {
         let index = Start::from_position_rev(bytes, start, end);
-        self.starts.start(index)
+        self.starts.start(index, pattern_id)
     }
 
     #[inline]
     fn accelerator(&self, id: Self::ID) -> &[u8] {
         self.trans.state(id).accelerator()
     }
+}
+
+/// The transition table portion of a sparse DFA.
+///
+/// The transition table is the core part of the DFA in that it describes how
+/// to move from one state to another based on the input sequence observed.
+///
+/// Unlike a typical dense table based DFA, states in a sparse transition
+/// table have variable size. That is, states with more transitions use more
+/// space than states with fewer transitions. This means that finding the next
+/// transition takes more work than with a dense DFA, but also typically uses
+/// much less space.
+#[derive(Clone)]
+struct Transitions<T, S> {
+    /// The raw encoding of each state in this DFA.
+    ///
+    /// Each state has the following information:
+    ///
+    /// * A set of transitions to subsequent states. Transitions to the dead
+    ///   state are omitted.
+    /// * If the state can be accelerated, then any additional accelerator
+    ///   information.
+    /// * If the state is a match state, then the state contains all pattern
+    ///   IDs that match when in that state.
+    ///
+    /// To decode a state, use Transitions::state.
+    ///
+    /// In practice, T is either Vec<u8> or &[u8].
+    sparse: T,
+    /// A set of equivalence classes, where a single equivalence class
+    /// represents a set of bytes that never discriminate between a match
+    /// and a non-match in the DFA. Each equivalence class corresponds to a
+    /// single character in this DFA's alphabet, where the maximum number of
+    /// characters is 257 (each possible value of a byte plus the special
+    /// EOF transition). Consequently, the number of equivalence classes
+    /// corresponds to the number of transitions for each DFA state. Note
+    /// though that the *space* used by each DFA state in the transition table
+    /// may be larger. The total space used by each DFA state is known as the
+    /// stride and is documented above.
+    ///
+    /// The only time the number of equivalence classes is fewer than 257 is
+    /// if the DFA's kind uses byte classes which is the default. Equivalence
+    /// classes should generally only be disabled when debugging, so that
+    /// the transitions themselves aren't obscured. Disabling them has no
+    /// other benefit, since the equivalence class map is always used while
+    /// searching. In the vast majority of cases, the number of equivalence
+    /// classes is substantially smaller than 257, particularly when large
+    /// Unicode classes aren't used.
+    ///
+    /// N.B. Equivalence classes aren't particularly useful in a sparse DFA
+    /// in the current implementation, since equivalence classes generally tend
+    /// to correspond to continuous ranges of bytes that map to the same
+    /// transition. So in a sparse DFA, equivalence classes don't really lead
+    /// to a space savings. In the future, it would be good to try and remove
+    /// them from sparse DFAs entirely, but requires a bit of work since sparse
+    /// DFAs are built from dense DFAs, which are in turn built on top of
+    /// equivalence classes.
+    classes: ByteClasses,
+    /// The total number of states in this DFA. Note that a DFA always has at
+    /// least one state---the dead state---even the empty DFA. In particular,
+    /// the dead state always has ID 0 and is correspondingly always the first
+    /// state. The dead state is never a match state.
+    count: usize,
+    /// The total number of unique patterns represented by these match states.
+    patterns: usize,
+    /// The state ID representation.
+    _state_id: PhantomData<S>,
 }
 
 impl<'a, S: StateID> Transitions<&'a [u8], S> {
@@ -1536,17 +1541,6 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
                 ));
             }
             let (pattern_ids, state) = state.split_at(pattern_ids_len);
-            // Every pattern ID should be strictly less than the one after it.
-            let mut prev = None;
-            for chunk in pattern_ids.chunks(4) {
-                let pid = u32::from_ne_bytes(chunk.try_into().unwrap());
-                if prev.map_or(false, |p| p >= pid) {
-                    return Err(DeserializeError::generic(
-                        "pattern IDs are not monotonically increasing",
-                    ));
-                }
-                prev = Some(pid);
-            }
             (pattern_ids, state)
         } else {
             (&[][..], state)
@@ -1644,47 +1638,125 @@ impl<T: AsMut<[u8]>, S: StateID> Transitions<T, S> {
     }
 }
 
-impl<S: StateID> StartList<Vec<u8>, S> {
-    fn new(count: usize) -> StartList<Vec<u8>, S> {
-        let stride = core::mem::size_of::<S>();
-        StartList { list: vec![0; count * stride], _state_id: PhantomData }
+/// The set of all possible starting states in a DFA.
+///
+/// See the eponymous type in the `dense` module for more details. This type
+/// is very similar to `dense::StartTable`, except that its underlying
+/// representation is `&[u8]` instead of `&[S]`. (The latter would require
+/// sparse DFAs to be aligned, which is explicitly something we do not require
+/// because we don't really need it.)
+#[derive(Clone)]
+struct StartTable<T, S> {
+    /// The initial start state IDs as a contiguous table of native endian
+    /// encoded integers, represented by `S`.
+    ///
+    /// In practice, T is either Vec<u8> or &[u8] and has no alignment
+    /// requirements.
+    ///
+    /// The first `stride` (currently always 4) entries always correspond to
+    /// the start states for the entire DFA. After that, there are
+    /// `stride * patterns` state IDs, where `patterns` may be zero in the
+    /// case of a DFA with no patterns or in the case where the DFA was built
+    /// without enabling starting states for each pattern.
+    table: T,
+    /// The number of starting state IDs per pattern.
+    stride: usize,
+    /// The total number of patterns for which starting states are encoded.
+    /// This may be zero for non-empty DFAs when the DFA was built without
+    /// start states for each pattern.
+    patterns: usize,
+    /// The state ID representation. This is what's actually stored in `list`.
+    _state_id: PhantomData<S>,
+}
+
+impl<S: StateID> StartTable<Vec<u8>, S> {
+    fn new(patterns: usize) -> StartTable<Vec<u8>, S> {
+        let stride = Start::count();
+        let start_count = stride + (stride * patterns);
+        let state_id_stride = core::mem::size_of::<S>();
+        StartTable {
+            table: vec![dead_id(); start_count * state_id_stride],
+            stride,
+            patterns,
+            _state_id: PhantomData,
+        }
     }
 
     fn from_dense_dfa<T: AsRef<[S]>, A: AsRef<[u8]>, S2: StateID>(
         dfa: &dense::DFA<T, A, S>,
         remap: &[S2],
-    ) -> Result<StartList<Vec<u8>, S2>, Error> {
-        // TODO: Shouldn't this possibly return an error?
-        let mut sl = StartList::new(dfa.starts().count());
-        for (old_start_id, sty, _) in dfa.starts() {
+    ) -> Result<StartTable<Vec<u8>, S2>, Error> {
+        let start_pattern_count = if dfa.has_starts_for_each_pattern() {
+            dfa.pattern_count()
+        } else {
+            0
+        };
+        let mut sl = StartTable::new(start_pattern_count);
+        for (old_start_id, sty, pid) in dfa.starts() {
             let new_start_id = remap[dfa.to_index(old_start_id)];
-            sl.set_start(sty, new_start_id);
+            sl.set_start(sty, pid, new_start_id);
         }
         Ok(sl)
     }
 }
 
-impl<'a, S: StateID> StartList<&'a [u8], S> {
+impl<'a, S: StateID> StartTable<&'a [u8], S> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
-    ) -> Result<(StartList<&'a [u8], S>, usize), DeserializeError> {
-        let count: usize =
-            bytes::try_read_u64_as_usize(slice, "sparse start ID count")?;
+    ) -> Result<(StartTable<&'a [u8], S>, usize), DeserializeError> {
+        let stride =
+            bytes::try_read_u64_as_usize(slice, "sparse start table stride")?;
+        slice = &slice[8..];
+        let patterns = bytes::try_read_u64_as_usize(
+            slice,
+            "sparse start table patterns",
+        )?;
         slice = &slice[8..];
 
-        let len = count * core::mem::size_of::<S>();
-        if slice.len() < len {
-            return Err(DeserializeError::buffer_too_small(
-                "sparse start ID list",
+        if stride != Start::count() {
+            return Err(DeserializeError::generic(
+                "invalid sparse starting table stride",
             ));
         }
-        let sl = StartList { list: &slice[..len], _state_id: PhantomData };
-        let nread = 8 + len;
+        if patterns > crate::pattern_limit() {
+            return Err(DeserializeError::generic(
+                "sparse invalid number of patterns",
+            ));
+        }
+        let pattern_table_size = match stride.checked_mul(patterns) {
+            Some(x) => x,
+            None => {
+                return Err(DeserializeError::generic(
+                    "sparse invalid pattern count",
+                ))
+            }
+        };
+        let count = match stride.checked_add(pattern_table_size) {
+            Some(x) => x,
+            None => {
+                return Err(DeserializeError::generic(
+                    "sparse invalid pattern+stride",
+                ))
+            }
+        };
+        let table_bytes_len = count * core::mem::size_of::<S>();
+        let nread = 16 + table_bytes_len;
+        if slice.len() < table_bytes_len {
+            return Err(DeserializeError::buffer_too_small(
+                "sparse start ID table",
+            ));
+        }
+        let sl = StartTable {
+            table: &slice[..table_bytes_len],
+            stride,
+            patterns,
+            _state_id: PhantomData,
+        };
         Ok((sl, nread))
     }
 }
 
-impl<T: AsRef<[u8]>, S: StateID> StartList<T, S> {
+impl<T: AsRef<[u8]>, S: StateID> StartTable<T, S> {
     fn write_to<E: Endian>(
         &self,
         mut dst: &mut [u8],
@@ -1692,28 +1764,31 @@ impl<T: AsRef<[u8]>, S: StateID> StartList<T, S> {
         let nwrite = self.write_to_len();
         if dst.len() < nwrite {
             return Err(SerializeError::buffer_too_small(
-                "sparse starting list ids",
+                "sparse starting table ids",
             ));
         }
         dst = &mut dst[..nwrite];
 
-        // write state ID count
-        E::write_u64(self.count() as u64, dst);
+        // write stride
+        E::write_u64(self.stride as u64, dst);
         dst = &mut dst[8..];
-
+        // write pattern count
+        E::write_u64(self.patterns as u64, dst);
+        dst = &mut dst[8..];
         // write start IDs
-        dst.copy_from_slice(self.list());
+        dst.copy_from_slice(self.table());
         Ok(nwrite)
     }
 
     /// Returns the number of bytes the serialized form of this transition
     /// table will use.
     fn write_to_len(&self) -> usize {
-        8 // state ID count
-        + self.list().len()
+        8 // stride
+        + 8 // # patterns
+        + self.table().len()
     }
 
-    /// Validates that every starting state ID in this list is valid.
+    /// Validates that every starting state ID in this table is valid.
     ///
     /// That is, every starting state ID can be used to correctly decode a
     /// state in the DFA's sparse transitions.
@@ -1721,20 +1796,30 @@ impl<T: AsRef<[u8]>, S: StateID> StartList<T, S> {
         &self,
         trans: &Transitions<T, S>,
     ) -> Result<(), DeserializeError> {
-        for id in self.ids() {
+        for (id, _, _) in self.iter() {
             let _ = trans.try_state(id)?;
         }
         Ok(())
     }
 
     /// Converts this start list to a borrowed value.
-    fn as_ref(&self) -> StartList<&'_ [u8], S> {
-        StartList { list: self.list(), _state_id: self._state_id }
+    fn as_ref(&self) -> StartTable<&'_ [u8], S> {
+        StartTable {
+            table: self.table(),
+            stride: self.stride,
+            patterns: self.patterns,
+            _state_id: self._state_id,
+        }
     }
 
     /// Converts this start list to an owned value.
-    fn to_owned(&self) -> StartList<Vec<u8>, S> {
-        StartList { list: self.list().to_vec(), _state_id: self._state_id }
+    fn to_owned(&self) -> StartTable<Vec<u8>, S> {
+        StartTable {
+            table: self.table().to_vec(),
+            stride: self.stride,
+            patterns: self.patterns,
+            _state_id: self._state_id,
+        }
     }
 
     /// Converts this list of starting IDs from a list that uses S as its state
@@ -1745,85 +1830,112 @@ impl<T: AsRef<[u8]>, S: StateID> StartList<T, S> {
     fn to_sized<S2: StateID>(
         &self,
         remap: &BTreeMap<S, S2>,
-    ) -> StartList<Vec<u8>, S2> {
-        let mut sl = StartList::new(self.count());
-        for (i, old_start_id) in self.ids().enumerate() {
+    ) -> StartTable<Vec<u8>, S2> {
+        let mut sl = StartTable::new(self.patterns);
+        for (old_start_id, start_type, pid) in self.iter() {
             let new_start_id = remap[&old_start_id];
-            let start_index = Start::from_usize(i).unwrap();
-            sl.set_start(start_index, new_start_id);
+            sl.set_start(start_type, pid, new_start_id);
         }
         sl
     }
 
     /// Return the start state for the given index.
-    fn start(&self, index: Start) -> S {
-        let start = index.as_usize() * self.stride();
-        let end = start + self.stride();
-        S::read_bytes(&self.list()[start..end])
-    }
-
-    /// Returns the total number of start states in this list.
-    fn count(&self) -> usize {
-        assert!(self.list().len() % self.stride() == 0);
-        self.list().len() / self.stride()
+    fn start(&self, index: Start, pattern_id: Option<PatternID>) -> S {
+        let start_index = index.as_usize();
+        let index = match pattern_id {
+            None => start_index,
+            Some(pid) => {
+                self.stride + (self.stride * pid as usize) + start_index
+            }
+        };
+        let start = index * self.state_id_stride();
+        let end = start + self.state_id_stride();
+        S::read_bytes(&self.table()[start..end])
     }
 
     /// Return the total number of bytes that represents each state ID.
-    fn stride(&self) -> usize {
+    fn state_id_stride(&self) -> usize {
         core::mem::size_of::<S>()
     }
 
-    /// Return an iterator over all start IDs in this list.
-    fn ids(&self) -> StartStateIDIter<'_, T, S> {
-        StartStateIDIter { starts: self, i: 0 }
+    /// Return an iterator over all start IDs in this table.
+    fn iter(&self) -> StartStateIter<'_, T, S> {
+        StartStateIter { st: self, i: 0 }
     }
 
-    /// Returns the list as a raw slice of bytes.
-    fn list(&self) -> &[u8] {
-        self.list.as_ref()
+    /// Returns the total number of start state IDs in this table.
+    fn len(&self) -> usize {
+        self.table().len() / self.state_id_stride()
+    }
+
+    /// Returns the table as a raw slice of bytes.
+    fn table(&self) -> &[u8] {
+        self.table.as_ref()
     }
 
     /// Return the memory usage, in bytes, of this start list.
     ///
-    /// This does not include the size of a `StartList` value itself.
+    /// This does not include the size of a `StartTable` value itself.
     fn memory_usage(&self) -> usize {
-        self.list().len()
+        self.table().len()
     }
 }
 
-impl<T: AsRef<[u8]> + AsMut<[u8]>, S: StateID> StartList<T, S> {
-    /// Set the start state for the given index.
-    fn set_start(&mut self, index: Start, id: S) {
-        let start = index.as_usize() * self.stride();
-        let end = start + self.stride();
-        id.write_bytes(&mut self.list_mut()[start..end]);
-    }
-
-    /// Returns the list of start IDs as a mutable slice of state IDs.
-    fn list_mut(&mut self) -> &mut [u8] {
-        self.list.as_mut()
+impl<T: AsRef<[u8]> + AsMut<[u8]>, S: StateID> StartTable<T, S> {
+    /// Set the start state for the given index and pattern.
+    fn set_start(
+        &mut self,
+        index: Start,
+        pattern_id: Option<PatternID>,
+        id: S,
+    ) {
+        let start_index = index.as_usize();
+        let index = match pattern_id {
+            None => start_index,
+            Some(pid) => {
+                self.stride + (self.stride * pid as usize) + start_index
+            }
+        };
+        let start = index * self.state_id_stride();
+        let end = start + self.state_id_stride();
+        id.write_bytes(&mut self.table.as_mut()[start..end]);
     }
 }
 
 /// An iterator over all state state IDs in a sparse DFA.
-struct StartStateIDIter<'a, T, S> {
-    starts: &'a StartList<T, S>,
+struct StartStateIter<'a, T, S> {
+    st: &'a StartTable<T, S>,
     i: usize,
 }
 
-impl<'a, T: AsRef<[u8]>, S: StateID> Iterator for StartStateIDIter<'a, T, S> {
-    type Item = S;
+impl<'a, T: AsRef<[u8]>, S: StateID> Iterator for StartStateIter<'a, T, S> {
+    type Item = (S, Start, Option<PatternID>);
 
-    fn next(&mut self) -> Option<S> {
-        let index = Start::from_usize(self.i)?;
+    fn next(&mut self) -> Option<(S, Start, Option<PatternID>)> {
+        let i = self.i;
+        if i >= self.st.len() {
+            return None;
+        }
         self.i += 1;
-        Some(self.starts.start(index))
+
+        // This unwrap is okay since the stride of any DFA must always match
+        // the number of start state types.
+        let start_type = Start::from_usize(i % self.st.stride).unwrap();
+        let pid = if i < self.st.stride {
+            None
+        } else {
+            Some(((i - self.st.stride) / self.st.stride) as u32)
+        };
+        let start = i * self.st.state_id_stride();
+        let end = start + self.st.state_id_stride();
+        let id = S::read_bytes(&self.st.table()[start..end]);
+        Some((id, start_type, pid))
     }
 }
 
-impl<'a, T, S: StateID> fmt::Debug for StartStateIDIter<'a, T, S> {
+impl<'a, T, S: StateID> fmt::Debug for StartStateIter<'a, T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("StartStateIDIter").field("i", &self.i).finish()
+        f.debug_struct("StartStateIter").field("i", &self.i).finish()
     }
 }
 

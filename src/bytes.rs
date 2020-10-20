@@ -273,11 +273,14 @@ pub fn skip_initial_padding(slice: &[u8]) -> usize {
 ///
 /// In practice, padding is often zero.
 pub fn alloc_aligned_buffer<S: StateID>(size: usize) -> (Vec<u8>, usize) {
-    // TODO: This is a kludge because there's no easy way to allocate a Vec<u8>
-    // with an alignment guaranteed to be greater than 1. We could create a
-    // Vec<usize>, but this cannot be safely transmuted to a Vec<u8> without
-    // concern, since reallocing or dropping the Vec<u8> is UB (different
-    // alignment than the initial allocation).
+    // FIXME: This is a kludge because there's no easy way to allocate a
+    // Vec<u8> with an alignment guaranteed to be greater than 1. We could
+    // create a Vec<usize>, but this cannot be safely transmuted to a Vec<u8>
+    // without concern, since reallocing or dropping the Vec<u8> is UB
+    // (different alignment than the initial allocation). It's plausible
+    // that if there was a reliable way to create a Vec<u8> with a different
+    // alignment, then other aspects of this library could be simplified as
+    // well.
     let mut buf = vec![0; size];
     let align = core::mem::align_of::<S>();
     let address = buf.as_ptr() as usize;

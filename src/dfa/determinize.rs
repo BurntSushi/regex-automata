@@ -277,13 +277,11 @@ impl<'a, S: StateID> Runner<'a, S> {
                 | thompson::State::Fail
                 | thompson::State::Look { .. } => {}
                 thompson::State::Match(mid) => {
-                    // TODO: Make this work. Currently this fails with
-                    // MatchStates serialization. Think of something elegant.
-                    // if self.nfa.match_len() <= 1 {
-                    // facts.state.matches = Matches::One;
-                    // } else {
-                    facts.state.matches.add(mid);
-                    // }
+                    if self.nfa.match_len() <= 1 {
+                        facts.state.matches = Matches::One;
+                    } else {
+                        facts.state.matches.add(mid);
+                    }
                     if !self.continue_past_first_match() {
                         break;
                     }
@@ -658,7 +656,7 @@ impl Matches {
     fn into_vec(self) -> Option<Vec<PatternID>> {
         match self {
             Matches::None => None,
-            Matches::One => Some(vec![]),
+            Matches::One => Some(vec![0]),
             Matches::Many(pids) => Some(pids),
         }
     }

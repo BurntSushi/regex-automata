@@ -42,12 +42,12 @@ use regex_syntax::utf8::{Utf8Range, Utf8Sequences};
 use regex_syntax::ParserBuilder;
 
 use crate::classes::ByteClassSet;
-use crate::PatternID;
+use crate::{pattern_limit, PatternID};
 
 use super::super::error::Error;
 use super::map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap};
 use super::range_trie::RangeTrie;
-use super::{pattern_limit, Look, State, StateID, Transition, NFA};
+use super::{Look, State, StateID, Transition, NFA};
 
 /// The configuration used for compiling a Thompson NFA from a regex pattern.
 #[derive(Clone, Copy, Debug, Default)]
