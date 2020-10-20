@@ -587,6 +587,10 @@ pub fn try_read_u64(
 
 /// Read a u16 from the beginning of the given slice in native endian format.
 /// If the slice has fewer than 2 bytes, then this panics.
+///
+/// Marked as inline to speed up sparse searching which decodes integers from
+/// its automaton at search time.
+#[inline(always)]
 pub fn read_u16(slice: &[u8]) -> u16 {
     let bytes: [u8; 2] = slice[..2].try_into().unwrap();
     u16::from_ne_bytes(bytes)
@@ -594,6 +598,10 @@ pub fn read_u16(slice: &[u8]) -> u16 {
 
 /// Read a u32 from the beginning of the given slice in native endian format.
 /// If the slice has fewer than 4 bytes, then this panics.
+///
+/// Marked as inline to speed up sparse searching which decodes integers from
+/// its automaton at search time.
+#[inline(always)]
 pub fn read_u32(slice: &[u8]) -> u32 {
     let bytes: [u8; 4] = slice[..4].try_into().unwrap();
     u32::from_ne_bytes(bytes)
@@ -601,6 +609,10 @@ pub fn read_u32(slice: &[u8]) -> u32 {
 
 /// Read a u64 from the beginning of the given slice in native endian format.
 /// If the slice has fewer than 8 bytes, then this panics.
+///
+/// Marked as inline to speed up sparse searching which decodes integers from
+/// its automaton at search time.
+#[inline(always)]
 pub fn read_u64(slice: &[u8]) -> u64 {
     let bytes: [u8; 8] = slice[..8].try_into().unwrap();
     u64::from_ne_bytes(bytes)

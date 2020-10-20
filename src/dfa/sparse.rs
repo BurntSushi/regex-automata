@@ -1074,6 +1074,8 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
         self.special.is_accel_state(id)
     }
 
+    // This is marked as inline to help dramatically boost sparse searching,
+    // which decodes each state it enters to follow the next transition.
     #[inline(always)]
     fn next_state(&self, current: S, input: u8) -> S {
         let input = self.trans.classes.get(input);
@@ -1441,7 +1443,13 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
     /// Return a convenient representation of the given state.
     ///
     /// This panics if the state is invalid.
-    #[inline]
+    ///
+    /// This is marked as inline to help dramatically boost sparse searching,
+    /// which decodes each state it enters to follow the next transition. Other
+    /// functions involved are also inlined, which should hopefully eliminate
+    /// a lot of the extraneous decoding that is never needed just to follow
+    /// the next transition.
+    #[inline(always)]
     fn state(&self, id: S) -> State<'_, S> {
         let mut state = &self.sparse()[id.as_usize()..];
         let mut ntrans = bytes::read_u16(&state) as usize;
@@ -2000,6 +2008,10 @@ struct State<'a, S> {
 impl<'a, S: StateID> State<'a, S> {
     /// Searches for the next transition given an input byte. If no such
     /// transition could be found, then a dead state is returned.
+    ///
+    /// This is marked as inline to help dramatically boost sparse searching,
+    /// which decodes each state it enters to follow the next transition.
+    #[inline(always)]
     fn next(&self, input: u8) -> S {
         // This straight linear search was observed to be much better than
         // binary search on ASCII haystacks, likely because a binary search
