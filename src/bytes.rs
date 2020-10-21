@@ -121,6 +121,7 @@ enum DeserializeErrorKind {
     StateSizeMismatch { expected: u64, found: u64 },
     AlignmentMismatch { alignment: u64, address: u64 },
     LabelMismatch { expected: &'static str },
+    ArithmeticOverflow { what: &'static str },
 }
 
 impl DeserializeError {
@@ -171,6 +172,10 @@ impl DeserializeError {
     fn label_mismatch(expected: &'static str) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::LabelMismatch { expected })
     }
+
+    fn arithmetic_overflow(what: &'static str) -> DeserializeError {
+        DeserializeError(DeserializeErrorKind::ArithmeticOverflow { what })
+    }
 }
 
 impl core::fmt::Display for DeserializeError {
@@ -220,6 +225,9 @@ impl core::fmt::Display for DeserializeError {
                  label was found",
                 expected,
             ),
+            ArithmeticOverflow { what } => {
+                write!(f, "arithmetic overflow for {}", what,)
+            }
         }
     }
 }
@@ -699,6 +707,36 @@ pub fn read_varu64(
         shift += 7;
     }
     Err(DeserializeError::invalid_varint(what))
+}
+
+/// Multiply the given numbers, and on overflow, return an error that includes
+/// 'what' in the error message.
+///
+/// This is useful when doing arithmetic with untrusted data.
+pub fn mul(
+    a: usize,
+    b: usize,
+    what: &'static str,
+) -> Result<usize, DeserializeError> {
+    match a.checked_mul(b) {
+        Some(c) => Ok(c),
+        None => Err(DeserializeError::arithmetic_overflow(what)),
+    }
+}
+
+/// Add the given numbers, and on overflow, return an error that includes
+/// 'what' in the error message.
+///
+/// This is useful when doing arithmetic with untrusted data.
+pub fn add(
+    a: usize,
+    b: usize,
+    what: &'static str,
+) -> Result<usize, DeserializeError> {
+    match a.checked_add(b) {
+        Some(c) => Ok(c),
+        None => Err(DeserializeError::arithmetic_overflow(what)),
+    }
 }
 
 /// A simple trait for writing code generic over endianness.
