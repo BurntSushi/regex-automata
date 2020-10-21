@@ -52,8 +52,10 @@
 
 use core::convert::TryInto;
 
-use crate::bytes::{self, DeserializeError, Endian, SerializeError};
-use crate::dfa::Error;
+use crate::{
+    bytes::{self, DeserializeError, Endian, SerializeError},
+    dfa::Error,
+};
 
 /// The maximum length in bytes that a single Accel can be. This is distinct
 /// from the capacity of an accelerator in that the length represents only the
@@ -103,58 +105,105 @@ pub struct Accels<A> {
     ///
     /// The first 8 bytes always correspond to the number of accelerators
     /// that follow.
+    ///
+    /// In practice, `A` is either a `&[u8]` or a `Vec<u8>`.
     accels: A,
 }
 
 impl Accels<Vec<u8>> {
+    /// Create an empty sequence of accelerators for a DFA.
     pub fn empty() -> Accels<Vec<u8>> {
         Accels { accels: vec![0; 8] }
     }
 
+    /// Add an accelerator to this sequence.
+    ///
+    /// This adds to the accelerator to the end of the sequence and therefore
+    /// should be done in correspondence with its state in the DFA.
     pub fn add(&mut self, accel: Accel) {
         self.accels.extend_from_slice(&accel.bytes);
         let len = self.len();
         self.set_len(len + 1);
     }
 
+    /// Set the number of accelerators in this sequence, which is encoded in
+    /// the first 8 bytes of the underlying bytes.
     fn set_len(&mut self, new_len: usize) {
         bytes::NE::write_u64(new_len as u64, &mut self.accels);
     }
 }
 
 impl<'a> Accels<&'a [u8]> {
+    /// Deserialize a sequence of accelerators from the given bytes. Upon
+    /// success, the accelerators returned is guaranteed to be valid (although
+    /// not necessarily correct). If there was a problem deserializing, then
+    /// an error is returned.
     pub fn from_bytes(
         slice: &'a [u8],
     ) -> Result<(Accels<&'a [u8]>, usize), DeserializeError> {
         let count = bytes::try_read_u64_as_usize(slice, "accelerators count")?;
-        let mut buf = &slice[8..];
-        if buf.len() < count * ACCEL_CAP {
+        let size = bytes::add(
+            8,
+            bytes::mul(count, ACCEL_CAP, "accels size")?,
+            "accelerators offset",
+        )?;
+        if slice.len() < size {
             return Err(DeserializeError::buffer_too_small("accelerators"));
         }
-        buf = &buf[..count * ACCEL_CAP];
         // If every chunk is valid, then we declare the entire thing is valid.
-        for chunk in buf.chunks(ACCEL_CAP) {
+        for chunk in slice[8..size].chunks(ACCEL_CAP) {
             let _ = Accel::from_slice(chunk)?;
         }
-        let accels = &slice[..8 + count * ACCEL_CAP];
-        Ok((Accels { accels }, accels.len()))
+        Ok((Accels { accels: &slice[..size] }, size))
     }
 }
 
 impl<A: AsRef<[u8]>> Accels<A> {
+    /// Return an owned version of the accelerators.
     pub fn to_owned(&self) -> Accels<Vec<u8>> {
         Accels { accels: self.accels.as_ref().to_vec() }
     }
 
+    /// Return a borrowed version of the accelerators.
     pub fn as_ref(&self) -> Accels<&[u8]> {
         Accels { accels: self.accels.as_ref() }
     }
 
+    /// Return the bytes representing the serialization of the accelerators.
     pub fn as_bytes(&self) -> &[u8] {
         self.accels.as_ref()
     }
 
-    pub fn get(&self, i: usize) -> Option<Accel> {
+    /// Return the bytes to search for corresponding to the accelerator in this
+    /// sequence at index `i`. If no such accelerator exists, then this panics.
+    ///
+    /// The significance of the index is that it should be in correspondence
+    /// with the index of the corresponding DFA. That is, accelerated DFA
+    /// states are stored contiguously in the DFA and have an ordering implied
+    /// by their respective state IDs. The state's index in that sequence
+    /// corresponds to the index of its corresponding accelerator.
+    pub fn needles(&self, i: usize) -> &[u8] {
+        let accels = self.accels.as_ref();
+        let offset = 8 + i * ACCEL_CAP;
+        let len = accels[offset] as usize;
+        &self.accels.as_ref()[offset + 1..offset + 1 + len]
+    }
+
+    /// Return the total number of accelerators in this sequence.
+    pub fn len(&self) -> usize {
+        bytes::read_u64(self.as_bytes()) as usize
+    }
+
+    /// Returns true if and only if there are no accelerators in this sequence.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Return the accelerator in this sequence at index `i`. If no such
+    /// accelerator exists, then this returns None.
+    ///
+    /// See the docs for `needles` on the significance of the index.
+    fn get(&self, i: usize) -> Option<Accel> {
         if i >= self.len() {
             return None;
         }
@@ -165,21 +214,7 @@ impl<A: AsRef<[u8]>> Accels<A> {
         Some(accel)
     }
 
-    pub fn needles(&self, i: usize) -> &[u8] {
-        let accels = self.accels.as_ref();
-        let offset = 8 + i * ACCEL_CAP;
-        let len = accels[offset] as usize;
-        &self.accels.as_ref()[offset + 1..offset + 1 + len]
-    }
-
-    pub fn len(&self) -> usize {
-        bytes::read_u64(self.as_bytes()) as usize
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
+    /// Returns an iterator of accelerators in this sequence.
     fn iter(&self) -> IterAccels<'_, A> {
         IterAccels { accels: self, i: 0 }
     }
@@ -251,9 +286,11 @@ impl<'a, A: AsRef<[u8]>> Iterator for IterAccels<'a, A> {
 /// The purpose of acceleration is to identify states whose vast majority
 /// of transitions are just loops back to the same state. For example,
 /// in the regex `(?-u)^[^a]+b`, the corresponding DFA will have a state
-/// (corresponding to `[^a]+`) where all transitions *except* for `b` loop back
-/// to itself. Thus, this state can be "accelerated" by simply looking for the
-/// next occurrence of `b` instead of explicitly following transitions.
+/// (corresponding to `[^a]+`) where all transitions *except* for `a` and
+/// `b` loop back to itself. Thus, this state can be "accelerated" by simply
+/// looking for the next occurrence of either `a` or `b` instead of explicitly
+/// following transitions. (In this case, `b` transitions to the next state
+/// where as `a` would transition to the dead state.)
 #[derive(Clone)]
 pub struct Accel {
     /// The first byte is the length. Subsequent bytes are the accelerated
@@ -261,7 +298,8 @@ pub struct Accel {
     ///
     /// Note that we make every accelerator 8 bytes as a slightly wasteful
     /// way of making sure alignment is always correct for state ID sizes of
-    /// 1, 2, 4 and 8.
+    /// 1, 2, 4 and 8. This should be okay since accelerated states aren't
+    /// particularly common, especially when Unicode is enabled.
     bytes: [u8; ACCEL_CAP],
 }
 
@@ -287,7 +325,7 @@ impl Accel {
     /// Returns a verified accelerator derived from raw bytes.
     ///
     /// If the given bytes are invalid, then this returns an error.
-    pub fn from_bytes(bytes: [u8; 4]) -> Result<Accel, DeserializeError> {
+    fn from_bytes(bytes: [u8; 4]) -> Result<Accel, DeserializeError> {
         if bytes[0] as usize >= ACCEL_LEN {
             return Err(DeserializeError::generic(
                 "accelerator bytes cannot have length more than 3",
@@ -301,7 +339,7 @@ impl Accel {
     /// This does not check whether the given bytes are valid. Invalid bytes
     /// cannot sacrifice memory safety, but may result in panics or silent
     /// logic bugs.
-    pub fn from_bytes_unchecked(bytes: [u8; 4]) -> Accel {
+    fn from_bytes_unchecked(bytes: [u8; 4]) -> Accel {
         Accel { bytes: [bytes[0], bytes[1], bytes[2], bytes[3], 0, 0, 0, 0] }
     }
 
@@ -313,6 +351,11 @@ impl Accel {
         if self.len() >= 3 {
             return false;
         }
+        assert!(
+            !self.contains(byte),
+            "accelerator already contains {:?}",
+            crate::util::DebugByte(byte)
+        );
         self.bytes[self.len() + 1] = byte;
         self.bytes[0] += 1;
         true
@@ -331,12 +374,12 @@ impl Accel {
     /// Returns the slice of bytes to accelerate.
     ///
     /// If this accelerator is empty, then this returns an empty slice.
-    pub fn needles(&self) -> &[u8] {
+    fn needles(&self) -> &[u8] {
         &self.bytes[1..1 + self.len()]
     }
 
     /// Returns the raw representation of this accelerator as a slice of bytes.
-    pub fn as_bytes(&self) -> &[u8] {
+    fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
 
