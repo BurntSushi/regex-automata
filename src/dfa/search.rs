@@ -1,7 +1,11 @@
-use crate::dfa::accel;
-use crate::dfa::automaton::{Automaton, HalfMatch, State, StateMatch};
-use crate::prefilter::{self, Prefilter};
-use crate::{MatchError, PatternID};
+use crate::{
+    dfa::{
+        accel,
+        automaton::{Automaton, HalfMatch, State, StateMatch, MATCH_OFFSET},
+    },
+    prefilter::{self, Prefilter},
+    MatchError, PatternID,
+};
 
 #[inline(never)]
 pub fn find_earliest_fwd<A: Automaton + ?Sized>(
@@ -106,7 +110,7 @@ fn find_fwd<A: Automaton + ?Sized>(
             } else if dfa.is_match_state(state) {
                 last_match = Some(HalfMatch {
                     pattern: dfa.match_pattern(state, 0),
-                    offset: at - dfa.match_offset(),
+                    offset: at - MATCH_OFFSET,
                 });
                 if earliest {
                     return Ok(last_match);
@@ -201,7 +205,7 @@ fn find_rev<A: Automaton + ?Sized>(
             } else if dfa.is_match_state(state) {
                 last_match = Some(HalfMatch {
                     pattern: dfa.match_pattern(state, 0),
-                    offset: at + dfa.match_offset(),
+                    offset: at + MATCH_OFFSET,
                 });
                 if earliest {
                     return Ok(last_match);
@@ -319,7 +323,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             // starting point, which is `match_offset` bytes PRIOR to where
             // we scanned to on the previous search. Therefore, we need to
             // compensate by bumping `start` up by `match_offset` bytes.
-            start += dfa.match_offset();
+            start += MATCH_OFFSET;
             // Since match_offset could be any arbitrary value, it's possible
             // that we are at EOF. So check that now.
             if start > end {
@@ -363,7 +367,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                     }
                 }
             } else if dfa.is_match_state(state) {
-                let offset = at - dfa.match_offset();
+                let offset = at - MATCH_OFFSET;
                 caller_state
                     .set_last_match(StateMatch { match_index: 1, offset });
                 return Ok(Some(HalfMatch {
@@ -404,7 +408,7 @@ fn init_fwd<A: Automaton + ?Sized>(
     if dfa.is_match_state(state) {
         let m = HalfMatch {
             pattern: dfa.match_pattern(state, 0),
-            offset: start - dfa.match_offset(),
+            offset: start - MATCH_OFFSET,
         };
         Ok((state, Some(m)))
     } else {
@@ -423,7 +427,7 @@ fn init_rev<A: Automaton + ?Sized>(
     if dfa.is_match_state(state) {
         let m = HalfMatch {
             pattern: dfa.match_pattern(state, 0),
-            offset: end + dfa.match_offset(),
+            offset: end + MATCH_OFFSET,
         };
         Ok((state, Some(m)))
     } else {

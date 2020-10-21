@@ -16,9 +16,7 @@ use regex_syntax::ParserBuilder;
 use crate::bytes::{self, DeserializeError, Endian, SerializeError};
 use crate::classes::{Byte, ByteClasses, ByteSet};
 use crate::dfa::accel::{Accel, Accels};
-use crate::dfa::automaton::{
-    fmt_state_indicator, Automaton, Start, ALPHABET_LEN, EOF, MATCH_OFFSET,
-};
+use crate::dfa::automaton::{fmt_state_indicator, Automaton, Start};
 #[cfg(feature = "std")]
 use crate::dfa::determinize::Determinizer;
 #[cfg(feature = "std")]
@@ -2310,11 +2308,6 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
     #[inline]
     fn patterns(&self) -> usize {
         self.ms.patterns
-    }
-
-    #[inline]
-    fn match_offset(&self) -> usize {
-        MATCH_OFFSET
     }
 
     #[inline]

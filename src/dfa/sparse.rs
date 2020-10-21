@@ -12,9 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::bytes::{self, DeserializeError, Endian, SerializeError};
 use crate::classes::{Byte, ByteClasses};
 use crate::dfa::accel::Accels;
-use crate::dfa::automaton::{
-    fmt_state_indicator, Automaton, Start, MATCH_OFFSET,
-};
+use crate::dfa::automaton::{fmt_state_indicator, Automaton, Start};
 use crate::dfa::dense;
 #[cfg(feature = "std")]
 use crate::dfa::error::Error;
@@ -1095,11 +1093,6 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
     #[inline]
     fn patterns(&self) -> usize {
         self.trans.patterns
-    }
-
-    #[inline]
-    fn match_offset(&self) -> usize {
-        MATCH_OFFSET
     }
 
     #[inline]
