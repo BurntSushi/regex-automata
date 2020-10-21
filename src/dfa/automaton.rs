@@ -1,27 +1,28 @@
-use crate::dfa::search;
-use crate::prefilter::{self, Prefilter};
-use crate::state_id::StateID;
-use crate::word::is_word_byte;
-use crate::{MatchError, PatternID};
-
-/// The size of the alphabet in a standard DFA.
-///
-/// Specifically, this length controls the number of transitions present in
-/// each DFA state. However, when the byte class optimization is enabled,
-/// then each DFA maps the space of all possible 256 byte values to at most
-/// 256 distinct equivalence classes. In this case, the number of distinct
-/// equivalence classes corresponds to the internal alphabet of the DFA, in the
-/// sense that each DFA state has a number of transitions equal to the number
-/// of equivalence classes despite supporting matching on all possible byte
-/// values.
-pub const ALPHABET_LEN: usize = 256 + 1;
+use crate::{
+    dfa::search,
+    prefilter::{self, Prefilter},
+    state_id::StateID,
+    word::is_word_byte,
+    MatchError, PatternID,
+};
 
 /// The offset, in bytes, that a match is delayed by in the DFAs generated
 /// by this crate.
+///
+/// The purpose of this delay is to support look-around such as \b (ASCII-only)
+/// and $. In particular, both of these operators may require the
+/// identification of the end of input in order to confirm a match. Not only
+/// does this mean that all matches must therefore be delayed by a single byte,
+/// but that a special EOF value is added to the alphabet of all DFAs. (Which
+/// means that even though the alphabet of a DFA is all byte values, the actual
+/// maximum alphabet size is 257 due to the extra EOF value.)
+///
+/// Since we delay matches by only 1 byte, this can't fully support a
+/// Unicode-aware \b operator. Indeed, DFAs in this crate do not support
+/// it. (It's not as simple as just increasing the match offset to do
+/// it---otherwise we would---but building the full Unicode-aware word boundary
+/// detection into an automaton is quite tricky.)
 pub const MATCH_OFFSET: usize = 1;
-
-/// The special EOF sentinel value.
-pub const EOF: usize = ALPHABET_LEN - 1;
 
 /// A representation of a match reported by a DFA.
 ///
@@ -56,9 +57,8 @@ impl HalfMatch {
     /// Returns the ID of the pattern that matched.
     ///
     /// The ID of a pattern is derived from the position in which it was
-    /// originally inserted into the corresponding regex engine. The first
-    /// pattern has identifier `0`, and each subsequent pattern is `1`, `2` and
-    /// so on.
+    /// originally inserted into the corresponding DFA. The first pattern has
+    /// identifier `0`, and each subsequent pattern is `1`, `2` and so on.
     #[inline]
     pub fn pattern(&self) -> PatternID {
         self.pattern
@@ -104,8 +104,51 @@ impl HalfMatch {
 pub unsafe trait Automaton {
     /// The representation used for state identifiers in this DFA.
     ///
-    /// Typically, this is one of `u8`, `u16`, `u32`, `u64` or `usize`.
+    /// This is required to be one of `u8`, `u16`, `u32`, `u64` or `usize`.
     type ID: StateID;
+
+    /// Given the current state that this DFA is in and the next input byte,
+    /// this method returns the identifier of the next state. The identifier
+    /// returned is always valid, but it may correspond to a dead state.
+    fn next_state(&self, current: Self::ID, input: u8) -> Self::ID;
+
+    /// Like `next_state`, but its implementation may look up the next state
+    /// without memory safety checks such as bounds checks. As such, callers
+    /// must ensure that the given identifier corresponds to a valid DFA
+    /// state. Implementors must, in turn, ensure that this routine is safe
+    /// for all valid state identifiers and for all possible `u8` values.
+    unsafe fn next_state_unchecked(
+        &self,
+        current: Self::ID,
+        input: u8,
+    ) -> Self::ID;
+
+    /// Given the current state and an input that has reached EOF, attempt the
+    /// final state transition.
+    ///
+    /// For DFAs that do not delay matches, this should always return the given
+    /// state ID.
+    fn next_eof_state(&self, current: Self::ID) -> Self::ID;
+
+    /// Return the identifier of this DFA's start state for the given haystack
+    /// when matching in the forward direction.
+    fn start_state_forward(
+        &self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Self::ID;
+
+    /// Return the identifier of this DFA's start state for the given haystack
+    /// when matching in the reverse direction.
+    fn start_state_reverse(
+        &self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Self::ID;
 
     /// Returns true if and only if the given identifier corresponds to either
     /// a dead state or a match state, such that one of `is_match_state(id)`
@@ -141,40 +184,11 @@ pub unsafe trait Automaton {
     /// accelerated state.
     fn is_accel_state(&self, id: Self::ID) -> bool;
 
-    /// Given the current state that this DFA is in and the next input byte,
-    /// this method returns the identifier of the next state. The identifier
-    /// returned is always valid, but it may correspond to a dead state.
-    fn next_state(&self, current: Self::ID, input: u8) -> Self::ID;
-
-    /// Like `next_state`, but its implementation may look up the next state
-    /// without memory safety checks such as bounds checks. As such, callers
-    /// must ensure that the given identifier corresponds to a valid DFA
-    /// state. Implementors must, in turn, ensure that this routine is safe
-    /// for all valid state identifiers and for all possible `u8` values.
-    unsafe fn next_state_unchecked(
-        &self,
-        current: Self::ID,
-        input: u8,
-    ) -> Self::ID;
-
-    /// Given the current state and an input that has reached EOF, attempt the
-    /// final state transition.
-    ///
-    /// For DFAs that do not delay matches, this should always return the given
-    /// state ID.
-    fn next_eof_state(&self, current: Self::ID) -> Self::ID;
-
     /// Returns the total number of patterns compiled into this DFA.
     ///
     /// In the case of a DFA that never matches any pattern, this should
     /// return `0`.
     fn patterns(&self) -> usize;
-
-    /// Return the match offset of this DFA. This corresponds to the number
-    /// of bytes that a match is delayed by. This is typically set to `1`,
-    /// which means that a match is always reported exactly one byte after it
-    /// occurred.
-    fn match_offset(&self) -> usize;
 
     /// Returns the total number of patterns that match in this state.
     ///
@@ -185,26 +199,6 @@ pub unsafe trait Automaton {
     /// given state. This must panic if the given match index is out of bounds
     /// or if the given state ID does not correspond to a match state.
     fn match_pattern(&self, id: Self::ID, index: usize) -> PatternID;
-
-    /// Return the identifier of this DFA's start state for the given haystack
-    /// when matching in the forward direction.
-    fn start_state_forward(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Self::ID;
-
-    /// Return the identifier of this DFA's start state for the given haystack
-    /// when matching in the reverse direction.
-    fn start_state_reverse(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Self::ID;
 
     /// Return a slice of bytes to accelerate for the given style, if possible.
     ///
@@ -487,11 +481,6 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn patterns(&self) -> usize {
         (**self).patterns()
-    }
-
-    #[inline]
-    fn match_offset(&self) -> usize {
-        (**self).match_offset()
     }
 
     #[inline]

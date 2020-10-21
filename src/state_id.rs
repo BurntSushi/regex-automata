@@ -13,10 +13,14 @@ pub fn dead_id<S: StateID>() -> S {
 /// Ensure that callers cannot implement `StateID` by making an umplementable
 /// trait its super trait.
 ///
-/// While this isn't strictly necessary since `StateID` is not safe anyway,
-/// it makes it a bit easier to reason about correctness with a small set of
-/// known POD types. It's also the conservative choice and reduces the chance
-/// for screw ups.
+/// While this isn't strictly necessary since `StateID` is not safe anyway, in
+/// practice we do it because there are various places in the serialization
+/// logic that assume the maximum alignment of a state ID is 8.
+///
+/// In theory, it would be possible to relax that assumption I think, but it
+/// would breed complexity. We could also unseal the StateID trait and simply
+/// require implementors to use a representation with an alignment no more than
+/// 8, but we start conservative until there is a more concrete use case.
 pub trait Sealed {}
 impl Sealed for usize {}
 impl Sealed for u8 {}
