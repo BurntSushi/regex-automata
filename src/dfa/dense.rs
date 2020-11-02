@@ -2306,7 +2306,7 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
     }
 
     #[inline]
-    fn patterns(&self) -> usize {
+    fn pattern_count(&self) -> usize {
         self.ms.patterns
     }
 

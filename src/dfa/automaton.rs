@@ -77,20 +77,101 @@ impl HalfMatch {
 
 /// A trait describing the interface of a deterministic finite automaton (DFA).
 ///
-/// Every DFA has exactly one start state and at least one dead state (which
-/// may be the same, as in the case of an empty DFA). In all cases, a state
-/// identifier of `0` must be a dead state such that `DFA::is_dead_state(0)`
-/// always returns `true`.
+/// The complexity of this trait probably means that it's unlikely for others
+/// to implement it. The primary purpose of the trait is to provide for a way
+/// of abstracting over different types of DFAs. In this crate, that means
+/// dense DFAs and sparse DFAs. (Dense DFAs are fast but memory hungry, where
+/// as sparse DFAs are slower but come with a smaller memory footprint. But
+/// they otherwise provide exactly equivalent expressive power.) For example, a
+/// [`dfa::Regex`](struct.Regex.html) is generic over this trait.
 ///
-/// Every DFA also has zero or more match states, such that
-/// `DFA::is_match_state(id)` returns `true` if and only if `id` corresponds to
-/// a match state.
+/// Normally, a DFA's execution model is very simple. You might have a single
+/// start state, zero or more final or "match" states and a function that
+/// transitions from one state to the next given the next byte of input.
+/// Unfortunately, the interface described by this trait is significantly
+/// more complicated than this. The complexity has a number of different
+/// reasons, mostly motivated by performance, functionality or space savings:
 ///
-/// In general, users of this trait likely will only need to use the search
-/// routines such as `is_match`, `shortest_match`, `find` or `rfind`. The other
-/// methods are lower level and are used for walking the transitions of a DFA
-/// manually. In particular, the aforementioned search routines are implemented
-/// generically in terms of the lower level transition walking routines.
+/// * A DFA can search for multiple patterns simultaneously. This
+/// means extra information is returned when a match occurs. Namely,
+/// a match is not just an offset, but an offset plus a pattern ID.
+/// [`Automaton::pattern_count`](trait.Automaton.html#tymethod.pattern_count)
+/// returns the number of patterns compiled into the DFA,
+/// [`Automaton::match_count`](trait.Automaton.html#tymethod.match_count)
+/// returns the total number of patterns that match in a particular state and
+/// [`Automaton::match_pattern`](trait.Automaton.html#tymethod.match_pattern)
+/// permits iterating over the patterns that match in a particular state.
+/// * A DFA can have multiple start states, and the choice of which
+/// start state to use depends on the content of the string being searched and
+/// position of the search, as well as whether the search is an anchored search
+/// for a specific pattern in the DFA. Moreover, computing the start state also
+/// depends on whether you're doing a forward or a reverse search.
+/// [`Automaton::start_state_forward`](trait.Automaton.html#tymethod.start_state_forward)
+/// and
+/// [`Automaton::start_state_reverse`](trait.Automaton.html#tymethod.start_state_reverse)
+/// are used to compute the start state for forward and reverse searches,
+/// respectively.
+/// * All matches are delayed by one byte to support things like `$` and `\b`
+/// at the end of a pattern. Therefore, every use of a DFA is required to use
+/// [`Automaton::next_eof_state`](trait.Automaton.html#tymethod.next_eof_state)
+/// at the end of the search to compute the final transition.
+/// * For optimization reasons, some states are treated specially. Every state
+/// is either special or not, which can be determined via the
+/// [`Automaton::is_special_state`](trait.Automaton.html#tymethod.is_special_state)
+/// method. If it's special, then the state must be at least one of a few
+/// possible types of states. (Note that some types can overlap, for example,
+/// a match state can also be an accel state. But some types can't. If a state
+/// is a dead state, then it can never be any other type of state.) Those
+/// types are:
+///     * A dead state. A dead state means the DFA will never enter a match
+///     state.
+///     This can be queried via the
+///     [`Automaton::is_dead_state`](trait.Automaton.html#tymethod.is_dead_state)
+///     method.
+///     * A quit state. A quit state occurs if the DFA had to stop the search
+///     prematurely for some reason.
+///     This can be queried via the
+///     [`Automaton::is_quit_state`](trait.Automaton.html#tymethod.is_quit_state)
+///     method.
+///     * A match state. A match state occurs when a match is found. When a DFA
+///     enters a match state, the search may stop immediately (when looking for
+///     the earliest match), or it may continue to find the leftmost-first
+///     match.
+///     This can be queried via the
+///     [`Automaton::is_match_state`](trait.Automaton.html#tymethod.is_match_state)
+///     method.
+///     * A start state. A start state is where a search begins. For every
+///     search, there is exactly one start state that is used, however, a DFA
+///     may contain many start states. When the search is in a start state, it
+///     may use a prefilter to quickly skip to candidate matches without
+///     executing the DFA on every byte.
+///     This can be queried via the
+///     [`Automaton::is_start_state`](trait.Automaton.html#tymethod.is_start_state)
+///     method.
+///     * An accel state. An accel state is a state that is accelerated. That
+///     is, it is a state where _most_ of its transitions loop back to itself
+///     and only a small number of transitions lead to other states. This kind
+///     of state is said to be accelerated because a search routine can quickly
+///     look for the bytes leading out of the state instead of continuing to
+///     execute the DFA on each byte.
+///     This can be queried via the
+///     [`Automaton::is_accel_state`](trait.Automaton.html#tymethod.is_accel_state)
+///     method. And the bytes that lead out of the state can be queried via the
+///     [`Automaton::accelerator`](trait.Automaton.html#tymethod.accelerator)
+///     method.
+///
+/// There are a number of provided methods on this trait that implement
+/// efficient searching (for forwards and backwards) with a DFA using all of
+/// the above features of this trait. In particular, given the complexity of
+/// all these features, implementing a search routine in this trait is not
+/// straight forward. If you need to do this for specialized reasons, then
+/// it's recommended to look at the source of this crate. It is intentionally
+/// well commented to help with this. With that said, it is possible to
+/// somewhat simplify the search routine. For example, handling accelerated
+/// states is strictly optional, since it is always correct to assume that
+/// `Automaton::is_accel_state` returns false. However, one complex part of
+/// writing a search routine using this trait is handling the 1-byte delay of a
+/// match. That is not optional.
 ///
 /// # Safety
 ///
@@ -105,11 +186,59 @@ pub unsafe trait Automaton {
     /// The representation used for state identifiers in this DFA.
     ///
     /// This is required to be one of `u8`, `u16`, `u32`, `u64` or `usize`.
+    /// The restriction on this representation permits aspects of the
+    /// implementation to make assumptions about the state ID representation,
+    /// which are necessary for providing cheap deserialization of dense and
+    /// sparse DFAs.
+    ///
+    /// This restriction does unfortunately limit the ability to develop more
+    /// expressive APIs, such as providing intersection, union and complement
+    /// adapters.
+    ///
+    /// If you have a use case for relaxing this restriction, please propose a
+    /// design on the issue tracker.
     type ID: StateID;
 
-    /// Given the current state that this DFA is in and the next input byte,
-    /// this method returns the identifier of the next state. The identifier
-    /// returned is always valid, but it may correspond to a dead state.
+    /// Transitions from the current state to the next state, given the next
+    /// byte of input.
+    ///
+    /// Implementations must guarantee that the returned ID is always a valid
+    /// ID when `current` refers to a valid ID. Moreover, the transition
+    /// function must be defined for all possible values of `input`.
+    ///
+    /// # Panics
+    ///
+    /// If the given ID does not refer to a valid state, then this routine may
+    /// panic but it also may not panic and return an incorrect ID. However, an
+    /// incorrect ID may never sacrifice memory safety.
+    ///
+    /// # Example
+    ///
+    /// This shows a simplistic example for walking a DFA for a given haystack
+    /// by using the `next_state` method.
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Automaton, dense};
+    ///
+    /// let dfa = dense::DFA::new(r"[a-z]+r")?;
+    /// let haystack = "bar".as_bytes();
+    ///
+    /// // The start state is determined by inspecting the position and the
+    /// // initial bytes of the haystack.
+    /// let mut state = dfa.start_state_forward(
+    ///     None, haystack, 0, haystack.len(),
+    /// );
+    /// // Walk all the bytes in the haystack.
+    /// for &b in haystack {
+    ///     state = dfa.next_state(state, b);
+    /// }
+    /// // Matches are always delayed by 1 byte, so we must explicitly walk the
+    /// // special "EOF" transition at the end of the search.
+    /// state = dfa.next_eof_state(state);
+    /// assert!(dfa.is_match_state(state));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn next_state(&self, current: Self::ID, input: u8) -> Self::ID;
 
     /// Like `next_state`, but its implementation may look up the next state
@@ -117,17 +246,85 @@ pub unsafe trait Automaton {
     /// must ensure that the given identifier corresponds to a valid DFA
     /// state. Implementors must, in turn, ensure that this routine is safe
     /// for all valid state identifiers and for all possible `u8` values.
+
+    /// Transitions from the current state to the next state, given the next
+    /// byte of input.
+    ///
+    /// Unlike
+    /// [`Automaton::next_state`](trait.Automaton.html#tymethod.next_state),
+    /// implementations may implement this more efficiently by assuming that
+    /// the `current` state ID is valid. Typically, this manifests by eliding
+    /// bounds checks.
+    ///
+    /// # Safety
+    ///
+    /// Callers of this method must guarantee that `current` refers to a valid
+    /// state ID. If `current` is not a valid state ID, then calling this
+    /// routine may result in undefined behavior.
+    ///
+    /// If `current` is valid, then implementations must guarantee that the ID
+    /// returned is valid for all possible values of `input`.
     unsafe fn next_state_unchecked(
         &self,
         current: Self::ID,
         input: u8,
     ) -> Self::ID;
 
-    /// Given the current state and an input that has reached EOF, attempt the
-    /// final state transition.
+    /// Transitions from the current state to the next state for the special
+    /// EOF symbol.
     ///
-    /// For DFAs that do not delay matches, this should always return the given
-    /// state ID.
+    /// Implementations must guarantee that the returned ID is always a valid
+    /// ID when `current` refers to a valid ID.
+    ///
+    /// This routine must be called at the end of every search in a correct
+    /// implementation. Namely, DFAs in this crate delay matches by one byte
+    /// in order to support look-around operators. Thus, after reaching the end
+    /// of a haystack, a search implementation must follow one last EOF
+    /// transition.
+    ///
+    /// It is best to think of EOF as an additional symbol in the alphabet of
+    /// a DFA that is distinct from every other symbol. That is, the alphabet
+    /// of DFAs in this crate has a logical size 257 instead of 256, where 256
+    /// corresponds to every possible inhabitant of `u8`. (In practice, the
+    /// physical alphabet size may be smaller because of alphabet compression
+    /// via equivalence classes, but EOF is always represented somehow in the
+    /// alphabet.)
+    ///
+    /// # Panics
+    ///
+    /// If the given ID does not refer to a valid state, then this routine may
+    /// panic but it also may not panic and return an incorrect ID. However, an
+    /// incorrect ID may never sacrifice memory safety.
+    ///
+    /// # Example
+    ///
+    /// This shows a simplistic example for walking a DFA for a given haystack,
+    /// and then finishing the search with the final EOF transition.
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Automaton, dense};
+    ///
+    /// let dfa = dense::DFA::new(r"[a-z]+r")?;
+    /// let haystack = "bar".as_bytes();
+    ///
+    /// // The start state is determined by inspecting the position and the
+    /// // initial bytes of the haystack.
+    /// let mut state = dfa.start_state_forward(
+    ///     None, haystack, 0, haystack.len(),
+    /// );
+    /// // Walk all the bytes in the haystack.
+    /// for &b in haystack {
+    ///     state = dfa.next_state(state, b);
+    /// }
+    /// // Matches are always delayed by 1 byte, so we must explicitly walk
+    /// // the special "EOF" transition at the end of the search. Without this
+    /// // final transition, the assert below will fail since the DFA will not
+    /// // have entered a match state yet!
+    /// state = dfa.next_eof_state(state);
+    /// assert!(dfa.is_match_state(state));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn next_eof_state(&self, current: Self::ID) -> Self::ID;
 
     /// Return the identifier of this DFA's start state for the given haystack
@@ -188,7 +385,7 @@ pub unsafe trait Automaton {
     ///
     /// In the case of a DFA that never matches any pattern, this should
     /// return `0`.
-    fn patterns(&self) -> usize;
+    fn pattern_count(&self) -> usize;
 
     /// Returns the total number of patterns that match in this state.
     ///
@@ -479,8 +676,8 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn patterns(&self) -> usize {
-        (**self).patterns()
+    fn pattern_count(&self) -> usize {
+        (**self).pattern_count()
     }
 
     #[inline]
