@@ -350,9 +350,12 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 
     /// Returns the total number of patterns matched by this regex.
-    pub fn patterns(&self) -> usize {
-        assert_eq!(self.forward().patterns(), self.reverse().patterns());
-        self.forward().patterns()
+    pub fn pattern_count(&self) -> usize {
+        assert_eq!(
+            self.forward().pattern_count(),
+            self.reverse().pattern_count()
+        );
+        self.forward().pattern_count()
     }
 
     /// Convenience function for returning a prefilter scanner.

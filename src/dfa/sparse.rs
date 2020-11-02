@@ -1091,7 +1091,7 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
     }
 
     #[inline]
-    fn patterns(&self) -> usize {
+    fn pattern_count(&self) -> usize {
         self.trans.patterns
     }
 

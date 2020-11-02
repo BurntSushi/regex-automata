@@ -224,7 +224,7 @@ fn search_automaton<A: Automaton>(
     haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
-    let mut counts = vec![0u64; dfa.patterns()];
+    let mut counts = vec![0u64; dfa.pattern_count()];
     let mut at = 0;
     match find.kind() {
         config::FindKind::Earliest => {
@@ -307,7 +307,7 @@ fn search_regex<A: Automaton>(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut count = 0;
-    let mut counts = vec![0u64; re.patterns()];
+    let mut counts = vec![0u64; re.pattern_count()];
     match find.kind() {
         config::FindKind::Earliest => {
             for result in re.try_find_earliest_iter(haystack) {
