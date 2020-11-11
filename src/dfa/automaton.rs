@@ -208,9 +208,10 @@ pub unsafe trait Automaton {
     ///
     /// # Panics
     ///
-    /// If the given ID does not refer to a valid state, then this routine may
-    /// panic but it also may not panic and return an incorrect ID. However, an
-    /// incorrect ID may never sacrifice memory safety.
+    /// If the given ID does not refer to a valid state, then this routine
+    /// may panic but it also may not panic and instead return an invalid ID.
+    /// However, if the caller provides an invalid ID then this must never
+    /// sacrifice memory safety.
     ///
     /// # Example
     ///
@@ -240,12 +241,6 @@ pub unsafe trait Automaton {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     fn next_state(&self, current: Self::ID, input: u8) -> Self::ID;
-
-    /// Like `next_state`, but its implementation may look up the next state
-    /// without memory safety checks such as bounds checks. As such, callers
-    /// must ensure that the given identifier corresponds to a valid DFA
-    /// state. Implementors must, in turn, ensure that this routine is safe
-    /// for all valid state identifiers and for all possible `u8` values.
 
     /// Transitions from the current state to the next state, given the next
     /// byte of input.
@@ -277,24 +272,25 @@ pub unsafe trait Automaton {
     /// ID when `current` refers to a valid ID.
     ///
     /// This routine must be called at the end of every search in a correct
-    /// implementation. Namely, DFAs in this crate delay matches by one byte
-    /// in order to support look-around operators. Thus, after reaching the end
-    /// of a haystack, a search implementation must follow one last EOF
-    /// transition.
+    /// implementation of search. Namely, DFAs in this crate delay matches
+    /// by one byte in order to support look-around operators. Thus, after
+    /// reaching the end of a haystack, a search implementation must follow one
+    /// last EOF transition.
     ///
     /// It is best to think of EOF as an additional symbol in the alphabet of
     /// a DFA that is distinct from every other symbol. That is, the alphabet
-    /// of DFAs in this crate has a logical size 257 instead of 256, where 256
-    /// corresponds to every possible inhabitant of `u8`. (In practice, the
+    /// of DFAs in this crate has a logical size of 257 instead of 256, where
+    /// 256 corresponds to every possible inhabitant of `u8`. (In practice, the
     /// physical alphabet size may be smaller because of alphabet compression
     /// via equivalence classes, but EOF is always represented somehow in the
     /// alphabet.)
     ///
     /// # Panics
     ///
-    /// If the given ID does not refer to a valid state, then this routine may
-    /// panic but it also may not panic and return an incorrect ID. However, an
-    /// incorrect ID may never sacrifice memory safety.
+    /// If the given ID does not refer to a valid state, then this routine
+    /// may panic but it also may not panic and instead return an invalid ID.
+    /// However, if the caller provides an invalid ID then this must never
+    /// sacrifice memory safety.
     ///
     /// # Example
     ///
@@ -327,8 +323,34 @@ pub unsafe trait Automaton {
     /// ```
     fn next_eof_state(&self, current: Self::ID) -> Self::ID;
 
-    /// Return the identifier of this DFA's start state for the given haystack
-    /// when matching in the forward direction.
+    /// Return the ID of the start state for this DFA when executing a forward
+    /// search.
+    ///
+    /// Unlike typical DFA implementations, the start state for DFAs in this
+    /// crate is dependent on a few different factors:
+    ///
+    /// * The pattern ID, if present. When the underlying DFA has been compiled
+    /// with multiple patterns _and_ the DFA has been configured to compile an
+    /// anchored start state for each pattern, then a pattern ID may be
+    /// specified to execute an anchored search for that specific pattern. If
+    /// `pattern_id` is invalid or if the DFA doesn't have start states compiled
+    /// for each pattern, then implementations must panic. DFAs in this crate
+    /// can be configured to compile start states for each pattern via
+    /// [`dense::Config::starts_for_each_pattern`](dense/struct.Config.html#method.starts_for_each_pattern).
+    /// * When `start > 0`, the byte at index `start - 1` may influence the
+    /// start state if the regex uses `^` or `\b`.
+    /// * Similarly, when `start == 0`, it may influence the start state when
+    /// the regex uses `^` or `\A`.
+    /// * Currently, `end` is unused.
+    /// * Whether the search is a forward or reverse search. This routine can
+    /// only be used for forward searches.
+    ///
+    /// # Panics
+    ///
+    /// Implementations must panic if `start..end` is not a valid sub-slice of
+    /// `bytes`. Implementations must also panic if `pattern_id` is non-None
+    /// and does not refer to a valid pattern, or if the DFA was not compiled
+    /// with anchored start states for each pattern.
     fn start_state_forward(
         &self,
         pattern_id: Option<PatternID>,
@@ -337,8 +359,34 @@ pub unsafe trait Automaton {
         end: usize,
     ) -> Self::ID;
 
-    /// Return the identifier of this DFA's start state for the given haystack
-    /// when matching in the reverse direction.
+    /// Return the ID of the start state for this DFA when executing a reverse
+    /// search.
+    ///
+    /// Unlike typical DFA implementations, the start state for DFAs in this
+    /// crate is dependent on a few different factors:
+    ///
+    /// * The pattern ID, if present. When the underlying DFA has been compiled
+    /// with multiple patterns _and_ the DFA has been configured to compile an
+    /// anchored start state for each pattern, then a pattern ID may be
+    /// specified to execute an anchored search for that specific pattern. If
+    /// `pattern_id` is invalid or if the DFA doesn't have start states compiled
+    /// for each pattern, then implementations must panic. DFAs in this crate
+    /// can be configured to compile start states for each pattern via
+    /// [`dense::Config::starts_for_each_pattern`](dense/struct.Config.html#method.starts_for_each_pattern).
+    /// * When `start > 0`, the byte at index `start - 1` may influence the
+    /// start state if the regex uses `^` or `\b`.
+    /// * Similarly, when `start == 0`, it may influence the start state when
+    /// the regex uses `^` or `\A`.
+    /// * Currently, `end` is unused.
+    /// * Whether the search is a forward or reverse search. This routine can
+    /// only be used for reverse searches.
+    ///
+    /// # Panics
+    ///
+    /// Implementations must panic if `start..end` is not a valid sub-slice of
+    /// `bytes`. Implementations must also panic if `pattern_id` is non-None
+    /// and does not refer to a valid pattern, or if the DFA was not compiled
+    /// with anchored start states for each pattern.
     fn start_state_reverse(
         &self,
         pattern_id: Option<PatternID>,
