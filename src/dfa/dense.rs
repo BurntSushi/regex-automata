@@ -3166,6 +3166,11 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
         let index = match pattern_id {
             None => start_index,
             Some(pid) => {
+                assert!(
+                    pid < self.patterns as u32,
+                    "invalid pattern ID {:?}",
+                    pid
+                );
                 self.stride + (self.stride * pid as usize) + start_index
             }
         };

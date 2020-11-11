@@ -1840,12 +1840,22 @@ impl<T: AsRef<[u8]>, S: StateID> StartTable<T, S> {
         sl
     }
 
-    /// Return the start state for the given index.
+    /// Return the start state for the given index and pattern ID. If the
+    /// pattern ID is None, then the corresponding start state for the entire
+    /// DFA is returned. If the pattern ID is not None, then the corresponding
+    /// starting state for the given pattern is returned. If this start table
+    /// does not have individual starting states for each pattern, then this
+    /// panics.
     fn start(&self, index: Start, pattern_id: Option<PatternID>) -> S {
         let start_index = index.as_usize();
         let index = match pattern_id {
             None => start_index,
             Some(pid) => {
+                assert!(
+                    pid < self.patterns as u32,
+                    "invalid pattern ID {:?}",
+                    pid
+                );
                 self.stride + (self.stride * pid as usize) + start_index
             }
         };
