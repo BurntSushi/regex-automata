@@ -373,11 +373,11 @@ pub unsafe trait Automaton {
     /// for each pattern, then implementations must panic. DFAs in this crate
     /// can be configured to compile start states for each pattern via
     /// [`dense::Config::starts_for_each_pattern`](dense/struct.Config.html#method.starts_for_each_pattern).
-    /// * When `start > 0`, the byte at index `start - 1` may influence the
-    /// start state if the regex uses `^` or `\b`.
-    /// * Similarly, when `start == 0`, it may influence the start state when
-    /// the regex uses `^` or `\A`.
-    /// * Currently, `end` is unused.
+    /// * When `end < bytes.len()`, the byte at index `end` may influence the
+    /// start state if the regex uses `$` or `\b`.
+    /// * Similarly, when `end == bytes.len()`, it may influence the start
+    /// state when the regex uses `$` or `\z`.
+    /// * Currently, `start` is unused.
     /// * Whether the search is a forward or reverse search. This routine can
     /// only be used for reverse searches.
     ///
@@ -833,6 +833,12 @@ impl Start {
 
     #[inline(always)]
     pub fn from_position_fwd(bytes: &[u8], start: usize, end: usize) -> Start {
+        assert!(
+            bytes.get(start..end).is_some(),
+            "{}..{} is invalid",
+            start,
+            end
+        );
         if start == 0 {
             Start::Text
         } else if bytes[start - 1] == b'\n' {
@@ -846,6 +852,12 @@ impl Start {
 
     #[inline(always)]
     pub fn from_position_rev(bytes: &[u8], start: usize, end: usize) -> Start {
+        assert!(
+            bytes.get(start..end).is_some(),
+            "{}..{} is invalid",
+            start,
+            end
+        );
         if end == bytes.len() {
             Start::Text
         } else if bytes[end] == b'\n' {
