@@ -61,12 +61,8 @@ fn find_fwd<A: Automaton + ?Sized>(
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
 
-    let (mut state, mut last_match) =
-        init_fwd(dfa, pattern_id, bytes, start, end)?;
-    if earliest && last_match.is_some() {
-        return Ok(last_match);
-    }
-
+    let mut state = init_fwd(dfa, pattern_id, bytes, start, end)?;
+    let mut last_match = None;
     let mut at = start;
     if let Some(ref mut pre) = pre {
         if !pre.reports_false_positives() {
@@ -177,12 +173,8 @@ fn find_rev<A: Automaton + ?Sized>(
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
 
-    let (mut state, mut last_match) =
-        init_rev(dfa, pattern_id, bytes, start, end)?;
-    if earliest && last_match.is_some() {
-        return Ok(last_match);
-    }
-
+    let mut state = init_rev(dfa, pattern_id, bytes, start, end)?;
+    let mut last_match = None;
     let mut at = end;
     while at > start {
         at -= 1;
@@ -283,7 +275,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
 
-    let (mut state, mut last_match) = match caller_state.id() {
+    let mut state = match caller_state.id() {
         None => init_fwd(dfa, pattern_id, bytes, start, end)?,
         Some(id) => {
             if let Some(last) = caller_state.last_match() {
@@ -329,17 +321,9 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             if start > end {
                 return Ok(None);
             }
-            (id, None)
+            id
         }
     };
-    if let Some(last_match) = last_match {
-        caller_state.set_id(state);
-        caller_state.set_last_match(StateMatch {
-            match_index: 1,
-            offset: last_match.offset(),
-        });
-        return Ok(Some(last_match));
-    }
     caller_state.clear_last_match();
 
     let mut at = start;
@@ -403,17 +387,12 @@ fn init_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<(A::ID, Option<HalfMatch>), MatchError> {
+) -> Result<A::ID, MatchError> {
     let state = dfa.start_state_forward(pattern_id, bytes, start, end);
-    if dfa.is_match_state(state) {
-        let m = HalfMatch {
-            pattern: dfa.match_pattern(state, 0),
-            offset: start - MATCH_OFFSET,
-        };
-        Ok((state, Some(m)))
-    } else {
-        Ok((state, None))
-    }
+    // Start states can never be match states, since all matches are delayed
+    // by 1 byte.
+    assert!(!dfa.is_match_state(state));
+    Ok(state)
 }
 
 fn init_rev<A: Automaton + ?Sized>(
@@ -422,17 +401,12 @@ fn init_rev<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<(A::ID, Option<HalfMatch>), MatchError> {
+) -> Result<A::ID, MatchError> {
     let state = dfa.start_state_reverse(pattern_id, bytes, start, end);
-    if dfa.is_match_state(state) {
-        let m = HalfMatch {
-            pattern: dfa.match_pattern(state, 0),
-            offset: end + MATCH_OFFSET,
-        };
-        Ok((state, Some(m)))
-    } else {
-        Ok((state, None))
-    }
+    // Start states can never be match states, since all matches are delayed
+    // by 1 byte.
+    assert!(!dfa.is_match_state(state));
+    Ok(state)
 }
 
 fn eof_fwd<A: Automaton + ?Sized>(
