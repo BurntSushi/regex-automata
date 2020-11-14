@@ -395,14 +395,76 @@ pub unsafe trait Automaton {
         end: usize,
     ) -> Self::ID;
 
-    /// Returns true if and only if the given identifier corresponds to either
-    /// a dead state or a match state, such that one of `is_match_state(id)`
-    /// or `is_dead_state(id)` must return true.
+    /// Returns true if and only if the given identifier corresponds to a
+    /// "special" state. A special state is one or more of the following:
+    /// a dead state, a quit state, a match state, a start state or an
+    /// accelerated state.
     ///
-    /// Depending on the implementation of the DFA, this routine can be used
-    /// to save a branch in the core matching loop. Nevertheless,
-    /// `is_match_state(id) || is_dead_state(id)` is always a valid
-    /// implementation.
+    /// A correct implementation _may_ always return false for states that
+    /// are either start states or accelerated states, since that information
+    /// is only intended to be used for optimization purposes. Correct
+    /// implementations must return true if the state is a dead, quit or match
+    /// state. This is because search routines using this trait must be able
+    /// to rely on `is_special_state` as an indicator that a state may need
+    /// special treatment. (For example, when a search routine sees a dead
+    /// state, it must terminate.)
+    ///
+    /// This routine permits search implementations to use a single branch to
+    /// check whether a state needs special attention before executing the next
+    /// transition. The example below shows how to do this.
+    ///
+    /// # Example
+    ///
+    /// This example shows how `is_special_state` can be used to implement a
+    /// correct search routine with minimal branching. In particular, this
+    /// search routine implements "leftmost first" matching, which means
+    /// that it doesn't immediately stop once a match is found. Instead, it
+    /// continues until it reaches a dead state.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     PatternID,
+    ///     dfa::{Automaton, dense},
+    /// };
+    ///
+    /// fn find_leftmost_first<A: Automaton>(
+    ///     dfa: &A,
+    ///     haystack: &[u8],
+    /// ) -> Result<Option<HalfMatch>, MatchError> {
+    ///     // The start state is determined by inspecting the position and the
+    ///     // initial bytes of the haystack. Note that start states can never
+    ///     // match states (since DFAs in this crate delay matches by 1 byte),
+    ///     // so we don't need to check if the start state is a match.
+    ///     let mut state = dfa.start_state_forward(
+    ///         None, haystack, 0, haystack.len(),
+    ///     );
+    ///     let mut last_match = None;
+    ///     // Walk all the bytes in the haystack.
+    ///     for (i, b) in haystack.iter().enumerate() {
+    ///         state = dfa.next_state(state, b);
+    ///         if dfa.is_special_state(state) {
+    ///         if dfa.is_match_state(state) {
+    ///             last_match = Some(HalfMatch::new(
+    ///                 dfa.match_pattern(state, 0),
+    ///                 i,
+    ///             ));
+    ///         }
+    ///     }
+    ///     // Matches are always delayed by 1 byte, so we must explicitly walk
+    ///     // the special "EOF" transition at the end of the search. Without
+    ///     // this final transition, the assert below will fail since the DFA
+    ///     // will not have entered a match state yet!
+    ///     state = dfa.next_eof_state(state);
+    /// }
+    ///
+    /// let dfa = dense::DFA::new(r"[a-z]+")?;
+    /// let haystack = "123 foobar 456".as_bytes();
+    /// let mat = find_leftmost_first(&dfa, haystack)?;
+    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.offset(), 10);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn is_special_state(&self, id: Self::ID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to a dead
