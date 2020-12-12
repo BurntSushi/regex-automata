@@ -83,7 +83,7 @@ impl HalfMatch {
 /// dense DFAs and sparse DFAs. (Dense DFAs are fast but memory hungry, where
 /// as sparse DFAs are slower but come with a smaller memory footprint. But
 /// they otherwise provide exactly equivalent expressive power.) For example, a
-/// [`dfa::Regex`](struct.Regex.html) is generic over this trait.
+/// [`dfa::Regex`](crate::dfa::Regex) is generic over this trait.
 ///
 /// Normally, a DFA's execution model is very simple. You might have a single
 /// start state, zero or more final or "match" states and a function that
@@ -95,70 +95,53 @@ impl HalfMatch {
 /// * A DFA can search for multiple patterns simultaneously. This
 /// means extra information is returned when a match occurs. Namely,
 /// a match is not just an offset, but an offset plus a pattern ID.
-/// [`Automaton::pattern_count`](trait.Automaton.html#tymethod.pattern_count)
-/// returns the number of patterns compiled into the DFA,
-/// [`Automaton::match_count`](trait.Automaton.html#tymethod.match_count)
-/// returns the total number of patterns that match in a particular state and
-/// [`Automaton::match_pattern`](trait.Automaton.html#tymethod.match_pattern)
-/// permits iterating over the patterns that match in a particular state.
-/// * A DFA can have multiple start states, and the choice of which
-/// start state to use depends on the content of the string being searched and
-/// position of the search, as well as whether the search is an anchored search
-/// for a specific pattern in the DFA. Moreover, computing the start state also
-/// depends on whether you're doing a forward or a reverse search.
-/// [`Automaton::start_state_forward`](trait.Automaton.html#tymethod.start_state_forward)
-/// and
-/// [`Automaton::start_state_reverse`](trait.Automaton.html#tymethod.start_state_reverse)
+/// [`Automaton::pattern_count`] returns the number of patterns compiled into
+/// the DFA, [`Automaton::match_count`] returns the total number of patterns
+/// that match in a particular state and [`Automaton::match_pattern`] permits
+/// iterating over the patterns that match in a particular state.
+/// * A DFA can have multiple start states, and the choice of which start
+/// state to use depends on the content of the string being searched and
+/// position of the search, as well as whether the search is an anchored
+/// search for a specific pattern in the DFA. Moreover, computing the start
+/// state also depends on whether you're doing a forward or a reverse search.
+/// [`Automaton::start_state_forward`] and [`Automaton::start_state_reverse`]
 /// are used to compute the start state for forward and reverse searches,
 /// respectively.
 /// * All matches are delayed by one byte to support things like `$` and `\b`
 /// at the end of a pattern. Therefore, every use of a DFA is required to use
-/// [`Automaton::next_eof_state`](trait.Automaton.html#tymethod.next_eof_state)
+/// [`Automaton::next_eof_state`]
 /// at the end of the search to compute the final transition.
-/// * For optimization reasons, some states are treated specially. Every state
-/// is either special or not, which can be determined via the
-/// [`Automaton::is_special_state`](trait.Automaton.html#tymethod.is_special_state)
-/// method. If it's special, then the state must be at least one of a few
-/// possible types of states. (Note that some types can overlap, for example,
-/// a match state can also be an accel state. But some types can't. If a state
-/// is a dead state, then it can never be any other type of state.) Those
-/// types are:
+/// * For optimization reasons, some states are treated specially. Every
+/// state is either special or not, which can be determined via the
+/// [`Automaton::is_special_state`] method. If it's special, then the state
+/// must be at least one of a few possible types of states. (Note that some
+/// types can overlap, for example, a match state can also be an accel state.
+/// But some types can't. If a state is a dead state, then it can never be any
+/// other type of state.) Those types are:
 ///     * A dead state. A dead state means the DFA will never enter a match
-///     state.
-///     This can be queried via the
-///     [`Automaton::is_dead_state`](trait.Automaton.html#tymethod.is_dead_state)
-///     method.
+///     state. This can be queried via the [`Automaton::is_dead_state`] method.
 ///     * A quit state. A quit state occurs if the DFA had to stop the search
-///     prematurely for some reason.
-///     This can be queried via the
-///     [`Automaton::is_quit_state`](trait.Automaton.html#tymethod.is_quit_state)
-///     method.
+///     prematurely for some reason. This can be queried via the
+///     [`Automaton::is_quit_state`] method.
 ///     * A match state. A match state occurs when a match is found. When a DFA
-///     enters a match state, the search may stop immediately (when looking for
-///     the earliest match), or it may continue to find the leftmost-first
-///     match.
-///     This can be queried via the
-///     [`Automaton::is_match_state`](trait.Automaton.html#tymethod.is_match_state)
+///     enters a match state, the search may stop immediately (when looking
+///     for the earliest match), or it may continue to find the leftmost-first
+///     match. This can be queried via the [`Automaton::is_match_state`]
 ///     method.
 ///     * A start state. A start state is where a search begins. For every
-///     search, there is exactly one start state that is used, however, a DFA
-///     may contain many start states. When the search is in a start state, it
-///     may use a prefilter to quickly skip to candidate matches without
-///     executing the DFA on every byte.
-///     This can be queried via the
-///     [`Automaton::is_start_state`](trait.Automaton.html#tymethod.is_start_state)
-///     method.
-///     * An accel state. An accel state is a state that is accelerated. That
-///     is, it is a state where _most_ of its transitions loop back to itself
-///     and only a small number of transitions lead to other states. This kind
-///     of state is said to be accelerated because a search routine can quickly
-///     look for the bytes leading out of the state instead of continuing to
-///     execute the DFA on each byte.
-///     This can be queried via the
-///     [`Automaton::is_accel_state`](trait.Automaton.html#tymethod.is_accel_state)
-///     method. And the bytes that lead out of the state can be queried via the
-///     [`Automaton::accelerator`](trait.Automaton.html#tymethod.accelerator)
-///     method.
+///     search, there is exactly one start state that is used, however, a
+///     DFA may contain many start states. When the search is in a start
+///     state, it may use a prefilter to quickly skip to candidate matches
+///     without executing the DFA on every byte. This can be queried via the
+///     [`Automaton::is_start_state`] method.
+///     * An accel state. An accel state is a state that is accelerated.
+///     That is, it is a state where _most_ of its transitions loop back to
+///     itself and only a small number of transitions lead to other states.
+///     This kind of state is said to be accelerated because a search routine
+///     can quickly look for the bytes leading out of the state instead of
+///     continuing to execute the DFA on each byte. This can be queried via the
+///     [`Automaton::is_accel_state`] method. And the bytes that lead out of
+///     the state can be queried via the [`Automaton::accelerator`] method.
 ///
 /// There are a number of provided methods on this trait that implement
 /// efficient searching (for forwards and backwards) with a DFA using all of
@@ -245,11 +228,9 @@ pub unsafe trait Automaton {
     /// Transitions from the current state to the next state, given the next
     /// byte of input.
     ///
-    /// Unlike
-    /// [`Automaton::next_state`](trait.Automaton.html#tymethod.next_state),
-    /// implementations may implement this more efficiently by assuming that
-    /// the `current` state ID is valid. Typically, this manifests by eliding
-    /// bounds checks.
+    /// Unlike [`Automaton::next_state`], implementations may implement this
+    /// more efficiently by assuming that the `current` state ID is valid.
+    /// Typically, this manifests by eliding bounds checks.
     ///
     /// # Safety
     ///
@@ -336,7 +317,7 @@ pub unsafe trait Automaton {
     /// `pattern_id` is invalid or if the DFA doesn't have start states compiled
     /// for each pattern, then implementations must panic. DFAs in this crate
     /// can be configured to compile start states for each pattern via
-    /// [`dense::Config::starts_for_each_pattern`](dense/struct.Config.html#method.starts_for_each_pattern).
+    /// [`dense::Config::starts_for_each_pattern`](crate::dfa::dense::Config::starts_for_each_pattern).
     /// * When `start > 0`, the byte at index `start - 1` may influence the
     /// start state if the regex uses `^` or `\b`.
     /// * Similarly, when `start == 0`, it may influence the start state when
@@ -372,7 +353,7 @@ pub unsafe trait Automaton {
     /// `pattern_id` is invalid or if the DFA doesn't have start states compiled
     /// for each pattern, then implementations must panic. DFAs in this crate
     /// can be configured to compile start states for each pattern via
-    /// [`dense::Config::starts_for_each_pattern`](dense/struct.Config.html#method.starts_for_each_pattern).
+    /// [`dense::Config::starts_for_each_pattern`](crate::dfa::dense::Config::starts_for_each_pattern).
     /// * When `end < bytes.len()`, the byte at index `end` may influence the
     /// start state if the regex uses `$` or `\b`.
     /// * Similarly, when `end == bytes.len()`, it may influence the start
@@ -423,8 +404,8 @@ pub unsafe trait Automaton {
     ///
     /// ```
     /// use regex_automata::{
-    ///     PatternID,
-    ///     dfa::{Automaton, dense},
+    ///     MatchError, PatternID,
+    ///     dfa::{Automaton, HalfMatch, dense},
     /// };
     ///
     /// fn find_leftmost_first<A: Automaton>(
@@ -433,21 +414,32 @@ pub unsafe trait Automaton {
     /// ) -> Result<Option<HalfMatch>, MatchError> {
     ///     // The start state is determined by inspecting the position and the
     ///     // initial bytes of the haystack. Note that start states can never
-    ///     // match states (since DFAs in this crate delay matches by 1 byte),
-    ///     // so we don't need to check if the start state is a match.
+    ///     // be match states (since DFAs in this crate delay matches by 1
+    ///     // byte), so we don't need to check if the start state is a match.
     ///     let mut state = dfa.start_state_forward(
     ///         None, haystack, 0, haystack.len(),
     ///     );
     ///     let mut last_match = None;
-    ///     // Walk all the bytes in the haystack.
-    ///     for (i, b) in haystack.iter().enumerate() {
+    ///     // Walk all the bytes in the haystack. We can quit early if we see
+    ///     // a dead or a quit state. The former means the automaton will
+    ///     // never transition to any other state. The latter means that the
+    ///     // automaton entered a condition in which its search failed.
+    ///     for (i, &b) in haystack.iter().enumerate() {
     ///         state = dfa.next_state(state, b);
     ///         if dfa.is_special_state(state) {
-    ///         if dfa.is_match_state(state) {
-    ///             last_match = Some(HalfMatch::new(
-    ///                 dfa.match_pattern(state, 0),
-    ///                 i,
-    ///             ));
+    ///             if dfa.is_match_state(state) {
+    ///                 last_match = Some(HalfMatch::new(
+    ///                     dfa.match_pattern(state, 0),
+    ///                     i,
+    ///                 ));
+    ///             } else if dfa.is_dead_state(state) {
+    ///                 return Ok(last_match);
+    ///             } else if dfa.is_quit_state(state) {
+    ///                 return Err(MatchError::Quit { byte: b, offset: i });
+    ///             }
+    ///             // Implementors may also want to check for start or accel
+    ///             // states and handle them differently for performance
+    ///             // reasons. But it is not necessary for correctness.
     ///         }
     ///     }
     ///     // Matches are always delayed by 1 byte, so we must explicitly walk
@@ -455,13 +447,34 @@ pub unsafe trait Automaton {
     ///     // this final transition, the assert below will fail since the DFA
     ///     // will not have entered a match state yet!
     ///     state = dfa.next_eof_state(state);
+    ///     if dfa.is_match_state(state) {
+    ///         last_match = Some(HalfMatch::new(
+    ///             dfa.match_pattern(state, 0),
+    ///             haystack.len(),
+    ///         ));
+    ///     }
+    ///     Ok(last_match)
     /// }
     ///
+    /// // We use a greedy '+' operator to show how the search doesn't just
+    /// // stop once a match is detected. It continues extending the match.
+    /// // Using '[a-z]+?' would also work as expected and stop the search
+    /// // early. Greediness is built into the automaton.
     /// let dfa = dense::DFA::new(r"[a-z]+")?;
-    /// let haystack = "123 foobar 456".as_bytes();
-    /// let mat = find_leftmost_first(&dfa, haystack)?;
+    /// let haystack = "123 foobar 4567".as_bytes();
+    /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
     /// assert_eq!(mat.pattern(), 0);
     /// assert_eq!(mat.offset(), 10);
+    ///
+    /// // Here's another example that tests our handling of the special EOF
+    /// // transition. This will fail to find a match if we don't call
+    /// // 'next_eof_state' at the end of the search since the match isn't
+    /// // found until the final byte in the haystack.
+    /// let dfa = dense::DFA::new(r"[0-9]{4}")?;
+    /// let haystack = "123 foobar 4567".as_bytes();
+    /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
+    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.offset(), 15);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -525,7 +538,7 @@ pub unsafe trait Automaton {
     /// # Example
     ///
     /// This example shows how to use this method with a
-    /// [`dense::DFA`](struct.DFA.html).
+    /// [`dense::DFA`](crate::dfa::dense::DFA).
     ///
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
@@ -573,7 +586,7 @@ pub unsafe trait Automaton {
     /// # Example
     ///
     /// This example shows how to use this method with a
-    /// [`dense::DFA`](struct.DFA.html). By default, a dense DFA uses
+    /// [`dense::DFA`](crate::dfa::dense::DFA). By default, a dense DFA uses
     /// "leftmost first" match semantics.
     ///
     /// Leftmost first match semantics corresponds to the match with the
@@ -619,9 +632,9 @@ pub unsafe trait Automaton {
     /// # Example
     ///
     /// This example shows how to use this method with a
-    /// [`dense::DFA`](struct.DFA.html). In particular, this routine
+    /// [`dense::DFA`](crate::dfa::dense::DFA). In particular, this routine
     /// is principally useful when used in conjunction with the
-    /// [`dense::Builder::reverse`](dense/struct.Builder.html#method.reverse)
+    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse)
     /// configuration knob. In general, it's unlikely to be correct to use both
     /// `find` and `rfind` with the same DFA since any particular DFA will only
     /// support searching in one direction.
