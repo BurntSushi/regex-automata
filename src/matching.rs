@@ -247,7 +247,7 @@ impl MultiMatch {
 /// by explicitly specifying one or more quit bytes.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MatchError {
-    // Note that the first version of this type was called `MatchError` and it
+    // Note that the first version of this type was called `SearchError` and it
     // included a third `None` variant to indicate that the search completed
     // and no match was found. However, this was problematic for iterator
     // APIs where the `None` sentinel for stopping iteration corresponds
