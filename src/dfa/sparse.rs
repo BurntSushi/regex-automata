@@ -126,6 +126,36 @@ impl DFA<Vec<u8>, usize> {
             .build(pattern)
             .and_then(|dense| dense.to_sparse())
     }
+
+    /// Parse the given regular expressions using a default configuration and
+    /// return the corresponding multi-DFA.
+    ///
+    /// The default configuration uses `usize` for state IDs. The DFA is *not*
+    /// minimized.
+    ///
+    /// If you want a non-default configuration, then use the
+    /// [`dense::Builder`](dense/struct.Builder.html)
+    /// to set your own configuration, and then call
+    /// [`dense::DFA::to_sparse`](struct.DFA.html#method.to_sparse)
+    /// to create a sparse DFA.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
+    ///
+    /// let dfa = sparse::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
+    /// let expected = HalfMatch::new(1, 3);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn new_many<P: AsRef<str>>(
+        patterns: &[P],
+    ) -> Result<DFA<Vec<u8>, usize>, Error> {
+        dense::Builder::new()
+            .build_many(patterns)
+            .and_then(|dense| dense.to_sparse())
+    }
 }
 
 #[cfg(feature = "std")]

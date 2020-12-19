@@ -732,6 +732,32 @@ impl OwnedDFA<usize> {
     pub fn new(pattern: &str) -> Result<OwnedDFA<usize>, Error> {
         Builder::new().build(pattern)
     }
+
+    /// Parse the given regular expressions using a default configuration and
+    /// return the corresponding multi-DFA.
+    ///
+    /// The default configuration uses `usize` for state IDs. The DFA is *not*
+    /// minimized.
+    ///
+    /// If you want a non-default configuration, then use the
+    /// [`dense::Builder`](dense/struct.Builder.html)
+    /// to set your own configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    ///
+    /// let dfa = dense::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
+    /// let expected = HalfMatch::new(1, 3);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn new_many<P: AsRef<str>>(
+        patterns: &[P],
+    ) -> Result<OwnedDFA<usize>, Error> {
+        Builder::new().build_many(patterns)
+    }
 }
 
 #[cfg(feature = "std")]
