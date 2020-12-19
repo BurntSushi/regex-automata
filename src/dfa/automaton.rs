@@ -481,19 +481,99 @@ pub unsafe trait Automaton {
     fn is_special_state(&self, id: Self::ID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to a dead
-    /// state. When a DFA enters a dead state, it is impossible to leave and
-    /// thus can never lead to a match.
+    /// state. When a DFA enters a dead state, it is impossible to leave. That
+    /// is, every transition on a dead state by definition leads back to the
+    /// same dead state.
+    ///
+    /// In practice, the dead state always corresponds to the identifier `0`.
+    /// Moreover, in practice, there is only one dead state.
+    ///
+    /// The existence of a dead state is not strictly required in the classical
+    /// model of finite state machines, where one generally only cares about
+    /// the question of whether an input sequence matches or not. Dead states
+    /// are not needed to answer that question, since one can immediately quit
+    /// as soon as one enters a final or "match" state. However, we don't just
+    /// care about matches but also care about the location of matches, and
+    /// more specifically, care about semantics like "greedy" matching.
+    ///
+    /// For example, given the pattern `a+` and the input `aaaz`, the dead
+    /// state won't be entered until the state machine reaches `z` in the
+    /// input, at which point, the search routine can quit. But without the
+    /// dead state, the search routine wouldn't know when to quit. In a
+    /// classical representation, the search routine would stop after seeing
+    /// the first `a` (which is when the search would enter a match state). But
+    /// this wouldn't implement "greedy" matching where `a+` matches as many
+    /// `a`'s as possible.
+    ///
+    /// # Example
+    ///
+    /// See the example for [`Automaton::is_special_state`] for how to use this
+    /// method correctly.
     fn is_dead_state(&self, id: Self::ID) -> bool;
 
-    /// Returns true if and only if the given identifier corresponds to a
-    /// quit state. A quit state is like a dead state (it has no outgoing
-    /// transitions), except it indicates that the DFA failed to complete the
-    /// search. When this occurs, callers can neither accept or reject that a
-    /// match occurred.
+    /// Returns true if and only if the given identifier corresponds to a quit
+    /// state. A quit state is like a dead state (it has no transitions other
+    /// than to itself), except it indicates that the DFA failed to complete
+    /// the search. When this occurs, callers can neither accept or reject that
+    /// a match occurred.
+    ///
+    /// In practice, the quit state always corresponds to the state immediately
+    /// following the dead state. (Which is not usually represented by `1`,
+    /// since state identifiers are pre-multiplied by the state machine's
+    /// alphabet stride.)
+    ///
+    /// By default, state machines created by this crate will never enter a
+    /// quit state. Since entering a quit state is the only way for a DFA in
+    /// this crate to fail, it follows that the default configuration can never
+    /// produce a match error. Nevertheless, handling quit states is necessary
+    /// to correctly support all configurations in this crate.
+    ///
+    /// The typical way in which a quit state can occur is when heuristic
+    /// support for Unicode word boundaries is enabled via the
+    /// [`dense::Config::unicode_word_boundary`](crate::dfa::dense::Config::unicode_word_boundary)
+    /// option. But other options, like the lower level
+    /// [`dense::Config::quit`](crate::dfa::dense::Config::quit)
+    /// configuration, can also result in a quit state being entered. The
+    /// purpose of the quit state is to provide a way to execute a fast DFA
+    /// in common cases while delegating to slower routines when the DFA quits.
+    ///
+    /// The default search implementations provided by this crate will return
+    /// a [`MatchError::Quit`](crate::MatchError::Quit) error when a quit state
+    /// is entered.
+    ///
+    /// # Example
+    ///
+    /// See the example for [`Automaton::is_special_state`] for how to use this
+    /// method correctly.
     fn is_quit_state(&self, id: Self::ID) -> bool;
 
-    /// Returns true if and only if the given identifier corresponds to a match
-    /// state.
+    /// Returns true if and only if the given identifier corresponds to a
+    /// match state. A match state is also referred to as a "final" state and
+    /// indicates that a match has been found.
+    ///
+    /// If all you care about is whether a particular pattern matches in the
+    /// input sequence, then a search routine can quit early as soon as the
+    /// machine enters a match state. However, if you're looking for the
+    /// standard "leftmost-first" match location, then search _must_ continue
+    /// until either the end of the input or until the machine enters a dead
+    /// state. (Since either condition implies that no other useful work can
+    /// be done.) Namely, when looking for the location of a match, then
+    /// search implementations should record the most recent location in
+    /// which a match state was entered, but otherwise continue executing the
+    /// search as normal. (The search may even leave the match state.) Once
+    /// the termination condition is reached, the most recently record match
+    /// location should be returned.
+    ///
+    /// Finally, one additional power given to match states in this crate
+    /// is that they are always associated with a specific pattern in order
+    /// to support multi-DFAs. See [`Automaton::match_pattern`] for more
+    /// details and an example for how to query the pattern associated with a
+    /// particular match state.
+    ///
+    /// # Example
+    ///
+    /// See the example for [`Automaton::is_special_state`] for how to use this
+    /// method correctly in the case of a single pattern search.
     fn is_match_state(&self, id: Self::ID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to a start
