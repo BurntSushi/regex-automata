@@ -443,9 +443,7 @@ pub unsafe trait Automaton {
     ///         }
     ///     }
     ///     // Matches are always delayed by 1 byte, so we must explicitly walk
-    ///     // the special "EOF" transition at the end of the search. Without
-    ///     // this final transition, the assert below will fail since the DFA
-    ///     // will not have entered a match state yet!
+    ///     // the special "EOF" transition at the end of the search.
     ///     state = dfa.next_eof_state(state);
     ///     if dfa.is_match_state(state) {
     ///         last_match = Some(HalfMatch::new(
@@ -475,6 +473,15 @@ pub unsafe trait Automaton {
     /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
     /// assert_eq!(mat.pattern(), 0);
     /// assert_eq!(mat.offset(), 15);
+    ///
+    /// // And note that our search implementation above automatically works
+    /// // with multi-DFAs. Namely, `dfa.match_pattern(match_state, 0)` selects
+    /// // the appropriate pattern ID for us.
+    /// let dfa = dense::DFA::new_many(&[r"[a-z]+", r"[0-9]+"])?;
+    /// let haystack = "123 foobar 4567".as_bytes();
+    /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
+    /// assert_eq!(mat.pattern(), 1);
+    /// assert_eq!(mat.offset(), 3);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -573,11 +580,126 @@ pub unsafe trait Automaton {
     /// # Example
     ///
     /// See the example for [`Automaton::is_special_state`] for how to use this
-    /// method correctly in the case of a single pattern search.
+    /// method correctly.
     fn is_match_state(&self, id: Self::ID) -> bool;
 
-    /// Returns true if and only if the given identifier corresponds to a start
-    /// state.
+    /// Returns true if and only if the given identifier corresponds to a
+    /// start state. A start state is a state in which a DFA begins a search.
+    /// All searches begin in a start state. Moreover, since all matches are
+    /// delayed by one byte, a start state can never be a match state.
+    ///
+    /// The main role of a start state is, as mentioned, to be a starting
+    /// point for a DFA. This starting point is determined via one of
+    /// [`Automaton::start_state_forward`] or
+    /// [`Automaton::start_state_reverse`], depending on whether one is doing
+    /// a forward or a reverse search, respectively.
+    ///
+    /// A secondary use of start states is for prefix acceleration. Namely,
+    /// while executing a search, if one detects that you're in a start state,
+    /// then it may be faster to look for the next match of a prefix of the
+    /// pattern, if one exists. If a prefix exists and since all matches must
+    /// begin with that prefix, then skipping ahead to occurrences of that
+    /// prefix may be much faster than executing the DFA.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to implement your own search routine that does
+    /// a prefix search whenever the search enters a start state.
+    ///
+    /// Note that you do not need to implement your own search routine to
+    /// make use of prefilters like this. The search routines provided
+    /// by this crate already implement prefilter support via the
+    /// [`Prefilter`](crate::prefilter::Prefilter) trait. The various
+    /// `find_*_at` routines on this trait support the `Prefilter` trait
+    /// through [`Scanner`](crate::prefilter::Scanner)s.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     MatchError, PatternID,
+    ///     dfa::{Automaton, HalfMatch, dense},
+    /// };
+    ///
+    /// fn find_byte(slice: &[u8], at: usize, byte: u8) -> Option<usize> {
+    ///     // Would be faster to use the memchr crate, but this is still
+    ///     // faster than running through the DFA.
+    ///     slice[at..].iter().position(|&b| b == byte).map(|i| at + i)
+    /// }
+    ///
+    /// fn find_leftmost_first<A: Automaton>(
+    ///     dfa: &A,
+    ///     haystack: &[u8],
+    ///     prefix_byte: Option<u8>,
+    /// ) -> Result<Option<HalfMatch>, MatchError> {
+    ///     // See the Automaton::is_special_state example for similar code
+    ///     // with more comments.
+    ///
+    ///     let mut state = dfa.start_state_forward(
+    ///         None, haystack, 0, haystack.len(),
+    ///     );
+    ///     let mut last_match = None;
+    ///     let mut pos = 0;
+    ///     while pos < haystack.len() {
+    ///         let b = haystack[pos];
+    ///         state = dfa.next_state(state, b);
+    ///         pos += 1;
+    ///         if dfa.is_special_state(state) {
+    ///             if dfa.is_match_state(state) {
+    ///                 last_match = Some(HalfMatch::new(
+    ///                     dfa.match_pattern(state, 0),
+    ///                     pos - 1,
+    ///                 ));
+    ///             } else if dfa.is_dead_state(state) {
+    ///                 return Ok(last_match);
+    ///             } else if dfa.is_quit_state(state) {
+    ///                 return Err(MatchError::Quit {
+    ///                     byte: b, offset: pos - 1,
+    ///                 });
+    ///             } else if dfa.is_start_state(state) {
+    ///                 // If we're in a start state and know all matches begin
+    ///                 // with a particular byte, then we can quickly skip to
+    ///                 // candidate matches without running the DFA through
+    ///                 // every byte inbetween.
+    ///                 if let Some(prefix_byte) = prefix_byte {
+    ///                     pos = match find_byte(haystack, pos, prefix_byte) {
+    ///                         Some(pos) => pos,
+    ///                         None => break,
+    ///                     };
+    ///                 }
+    ///             }
+    ///         }
+    ///     }
+    ///     // Matches are always delayed by 1 byte, so we must explicitly walk
+    ///     // the special "EOF" transition at the end of the search.
+    ///     state = dfa.next_eof_state(state);
+    ///     if dfa.is_match_state(state) {
+    ///         last_match = Some(HalfMatch::new(
+    ///             dfa.match_pattern(state, 0),
+    ///             haystack.len(),
+    ///         ));
+    ///     }
+    ///     Ok(last_match)
+    /// }
+    ///
+    /// // In this example, it's obvious that all occurrences of our pattern
+    /// // begin with 'Z', so we pass in 'Z'.
+    /// let dfa = dense::DFA::new(r"Z[a-z]+")?;
+    /// let haystack = "123 foobar Zbaz quux".as_bytes();
+    /// let mat = find_leftmost_first(&dfa, haystack, Some(b'Z'))?.unwrap();
+    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.offset(), 15);
+    ///
+    /// // But note that we don't need to pass in a prefix byte. If we don't,
+    /// // then the search routine does no acceleration.
+    /// let mat = find_leftmost_first(&dfa, haystack, None)?.unwrap();
+    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.offset(), 15);
+    ///
+    /// // However, if we pass an incorrect byte, then the prefix search will
+    /// // result in incorrect results.
+    /// assert!(find_leftmost_first(&dfa, haystack, Some(b'X'))?.is_none());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn is_start_state(&self, id: Self::ID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to an
