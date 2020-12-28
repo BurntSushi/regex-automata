@@ -74,6 +74,8 @@ impl Config {
     /// Reversing the NFA is useful for building a reverse DFA, which is most
     /// useful for finding the start of a match after its ending position has
     /// been found.
+    ///
+    /// This is disabled by default.
     pub fn reverse(mut self, yes: bool) -> Config {
         self.reverse = Some(yes);
         self
@@ -84,16 +86,18 @@ impl Config {
     /// When UTF-8 mode is enabled (which is the default), unanchored searches
     /// will only match through valid UTF-8. If invalid UTF-8 is seen, then
     /// an unanchored search will stop at that point. This is equivalent to
-    /// putting a `(?s:.)*` at the start of the regex.
+    /// putting a `(?s:.)*?` at the start of the regex.
     ///
     /// When UTF-8 mode is disabled, then unanchored searches will match
-    /// through any arbitrary byte. This is equivalent to putting a `(?s-u:.)*`
-    /// at the start of the regex.
+    /// through any arbitrary byte. This is equivalent to putting a
+    /// `(?s-u:.)*?` at the start of the regex.
     ///
     /// Generally speaking, UTF-8 mode should only be used when you know you
-    /// are searching valid UTF-8. Typically, this should only be disabled in
-    /// precisely the cases where the regex itself is permitted to match
-    /// invalid UTF-8.
+    /// are searching valid UTF-8, such as a Rust `&str`. If UTF-8 mode is used
+    /// on input that is not valid UTF-8, then the regex is not likely to work
+    /// as expected.
+    ///
+    /// This is enabled by default.
     pub fn utf8(mut self, yes: bool) -> Config {
         self.utf8 = Some(yes);
         self
@@ -110,6 +114,8 @@ impl Config {
     ///
     /// The only reason to disable this if you want to compile an NFA and start
     /// using it as quickly as possible without needing to build a DFA.
+    ///
+    /// This is enabled by default.
     pub fn shrink(mut self, yes: bool) -> Config {
         self.shrink = Some(yes);
         self
