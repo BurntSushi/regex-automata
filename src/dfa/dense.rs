@@ -247,7 +247,7 @@ impl Config {
 
     /// Whether to attempt to shrink the size of the DFA's alphabet or not.
     ///
-    /// This option is enabled by default and should never by disabled unless
+    /// This option is enabled by default and should never be disabled unless
     /// one is debugging a generated DFA.
     ///
     /// When enabled, each DFA will use a map from all possible bytes to their
