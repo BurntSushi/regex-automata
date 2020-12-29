@@ -669,14 +669,16 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // to match is in the overlapping case, since it's ambiguous. In the
         // leftmost case, I have tentatively convinced myself that it isn't
         // necessary and the reverse search will always find the same pattern
-        // to match as the forward search. But I lack a rigorous proof.
+        // to match as the forward search. But I lack a rigorous proof. Why not
+        // just provide the pattern anyway? Well, if it is needed, then leaving
+        // it out gives us a chance to find a witness.
         let start = (&rev)
             .find_leftmost_rev_at(None, input, start, end.offset())?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
             end.pattern(),
-            "forward and reverse search must match same pattern"
+            "forward and reverse search must match same pattern",
         );
         assert!(start.offset() <= end.offset());
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
@@ -719,7 +721,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         };
         // Unlike the leftmost cases, the reverse overlapping search may match
         // a different pattern than the forward search. See test failures when
-        // using `None` instead of `Some(end.pattern())` below.
+        // using `None` instead of `Some(end.pattern())` below. Thus, we must
+        // run our reverse search using the pattern that matched in the forward
+        // direction.
         let start = (&rev)
             .find_leftmost_rev_at(Some(end.pattern()), input, 0, end.offset())?
             .expect("reverse search must match if forward search does");
