@@ -26,7 +26,7 @@
 // For example, patterns like '[^a]' don't actually match any byte that isn't
 // 'a', but rather, any UTF-8 encoding of a Unicode scalar value that isn't
 // 'a'. This makes the state machine much more complex---far beyond a single
-// state---and removes the ability to easily accelerated it. (Because if the
+// state---and removes the ability to easily accelerate it. (Because if the
 // machine sees a non-UTF-8 sequence, then the machine won't match through it.)
 //
 // In practice, we only consider accelerating states that have 3 or fewer
