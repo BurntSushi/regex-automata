@@ -22,13 +22,7 @@ pub enum ErrorKind {
     /// by either using an ASCII word boundary (`(?-u:\b)`) or by enabling the
     /// [`dense::Builder::allow_unicode_word_boundary`](dense/struct.Builder.html#method.allow_unicode_word_boundary)
     /// option when building a DFA.
-    Unsupported(String),
-    /// An error that occurred when attempting to serialize a DFA to bytes. The
-    /// message string describes the problem.
-    Serialize(&'static str),
-    /// An error that occurred when attempting to deserialize a DFA from bytes.
-    /// The message string describes the problem.
-    Deserialize(&'static str),
+    Unsupported(&'static str),
     /// An error that occurs when constructing a DFA would require the use
     /// of a state ID that overflows the chosen state ID representation. For
     /// example, if one is using `u8` for state IDs and builds a DFA with too
@@ -63,15 +57,7 @@ impl Error {
                    boundaries; switch to ASCII word boundaries, or \
                    heuristically enable Unicode word boundaries or use a \
                    different regex engine";
-        Error { kind: ErrorKind::Unsupported(msg.to_string()) }
-    }
-
-    pub(crate) fn serialize(message: &'static str) -> Error {
-        Error { kind: ErrorKind::Serialize(message) }
-    }
-
-    pub(crate) fn deserialize(message: &'static str) -> Error {
-        Error { kind: ErrorKind::Deserialize(message) }
+        Error { kind: ErrorKind::Unsupported(msg) }
     }
 
     pub(crate) fn state_id_overflow(max: usize) -> Error {
@@ -79,31 +65,24 @@ impl Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind() {
             ErrorKind::NFA(ref err) => Some(err),
             ErrorKind::Unsupported(_) => None,
-            ErrorKind::Serialize(_) => None,
-            ErrorKind::Deserialize(_) => None,
             ErrorKind::StateIDOverflow { .. } => None,
             ErrorKind::__Nonexhaustive => unreachable!(),
         }
     }
 }
 
-impl std::fmt::Display for Error {
+impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.kind() {
             ErrorKind::NFA(_) => write!(f, "error building NFA"),
             ErrorKind::Unsupported(ref msg) => {
                 write!(f, "unsupported regex feature for DFAs: {}", msg)
-            }
-            ErrorKind::Serialize(ref msg) => {
-                write!(f, "DFA serialization error: {}", msg)
-            }
-            ErrorKind::Deserialize(ref msg) => {
-                write!(f, "DFA deserialization error, DFA is corrupt: {}", msg)
             }
             ErrorKind::StateIDOverflow { max } => write!(
                 f,
