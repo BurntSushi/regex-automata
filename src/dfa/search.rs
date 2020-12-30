@@ -1,7 +1,9 @@
 use crate::{
     dfa::{
         accel,
-        automaton::{Automaton, HalfMatch, State, StateMatch, MATCH_OFFSET},
+        automaton::{
+            Automaton, HalfMatch, OverlappingState, StateMatch, MATCH_OFFSET,
+        },
     },
     prefilter::{self, Prefilter},
     MatchError, PatternID,
@@ -234,10 +236,10 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     mut start: usize,
     end: usize,
-    caller_state: &mut State<A::ID>,
+    caller_state: &mut OverlappingState<A::ID>,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    // Searching with a pattern ID is always anchored, so we should never use
-    // a prefilter.
+    // Searching with a pattern ID is always anchored, so we should only ever
+    // use a prefilter when no pattern ID is given.
     if pre.is_some() && pattern_id.is_none() {
         find_overlapping_fwd_imp(
             pre,
@@ -269,7 +271,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     bytes: &[u8],
     mut start: usize,
     end: usize,
-    caller_state: &mut State<A::ID>,
+    caller_state: &mut OverlappingState<A::ID>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
@@ -288,7 +290,6 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                     last.match_index += 1;
                     return Ok(Some(m));
                 }
-                caller_state.clear_last_match();
             }
 
             // This is a subtle but critical detail. If the caller provides a
@@ -314,17 +315,11 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             // will use the ending location from the previous match as the next
             // starting point, which is `match_offset` bytes PRIOR to where
             // we scanned to on the previous search. Therefore, we need to
-            // compensate by bumping `start` up by `match_offset` bytes.
+            // compensate by bumping `start` up by `MATCH_OFFSET` bytes.
             start += MATCH_OFFSET;
-            // Since match_offset could be any arbitrary value, it's possible
-            // that we are at EOF. So check that now.
-            if start > end {
-                return Ok(None);
-            }
             id
         }
     };
-    caller_state.clear_last_match();
 
     let mut at = start;
     while at < end {

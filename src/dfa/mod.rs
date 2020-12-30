@@ -305,7 +305,7 @@ With some of the downsides out of the way, here are some positive differences:
   increase compilation times dramatically.
 */
 
-pub use crate::dfa::automaton::{Automaton, HalfMatch, State};
+pub use crate::dfa::automaton::{Automaton, HalfMatch, OverlappingState};
 #[cfg(feature = "std")]
 pub use crate::dfa::error::{Error, ErrorKind};
 #[cfg(feature = "std")]
@@ -360,7 +360,10 @@ pub mod dense {
 /// example, this configures a sparse DFA to do an overlapping search:
 ///
 /// ```
-/// use regex_automata::{MatchKind, dfa::{Automaton, HalfMatch, State, dense}};
+/// use regex_automata::{
+///     dfa::{Automaton, HalfMatch, OverlappingState, dense},
+///     MatchKind,
+/// };
 ///
 /// let dense_re = dense::Builder::new()
 ///     .configure(dense::Config::new().match_kind(MatchKind::All))
@@ -369,7 +372,7 @@ pub mod dense {
 ///
 /// // Setup our haystack and initial start state.
 /// let haystack = b"Samwise";
-/// let mut state = State::start();
+/// let mut state = OverlappingState::start();
 ///
 /// // First, 'Sam' will match.
 /// let end1 = sparse_re.find_overlapping_fwd_at(

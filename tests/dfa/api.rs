@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use regex_automata::{
-    dfa::{dense, Automaton, HalfMatch, Regex, State},
+    dfa::{dense, Automaton, HalfMatch, OverlappingState, Regex},
     nfa::thompson,
     MatchError, MultiMatch,
 };
@@ -24,7 +24,7 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
-        dfa.find_overlapping_fwd(b"abcxyz", &mut State::start()),
+        dfa.find_overlapping_fwd(b"abcxyz", &mut OverlappingState::start()),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
 
