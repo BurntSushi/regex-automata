@@ -1,4 +1,4 @@
-use crate::dfa::automaton::{Automaton, State};
+use crate::dfa::automaton::{Automaton, OverlappingState};
 #[cfg(feature = "std")]
 use crate::dfa::dense;
 #[cfg(feature = "std")]
@@ -273,7 +273,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn find_overlapping(
         &self,
         input: &[u8],
-        state: &mut State<A::ID>,
+        state: &mut OverlappingState<A::ID>,
     ) -> Option<MultiMatch> {
         self.find_overlapping_at(input, 0, input.len(), state)
     }
@@ -482,7 +482,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-        state: &mut State<A::ID>,
+        state: &mut OverlappingState<A::ID>,
     ) -> Option<MultiMatch> {
         self.try_find_overlapping_at(input, start, end, state).unwrap()
     }
@@ -520,7 +520,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn try_find_overlapping(
         &self,
         input: &[u8],
-        state: &mut State<A::ID>,
+        state: &mut OverlappingState<A::ID>,
     ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_overlapping_at(input, 0, input.len(), state)
     }
@@ -689,7 +689,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-        state: &mut State<A::ID>,
+        state: &mut OverlappingState<A::ID>,
     ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_overlapping_at_imp(
             self.scanner().as_mut(),
@@ -706,7 +706,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         input: &[u8],
         start: usize,
         end: usize,
-        state: &mut State<A::ID>,
+        state: &mut OverlappingState<A::ID>,
     ) -> Result<Option<MultiMatch>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
@@ -1005,7 +1005,7 @@ pub struct TryFindOverlappingMatches<'r, 't, A: Automaton, P> {
     scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
-    state: State<A::ID>,
+    state: OverlappingState<A::ID>,
 }
 
 impl<'r, 't, A: Automaton, P: Prefilter>
@@ -1021,7 +1021,7 @@ impl<'r, 't, A: Automaton, P: Prefilter>
             scanner,
             text,
             last_end: 0,
-            state: State::start(),
+            state: OverlappingState::start(),
         }
     }
 }
