@@ -280,6 +280,7 @@ pub fn skip_initial_padding(slice: &[u8]) -> usize {
 /// ```
 ///
 /// In practice, padding is often zero.
+#[cfg(feature = "std")]
 pub fn alloc_aligned_buffer<S: StateID>(size: usize) -> (Vec<u8>, usize) {
     // FIXME: This is a kludge because there's no easy way to allocate a
     // Vec<u8> with an alignment guaranteed to be greater than 1. We could
@@ -632,6 +633,7 @@ pub fn read_u64(slice: &[u8]) -> u64 {
 /// padding.
 ///
 /// See: https://developers.google.com/protocol-buffers/docs/encoding#varints
+#[allow(dead_code)]
 pub fn write_varu64(
     mut n: u64,
     what: &'static str,
@@ -657,6 +659,7 @@ pub fn write_varu64(
 /// variable sized integer.
 ///
 /// See: https://developers.google.com/protocol-buffers/docs/encoding#varints
+#[allow(dead_code)]
 pub fn write_varu64_len(mut n: u64) -> usize {
     let mut i = 0;
     while n >= 0b1000_0000 {
@@ -668,6 +671,7 @@ pub fn write_varu64_len(mut n: u64) -> usize {
 
 /// Like read_varu64, but attempts to cast the result to usize. If the integer
 /// cannot fit into a usize, then an error is returned.
+#[allow(dead_code)]
 pub fn read_varu64_as_usize(
     slice: &[u8],
     what: &'static str,
@@ -683,6 +687,7 @@ pub fn read_varu64_as_usize(
 /// the "what" description in it.
 ///
 /// https://developers.google.com/protocol-buffers/docs/encoding#varints
+#[allow(dead_code)]
 pub fn read_varu64(
     slice: &[u8],
     what: &'static str,
@@ -825,7 +830,7 @@ mod tests {
     #[should_panic]
     fn bad_label_interior_nul() {
         // interior NULs are not allowed
-        write_label("foo\x00bar", &mut [0; 1024]);
+        write_label("foo\x00bar", &mut [0; 1024]).unwrap();
     }
 
     #[test]
@@ -838,7 +843,7 @@ mod tests {
     #[should_panic]
     fn bad_label_too_long() {
         // labels longer than 255 bytes are banned
-        write_label(&"z".repeat(256), &mut [0; 1024]);
+        write_label(&"z".repeat(256), &mut [0; 1024]).unwrap();
     }
 
     #[test]

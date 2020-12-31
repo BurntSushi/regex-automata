@@ -1,6 +1,4 @@
-use core::fmt::Debug;
-use core::hash::Hash;
-use core::mem::size_of;
+use core::{fmt::Debug, hash::Hash};
 
 use crate::bytes::{self, Endian};
 

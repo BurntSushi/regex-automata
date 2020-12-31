@@ -5,13 +5,12 @@ use crate::{
             Automaton, HalfMatch, OverlappingState, StateMatch, MATCH_OFFSET,
         },
     },
-    prefilter::{self, Prefilter},
-    MatchError, PatternID,
+    prefilter, MatchError, PatternID,
 };
 
 #[inline(never)]
 pub fn find_earliest_fwd<A: Automaton + ?Sized>(
-    mut pre: Option<&mut prefilter::Scanner>,
+    pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
@@ -29,7 +28,7 @@ pub fn find_earliest_fwd<A: Automaton + ?Sized>(
 
 #[inline(never)]
 pub fn find_leftmost_fwd<A: Automaton + ?Sized>(
-    mut pre: Option<&mut prefilter::Scanner>,
+    pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
@@ -230,11 +229,11 @@ fn find_rev<A: Automaton + ?Sized>(
 
 #[inline(never)]
 pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
-    mut pre: Option<&mut prefilter::Scanner>,
+    pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
-    mut start: usize,
+    start: usize,
     end: usize,
     caller_state: &mut OverlappingState<A::ID>,
 ) -> Result<Option<HalfMatch>, MatchError> {
@@ -465,11 +464,13 @@ fn eof_rev<A: Automaton + ?Sized>(
     }
 }
 
-/// Returns the distance between the given pointer and the start of `bytes`.
-/// This assumes that the given pointer points to somewhere in the `bytes`
-/// slice given.
-fn offset(bytes: &[u8], p: *const u8) -> usize {
-    debug_assert!(bytes.as_ptr() <= p);
-    debug_assert!(bytes[bytes.len()..].as_ptr() >= p);
-    ((p as isize) - (bytes.as_ptr() as isize)) as usize
-}
+// Currently unused, but is useful to keep around. This was originally used
+// when the code above used raw pointers for its main loop.
+// /// Returns the distance between the given pointer and the start of `bytes`.
+// /// This assumes that the given pointer points to somewhere in the `bytes`
+// /// slice given.
+// fn offset(bytes: &[u8], p: *const u8) -> usize {
+// debug_assert!(bytes.as_ptr() <= p);
+// debug_assert!(bytes[bytes.len()..].as_ptr() >= p);
+// ((p as isize) - (bytes.as_ptr() as isize)) as usize
+// }

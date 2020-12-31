@@ -1,28 +1,23 @@
-use core::convert::TryInto;
-#[cfg(feature = "std")]
-use core::fmt;
 #[cfg(feature = "std")]
 use core::iter;
-use core::marker::PhantomData;
-use core::mem::{align_of, size_of};
-use core::slice;
+use core::{convert::TryInto, fmt, marker::PhantomData, mem::size_of};
+
 #[cfg(feature = "std")]
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::bytes::{self, DeserializeError, Endian, SerializeError};
-use crate::classes::{Byte, ByteClasses};
-use crate::dfa::accel::Accels;
-use crate::dfa::automaton::{fmt_state_indicator, Automaton, Start};
-use crate::dfa::dense;
 #[cfg(feature = "std")]
-use crate::dfa::error::Error;
-use crate::dfa::special::Special;
-use crate::matching::PatternID;
-#[cfg(feature = "std")]
-use crate::state_id::{dead_id, StateID};
-use crate::util::DebugByte;
-#[cfg(not(feature = "std"))]
-use state_id::{dead_id, quit_id, StateID};
+use crate::dfa::{dense, error::Error};
+use crate::{
+    bytes::{self, DeserializeError, Endian, SerializeError},
+    classes::ByteClasses,
+    dfa::{
+        automaton::{fmt_state_indicator, Automaton, Start},
+        special::Special,
+    },
+    matching::PatternID,
+    state_id::{dead_id, StateID},
+    util::DebugByte,
+};
 
 const LABEL: &str = "rust-regex-automata-dfa-sparse";
 const VERSION: u64 = 2;
@@ -209,6 +204,8 @@ impl<S: StateID> DFA<Vec<u8>, S> {
         A: AsRef<[u8]>,
         S2: StateID,
     {
+        use crate::classes::Byte;
+
         // In order to build the transition table, we need to be able to write
         // state identifiers for each of the "next" transitions in each state.
         // Our state identifiers correspond to the byte offset in the
@@ -292,7 +289,7 @@ impl<S: StateID> DFA<Vec<u8>, S> {
                     &mut sparse[pos..],
                 );
                 pos += 4;
-                for (i, pid) in dfa.match_pattern_ids(state.id()).enumerate() {
+                for pid in dfa.match_pattern_ids(state.id()) {
                     bytes::NE::write_u32(pid, &mut sparse[pos..]);
                     pos += 4;
                 }
@@ -961,7 +958,7 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     /// [`once_cell`](https://crates.io/crates/once_cell),
     /// which will guarantee safety for you.
     pub fn from_bytes(
-        mut slice: &'a [u8],
+        slice: &'a [u8],
     ) -> Result<(DFA<&'a [u8], S>, usize), DeserializeError> {
         // SAFETY: This is safe because we validate both the sparse transitions
         // (by trying to decode every state) and start state ID list below. If
@@ -1014,7 +1011,7 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub unsafe fn from_bytes_unchecked(
-        mut slice: &'a [u8],
+        slice: &'a [u8],
     ) -> Result<(DFA<&'a [u8], S>, usize), DeserializeError> {
         let mut nr = 0;
 
@@ -1055,11 +1052,10 @@ impl<T: AsRef<[u8]>, S: StateID> fmt::Debug for DFA<T, S> {
         writeln!(f, "")?;
         for (i, (start_id, sty, pid)) in self.starts.iter().enumerate() {
             if i % self.starts.stride == 0 {
-                let group = match pid {
-                    None => "ALL".to_string(),
-                    Some(pid) => format!("pattern: {}", pid),
-                };
-                writeln!(f, "START-GROUP({})", group)?;
+                match pid {
+                    None => writeln!(f, "START-GROUP(ALL)")?,
+                    Some(pid) => writeln!(f, "START_GROUP(pattern: {})", pid)?,
+                }
             }
             writeln!(f, "  {:?} => {:06}", sty, start_id.as_usize())?;
         }
@@ -1243,7 +1239,7 @@ struct Transitions<T, S> {
 
 impl<'a, S: StateID> Transitions<&'a [u8], S> {
     unsafe fn from_bytes_unchecked(
-        mut slice: &'a [u8],
+        slice: &'a [u8],
     ) -> Result<(Transitions<&'a [u8], S>, usize), DeserializeError> {
         let mut nread = 0;
 
@@ -1340,7 +1336,44 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
         // points to a valid state. There are many duplicative transitions, so
         // we record state IDs that we've verified so that we don't redo the
         // decoding work.
-        let mut verified = BTreeSet::new();
+        //
+        // Except, when in no_std mode, we don't have dynamic memory allocation
+        // available to us, so we skip this optimization. It's not clear
+        // whether doing something more clever is worth it just yet. If you're
+        // profiling this code and need it to run faster, please file an issue.
+        // ---AG
+        struct Seen<S> {
+            #[cfg(feature = "std")]
+            set: BTreeSet<S>,
+            #[cfg(not(feature = "std"))]
+            set: PhantomData<S>,
+        }
+
+        #[cfg(feature = "std")]
+        impl<S: Ord> Seen<S> {
+            fn new() -> Seen<S> {
+                Seen { set: BTreeSet::new() }
+            }
+            fn insert(&mut self, id: S) {
+                self.set.insert(id);
+            }
+            fn contains(&self, id: &S) -> bool {
+                self.set.contains(id)
+            }
+        }
+
+        #[cfg(not(feature = "std"))]
+        impl<S: Ord> Seen<S> {
+            fn new() -> Seen<S> {
+                Seen { set: PhantomData }
+            }
+            fn insert(&mut self, _id: S) {}
+            fn contains(&self, _id: &S) -> bool {
+                false
+            }
+        }
+
+        let mut verified: Seen<S> = Seen::new();
         // We need to make sure that we decode the correct number of states.
         // Otherwise, an empty set of transitions would validate even if the
         // recorded state count is non-empty.
@@ -1394,6 +1427,7 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
     }
 
     /// Converts these transitions to an owned value.
+    #[cfg(feature = "std")]
     fn to_owned(&self) -> Transitions<Vec<u8>, S> {
         Transitions {
             sparse: self.sparse().to_vec(),
@@ -1412,6 +1446,7 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
     ///
     /// This also returns a mapping from old state IDs to new state IDs, which
     /// can be used to remap state IDs elsewhere (such as starting state IDs).
+    #[cfg(feature = "std")]
     fn to_sized<S2: StateID>(
         &self,
     ) -> Result<(Transitions<Vec<u8>, S2>, BTreeMap<S, S2>), Error> {
@@ -1592,7 +1627,7 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
                 "invalid accelerator length",
             ));
         }
-        let (accel, state) = (&state[..accel_len], &state[accel_len..]);
+        let (accel, _) = (&state[..accel_len], &state[accel_len..]);
 
         Ok(State {
             id,
@@ -1631,6 +1666,7 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: AsMut<[u8]>, S: StateID> Transitions<T, S> {
     /// Return a convenient mutable representation of the given state.
     /// This panics if the state is invalid.
@@ -1700,6 +1736,7 @@ struct StartTable<T, S> {
     _state_id: PhantomData<S>,
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> StartTable<Vec<u8>, S> {
     fn new(patterns: usize) -> StartTable<Vec<u8>, S> {
         let stride = Start::count();
@@ -1844,6 +1881,7 @@ impl<T: AsRef<[u8]>, S: StateID> StartTable<T, S> {
     }
 
     /// Converts this start list to an owned value.
+    #[cfg(feature = "std")]
     fn to_owned(&self) -> StartTable<Vec<u8>, S> {
         StartTable {
             table: self.table().to_vec(),
@@ -1858,6 +1896,7 @@ impl<T: AsRef<[u8]>, S: StateID> StartTable<T, S> {
     /// `size_of::<S2> >= size_of::<S>()`, then this always succeeds. If
     /// `size_of::<S2> < size_of::<S>()` and if S2 cannot represent every state
     /// ID in this list, then an error is returned.
+    #[cfg(feature = "std")]
     fn to_sized<S2: StateID>(
         &self,
         remap: &BTreeMap<S, S2>,

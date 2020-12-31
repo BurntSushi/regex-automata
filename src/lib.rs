@@ -2,31 +2,35 @@
 TODO
 */
 
-#![allow(warnings)]
 // #![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), allow(dead_code))]
 
-pub use crate::bytes::{DeserializeError, SerializeError};
+#[cfg(feature = "std")]
 pub use crate::config::SyntaxConfig;
-pub use crate::matching::{
-    pattern_limit, Match, MatchError, MatchKind, MultiMatch, PatternID,
+pub use crate::{
+    bytes::{DeserializeError, SerializeError},
+    matching::{
+        pattern_limit, Match, MatchError, MatchKind, MultiMatch, PatternID,
+    },
+    state_id::StateID,
 };
-pub use crate::state_id::StateID;
 
 #[macro_use]
 mod macros;
 
-pub mod dfa;
-#[cfg(feature = "std")]
-pub mod nfa;
-pub mod prefilter;
-
 mod bytes;
 mod classes;
-mod config;
+pub mod dfa;
 mod matching;
-#[cfg(feature = "std")]
-mod sparse_set;
+pub mod prefilter;
 mod state_id;
 mod util;
 mod word;
+
+#[cfg(feature = "std")]
+mod config;
+#[cfg(feature = "std")]
+pub mod nfa;
+#[cfg(feature = "std")]
+mod sparse_set;

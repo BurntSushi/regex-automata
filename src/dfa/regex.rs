@@ -1,15 +1,14 @@
-use crate::dfa::automaton::{Automaton, OverlappingState};
+use crate::{
+    dfa::automaton::{Automaton, OverlappingState},
+    prefilter::{self, Prefilter},
+    MatchError, MultiMatch,
+};
 #[cfg(feature = "std")]
-use crate::dfa::dense;
-#[cfg(feature = "std")]
-use crate::dfa::error::Error;
-#[cfg(feature = "std")]
-use crate::dfa::sparse;
-use crate::nfa::thompson;
-use crate::prefilter::{self, Prefilter};
-#[cfg(feature = "std")]
-use crate::state_id::StateID;
-use crate::{Match, MatchError, MatchKind, MultiMatch};
+use crate::{
+    dfa::{dense, error::Error, sparse},
+    nfa::thompson,
+    MatchKind, StateID,
+};
 
 /// A regular expression that uses deterministic finite automata for fast
 /// searching.

@@ -91,11 +91,6 @@ impl Match {
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
-
-    #[inline]
-    fn offset(&self, by: usize) -> Match {
-        Match { start: self.start + by, end: self.end + by }
-    }
 }
 
 /// A type alias for an integer that represents a pattern identifier.
@@ -185,15 +180,6 @@ impl MultiMatch {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.start == self.end
-    }
-
-    #[inline]
-    fn offset(&self, by: usize) -> MultiMatch {
-        MultiMatch {
-            pattern: self.pattern,
-            start: self.start + by,
-            end: self.end + by,
-        }
     }
 }
 

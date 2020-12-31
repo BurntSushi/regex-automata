@@ -1,5 +1,3 @@
-use std::slice;
-
 /// A sparse set used for representing ordered NFA states.
 ///
 /// This supports constant time addition and membership testing. Clearing an

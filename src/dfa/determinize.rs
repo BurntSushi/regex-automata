@@ -1,14 +1,17 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::mem;
-use std::rc::Rc;
+use std::{
+    collections::{BTreeMap, HashMap},
+    mem,
+    rc::Rc,
+};
 
-use crate::classes::{Byte, ByteClasses, ByteSet};
-use crate::dfa::automaton::Start;
-use crate::dfa::{dense, Error};
-use crate::nfa::thompson::{self, Look};
-use crate::sparse_set::SparseSet;
-use crate::state_id::{dead_id, StateID};
-use crate::{MatchKind, PatternID};
+use crate::{
+    classes::{Byte, ByteSet},
+    dfa::{automaton::Start, dense, Error},
+    nfa::thompson::{self, Look},
+    sparse_set::SparseSet,
+    state_id::{dead_id, StateID},
+    MatchKind, PatternID,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Determinizer {
@@ -206,7 +209,8 @@ impl<'a, S: StateID> Runner<'a, S> {
         if let Some(&cached_id) = self.cache.get(&state) {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
-            mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
+            let _ =
+                mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
             return Ok((cached_id, false));
         }
         // Nothing was in the cache, so add this state to the cache.
@@ -436,7 +440,8 @@ impl<'a, S: StateID> Runner<'a, S> {
         if let Some(&cached_id) = self.cache.get(&state) {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
-            mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
+            let _ =
+                mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
             return Ok(cached_id);
         }
         let id = self.add_state(state)?;
@@ -519,25 +524,12 @@ impl<'a, S: StateID> Runner<'a, S> {
             next: SparseSet::new(self.nfa.len()),
         }
     }
-
-    /// Return an empty set of matches for a state that is a match state.
-    fn new_matches(&self) -> Matches {
-        if self.nfa.match_len() <= 1 {
-            Matches::One
-        } else {
-            Matches::Many(vec![])
-        }
-    }
 }
 
 impl State {
     /// Create a new empty dead state.
     fn dead() -> State {
         State { nfa_states: vec![], facts: Facts::default() }
-    }
-
-    fn is_match(&self) -> bool {
-        self.facts.state.matches.is_match()
     }
 }
 
@@ -690,6 +682,7 @@ impl LookSet {
         self.fields |= look.as_bit_field();
     }
 
+    #[cfg(test)]
     fn remove(&mut self, look: Look) {
         self.fields &= !look.as_bit_field();
     }
