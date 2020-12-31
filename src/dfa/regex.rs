@@ -1049,9 +1049,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
         };
         // Unlike the non-overlapping case, we're OK with empty matches at this
         // level. In particular, the overlapping search algorithm is itself
-        // responsible for ensuring that progress is always made. (The starting
-        // position of the search is incremented by 1 whenever a non-None state
-        // ID is given.)
+        // responsible for ensuring that progress is always made.
         self.last_end = m.end();
         Some(Ok(m))
     }

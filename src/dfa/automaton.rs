@@ -1587,6 +1587,17 @@ pub unsafe trait Automaton {
     /// documentation of [`Automaton::find_earliest_fwd_at`] for more details
     /// on the additional parameters along with examples of their usage.
     ///
+    /// When using this routine to implement an iterator of overlapping
+    /// matches, the `start` of the search should always be set to the end
+    /// of the last match. If more patterns match at the previous location,
+    /// then they will be immediately returned. (This is tracked by the given
+    /// overlapping state.) Otherwise, the search continues at the starting
+    /// position given.
+    ///
+    /// If for some reason you want the search to forget about its previous
+    /// state and restart the search at a particular position, then setting the
+    /// state to [`OverlappingState::start`] will accomplish that.
+    ///
     /// # Errors
     ///
     /// This routine only errors if the search could not complete. For
@@ -1827,6 +1838,10 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
 /// This type provides no introspection capabilities. The only thing a caller
 /// can do is construct it and pass it around to permit search routines to use
 /// it to track state.
+///
+/// Callers should always provide a fresh state constructed via
+/// [`OverlappingState::new`] when starting a new search. Reusing state from a
+/// previous search may result in incorrect results.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OverlappingState<S> {
     /// The state ID of the state at which the search was in when the call
@@ -1855,6 +1870,8 @@ pub(crate) struct StateMatch {
 }
 
 impl<S: StateID> OverlappingState<S> {
+    /// Create a new overlapping state that begins at the start state of any
+    /// automaton.
     pub fn start() -> OverlappingState<S> {
         OverlappingState { id: None, last_match: None }
     }
@@ -1876,20 +1893,40 @@ impl<S: StateID> OverlappingState<S> {
     }
 }
 
+/// Start represents the four possible starting configurations of a DFA based
+/// on the text being searched. Ultimately, this along with a pattern ID (if
+/// specified) is what selects the start state to use in a DFA.
+///
+/// In a DFA that doesn't have starting states for each pattern, then it will
+/// have a maximum of four starting states. If the DFA was compiled with start
+/// states for each pattern, then it will have a maximum of four starting
+/// states for searching for any pattern, and then another maximum of four
+/// starting states for executing an anchored search for each pattern.
+///
+/// This ends up being represented as a table in the DFA where the stride of
+/// that table is 4. Note though that multiple entries in the table might
+/// point to the same state if the states would otherwise be equivalent. (This
+/// is guaranteed by minimization and may even be accomplished by normal
+/// determinization, since it attempts to reuse equivalent states too.)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub enum Start {
+pub(crate) enum Start {
+    /// This occurs when the starting position is not any of the ones below.
     NonWordByte = 0,
+    /// This occurs when the byte immediately preceding the start of the search
+    /// is an ASCII word byte.
     WordByte = 1,
+    /// This occurs when the starting position of the search corresponds to the
+    /// beginning of the haystack.
     Text = 2,
+    /// This occurs when the byte immediately preceding the start of the search
+    /// is a line terminator. Specifically, `\n`.
     Line = 3,
 }
 
 impl Start {
-    pub fn all() -> [Start; 4] {
-        [Start::NonWordByte, Start::WordByte, Start::Text, Start::Line]
-    }
-
+    /// Return the starting state corresponding to the given integer. If no
+    /// starting state exists for the given integer, then None is returned.
     pub fn from_usize(n: usize) -> Option<Start> {
         match n {
             0 => Some(Start::NonWordByte),
@@ -1900,10 +1937,13 @@ impl Start {
         }
     }
 
+    /// Returns the total number of starting state configurations.
     pub fn count() -> usize {
         4
     }
 
+    /// Returns the starting state configuration for the given search
+    /// parameters. If the given offset range is not valid, then this panics.
     #[inline(always)]
     pub fn from_position_fwd(bytes: &[u8], start: usize, end: usize) -> Start {
         assert!(
@@ -1923,6 +1963,9 @@ impl Start {
         }
     }
 
+    /// Returns the starting state configuration for a reverse search with the
+    /// given search parameters. If the given offset range is not valid, then
+    /// this panics.
     #[inline(always)]
     pub fn from_position_rev(bytes: &[u8], start: usize, end: usize) -> Start {
         assert!(
@@ -1942,13 +1985,21 @@ impl Start {
         }
     }
 
+    /// Return this starting configuration as an integer. It is guaranteed to
+    /// be less than `Start::count()`.
     #[inline(always)]
     pub fn as_usize(&self) -> usize {
         *self as usize
     }
 }
 
-pub fn fmt_state_indicator<A: Automaton>(
+/// Write a prefix "state" indicator for fmt::Debug impls.
+///
+/// Specifically, this tries to succinctly distinguish the different types of
+/// states: dead states, quit states, accelerated states, start states and
+/// match states. It even accounts for the possible overlappings of different
+/// state types.
+pub(crate) fn fmt_state_indicator<A: Automaton>(
     f: &mut core::fmt::Formatter<'_>,
     dfa: A,
     id: A::ID,

@@ -1,5 +1,4 @@
 // A simple macro for defining bitfield accessors/mutators.
-#[macro_export]
 macro_rules! define_bool {
     ($bit:expr, $is_fn_name:ident, $set_fn_name:ident) => {
         fn $is_fn_name(&self) -> bool {
