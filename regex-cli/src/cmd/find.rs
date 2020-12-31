@@ -264,7 +264,7 @@ fn search_automaton<A: Automaton>(
             }
         }
         config::FindKind::Overlapping => {
-            let mut state = dfa::State::start();
+            let mut state = dfa::OverlappingState::start();
             while at < haystack.len() {
                 let result = dfa
                     .find_overlapping_fwd_at(

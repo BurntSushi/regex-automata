@@ -1,9 +1,6 @@
 use core::fmt;
 
-use crate::{
-    bytes::{self, DeserializeError, SerializeError},
-    dfa::Error,
-};
+use crate::bytes::{DeserializeError, SerializeError};
 
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Byte {

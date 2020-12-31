@@ -1,40 +1,37 @@
+#[cfg(feature = "std")]
 use core::cmp;
-use core::convert::TryInto;
-#[cfg(feature = "std")]
-use core::fmt;
-#[cfg(feature = "std")]
-use core::iter;
-use core::marker::PhantomData;
-use core::mem;
-use core::slice;
+use core::{convert::TryInto, fmt, iter, marker::PhantomData, slice};
+
 #[cfg(feature = "std")]
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::{
+    bytes::{self, DeserializeError, Endian, SerializeError},
+    classes::{Byte, ByteClasses},
+    dfa::{
+        accel::Accels,
+        automaton::{fmt_state_indicator, Automaton, Start},
+        special::Special,
+    },
+    state_id::{dead_id, StateID},
+    PatternID,
+};
 #[cfg(feature = "std")]
-use regex_syntax::ParserBuilder;
-
-use crate::bytes::{self, DeserializeError, Endian, SerializeError};
-use crate::classes::{Byte, ByteClasses, ByteSet};
-use crate::dfa::accel::{Accel, Accels};
-use crate::dfa::automaton::{fmt_state_indicator, Automaton, Start};
-#[cfg(feature = "std")]
-use crate::dfa::determinize::Determinizer;
-#[cfg(feature = "std")]
-use crate::dfa::error::Error;
-#[cfg(feature = "std")]
-use crate::dfa::minimize::Minimizer;
-#[cfg(feature = "std")]
-use crate::dfa::sparse;
-use crate::dfa::special::Special;
-#[cfg(feature = "std")]
-use crate::nfa::thompson;
-use crate::state_id::{dead_id, StateID};
-use crate::{MatchKind, PatternID};
+use crate::{
+    classes::ByteSet,
+    dfa::{
+        accel::Accel, determinize::Determinizer, error::Error,
+        minimize::Minimizer, sparse,
+    },
+    nfa::thompson,
+    MatchKind,
+};
 
 const LABEL: &str = "rust-regex-automata-dfa-dense";
 const VERSION: u64 = 2;
 
 /// The configuration used for compiling a dense DFA.
+#[cfg(feature = "std")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
     anchored: Option<bool>,
@@ -47,6 +44,7 @@ pub struct Config {
     quit: Option<ByteSet>,
 }
 
+#[cfg(feature = "std")]
 impl Config {
     /// Return a new default dense DFA compiler configuration.
     pub fn new() -> Config {
@@ -592,6 +590,7 @@ impl Default for Builder {
 /// is commonly used for mutable APIs on the DFA while building it. The main
 /// reason for making it generic is no_std support, and more generally, making
 /// it possible to load a DFA from an arbitrary slice of bytes.
+#[cfg(feature = "std")]
 pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 
 /// A dense table-based deterministic finite automaton (DFA).
@@ -864,10 +863,10 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// This does **not** include the stack size used up by this DFA. To
     /// compute that, used `std::mem::size_of::<dense::DFA>()`.
     pub fn memory_usage(&self) -> usize {
-        let state_size = mem::size_of::<S>();
-        self.accels().as_bytes().len()
+        self.accels.as_bytes().len()
             + self.tt.memory_usage()
             + self.st.memory_usage()
+            + self.ms.memory_usage()
     }
 
     /// Returns true only if this DFA has starting states for each pattern.
@@ -1607,7 +1606,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     /// `Aligned` trick above to force correct alignment, but this is safe to
     /// do and `from_bytes` will return an error if you get it wrong.
     pub fn from_bytes(
-        mut slice: &'a [u8],
+        slice: &'a [u8],
     ) -> Result<(DFA<&'a [S], &'a [u8], S>, usize), DeserializeError> {
         // SAFETY: This is safe because we validate both the transition table
         // and start state ID list below. If either validation fails, then we
@@ -1650,7 +1649,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub unsafe fn from_bytes_unchecked(
-        mut slice: &'a [u8],
+        slice: &'a [u8],
     ) -> Result<(DFA<&'a [S], &'a [u8], S>, usize), DeserializeError> {
         let mut nr = 0;
 
@@ -1831,11 +1830,10 @@ impl<S: StateID> OwnedDFA<S> {
         // guaranteed to get set to sensible values below.
         self.special.min_accel = S::from_usize(S::max_id());
         self.special.max_accel = dead_id();
-        let mut update_special_accel =
-            |special: &mut Special<S>, accel_id: S| {
-                special.min_accel = cmp::min(special.min_accel, accel_id);
-                special.max_accel = cmp::max(special.max_accel, accel_id);
-            };
+        let update_special_accel = |special: &mut Special<S>, accel_id: S| {
+            special.min_accel = cmp::min(special.min_accel, accel_id);
+            special.max_accel = cmp::max(special.max_accel, accel_id);
+        };
 
         // Start by shuffling match states. Any match states that are
         // accelerated get moved to the end of the match state range.
@@ -2154,6 +2152,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
 
     /// Returns a map from match state ID to a list of pattern IDs that match
     /// in that state.
+    #[cfg(feature = "std")]
     pub(crate) fn pattern_map(&self) -> BTreeMap<S, Vec<PatternID>> {
         self.ms.to_map(self)
     }
@@ -2218,7 +2217,6 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     }
 }
 
-#[cfg(feature = "std")]
 impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fmt::Debug for DFA<T, A, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "dense::DFA(")?;
@@ -2241,11 +2239,10 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fmt::Debug for DFA<T, A, S> {
                 self.to_index(start_id)
             };
             if i % self.st.stride == 0 {
-                let group = match pid {
-                    None => "ALL".to_string(),
-                    Some(pid) => format!("pattern: {}", pid),
-                };
-                writeln!(f, "START-GROUP({})", group)?;
+                match pid {
+                    None => writeln!(f, "START-GROUP(ALL)")?,
+                    Some(pid) => writeln!(f, "START_GROUP(pattern: {})", pid)?,
+                }
             }
             writeln!(f, "  {:?} => {:06}", sty, id)?;
         }
@@ -2506,6 +2503,7 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
         // N.B. This is the only not-safe code in this function, so we mark
         // it explicitly to call it out, even though it is technically
         // superfluous.
+        #[allow(unused_unsafe)]
         let table = unsafe {
             core::slice::from_raw_parts(
                 slice.as_ptr() as *const S,
@@ -2583,6 +2581,7 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
     /// `size_of::<S2> >= size_of::<S>()`, then this always succeeds. If
     /// `size_of::<S2> < size_of::<S>()` and if S2 cannot represent every state
     /// ID in this transition table, then an error is returned.
+    #[cfg(feature = "std")]
     fn to_sized<S2: StateID>(
         &self,
     ) -> Result<TransitionTable<Vec<S2>, S2>, Error> {
@@ -2607,6 +2606,7 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> TransitionTable<Vec<S>, S> {
     /// Create a minimal transition table with just two states: a dead state
     /// and a quit state. The alphabet length and stride of the transition
@@ -2756,6 +2756,7 @@ impl<T: AsRef<[S]>, S: StateID> TransitionTable<T, S> {
     }
 
     /// Converts this transition table to an owned value.
+    #[cfg(feature = "std")]
     fn to_owned(&self) -> TransitionTable<Vec<S>, S> {
         TransitionTable {
             table: self.table().to_vec(),
@@ -2985,6 +2986,7 @@ pub struct StartTable<T, S> {
     _state_id: PhantomData<S>,
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> StartTable<Vec<S>, S> {
     /// Create a valid set of start states all pointing to the dead state.
     ///
@@ -3074,6 +3076,7 @@ impl<'a, S: StateID> StartTable<&'a [S], S> {
         // N.B. This is the only not-safe code in this function, so we mark
         // it explicitly to call it out, even though it is technically
         // superfluous.
+        #[allow(unused_unsafe)]
         let table = unsafe {
             core::slice::from_raw_parts(slice.as_ptr() as *const S, count)
         };
@@ -3147,6 +3150,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
     }
 
     /// Converts this start list to an owned value.
+    #[cfg(feature = "std")]
     fn to_owned(&self) -> StartTable<Vec<S>, S> {
         StartTable {
             table: self.table().to_vec(),
@@ -3161,6 +3165,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
     /// `size_of::<S2> >= size_of::<S>()`, then this always succeeds. If
     /// `size_of::<S2> < size_of::<S>()` and if S2 cannot represent every state
     /// ID in this list, then an error is returned.
+    #[cfg(feature = "std")]
     fn to_sized<S2: StateID>(&self) -> Result<StartTable<Vec<S2>, S2>, Error> {
         // Check that this list can fit into S2's representation.
         let max_state_id = match self.table().iter().cloned().max() {
@@ -3343,7 +3348,7 @@ struct MatchStates<T, A, S> {
     /// A flattened sequence of pattern IDs for each DFA match state. The only
     /// way to correctly read this sequence is indirectly via `slices`.
     ///
-    /// In practice, T is either Vec<u8> or &[u8].
+    /// In practice, A is either Vec<u8> or &[u8].
     pattern_ids: A,
     /// The total number of unique patterns represented by these match states.
     patterns: usize,
@@ -3379,6 +3384,7 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
         // N.B. This is the only not-safe code in this function, so we mark
         // it explicitly to call it out, even though it is technically
         // superfluous.
+        #[allow(unused_unsafe)]
         let slices = unsafe {
             core::slice::from_raw_parts(slice.as_ptr() as *const S, 2 * count)
         };
@@ -3416,7 +3422,6 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
             ));
         }
         nread += pad;
-        slice = &slice[pad..];
 
         let ms = MatchStates {
             slices,
@@ -3428,6 +3433,7 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> MatchStates<Vec<S>, Vec<u8>, S> {
     fn empty(pattern_count: usize) -> MatchStates<Vec<S>, Vec<u8>, S> {
         MatchStates {
@@ -3443,7 +3449,7 @@ impl<S: StateID> MatchStates<Vec<S>, Vec<u8>, S> {
         pattern_count: usize,
     ) -> MatchStates<Vec<S>, Vec<u8>, S> {
         let mut m = MatchStates::empty(pattern_count);
-        for (state_id, pids) in matches.iter() {
+        for (_, pids) in matches.iter() {
             let start = S::from_usize(m.pattern_ids.len());
             m.slices.push(start);
             let len = S::from_usize(pids.len());
@@ -3562,6 +3568,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     /// }
     ///
     /// Once shuffling is done, use MatchStates::new to convert back.
+    #[cfg(feature = "std")]
     fn to_map(&self, dfa: &DFA<T, A, S>) -> BTreeMap<S, Vec<PatternID>> {
         let mut map = BTreeMap::new();
         for i in 0..self.count() {
@@ -3585,6 +3592,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     }
 
     /// Converts these match states to an owned value.
+    #[cfg(feature = "std")]
     fn to_owned(&self) -> MatchStates<Vec<S>, Vec<u8>, S> {
         MatchStates {
             slices: self.slices().to_vec(),
@@ -3599,6 +3607,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     /// succeeds. If `size_of::<S2> < size_of::<S>()` and if S2 cannot
     /// represent every state ID in these match states, then an error is
     /// returned.
+    #[cfg(feature = "std")]
     fn to_sized<S2: StateID>(
         &self,
     ) -> Result<MatchStates<Vec<S2>, Vec<u8>, S2>, Error> {
@@ -3699,6 +3708,11 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     fn state_size(&self) -> usize {
         core::mem::size_of::<S>()
     }
+
+    /// Return the memory usage, in bytes, of these match pairs.
+    fn memory_usage(&self) -> usize {
+        self.slices_bytes().len() + self.pattern_ids().len()
+    }
 }
 
 /// An iterator over all states in a DFA.
@@ -3710,20 +3724,18 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
 /// `'a` corresponding to the lifetime of original DFA, `T` corresponds to
 /// the type of the transition table itself and `S` corresponds to the state
 /// identifier representation.
-#[cfg(feature = "std")]
 pub(crate) struct StateIter<'a, T, S> {
     tt: &'a TransitionTable<T, S>,
     it: iter::Enumerate<slice::Chunks<'a, S>>,
 }
 
-#[cfg(feature = "std")]
 impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
     type Item = State<'a, S>;
 
     fn next(&mut self) -> Option<State<'a, S>> {
         self.it.next().map(|(index, _)| {
             let id = self.tt.from_index(index);
-            self.tt.state(self.tt.from_index(index))
+            self.tt.state(id)
         })
     }
 }
@@ -3732,14 +3744,12 @@ impl<'a, T: AsRef<[S]>, S: StateID> Iterator for StateIter<'a, T, S> {
 ///
 /// `'a` correspondings to the lifetime of a DFA's transition table and `S`
 /// corresponds to the state identifier representation.
-#[cfg(feature = "std")]
 pub(crate) struct State<'a, S> {
     id: S,
     stride2: usize,
     transitions: &'a [S],
 }
 
-#[cfg(feature = "std")]
 impl<'a, S: StateID> State<'a, S> {
     /// Return an iterator over all transitions in this state. This yields
     /// a number of transitions equivalent to the alphabet length of the
@@ -3778,14 +3788,9 @@ impl<'a, S: StateID> State<'a, S> {
         self.id
     }
 
-    /// Returns the number of transitions in this state. This also corresponds
-    /// to the alphabet length of this DFA.
-    fn len(&self) -> usize {
-        self.transitions.len()
-    }
-
     /// Analyzes this state to determine whether it can be accelerated. If so,
     /// it returns an accelerator that contains at least one byte.
+    #[cfg(feature = "std")]
     fn accelerate(&self, classes: &ByteClasses) -> Option<Accel> {
         // We just try to add bytes to our accelerator. Once adding fails
         // (because we've added too many bytes), then give up.
@@ -3879,14 +3884,12 @@ impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
 ///
 /// Each transition is represented by a tuple. The first element is the input
 /// byte for that transition and the second element is the transitions itself.
-#[cfg(feature = "std")]
 #[derive(Debug)]
 pub(crate) struct StateTransitionIter<'a, S> {
     len: usize,
     it: iter::Enumerate<slice::Iter<'a, S>>,
 }
 
-#[cfg(feature = "std")]
 impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
     type Item = (Byte, S);
 
@@ -3940,14 +3943,12 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 /// As a convenience, this always returns `Byte` values of the same type. That
 /// is, you'll never get a (Byte::U8, Byte::EOF) or a (Byte::EOF, Byte::U8).
 /// Only (Byte::U8, Byte::U8) and (Byte::EOF, Byte::EOF) values are yielded.
-#[cfg(feature = "std")]
 #[derive(Debug)]
 pub(crate) struct StateSparseTransitionIter<'a, S> {
     dense: StateTransitionIter<'a, S>,
     cur: Option<(Byte, Byte, S)>,
 }
 
-#[cfg(feature = "std")]
 impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
     type Item = (Byte, Byte, S);
 
@@ -4006,17 +4007,17 @@ impl<'a> Iterator for PatternIDIter<'a> {
 ///
 /// Once shuffling is complete, `remap` should be called, which will rewrite
 /// all pertinent transitions to updated state IDs.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 struct Remapper<S> {
     map: Vec<S>,
-    // matches: BTreeMap<S, Vec<PatternID>>,
 }
 
+#[cfg(feature = "std")]
 impl<S: StateID> Remapper<S> {
     fn from_dfa(dfa: &OwnedDFA<S>) -> Remapper<S> {
         Remapper {
             map: (0..dfa.tt.count).map(|i| dfa.from_index(i)).collect(),
-            // matches: dfa.ms.to_map(dfa),
         }
     }
 

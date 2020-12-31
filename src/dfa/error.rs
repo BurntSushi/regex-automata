@@ -1,5 +1,3 @@
-use regex_syntax;
-
 use crate::nfa;
 
 /// An error that occurred during the construction of a DFA.

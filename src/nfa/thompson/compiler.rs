@@ -55,6 +55,7 @@ pub struct Config {
     reverse: Option<bool>,
     utf8: Option<bool>,
     shrink: Option<bool>,
+    #[cfg(test)]
     unanchored_prefix: Option<bool>,
 }
 
@@ -125,6 +126,7 @@ impl Config {
     ///
     /// This is enabled by default. It is made available for tests only to make
     /// it easier to unit test the output of the compiler.
+    #[cfg(test)]
     fn unanchored_prefix(mut self, yes: bool) -> Config {
         self.unanchored_prefix = Some(yes);
         self
@@ -143,7 +145,14 @@ impl Config {
     }
 
     fn get_unanchored_prefix(&self) -> bool {
-        self.unanchored_prefix.unwrap_or(true)
+        #[cfg(test)]
+        {
+            self.unanchored_prefix.unwrap_or(true)
+        }
+        #[cfg(not(test))]
+        {
+            true
+        }
     }
 
     pub(crate) fn overwrite(self, o: Config) -> Config {
@@ -151,6 +160,7 @@ impl Config {
             reverse: o.reverse.or(self.reverse),
             utf8: o.utf8.or(self.utf8),
             shrink: o.shrink.or(self.shrink),
+            #[cfg(test)]
             unanchored_prefix: o.unanchored_prefix.or(self.unanchored_prefix),
         }
     }
@@ -203,7 +213,9 @@ impl Builder {
     /// only error that can occur is if the compiled regex would exceed the
     /// size limits configured on this builder.
     pub fn build_from_hir(&self, expr: &Hir) -> Result<NFA, Error> {
-        self.build_many_from_hir(&[expr])
+        let mut nfa = NFA::always_match();
+        self.build_from_hir_with(&mut Compiler::new(), &mut nfa, expr)?;
+        Ok(nfa)
     }
 
     pub fn build_many_from_hir<H: Borrow<Hir>>(
@@ -1190,9 +1202,6 @@ impl Utf8Node {
 
 #[cfg(test)]
 mod tests {
-    use regex_syntax::hir::Hir;
-    use regex_syntax::ParserBuilder;
-
     use super::{Builder, Config, PatternID, State, StateID, Transition, NFA};
 
     fn build(pattern: &str) -> NFA {

@@ -1,9 +1,6 @@
 use crate::{
-    dfa::search,
-    prefilter::{self, Prefilter},
-    state_id::StateID,
-    word::is_word_byte,
-    MatchError, PatternID,
+    dfa::search, prefilter, state_id::StateID, word::is_word_byte, MatchError,
+    PatternID,
 };
 
 /// The offset, in bytes, that a match is delayed by in the DFAs generated
@@ -927,7 +924,7 @@ pub unsafe trait Automaton {
     /// assert_eq!(accelerator, &[b'a', b'b', b'c']);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn accelerator(&self, id: Self::ID) -> &[u8] {
+    fn accelerator(&self, _id: Self::ID) -> &[u8] {
         &[]
     }
 

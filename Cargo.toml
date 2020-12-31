@@ -11,16 +11,11 @@ keywords = ["regex", "dfa", "automata", "automaton", "nfa"]
 license = "Unlicense/MIT"
 categories = ["text-processing"]
 exclude = [
-  "/.travis.yml", "/appveyor.yml", "/ci/*", "/scripts/*",
-  "/regex-cli",
+  "/.github", "/scripts/*", "/regex-cli", "/regex-test",
 ]
 autotests = false
 autoexamples = false
 edition = "2018"
-
-[badges]
-travis-ci = { repository = "BurntSushi/regex-automata" }
-appveyor = { repository = "BurntSushi/regex-automata" }
 
 [workspace]
 members = ["bench", "examples", "regex-cli", "regex-test"]
@@ -29,9 +24,9 @@ members = ["bench", "examples", "regex-cli", "regex-test"]
 bench = false
 
 [features]
-default = ["std", "memchr/std"]
-std = ["regex-syntax"]
-transducer = ["std", "fst"]
+default = ["std"]
+std = ["memchr/std", "regex-syntax"]
+transducer = ["fst"]
 
 [dependencies]
 fst = { version = "0.4.2", optional = true }
@@ -50,11 +45,16 @@ name = "default"
 [profile.dev]
 # Running tests takes too long in debug mode, so we forcefully always build
 # with optimizations. Unfortunate, but, ¯\_(ツ)_/¯.
-# opt-level = 3
+#
+# It's counter-intuitive that this needs to be set on dev *and* test, but
+# it's because the tests that take a long time to run are run as integration
+# tests in a separate crate. The test.opt-level setting won't apply there, so
+# we need to set the opt-level across the entire build.
+opt-level = 3
 debug = true
 
 [profile.test]
-# opt-level = 3
+opt-level = 3
 debug = true
 
 [profile.release]

@@ -67,7 +67,11 @@ const ACCEL_CAP: usize = 8;
 /// Search for between 1 and 3 needle bytes in the given haystack, starting the
 /// search at the given position. If `needles` has a length other than 1-3,
 /// then this panics.
-pub fn find_fwd(needles: &[u8], haystack: &[u8], at: usize) -> Option<usize> {
+pub(crate) fn find_fwd(
+    needles: &[u8],
+    haystack: &[u8],
+    at: usize,
+) -> Option<usize> {
     let bs = needles;
     let i = match needles.len() {
         1 => memchr::memchr(bs[0], &haystack[at..])?,
@@ -82,7 +86,11 @@ pub fn find_fwd(needles: &[u8], haystack: &[u8], at: usize) -> Option<usize> {
 /// Search for between 1 and 3 needle bytes in the given haystack in reverse,
 /// starting the search at the given position. If `needles` has a length other
 /// than 1-3, then this panics.
-pub fn find_rev(needles: &[u8], haystack: &[u8], at: usize) -> Option<usize> {
+pub(crate) fn find_rev(
+    needles: &[u8],
+    haystack: &[u8],
+    at: usize,
+) -> Option<usize> {
     let bs = needles;
     match needles.len() {
         1 => memchr::memrchr(bs[0], &haystack[..at]),
@@ -95,7 +103,7 @@ pub fn find_rev(needles: &[u8], haystack: &[u8], at: usize) -> Option<usize> {
 
 /// Represents the accelerators for all accelerated states in a DFA.
 #[derive(Clone)]
-pub struct Accels<A> {
+pub(crate) struct Accels<A> {
     /// A length prefixed slice of contiguous accelerators. See the top comment
     /// in this module for more details on how we can jump from a DFA's state
     /// ID to an accelerator in this list.
@@ -107,6 +115,7 @@ pub struct Accels<A> {
     accels: A,
 }
 
+#[cfg(feature = "std")]
 impl Accels<Vec<u8>> {
     /// Create an empty sequence of accelerators for a DFA.
     pub fn empty() -> Accels<Vec<u8>> {
@@ -157,6 +166,7 @@ impl<'a> Accels<&'a [u8]> {
 
 impl<A: AsRef<[u8]>> Accels<A> {
     /// Return an owned version of the accelerators.
+    #[cfg(feature = "std")]
     pub fn to_owned(&self) -> Accels<Vec<u8>> {
         Accels { accels: self.accels.as_ref().to_vec() }
     }
@@ -189,11 +199,6 @@ impl<A: AsRef<[u8]>> Accels<A> {
     /// Return the total number of accelerators in this sequence.
     pub fn len(&self) -> usize {
         bytes::read_u64(self.as_bytes()) as usize
-    }
-
-    /// Returns true if and only if there are no accelerators in this sequence.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     /// Return the accelerator in this sequence at index `i`. If no such
@@ -289,7 +294,7 @@ impl<'a, A: AsRef<[u8]>> Iterator for IterAccels<'a, A> {
 /// following transitions. (In this case, `b` transitions to the next state
 /// where as `a` would transition to the dead state.)
 #[derive(Clone)]
-pub struct Accel {
+pub(crate) struct Accel {
     /// The first byte is the length. Subsequent bytes are the accelerated
     /// bytes.
     ///
@@ -373,11 +378,6 @@ impl Accel {
     /// If this accelerator is empty, then this returns an empty slice.
     fn needles(&self) -> &[u8] {
         &self.bytes[1..1 + self.len()]
-    }
-
-    /// Returns the raw representation of this accelerator as a slice of bytes.
-    fn as_bytes(&self) -> &[u8] {
-        &self.bytes
     }
 
     /// Returns true if and only if this accelerator will accelerate the given

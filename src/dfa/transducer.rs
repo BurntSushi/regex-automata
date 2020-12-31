@@ -1,5 +1,7 @@
-use crate::dfa::{automaton::Automaton, dense, sparse};
-use crate::StateID;
+use crate::{
+    dfa::{automaton::Automaton, dense, sparse},
+    StateID,
+};
 
 impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fst::Automaton
     for dense::DFA<T, A, S>

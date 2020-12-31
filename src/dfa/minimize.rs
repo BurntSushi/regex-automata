@@ -1,14 +1,11 @@
-use std::cell::RefCell;
-use std::collections::btree_map::{BTreeMap, Entry};
-use std::fmt;
-use std::mem;
-use std::rc::Rc;
+use std::{cell::RefCell, collections::BTreeMap, fmt, mem, rc::Rc};
 
-use crate::classes::Byte;
-use crate::dfa::automaton::{Automaton, Start};
-use crate::dfa::dense;
-use crate::state_id::{dead_id, StateID};
-use crate::PatternID;
+use crate::{
+    classes::Byte,
+    dfa::{automaton::Automaton, dense},
+    state_id::{dead_id, StateID},
+    PatternID,
+};
 
 /// An implementation of Hopcroft's algorithm for minimizing DFAs.
 ///

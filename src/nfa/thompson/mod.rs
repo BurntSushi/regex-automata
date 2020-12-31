@@ -274,7 +274,7 @@ impl fmt::Debug for NFA {
             writeln!(f, "")?;
             for pid in self.patterns() {
                 let id = self.start_pattern(pid);
-                writeln!(f, "START({:06}): {:?}", pid, id);
+                writeln!(f, "START({:06}): {:?}", pid, id)?;
             }
         }
         writeln!(f, ")")?;
@@ -531,7 +531,6 @@ fn escape(b: u8) -> String {
 mod tests {
     use super::*;
     use crate::dfa::{dense, Automaton};
-    use crate::prefilter::{self, Prefilter};
 
     #[test]
     fn always_match() {

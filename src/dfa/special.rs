@@ -1,9 +1,9 @@
-use core::cmp;
-use core::mem::size_of;
+use core::{cmp, mem::size_of};
 
+#[cfg(feature = "std")]
+use crate::dfa::Error;
 use crate::{
-    bytes::{self, DeserializeError, Endian, SerializeError},
-    dfa::Error,
+    bytes::{DeserializeError, Endian, SerializeError},
     state_id::{dead_id, StateID},
 };
 
@@ -185,6 +185,7 @@ impl<S: StateID> Special<S> {
     /// Creates a new set of special ranges for a DFA. All ranges are
     /// initially empty (even ranges, like 'start', that cannot ultimately
     /// be empty).
+    #[cfg(feature = "std")]
     pub fn new() -> Special<S> {
         Special {
             max: dead_id(),
@@ -201,6 +202,7 @@ impl<S: StateID> Special<S> {
     /// Convert the state IDs recorded here to a new representation. If the
     /// chosen representation is not big enough to fit the IDs, then an error
     /// is returned.
+    #[cfg(feature = "std")]
     pub fn to_sized<A: StateID>(&self) -> Result<Special<A>, Error> {
         if self.max.as_usize() > A::max_id() {
             return Err(Error::state_id_overflow(A::max_id()));
@@ -218,6 +220,7 @@ impl<S: StateID> Special<S> {
     }
 
     /// Remaps all of the special state identifiers using the function given.
+    #[cfg(feature = "std")]
     pub fn remap<A: StateID>(&self, map: impl Fn(S) -> A) -> Special<A> {
         Special {
             max: map(self.max),
@@ -262,7 +265,6 @@ impl<S: StateID> Special<S> {
         let min_start = S::read_bytes(slice);
         slice = &slice[size..];
         let max_start = S::read_bytes(slice);
-        slice = &slice[size..];
 
         let special = Special {
             max,
@@ -371,7 +373,7 @@ impl<S: StateID> Special<S> {
     /// of 8.
     pub fn write_to<E: Endian>(
         &self,
-        mut dst: &mut [u8],
+        dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
         use crate::bytes::write_state_id as write;
 
@@ -379,9 +381,7 @@ impl<S: StateID> Special<S> {
             return Err(SerializeError::buffer_too_small("special state ids"));
         }
 
-        let start = dst.as_ptr() as usize;
         let mut nwrite = 0;
-
         nwrite += write::<E, _>(self.max, &mut dst[nwrite..]);
         nwrite += write::<E, _>(self.quit_id, &mut dst[nwrite..]);
         nwrite += write::<E, _>(self.min_match, &mut dst[nwrite..]);
@@ -478,14 +478,15 @@ impl<S: StateID> Special<S> {
         self.min_accel != dead_id()
     }
 
-    /// Returns the total number of start states.
-    pub fn start_len(&self) -> usize {
-        if self.starts() {
-            self.max_start.as_usize() - self.min_start.as_usize() + 1
-        } else {
-            0
-        }
-    }
+    // Currently unused, but seems useful to keep around.
+    // /// Returns the total number of start states.
+    // pub fn start_len(&self) -> usize {
+    // if self.starts() {
+    // self.max_start.as_usize() - self.min_start.as_usize() + 1
+    // } else {
+    // 0
+    // }
+    // }
 
     /// Returns true if and only if there is at least one start state.
     pub fn starts(&self) -> bool {
