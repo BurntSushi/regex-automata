@@ -52,10 +52,7 @@
 
 use core::convert::TryInto;
 
-use crate::{
-    bytes::{self, DeserializeError, Endian, SerializeError},
-    dfa::Error,
-};
+use crate::bytes::{self, DeserializeError, Endian, SerializeError};
 
 /// The maximum length in bytes that a single Accel can be. This is distinct
 /// from the capacity of an accelerator in that the length represents only the
