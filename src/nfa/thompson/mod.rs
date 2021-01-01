@@ -292,10 +292,9 @@ pub enum State {
     /// (and therefore avoids the allocation).
     Range { range: Transition },
     /// A state with possibly many transitions, represented in a sparse
-    /// fashion. Transitions are ordered lexicographically by input range.
-    /// As such, this may only be used when every transition has equal
-    /// priority. (In practice, this is only used for encoding large UTF-8
-    /// automata.)
+    /// fashion. Transitions are ordered lexicographically by input range. As
+    /// such, this may only be used when every transition has equal priority.
+    /// (In practice, this is only used for encoding UTF-8 automata.)
     Sparse { ranges: Box<[Transition]> },
     /// A conditional epsilon transition satisfied via some sort of
     /// look-around.

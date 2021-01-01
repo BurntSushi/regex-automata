@@ -1246,8 +1246,8 @@ pub unsafe trait Automaton {
     /// // The first pattern also matches at the same position, so re-running
     /// // the search will yield another match. Notice also that the first
     /// // pattern is returned after the second. This is because the second
-    /// // pattern begins its match before the first, is therefore more an
-    /// // earlier match and is thus reported first.
+    /// // pattern begins its match before the first, is therefore an earlier
+    /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::new(0, 4));
     /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
     /// assert_eq!(expected, got);
@@ -1837,8 +1837,8 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
 /// it to track state.
 ///
 /// Callers should always provide a fresh state constructed via
-/// [`OverlappingState::new`] when starting a new search. Reusing state from a
-/// previous search may result in incorrect results.
+/// [`OverlappingState::start`] when starting a new search. Reusing state from
+/// a previous search may result in incorrect results.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OverlappingState<S> {
     /// The state ID of the state at which the search was in when the call
