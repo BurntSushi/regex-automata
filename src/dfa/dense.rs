@@ -27,13 +27,36 @@ use crate::{
     MatchKind,
 };
 
+/// The label that is pre-pended to a serialized DFA.
 const LABEL: &str = "rust-regex-automata-dfa-dense";
+
+/// The format version of dense regexes. This version gets incremented when a
+/// change occurs. A change may not necessarily be a breaking change, but the
+/// version does permit good error messages in the case where a breaking change
+/// is made.
 const VERSION: u64 = 2;
 
 /// The configuration used for compiling a dense DFA.
+///
+/// A dense DFA configuration is a simple data object that is typically used
+/// with [`dense::Builder::configure`](self::Builder::configure).
+///
+/// The default configuration guarantees that a search will _never_ return a
+/// [`MatchError`](crate::MatchError) for any haystack or pattern. Setting a
+/// quit byte with [`Config::quit`] or enabling heuristic support for Unicode
+/// word boundaries with [`Config::unicode_word_boundary`] can in turn cause a
+/// search to return an error. See the corresponding configuration options for
+/// more details on when those error conditions arise.
 #[cfg(feature = "std")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
+    // As with other configuration types in this crate, we put all our knobs
+    // in options so that we can distinguish between "default" and "not set."
+    // This makes it possible to easily combine multiple configurations
+    // without default values overwriting explicitly specified values. See the
+    // 'overwrite' method.
+    //
+    // For docs on the fields below, see the corresponding method setters.
     anchored: Option<bool>,
     accelerate: Option<bool>,
     minimize: Option<bool>,
@@ -56,6 +79,12 @@ impl Config {
     /// When enabled, a match must begin at the start of a search. When
     /// disabled, the DFA will act as if the pattern started with a `(?s:.)*?`,
     /// which enables a match to appear anywhere.
+    ///
+    /// Note that if you want to run both anchored and unanchored searches
+    /// without building multiple automatons, you can enable the
+    /// [`Config::starts_for_each_pattern`] configuration instead. This will
+    /// permit unanchored searches and pattern-specific anchored searches. See
+    /// the documentation for that configuration for an example.
     ///
     /// By default this is disabled.
     ///
@@ -83,11 +112,81 @@ impl Config {
     ///    starts with `^`, the regex is compiled with an implicit `(?s:.)*?`
     ///    prefix that permits it to match anywhere. Thus, it reports a match
     ///    at `[2, 3]`.
+    ///
+    /// # Example
+    ///
+    /// This demonstrates the differences between an anchored search and
+    /// a pattern that begins with `^` (as described in the above warning
+    /// message).
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    ///
+    /// let haystack = "aba".as_bytes();
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().anchored(false)) // default
+    ///     .build(r"^a")?;
+    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 2, 3)?;
+    /// // No match is found because 2 is not the beginning of the haystack,
+    /// // which is what ^ requires.
+    /// let expected = None;
+    /// assert_eq!(expected, got);
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().anchored(true))
+    ///     .build(r"a")?;
+    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 2, 3)?;
+    /// // An anchored search can still match anywhere in the haystack, it just
+    /// // must begin at the start of the search which is '2' in this case.
+    /// let expected = Some(HalfMatch::new(0, 3));
+    /// assert_eq!(expected, got);
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().anchored(true))
+    ///     .build(r"a")?;
+    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 1, 3)?;
+    /// // No match is found since we start searching at offset 1 which
+    /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
+    /// // is found.
+    /// let expected = None;
+    /// assert_eq!(expected, got);
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().anchored(false)) // default
+    ///     .build(r"a")?;
+    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 1, 3)?;
+    /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
+    /// // pattern. Even though the search starts at 'b', the 'match anything'
+    /// // prefix allows the search to match 'a'.
+    /// let expected = Some(HalfMatch::new(0, 3));
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn anchored(mut self, yes: bool) -> Config {
         self.anchored = Some(yes);
         self
     }
 
+    /// Enable state acceleration.
+    ///
+    /// When enabled, DFA construction will analyze each state to determine
+    /// whether it is eligible for simple acceleration. Acceleration typically
+    /// occurs when most of a state's transitions loop back to itself, leaving
+    /// only a select few bytes that will exit the state. When this occurs,
+    /// other routines like `memchr` can be used to look for those bytes which
+    /// may be much faster than traversing the DFA.
+    ///
+    /// Callers may elect to disable this if consistent performance is more
+    /// desirable than variable performance. Namely, acceleration can sometimes
+    /// make searching slower than it otherwise would be if the transitions
+    /// that leave accelerated states are traversed frequently.
+    ///
+    /// See [`Automaton::accelerator`](crate::dfa::Automaton::accelerator) for
+    /// an example.
+    ///
+    /// This is enabled by default.
     pub fn accelerate(mut self, yes: bool) -> Config {
         self.accelerate = Some(yes);
         self
@@ -129,7 +228,8 @@ impl Config {
     ///
     /// Typically, minimization only makes sense as an offline process. That
     /// is, one might minimize a DFA before serializing it to persistent
-    /// storage.
+    /// storage. In practical terms, minimization can take around an order of
+    /// magnitude more time than compiling the initial DFA via determinization.
     ///
     /// This option is disabled by default.
     pub fn minimize(mut self, yes: bool) -> Config {
@@ -137,32 +237,104 @@ impl Config {
         self
     }
 
-    /// Find the longest possible match.
+    /// Set the desired match semantics.
     ///
-    /// This is distinct from the default leftmost-first match semantics in
-    /// that it treats all NFA states as having equivalent priority. In other
-    /// words, the longest possible match is always found and it is not
-    /// possible to implement non-greedy match semantics when this is set. That
-    /// is, `a+` and `a+?` are equivalent when this is enabled.
+    /// The default is [`MatchKind::LeftmostFirst`], which corresponds to the
+    /// match semantics of Perl-like regex engines. That is, when multiple
+    /// patterns would match at the same leftmost position, the pattern that
+    /// appears first in the concrete syntax is chosen.
     ///
-    /// In particular, a practical issue with this option at the moment is that
-    /// it prevents unanchored searches from working correctly, since
-    /// unanchored searches are implemented by prepending an non-greedy `.*?`
-    /// to the beginning of the pattern. As stated above, non-greedy match
-    /// semantics aren't supported. Therefore, if this option is enabled and
-    /// an unanchored search is requested, then building a DFA will return an
-    /// error.
+    /// Currently, the only other kind of match semantics supported is
+    /// [`MatchKind::All`]. This corresponds to classical DFA construction
+    /// where all possible matches are added to the DFA.
     ///
-    /// This option is principally useful when building a reverse DFA for
-    /// finding the start of a match. If you are building a regex with
-    /// [`RegexBuilder`](struct.RegexBuilder.html), then this is handled for
-    /// you automatically. The reason why this is necessary for start of match
-    /// handling is because we want to find the earliest possible starting
-    /// position of a match to satisfy leftmost-first match semantics. When
-    /// matching in reverse, this means finding the longest possible match,
-    /// hence, this option.
+    /// Typically, `All` is used when one wants to execute an overlapping
+    /// search and `LeftmostFirst` otherwise. In particular, it rarely makes
+    /// sense to use `All` with the various "leftmost" find routines, since the
+    /// leftmost routines depend on the `LeftmostFirst` automata construction
+    /// strategy. Specifically, `LeftmostFirst` adds dead states to the DFA
+    /// as a way to terminate the search and report a match. `LeftmostFirst`
+    /// also supports non-greedy matches using this strategy where as `All`
+    /// does not.
     ///
-    /// By default this is disabled.
+    /// # Example: overlapping search
+    ///
+    /// This example shows the typical use of `MatchKind::All`, which is to
+    /// report overlapping matches.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{Automaton, HalfMatch, OverlappingState, dense},
+    ///     MatchKind,
+    /// };
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().match_kind(MatchKind::All))
+    ///     .build_many(&[r"\w+$", r"\S+$"])?;
+    /// let haystack = "@foo".as_bytes();
+    /// let mut state = OverlappingState::start();
+    ///
+    /// let expected = Some(HalfMatch::new(1, 4));
+    /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// // The first pattern also matches at the same position, so re-running
+    /// // the search will yield another match. Notice also that the first
+    /// // pattern is returned after the second. This is because the second
+    /// // pattern begins its match before the first, is therefore an earlier
+    /// // match and is thus reported first.
+    /// let expected = Some(HalfMatch::new(0, 4));
+    /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: reverse automaton to find start of match
+    ///
+    /// Another example for using `MatchKind::All` is for constructing a
+    /// reverse automaton to find the start of a match. `All` semantics are
+    /// used for this in order to find the longest possible match, which
+    /// corresponds to the leftmost starting position.
+    ///
+    /// Note that if you need the starting position then
+    /// [`dfa::Regex`](crate::dfa::Regex) will handle this for you, so it's
+    /// usually not necessary to do this yourself.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{Automaton, HalfMatch, OverlappingState, dense},
+    ///     MatchKind,
+    /// };
+    ///
+    /// let haystack = "123foobar456".as_bytes();
+    /// let pattern = r"[a-z]+";
+    ///
+    /// let dfa_fwd = dense::DFA::new(pattern)?;
+    /// let dfa_rev = dense::Builder::new()
+    ///     .configure(dense::Config::new()
+    ///         .anchored(true)
+    ///         .match_kind(MatchKind::All)
+    ///     )
+    ///     .build(pattern)?;
+    /// let expected_fwd = HalfMatch::new(0, 9);
+    /// let expected_rev = HalfMatch::new(0, 3);
+    /// let got_fwd = dfa_fwd.find_leftmost_fwd(haystack)?.unwrap();
+    /// // Here we don't specify the pattern to search for since there's only
+    /// // one pattern and we're doing a leftmost search. But if this were an
+    /// // overlapping search, you'd need to specify the pattern that matched
+    /// // in the forward direction. (Otherwise, you might wind up finding the
+    /// // starting position of a match of some other pattern.) That in turn
+    /// // requires building the reverse automaton with starts_for_each_pattern
+    /// // enabled.
+    /// let got_rev = dfa_rev.find_leftmost_rev_at(
+    ///     None, haystack, 0, got_fwd.offset(),
+    /// )?.unwrap();
+    /// assert_eq!(expected_fwd, got_fwd);
+    /// assert_eq!(expected_rev, got_rev);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn match_kind(mut self, kind: MatchKind) -> Config {
         self.match_kind = Some(kind);
         self
@@ -300,7 +472,49 @@ impl Config {
     /// be quit bytes _only_ when a Unicode word boundary is present in the
     /// regex pattern.
     ///
+    /// When enabling this option, callers _must_ be prepared to handle a
+    /// `MatchError` error during search. When using a
+    /// [`Regex`](../struct.Regex.html), this corresponds to using the `try_`
+    /// suite of methods.
+    ///
     /// This is disabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to heuristically enable Unicode word boundaries
+    /// in a regex pattern. It also shows what happens when a search comes
+    /// across a non-ASCII byte.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     MatchError, MatchKind,
+    /// };
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().unicode_word_boundary(true))
+    ///     .build(r"\b[0-9]+\b")?;
+    ///
+    /// // The match occurs before the search ever observes the snowman
+    /// // character, so no error occurs.
+    /// let haystack = "foo 123 x☃".as_bytes();
+    /// let expected = Some(HalfMatch::new(0, 7));
+    /// let got = dfa.find_leftmost_fwd(haystack)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// // Notice that this search fails, even though the snowman character
+    /// // occurs after the match. This is because search routines read one
+    /// // byte past the end of the search to account for look-around. In
+    /// // this case, the whitespace after '123' is when a match is known,
+    /// // but the first byte of the snowman is still read for the final EOF
+    /// // transition, which ends up triggering the quit state.
+    /// let haystack = "foo 123 ☃".as_bytes();
+    /// let expected = MatchError::Quit { byte: 0xE2, offset: 8 };
+    /// let got = dfa.find_leftmost_fwd(haystack).unwrap_err();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn unicode_word_boundary(mut self, yes: bool) -> Config {
         // We have a separate option for this instead of just setting the
         // appropriate quit bytes here because we don't want to set quit bytes
@@ -328,7 +542,8 @@ impl Config {
     /// can attempt to match a Unicode word boundary but give up as soon as it
     /// observes a non-ASCII byte. Indeed, if callers set all non-ASCII bytes
     /// to be quit bytes, then Unicode word boundaries will be permitted when
-    /// building DFAs.
+    /// building DFAs. Of course, callers should enable
+    /// [`Config::unicode_word_boundary`] if they want this behavior instead.
     ///
     /// When enabling this option, callers _must_ be prepared to handle a
     /// `MatchError` error during search. When using a
@@ -343,6 +558,33 @@ impl Config {
     /// byte is removed from the set of quit bytes. Namely, enabling Unicode
     /// word boundaries requires setting every non-ASCII byte to a quit byte.
     /// So if the caller attempts to undo any of that, then this will panic.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to cause a search to terminate if it sees a
+    /// `\n` byte. This could be useful if, for example, you wanted to prevent
+    /// a user supplied pattern from matching across a line boundary.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     MatchError, MatchKind,
+    /// };
+    ///
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().quit(b'\n', true))
+    ///     .build(r"foo\p{any}+bar")?;
+    ///
+    /// let haystack = "foo\nbar".as_bytes();
+    /// // Normally this would produce a match, since \p{any} contains '\n'.
+    /// // But since we instructed the automaton to enter a quit state if a
+    /// // '\n' is observed, this produces a match error instead.
+    /// let expected = MatchError::Quit { byte: 0x0A, offset: 3 };
+    /// let got = dfa.find_leftmost_fwd(haystack).unwrap_err();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn quit(mut self, byte: u8, yes: bool) -> Config {
         if self.get_unicode_word_boundary() && !byte.is_ascii() && !yes {
             panic!(
@@ -361,38 +603,60 @@ impl Config {
         self
     }
 
+    /// Returns whether this configuration has enabled anchored searches.
     pub fn get_anchored(&self) -> bool {
         self.anchored.unwrap_or(false)
     }
 
+    /// Returns whether this configuration has enabled simple state
+    /// acceleration.
     pub fn get_accelerate(&self) -> bool {
         self.accelerate.unwrap_or(true)
     }
 
+    /// Returns whether this configuration has enabled the expensive process
+    /// of minimizing a DFA.
     pub fn get_minimize(&self) -> bool {
         self.minimize.unwrap_or(false)
     }
 
+    /// Returns the match semantics set in this configuration.
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
+    /// Returns whether this configuration has enabled anchored starting states
+    /// for every pattern in the DFA.
     pub fn get_starts_for_each_pattern(&self) -> bool {
         self.starts_for_each_pattern.unwrap_or(false)
     }
 
+    /// Returns whether this configuration has enabled byte classes or not.
+    /// This is typically a debugging oriented option, as disabling it confers
+    /// no speed benefit.
     pub fn get_byte_classes(&self) -> bool {
         self.byte_classes.unwrap_or(true)
     }
 
+    /// Returns whether this configuration has enabled heuristic Unicode word
+    /// boundary support. When enabled, it is possible for a search to return
+    /// an error.
     pub fn get_unicode_word_boundary(&self) -> bool {
         self.unicode_word_boundary.unwrap_or(false)
     }
 
+    /// Returns whether this configuration will instruct the DFA to enter a
+    /// quit state whenever the given byte is seen during a search. When at
+    /// least one byte has this enabled, it is possible for a search to return
+    /// an error.
     pub fn get_quit(&self, byte: u8) -> bool {
         self.quit.map_or(false, |q| q.contains(byte))
     }
 
+    /// Overwrite the default configuration such that the options in `o` are
+    /// always used. If an option in `o` is not set, then the corresponding
+    /// option in `self` is used. If it's not set in `self` either, then it
+    /// remains not set.
     pub(crate) fn overwrite(self, o: Config) -> Config {
         Config {
             anchored: o.anchored.or(self.anchored),
@@ -414,17 +678,32 @@ impl Config {
 /// A builder for constructing a deterministic finite automaton from regular
 /// expressions.
 ///
-/// This builder permits configuring several aspects of the construction
-/// process such as case insensitivity, Unicode support and various options
-/// that impact the size of the generated DFA. In some cases, options (like
-/// performing DFA minimization) can come with a substantial additional cost.
+/// This builder provides two main things:
 ///
-/// This builder always constructs a *single* DFA. As such, this builder can
-/// only be used to construct regexes that either detect the presence of a
-/// match or find the end location of a match. A single DFA cannot produce both
-/// the start and end of a match. For that information, use a
-/// [`Regex`](struct.Regex.html), which can be similarly configured using
-/// [`RegexBuilder`](struct.RegexBuilder.html).
+/// 1. It provides a number of different `build` routines for actually
+/// constructing a DFA from different kinds of inputs. The most convenient is
+/// [`Builder::build`], which builds a DFA directly from a pattern string. The
+/// most flexible is [`Builder::build_from_nfa_with_size`], which builds a DFA
+/// straight from an NFA with a chosen state ID representation.
+/// 2. The builder permits configuring a number of things.
+/// [`Builder::configure`] is used with [`Config`] to configure aspects of
+/// the DFA and the construction process itself. [`Builder::syntax`] and
+/// [`Builder::thompson`] permit configuring the regex parser and Thompson NFA
+/// construction, respectively.
+///
+/// This builder always constructs a *single* DFA. As such, this builder
+/// can only be used to construct regexes that either detect the presence
+/// of a match or find the end location of a match. A single DFA cannot
+/// produce both the start and end of a match. For that information, use a
+/// [`Regex`](crate::dfa::Regex), which can be similarly configured using
+/// [`RegexBuilder`](crate::dfa::RegexBuilder). The main reason to use a DFA
+/// directly is if the end location of a match is enough for your use case.
+/// Namely, a `Regex` will construct two DFAs instead of one, since a second
+/// reverse DFA is needed to find the start of a match.
+///
+/// Note that if one wants to build a sparse DFA, you must first build a dense
+/// DFA and convert that to a sparse DFA. There is no way to build a sparse
+/// DFA without first building a dense DFA.
 #[cfg(feature = "std")]
 #[derive(Clone, Debug)]
 pub struct Builder {
@@ -451,6 +730,9 @@ impl Builder {
     }
 
     /// Build a DFA from the given patterns.
+    ///
+    /// When matches are returned, the pattern ID corresponds to the index of
+    /// the pattern in the slice given.
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -488,6 +770,12 @@ impl Builder {
 
     /// Build a DFA from the given patterns using `S` as the state identifier
     /// representation.
+    ///
+    /// When matches are returned, the pattern ID corresponds to the index of
+    /// the pattern in the slice given.
+    ///
+    /// See [`Builder::build_with_size`] for more information on the `S`
+    /// type parameter.
     pub fn build_many_with_size<S: StateID, P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -497,6 +785,31 @@ impl Builder {
     }
 
     /// Build a DFA from the given NFA.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build a DFA if you already have an NFA in
+    /// hand.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     nfa::thompson,
+    /// };
+    ///
+    /// let haystack = "foo123bar".as_bytes();
+    ///
+    /// let nfa = thompson::Builder::new()
+    ///     .configure(thompson::Config::new().shrink(false))
+    ///     .build(r"[0-9]+")?;
+    /// let dfa = dense::Builder::new()
+    ///     .build_from_nfa(&nfa)?;
+    /// let expected = Some(HalfMatch::new(0, 6));
+    /// let got = dfa.find_leftmost_fwd(haystack)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_from_nfa(
         &self,
         nfa: &thompson::NFA,
@@ -506,6 +819,9 @@ impl Builder {
 
     /// Build a DFA from the given NFA using a specific representation for
     /// the DFA's state IDs.
+    ///
+    /// See [`Builder::build_with_size`] for more information on the `S`
+    /// type parameter.
     pub fn build_from_nfa_with_size<S: StateID>(
         &self,
         nfa: &thompson::NFA,
@@ -528,7 +844,7 @@ impl Builder {
             ByteClasses::singletons()
         };
 
-        let mut dfa = DFA::empty(
+        let mut dfa = DFA::initial(
             classes,
             nfa.match_len(),
             self.config.get_starts_for_each_pattern(),
@@ -554,7 +870,7 @@ impl Builder {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](../struct.SyntaxConfig.html).
+    /// [`SyntaxConfig`](crate::SyntaxConfig).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
@@ -567,7 +883,7 @@ impl Builder {
     }
 
     /// Set the Thompson NFA configuration for this builder using
-    /// [`nfa::thompson::Config`](../nfa/thompson/struct.Config.html).
+    /// [`nfa::thompson::Config`](crate::nfa::thompson::Config).
     ///
     /// This permits setting things like whether the DFA should match the regex
     /// in reverse or if additional time should be spent shrinking the size of
@@ -608,15 +924,15 @@ pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 /// up with this trade off, then a dense DFA may not be an adequate solution to
 /// your problem.
 ///
-/// In contrast, a [sparse DFA](../sparse/struct.DFA.html) makes the opposite
+/// In contrast, a [`sparse::DFA`] makes the opposite
 /// trade off: it uses less space but will execute a variable number of
 /// instructions per byte at match time, which makes it slower for matching.
 /// (Note that space usage is still exponential in the size of the pattern in
 /// the worst case.)
 ///
 /// A DFA can be built using the default configuration via the
-/// [`DFA::new`](struct.DFA.html#method.new) constructor. Otherwise, one can
-/// configure various aspects via [`dense::Builder`](struct.Builder.html).
+/// [`DFA::new`] constructor. Otherwise, one can
+/// configure various aspects via [`dense::Builder`](Builder).
 ///
 /// A single DFA fundamentally supports the following operations:
 ///
@@ -626,7 +942,7 @@ pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 /// A notable absence from the above list of capabilities is the location of
 /// the *start* of a match. In order to provide both the start and end of
 /// a match, *two* DFAs are required. This functionality is provided by a
-/// [`Regex`](../struct.Regex.html).
+/// [`Regex`](crate::dfa::Regex).
 ///
 /// # Type parameters and state size
 ///
@@ -645,15 +961,13 @@ pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 ///   the size of your DFA, then building the DFA will fail and return an
 ///   error.
 ///
-/// While the reduction in heap memory used by a DFA is one reason for choosing
-/// a smaller state identifier representation, another possible reason is for
-/// decreasing the serialization size of a DFA, as returned by
-/// [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian),
-/// [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
-/// or
-/// [`to_bytes_native_endian`](struct.DFA.html#method.to_bytes_native_endian).
-/// A smaller DFA also means that more of it will fit in your CPU's cache,
-/// potentially leading to overall better search performance.
+/// While the reduction in heap memory used by a DFA is one reason for
+/// choosing a smaller state identifier representation, another possible
+/// reason is for decreasing the serialization size of a DFA, as returned
+/// by [`DFA::to_bytes_little_endian`], [`DFA::to_bytes_big_endian`] or
+/// [`DFA::to_bytes_native_endian`]. A smaller DFA also means that more of it
+/// will fit in your CPU's cache, potentially leading to overall better search
+/// performance.
 ///
 /// # The `Automaton` trait
 ///
@@ -687,7 +1001,7 @@ pub struct DFA<T, A, S = usize> {
     /// a match exists, but _which_ patterns match. So we need to store the
     /// matching pattern IDs for each match state.
     ms: MatchStates<T, A, S>,
-    /// Information about which states as "special." Special states are states
+    /// Information about which states are "special." Special states are states
     /// that are dead, quit, matching, starting or accelerated. For more info,
     /// see the docs for `Special`.
     special: Special<S>,
@@ -715,8 +1029,7 @@ impl OwnedDFA<usize> {
     /// minimized.
     ///
     /// If you want a non-default configuration, then use the
-    /// [`dense::Builder`](dense/struct.Builder.html)
-    /// to set your own configuration.
+    /// [`dense::Builder`](Builder) to set your own configuration.
     ///
     /// # Example
     ///
@@ -739,8 +1052,7 @@ impl OwnedDFA<usize> {
     /// minimized.
     ///
     /// If you want a non-default configuration, then use the
-    /// [`dense::Builder`](dense/struct.Builder.html)
-    /// to set your own configuration.
+    /// [`dense::Builder`](Builder) to set your own configuration.
     ///
     /// # Example
     ///
@@ -803,10 +1115,10 @@ impl<S: StateID> OwnedDFA<S> {
         Builder::new().build_from_nfa_with_size(&nfa)
     }
 
-    /// Create a new DFA with the given set of byte equivalence classes, along
-    /// with the total number of patterns in this DFA. The DFA contains a
-    /// single dead state that never matches any input.
-    fn empty(
+    /// Create an initial DFA with the given equivalence classes, pattern count
+    /// and whether anchored starting states are enabled for each pattern. An
+    /// initial DFA can be further mutated via determinization.
+    fn initial(
         classes: ByteClasses,
         pattern_count: usize,
         starts_for_each_pattern: bool,
@@ -861,24 +1173,23 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// usage.
     ///
     /// This does **not** include the stack size used up by this DFA. To
-    /// compute that, used `std::mem::size_of::<dense::DFA>()`.
+    /// compute that, use `std::mem::size_of::<dense::DFA>()`.
     pub fn memory_usage(&self) -> usize {
-        self.accels.as_bytes().len()
-            + self.tt.memory_usage()
+        self.tt.memory_usage()
             + self.st.memory_usage()
             + self.ms.memory_usage()
+            + self.accels.as_bytes().len()
     }
 
     /// Returns true only if this DFA has starting states for each pattern.
     ///
     /// When a DFA has starting states for each pattern, then a search with the
     /// DFA can be configured to only look for anchored matches of a specific
-    /// pattern. Specifically, APIs like
-    /// [`Automaton::find_earliest_fwd_at`](../trait.Automaton.html#method.find_earliest_fwd_at)
+    /// pattern. Specifically, APIs like [`Automaton::find_earliest_fwd_at`]
     /// can accept a non-None `pattern_id` if and only if this method returns
     /// true. Otherwise, calling `find_earliest_fwd_at` will panic.
     ///
-    /// Note that if the DFA is empty, this always returns false.
+    /// Note that if the DFA has no patterns, this always returns false.
     pub fn has_starts_for_each_pattern(&self) -> bool {
         self.st.patterns > 0
     }
@@ -904,13 +1215,17 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// total stride space taken up by a single DFA state in the transition
     /// table. Namely, for performance reasons, the stride is always the
     /// smallest power of two that is greater than or equal to the alphabet
-    /// length.
+    /// length. For this reason, [`DFA::stride`] or [`DFA::stride2`] are
+    /// often more useful. The alphabet length is typically useful only for
+    /// informational purposes.
     pub fn alphabet_len(&self) -> usize {
         self.tt.alphabet_len()
     }
 
     /// Returns the total stride for every state in this DFA, expressed as the
-    /// exponent of a power of 2.
+    /// exponent of a power of 2. The stride is the amount of space each state
+    /// takes up in the transition table, expressed as a number of transitions.
+    /// (Unused transitions map to dead states.)
     ///
     /// The stride of a DFA is always equivalent to the smallest power of 2
     /// that is greater than or equal to the DFA's alphabet length. This
@@ -2390,7 +2705,7 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
 /// The transition table is the core part of the DFA in that it describes how
 /// to move from one state to another based on the input sequence observed.
 #[derive(Clone)]
-pub struct TransitionTable<T, S> {
+pub(crate) struct TransitionTable<T, S> {
     /// A contiguous region of memory representing the transition table in
     /// row-major order. The representation is dense. That is, every state
     /// has precisely the same number of transitions. The maximum number of
@@ -2399,7 +2714,7 @@ pub struct TransitionTable<T, S> {
     /// byte classes (the default), then the number of transitions is usually
     /// substantially fewer.
     ///
-    /// In practice, T is either Vec<S> or &[S].
+    /// In practice, T is either `Vec<S>` or `&[S]`.
     table: T,
     /// A set of equivalence classes, where a single equivalence class
     /// represents a set of bytes that never discriminate between a match
@@ -2965,10 +3280,10 @@ impl<T: AsMut<[S]>, S: StateID> TransitionTable<T, S> {
 /// there's no reason to generate a unique starting state for handling word
 /// boundaries. Similarly for start/end anchors.)
 #[derive(Clone)]
-pub struct StartTable<T, S> {
+pub(crate) struct StartTable<T, S> {
     /// The initial start state IDs.
     ///
-    /// In practice, T is either Vec<S> or &[S].
+    /// In practice, T is either `Vec<S>` or `&[S]`.
     ///
     /// The first `stride` (currently always 4) entries always correspond to
     /// the start states for the entire DFA. After that, there are

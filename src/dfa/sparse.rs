@@ -2187,6 +2187,9 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
         }
         let eof = self.next_at(self.ntrans - 1);
         if eof != dead_id() {
+            if printed {
+                write!(f, ", ")?;
+            }
             write!(f, "EOF => {}", eof.as_usize())?;
         }
         Ok(())
