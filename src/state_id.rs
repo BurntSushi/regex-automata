@@ -55,9 +55,9 @@ pub unsafe trait StateID:
 {
     /// Convert from a `usize` to this implementation's representation.
     ///
-    /// Implementors may assume that `n <= Self::max_id`. That is, implementors
-    /// do not need to check whether `n` can fit inside this implementation's
-    /// representation.
+    /// Implementors must panic if the return value would be greater than
+    /// `Self::max_id()`. Permitting values larger than `Self::max_id()` may
+    /// result in undefined behavior.
     fn from_usize(n: usize) -> Self;
 
     /// Convert this implementation's representation to a `usize`.
@@ -73,14 +73,15 @@ pub unsafe trait StateID:
     /// Return the maximum state identifier supported by this representation.
     ///
     /// Implementors must return a correct bound. Doing otherwise may result
-    /// in memory unsafety.
+    /// in undefined behavior.
     fn max_id() -> usize;
 
     /// Read a single state identifier from the given slice of bytes in native
     /// endian format.
     ///
-    /// Implementors may assume that the given slice has length at least
-    /// `size_of::<Self>()`.
+    /// Implementors must panic if the length of the given slice is too short.
+    /// Implementors must also panic if the bytes in `slice` would result in
+    /// deserializing a value that is bigger than `Self::max_id()`.
     fn read_bytes(slice: &[u8]) -> Self;
 
     /// Write this state identifier to the given slice of bytes in native
@@ -104,7 +105,7 @@ unsafe impl StateID for usize {
 
     #[inline]
     fn max_id() -> usize {
-        ::core::usize::MAX
+        core::usize::MAX
     }
 
     #[inline]
@@ -143,6 +144,11 @@ unsafe impl StateID for usize {
 unsafe impl StateID for u8 {
     #[inline]
     fn from_usize(n: usize) -> u8 {
+        // SAFETY: This is safe because 'as' truncates the integer and the
+        // maximum value is maximum representable u8 integer. If n > max_id,
+        // then it's likely that there is an incorrect state identifier,
+        // but since it's less than max_id, it can never lead to undefined
+        // behavior.
         n as u8
     }
 
@@ -153,7 +159,7 @@ unsafe impl StateID for u8 {
 
     #[inline]
     fn max_id() -> usize {
-        ::core::u8::MAX as usize
+        core::u8::MAX as usize
     }
 
     #[inline]
@@ -170,6 +176,11 @@ unsafe impl StateID for u8 {
 unsafe impl StateID for u16 {
     #[inline]
     fn from_usize(n: usize) -> u16 {
+        // SAFETY: This is safe because 'as' truncates the integer and the
+        // maximum value is maximum representable u16 integer. If n > max_id,
+        // then it's likely that there is an incorrect state identifier,
+        // but since it's less than max_id, it can never lead to undefined
+        // behavior.
         n as u16
     }
 
@@ -180,7 +191,7 @@ unsafe impl StateID for u16 {
 
     #[inline]
     fn max_id() -> usize {
-        ::core::u16::MAX as usize
+        core::u16::MAX as usize
     }
 
     #[inline]
@@ -198,6 +209,11 @@ unsafe impl StateID for u16 {
 unsafe impl StateID for u32 {
     #[inline]
     fn from_usize(n: usize) -> u32 {
+        // SAFETY: This is safe because 'as' truncates the integer and the
+        // maximum value is maximum representable u32 integer. If n > max_id,
+        // then it's likely that there is an incorrect state identifier,
+        // but since it's less than max_id, it can never lead to undefined
+        // behavior.
         n as u32
     }
 
@@ -208,7 +224,7 @@ unsafe impl StateID for u32 {
 
     #[inline]
     fn max_id() -> usize {
-        ::core::u32::MAX as usize
+        core::u32::MAX as usize
     }
 
     #[inline]
@@ -226,6 +242,9 @@ unsafe impl StateID for u32 {
 unsafe impl StateID for u64 {
     #[inline]
     fn from_usize(n: usize) -> u64 {
+        // Since this impl is only provided on 64-bit platforms and since
+        // usize==u64 on 64-bit platforms, it follows that all usize values are
+        // valid inhabitants of u64.
         n as u64
     }
 
@@ -236,7 +255,7 @@ unsafe impl StateID for u64 {
 
     #[inline]
     fn max_id() -> usize {
-        ::core::u64::MAX as usize
+        core::u64::MAX as usize
     }
 
     #[inline]
