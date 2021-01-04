@@ -24,7 +24,7 @@ const VERSION: u64 = 2;
 
 /// A sparse deterministic finite automaton (DFA) with variable sized states.
 ///
-/// In contrast to a [dense DFA](../dense/struct.DFA.html), a sparse DFA uses
+/// In contrast to a [dense::DFA](crate::dfa::dense::DFA), a sparse DFA uses
 /// a more space efficient representation for its transitions. Consequently,
 /// sparse DFAs may use much less memory than dense DFAs, but this comes at a
 /// price. In particular, reading the more space efficient transitions takes
@@ -32,13 +32,13 @@ const VERSION: u64 = 2;
 /// slower than a dense DFA.
 ///
 /// A sparse DFA can be built using the default configuration via the
-/// [`sparse::DFA::new`](struct.DFA.html#method.new) constructor.
-/// Otherwise, one can configure various aspects of a dense DFA via
-/// [`dense::Builder`](../dense/struct.Builder.html), and then convert a dense
-/// DFA to a sparse DFA using
-/// [`dense::DFA::to_sparse`](../dense/struct.DFA.html#method.to_sparse).
+/// [`DFA::new`] constructor. Otherwise, one can configure various aspects
+/// of a dense DFA via [`dense::Builder`](crate::dfa::dense::Builder),
+/// and then convert a dense DFA to a sparse DFA using
+/// [`dense::DFA::to_sparse`](crate::dfa::dense::DFA::to_sparse).
 ///
-/// In general, a sparse DFA supports all the same operations as a dense DFA.
+/// In general, a sparse DFA supports all the same search operations as a dense
+/// DFA.
 ///
 /// Making the choice between a dense and sparse DFA depends on your specific
 /// work load. If you can sacrifice a bit of search time performance, then a
@@ -53,38 +53,42 @@ const VERSION: u64 = 2;
 /// * `T` is the type of the DFA's transitions. `T` is typically `Vec<S>` or
 ///   `&[S]`.
 /// * `S` is the representation used for the DFA's state identifiers as
-///   described by the [`StateID`](../../trait.StateID.html) trait. `S` must
-///   be one of `usize`, `u8`, `u16`, `u32` or `u64`. It defaults to
-///   `usize`. The primary reason for choosing a different state identifier
-///   representation than the default is to reduce the amount of memory used by
-///   a DFA. Note though, that if the chosen representation cannot accommodate
-///   the size of your DFA, then building the DFA will fail and return an
-///   error.
+///   described by the [`StateID`] trait. `S` must be one of `usize`, `u8`,
+///   `u16`, `u32` or `u64`. It defaults to `usize`. The primary reason for
+///   choosing a different state identifier representation than the default
+///   is to reduce the amount of memory used by a DFA. Note though, that if
+///   the chosen representation cannot accommodate the size of your DFA, then
+///   building the DFA will fail and return an error.
 ///
-/// While the reduction in heap memory used by a DFA is one reason for choosing
-/// a smaller state identifier representation, another possible reason is for
-/// decreasing the serialization size of a DFA, as returned by
-/// [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian),
-/// [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
-/// or
-/// [`to_bytes_native_endian`](struct.DFA.html#method.to_bytes_native_endian).
+/// While the reduction in heap memory used by a DFA is one reason for
+/// choosing a smaller state identifier representation, another possible
+/// reason is for decreasing the serialization size of a DFA, as returned
+/// by [`DFA::to_bytes_little_endian`], [`DFA::to_bytes_big_endian`] or
+/// [`DFA::to_bytes_native_endian`].
 ///
 /// # The `Automaton` trait
 ///
-/// This type implements the [`Automaton`](../trait.Automaton.html) trait,
-/// which means it can be used for searching. For example:
+/// This type implements the [`Automaton`] trait, which means it can be used
+/// for searching. For example:
 ///
 /// ```
 /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
-///
 /// let expected = HalfMatch::new(0, 8);
 /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
 pub struct DFA<T, S = usize> {
+    // When compared to a dense DFA, a sparse DFA *looks* a lot simpler
+    // representation-wise. In reality, it is perhaps more complicated. Namely,
+    // in a dense DFA, all information needs to be very cheaply accessible
+    // using only state IDs. In a sparse DFA however, each state uses a
+    // variable amount of space because each state encodes more information
+    // than just its transitions. It also includes an accelerator if one
+    // exists, along with the matching pattern IDs if the state is a match
+    // state.
     trans: Transitions<T, S>,
     starts: StartTable<T, S>,
     special: Special<S>,
@@ -99,11 +103,11 @@ impl DFA<Vec<u8>, usize> {
     /// alphabet size by splitting bytes into equivalence classes. The
     /// resulting DFA is *not* minimized.
     ///
-    /// If you want a non-default configuration, then use the
-    /// [`dense::Builder`](dense/struct.Builder.html)
+    /// If you want a non-default configuration, then use
+    /// the [`dense::Builder`](crate::dfa::dense::Builder)
     /// to set your own configuration, and then call
-    /// [`dense::DFA::to_sparse`](struct.DFA.html#method.to_sparse)
-    /// to create a sparse DFA.
+    /// [`dense::DFA::to_sparse`](crate::dfa::dense::DFA::to_sparse) to create
+    /// a sparse DFA.
     ///
     /// # Example
     ///
@@ -128,11 +132,11 @@ impl DFA<Vec<u8>, usize> {
     /// The default configuration uses `usize` for state IDs. The DFA is *not*
     /// minimized.
     ///
-    /// If you want a non-default configuration, then use the
-    /// [`dense::Builder`](dense/struct.Builder.html)
+    /// If you want a non-default configuration, then use
+    /// the [`dense::Builder`](crate::dfa::dense::Builder)
     /// to set your own configuration, and then call
-    /// [`dense::DFA::to_sparse`](struct.DFA.html#method.to_sparse)
-    /// to create a sparse DFA.
+    /// [`dense::DFA::to_sparse`](crate::dfa::dense::DFA::to_sparse) to create
+    /// a sparse DFA.
     ///
     /// # Example
     ///
@@ -372,8 +376,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     ///
     /// When a DFA has starting states for each pattern, then a search with the
     /// DFA can be configured to only look for anchored matches of a specific
-    /// pattern. Specifically, APIs like
-    /// [`Automaton::find_earliest_fwd_at`](../trait.Automaton.html#method.find_earliest_fwd_at)
+    /// pattern. Specifically, APIs like [`Automaton::find_earliest_fwd_at`]
     /// can accept a non-None `pattern_id` if and only if this method returns
     /// true. Otherwise, calling `find_earliest_fwd_at` will panic.
     ///
@@ -393,7 +396,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// then this returns an error.
     ///
     /// An alternative way to construct such a DFA is to use
-    /// [`dense::DFA::to_sparse_sized`](../dense/struct.DFA.html#method.to_sparse_sized).
+    /// [`dense::DFA::to_sparse_sized`](crate::dfa::dense::DFA::to_sparse_sized).
     /// In general, picking the appropriate size upon initial construction of
     /// a sparse DFA is preferred, since it will do the conversion in one
     /// step instead of two.
@@ -434,11 +437,10 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
-    /// Note that unlike a
-    /// [`dense::DFA`'s](../dense/struct.DFA.html)
+    /// Note that unlike a [`dense::DFA`](crate::dfa::dense::DFA)'s
     /// serialization methods, this does not add any initial padding to the
     /// returned bytes. Padding isn't required for sparse DFAs since they have
     /// no alignment requirements.
@@ -477,11 +479,10 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
-    /// Note that unlike a
-    /// [`dense::DFA`'s](../dense/struct.DFA.html)
+    /// Note that unlike a [`dense::DFA`](crate::dfa::dense::DFA)'s
     /// serialization methods, this does not add any initial padding to the
     /// returned bytes. Padding isn't required for sparse DFAs since they have
     /// no alignment requirements.
@@ -520,11 +521,10 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
-    /// Note that unlike a
-    /// [`dense::DFA`'s](../dense/struct.DFA.html)
+    /// Note that unlike a [`dense::DFA`](crate::dfa::dense::DFA)'s
     /// serialization methods, this does not add any initial padding to the
     /// returned bytes. Padding isn't required for sparse DFAs since they have
     /// no alignment requirements.
@@ -582,8 +582,8 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// # Errors
     ///
@@ -630,8 +630,8 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// # Errors
     ///
@@ -678,8 +678,8 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// Generally speaking, native endian format should only be used when
     /// you know that the target you're compiling the DFA for matches the
@@ -751,9 +751,9 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// This is useful for determining the size of the buffer required to pass
     /// to one of the serialization routines:
     ///
-    /// * [`write_to_little_endian`](struct.DFA.html#method.write_to_little_endian)
-    /// * [`write_to_big_endian`](struct.DFA.html#method.write_to_big_endian)
-    /// * [`write_to_native_endian`](struct.DFA.html#method.write_to_native_endian)
+    /// * [`DFA::write_to_little_endian`]
+    /// * [`DFA::write_to_big_endian`]
+    /// * [`DFA::write_to_native_endian`]
     ///
     /// Passing a buffer smaller than the size returned by this method will
     /// result in a serialization error.
@@ -799,20 +799,19 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     /// Deserializing a DFA using this routine will never allocate heap memory.
     /// For safety purposes, the DFA's transitions will be verified such that
     /// every transition points to a valid state. If this verification is too
-    /// costly, then a
-    /// [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
-    /// API is provided, which will always execute in constant time.
+    /// costly, then a [`DFA::from_bytes_unchecked`] API is provided, which
+    /// will always execute in constant time.
     ///
     /// The bytes given must be generated by one of the serialization APIs
     /// of a `DFA` using a semver compatible release of this crate. Those
     /// include:
     ///
-    /// * [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian)
-    /// * [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
-    /// * [`to_bytes_native_endian`](struct.DFA.html#method.to_bytes_native_endian)
-    /// * [`write_to_little_endian`](struct.DFA.html#method.write_to_little_endian)
-    /// * [`write_to_big_endian`](struct.DFA.html#method.write_to_big_endian)
-    /// * [`write_to_native_endian`](struct.DFA.html#method.write_to_native_endian)
+    /// * [`DFA::to_bytes_little_endian`]
+    /// * [`DFA::to_bytes_big_endian`]
+    /// * [`DFA::to_bytes_native_endian`]
+    /// * [`DFA::write_to_little_endian`]
+    /// * [`DFA::write_to_big_endian`]
+    /// * [`DFA::write_to_native_endian`]
     ///
     /// The `to_bytes` methods allocate and return a `Vec<u8>` for you. The
     /// `write_to` methods do not allocate and write to an existing slice
@@ -843,9 +842,8 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     /// If any of the above are not true, then an error will be returned.
     ///
     /// Note that unlike deserializing a
-    /// [`dense::DFA`](../dense/struct.DFA.html),
-    /// deserializing a sparse DFA has no alignment requirements. That is, an
-    /// alignment of `1` is valid.
+    /// [`dense::DFA`](crate::dfa::dense::DFA), deserializing a sparse DFA has
+    /// no alignment requirements. That is, an alignment of `1` is valid.
     ///
     /// # Panics
     ///
@@ -973,10 +971,9 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
     /// constant time by omitting the verification of the validity of the
     /// sparse transitions.
     ///
-    /// This is just like
-    /// [`from_bytes`](struct.DFA.html#method.from_bytes),
-    /// except it can potentially return a DFA that exhibits undefined behavior
-    /// if its transitions contains invalid state identifiers.
+    /// This is just like [`DFA::from_bytes`], except it can potentially return
+    /// a DFA that exhibits undefined behavior if its transitions contains
+    /// invalid state identifiers.
     ///
     /// This routine is useful if you need to deserialize a DFA cheaply and
     /// cannot afford the transition validation performed by `from_bytes`.

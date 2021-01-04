@@ -354,11 +354,11 @@ impl Config {
     /// There are a few reasons one might want to enable this (it's disabled
     /// by default):
     ///
-    /// 1. When looking for the start of an overlapping match (using a reverse
-    /// DFA), doing it correctly requires starting the reverse search using the
-    /// starting state of the pattern that matched in the forward direction.
-    /// Indeed, when building a [`Regex`](../struct.Regex.html), it will
-    /// automatically enable this option when building the reverse DFA
+    /// 1. When looking for the start of an overlapping match (using a
+    /// reverse DFA), doing it correctly requires starting the reverse search
+    /// using the starting state of the pattern that matched in the forward
+    /// direction. Indeed, when building a [`Regex`](crate::dfa::Regex), it
+    /// will automatically enable this option when building the reverse DFA
     /// internally.
     /// 2. When you want to use a DFA with multiple patterns to both search
     /// for matches of any pattern or to search for anchored matches of one
@@ -452,15 +452,17 @@ impl Config {
     /// When set, this will attempt to implement Unicode word boundaries as if
     /// they were ASCII word boundaries. This only works when the search input
     /// is ASCII only. If a non-ASCII byte is observed while searching, then a
-    /// [`MatchError::Quit`](../../enum.MatchError.html#variant.Quit)
-    /// error is returned.
+    /// [`MatchError::Quit`](crate::MatchError::Quit) error is returned.
     ///
     /// Therefore, when enabling this option, callers _must_ be prepared
     /// to handle a `MatchError` error during search. When using a
-    /// [`Regex`](../struct.Regex.html), this corresponds to using the `try_`
+    /// [`Regex`](crate::dfa::Regex), this corresponds to using the `try_`
     /// suite of methods. Alternatively, if callers can guarantee that their
     /// input is ASCII only, then a `MatchError::Quit` error will never be
     /// returned while searching.
+    ///
+    /// An alternative to enabling this option is to simply use an ASCII
+    /// word boundary, e.g., via `(?-u:\b)`.
     ///
     /// If the regex pattern provided has no Unicode word boundary in it, then
     /// this option has no effect. (That is, quitting on a non-ASCII byte only
@@ -472,9 +474,9 @@ impl Config {
     /// be quit bytes _only_ when a Unicode word boundary is present in the
     /// regex pattern.
     ///
-    /// When enabling this option, callers _must_ be prepared to handle a
-    /// `MatchError` error during search. When using a
-    /// [`Regex`](../struct.Regex.html), this corresponds to using the `try_`
+    /// When enabling this option, callers _must_ be prepared to
+    /// handle a `MatchError` error during search. When using a
+    /// [`Regex`](crate::dfa::Regex), this corresponds to using the `try_`
     /// suite of methods.
     ///
     /// This is disabled by default.
@@ -527,8 +529,8 @@ impl Config {
     /// Add a "quit" byte to the DFA.
     ///
     /// When a quit byte is seen during search time, then search will return
-    /// a [`MatchError::Quit`](../../enum.MatchError.html#variant.Quit) error
-    /// indicating the offset at which the search stopped.
+    /// a [`MatchError::Quit`](crate::MatchError::Quit) error indicating the
+    /// offset at which the search stopped.
     ///
     /// A quit byte will always overrule any other aspects of a regex. For
     /// example, if the `x` byte is added as a quit byte and the regex `\w` is
@@ -545,9 +547,9 @@ impl Config {
     /// building DFAs. Of course, callers should enable
     /// [`Config::unicode_word_boundary`] if they want this behavior instead.
     ///
-    /// When enabling this option, callers _must_ be prepared to handle a
-    /// `MatchError` error during search. When using a
-    /// [`Regex`](../struct.Regex.html), this corresponds to using the `try_`
+    /// When enabling this option, callers _must_ be prepared to
+    /// handle a `MatchError` error during search. When using a
+    /// [`Regex`](crate::dfa::Regex), this corresponds to using the `try_`
     /// suite of methods.
     ///
     /// By default, there are no quit bytes set.
@@ -759,8 +761,7 @@ impl Builder {
     /// then this will still return an error. To get a minimized DFA with a
     /// smaller state ID representation, first build it with a bigger state ID
     /// representation, and then shrink the size of the DFA using one of its
-    /// conversion routines, such as
-    /// [`DFA::to_sized`](struct.DFA.html#method.to_sized).
+    /// conversion routines, such as [`DFA::to_sized`].
     pub fn build_with_size<S: StateID>(
         &self,
         pattern: &str,
@@ -953,13 +954,12 @@ pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 /// * `A` is the type used for the DFA's acceleration table. `A` is typically
 ///   `Vec<u8>` or `&[u8]`.
 /// * `S` is the representation used for the DFA's state identifiers as
-///   described by the [`StateID`](../../trait.StateID.html) trait. `S` must
-///   be one of `usize`, `u8`, `u16`, `u32` or `u64`. It defaults to
-///   `usize`. The primary reason for choosing a different state identifier
-///   representation than the default is to reduce the amount of memory used by
-///   a DFA. Note though, that if the chosen representation cannot accommodate
-///   the size of your DFA, then building the DFA will fail and return an
-///   error.
+///   described by the [`StateID`] trait. `S` must be one of `usize`, `u8`,
+///   `u16`, `u32` or `u64`. It defaults to `usize`. The primary reason for
+///   choosing a different state identifier representation than the default
+///   is to reduce the amount of memory used by a DFA. Note though, that if
+///   the chosen representation cannot accommodate the size of your DFA, then
+///   building the DFA will fail and return an error.
 ///
 /// While the reduction in heap memory used by a DFA is one reason for
 /// choosing a smaller state identifier representation, another possible
@@ -971,8 +971,8 @@ pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 ///
 /// # The `Automaton` trait
 ///
-/// This type implements the [`Automaton`](../trait.Automaton.html) trait,
-/// which means it can be used for searching. For example:
+/// This type implements the [`Automaton`] trait, which means it can be used
+/// for searching. For example:
 ///
 /// ```
 /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
@@ -1250,10 +1250,9 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// to the total number of transitions used by each state in this DFA's
     /// transition table.
     ///
-    /// Please see [`stride2`](struct.DFA.html#method.stride2) for more
-    /// information. In particular, this returns the stride as the number of
-    /// transitions, where as `stride2` returns it as the exponent of a power
-    /// of 2.
+    /// Please see [`DFA::stride2`] for more information. In particular, this
+    /// returns the stride as the number of transitions, where as `stride2`
+    /// returns it as the exponent of a power of 2.
     pub fn stride(&self) -> usize {
         self.tt.stride()
     }
@@ -1323,13 +1322,13 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// then this returns an error.
     ///
     /// An alternative way to construct such a DFA is to use
-    /// [`dense::Builder::build_with_size`](struct.Builder.html#method.build_with_size).
-    /// In general, using the builder is preferred since it will use the given
-    /// state identifier representation throughout determinization (and
-    /// minimization, if done), and thereby using less memory throughout the
-    /// entire construction process. However, this routine is necessary
-    /// in cases where, say, a minimized DFA could fit in a smaller state
-    /// identifier representation, but the initial determinized DFA would not.
+    /// [`Builder::build_with_size`]. In general, using the builder is
+    /// preferred since it will use the given state identifier representation
+    /// throughout determinization (and minimization, if done), and thereby
+    /// using less memory throughout the entire construction process. However,
+    /// this routine is necessary in cases where, say, a minimized DFA could
+    /// fit in a smaller state identifier representation, but the initial
+    /// determinized DFA would not.
     ///
     /// # Example
     ///
@@ -1366,8 +1365,8 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// The padding returned is non-zero if the returned `Vec<u8>` starts at
     /// an address that does not have the same alignment as `S`. The padding
@@ -1410,8 +1409,8 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// The padding returned is non-zero if the returned `Vec<u8>` starts at
     /// an address that does not have the same alignment as `S`. The padding
@@ -1454,8 +1453,8 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// The padding returned is non-zero if the returned `Vec<u8>` starts at
     /// an address that does not have the same alignment as `S`. The padding
@@ -1517,8 +1516,8 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// # Errors
     ///
@@ -1565,8 +1564,8 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// # Errors
     ///
@@ -1613,8 +1612,8 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// `DFA`'s deserialization APIs (assuming all other criteria for the
     /// deserialization APIs has been satisfied):
     ///
-    /// * [`from_bytes`](struct.DFA.html#method.from_bytes)
-    /// * [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
+    /// * [`DFA::from_bytes`]
+    /// * [`DFA::from_bytes_unchecked`]
     ///
     /// Generally speaking, native endian format should only be used when
     /// you know that the target you're compiling the DFA for matches the
@@ -1664,9 +1663,9 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// This is useful for determining the size of the buffer required to pass
     /// to one of the serialization routines:
     ///
-    /// * [`write_to_little_endian`](struct.DFA.html#method.write_to_little_endian)
-    /// * [`write_to_big_endian`](struct.DFA.html#method.write_to_big_endian)
-    /// * [`write_to_native_endian`](struct.DFA.html#method.write_to_native_endian)
+    /// * [`DFA::write_to_little_endian`]
+    /// * [`DFA::write_to_big_endian`]
+    /// * [`DFA::write_to_native_endian`]
     ///
     /// Passing a buffer smaller than the size returned by this method will
     /// result in a serialization error.
@@ -1720,20 +1719,19 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     /// Deserializing a DFA using this routine will never allocate heap memory.
     /// For safety purposes, the DFA's transition table will be verified such
     /// that every transition points to a valid state. If this verification is
-    /// too costly, then a
-    /// [`from_bytes_unchecked`](struct.DFA.html#method.from_bytes_unchecked)
-    /// API is provided, which will always execute in constant time.
+    /// too costly, then a [`DFA::from_bytes_unchecked`] API is provided, which
+    /// will always execute in constant time.
     ///
     /// The bytes given must be generated by one of the serialization APIs
     /// of a `DFA` using a semver compatible release of this crate. Those
     /// include:
     ///
-    /// * [`to_bytes_little_endian`](struct.DFA.html#method.to_bytes_little_endian)
-    /// * [`to_bytes_big_endian`](struct.DFA.html#method.to_bytes_big_endian)
-    /// * [`to_bytes_native_endian`](struct.DFA.html#method.to_bytes_native_endian)
-    /// * [`write_to_little_endian`](struct.DFA.html#method.write_to_little_endian)
-    /// * [`write_to_big_endian`](struct.DFA.html#method.write_to_big_endian)
-    /// * [`write_to_native_endian`](struct.DFA.html#method.write_to_native_endian)
+    /// * [`DFA::to_bytes_little_endian`]
+    /// * [`DFA::to_bytes_big_endian`]
+    /// * [`DFA::to_bytes_native_endian`]
+    /// * [`DFA::write_to_little_endian`]
+    /// * [`DFA::write_to_big_endian`]
+    /// * [`DFA::write_to_native_endian`]
     ///
     /// The `to_bytes` methods allocate and return a `Vec<u8>` for you, along
     /// with handling alignment correctly. The `write_to` methods do not
@@ -1937,10 +1935,9 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
     /// constant time by omitting the verification of the validity of the
     /// transition table.
     ///
-    /// This is just like
-    /// [`from_bytes`](struct.DFA.html#method.from_bytes),
-    /// except it can potentially return a DFA that exhibits undefined behavior
-    /// if its transition table contains invalid state identifiers.
+    /// This is just like [`DFA::from_bytes`], except it can potentially return
+    /// a DFA that exhibits undefined behavior if its transition table contains
+    /// invalid state identifiers.
     ///
     /// This routine is useful if you need to deserialize a DFA cheaply
     /// and cannot afford the transition table validation performed by
