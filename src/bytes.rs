@@ -1,8 +1,8 @@
 /*!
 A collection of helper functions, types and traits for serializing automata.
 
-This crate defines its own bespoke serialization mechanism for most structures
-provided in the public API, namely, automata. A bespoke mechanism was developed
+This crate defines its own bespoke serialization mechanism for some structures
+provided in the public API, namely, DFAs. A bespoke mechanism was developed
 primarily because structures like automata demand a specific binary format.
 Attempting to encode their rich structure in an existing serialization
 format is just not feasible. Moreover, the format for each structure is
@@ -327,6 +327,9 @@ pub fn read_label(
     slice: &[u8],
     expected_label: &'static str,
 ) -> Result<usize, DeserializeError> {
+    // Set an upper bound on how many bytes we scan for a NUL. Since no label
+    // in this crate is longer than 256 bytes, if we can't find one within that
+    // range, then we have corrupted data.
     let first_nul =
         slice[..cmp::min(slice.len(), 256)].iter().position(|&b| b == 0);
     let first_nul = match first_nul {
@@ -371,6 +374,7 @@ pub fn write_label(
     for i in 0..(nwrite - label.len()) {
         dst[label.len() + i] = 0;
     }
+    assert_eq!(nwrite % 8, 0);
     Ok(nwrite)
 }
 
@@ -529,6 +533,24 @@ pub fn write_state_id<E: Endian, S: StateID>(id: S, dst: &mut [u8]) -> usize {
         _ => unreachable!(),
     }
     size
+}
+
+/// Try to read a u16 as a usize from the beginning of the given slice in
+/// native endian format. If the slice has fewer than 2 bytes or if the
+/// deserialized number cannot be represented by usize, then this returns an
+/// error. The error message will include the `what` description of what is
+/// being deserialized, for better error messages. `what` should be a noun in
+/// singular form.
+pub fn try_read_u16_as_usize(
+    slice: &[u8],
+    what: &'static str,
+) -> Result<usize, DeserializeError> {
+    if slice.len() < 2 {
+        return Err(DeserializeError::buffer_too_small(what));
+    }
+    read_u16(slice)
+        .try_into()
+        .map_err(|_| DeserializeError::invalid_usize(what))
 }
 
 /// Try to read a u64 as a usize from the beginning of the given slice in
@@ -714,6 +736,20 @@ pub fn read_varu64(
     Err(DeserializeError::invalid_varint(what))
 }
 
+/// Checks that the given slice has some minimal length. If it's smaller than
+/// the bound given, then a "buffer too small" error is returned with `what`
+/// describing what the buffer represents.
+pub fn check_slice_len<T>(
+    slice: &[T],
+    at_least_len: usize,
+    what: &'static str,
+) -> Result<(), DeserializeError> {
+    if slice.len() < at_least_len {
+        return Err(DeserializeError::buffer_too_small(what));
+    }
+    Ok(())
+}
+
 /// Multiply the given numbers, and on overflow, return an error that includes
 /// 'what' in the error message.
 ///
@@ -739,6 +775,24 @@ pub fn add(
     what: &'static str,
 ) -> Result<usize, DeserializeError> {
     match a.checked_add(b) {
+        Some(c) => Ok(c),
+        None => Err(DeserializeError::arithmetic_overflow(what)),
+    }
+}
+
+/// Shift `a` left by `b`, and on overflow, return an error that includes
+/// 'what' in the error message.
+///
+/// This is useful when doing arithmetic with untrusted data.
+pub fn shl(
+    a: usize,
+    b: usize,
+    what: &'static str,
+) -> Result<usize, DeserializeError> {
+    let amount: u32 = b
+        .try_into()
+        .map_err(|_| DeserializeError::arithmetic_overflow(what))?;
+    match a.checked_shl(amount) {
         Some(c) => Ok(c),
         None => Err(DeserializeError::arithmetic_overflow(what)),
     }
