@@ -392,7 +392,6 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
 
 /// Routines for converting a sparse DFA to other representations, such as
 /// smaller state identifiers or raw bytes suitable for persistent storage.
-#[cfg(feature = "alloc")]
 impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// Create a new DFA whose match semantics are equivalent to this DFA, but
     /// attempt to use `S2` for the representation of state identifiers. If
@@ -419,6 +418,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_sized<S2: StateID>(&self) -> Result<DFA<Vec<u8>, S2>, Error> {
         // To build the new DFA, we proceed much like the initial construction
         // of the sparse DFA. Namely, since the state ID size is changing,
@@ -471,6 +471,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_bytes_little_endian(&self) -> Vec<u8> {
         self.to_bytes::<bytes::LE>()
     }
@@ -513,6 +514,7 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_bytes_big_endian(&self) -> Vec<u8> {
         self.to_bytes::<bytes::BE>()
     }
@@ -562,12 +564,14 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_bytes_native_endian(&self) -> Vec<u8> {
         self.to_bytes::<bytes::NE>()
     }
 
     /// The implementation of the public `to_bytes` serialization methods,
     /// which is generic over endianness.
+    #[cfg(feature = "alloc")]
     fn to_bytes<E: Endian>(&self) -> Vec<u8> {
         let mut buf = vec![0; self.write_to_len()];
         // This should always succeed since the only possible serialization
@@ -1969,6 +1973,7 @@ impl<T: AsRef<[u8]>, S: StateID> StartTable<T, S> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: AsRef<[u8]> + AsMut<[u8]>, S: StateID> StartTable<T, S> {
     /// Set the start state for the given index and pattern.
     fn set_start(

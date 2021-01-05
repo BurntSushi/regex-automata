@@ -34,6 +34,7 @@ pub enum MatchKind {
 }
 
 impl MatchKind {
+    #[cfg(feature = "alloc")]
     pub(crate) fn continue_past_first_match(&self) -> bool {
         *self == MatchKind::All
     }

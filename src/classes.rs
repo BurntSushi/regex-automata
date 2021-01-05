@@ -1,5 +1,3 @@
-use core::fmt;
-
 use crate::bytes::{DeserializeError, SerializeError};
 
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -9,6 +7,7 @@ pub enum Byte {
 }
 
 impl Byte {
+    #[cfg(feature = "alloc")]
     pub fn as_u8(self) -> Option<u8> {
         match self {
             Byte::U8(b) => Some(b),
@@ -16,6 +15,7 @@ impl Byte {
         }
     }
 
+    #[cfg(feature = "alloc")]
     pub fn as_eof(self) -> Option<usize> {
         match self {
             Byte::U8(_) => None,
@@ -37,13 +37,14 @@ impl Byte {
         }
     }
 
+    #[cfg(feature = "alloc")]
     pub fn is_word_byte(&self) -> bool {
         self.as_u8().map_or(false, crate::word::is_word_byte)
     }
 }
 
-impl fmt::Debug for Byte {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl core::fmt::Debug for Byte {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match *self {
             Byte::U8(b) => crate::util::fmt_byte(f, b),
             Byte::EOF(_) => write!(f, "EOF"),
@@ -68,6 +69,7 @@ impl ByteClasses {
 
     /// Creates a new set of equivalence classes where each byte belongs to
     /// its own equivalence class.
+    #[cfg(feature = "alloc")]
     pub fn singletons() -> ByteClasses {
         let mut classes = ByteClasses::empty();
         for i in 0..256 {
@@ -150,6 +152,7 @@ impl ByteClasses {
     }
 
     #[inline]
+    #[cfg(feature = "alloc")]
     pub fn usize_to_byte(&self, b: usize) -> Byte {
         if b == self.alphabet_len() - 1 {
             self.eof()
@@ -177,6 +180,7 @@ impl ByteClasses {
     /// equal to the alphabet length. This is done so that converting between
     /// state IDs and indices can be done with shifts alone, which is much
     /// faster than integer division.
+    #[cfg(feature = "alloc")]
     pub fn stride2(&self) -> usize {
         self.alphabet_len().next_power_of_two().trailing_zeros() as usize
     }
@@ -203,6 +207,7 @@ impl ByteClasses {
     /// hasn't been converted to equivalence classes yet. Picking an arbitrary
     /// byte from each equivalence class then permits a full exploration of
     /// the NFA instead of using every possible byte value.
+    #[cfg(feature = "alloc")]
     pub fn representatives(&self) -> ByteClassRepresentatives<'_> {
         ByteClassRepresentatives { classes: self, byte: 0, last_class: None }
     }
@@ -221,8 +226,8 @@ impl ByteClasses {
     }
 }
 
-impl fmt::Debug for ByteClasses {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Debug for ByteClasses {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.is_singleton() {
             write!(f, "ByteClasses({{singletons}})")
         } else {
@@ -272,6 +277,7 @@ impl<'a> Iterator for ByteClassIter<'a> {
 }
 
 /// An iterator over representative bytes from each equivalence class.
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct ByteClassRepresentatives<'a> {
     classes: &'a ByteClasses,
@@ -279,6 +285,7 @@ pub struct ByteClassRepresentatives<'a> {
     last_class: Option<u8>,
 }
 
+#[cfg(feature = "alloc")]
 impl<'a> Iterator for ByteClassRepresentatives<'a> {
     type Item = Byte;
 
@@ -398,18 +405,21 @@ pub struct ByteClassSet(ByteSet);
 impl ByteClassSet {
     /// Create a new set of byte classes where all bytes are part of the same
     /// equivalence class.
+    #[cfg(feature = "alloc")]
     pub fn new() -> Self {
         ByteClassSet(ByteSet::empty())
     }
 
     /// Create a new set of byte classes where all bytes are part of the same
     /// equivalence class.
+    #[cfg(feature = "alloc")]
     pub fn empty() -> Self {
         ByteClassSet(ByteSet::empty())
     }
 
     /// Indicate the the range of byte given (inclusive) can discriminate a
     /// match between it and all other bytes outside of the range.
+    #[cfg(feature = "alloc")]
     pub fn set_range(&mut self, start: u8, end: u8) {
         debug_assert!(start <= end);
         if start > 0 {
@@ -419,6 +429,7 @@ impl ByteClassSet {
     }
 
     /// Add the contiguous ranges in the set given to this byte class set.
+    #[cfg(feature = "alloc")]
     pub fn add_set(&mut self, set: &ByteSet) {
         for (start, end) in set.iter_ranges() {
             self.set_range(start, end);
@@ -428,6 +439,7 @@ impl ByteClassSet {
     /// Convert this boolean set to a map that maps all byte values to their
     /// corresponding equivalence class. The last mapping indicates the largest
     /// equivalence class identifier (which is never bigger than 255).
+    #[cfg(feature = "alloc")]
     pub fn byte_classes(&self) -> ByteClasses {
         let mut classes = ByteClasses::empty();
         let mut class = 0u8;
@@ -459,6 +471,7 @@ struct BitSet([u128; 2]);
 
 impl ByteSet {
     /// Create an empty set of bytes.
+    #[cfg(feature = "alloc")]
     pub fn empty() -> ByteSet {
         ByteSet { bits: BitSet([0; 2]) }
     }
@@ -466,6 +479,7 @@ impl ByteSet {
     /// Add a byte to this set.
     ///
     /// If the given byte already belongs to this set, then this is a no-op.
+    #[cfg(feature = "alloc")]
     pub fn add(&mut self, byte: u8) {
         let bucket = byte / 128;
         let bit = byte % 128;
@@ -473,6 +487,7 @@ impl ByteSet {
     }
 
     /// Add an inclusive range of bytes.
+    #[cfg(feature = "alloc")]
     pub fn add_all(&mut self, start: u8, end: u8) {
         for b in start..=end {
             self.add(b);
@@ -482,6 +497,7 @@ impl ByteSet {
     /// Remove a byte from this set.
     ///
     /// If the given byte is not in this set, then this is a no-op.
+    #[cfg(feature = "alloc")]
     pub fn remove(&mut self, byte: u8) {
         let bucket = byte / 128;
         let bit = byte % 128;
@@ -489,6 +505,7 @@ impl ByteSet {
     }
 
     /// Remove an inclusive range of bytes.
+    #[cfg(feature = "alloc")]
     pub fn remove_all(&mut self, start: u8, end: u8) {
         for b in start..=end {
             self.remove(b);
@@ -504,26 +521,31 @@ impl ByteSet {
 
     /// Return true if and only if the given inclusive range of bytes is in
     /// this set.
+    #[cfg(feature = "alloc")]
     pub fn contains_range(&self, start: u8, end: u8) -> bool {
         (start..=end).all(|b| self.contains(b))
     }
 
     /// Returns an iterator over all bytes in this set.
+    #[cfg(feature = "alloc")]
     pub fn iter(&self) -> ByteSetIter {
         ByteSetIter { set: self, b: 0 }
     }
 
     /// Returns an iterator over all contiguous ranges of bytes in this set.
+    #[cfg(feature = "alloc")]
     pub fn iter_ranges(&self) -> ByteSetRangeIter {
         ByteSetRangeIter { set: self, b: 0 }
     }
 
     /// Return the number of bytes in this set.
+    #[cfg(feature = "alloc")]
     pub fn len(&self) -> usize {
         (self.bits.0[0].count_ones() + self.bits.0[1].count_ones()) as usize
     }
 
     /// Return true if and only if this set is empty.
+    #[cfg(feature = "alloc")]
     pub fn is_empty(&self) -> bool {
         self.bits.0 == [0, 0]
     }

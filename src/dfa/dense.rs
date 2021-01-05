@@ -1264,7 +1264,6 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
 /// Routines for converting a dense DFA to other representations, such as
 /// sparse DFAs, smaller state identifiers or raw bytes suitable for persistent
 /// storage.
-#[cfg(feature = "alloc")]
 impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// Convert this dense DFA to a sparse DFA.
     ///
@@ -1289,6 +1288,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// assert_eq!(Some(expected), sparse.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_sparse(&self) -> Result<sparse::DFA<Vec<u8>, S>, Error> {
         self.to_sparse_sized()
     }
@@ -1313,6 +1313,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// assert_eq!(Some(expected), sparse.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_sparse_sized<S2: StateID>(
         &self,
     ) -> Result<sparse::DFA<Vec<u8>, S2>, Error> {
@@ -1347,6 +1348,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_sized<S2: StateID>(&self) -> Result<OwnedDFA<S2>, Error> {
         // The new DFA is the same as the old one, except all state IDs are
         // represented by `S2` instead of `S`.
@@ -1399,6 +1401,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_bytes_little_endian(&self) -> (Vec<u8>, usize) {
         self.to_bytes::<bytes::LE>()
     }
@@ -1443,6 +1446,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_bytes_big_endian(&self) -> (Vec<u8>, usize) {
         self.to_bytes::<bytes::BE>()
     }
@@ -1494,12 +1498,14 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     pub fn to_bytes_native_endian(&self) -> (Vec<u8>, usize) {
         self.to_bytes::<bytes::NE>()
     }
 
     /// The implementation of the public `to_bytes` serialization methods,
     /// which is generic over endianness.
+    #[cfg(feature = "alloc")]
     fn to_bytes<E: Endian>(&self) -> (Vec<u8>, usize) {
         let len = self.write_to_len();
         let (mut buf, padding) = bytes::alloc_aligned_buffer::<S>(len);
@@ -2437,6 +2443,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     }
 
     /// Return the info about special states as a mutable borrow.
+    #[cfg(feature = "alloc")]
     pub(crate) fn special_mut(&mut self) -> &mut Special<S> {
         &mut self.special
     }
@@ -2459,6 +2466,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// Return an iterator over all pattern IDs for the given match state.
     ///
     /// If the given state is not a match state, then this panics.
+    #[cfg(feature = "alloc")]
     pub(crate) fn match_pattern_ids(&self, id: S) -> PatternIDIter {
         assert!(self.is_match_state(id));
         self.ms.match_pattern_ids(self.match_index(id))
@@ -2485,6 +2493,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     }
 
     /// Returns the ID of the quit state for this DFA.
+    #[cfg(feature = "alloc")]
     pub(crate) fn quit_id(&self) -> S {
         self.from_index(1)
     }
@@ -2503,6 +2512,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
     /// to some other information (such as a remapped state ID).
+    #[cfg(feature = "alloc")]
     pub(crate) fn from_index(&self, index: usize) -> S {
         self.tt.from_index(index)
     }
@@ -3157,6 +3167,7 @@ impl<T: AsRef<[S]>, S: StateID> TransitionTable<T, S> {
     /// This does not check whether the state ID returned is invalid. In fact,
     /// if the state ID given is the last state in this DFA, then the state ID
     /// returned is guaranteed to be invalid.
+    #[cfg(feature = "alloc")]
     fn next_state_id(&self, id: S) -> S {
         self.from_index(self.to_index(id).checked_add(1).unwrap())
     }
@@ -3164,6 +3175,7 @@ impl<T: AsRef<[S]>, S: StateID> TransitionTable<T, S> {
     /// Returns the state ID for the state immediately preceding the one given.
     ///
     /// If the dead ID given (which is zero), then this panics.
+    #[cfg(feature = "alloc")]
     fn prev_state_id(&self, id: S) -> S {
         self.from_index(self.to_index(id).checked_sub(1).unwrap())
     }
@@ -3231,6 +3243,7 @@ impl<T: AsRef<[S]>, S: StateID> TransitionTable<T, S> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: AsMut<[S]>, S: StateID> TransitionTable<T, S> {
     /// Returns the table as a slice of state IDs.
     fn table_mut(&mut self) -> &mut [S] {
@@ -3600,6 +3613,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: AsMut<[S]>, S: StateID> StartTable<T, S> {
     /// Set the start state for the given index and pattern.
     fn set_start(
