@@ -1,4 +1,4 @@
-use core::{cmp, mem::size_of};
+use core::mem::size_of;
 
 #[cfg(feature = "alloc")]
 use crate::dfa::Error;
@@ -409,10 +409,12 @@ impl<S: StateID> Special<S> {
 
     /// Sets the maximum special state ID based on the current values. This
     /// should be used once all possible state IDs are set.
+    #[cfg(feature = "alloc")]
     pub fn set_max(&mut self) {
-        self.max = cmp::max(
+        use core::cmp::max;
+        self.max = max(
             self.quit_id,
-            cmp::max(self.max_match, cmp::max(self.max_accel, self.max_start)),
+            max(self.max_match, max(self.max_accel, self.max_start)),
         );
     }
 
@@ -462,6 +464,7 @@ impl<S: StateID> Special<S> {
     }
 
     /// Returns the total number of accel states.
+    #[cfg(feature = "alloc")]
     pub fn accel_len(&self, stride: usize) -> usize {
         if self.accels() {
             (self.max_accel.as_usize() - self.min_accel.as_usize() + stride)

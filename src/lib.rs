@@ -4,7 +4,6 @@ TODO
 
 // #![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
-// #![cfg_attr(not(feature = "alloc"), allow(dead_code))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

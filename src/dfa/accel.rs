@@ -323,6 +323,7 @@ pub(crate) struct Accel {
 
 impl Accel {
     /// Returns an empty accel, where no bytes are accelerated.
+    #[cfg(feature = "alloc")]
     pub fn new() -> Accel {
         Accel { bytes: [0; ACCEL_CAP] }
     }
@@ -365,6 +366,7 @@ impl Accel {
     /// is already full then this returns false. Otherwise, returns true.
     ///
     /// If the given byte is already in this accelerator, then it panics.
+    #[cfg(feature = "alloc")]
     pub fn add(&mut self, byte: u8) -> bool {
         if self.len() >= 3 {
             return false;
@@ -385,6 +387,7 @@ impl Accel {
     }
 
     /// Returns true if and only if there are no bytes in this accelerator.
+    #[cfg(feature = "alloc")]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -398,6 +401,7 @@ impl Accel {
 
     /// Returns true if and only if this accelerator will accelerate the given
     /// byte.
+    #[cfg(feature = "alloc")]
     fn contains(&self, byte: u8) -> bool {
         self.needles().iter().position(|&b| b == byte).is_some()
     }
