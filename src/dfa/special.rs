@@ -3,7 +3,7 @@ use core::{cmp, mem::size_of};
 #[cfg(feature = "std")]
 use crate::dfa::Error;
 use crate::{
-    bytes::{DeserializeError, Endian, SerializeError},
+    bytes::{self, DeserializeError, Endian, SerializeError},
     state_id::{dead_id, StateID},
 };
 
@@ -246,9 +246,7 @@ impl<S: StateID> Special<S> {
         mut slice: &[u8],
     ) -> Result<(Special<S>, usize), DeserializeError> {
         let size = size_of::<S>();
-        if slice.len() < 8 * size {
-            return Err(DeserializeError::buffer_too_small("special state"));
-        }
+        bytes::check_slice_len(slice, 8 * size, "special states")?;
 
         let max = S::read_bytes(slice);
         slice = &slice[size..];

@@ -153,9 +153,7 @@ impl<'a> Accels<&'a [u8]> {
             bytes::mul(count, ACCEL_CAP, "accels size")?,
             "accelerators offset",
         )?;
-        if slice.len() < size {
-            return Err(DeserializeError::buffer_too_small("accelerators"));
-        }
+        bytes::check_slice_len(slice, size, "accelerators")?;
         // If every chunk is valid, then we declare the entire thing is valid.
         for chunk in slice[8..size].chunks(ACCEL_CAP) {
             let _ = Accel::from_slice(chunk)?;
@@ -181,6 +179,16 @@ impl<A: AsRef<[u8]>> Accels<A> {
         self.accels.as_ref()
     }
 
+    /// Returns the memory usage, in bytes, of these accelerators.
+    ///
+    /// The memory usage is computed based on the number of bytes used to
+    /// represent all of the accelerators.
+    ///
+    /// This does **not** include the stack size used by this value.
+    pub fn memory_usage(&self) -> usize {
+        self.as_bytes().len()
+    }
+
     /// Return the bytes to search for corresponding to the accelerator in this
     /// sequence at index `i`. If no such accelerator exists, then this panics.
     ///
@@ -190,6 +198,9 @@ impl<A: AsRef<[u8]>> Accels<A> {
     /// by their respective state IDs. The state's index in that sequence
     /// corresponds to the index of its corresponding accelerator.
     pub fn needles(&self, i: usize) -> &[u8] {
+        if i >= self.len() {
+            panic!("invalid accelerator index {}", i);
+        }
         let accels = self.accels.as_ref();
         let offset = 8 + i * ACCEL_CAP;
         let len = accels[offset] as usize;
@@ -198,7 +209,9 @@ impl<A: AsRef<[u8]>> Accels<A> {
 
     /// Return the total number of accelerators in this sequence.
     pub fn len(&self) -> usize {
-        bytes::read_u64(self.as_bytes()) as usize
+        // This should never panic since deserialization checks that the
+        // length can fit into a usize.
+        bytes::read_u64(self.as_bytes()).try_into().unwrap()
     }
 
     /// Return the accelerator in this sequence at index `i`. If no such

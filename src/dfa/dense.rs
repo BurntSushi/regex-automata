@@ -1169,8 +1169,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// Returns the memory usage, in bytes, of this DFA.
     ///
     /// The memory usage is computed based on the number of bytes used to
-    /// represent this DFA's transition table. This corresponds to heap memory
-    /// usage.
+    /// represent this DFA.
     ///
     /// This does **not** include the stack size used up by this DFA. To
     /// compute that, use `std::mem::size_of::<dense::DFA>()`.
@@ -1178,7 +1177,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
         self.tt.memory_usage()
             + self.st.memory_usage()
             + self.ms.memory_usage()
-            + self.accels.as_bytes().len()
+            + self.accels.memory_usage()
     }
 
     /// Returns true only if this DFA has starting states for each pattern.
@@ -1519,6 +1518,9 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// * [`DFA::from_bytes`]
     /// * [`DFA::from_bytes_unchecked`]
     ///
+    /// Note that unlike the various `to_byte_*` routines, this does not write
+    /// any padding. Callers are responsible for handling alignment correctly.
+    ///
     /// # Errors
     ///
     /// This returns an error if the given destination slice is not big enough
@@ -1566,6 +1568,9 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     ///
     /// * [`DFA::from_bytes`]
     /// * [`DFA::from_bytes_unchecked`]
+    ///
+    /// Note that unlike the various `to_byte_*` routines, this does not write
+    /// any padding. Callers are responsible for handling alignment correctly.
     ///
     /// # Errors
     ///
@@ -1623,6 +1628,9 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// portable environment, you'll almost certainly want to serialize _both_
     /// a little endian and a big endian version and then load the correct one
     /// based on the target's configuration.
+    ///
+    /// Note that unlike the various `to_byte_*` routines, this does not write
+    /// any padding. Callers are responsible for handling alignment correctly.
     ///
     /// # Errors
     ///
@@ -1928,6 +1936,9 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
         dfa.tt.validate()?;
         dfa.st.validate(&dfa.tt)?;
         dfa.ms.validate(&dfa)?;
+        // N.B. dfa.special doesn't have a way to do unchecked deserialization,
+        // so it has already been validated. dfa.accels doesn't either,
+        // although it probably should.
         Ok((dfa, nread))
     }
 
@@ -2793,6 +2804,11 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
 
         // The alphabet length (determined by the byte class map) cannot be
         // bigger than the stride (total space used by each DFA state).
+        if stride2 < 1 || stride2 > 9 {
+            return Err(DeserializeError::generic(
+                "dense DFA has invalid stride2",
+            ));
+        }
         let stride = 1 << stride2;
         if classes.alphabet_len() > stride {
             return Err(DeserializeError::generic(
@@ -2800,14 +2816,22 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
             ));
         }
 
-        let table_bytes_len = (count << stride2) * core::mem::size_of::<S>();
-        let nread = 8 + 8 + nread + table_bytes_len;
-        if slice.len() < table_bytes_len {
-            return Err(DeserializeError::buffer_too_small(
-                "transition table",
-            ));
-        }
+        let trans_count =
+            bytes::shl(count, stride2, "dense table transition count")?;
+        let table_bytes_len = bytes::mul(
+            trans_count,
+            core::mem::size_of::<S>(),
+            "dense table state byte count",
+        )?;
+        bytes::check_slice_len(slice, table_bytes_len, "transition table")?;
         bytes::check_alignment::<S>(slice)?;
+        // This doesn't need to be handled because we've verified that our
+        // slice is at least this long, and thus, nread fits into a usize.
+        let nread = nread
+            .checked_add(8 + 8)
+            .unwrap()
+            .checked_add(table_bytes_len)
+            .unwrap();
         // SAFETY: Since S is always in {usize, u8, u16, u32, u64}, all we need
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
@@ -2819,7 +2843,7 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
         let table = unsafe {
             core::slice::from_raw_parts(
                 slice.as_ptr() as *const S,
-                count << stride2,
+                trans_count,
             )
         };
         let tt = TransitionTable {
@@ -3178,9 +3202,9 @@ impl<T: AsRef<[S]>, S: StateID> TransitionTable<T, S> {
     }
 
     /// Returns true if and only if the given state ID is valid for this
-    /// transition table. Validity in this context means that the given ID
-    /// can be used to correct index a state with `self.stride()` transitions
-    /// in this table.
+    /// transition table. Validity in this context means that the given ID can
+    /// be used as a valid offset with `self.stride()` to index this transition
+    /// table.
     fn is_valid(&self, id: S) -> bool {
         let id = id.as_usize();
         id < self.table().len() && id % self.stride() == 0
@@ -3361,26 +3385,25 @@ impl<'a, S: StateID> StartTable<&'a [S], S> {
                 "invalid number of patterns",
             ));
         }
-        let pattern_table_size = match stride.checked_mul(patterns) {
-            Some(x) => x,
-            None => {
-                return Err(DeserializeError::generic("invalid pattern count"))
-            }
-        };
-        let count = match stride.checked_add(pattern_table_size) {
-            Some(x) => x,
-            None => {
-                return Err(DeserializeError::generic(
-                    "invalid pattern+stride",
-                ))
-            }
-        };
-        let table_bytes_len = count * core::mem::size_of::<S>();
-        let nread = 16 + table_bytes_len;
-        if slice.len() < table_bytes_len {
-            return Err(DeserializeError::buffer_too_small("start ID table"));
-        }
+        let pattern_table_size =
+            bytes::mul(stride, patterns, "invalid pattern count")?;
+        // Our start states always start with a single stride of start states
+        // for the entire automaton which permit it to match any pattern. What
+        // follows it are an optional set of start states for each pattern.
+        let start_state_count = bytes::add(
+            stride,
+            pattern_table_size,
+            "invalid 'any' pattern starts size",
+        )?;
+        let table_bytes_len = bytes::mul(
+            start_state_count,
+            core::mem::size_of::<S>(),
+            "pattern table bytes length",
+        )?;
+        bytes::check_slice_len(slice, table_bytes_len, "start ID table")?;
         bytes::check_alignment::<S>(slice)?;
+        // Our slice is at least this long, so this add should always work.
+        let nread = table_bytes_len.checked_add(8 + 8).unwrap();
         // SAFETY: Since S is always in {usize, u8, u16, u32, u64}, all we need
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
@@ -3390,7 +3413,10 @@ impl<'a, S: StateID> StartTable<&'a [S], S> {
         // superfluous.
         #[allow(unused_unsafe)]
         let table = unsafe {
-            core::slice::from_raw_parts(slice.as_ptr() as *const S, count)
+            core::slice::from_raw_parts(
+                slice.as_ptr() as *const S,
+                start_state_count,
+            )
         };
         let st =
             StartTable { table, stride, patterns, _state_id: PhantomData };
@@ -3682,12 +3708,12 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
         slice = &slice[8..];
 
         // Read the slice start/length pairs.
-        let slices_bytes_len = 2 * count * core::mem::size_of::<S>();
-        if slice.len() < slices_bytes_len {
-            return Err(DeserializeError::buffer_too_small(
-                "match state slices",
-            ));
-        }
+        let slices_bytes_len = bytes::mul(
+            bytes::mul(2, count, "match state slice offset length")?,
+            core::mem::size_of::<S>(),
+            "match state slice offset byte length",
+        )?;
+        bytes::check_slice_len(slice, slices_bytes_len, "match state slices")?;
         bytes::check_alignment::<S>(slice)?;
         // SAFETY: Since S is always in {usize, u8, u16, u32, u64}, all we need
         // to do is ensure that we have the proper length and alignment. We've
@@ -3704,7 +3730,8 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
         slice = &slice[slices_bytes_len..];
 
         // Read the total number of unique pattern IDs (which is always 1 more
-        // than the maximum pattern ID).
+        // than the maximum pattern ID in this automaton, since pattern IDs are
+        // handed out contiguously starting at 0).
         let patterns = bytes::try_read_u64_as_usize(slice, "pattern count")?;
         nread += 8;
         slice = &slice[8..];
@@ -3716,23 +3743,19 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
         slice = &slice[8..];
 
         // Read the actual pattern IDs.
-        let pattern_ids_len = idcount * 4; // each ID is a u32
-        if slice.len() < pattern_ids_len {
-            return Err(DeserializeError::buffer_too_small(
-                "match pattern IDs",
-            ));
-        }
+        let pattern_ids_len = bytes::mul(
+            idcount,
+            4, // each ID is a u32
+            "pattern ID byte length",
+        )?;
+        bytes::check_slice_len(slice, pattern_ids_len, "match pattern IDs")?;
         let pattern_ids = &slice[..pattern_ids_len];
         nread += pattern_ids_len;
         slice = &slice[pattern_ids_len..];
 
         // And finally, make sure there are appropriate padding bytes.
         let pad = bytes::padding_len(pattern_ids.len());
-        if slice.len() < pad {
-            return Err(DeserializeError::buffer_too_small(
-                "match pattern ID padding",
-            ));
-        }
+        bytes::check_slice_len(slice, pad, "match pattern ID padding")?;
         nread += pad;
 
         let ms = MatchStates {

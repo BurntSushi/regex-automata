@@ -86,8 +86,8 @@ pub struct DFA<T, S = usize> {
     // in a dense DFA, all information needs to be very cheaply accessible
     // using only state IDs. In a sparse DFA however, each state uses a
     // variable amount of space because each state encodes more information
-    // than just its transitions. It also includes an accelerator if one
-    // exists, along with the matching pattern IDs if the state is a match
+    // than just its transitions. Each state also includes an accelerator if
+    // one exists, along with the matching pattern IDs if the state is a match
     // state.
     trans: Transitions<T, S>,
     starts: StartTable<T, S>,
@@ -288,8 +288,9 @@ impl<S: StateID> DFA<Vec<u8>, S> {
                 sparse.extend(iter::repeat(0).take(4 + 4 * plen));
                 bytes::NE::write_u32(
                     // Will never fail since u32::MAX is invalid pattern ID.
-                    // Thus, the number of pattern IDs representable by a u32.
-                    plen.try_into().unwrap(),
+                    // Thus, the number of pattern IDs is representable by a
+                    // u32.
+                    plen.try_into().expect("pattern ID count fits in u32"),
                     &mut sparse[pos..],
                 );
                 pos += 4;
@@ -363,11 +364,10 @@ impl<T: AsRef<[u8]>, S: StateID> DFA<T, S> {
     /// Returns the memory usage, in bytes, of this DFA.
     ///
     /// The memory usage is computed based on the number of bytes used to
-    /// represent this DFA's transition table. This typically corresponds to
-    /// heap memory usage.
+    /// represent this DFA.
     ///
     /// This does **not** include the stack size used up by this DFA. To
-    /// compute that, used `std::mem::size_of::<sparse::DFA>()`.
+    /// compute that, use `std::mem::size_of::<sparse::DFA>()`.
     pub fn memory_usage(&self) -> usize {
         self.trans.memory_usage() + self.starts.memory_usage()
     }
@@ -964,6 +964,8 @@ impl<'a, S: StateID> DFA<&'a [u8], S> {
         let (dfa, nread) = unsafe { DFA::from_bytes_unchecked(slice)? };
         dfa.trans.validate()?;
         dfa.starts.validate(&dfa.trans)?;
+        // N.B. dfa.special doesn't have a way to do unchecked deserialization,
+        // so it has already been validated.
         Ok((dfa, nread))
     }
 
@@ -1236,40 +1238,38 @@ struct Transitions<T, S> {
 
 impl<'a, S: StateID> Transitions<&'a [u8], S> {
     unsafe fn from_bytes_unchecked(
-        slice: &'a [u8],
+        mut slice: &'a [u8],
     ) -> Result<(Transitions<&'a [u8], S>, usize), DeserializeError> {
         let mut nread = 0;
 
-        let count: usize =
-            bytes::try_read_u64_as_usize(&slice[nread..], "state count")?;
+        let state_count: usize =
+            bytes::try_read_u64_as_usize(&slice, "state count")?;
         nread += 8;
+        slice = &slice[8..];
 
-        let patterns: usize =
-            bytes::try_read_u64_as_usize(&slice[nread..], "pattern count")?;
+        let pattern_count: usize =
+            bytes::try_read_u64_as_usize(&slice, "pattern count")?;
         nread += 8;
+        slice = &slice[8..];
 
-        let (classes, n) = ByteClasses::from_bytes(&slice[nread..])?;
+        let (classes, n) = ByteClasses::from_bytes(&slice)?;
         nread += n;
+        slice = &slice[n..];
 
-        let len = bytes::try_read_u64_as_usize(
-            &slice[nread..],
-            "sparse transitions length",
-        )?;
+        let len =
+            bytes::try_read_u64_as_usize(&slice, "sparse transitions length")?;
         nread += 8;
+        slice = &slice[8..];
 
-        if slice.len() < nread + len {
-            return Err(DeserializeError::buffer_too_small(
-                "sparse transitions",
-            ));
-        }
-        let sparse = &slice[nread..nread + len];
+        bytes::check_slice_len(slice, len, "sparse states byte length")?;
+        let sparse = &slice[..len];
         nread += len;
 
         let trans = Transitions {
             sparse,
             classes,
-            count,
-            patterns,
+            count: state_count,
+            patterns: pattern_count,
             _state_id: PhantomData,
         };
         Ok((trans, nread))
@@ -1382,7 +1382,11 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
             let state = self.try_state(id)?;
             verified.insert(id);
             // The next ID should be the offset immediately following `state`.
-            id = S::from_usize(id.as_usize() + state.bytes_len());
+            id = S::from_usize(bytes::add(
+                id.as_usize(),
+                state.bytes_len(),
+                "next state ID offset",
+            )?);
             count += 1;
 
             // Now check that all transitions in this state are correct.
@@ -1397,7 +1401,7 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
             // And also that every pattern ID is valid.
             for i in 0..state.pattern_count() {
                 let pid = state.pattern_id(i);
-                if pid as usize >= self.patterns {
+                if pid >= self.patterns as u32 {
                     return Err(DeserializeError::generic(
                         "invalid pattern ID",
                     ));
@@ -1542,21 +1546,19 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
         // Encoding format starts with a u16 that stores the total number of
         // transitions in this state.
         let mut ntrans =
-            bytes::try_read_u16(state, "state transition count")? as usize;
+            bytes::try_read_u16_as_usize(state, "state transition count")?;
         let is_match = (1 << 15) & ntrans != 0;
         ntrans &= !(1 << 15);
         state = &state[2..];
-        if ntrans > 257 {
+        if ntrans > 257 || ntrans == 0 {
             return Err(DeserializeError::generic("invalid transition count"));
         }
 
         // Each transition has two pieces: an inclusive range of bytes on which
         // it is defined, and the state ID that those bytes transition to. The
         // pairs come first, followed by a corresponding sequence of state IDs.
-        let input_ranges_len = ntrans * 2;
-        if input_ranges_len > state.len() {
-            return Err(DeserializeError::generic("no sparse byte pairs"));
-        }
+        let input_ranges_len = ntrans.checked_mul(2).unwrap();
+        bytes::check_slice_len(state, input_ranges_len, "sparse byte pairs")?;
         let (input_ranges, state) = state.split_at(input_ranges_len);
         // Every range should be of the form A-B, where A<=B.
         for pair in input_ranges.chunks(2) {
@@ -1569,23 +1571,23 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
         // And now extract the corresponding sequence of state IDs. We leave
         // this sequence as a &[u8] instead of a &[S] because sparse DFAs do
         // not have any alignment requirements.
-        let next_len = ntrans * self.id_len();
-        if next_len > state.len() {
-            return Err(DeserializeError::generic("no transition state IDs"));
-        }
+        let next_len = ntrans
+            .checked_mul(self.id_len())
+            .expect("state size * #trans should always fit in a usize");
+        bytes::check_slice_len(state, next_len, "sparse trans state IDs")?;
         let (next, state) = state.split_at(next_len);
         // We can at least verify that every state ID is in bounds.
         for idbytes in next.chunks(self.id_len()) {
             let id = S::read_bytes(idbytes);
-            if id.as_usize() > self.sparse().len() {
-                return Err(DeserializeError::generic(
-                    "out of bounds next ID",
-                ));
-            }
+            bytes::check_slice_len(
+                self.sparse(),
+                id.as_usize(),
+                "invalid sparse state ID",
+            )?;
         }
 
         // If this is a match state, then read the pattern IDs for this state.
-        // Patterns IDs is a u32-length prefixed sequence of native endian
+        // Pattern IDs is a u32-length prefixed sequence of native endian
         // encoded 32-bit integers.
         let (pattern_ids, state) = if is_match {
             let npats: usize = bytes::try_read_u32(state, "pattern ID count")?
@@ -1597,12 +1599,13 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
                 })?;
             let state = &state[4..];
 
-            let pattern_ids_len = npats * 4;
-            if pattern_ids_len > state.len() {
-                return Err(DeserializeError::generic(
-                    "no sparse pattern IDs",
-                ));
-            }
+            let pattern_ids_len =
+                bytes::mul(npats, 4, "sparse pattern ID byte length")?;
+            bytes::check_slice_len(
+                state,
+                pattern_ids_len,
+                "sparse pattern IDs",
+            )?;
             let (pattern_ids, state) = state.split_at(pattern_ids_len);
             (pattern_ids, state)
         } else {
@@ -1619,11 +1622,16 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
         }
         let (accel_len, state) = (state[0] as usize, &state[1..]);
 
-        if accel_len > 3 || accel_len > state.len() {
+        if accel_len > 3 {
             return Err(DeserializeError::generic(
-                "invalid accelerator length",
+                "sparse invalid accelerator length",
             ));
         }
+        bytes::check_slice_len(
+            state,
+            accel_len,
+            "sparse corrupt accelerator length",
+        )?;
         let (accel, _) = (&state[..accel_len], &state[accel_len..]);
 
         Ok(State {
@@ -1788,29 +1796,28 @@ impl<'a, S: StateID> StartTable<&'a [u8], S> {
                 "sparse invalid number of patterns",
             ));
         }
-        let pattern_table_size = match stride.checked_mul(patterns) {
-            Some(x) => x,
-            None => {
-                return Err(DeserializeError::generic(
-                    "sparse invalid pattern count",
-                ))
-            }
-        };
-        let count = match stride.checked_add(pattern_table_size) {
-            Some(x) => x,
-            None => {
-                return Err(DeserializeError::generic(
-                    "sparse invalid pattern+stride",
-                ))
-            }
-        };
-        let table_bytes_len = count * core::mem::size_of::<S>();
-        let nread = 16 + table_bytes_len;
-        if slice.len() < table_bytes_len {
-            return Err(DeserializeError::buffer_too_small(
-                "sparse start ID table",
-            ));
-        }
+        let pattern_table_size =
+            bytes::mul(stride, patterns, "sparse invalid pattern count")?;
+        // Our start states always start with a single stride of start states
+        // for the entire automaton which permit it to match any pattern. What
+        // follows it are an optional set of start states for each pattern.
+        let start_state_count = bytes::add(
+            stride,
+            pattern_table_size,
+            "sparse invalid 'any' pattern starts size",
+        )?;
+        let table_bytes_len = bytes::mul(
+            start_state_count,
+            core::mem::size_of::<S>(),
+            "sparse pattern table bytes length",
+        )?;
+        bytes::check_slice_len(
+            slice,
+            table_bytes_len,
+            "sparse start ID table",
+        )?;
+        // Our slice is at least this long, so this add should always work.
+        let nread = table_bytes_len.checked_add(8 + 8).unwrap();
         let sl = StartTable {
             table: &slice[..table_bytes_len],
             stride,
