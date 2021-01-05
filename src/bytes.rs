@@ -41,6 +41,9 @@ and then loading the correct one based on the target's endianness.
 
 use core::{cmp, convert::TryInto};
 
+#[cfg(feature = "alloc")]
+use alloc::{vec, vec::Vec};
+
 use crate::StateID;
 
 /// An error that occurs when serializing an object from this crate.
@@ -280,7 +283,7 @@ pub fn skip_initial_padding(slice: &[u8]) -> usize {
 /// ```
 ///
 /// In practice, padding is often zero.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub fn alloc_aligned_buffer<S: StateID>(size: usize) -> (Vec<u8>, usize) {
     // FIXME: This is a kludge because there's no easy way to allocate a
     // Vec<u8> with an alignment guaranteed to be greater than 1. We could
@@ -545,12 +548,9 @@ pub fn try_read_u16_as_usize(
     slice: &[u8],
     what: &'static str,
 ) -> Result<usize, DeserializeError> {
-    if slice.len() < 2 {
-        return Err(DeserializeError::buffer_too_small(what));
-    }
-    read_u16(slice)
-        .try_into()
-        .map_err(|_| DeserializeError::invalid_usize(what))
+    try_read_u16(slice, what).and_then(|n| {
+        n.try_into().map_err(|_| DeserializeError::invalid_usize(what))
+    })
 }
 
 /// Try to read a u64 as a usize from the beginning of the given slice in
@@ -864,7 +864,7 @@ pub fn padding_len(non_padding_len: usize) -> usize {
     (8 - (non_padding_len & 0b111)) & 0b111
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

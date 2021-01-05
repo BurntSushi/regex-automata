@@ -1,9 +1,12 @@
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use crate::{
     dfa::automaton::{Automaton, OverlappingState},
     prefilter::{self, Prefilter},
     MatchError, MultiMatch,
 };
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use crate::{
     dfa::{dense, error::Error, sparse},
     nfa::thompson,
@@ -58,7 +61,7 @@ use crate::{
 /// assert_eq!(true, sparse_re.is_match(b"foo123"));
 /// # Ok(()) }; example().unwrap()
 /// ```
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct Regex<A = dense::OwnedDFA<usize>, P = prefilter::None> {
     prefilter: Option<P>,
@@ -113,7 +116,7 @@ pub struct Regex<A = dense::OwnedDFA<usize>, P = prefilter::None> {
 /// assert_eq!(true, sparse_re.is_match(b"foo123"));
 /// # Ok(()) }; example().unwrap()
 /// ```
-#[cfg(not(feature = "std"))]
+#[cfg(not(feature = "alloc"))]
 #[derive(Clone, Debug)]
 pub struct Regex<A, P = prefilter::None> {
     prefilter: Option<P>,
@@ -121,7 +124,7 @@ pub struct Regex<A, P = prefilter::None> {
     reverse: A,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Regex {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding regex.
@@ -150,7 +153,7 @@ impl Regex {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Regex<sparse::DFA<Vec<u8>, usize>> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding regex using sparse DFAs.
@@ -1067,13 +1070,13 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// or only the end of a match, then you should use a
 /// [`dense::Builder`](dense/struct.Builder.html)
 /// to construct a single DFA, which is cheaper than building two DFAs.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct RegexBuilder {
     dfa: dense::Builder,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl RegexBuilder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> RegexBuilder {
@@ -1221,7 +1224,7 @@ impl RegexBuilder {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Default for RegexBuilder {
     fn default() -> RegexBuilder {
         RegexBuilder::new()

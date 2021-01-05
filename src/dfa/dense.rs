@@ -1,9 +1,13 @@
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use core::cmp;
 use core::{convert::TryInto, fmt, iter, marker::PhantomData, slice};
 
-#[cfg(feature = "std")]
-use std::collections::{BTreeMap, BTreeSet};
+#[cfg(feature = "alloc")]
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    vec,
+    vec::Vec,
+};
 
 use crate::{
     bytes::{self, DeserializeError, Endian, SerializeError},
@@ -16,7 +20,7 @@ use crate::{
     state_id::{dead_id, StateID},
     PatternID,
 };
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use crate::{
     classes::ByteSet,
     dfa::{
@@ -47,7 +51,7 @@ const VERSION: u64 = 2;
 /// word boundaries with [`Config::unicode_word_boundary`] can in turn cause a
 /// search to return an error. See the corresponding configuration options for
 /// more details on when those error conditions arise.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
     // As with other configuration types in this crate, we put all our knobs
@@ -67,7 +71,7 @@ pub struct Config {
     quit: Option<ByteSet>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Config {
     /// Return a new default dense DFA compiler configuration.
     pub fn new() -> Config {
@@ -706,14 +710,14 @@ impl Config {
 /// Note that if one wants to build a sparse DFA, you must first build a dense
 /// DFA and convert that to a sparse DFA. There is no way to build a sparse
 /// DFA without first building a dense DFA.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
     thompson: thompson::Builder,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Builder {
     /// Create a new dense DFA builder with the default configuration.
     pub fn new() -> Builder {
@@ -895,7 +899,7 @@ impl Builder {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Default for Builder {
     fn default() -> Builder {
         Builder::new()
@@ -907,7 +911,7 @@ impl Default for Builder {
 /// is commonly used for mutable APIs on the DFA while building it. The main
 /// reason for making it generic is no_std support, and more generally, making
 /// it possible to load a DFA from an arbitrary slice of bytes.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub(crate) type OwnedDFA<S> = DFA<Vec<S>, Vec<u8>, S>;
 
 /// A dense table-based deterministic finite automaton (DFA).
@@ -1020,7 +1024,7 @@ pub struct DFA<T, A, S = usize> {
     accels: Accels<A>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl OwnedDFA<usize> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding DFA.
@@ -1071,7 +1075,7 @@ impl OwnedDFA<usize> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: StateID> OwnedDFA<S> {
     /// Create a new DFA that matches every input.
     ///
@@ -1155,7 +1159,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     ///
     /// Effectively, this returns a dense DFA whose transition table lives on
     /// the heap.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> OwnedDFA<S> {
         DFA {
             tt: self.tt.to_owned(),
@@ -1260,7 +1264,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
 /// Routines for converting a dense DFA to other representations, such as
 /// sparse DFAs, smaller state identifiers or raw bytes suitable for persistent
 /// storage.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// Convert this dense DFA to a sparse DFA.
     ///
@@ -2037,7 +2041,7 @@ impl<'a, S: StateID> DFA<&'a [S], &'a [u8], S> {
 /// a `Vec<S>` since a generic `T: AsRef<[S]>` does not permit mutation. We
 /// can get away with this because these methods are internal to the crate and
 /// are exclusively used during construction of the DFA.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: StateID> OwnedDFA<S> {
     /// Add a start state of this DFA.
     pub(crate) fn set_start_state(
@@ -2475,7 +2479,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
 
     /// Returns a map from match state ID to a list of pattern IDs that match
     /// in that state.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub(crate) fn pattern_map(&self) -> BTreeMap<S, Vec<PatternID>> {
         self.ms.to_map(self)
     }
@@ -2917,7 +2921,7 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
     /// `size_of::<S2> >= size_of::<S>()`, then this always succeeds. If
     /// `size_of::<S2> < size_of::<S>()` and if S2 cannot represent every state
     /// ID in this transition table, then an error is returned.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn to_sized<S2: StateID>(
         &self,
     ) -> Result<TransitionTable<Vec<S2>, S2>, Error> {
@@ -2942,7 +2946,7 @@ impl<'a, S: StateID> TransitionTable<&'a [S], S> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: StateID> TransitionTable<Vec<S>, S> {
     /// Create a minimal transition table with just two states: a dead state
     /// and a quit state. The alphabet length and stride of the transition
@@ -3026,7 +3030,9 @@ impl<S: StateID> TransitionTable<Vec<S>, S> {
             // between state IDs and state indices.)
             let next = match self.count.checked_shl(self.stride2 as u32) {
                 Some(next) => next,
-                None => return Err(Error::state_id_overflow(std::usize::MAX)),
+                None => {
+                    return Err(Error::state_id_overflow(core::usize::MAX))
+                }
             };
             if next > S::max_id() {
                 return Err(Error::state_id_overflow(S::max_id()));
@@ -3092,7 +3098,7 @@ impl<T: AsRef<[S]>, S: StateID> TransitionTable<T, S> {
     }
 
     /// Converts this transition table to an owned value.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn to_owned(&self) -> TransitionTable<Vec<S>, S> {
         TransitionTable {
             table: self.table().to_vec(),
@@ -3322,7 +3328,7 @@ pub(crate) struct StartTable<T, S> {
     _state_id: PhantomData<S>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: StateID> StartTable<Vec<S>, S> {
     /// Create a valid set of start states all pointing to the dead state.
     ///
@@ -3488,7 +3494,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
     }
 
     /// Converts this start list to an owned value.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn to_owned(&self) -> StartTable<Vec<S>, S> {
         StartTable {
             table: self.table().to_vec(),
@@ -3503,7 +3509,7 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
     /// `size_of::<S2> >= size_of::<S>()`, then this always succeeds. If
     /// `size_of::<S2> < size_of::<S>()` and if S2 cannot represent every state
     /// ID in this list, then an error is returned.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn to_sized<S2: StateID>(&self) -> Result<StartTable<Vec<S2>, S2>, Error> {
         // Check that this list can fit into S2's representation.
         let max_state_id = match self.table().iter().cloned().max() {
@@ -3768,7 +3774,7 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: StateID> MatchStates<Vec<S>, Vec<u8>, S> {
     fn empty(pattern_count: usize) -> MatchStates<Vec<S>, Vec<u8>, S> {
         MatchStates {
@@ -3903,7 +3909,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     /// }
     ///
     /// Once shuffling is done, use MatchStates::new to convert back.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn to_map(&self, dfa: &DFA<T, A, S>) -> BTreeMap<S, Vec<PatternID>> {
         let mut map = BTreeMap::new();
         for i in 0..self.count() {
@@ -3927,7 +3933,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     }
 
     /// Converts these match states to an owned value.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn to_owned(&self) -> MatchStates<Vec<S>, Vec<u8>, S> {
         MatchStates {
             slices: self.slices().to_vec(),
@@ -3942,7 +3948,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     /// succeeds. If `size_of::<S2> < size_of::<S>()` and if S2 cannot
     /// represent every state ID in these match states, then an error is
     /// returned.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn to_sized<S2: StateID>(
         &self,
     ) -> Result<MatchStates<Vec<S2>, Vec<u8>, S2>, Error> {
@@ -4125,7 +4131,7 @@ impl<'a, S: StateID> State<'a, S> {
 
     /// Analyzes this state to determine whether it can be accelerated. If so,
     /// it returns an accelerator that contains at least one byte.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     fn accelerate(&self, classes: &ByteClasses) -> Option<Accel> {
         // We just try to add bytes to our accelerator. Once adding fails
         // (because we've added too many bytes), then give up.
@@ -4175,14 +4181,14 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
 ///
 /// `'a` correspondings to the lifetime of a DFA's transition table and `S`
 /// corresponds to the state identifier representation.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub(crate) struct StateMut<'a, S> {
     id: S,
     stride2: usize,
     transitions: &'a mut [S],
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<'a, S: StateID> StateMut<'a, S> {
     /// Return an iterator over all transitions in this state. This yields
     /// a number of transitions equivalent to the alphabet length of the
@@ -4199,7 +4205,7 @@ impl<'a, S: StateID> StateMut<'a, S> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(
@@ -4245,14 +4251,14 @@ impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
 /// Each transition is represented by a tuple. The first element is the
 /// input byte for that transition and the second element is a mutable
 /// reference to the transition itself.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub(crate) struct StateTransitionIterMut<'a, S> {
     len: usize,
     it: iter::Enumerate<slice::IterMut<'a, S>>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
     type Item = (Byte, &'a mut S);
 
@@ -4342,13 +4348,13 @@ impl<'a> Iterator for PatternIDIter<'a> {
 ///
 /// Once shuffling is complete, `remap` should be called, which will rewrite
 /// all pertinent transitions to updated state IDs.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 struct Remapper<S> {
     map: Vec<S>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<S: StateID> Remapper<S> {
     fn from_dfa(dfa: &OwnedDFA<S>) -> Remapper<S> {
         Remapper {
@@ -4405,7 +4411,7 @@ impl<S: StateID> Remapper<S> {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

@@ -1,8 +1,13 @@
 use core::fmt;
 
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+
+use crate::{
+    classes::{ByteClassSet, ByteClasses},
+    PatternID,
+};
+
 pub use self::compiler::{Builder, Config};
-use crate::classes::{ByteClassSet, ByteClasses};
-use crate::PatternID;
 
 mod compiler;
 mod map;
@@ -102,7 +107,7 @@ impl NFA {
     pub fn patterns(&self) -> PatternIter {
         PatternIter {
             it: 0..(self.match_len() as PatternID),
-            _marker: std::marker::PhantomData,
+            _marker: core::marker::PhantomData,
         }
     }
 
@@ -502,13 +507,13 @@ impl fmt::Debug for Transition {
 
 /// An iterator over all pattern IDs in an NFA.
 pub struct PatternIter<'a> {
-    it: std::ops::Range<PatternID>,
+    it: core::ops::Range<PatternID>,
     /// We explicitly associate a lifetime with this iterator even though we
     /// don't actually borrow anything from the NFA. We do this for backward
     /// compatibility purposes. If we ever do need to borrow something from
     /// the NFA, then we can and just get rid of this marker without breaking
     /// the public API.
-    _marker: std::marker::PhantomData<&'a ()>,
+    _marker: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> Iterator for PatternIter<'a> {
@@ -521,7 +526,7 @@ impl<'a> Iterator for PatternIter<'a> {
 
 /// Return the given byte as its escaped string form.
 fn escape(b: u8) -> String {
-    use std::ascii;
+    use core::ascii;
 
     String::from_utf8(ascii::escape_default(b).collect::<Vec<_>>()).unwrap()
 }

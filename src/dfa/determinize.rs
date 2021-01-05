@@ -1,8 +1,9 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    mem,
-    rc::Rc,
-};
+use core::mem;
+
+use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
+
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 use crate::{
     classes::{Byte, ByteSet},
@@ -12,6 +13,11 @@ use crate::{
     state_id::{dead_id, StateID},
     MatchKind, PatternID,
 };
+
+#[cfg(feature = "std")]
+type StateMap<S> = HashMap<Rc<State>, S>;
+#[cfg(not(feature = "std"))]
+type StateMap<S> = BTreeMap<Rc<State>, S>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Determinizer {
@@ -36,7 +42,7 @@ impl Determinizer {
     ) -> Result<(), Error> {
         let dead = Rc::new(State::dead());
         let quit = Rc::new(State::dead());
-        let mut cache = HashMap::default();
+        let mut cache = StateMap::default();
         cache.insert(dead.clone(), dead_id());
 
         Runner {
@@ -98,7 +104,7 @@ struct Runner<'a, S: StateID> {
     builder_states: Vec<Rc<State>>,
     /// A cache of DFA states that already exist and can be easily looked up
     /// via ordered sets of NFA states.
-    cache: HashMap<Rc<State>, S>,
+    cache: StateMap<S>,
     /// Scratch space for a stack of NFA states to visit, for depth first
     /// visiting without recursion.
     stack: Vec<thompson::StateID>,
@@ -114,7 +120,7 @@ struct Runner<'a, S: StateID> {
 }
 
 /// An intermediate representation for a DFA state during determinization.
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 struct State {
     /// An ordered sequence of NFA states that make up this DFA state.
     nfa_states: Vec<thompson::StateID>,
@@ -546,11 +552,11 @@ impl SparseSets {
     }
 
     fn swap(&mut self) {
-        std::mem::swap(&mut self.cur, &mut self.next);
+        mem::swap(&mut self.cur, &mut self.next);
     }
 }
 
-#[derive(Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 struct Facts {
     state: StateFacts,
     look_need: LookSet,
@@ -582,7 +588,7 @@ impl Facts {
 ///
 /// These make up the state's identity, such that two states with the same
 /// set of NFA states but different facts are considered distinct states.
-#[derive(Default, Eq, Hash, PartialEq)]
+#[derive(Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 struct StateFacts {
     bools: u8,
     matches: Matches,
@@ -596,8 +602,8 @@ impl StateFacts {
     }
 }
 
-impl std::fmt::Debug for StateFacts {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for StateFacts {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("StateFacts")
             .field("from_word", &self.from_word())
             .field("matches", &self.matches)
@@ -605,7 +611,7 @@ impl std::fmt::Debug for StateFacts {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 enum Matches {
     /// This variant is always used for non-matching states.
     None,
@@ -660,7 +666,7 @@ impl Matches {
 /// conditions. These facts are used as a filter when following epsilon
 /// transitions. That is, only epsilon transitions (that also have look-around
 /// conditions attached to them) satisfying these facts are followed.
-#[derive(Clone, Copy, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 struct LookSet {
     fields: u8,
 }
@@ -692,8 +698,8 @@ impl LookSet {
     }
 }
 
-impl std::fmt::Debug for LookSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for LookSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut members = vec![];
         for i in 0..8 {
             let look = match Look::from_u8(1 << i) {
