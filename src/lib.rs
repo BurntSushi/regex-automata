@@ -4,9 +4,12 @@ TODO
 
 // #![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), allow(dead_code))]
+// #![cfg_attr(not(feature = "alloc"), allow(dead_code))]
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "alloc")]
 pub use crate::config::SyntaxConfig;
 pub use crate::{
     bytes::{DeserializeError, SerializeError},
@@ -28,9 +31,9 @@ mod state_id;
 mod util;
 mod word;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod config;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub mod nfa;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod sparse_set;

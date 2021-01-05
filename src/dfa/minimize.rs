@@ -1,4 +1,6 @@
-use std::{cell::RefCell, collections::BTreeMap, fmt, mem, rc::Rc};
+use core::{cell::RefCell, fmt, mem};
+
+use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
     classes::Byte,

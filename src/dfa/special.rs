@@ -1,6 +1,6 @@
 use core::{cmp, mem::size_of};
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 use crate::dfa::Error;
 use crate::{
     bytes::{self, DeserializeError, Endian, SerializeError},
@@ -185,7 +185,7 @@ impl<S: StateID> Special<S> {
     /// Creates a new set of special ranges for a DFA. All ranges are
     /// initially empty (even ranges, like 'start', that cannot ultimately
     /// be empty).
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub fn new() -> Special<S> {
         Special {
             max: dead_id(),
@@ -202,7 +202,7 @@ impl<S: StateID> Special<S> {
     /// Convert the state IDs recorded here to a new representation. If the
     /// chosen representation is not big enough to fit the IDs, then an error
     /// is returned.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub fn to_sized<A: StateID>(&self) -> Result<Special<A>, Error> {
         if self.max.as_usize() > A::max_id() {
             return Err(Error::state_id_overflow(A::max_id()));
@@ -220,7 +220,7 @@ impl<S: StateID> Special<S> {
     }
 
     /// Remaps all of the special state identifiers using the function given.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub fn remap<A: StateID>(&self, map: impl Fn(S) -> A) -> Special<A> {
         Special {
             max: map(self.max),

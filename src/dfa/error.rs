@@ -76,7 +76,7 @@ impl std::error::Error for Error {
 }
 
 impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind() {
             ErrorKind::NFA(_) => write!(f, "error building NFA"),
             ErrorKind::Unsupported(ref msg) => {

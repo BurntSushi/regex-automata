@@ -25,7 +25,8 @@ bench = false
 
 [features]
 default = ["std"]
-std = ["memchr/std", "regex-syntax"]
+std = ["alloc", "memchr/std", "regex-syntax"]
+alloc = ["regex-syntax"]
 transducer = ["fst"]
 
 [dependencies]

@@ -1,3 +1,5 @@
+use alloc::{boxed::Box, vec, vec::Vec};
+
 /// A sparse set used for representing ordered NFA states.
 ///
 /// This supports constant time addition and membership testing. Clearing an
@@ -62,8 +64,8 @@ impl SparseSet {
     }
 }
 
-impl std::fmt::Debug for SparseSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for SparseSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let elements: Vec<&usize> = self.into_iter().collect();
         f.debug_tuple("SparseSet").field(&elements).finish()
     }

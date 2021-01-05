@@ -140,11 +140,9 @@
 // [1] - https://blog.burntsushi.net/transducers/
 // [2] - https://www.mitpressjournals.org/doi/pdfplus/10.1162/089120100561601
 
-use std::cell::RefCell;
-use std::fmt;
-use std::mem;
-use std::ops::RangeInclusive;
-use std::u32;
+use core::{cell::RefCell, fmt, mem, ops::RangeInclusive, u32};
+
+use alloc::{format, string::String, vec, vec::Vec};
 
 use regex_syntax::utf8::Utf8Range;
 

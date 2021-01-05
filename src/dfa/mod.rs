@@ -301,9 +301,9 @@ dramatically.
 */
 
 pub use crate::dfa::automaton::{Automaton, HalfMatch, OverlappingState};
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use crate::dfa::error::{Error, ErrorKind};
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use crate::dfa::regex::RegexBuilder;
 pub use crate::dfa::regex::{
     FindEarliestMatches, FindLeftmostMatches, FindOverlappingMatches, Regex,
@@ -314,11 +314,11 @@ mod accel;
 mod automaton;
 #[path = "dense.rs"]
 mod dense_imp;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod determinize;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub(crate) mod error;
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 mod minimize;
 mod regex;
 mod search;

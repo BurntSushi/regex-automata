@@ -33,6 +33,8 @@
 // could make one generic map, but the machinery didn't seem worth it. They
 // are simple enough.
 
+use alloc::{vec, vec::Vec};
+
 use super::{StateID, Transition};
 
 // Basic FNV-1a hash constants as described in:

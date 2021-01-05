@@ -52,6 +52,9 @@
 
 use core::convert::TryInto;
 
+#[cfg(feature = "alloc")]
+use alloc::{vec, vec::Vec};
+
 use crate::bytes::{self, DeserializeError, Endian, SerializeError};
 
 /// The maximum length in bytes that a single Accel can be. This is distinct
@@ -115,7 +118,7 @@ pub(crate) struct Accels<A> {
     accels: A,
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl Accels<Vec<u8>> {
     /// Create an empty sequence of accelerators for a DFA.
     pub fn empty() -> Accels<Vec<u8>> {
@@ -164,7 +167,7 @@ impl<'a> Accels<&'a [u8]> {
 
 impl<A: AsRef<[u8]>> Accels<A> {
     /// Return an owned version of the accelerators.
-    #[cfg(feature = "std")]
+    #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> Accels<Vec<u8>> {
         Accels { accels: self.accels.as_ref().to_vec() }
     }

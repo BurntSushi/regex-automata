@@ -31,9 +31,9 @@
 // borrow `self` mutably both inside and outside the closure at the same
 // time.
 
-use std::borrow::Borrow;
-use std::cell::RefCell;
-use std::mem;
+use core::{borrow::Borrow, cell::RefCell, mem};
+
+use alloc::{boxed::Box, vec, vec::Vec};
 
 use regex_syntax::hir::{
     self, Anchor, Class, Hir, HirKind, Literal, WordBoundary,
