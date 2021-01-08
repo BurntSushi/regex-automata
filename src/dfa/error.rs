@@ -85,8 +85,8 @@ impl core::fmt::Display for Error {
             ErrorKind::StateIDOverflow { max } => write!(
                 f,
                 "building the DFA failed because it required building \
-                 more states that can be identified, where the maximum \
-                 ID for the chosen representation is {}",
+                 more states that fit in the chosen state ID representation, \
+                 where the maximum ID for the chosen representation is {}",
                 max,
             ),
             ErrorKind::__Nonexhaustive => unreachable!(),

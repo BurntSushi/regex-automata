@@ -262,6 +262,10 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     }
 }
 
+/// This is marked as `inline(always)` specifically because it supports
+/// multiple modes of searching. Namely, the 'pre' prefilter getting inlined
+/// permits eliminating a few crucial branches and reduces code size when it is
+/// not used.
 #[inline(always)]
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     mut pre: Option<&mut prefilter::Scanner>,
