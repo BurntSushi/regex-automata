@@ -13,116 +13,108 @@ use crate::{
     MatchKind, StateID,
 };
 
-/// A regular expression that uses deterministic finite automata for fast
-/// searching.
-///
-/// A regular expression is comprised of two DFAs, a "forward" DFA and a
-/// "reverse" DFA. The forward DFA is responsible for detecting the end of a
-/// match while the reverse DFA is responsible for detecting the start of a
-/// match. Thus, in order to find the bounds of any given match, a forward
-/// search must first be run followed by a reverse search. A match found by
-/// the forward DFA guarantees that the reverse DFA will also find a match.
-///
-/// The type of the DFA used by a `Regex` corresponds to the `A` type
-/// parameter, which must satisfy the [`Automaton`](trait.Automaton.html)
-/// trait. Typically, `A` is either a
-/// [`dense::DFA`](dense/struct.DFA.html)
-/// or a
-/// [`sparse::DFA`](sparse/struct.DFA.html),
-/// where dense DFAs use more memory but search faster, while sparse DFAs use
-/// less memory but search more slowly.
-///
-/// By default, a regex's automaton type parameter is set to
-/// `dense::DFA<Vec<usize>, Vec<u8>, usize>`. For most in-memory work loads,
-/// this is the most convenient type that gives the best search performance.
-///
-/// # Sparse DFAs
-///
-/// Since a `Regex` is generic over the `Automaton` trait, it can be used with
-/// any kind of DFA. While this crate constructs dense DFAs by default, it is
-/// easy enough to build corresponding sparse DFAs, and then build a regex from
-/// them:
-///
-/// ```
-/// use regex_automata::dfa::Regex;
-///
-/// # fn example() -> Result<(), regex_automata::dfa::Error> {
-/// // First, build a regex that uses dense DFAs.
-/// let dense_re = Regex::new("foo[0-9]+")?;
-///
-/// // Second, build sparse DFAs from the forward and reverse dense DFAs.
-/// let fwd = dense_re.forward().to_sparse()?;
-/// let rev = dense_re.reverse().to_sparse()?;
-///
-/// // Third, build a new regex from the constituent sparse DFAs.
-/// let sparse_re = Regex::from_dfas(fwd, rev);
-///
-/// // A regex that uses sparse DFAs can be used just like with dense DFAs.
-/// assert_eq!(true, sparse_re.is_match(b"foo123"));
-/// # Ok(()) }; example().unwrap()
-/// ```
-#[cfg(feature = "alloc")]
-#[derive(Clone, Debug)]
-pub struct Regex<A = dense::OwnedDFA<usize>, P = prefilter::None> {
-    prefilter: Option<P>,
-    forward: A,
-    reverse: A,
+// When the alloc feature is enabled, the regex type sets its A type parameter
+// to default to an owned dense DFA. But without alloc, we set no default. This
+// makes things a lot more convenient in the common case, since writing out the
+// DFA types is pretty annoying.
+//
+// Since we have two different definitions but only want to write one doc
+// string, we use a macro to capture the doc and other attributes once and then
+// repeat them for each definition.
+macro_rules! define_regex_type {
+    ($(#[$doc:meta])*) => {
+        #[cfg(feature = "alloc")]
+        $(#[$doc])*
+        pub struct Regex<A = dense::OwnedDFA<usize>, P = prefilter::None> {
+            prefilter: Option<P>,
+            forward: A,
+            reverse: A,
+        }
+
+        #[cfg(not(feature = "alloc"))]
+        $(#[$doc])*
+        pub struct Regex<A, P = prefilter::None> {
+            prefilter: Option<P>,
+            forward: A,
+            reverse: A,
+        }
+    };
 }
 
-/// A regular expression that uses deterministic finite automata for fast
-/// searching.
-///
-/// A regular expression is comprised of two DFAs, a "forward" DFA and a
-/// "reverse" DFA. The forward DFA is responsible for detecting the end of a
-/// match while the reverse DFA is responsible for detecting the start of a
-/// match. Thus, in order to find the bounds of any given match, a forward
-/// search must first be run followed by a reverse search. A match found by
-/// the forward DFA guarantees that the reverse DFA will also find a match.
-///
-/// The type of the DFA used by a `Regex` corresponds to the `A` type
-/// parameter, which must satisfy the [`Automaton`](trait.Automaton.html)
-/// trait. Typically, `A` is either a
-/// [`dense::DFA`](dense/struct.DFA.html)
-/// or a
-/// [`sparse::DFA`](sparse/struct.DFA.html),
-/// where dense DFAs use more memory but search faster, while sparse DFAs use
-/// less memory but search more slowly.
-///
-/// When using this crate without the standard library, the `Regex` type has
-/// no default type parameter.
-///
-/// # Sparse DFAs
-///
-/// Since a `Regex` is generic over the `Automaton` trait, it can be used with
-/// any kind of DFA. While this crate constructs dense DFAs by default, it is
-/// easy enough to build corresponding sparse DFAs, and then build a regex from
-/// them:
-///
-/// ```
-/// use regex_automata::dfa::Regex;
-///
-/// # fn example() -> Result<(), regex_automata::dfa::Error> {
-/// // First, build a regex that uses dense DFAs.
-/// let dense_re = Regex::new("foo[0-9]+")?;
-///
-/// // Second, build sparse DFAs from the forward and reverse dense DFAs.
-/// let fwd = dense_re.forward().to_sparse()?;
-/// let rev = dense_re.reverse().to_sparse()?;
-///
-/// // Third, build a new regex from the constituent sparse DFAs.
-/// let sparse_re = Regex::from_dfas(fwd, rev);
-///
-/// // A regex that uses sparse DFAs can be used just like with dense DFAs.
-/// assert_eq!(true, sparse_re.is_match(b"foo123"));
-/// # Ok(()) }; example().unwrap()
-/// ```
-#[cfg(not(feature = "alloc"))]
-#[derive(Clone, Debug)]
-pub struct Regex<A, P = prefilter::None> {
-    prefilter: Option<P>,
-    forward: A,
-    reverse: A,
-}
+define_regex_type!(
+    /// A regular expression that uses deterministic finite automata for fast
+    /// searching.
+    ///
+    /// A regular expression is comprised of two DFAs, a "forward" DFA and a
+    /// "reverse" DFA. The forward DFA is responsible for detecting the end of
+    /// a match while the reverse DFA is responsible for detecting the start
+    /// of a match. Thus, in order to find the bounds of any given match, a
+    /// forward search must first be run followed by a reverse search. A match
+    /// found by the forward DFA guarantees that the reverse DFA will also find
+    /// a match.
+    ///
+    /// The type of the DFA used by a `Regex` corresponds to the `A` type
+    /// parameter, which must satisfy the [`Automaton`] trait. Typically,
+    /// `A` is either a [`dense::DFA`](crate::dfa::dense::DFA) or a
+    /// [`sparse::DFA`](crate::dfa::sparse::DFA), where dense DFAs use more
+    /// memory but search faster, while sparse DFAs use less memory but search
+    /// more slowly.
+    ///
+    /// By default, a regex's automaton type parameter is set to
+    /// `dense::DFA<Vec<usize>, Vec<u8>, usize>` when the `alloc` feature is
+    /// enabled. For most in-memory work
+    /// loads, this is the most convenient type that gives the best search
+    /// performance. When the `alloc` feature is disabled, no default type is
+    /// used.
+    ///
+    /// A `Regex` also has a `P` type parameter, which is used to select the
+    /// prefilter used during search. By default, no prefilter is enabled by
+    /// setting the type to default to [`prefilter::None`]. A prefilter can be
+    /// enabled by using the [`Regex::prefilter`] method.
+    ///
+    /// # Sparse DFAs
+    ///
+    /// Since a `Regex` is generic over the [`Automaton`] trait, it can be
+    /// used with any kind of DFA. While this crate constructs dense DFAs by
+    /// default, it is easy enough to build corresponding sparse DFAs, and then
+    /// build a regex from them:
+    ///
+    /// ```
+    /// use regex_automata::dfa::Regex;
+    ///
+    /// // First, build a regex that uses dense DFAs.
+    /// let dense_re = Regex::new("foo[0-9]+")?;
+    ///
+    /// // Second, build sparse DFAs from the forward and reverse dense DFAs.
+    /// let fwd = dense_re.forward().to_sparse()?;
+    /// let rev = dense_re.reverse().to_sparse()?;
+    ///
+    /// // Third, build a new regex from the constituent sparse DFAs.
+    /// let sparse_re = Regex::from_dfas(fwd, rev);
+    ///
+    /// // A regex that uses sparse DFAs can be used just like with dense DFAs.
+    /// assert_eq!(true, sparse_re.is_match(b"foo123"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Alternatively, one can use a [`RegexBuilder`] to construct a sparse DFA
+    /// more succinctly. (Note though that dense DFAs are still constructed
+    /// first internally, and then converted to sparse DFAs, as in the example
+    /// above.)
+    ///
+    /// ```
+    /// use regex_automata::dfa::RegexBuilder;
+    ///
+    /// let sparse_re = RegexBuilder::new()
+    ///     .build_sparse(r"foo[0-9]+")?;
+    /// // A regex that uses sparse DFAs can be used just like with dense DFAs.
+    /// assert_eq!(true, sparse_re.is_match(b"foo123"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[derive(Clone, Debug)]
+);
 
 #[cfg(feature = "alloc")]
 impl Regex {
