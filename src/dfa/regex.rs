@@ -734,10 +734,11 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 /// found. The first `usize` is the start of the match (inclusive) while the
 /// second `usize` is the end of the match (exclusive).
 ///
-/// `A` is the type used to represent the underlying DFAs used by the regex.
-/// The lifetime variables are as follows:
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
 ///
-/// * `'r` is the lifetime of the regular expression value itself.
+/// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
 pub struct FindEarliestMatches<'r, 't, A, P>(
@@ -769,10 +770,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// found. The first `usize` is the start of the match (inclusive) while the
 /// second `usize` is the end of the match (exclusive).
 ///
-/// `A` is the type used to represent the underlying DFAs used by the regex.
-/// The lifetime variables are as follows:
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
 ///
-/// * `'r` is the lifetime of the regular expression value itself.
+/// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
 pub struct FindLeftmostMatches<'r, 't, A, P>(
@@ -804,10 +806,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// found. The first `usize` is the start of the match (inclusive) while the
 /// second `usize` is the end of the match (exclusive).
 ///
-/// `A` is the type used to represent the underlying DFAs used by the regex.
-/// The lifetime variables are as follows:
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
 ///
-/// * `'r` is the lifetime of the regular expression value itself.
+/// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
 pub struct FindOverlappingMatches<'r, 't, A: Automaton, P>(
@@ -840,10 +843,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// found. The first `usize` is the start of the match (inclusive) while the
 /// second `usize` is the end of the match (exclusive).
 ///
-/// `A` is the type used to represent the underlying DFAs used by the regex.
-/// The lifetime variables are as follows:
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
 ///
-/// * `'r` is the lifetime of the regular expression value itself.
+/// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
 pub struct TryFindEarliestMatches<'r, 't, A, P> {
@@ -914,10 +918,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// found. The first `usize` is the start of the match (inclusive) while the
 /// second `usize` is the end of the match (exclusive).
 ///
-/// `A` is the type used to represent the underlying DFAs used by the regex.
-/// The lifetime variables are as follows:
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
 ///
-/// * `'r` is the lifetime of the regular expression value itself.
+/// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
 pub struct TryFindLeftmostMatches<'r, 't, A, P> {
@@ -988,10 +993,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// found. The first `usize` is the start of the match (inclusive) while the
 /// second `usize` is the end of the match (exclusive).
 ///
-/// `A` is the type used to represent the underlying DFAs used by the regex.
-/// The lifetime variables are as follows:
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
 ///
-/// * `'r` is the lifetime of the regular expression value itself.
+/// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
 pub struct TryFindOverlappingMatches<'r, 't, A: Automaton, P> {
