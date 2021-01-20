@@ -327,11 +327,6 @@ impl<D: DFA> Regex<D> {
         Matches::new(self, input)
     }
 
-    /// create a forward searcher capable of accepting a stream
-    pub fn find_stream(&self) -> MatchesStream<D> {
-        MatchesStream::new(self.forward())
-    }
-
     /// Build a new regex from its constituent forward and reverse DFAs.
     ///
     /// This is useful when deserializing a regex from some arbitrary
@@ -456,56 +451,6 @@ impl<'r, 't, D: DFA> Iterator for Matches<'r, 't, D> {
         }
         self.last_match = Some(e);
         Some((s, e))
-    }
-}
-
-struct MatchStreamState<D: DFA> {
-    start: usize,
-    id: D::ID,
-    was_match: bool,
-}
-pub struct MatchesStream<'r, D: DFA> {
-    dfa: &'r D,
-
-    /// list of live DFA IDs to match against each input and the input position when they started
-    live: Vec<MatchStreamState<D>>,
-
-    // input stream position
-    position: usize,
-}
-impl<'r, D: DFA> MatchesStream<'r, D> {
-    fn new(dfa: &'r D) -> Self {
-        MatchesStream {
-            dfa,
-            live: Vec::new(),
-            position: 0
-        }
-    }
-    pub fn advance(&mut self, input: u8) {
-        // add new state
-        if self.position == 0 || !self.dfa.is_anchored() {
-            self.live.push(MatchStreamState {
-                start: self.position,
-                id: self.dfa.start_state(),
-                was_match: false
-            });
-        }
-
-        // remove dead states
-        let dfa = &self.dfa;
-        self.live.retain(|state| !dfa.is_dead_state(state.id));
-
-        // progress all existing DFA state
-        for state in self.live.iter_mut() {
-            state.was_match = self.dfa.is_match_state(state.id);
-            state.id = self.dfa.next_state(state.id, input);
-        }
-
-        self.position += 1;
-    }
-
-    pub fn matches(&self) -> impl Iterator<Item=(usize, usize)> + '_ {
-        self.live.iter().filter(|state| state.was_match).map(move |state| (state.start, self.position))
     }
 }
 

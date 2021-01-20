@@ -265,22 +265,27 @@ pub trait DFA {
         if self.is_anchored() && start > 0 {
             return None;
         }
+        self.find_iter(bytes[start..].iter().cloned()).map(|n| start + n)
+    }
 
+    /// Same as find, but takes an iterator as input
+    #[inline]
+    fn find_iter(&self, bytes: impl Iterator<Item=u8>) -> Option<usize> {
         let mut state = self.start_state();
         let mut last_match = if self.is_dead_state(state) {
             return None;
         } else if self.is_match_state(state) {
-            Some(start)
+            Some(0)
         } else {
             None
         };
-        for (i, &b) in bytes[start..].iter().enumerate() {
+        for (i, b) in bytes.enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
             if self.is_match_or_dead_state(state) {
                 if self.is_dead_state(state) {
                     return last_match;
                 }
-                last_match = Some(start + i + 1);
+                last_match = Some(i + 1);
             }
         }
         last_match
@@ -298,21 +303,26 @@ pub trait DFA {
             return None;
         }
 
+        self.rfind_iter(bytes[..start].iter().rev().cloned()).map(|n| start - n)
+    }
+
+    /// like find, but returns the number of bytes in the reverse direction
+    fn rfind_iter(&self, bytes: impl Iterator<Item=u8>) -> Option<usize> {
         let mut state = self.start_state();
         let mut last_match = if self.is_dead_state(state) {
             return None;
         } else if self.is_match_state(state) {
-            Some(start)
+            Some(0)
         } else {
             None
         };
-        for (i, &b) in bytes[..start].iter().enumerate().rev() {
+        for (i, b) in bytes.enumerate() {
             state = unsafe { self.next_state_unchecked(state, b) };
             if self.is_match_or_dead_state(state) {
                 if self.is_dead_state(state) {
                     return last_match;
                 }
-                last_match = Some(i);
+                last_match = Some(i + 1);
             }
         }
         last_match
