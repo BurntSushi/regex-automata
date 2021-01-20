@@ -268,7 +268,7 @@ pub trait DFA {
         self.find_iter(bytes[start..].iter().cloned()).map(|n| start + n)
     }
 
-    /// Same as find, but takes an iterator as input
+    /// Returns the same as find, but takes an iterator as input.
     #[inline]
     fn find_iter(&self, bytes: impl Iterator<Item=u8>) -> Option<usize> {
         let mut state = self.start_state();
@@ -306,7 +306,7 @@ pub trait DFA {
         self.rfind_iter(bytes[..start].iter().rev().cloned()).map(|n| start - n)
     }
 
-    /// like find, but returns the number of bytes in the reverse direction
+    /// Works like rfind, but returns the number of bytes in the reverse direction and takes an iterator input.
     fn rfind_iter(&self, bytes: impl Iterator<Item=u8>) -> Option<usize> {
         let mut state = self.start_state();
         let mut last_match = if self.is_dead_state(state) {
