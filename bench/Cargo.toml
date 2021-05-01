@@ -19,5 +19,5 @@ harness = false
 path = "src/bench.rs"
 
 [dependencies]
-criterion = "0.3.1"
+criterion = "0.3.4"
 regex-automata = { version = "*", path = ".." }

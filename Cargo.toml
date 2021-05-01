@@ -30,12 +30,12 @@ alloc = ["regex-syntax"]
 transducer = ["fst"]
 
 [dependencies]
-fst = { version = "0.4.2", optional = true }
-memchr = { version = "2.3.3", default-features = false }
-regex-syntax = { version = "0.6.16", optional = true }
+fst = { version = "0.4.5", optional = true }
+memchr = { version = "2.4.0", default-features = false }
+regex-syntax = { version = "0.6.24", optional = true }
 
 [dev-dependencies]
-bstr = "0.2.12"
+bstr = "0.2.16"
 regex-syntax = "0.6.16"
 regex-test = { version = "*", path = "regex-test" }
 
