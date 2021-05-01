@@ -1,7 +1,5 @@
-use std::time::Duration;
-
 use criterion::{
-    criterion_group, criterion_main, Bencher, Benchmark, Criterion, Throughput,
+    criterion_group, criterion_main, Bencher, Criterion, Throughput,
 };
 use regex_automata::dfa::{dense, RegexBuilder};
 use regex_automata::nfa::thompson;
@@ -111,13 +109,12 @@ fn define(
     corpus: &[u8],
     bench: impl FnMut(&mut Bencher) + 'static,
 ) {
-    let tput = Throughput::Bytes(corpus.len() as u64);
-    let benchmark = Benchmark::new(bench_name, bench)
-        .throughput(tput)
-        .sample_size(25)
-        .warm_up_time(Duration::from_millis(500))
-        .measurement_time(Duration::from_secs(3));
-    c.bench(group_name, benchmark);
+    c.benchmark_group(group_name)
+        .throughput(Throughput::Bytes(corpus.len() as u64))
+        .sample_size(15)
+        .warm_up_time(std::time::Duration::from_millis(500))
+        .measurement_time(std::time::Duration::from_secs(2))
+        .bench_function(bench_name, bench);
 }
 
 criterion_group!(g1, is_match);
