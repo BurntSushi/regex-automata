@@ -390,15 +390,9 @@ impl<'a> Iterator for ByteClassElementRanges<'a> {
 /// endeavor to compute the minimal equivalence classes since they can have a
 /// rather large impact on the size of the DFA.
 ///
-/// The representation here is 256 booleans, all initially set to false. Each
-/// boolean maps to its corresponding byte based on position. A `true` value
-/// indicates the end of an equivalence class, where its corresponding byte
-/// and all of the bytes corresponding to all previous contiguous `false`
-/// values are in the same equivalence class.
-///
-/// This particular representation only permits contiguous ranges of bytes to
-/// be in the same equivalence class, which means that we can never discover
-/// the true minimal set of equivalence classes.
+/// This representation used here only permits contiguous ranges of bytes to be
+/// in the same equivalence class, which means that we can never discover the
+/// true minimal set of equivalence classes using this representation.
 #[derive(Clone, Debug)]
 pub struct ByteClassSet(ByteSet);
 

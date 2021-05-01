@@ -105,6 +105,9 @@ pub(crate) fn find_rev(
 }
 
 /// Represents the accelerators for all accelerated states in a DFA.
+///
+/// The `A` type parameter represents the type of the underlying bytes.
+/// Generally, this is either `&[u8]` or `Vec<u8>`.
 #[derive(Clone)]
 pub(crate) struct Accels<A> {
     /// A length prefixed slice of contiguous accelerators. See the top comment
@@ -113,8 +116,6 @@ pub(crate) struct Accels<A> {
     ///
     /// The first 8 bytes always correspond to the number of accelerators
     /// that follow.
-    ///
-    /// In practice, `A` is either a `&[u8]` or a `Vec<u8>`.
     accels: A,
 }
 

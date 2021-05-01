@@ -841,6 +841,9 @@ impl Builder {
         }
         let classes = if self.config.get_byte_classes() {
             let mut set = nfa.byte_class_set().clone();
+            // It is important to distinguish any "quit" bytes from all other
+            // bytes. Otherwise, a non-quit byte may end up in the same class
+            // as a quit byte, and thus cause the DFA stop when it shouldn't.
             if !quit.is_empty() {
                 set.add_set(&quit);
             }

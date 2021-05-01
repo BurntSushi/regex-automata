@@ -1,4 +1,4 @@
-/*!
+/*
 A collection of helper functions, types and traits for serializing automata.
 
 This crate defines its own bespoke serialization mechanism for some structures
@@ -7,7 +7,8 @@ primarily because structures like automata demand a specific binary format.
 Attempting to encode their rich structure in an existing serialization
 format is just not feasible. Moreover, the format for each structure is
 generally designed such that deserialization is cheap. More specifically, that
-deserialization can be done in constant time.
+deserialization can be done in constant time. (The idea being that you can
+embed it into your binary or mmap it, and then use it immediately.)
 
 In order to achieve this, most of the structures in this crate use an in-memory
 representation that very closely corresponds to its binary serialized form.
@@ -801,7 +802,7 @@ pub fn shl(
 /// A simple trait for writing code generic over endianness.
 ///
 /// This is similar to what byteorder provides, but we only need a very small
-/// subset and can implement it safely due to our higher MSRV.
+/// subset.
 pub trait Endian {
     /// Writes a u16 to the given destination buffer in a particular
     /// endianness. If the destination buffer has a length smaller than 2, then
