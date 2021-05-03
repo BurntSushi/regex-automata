@@ -6,9 +6,9 @@ configuring the best space vs time trade off for your use case and provides
 support for cheap deserialization of automata for use in `no_std` environments.
 
 [![Build status](https://github.com/BurntSushi/regex-automata/workflows/ci/badge.svg)](https://github.com/BurntSushi/regex-automata/actions)
-[![](http://meritbadge.herokuapp.com/regex-automata)](https://crates.io/crates/regex-automata)
+[![](https://meritbadge.herokuapp.com/regex-automata)](https://crates.io/crates/regex-automata)
 
-Dual-licensed under MIT or the [UNLICENSE](http://unlicense.org).
+Dual-licensed under MIT or the [UNLICENSE](https://unlicense.org/).
 
 
 ### Documentation
@@ -182,10 +182,10 @@ With some of the downsides out of the way, here are some positive differences:
 * Stretch goal: support capturing groups by implementing "tagged" DFA
   (transducers). Laurikari's paper is the usual reference here, but Trofimovich
   has a much more thorough treatment here:
-  http://re2c.org/2017_trofimovich_tagged_deterministic_finite_automata_with_lookahead.pdf
+  https://re2c.org/2017_trofimovich_tagged_deterministic_finite_automata_with_lookahead.pdf
   I've only read the paper once. I suspect it will require at least a few more
   read throughs before I understand it.
-  See also: http://re2c.org/
+  See also: https://re2c.org
 * Possibly less ambitious goal: can we select a portion of Trofimovich's work
   to make small fixed length look-around work? It would be really nice to
   support ^, $ and \b, especially the Unicode variant of \b and CRLF aware $.
@@ -219,4 +219,4 @@ With some of the downsides out of the way, here are some positive differences:
   If we could know whether a regex will exhibit state explosion or not, then
   we could make an intelligent decision about whether to ahead-of-time compile
   a DFA.
-  See: https://www.researchgate.net/profile/XU_Shutu/publication/229032602_Characterization_of_a_global_germplasm_collection_and_its_potential_utilization_for_analysis_of_complex_quantitative_traits_in_maize/links/02bfe50f914d04c837000000.pdf
+  See: https://www.researchgate.net/profile/Xu-Shutu/publication/229032602_Characterization_of_a_global_germplasm_collection_and_its_potential_utilization_for_analysis_of_complex_quantitative_traits_in_maize/links/02bfe50f914d04c837000000/Characterization-of-a-global-germplasm-collection-and-its-potential-utilization-for-analysis-of-complex-quantitative-traits-in-maize.pdf
