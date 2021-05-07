@@ -194,7 +194,7 @@ impl MultiMatch {
 /// affirmative "it was found at this location" or a negative "not found at
 /// all." However, in some cases, a regex engine can be configured to stop its
 /// search before concluding whether a match exists or not. When this happens,
-/// it's important for the caller to know why the regex engine gave up and
+/// it may be important for the caller to know why the regex engine gave up and
 /// where in the input it gave up at. This error type exposes the 'why' and the
 /// 'where.'
 ///
@@ -220,18 +220,20 @@ impl MultiMatch {
 ///
 /// While this form of error reporting adds complexity, it is generally
 /// possible for callers to configure regex engines to never give up a search,
-/// and thus never return an error. Indeed, the default configuration for
-/// every regex engine in this crate is such it will never stop search early.
-/// Therefore, the only way to get a match error is if the regex engine is
-/// explicitly configured to do so. Options that enable this behavior document
-/// the new error conditions they imply.
+/// and thus never return an error. Indeed, the default configuration for every
+/// regex engine in this crate is such that they will never stop searching
+/// early. Therefore, the only way to get a match error is if the regex engine
+/// is explicitly configured to do so. Options that enable this behavior
+/// document the new error conditions they imply.
 ///
 /// Regex engines for which no errors are possible for any configuration will
 /// return the normal `Option<Match>` and not use this error type at all.
 ///
 /// For example, regex engines in the `dfa` sub-module will only report
-/// `MatchError::Quit` if instructed by either enabling Unicode word boundaries or
-/// by explicitly specifying one or more quit bytes.
+/// `MatchError::Quit` if instructed by either
+/// [enabling Unicode word boundaries](crate::dfa::dense::Config::unicode_word_boundary)
+/// or by
+/// [explicitly specifying one or more quit bytes](crate::dfa::dense::Config::quit).
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MatchError {
     // Note that the first version of this type was called `SearchError` and it

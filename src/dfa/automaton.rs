@@ -20,7 +20,7 @@ use crate::{
 /// increasing the match offset to do it---otherwise we would---but building
 /// the full Unicode-aware word boundary detection into an automaton is quite
 /// tricky.)
-pub const MATCH_OFFSET: usize = 1;
+pub(crate) const MATCH_OFFSET: usize = 1;
 
 /// A representation of a match reported by a DFA.
 ///
@@ -309,12 +309,13 @@ pub unsafe trait Automaton {
     /// crate is dependent on a few different factors:
     ///
     /// * The pattern ID, if present. When the underlying DFA has been compiled
-    /// with multiple patterns _and_ the DFA has been configured to compile an
-    /// anchored start state for each pattern, then a pattern ID may be
-    /// specified to execute an anchored search for that specific pattern. If
-    /// `pattern_id` is invalid or if the DFA doesn't have start states compiled
-    /// for each pattern, then implementations must panic. DFAs in this crate
-    /// can be configured to compile start states for each pattern via
+    /// with multiple patterns _and_ the DFA has been configured to compile
+    /// an anchored start state for each pattern, then a pattern ID may be
+    /// specified to execute an anchored search for that specific pattern.
+    /// If `pattern_id` is invalid or if the DFA doesn't have start states
+    /// compiled for each pattern, then implementations must panic. DFAs in
+    /// this crate can be configured to compile start states for each pattern
+    /// via
     /// [`dense::Config::starts_for_each_pattern`](crate::dfa::dense::Config::starts_for_each_pattern).
     /// * When `start > 0`, the byte at index `start - 1` may influence the
     /// start state if the regex uses `^` or `\b`.
@@ -480,6 +481,12 @@ pub unsafe trait Automaton {
     /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
     /// assert_eq!(mat.pattern(), 1);
     /// assert_eq!(mat.offset(), 3);
+    /// let mat = find_leftmost_first(&dfa, &haystack[3..])?.unwrap();
+    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.offset(), 7);
+    /// let mat = find_leftmost_first(&dfa, &haystack[10..])?.unwrap();
+    /// assert_eq!(mat.pattern(), 1);
+    /// assert_eq!(mat.offset(), 5);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1845,6 +1852,11 @@ pub struct OverlappingState<S> {
     /// The state ID of the state at which the search was in when the call
     /// terminated. When this is a match state, `last_match` must be set to a
     /// non-None value.
+    ///
+    /// A `None` value indicates the start state of the corresponding
+    /// automaton. We cannot use the actual ID, since any one automaton may
+    /// have many start states, and which one is in use depends on several
+    /// search-time factors.
     id: Option<S>,
     /// Information associated with a match when `id` corresponds to a match
     /// state.
@@ -1902,10 +1914,11 @@ impl<S: StateID> OverlappingState<S> {
 /// starting states for executing an anchored search for each pattern.
 ///
 /// This ends up being represented as a table in the DFA where the stride of
-/// that table is 4. Note though that multiple entries in the table might
-/// point to the same state if the states would otherwise be equivalent. (This
-/// is guaranteed by minimization and may even be accomplished by normal
-/// determinization, since it attempts to reuse equivalent states too.)
+/// that table is 4, and each entry is an index into the state transition
+/// table. Note though that multiple entries in the table might point to the
+/// same state if the states would otherwise be equivalent. (This is guaranteed
+/// by minimization and may even be accomplished by normal determinization,
+/// since it attempts to reuse equivalent states too.)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(crate) enum Start {
@@ -2029,4 +2042,51 @@ pub(crate) fn fmt_state_indicator<A: Automaton>(
         write!(f, "  ")?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Start;
+
+    #[test]
+    #[should_panic]
+    fn start_fwd_bad_range() {
+        Start::from_position_fwd(&[], 0, 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn start_rev_bad_range() {
+        Start::from_position_rev(&[], 0, 1);
+    }
+
+    #[test]
+    fn start_fwd() {
+        let f = Start::from_position_fwd;
+
+        assert_eq!(Start::Text, f(&[], 0, 0));
+        assert_eq!(Start::Text, f(b"abc", 0, 3));
+        assert_eq!(Start::Text, f(b"\nabc", 0, 3));
+
+        assert_eq!(Start::Line, f(b"\nabc", 1, 3));
+
+        assert_eq!(Start::WordByte, f(b"abc", 1, 3));
+
+        assert_eq!(Start::NonWordByte, f(b" abc", 1, 3));
+    }
+
+    #[test]
+    fn start_rev() {
+        let f = Start::from_position_rev;
+
+        assert_eq!(Start::Text, f(&[], 0, 0));
+        assert_eq!(Start::Text, f(b"abc", 0, 3));
+        assert_eq!(Start::Text, f(b"abc\n", 0, 4));
+
+        assert_eq!(Start::Line, f(b"abc\nz", 0, 3));
+
+        assert_eq!(Start::WordByte, f(b"abc", 0, 2));
+
+        assert_eq!(Start::NonWordByte, f(b"abc ", 0, 3));
+    }
 }

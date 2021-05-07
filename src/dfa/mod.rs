@@ -2,9 +2,9 @@
 A module for building and searching with determinstic finite automata (DFAs).
 
 Like other modules in this crate, DFAs support a rich syntax with Unicode
-support, has extensive options for configuring the best space vs time trade off
-for your use case and provides support for cheap deserialization of automata
-for use in `no_std` environments.
+support. DFAs also have extensive options for configuring the best space vs
+time trade off for your use case and provides support for cheap deserialization
+of automata for use in `no_std` environments.
 
 # Overview
 
@@ -312,8 +312,7 @@ pub use crate::dfa::regex::{
 
 mod accel;
 mod automaton;
-#[path = "dense.rs"]
-mod dense_imp;
+pub mod dense;
 #[cfg(feature = "alloc")]
 mod determinize;
 #[cfg(feature = "alloc")]
@@ -322,62 +321,7 @@ pub(crate) mod error;
 mod minimize;
 mod regex;
 mod search;
-#[path = "sparse.rs"]
-mod sparse_imp;
+pub mod sparse;
 mod special;
 #[cfg(feature = "transducer")]
 mod transducer;
-
-/// Types and routines specific to dense DFAs.
-///
-/// This module is the home of [`dense::DFA`].
-///
-/// This module also contains a [`dense::Builder`] and a [`dense::Config`] for
-/// configuring and building a dense DFA.
-pub mod dense {
-    pub use crate::dfa::dense_imp::*;
-}
-
-/// Types and routines specific to sparse DFAs.
-///
-/// This module is the home of [`sparse::DFA`].
-///
-/// Unlike the [`dense`] module, this module does not contain a builder
-/// or configuration specific for sparse DFAs. Instead, the intended way
-/// to build a sparse DFA is either by using a default configuration with
-/// its constructor [`sparse::DFA::new`], or by first configuring the
-/// construction of a dense DFA with [`dense::Builder`] and then calling
-/// [`dense::DFA::to_sparse`]. For example, this configures a sparse DFA to do
-/// an overlapping search:
-///
-/// ```
-/// use regex_automata::{
-///     dfa::{Automaton, HalfMatch, OverlappingState, dense},
-///     MatchKind,
-/// };
-///
-/// let dense_re = dense::Builder::new()
-///     .configure(dense::Config::new().match_kind(MatchKind::All))
-///     .build(r"Samwise|Sam")?;
-/// let sparse_re = dense_re.to_sparse()?;
-///
-/// // Setup our haystack and initial start state.
-/// let haystack = b"Samwise";
-/// let mut state = OverlappingState::start();
-///
-/// // First, 'Sam' will match.
-/// let end1 = sparse_re.find_overlapping_fwd_at(
-///     None, None, haystack, 0, haystack.len(), &mut state,
-/// )?;
-/// assert_eq!(end1, Some(HalfMatch::new(0, 3)));
-///
-/// // And now 'Samwise' will match.
-/// let end2 = sparse_re.find_overlapping_fwd_at(
-///     None, None, haystack, 3, haystack.len(), &mut state,
-/// )?;
-/// assert_eq!(end2, Some(HalfMatch::new(0, 7)));
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-pub mod sparse {
-    pub use crate::dfa::sparse_imp::*;
-}
