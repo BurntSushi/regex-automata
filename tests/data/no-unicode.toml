@@ -134,15 +134,25 @@ matches = [[0, 4]]
 
 [[tests]]
 # See: https://github.com/rust-lang/regex/issues/484
-name = "iter1"
+name = "iter1-bytes"
 regex = ''
 input = "☃"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
+utf8 = false
 
 [[tests]]
 # See: https://github.com/rust-lang/regex/issues/484
-name = "iter2"
+name = "iter1-utf8"
+regex = ''
+input = "☃"
+matches = [[0, 0], [3, 3]]
+
+[[tests]]
+# See: https://github.com/rust-lang/regex/issues/484
+# Note that iter2-utf8 doesn't make sense here, since the input isn't UTF-8.
+name = "iter2-bytes"
 regex = ''
 input = 'b\xFFr'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 unescape = true
+utf8 = false

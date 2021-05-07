@@ -26,3 +26,24 @@ pub fn fmt_byte(f: &mut fmt::Formatter, b: u8) -> fmt::Result {
     }
     write!(f, r"{}", str::from_utf8(&bytes[..len]).unwrap())
 }
+
+/// Returns the smallest possible index of the next valid UTF-8 sequence
+/// starting after `i`.
+///
+/// For all inputs, the return value is guaranteed to be greater than `i`.
+pub fn next_utf8(text: &[u8], i: usize) -> usize {
+    let b = match text.get(i) {
+        None => return i.checked_add(1).unwrap(),
+        Some(&b) => b,
+    };
+    let inc = if b <= 0x7F {
+        1
+    } else if b <= 0b110_11111 {
+        2
+    } else if b <= 0b1110_1111 {
+        3
+    } else {
+        4
+    };
+    i.checked_add(inc).unwrap()
+}
