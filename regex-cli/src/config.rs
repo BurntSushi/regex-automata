@@ -340,7 +340,7 @@ This mode cannot be toggled inside the regex.
             .swap_greed(args.is_present("swap-greed"))
             .ignore_whitespace(args.is_present("ignore-whitespace"))
             .unicode(!args.is_present("no-unicode"))
-            .allow_invalid_utf8(args.is_present("no-utf8-syntax"))
+            .utf8(!args.is_present("no-utf8-syntax"))
             .octal(args.is_present("octal"));
         if let Some(n) = args.value_of_lossy("nest-limit") {
             let limit = n.parse().context("failed to parse --nest-limit")?;
@@ -381,7 +381,7 @@ This mode cannot be toggled inside the regex.
         ast: &syntax::ast::Ast,
     ) -> anyhow::Result<syntax::hir::Hir> {
         syntax::hir::translate::TranslatorBuilder::new()
-            .allow_invalid_utf8(self.0.get_allow_invalid_utf8())
+            .allow_invalid_utf8(!self.0.get_utf8())
             .case_insensitive(self.0.get_case_insensitive())
             .multi_line(self.0.get_multi_line())
             .dot_matches_new_line(self.0.get_dot_matches_new_line())

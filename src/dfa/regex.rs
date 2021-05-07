@@ -283,12 +283,11 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// in the given bytes. If no match exists, then the iterator yields no
     /// elements.
     ///
-    /// Note that if the regex can match the empty string, then it is
-    /// possible for the iterator to yield a zero-width match at a location
-    /// that is not a valid UTF-8 boundary (for example, between the code units
-    /// of a UTF-8 encoded codepoint). This can happen regardless of whether
-    /// [`allow_invalid_utf8`](struct.RegexBuilder.html#method.allow_invalid_utf8)
-    /// was enabled or not.
+    /// Note that if the regex can match the empty string, then it is possible
+    /// for the iterator to yield a zero-width match at a location that is
+    /// not a valid UTF-8 boundary (for example, between the code units of
+    /// a UTF-8 encoded codepoint). This can happen regardless of whether
+    /// [`utf8`](crate::SyntaxConfig::utf8) was enabled or not.
     ///
     /// # Example
     ///

@@ -21,7 +21,7 @@ pub struct SyntaxConfig {
     swap_greed: bool,
     ignore_whitespace: bool,
     unicode: bool,
-    allow_invalid_utf8: bool,
+    utf8: bool,
     nest_limit: u32,
     octal: bool,
 }
@@ -37,7 +37,7 @@ impl SyntaxConfig {
             swap_greed: false,
             ignore_whitespace: false,
             unicode: true,
-            allow_invalid_utf8: false,
+            utf8: true,
             nest_limit: 250,
             octal: false,
         }
@@ -136,23 +136,22 @@ impl SyntaxConfig {
         self
     }
 
-    /// When enabled, the builder will permit the construction of a regular
+    /// When disabled, the builder will permit the construction of a regular
     /// expression that may match invalid UTF-8.
     ///
-    /// This option also applies to how a regex engine in this crate executes.
-    /// Namely, regexes are by default are automatically given a prefix that
-    /// permits them to be "unanchored," which allows them to match anywhere
-    /// in the input instead of just at the beginning. By default, this prefix
-    /// corresponds to the regex `(?s:.)*?`, where `(?s:.)` corresponds
-    /// to any valid UTF-8 encoding of a Unicode scalar value. When this
-    /// "allow invalid UTF-8" option is enabled, the prefix instead becomes
-    /// `(?s-u:.)*?`, where `(?s-u:.)` corresponds to any arbitrary byte.
+    /// For example, when [`SyntaxConfig::unicode`] is disabled, then
+    /// expressions like `[^a]` may match invalid UTF-8 since they can match
+    /// any single byte that is not `a`. By default, these sub-expressions
+    /// are disallowed to avoid returning offsets that split a UTF-8
+    /// encoded codepoint. However, in cases where matching at arbitrary
+    /// locations is desired, this option can be disabled to permit all such
+    /// sub-expressions.
     ///
-    /// When disabled (the default), the builder is guaranteed to produce a
+    /// When enabled (the default), the builder is guaranteed to produce a
     /// regex that will only ever match valid UTF-8 (otherwise, the builder
     /// will return an error).
-    pub fn allow_invalid_utf8(mut self, yes: bool) -> SyntaxConfig {
-        self.allow_invalid_utf8 = yes;
+    pub fn utf8(mut self, yes: bool) -> SyntaxConfig {
+        self.utf8 = yes;
         self
     }
 
@@ -236,9 +235,9 @@ impl SyntaxConfig {
         self.ignore_whitespace
     }
 
-    /// Returns whether "allow invalid UTF-8" mode is enabled.
-    pub fn get_allow_invalid_utf8(&self) -> bool {
-        self.allow_invalid_utf8
+    /// Returns whether UTF-8 mode is enabled.
+    pub fn get_utf8(&self) -> bool {
+        self.utf8
     }
 
     /// Returns the "nest limit" setting.
@@ -260,7 +259,7 @@ impl SyntaxConfig {
             .dot_matches_new_line(self.dot_matches_new_line)
             .swap_greed(self.swap_greed)
             .ignore_whitespace(self.ignore_whitespace)
-            .allow_invalid_utf8(self.allow_invalid_utf8)
+            .allow_invalid_utf8(!self.utf8)
             .nest_limit(self.nest_limit)
             .octal(self.octal);
     }
