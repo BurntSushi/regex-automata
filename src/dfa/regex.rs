@@ -729,9 +729,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 /// An iterator over all non-overlapping earliest matches for a particular
 /// search.
 ///
-/// The iterator yields a `(usize, usize)` value until no more matches could be
-/// found. The first `usize` is the start of the match (inclusive) while the
-/// second `usize` is the end of the match (exclusive).
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
 /// while `P` is the type of prefilter used, if any. The lifetime variables are
@@ -763,11 +762,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     }
 }
 
-/// An iterator over all non-overlapping matches for a particular search.
+/// An iterator over all non-overlapping leftmost matches for a particular
+/// search.
 ///
-/// The iterator yields a `(usize, usize)` value until no more matches could be
-/// found. The first `usize` is the start of the match (inclusive) while the
-/// second `usize` is the end of the match (exclusive).
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
 /// while `P` is the type of prefilter used, if any. The lifetime variables are
@@ -801,9 +800,8 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 
 /// An iterator over all overlapping matches for a particular search.
 ///
-/// The iterator yields a `(usize, usize)` value until no more matches could be
-/// found. The first `usize` is the start of the match (inclusive) while the
-/// second `usize` is the end of the match (exclusive).
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
 /// while `P` is the type of prefilter used, if any. The lifetime variables are
@@ -838,9 +836,8 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// An iterator over all non-overlapping earliest matches for a particular
 /// search.
 ///
-/// The iterator yields a `(usize, usize)` value until no more matches could be
-/// found. The first `usize` is the start of the match (inclusive) while the
-/// second `usize` is the end of the match (exclusive).
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
 /// while `P` is the type of prefilter used, if any. The lifetime variables are
@@ -913,9 +910,8 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 
 /// An iterator over all non-overlapping matches for a particular search.
 ///
-/// The iterator yields a `(usize, usize)` value until no more matches could be
-/// found. The first `usize` is the start of the match (inclusive) while the
-/// second `usize` is the end of the match (exclusive).
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
 /// while `P` is the type of prefilter used, if any. The lifetime variables are
@@ -988,9 +984,8 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 
 /// An iterator over all overlapping matches for a particular search.
 ///
-/// The iterator yields a `(usize, usize)` value until no more matches could be
-/// found. The first `usize` is the start of the match (inclusive) while the
-/// second `usize` is the end of the match (exclusive).
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
 /// while `P` is the type of prefilter used, if any. The lifetime variables are
