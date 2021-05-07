@@ -1,3 +1,12 @@
+/*!
+Types and routines specific to dense DFAs.
+
+This module is the home of [`dense::DFA`](DFA).
+
+This module also contains a [`dense::Builder`](Builder) and a
+[`dense::Config`](Config) for configuring and building a dense DFA.
+*/
+
 #[cfg(feature = "alloc")]
 use core::cmp;
 use core::{convert::TryInto, fmt, iter, marker::PhantomData, slice};
@@ -95,8 +104,11 @@ impl Config {
     /// **WARNING:** this is subtly different than using a `^` at the start of
     /// your regex. A `^` forces a regex to match exclusively at the start of
     /// input, regardless of where you start your search. In contrast, enabling
-    /// this option will allow your regex to match anywhere in your input, but
-    /// the match must start at the beginning of a search.
+    /// this option will allow your regex to match anywhere in your input,
+    /// but the match must start at the beginning of a search. (Most of the
+    /// higher level convenience search routines make "start of input" and
+    /// "start of search" equivalent, but some routines allow treating these as
+    /// orthogonal.)
     ///
     /// For example, consider the haystack `aba` and the following searches:
     ///
@@ -349,8 +361,8 @@ impl Config {
     ///
     /// When enabled, a separate anchored start state is added for each pattern
     /// in the DFA. When this start state is used, then the DFA will only
-    /// search for matches for the pattern, even if there are other patterns in
-    /// the DFA.
+    /// search for matches for the pattern specified, even if there are other
+    /// patterns in the DFA.
     ///
     /// The main downside of this option is that it can potentially increase
     /// the size of the DFA and/or increase the time it takes to build the DFA.
@@ -435,9 +447,10 @@ impl Config {
     ///
     /// The advantage of this map is that the size of the transition table can
     /// be reduced drastically from `#states * 256 * sizeof(id)` to `#states *
-    /// k * sizeof(id)` where `k` is the number of equivalence classes. As a
-    /// result, total space usage can decrease substantially. Moreover, since a
-    /// smaller alphabet is used, DFA compilation becomes faster as well.
+    /// k * sizeof(id)` where `k` is the number of equivalence classes (rounded
+    /// up to the nearest power of 2). As a result, total space usage can
+    /// decrease substantially. Moreover, since a smaller alphabet is used, DFA
+    /// compilation becomes faster as well.
     ///
     /// **WARNING:** This is only useful for debugging DFAs. Disabling this
     /// does not yield any speed advantages. Namely, even when this is
@@ -458,38 +471,34 @@ impl Config {
     /// is ASCII only. If a non-ASCII byte is observed while searching, then a
     /// [`MatchError::Quit`](crate::MatchError::Quit) error is returned.
     ///
-    /// Therefore, when enabling this option, callers _must_ be prepared
-    /// to handle a `MatchError` error during search. When using a
-    /// [`Regex`](crate::dfa::Regex), this corresponds to using the `try_`
-    /// suite of methods. Alternatively, if callers can guarantee that their
-    /// input is ASCII only, then a `MatchError::Quit` error will never be
-    /// returned while searching.
+    /// A possible alternative to enabling this option is to simply use an
+    /// ASCII word boundary, e.g., via `(?-u:\b)`.
     ///
-    /// An alternative to enabling this option is to simply use an ASCII
-    /// word boundary, e.g., via `(?-u:\b)`.
-    ///
-    /// If the regex pattern provided has no Unicode word boundary in it, then
-    /// this option has no effect. (That is, quitting on a non-ASCII byte only
+    /// If the pattern provided has no Unicode word boundary in it, then this
+    /// option has no effect. (That is, quitting on a non-ASCII byte only
     /// occurs when this option is enabled _and_ a Unicode word boundary is
     /// present in the pattern.)
     ///
     /// This is almost equivalent to setting all non-ASCII bytes to be quit
     /// bytes. The only difference is that this will cause non-ASCII bytes to
     /// be quit bytes _only_ when a Unicode word boundary is present in the
-    /// regex pattern.
+    /// pattern.
     ///
-    /// When enabling this option, callers _must_ be prepared to
-    /// handle a `MatchError` error during search. When using a
-    /// [`Regex`](crate::dfa::Regex), this corresponds to using the `try_`
-    /// suite of methods.
+    /// When enabling this option, callers _must_ be prepared to handle
+    /// a [`MatchError`](crate::MatchError) error during search.
+    /// When using a [`Regex`](crate::dfa::Regex), this corresponds
+    /// to using the `try_` suite of methods. Alternatively, if
+    /// callers can guarantee that their input is ASCII only, then a
+    /// [`MatchError::Quit`](crate::MatchError::Quit) error will never be
+    /// returned while searching.
     ///
     /// This is disabled by default.
     ///
     /// # Example
     ///
     /// This example shows how to heuristically enable Unicode word boundaries
-    /// in a regex pattern. It also shows what happens when a search comes
-    /// across a non-ASCII byte.
+    /// in a pattern. It also shows what happens when a search comes across a
+    /// non-ASCII byte.
     ///
     /// ```
     /// use regex_automata::{
@@ -550,9 +559,11 @@ impl Config {
     /// to be quit bytes, then Unicode word boundaries will be permitted when
     /// building DFAs. Of course, callers should enable
     /// [`Config::unicode_word_boundary`] if they want this behavior instead.
+    /// (The advantage being that non-ASCII quit bytes will only be added if a
+    /// Unicode word boundary is in the pattern.)
     ///
-    /// When enabling this option, callers _must_ be prepared to
-    /// handle a `MatchError` error during search. When using a
+    /// When enabling this option, callers _must_ be prepared to handle a
+    /// [`MatchError`](crate::MatchError) error during search. When using a
     /// [`Regex`](crate::dfa::Regex), this corresponds to using the `try_`
     /// suite of methods.
     ///
@@ -560,10 +571,11 @@ impl Config {
     ///
     /// # Panics
     ///
-    /// This panics if Unicode word boundaries are enabled and any non-ASCII
-    /// byte is removed from the set of quit bytes. Namely, enabling Unicode
-    /// word boundaries requires setting every non-ASCII byte to a quit byte.
-    /// So if the caller attempts to undo any of that, then this will panic.
+    /// This panics if heuristic Unicode word boundaries are enabled and any
+    /// non-ASCII byte is removed from the set of quit bytes. Namely, enabling
+    /// Unicode word boundaries requires setting every non-ASCII byte to a quit
+    /// byte. So if the caller attempts to undo any of that, then this will
+    /// panic.
     ///
     /// # Example
     ///
@@ -695,7 +707,8 @@ impl Config {
 /// [`Builder::configure`] is used with [`Config`] to configure aspects of
 /// the DFA and the construction process itself. [`Builder::syntax`] and
 /// [`Builder::thompson`] permit configuring the regex parser and Thompson NFA
-/// construction, respectively.
+/// construction, respectively. The syntax and thompson configurations only
+/// apply when building from a pattern.
 ///
 /// This builder always constructs a *single* DFA. As such, this builder
 /// can only be used to construct regexes that either detect the presence
@@ -710,6 +723,42 @@ impl Config {
 /// Note that if one wants to build a sparse DFA, you must first build a dense
 /// DFA and convert that to a sparse DFA. There is no way to build a sparse
 /// DFA without first building a dense DFA.
+///
+/// # Example
+///
+/// This example shows how to build a minimized DFA that completely disables
+/// Unicode. That is:
+///
+/// * Things such as `\w`, `.` and `\b` are no longer Unicode-aware. `\w`
+///   and `\b` are ASCII-only while `.` matches any byte except for `\n`
+///   (instead of any UTF-8 encoding of a Unicode scalar value except for
+///   `\n`). Things that are Unicode only, such as `\pL`, are not allowed.
+/// * The pattern itself is permitted to match invalid UTF-8. For example,
+///   things like `[^a]` that match any byte except for `a` are permitted.
+/// * Unanchored patterns can search through invalid UTF-8. That is, for
+///   unanchored patterns, the implicit prefix is `(?s-u:.)*?` instead of
+///   `(?s:.)*?`.
+///
+/// ```
+/// use regex_automata::{
+///     dfa::{Automaton, HalfMatch, dense},
+///     nfa::thompson,
+///     SyntaxConfig,
+/// };
+///
+/// let dfa = dense::Builder::new()
+///     .configure(dense::Config::new().minimize(false))
+///     .syntax(SyntaxConfig::new().unicode(false).allow_invalid_utf8(true))
+///     .thompson(thompson::Config::new().utf8(false))
+///     .build(r"foo[^b]ar.*")?;
+///
+/// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";
+/// let expected = Some(HalfMatch::new(0, 10));
+/// let got = dfa.find_leftmost_fwd(haystack)?;
+/// assert_eq!(expected, got);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct Builder {
@@ -896,6 +945,9 @@ impl Builder {
     /// This permits setting things like whether the DFA should match the regex
     /// in reverse or if additional time should be spent shrinking the size of
     /// the NFA.
+    ///
+    /// These settings only apply when constructing a DFA directly from a
+    /// pattern.
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.thompson.configure(config);
         self

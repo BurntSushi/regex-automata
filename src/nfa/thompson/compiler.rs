@@ -1,35 +1,37 @@
-// This module provides an NFA compiler using Thompson's construction
-// algorithm. The compiler takes a regex-syntax::Hir as input and emits an NFA
-// graph as output. The NFA graph is structured in a way that permits it to be
-// executed by a virtual machine and also used to efficiently build a DFA.
-//
-// The compiler deals with a slightly expanded set of NFA states that notably
-// includes an empty node that has exactly one epsilon transition to the next
-// state. In other words, it's a "goto" instruction if one views Thompson's NFA
-// as a set of bytecode instructions. These goto instructions are removed in
-// a subsequent phase before returning the NFA to the caller. The purpose of
-// these empty nodes is that they make the construction algorithm substantially
-// simpler to implement. We remove them before returning to the caller because
-// they can represent substantial overhead when traversing the NFA graph
-// (either while searching using the NFA directly or while building a DFA).
-//
-// In the future, it would be nice to provide a Glushkov compiler as well,
-// as it would work well as a bit-parallel NFA for smaller regexes. But
-// the Thompson construction is one I'm more familiar with and seems more
-// straight-forward to deal with when it comes to large Unicode character
-// classes.
-//
-// Internally, the compiler uses interior mutability to improve composition
-// in the face of the borrow checker. In particular, we'd really like to be
-// able to write things like this:
-//
-//     self.c_concat(exprs.iter().map(|e| self.c(e)))
-//
-// Which elegantly uses iterators to build up a sequence of compiled regex
-// sub-expressions and then hands it off to the concatenating compiler
-// routine. Without interior mutability, the borrow checker won't let us
-// borrow `self` mutably both inside and outside the closure at the same
-// time.
+/*
+This module provides an NFA compiler using Thompson's construction
+algorithm. The compiler takes a regex-syntax::Hir as input and emits an NFA
+graph as output. The NFA graph is structured in a way that permits it to be
+executed by a virtual machine and also used to efficiently build a DFA.
+
+The compiler deals with a slightly expanded set of NFA states that notably
+includes an empty node that has exactly one epsilon transition to the next
+state. In other words, it's a "goto" instruction if one views Thompson's NFA
+as a set of bytecode instructions. These goto instructions are removed in
+a subsequent phase before returning the NFA to the caller. The purpose of
+these empty nodes is that they make the construction algorithm substantially
+simpler to implement. We remove them before returning to the caller because
+they can represent substantial overhead when traversing the NFA graph
+(either while searching using the NFA directly or while building a DFA).
+
+In the future, it would be nice to provide a Glushkov compiler as well,
+as it would work well as a bit-parallel NFA for smaller regexes. But
+the Thompson construction is one I'm more familiar with and seems more
+straight-forward to deal with when it comes to large Unicode character
+classes.
+
+Internally, the compiler uses interior mutability to improve composition
+in the face of the borrow checker. In particular, we'd really like to be
+able to write things like this:
+
+    self.c_concat(exprs.iter().map(|e| self.c(e)))
+
+Which elegantly uses iterators to build up a sequence of compiled regex
+sub-expressions and then hands it off to the concatenating compiler
+routine. Without interior mutability, the borrow checker won't let us
+borrow `self` mutably both inside and outside the closure at the same
+time.
+*/
 
 use core::{borrow::Borrow, cell::RefCell, mem};
 

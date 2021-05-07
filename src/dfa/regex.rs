@@ -352,18 +352,18 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         self.forward().pattern_count()
     }
 
-    /// Convenience function for returning a prefilter scanner.
-    fn scanner(&self) -> Option<prefilter::Scanner> {
-        self.prefilter().map(prefilter::Scanner::new)
-    }
-
     /// Convenience function for returning this regex's prefilter as a trait
     /// object.
-    fn prefilter(&self) -> Option<&dyn Prefilter> {
+    pub fn prefilter(&self) -> Option<&dyn Prefilter> {
         match self.prefilter {
             None => None,
             Some(ref x) => Some(&*x),
         }
+    }
+
+    /// Convenience function for returning a prefilter scanner.
+    fn scanner(&self) -> Option<prefilter::Scanner> {
+        self.prefilter().map(prefilter::Scanner::new)
     }
 }
 
