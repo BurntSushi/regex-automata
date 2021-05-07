@@ -301,7 +301,7 @@ fn configure_regex_builder(
     let syntax_config = SyntaxConfig::new()
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
-        .allow_invalid_utf8(!test.utf8());
+        .utf8(test.utf8());
     let dense_config = dense::Config::new()
         .anchored(test.anchored())
         .match_kind(match_kind)

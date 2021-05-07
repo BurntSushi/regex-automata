@@ -1286,7 +1286,7 @@ mod tests {
         // Check that non-UTF-8 literals work.
         let nfa = Builder::new()
             .configure(Config::new().utf8(false).unanchored_prefix(false))
-            .syntax(crate::SyntaxConfig::new().allow_invalid_utf8(true))
+            .syntax(crate::SyntaxConfig::new().utf8(false))
             .build(r"(?-u)\xFF")
             .unwrap();
         assert_eq!(nfa.states, &[s_byte(b'\xFF', 1), s_match(0),]);

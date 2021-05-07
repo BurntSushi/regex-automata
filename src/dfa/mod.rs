@@ -266,9 +266,8 @@ means that searches may run much slower than what you're accustomed to,
 although, it does provide more predictable and consistent performance.
 * There is no `&str` API like in the regex crate. In this module, all APIs
 operate on `&[u8]`. By default, match indices are guaranteed to fall on UTF-8
-boundaries, unless
-[`SyntaxConfig::allow_invalid_utf8`](crate::SyntaxConfig::allow_invalid_utf8)
-is enabled.
+boundaries, unless [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) is
+disabled.
 
 With some of the downsides out of the way, here are some positive differences:
 

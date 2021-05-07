@@ -909,9 +909,7 @@ pub unsafe trait Automaton {
     ///     // We disable Unicode everywhere and permit the regex to match
     ///     // invalid UTF-8. e.g., `[^abc]` matches `\xFF`, which is not valid
     ///     // UTF-8.
-    ///     .syntax(SyntaxConfig::new()
-    ///         .unicode(false)
-    ///         .allow_invalid_utf8(true))
+    ///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
     ///     // This makes the implicit `(?s:.)*?` prefix added to the regex
     ///     // match through arbitrary bytes instead of being UTF-8 aware. This
     ///     // isn't necessary to get acceleration to work in this case, but

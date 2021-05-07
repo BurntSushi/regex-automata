@@ -748,7 +748,7 @@ impl Config {
 ///
 /// let dfa = dense::Builder::new()
 ///     .configure(dense::Config::new().minimize(false))
-///     .syntax(SyntaxConfig::new().unicode(false).allow_invalid_utf8(true))
+///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
 ///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo[^b]ar.*")?;
 ///
