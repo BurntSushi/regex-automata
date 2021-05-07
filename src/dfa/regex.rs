@@ -29,6 +29,7 @@ macro_rules! define_regex_type {
             prefilter: Option<P>,
             forward: A,
             reverse: A,
+            utf8: bool,
         }
 
         #[cfg(not(feature = "alloc"))]
@@ -37,6 +38,7 @@ macro_rules! define_regex_type {
             prefilter: Option<P>,
             forward: A,
             reverse: A,
+            utf8: bool,
         }
     };
 }
@@ -80,7 +82,7 @@ define_regex_type!(
     /// build a regex from them:
     ///
     /// ```
-    /// use regex_automata::dfa::Regex;
+    /// use regex_automata::dfa::{Regex, RegexBuilder};
     ///
     /// // First, build a regex that uses dense DFAs.
     /// let dense_re = Regex::new("foo[0-9]+")?;
@@ -90,7 +92,7 @@ define_regex_type!(
     /// let rev = dense_re.reverse().to_sparse()?;
     ///
     /// // Third, build a new regex from the constituent sparse DFAs.
-    /// let sparse_re = Regex::from_dfas(fwd, rev);
+    /// let sparse_re = RegexBuilder::new().build_from_dfas(fwd, rev);
     ///
     /// // A regex that uses sparse DFAs can be used just like with dense DFAs.
     /// assert_eq!(true, sparse_re.is_match(b"foo123"));
@@ -324,12 +326,18 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             prefilter: Some(prefilter),
             forward: self.forward,
             reverse: self.reverse,
+            utf8: self.utf8,
         }
     }
 
     /// Remove any prefilter from this regex.
     pub fn without_prefilter(self) -> Regex<A> {
-        Regex { prefilter: None, forward: self.forward, reverse: self.reverse }
+        Regex {
+            prefilter: None,
+            forward: self.forward,
+            reverse: self.reverse,
+            utf8: self.utf8,
+        }
     }
 
     /// Return the underlying DFA responsible for forward matching.
@@ -363,67 +371,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Convenience function for returning a prefilter scanner.
     fn scanner(&self) -> Option<prefilter::Scanner> {
         self.prefilter().map(prefilter::Scanner::new)
-    }
-}
-
-impl<A: Automaton> Regex<A> {
-    /// Build a new regex from its constituent forward and reverse DFAs.
-    ///
-    /// This is useful when deserializing a regex from some arbitrary
-    /// memory region. This is also useful for building regexes from other
-    /// types of DFAs.
-    ///
-    /// # Example
-    ///
-    /// This example is a bit a contrived. The usual use of these methods
-    /// would involve serializing `initial_re` somewhere and then deserializing
-    /// it later to build a regex.
-    ///
-    /// ```
-    /// use regex_automata::dfa::Regex;
-    ///
-    /// let initial_re = Regex::new("foo[0-9]+")?;
-    /// assert_eq!(true, initial_re.is_match(b"foo123"));
-    ///
-    /// let (fwd, rev) = (initial_re.forward(), initial_re.reverse());
-    /// let re = Regex::from_dfas(fwd, rev);
-    /// assert_eq!(true, re.is_match(b"foo123"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// This example shows how you might build smaller DFAs, and then use those
-    /// smaller DFAs to build a new regex.
-    ///
-    /// ```
-    /// use regex_automata::dfa::Regex;
-    ///
-    /// let initial_re = Regex::new("foo[0-9]+")?;
-    /// assert_eq!(true, initial_re.is_match(b"foo123"));
-    ///
-    /// let fwd = initial_re.forward().to_sized::<u16>()?;
-    /// let rev = initial_re.reverse().to_sized::<u16>()?;
-    /// let re = Regex::from_dfas(fwd, rev);
-    /// assert_eq!(true, re.is_match(b"foo123"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// This example shows how to build a `Regex` that uses sparse DFAs instead
-    /// of dense DFAs:
-    ///
-    /// ```
-    /// use regex_automata::dfa::Regex;
-    ///
-    /// let initial_re = Regex::new("foo[0-9]+")?;
-    /// assert_eq!(true, initial_re.is_match(b"foo123"));
-    ///
-    /// let fwd = initial_re.forward().to_sparse()?;
-    /// let rev = initial_re.reverse().to_sparse()?;
-    /// let re = Regex::from_dfas(fwd, rev);
-    /// assert_eq!(true, re.is_match(b"foo123"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn from_dfas(forward: A, reverse: A) -> Regex<A> {
-        Regex { prefilter: None, forward, reverse }
     }
 }
 
@@ -834,7 +781,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 }
 
 /// An iterator over all non-overlapping earliest matches for a particular
-/// search.
+/// fallible search.
 ///
 /// The iterator yields a [`MultiMatch`] value until no more matches could be
 /// found.
@@ -894,7 +841,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
             // This is an empty match. To ensure we make progress, start
             // the next search at the smallest possible starting position
             // of the next match following this one.
-            self.last_end = m.end() + 1;
+            self.last_end = if self.re.utf8 {
+                crate::util::next_utf8(self.text, m.end())
+            } else {
+                m.end() + 1
+            };
             // Don't accept empty matches immediately following a match.
             // Just move on to the next match.
             if Some(m.end()) == self.last_match {
@@ -908,7 +859,8 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     }
 }
 
-/// An iterator over all non-overlapping matches for a particular search.
+/// An iterator over all non-overlapping leftmost matches for a particular
+/// fallible search.
 ///
 /// The iterator yields a [`MultiMatch`] value until no more matches could be
 /// found.
@@ -968,7 +920,11 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
             // This is an empty match. To ensure we make progress, start
             // the next search at the smallest possible starting position
             // of the next match following this one.
-            self.last_end = m.end() + 1;
+            self.last_end = if self.re.utf8 {
+                crate::util::next_utf8(self.text, m.end())
+            } else {
+                m.end() + 1
+            };
             // Don't accept empty matches immediately following a match.
             // Just move on to the next match.
             if Some(m.end()) == self.last_match {
@@ -982,7 +938,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     }
 }
 
-/// An iterator over all overlapping matches for a particular search.
+/// An iterator over all overlapping matches for a particular fallible search.
 ///
 /// The iterator yields a [`MultiMatch`] value until no more matches could be
 /// found.
@@ -1049,6 +1005,116 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     }
 }
 
+/// The configuration used for compiling a DFA-backed regex.
+///
+/// A regex configuration is a simple data object that is typically used with
+/// [`RegexBuilder::configure`].
+#[cfg(feature = "alloc")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RegexConfig {
+    utf8: Option<bool>,
+}
+
+#[cfg(feature = "alloc")]
+impl RegexConfig {
+    /// Return a new default regex compiler configuration.
+    pub fn new() -> RegexConfig {
+        RegexConfig::default()
+    }
+
+    /// Whether to enable UTF-8 mode or not.
+    ///
+    /// When UTF-8 mode is enabled (the default) and an empty match is seen,
+    /// the iterators on `Regex` will always start the next search at the next
+    /// UTF-8 encoded codepoint when searching valid UTF-8. When UTF-8 mode is
+    /// disabled, such searches are started at the next byte offset.
+    ///
+    /// If this mode is enabled and invalid UTF-8 is given to search, then
+    /// behavior is unspecified.
+    ///
+    /// Generally speaking, one should enable this when
+    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
+    /// and
+    /// [`thompson::Config::utf8`](crate::nfa::thompson::Config::utf8)
+    /// are enabled, and disable it otherwise.
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates the differences between when this option is
+    /// enabled and disabled. The differences only arise when the regex can
+    /// return matches of length zero.
+    ///
+    /// In this first snippet, we show the results when UTF-8 mode is disabled.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{RegexBuilder, RegexConfig},
+    ///     MultiMatch,
+    /// };
+    ///
+    /// let re = RegexBuilder::new()
+    ///     .configure(RegexConfig::new().utf8(false))
+    ///     .build(r"")?;
+    /// let haystack = "a☃z".as_bytes();
+    /// let mut it = re.find_leftmost_iter(haystack);
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 0)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 1, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 2, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 3, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 4, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 5, 5)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And in this snippet, we execute the same search on the same haystack,
+    /// but with UTF-8 mode enabled. Notice that byte offsets that would
+    /// otherwise split the encoding of `☃` are not returned.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{RegexBuilder, RegexConfig},
+    ///     MultiMatch,
+    /// };
+    ///
+    /// let re = RegexBuilder::new()
+    ///     .configure(RegexConfig::new().utf8(true))
+    ///     .build(r"")?;
+    /// let haystack = "a☃z".as_bytes();
+    /// let mut it = re.find_leftmost_iter(haystack);
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 0)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 1, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 4, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 5, 5)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn utf8(mut self, yes: bool) -> RegexConfig {
+        self.utf8 = Some(yes);
+        self
+    }
+
+    /// Returns true if and only if this configuration has UTF-8 mode enabled.
+    ///
+    /// When UTF-8 mode is enabled and an empty match is seen, the iterators on
+    /// `Regex` will always start the next search at the next UTF-8 encoded
+    /// codepoint. When UTF-8 mode is disabled, such searches are started at
+    /// the next byte offset.
+    pub fn get_utf8(&self) -> bool {
+        self.utf8.unwrap_or(true)
+    }
+
+    /// Overwrite the default configuration such that the options in `o` are
+    /// always used. If an option in `o` is not set, then the corresponding
+    /// option in `self` is used. If it's not set in `self` either, then it
+    /// remains not set.
+    pub(crate) fn overwrite(self, o: RegexConfig) -> RegexConfig {
+        RegexConfig { utf8: o.utf8.or(self.utf8) }
+    }
+}
+
 /// A builder for a regex based on deterministic finite automatons.
 ///
 /// This builder permits configuring several aspects of the construction
@@ -1065,6 +1131,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct RegexBuilder {
+    config: RegexConfig,
     dfa: dense::Builder,
 }
 
@@ -1072,7 +1139,10 @@ pub struct RegexBuilder {
 impl RegexBuilder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> RegexBuilder {
-        RegexBuilder { dfa: dense::Builder::new() }
+        RegexBuilder {
+            config: RegexConfig::default(),
+            dfa: dense::Builder::new(),
+        }
     }
 
     /// Build a regex from the given pattern.
@@ -1167,7 +1237,7 @@ impl RegexBuilder {
             )
             .thompson(thompson::Config::new().reverse(true))
             .build_many_with_size(patterns)?;
-        Ok(Regex::from_dfas(forward, reverse))
+        Ok(self.build_from_dfas(forward, reverse))
     }
 
     /// Build a sparse regex from the given patterns using `S` as the state
@@ -1177,9 +1247,83 @@ impl RegexBuilder {
         patterns: &[P],
     ) -> Result<Regex<sparse::DFA<Vec<u8>, S>>, Error> {
         let re = self.build_many_with_size(patterns)?;
-        let fwd = re.forward().to_sparse()?;
-        let rev = re.reverse().to_sparse()?;
-        Ok(Regex::from_dfas(fwd, rev))
+        let forward = re.forward().to_sparse()?;
+        let reverse = re.reverse().to_sparse()?;
+        Ok(self.build_from_dfas(forward, reverse))
+    }
+
+    /// Build a regex from its component forward and reverse DFAs.
+    ///
+    /// This is useful when deserializing a regex from some arbitrary
+    /// memory region. This is also useful for building regexes from other
+    /// types of DFAs.
+    ///
+    /// # Example
+    ///
+    /// This example is a bit a contrived. The usual use of these methods
+    /// would involve serializing `initial_re` somewhere and then deserializing
+    /// it later to build a regex. But in this case, we do everything in
+    /// memory.
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Regex, RegexBuilder};
+    ///
+    /// let initial_re = Regex::new("foo[0-9]+")?;
+    /// assert_eq!(true, initial_re.is_match(b"foo123"));
+    ///
+    /// let (fwd, rev) = (initial_re.forward(), initial_re.reverse());
+    /// let re = RegexBuilder::new()
+    ///     .build_from_dfas(fwd, rev);
+    /// assert_eq!(true, re.is_match(b"foo123"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// This example shows how you might build smaller DFAs, and then use those
+    /// smaller DFAs to build a new regex.
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Regex, RegexBuilder};
+    ///
+    /// let initial_re = Regex::new("foo[0-9]+")?;
+    /// assert_eq!(true, initial_re.is_match(b"foo123"));
+    ///
+    /// let fwd = initial_re.forward().to_sized::<u16>()?;
+    /// let rev = initial_re.reverse().to_sized::<u16>()?;
+    /// let re = RegexBuilder::new()
+    ///     .build_from_dfas(fwd, rev);
+    /// assert_eq!(true, re.is_match(b"foo123"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// This example shows how to build a `Regex` that uses sparse DFAs instead
+    /// of dense DFAs:
+    ///
+    /// ```
+    /// use regex_automata::dfa::{Regex, RegexBuilder};
+    ///
+    /// let initial_re = Regex::new("foo[0-9]+")?;
+    /// assert_eq!(true, initial_re.is_match(b"foo123"));
+    ///
+    /// let fwd = initial_re.forward().to_sparse()?;
+    /// let rev = initial_re.reverse().to_sparse()?;
+    /// let re = RegexBuilder::new()
+    ///     .build_from_dfas(fwd, rev);
+    /// assert_eq!(true, re.is_match(b"foo123"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn build_from_dfas<A: Automaton>(
+        &self,
+        forward: A,
+        reverse: A,
+    ) -> Regex<A> {
+        let utf8 = self.config.get_utf8();
+        Regex { prefilter: None, forward, reverse, utf8 }
+    }
+
+    /// Apply the given regex configuration options to this builder.
+    pub fn configure(&mut self, config: RegexConfig) -> &mut RegexBuilder {
+        self.config = self.config.overwrite(config);
+        self
     }
 
     /// Set the syntax configuration for this builder using

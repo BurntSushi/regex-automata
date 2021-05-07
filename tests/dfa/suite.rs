@@ -1,6 +1,8 @@
-use regex_automata::dfa::{dense, sparse, Automaton, Regex, RegexBuilder};
-use regex_automata::nfa::thompson;
-use regex_automata::{MatchKind, SyntaxConfig};
+use regex_automata::{
+    dfa::{dense, sparse, Automaton, Regex, RegexBuilder, RegexConfig},
+    nfa::thompson,
+    MatchKind, SyntaxConfig,
+};
 use regex_syntax as syntax;
 
 use regex_test::bstr::{BString, ByteSlice};
@@ -118,7 +120,8 @@ fn sparse_u16_unminimized_default() -> Result<()> {
 fn serialization_unminimized_default() -> Result<()> {
     let builder = RegexBuilder::new();
     let my_compiler = |builder| {
-        compiler(builder, |re| {
+        compiler(builder, |builder, re| {
+            let builder = builder.clone();
             let (fwd_bytes, _) = re.forward().to_bytes_native_endian();
             let (rev_bytes, _) = re.reverse().to_bytes_native_endian();
             Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
@@ -126,7 +129,7 @@ fn serialization_unminimized_default() -> Result<()> {
                     dense::DFA::from_bytes(&fwd_bytes).unwrap().0;
                 let rev: dense::DFA<&[usize], &[u8], usize> =
                     dense::DFA::from_bytes(&rev_bytes).unwrap().0;
-                let re = Regex::from_dfas(fwd, rev);
+                let re = builder.build_from_dfas(fwd, rev);
 
                 run_test(&re, test)
             }))
@@ -145,7 +148,8 @@ fn serialization_unminimized_default() -> Result<()> {
 fn sparse_serialization_unminimized_default() -> Result<()> {
     let builder = RegexBuilder::new();
     let my_compiler = |builder| {
-        compiler(builder, |re| {
+        compiler(builder, |builder, re| {
+            let builder = builder.clone();
             let fwd_bytes = re.forward().to_sparse()?.to_bytes_native_endian();
             let rev_bytes = re.reverse().to_sparse()?.to_bytes_native_endian();
             Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
@@ -153,7 +157,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
                     sparse::DFA::from_bytes(&fwd_bytes).unwrap().0;
                 let rev: sparse::DFA<&[u8], usize> =
                     sparse::DFA::from_bytes(&rev_bytes).unwrap().0;
-                let re = Regex::from_dfas(fwd, rev);
+                let re = builder.build_from_dfas(fwd, rev);
 
                 run_test(&re, test)
             }))
@@ -168,7 +172,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
 fn dense_compiler(
     builder: RegexBuilder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |re| {
+    compiler(builder, |_, re| {
         Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
             run_test(&re, test)
         }))
@@ -178,10 +182,10 @@ fn dense_compiler(
 fn sparse_compiler(
     builder: RegexBuilder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |re| {
+    compiler(builder, |builder, re| {
         let fwd = re.forward().to_sparse()?;
         let rev = re.reverse().to_sparse()?;
-        let re = Regex::from_dfas(fwd, rev);
+        let re = builder.build_from_dfas(fwd, rev);
         Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
             run_test(&re, test)
         }))
@@ -191,10 +195,10 @@ fn sparse_compiler(
 fn u16_compiler(
     builder: RegexBuilder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |re| {
+    compiler(builder, |builder, re| {
         let fwd = re.forward().to_sized::<u16>()?;
         let rev = re.reverse().to_sized::<u16>()?;
-        let re = Regex::from_dfas(fwd, rev);
+        let re = builder.build_from_dfas(fwd, rev);
         Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
             run_test(&re, test)
         }))
@@ -204,10 +208,10 @@ fn u16_compiler(
 fn sparse_u16_compiler(
     builder: RegexBuilder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |re| {
+    compiler(builder, |builder, re| {
         let fwd = re.forward().to_sparse()?.to_sized::<u16>()?;
         let rev = re.reverse().to_sparse()?.to_sized::<u16>()?;
-        let re = Regex::from_dfas(fwd, rev);
+        let re = builder.build_from_dfas(fwd, rev);
         Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
             run_test(&re, test)
         }))
@@ -216,7 +220,7 @@ fn sparse_u16_compiler(
 
 fn compiler(
     mut builder: RegexBuilder,
-    mut create_matcher: impl FnMut(Regex) -> Result<CompiledRegex>,
+    mut create_matcher: impl FnMut(&RegexBuilder, Regex) -> Result<CompiledRegex>,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
     move |test, regexes| {
         let regexes = regexes
@@ -237,7 +241,7 @@ fn compiler(
         if !configure_regex_builder(test, &mut builder) {
             return Ok(CompiledRegex::skip());
         }
-        create_matcher(builder.build_many(&regexes)?)
+        create_matcher(&builder, builder.build_many(&regexes)?)
     }
 }
 
@@ -306,8 +310,10 @@ fn configure_regex_builder(
         .anchored(test.anchored())
         .match_kind(match_kind)
         .unicode_word_boundary(true);
+    let regex_config = RegexConfig::new().utf8(test.utf8());
 
     builder
+        .configure(regex_config)
         .syntax(syntax_config)
         .thompson(config_thompson(test))
         .dense(dense_config);

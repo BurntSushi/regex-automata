@@ -9,8 +9,10 @@ use automata::{
     MatchKind, StateID,
 };
 
-use crate::app::{self, flag, switch, App, Args};
-use crate::util::{self, Table};
+use crate::{
+    app::{self, flag, switch, App, Args},
+    util::{self, Table},
+};
 
 #[derive(Debug)]
 pub struct Patterns(Vec<String>);
@@ -796,16 +798,40 @@ The only legal values are 1, 2, 4 or 8.
 }
 
 #[derive(Debug)]
-pub struct RegexDFA(());
+pub struct RegexDFA {
+    config: dfa::RegexConfig,
+}
 
 impl RegexDFA {
-    pub fn define(app: App) -> App {
-        // Currently there are no regex specific configuration options.
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str =
+                "Allow unachored searches through invalid UTF-8.";
+            const LONG: &str = "\
+Disable UTF-8 handling for regex iterators when an empty match is seen.
+
+When UTF-8 mode is enabled for regexes (the default) and an empty match is
+seen, the iterators will always start the next search at the next UTF-8 encoded
+codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
+searches are started at the next byte offset.
+
+Generally speaking, UTF-8 mode for regexes should only be used when you know
+you are searching valid UTF-8. Typically, this should only be disabled in
+precisely the cases where the regex itself is permitted to match invalid UTF-8.
+This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
+'--no-utf8-regex' together.
+
+This mode cannot be toggled inside the regex.
+";
+            app = app.arg(switch("no-utf8-regex").help(SHORT).long_help(LONG));
+        }
         app
     }
 
-    pub fn get(_: &Args) -> anyhow::Result<RegexDFA> {
-        Ok(RegexDFA(()))
+    pub fn get(args: &Args) -> anyhow::Result<RegexDFA> {
+        let config =
+            dfa::RegexConfig::new().utf8(!args.is_present("no-utf8-regex"));
+        Ok(RegexDFA { config })
     }
 
     pub fn builder(
@@ -815,7 +841,11 @@ impl RegexDFA {
         dense: &Dense,
     ) -> dfa::RegexBuilder {
         let mut builder = dfa::RegexBuilder::new();
-        builder.syntax(syntax.0).thompson(thompson.0).dense(dense.config);
+        builder
+            .configure(self.config)
+            .syntax(syntax.0)
+            .thompson(thompson.0)
+            .dense(dense.config);
         builder
     }
 
@@ -853,7 +883,10 @@ impl RegexDFA {
         let (sre, time) = util::timeitr(|| {
             let (fwd, rev) = (re.forward(), re.reverse());
             fwd.to_sparse().and_then(|f| {
-                rev.to_sparse().map(|r| dfa::Regex::from_dfas(f, r))
+                rev.to_sparse().map(|r| {
+                    let b = self.builder(syntax, thompson, dense);
+                    b.build_from_dfas(f, r)
+                })
             })
         })?;
         let mem_fwd = sre.forward().memory_usage();

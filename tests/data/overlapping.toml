@@ -100,3 +100,27 @@ input = "zzabcazzaabc"
 matches = [[2, 3], [2, 5], [5, 6], [8, 9], [9, 10], [9, 12]]
 match_kind = "all"
 search_kind = "overlapping"
+
+[[tests]]
+name = "empty-000"
+regex = ""
+input = "abc"
+matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "empty-alt-000"
+regex = "|b"
+input = "abc"
+matches = [[0, 0], [1, 1], [1, 2], [3, 3]]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "empty-alt-010"
+regex = "b|"
+input = "abc"
+matches = [[0, 0], [1, 1], [1, 2], [3, 3]]
+match_kind = "all"
+search_kind = "overlapping"

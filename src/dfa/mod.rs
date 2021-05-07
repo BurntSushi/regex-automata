@@ -72,10 +72,10 @@ If you already have dense DFAs for some reason, they can be converted to sparse
 DFAs and used to build a new `Regex`. For example:
 
 ```
-use regex_automata::{MultiMatch, dfa::Regex};
+use regex_automata::{MultiMatch, dfa::{Regex, RegexBuilder}};
 
 let dense_re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
-let sparse_re = Regex::from_dfas(
+let sparse_re = RegexBuilder::new().build_from_dfas(
     dense_re.forward().to_sparse()?,
     dense_re.reverse().to_sparse()?,
 );
@@ -96,7 +96,7 @@ bit contrived, this same technique can be used in your program to
 deserialize a DFA at start up time or by memory mapping a file.
 
 ```
-use regex_automata::{MultiMatch, dfa::{dense, Regex}};
+use regex_automata::{MultiMatch, dfa::{dense, Regex, RegexBuilder}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both the forward and reverse DFAs, see note below
@@ -110,7 +110,7 @@ let fwd: dense::DFA<&[u16], &[u8], u16> =
 let rev: dense::DFA<&[u16], &[u8], u16> =
     dense::DFA::from_bytes(&rev_bytes[rev_pad..])?.0;
 // finally, reconstruct our regex
-let re2 = Regex::from_dfas(fwd, rev);
+let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
@@ -154,7 +154,7 @@ valid DFA.
 The same process can be achieved with sparse DFAs as well:
 
 ```
-use regex_automata::{MultiMatch, dfa::{sparse, Regex}};
+use regex_automata::{MultiMatch, dfa::{sparse, Regex, RegexBuilder}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both
@@ -164,7 +164,7 @@ let rev_bytes = re1.reverse().to_sized::<u16>()?.to_sparse()?.to_bytes_native_en
 let fwd: sparse::DFA<&[u8], u16> = sparse::DFA::from_bytes(&fwd_bytes)?.0;
 let rev: sparse::DFA<&[u8], u16> = sparse::DFA::from_bytes(&rev_bytes)?.0;
 // finally, reconstruct our regex
-let re2 = Regex::from_dfas(fwd, rev);
+let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
@@ -302,12 +302,12 @@ dramatically.
 pub use crate::dfa::automaton::{Automaton, HalfMatch, OverlappingState};
 #[cfg(feature = "alloc")]
 pub use crate::dfa::error::{Error, ErrorKind};
-#[cfg(feature = "alloc")]
-pub use crate::dfa::regex::RegexBuilder;
 pub use crate::dfa::regex::{
     FindEarliestMatches, FindLeftmostMatches, FindOverlappingMatches, Regex,
     TryFindEarliestMatches, TryFindLeftmostMatches, TryFindOverlappingMatches,
 };
+#[cfg(feature = "alloc")]
+pub use crate::dfa::regex::{RegexBuilder, RegexConfig};
 
 mod accel;
 mod automaton;
