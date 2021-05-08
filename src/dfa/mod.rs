@@ -16,11 +16,9 @@ positions of each match.
 * A [`RegexBuilder`] provides a way configure many compilation options for a
 regex.
 * A [`dense::DFA`] provides low level access to a DFA that uses a dense
-representation (uses lots of space, but fast searching). Low level access to
-DFAs only provides access to the end of a match location.
+representation (uses lots of space, but fast searching).
 * A [`sparse::DFA`] provides the same API as a `dense::DFA`, but uses a sparse
-representation (uses less space, but slower matching). Low level access to
-DFAs only provides access to the end of a match location.
+representation (uses less space, but slower matching).
 * An [`Automaton`] trait that defines an interface that all DFAs must
 implement.
 * Both dense DFAs and sparse DFAs support serialization to raw bytes (e.g.,
@@ -35,12 +33,53 @@ and then use it to find matches in a byte string:
 ```
 use regex_automata::{MultiMatch, dfa::Regex};
 
-let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
+let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
     MultiMatch::new(0, 0, 10),
     MultiMatch::new(0, 11, 21),
+]);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+# Example: searching with regex sets
+
+The DFAs in this module all fully support searching with multiple regexes
+simultaneously. You can use this support with standard leftmost-first style
+searching to find non-overlapping matches:
+
+```
+use regex_automata::{MultiMatch, dfa::Regex};
+
+let re = Regex::new_many(&[r"\w+", r"\S+"])?;
+let text = b"@foo bar";
+let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
+assert_eq!(matches, vec![
+    MultiMatch::new(1, 0, 4),
+    MultiMatch::new(0, 5, 8),
+]);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Or use overlapping style searches to find all possible occurrences:
+
+```
+use regex_automata::{MatchKind, MultiMatch, dfa::{dense, Regex}};
+
+// N.B. For overlapping searches, we need the underlying DFA to report all
+// possible matches.
+let re = Regex::builder()
+    .dense(dense::Config::new().match_kind(MatchKind::All))
+    .build_many(&[r"\w{3}", r"\S{3}"])?;
+let text = b"@foo bar";
+let matches: Vec<MultiMatch> = re.find_overlapping_iter(text).collect();
+assert_eq!(matches, vec![
+    MultiMatch::new(1, 0, 3),
+    MultiMatch::new(0, 1, 4),
+    MultiMatch::new(1, 1, 4),
+    MultiMatch::new(0, 5, 8),
+    MultiMatch::new(1, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -180,22 +219,24 @@ Note that unlike dense DFAs, sparse DFAs have no alignment requirements.
 Conversely, dense DFAs must be be aligned to the same alignment as their
 state identifier representation.
 
-# Support for `no_std`
+# Support for `no_std` and `alloc`-only
 
-This crate comes with a `std` feature that is enabled by default. When the
-`std` feature is enabled, the API of this module will include the facilities
-necessary for compiling, serializing, deserializing and searching with DFAs.
-When the `std` feature is disabled, the API of this module will shrink such
-that it only includes the facilities necessary for deserializing and searching
-with DFAs.
+This crate comes with `alloc` and `std` features that are enabled by default.
+When the `alloc` or `std` features are enabled, the API of this module will
+include the facilities necessary for compiling, serializing, deserializing
+and searching with DFAs. When only the `alloc` feature is enabled, then
+implementations of the `std::error::Error` trait are dropped, but everything
+else generally remains the same. When both the `alloc` and `std` features are
+disabled, the API of this module will shrink such that it only includes the
+facilities necessary for deserializing and searching with DFAs.
 
 The intended workflow for `no_std` environments is thus as follows:
 
-* Write a program with the `std` feature that compiles and serializes a regular
-expression. Serialization should only happen after first converting the DFAs to
-use a fixed size state identifier instead of the default `usize`. You may also
-need to serialize both little and big endian versions of each DFA. (So that's 4
-DFAs in total for each regex.)
+* Write a program with the `alloc` or `std` features that compiles and
+serializes a regular expression. Serialization should only happen after first
+converting the DFAs to use a fixed size state identifier instead of the default
+`usize`. You may also need to serialize both little and big endian versions of
+each DFA. (So that's 4 DFAs in total for each regex.)
 * In your `no_std` environment, follow the examples above for deserializing
 your previously serialized DFAs into regexes. You can then search with them as
 you would any regex.
@@ -242,7 +283,7 @@ Here are some specific negative differences:
 * **Compilation can take an exponential amount of time and space** in the size
 of the regex pattern. While most patterns do not exhibit worst case exponential
 time, such patterns do exist. For example, `[01]*1[01]{N}` will build a DFA
-with approximately `2^(N+1)` states. For this reason, untrusted patterns should
+with approximately `2^(N+2)` states. For this reason, untrusted patterns should
 not be compiled with this module. (In the future, the API may expose an option
 to return an error if the DFA gets too big.)
 * This module does not support sub-match extraction via capturing groups, which
@@ -250,15 +291,17 @@ can be achieved with the regex crate's "captures" API.
 * While the regex crate doesn't necessarily sport fast compilation times,
 the regexes in this module are almost universally slow to compile, especially
 when they contain large Unicode character classes. For example, on my system,
-compiling `\w{50}` with byte classes enabled takes about 1 second and almost
-15MB of memory! (Compiling a sparse regex takes about the same time but only
-uses about 1.2MB of memory.) Conversly, compiling the same regex without
-Unicode support, e.g., `(?-u)\w{50}`, takes under 1 millisecond and about 15KB
-of memory. For this reason, you should only use Unicode character classes if
-you absolutely need them! (They are enabled by default though.)
+compiling `\w{50}` takes about 1 second and almost 15MB of memory! (Compiling
+a sparse regex takes about the same time but only uses about 1.2MB of
+memory.) Conversly, compiling the same regex without Unicode support, e.g.,
+`(?-u)\w{50}`, takes under 1 millisecond and about 15KB of memory. For this
+reason, you should only use Unicode character classes if you absolutely need
+them! (They are enabled by default though.)
 * This module does not support Unicode word boundaries. ASCII word bondaries
 may be used though by disabling Unicode or selectively doing so in the syntax,
-e.g., `(?-u:\b)`.
+e.g., `(?-u:\b)`. There is also an option to
+[heuristically enable Unicode word boundaries](crate::dfa::dense::Config::unicode_word_boundary),
+where the corresponding DFA will give up if any non-ASCII byte is seen.
 * As a lower level API, this module does not do literal optimizations
 automatically. Although it does provide hooks in its API to make use of the
 [`Prefilter`](crate::prefilter::Prefilter) trait. Missing literal optimizations
@@ -266,8 +309,9 @@ means that searches may run much slower than what you're accustomed to,
 although, it does provide more predictable and consistent performance.
 * There is no `&str` API like in the regex crate. In this module, all APIs
 operate on `&[u8]`. By default, match indices are guaranteed to fall on UTF-8
-boundaries, unless [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) is
-disabled.
+boundaries, unless any of [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8),
+[`nfa::thompson::Config::utf8`](crate::nfa::thompson::Config::utf8) or
+[`RegexConfig::utf8`] are disabled.
 
 With some of the downsides out of the way, here are some positive differences:
 

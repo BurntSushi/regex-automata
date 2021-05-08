@@ -74,6 +74,76 @@ define_regex_type!(
     /// setting the type to default to [`prefilter::None`]. A prefilter can be
     /// enabled by using the [`Regex::prefilter`] method.
     ///
+    /// # When should I use this?
+    ///
+    /// Generally speaking, if you can afford the overhead of building a full
+    /// DFA for your regex, and you don't need things like capturing groups,
+    /// then this is a good choice if you're looking to optimize for matching
+    /// speed. Note however that its speed may be worse than a general purpose
+    /// regex engine if you don't select a good [prefilter](crate::prefilter).
+    ///
+    /// # Earliest vs Leftmost vs Overlapping
+    ///
+    /// The search routines exposed on a `Regex` reflect three different ways
+    /// of searching:
+    ///
+    /// * "earliest" means to stop as soon as a match has been detected.
+    /// * "leftmost" means to continue matching until the underlying
+    ///   automaton cannot advance. This reflects "standard" searching you
+    ///   might be used to in other regex engines. e.g., This permits
+    ///   greedy searching to work.
+    /// * "overlapping" means to find all possible matches, even if they
+    ///   overlap.
+    ///
+    /// Generally speaking, when doing an overlapping search, you'll want to
+    /// build your regex DFAs with [`MatchKind::All`] semantics. Using
+    /// [`MatchKind::LeftmostFirst`] semantics with overlapping searches is
+    /// likely to lead to odd behavior since `LeftmostFirst` specifically omits
+    /// some matches that can never be reported due to its semantics.
+    ///
+    /// The following example shows the differences between how these different
+    /// types of searches impact looking for matches of `[a-z]+` in the
+    /// haystack `abc`.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::{self, dense}, MatchKind, MultiMatch};
+    ///
+    /// let pattern = r"[a-z]+";
+    /// let haystack = "abc".as_bytes();
+    ///
+    /// // With leftmost-first semantics, we test "earliest" and "leftmost".
+    /// let re = dfa::RegexBuilder::new()
+    ///     .dense(dense::Config::new().match_kind(MatchKind::LeftmostFirst))
+    ///     .build(pattern)?;
+    ///
+    /// // "earliest" searching isn't impacted by greediness
+    /// let mut it = re.find_earliest_iter(haystack);
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 1, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 2, 3)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// // "leftmost" searching supports greediness (and non-greediness)
+    /// let mut it = re.find_leftmost_iter(haystack);
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 3)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// // For overlapping, we want "all" match kind semantics.
+    /// let re = dfa::RegexBuilder::new()
+    ///     .dense(dense::Config::new().match_kind(MatchKind::All))
+    ///     .build(pattern)?;
+    ///
+    /// // In the overlapping search, we find all three possible matches
+    /// // starting at the beginning of the haystack.
+    /// let mut it = re.find_overlapping_iter(haystack);
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 3)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
     /// # Sparse DFAs
     ///
     /// Since a `Regex` is generic over the [`Automaton`] trait, it can be
@@ -257,6 +327,77 @@ impl Regex<sparse::DFA<Vec<u8>, usize>> {
         patterns: &[P],
     ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
         RegexBuilder::new().build_many_sparse(patterns)
+    }
+}
+
+/// Conveniece routines for regex construction.
+#[cfg(feature = "alloc")]
+impl Regex {
+    /// Return a default configuration for a `Regex`.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// `RegexConfig` type when customizing the construction of a regex.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to disable UTF-8 mode for `Regex` iteration.
+    /// When UTF-8 mode is disabled, the position immediately following an
+    /// empty match is where the next search begins, instead of the next
+    /// position of a UTF-8 encoded codepoint.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::Regex, MultiMatch};
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8(false))
+    ///     .build(r"")?;
+    /// let haystack = "a☃z".as_bytes();
+    /// let mut it = re.find_leftmost_iter(haystack);
+    /// assert_eq!(Some(MultiMatch::new(0, 0, 0)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 1, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 2, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 3, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 4, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::new(0, 5, 5)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn config() -> RegexConfig {
+        RegexConfig::new()
+    }
+
+    /// Return a builder for configuring the construction of a `Regex`.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// `RegexBuilder` type in common cases.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use the builder to disable UTF-8 mode
+    /// everywhere.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::Regex,
+    ///     nfa::thompson,
+    ///     MultiMatch, SyntaxConfig,
+    /// };
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8(false))
+    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .thompson(thompson::Config::new().utf8(false))
+    ///     .build(r"foo(?-u:[^b])ar.*")?;
+    /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
+    /// let expected = Some(MultiMatch::new(0, 1, 9));
+    /// let got = re.find_leftmost(haystack);
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn builder() -> RegexBuilder {
+        RegexBuilder::new()
     }
 }
 
@@ -1636,13 +1777,10 @@ impl RegexConfig {
     /// In this first snippet, we show the results when UTF-8 mode is disabled.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{RegexBuilder, RegexConfig},
-    ///     MultiMatch,
-    /// };
+    /// use regex_automata::{dfa::Regex, MultiMatch};
     ///
-    /// let re = RegexBuilder::new()
-    ///     .configure(RegexConfig::new().utf8(false))
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8(false))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
