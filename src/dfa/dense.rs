@@ -586,7 +586,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, HalfMatch, dense},
-    ///     MatchError, MatchKind,
+    ///     MatchError,
     /// };
     ///
     /// let dfa = dense::Builder::new()
