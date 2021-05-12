@@ -608,7 +608,16 @@ impl<'a, S: StateID> Runner<'a, S> {
                     // we visited to avoid re-visiting them. In exchange, we
                     // have to do this second iteration over our collected
                     // states to finalize our DFA state.
-                    state.nfa_states.push(id);
+                    //
+                    // Note that this optimization requires that we re-compute
+                    // the epsilon closure to account for look-ahead in 'next'
+                    // *only when necessary*. Namely, only when the set of
+                    // look-around assertions changes and only when those
+                    // changes are within the set of assertions that are
+                    // needed in order to step through the closure correctly.
+                    // Otherwise, if we re-do the epsilon closure needlessly,
+                    // it could change based on the fact that we are omitting
+                    // epsilon states here.
                 }
                 thompson::State::Fail => {
                     break;
