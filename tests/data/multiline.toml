@@ -71,6 +71,12 @@ input = "a\naaa\n"
 matches = [[0, 0], [2, 2], [3, 5], [6, 6]]
 
 [[tests]]
+name = "repeat100"
+regex = '(?m)(?:^|a)+'
+input = "a\naaa\n"
+matches = [[0, 0], [2, 2], [3, 5], [6, 6]]
+
+[[tests]]
 name = "repeat2-no-multi"
 regex = '(?:^|a)+'
 input = "a\naaa\n"
