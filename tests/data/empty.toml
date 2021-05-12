@@ -99,3 +99,15 @@ name = "520"
 regex = ""
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
+
+[[tests]]
+name = "600"
+regex = '(|a)*'
+input = "aaa"
+matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
+
+[[tests]]
+name = "610"
+regex = '(|a)+'
+input = "aaa"
+matches = [[0, 0], [1, 1], [2, 2], [3, 3]]

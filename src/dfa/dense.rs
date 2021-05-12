@@ -2170,7 +2170,7 @@ impl<S: StateID> OwnedDFA<S> {
         self.ms = self.ms.new_with_map(map);
     }
 
-    /// Find states that has a small number of non-loop transitions and mark
+    /// Find states that have a small number of non-loop transitions and mark
     /// them as candidates for acceleration during search.
     pub(crate) fn accelerate(&mut self) {
         // dead and quit states can never be accelerated.
@@ -2377,8 +2377,8 @@ impl<S: StateID> OwnedDFA<S> {
         }
     }
 
-    /// Shuffle the states in this DFA so that starting states and match
-    /// states are contiguous.
+    /// Shuffle the states in this DFA so that starting states, match
+    /// states and accelerated states are all contiguous.
     ///
     /// See dfa/special.rs for more details.
     pub(crate) fn shuffle(

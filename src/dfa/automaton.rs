@@ -703,7 +703,7 @@ pub unsafe trait Automaton {
     ///
     /// // However, if we pass an incorrect byte, then the prefix search will
     /// // result in incorrect results.
-    /// assert!(find_leftmost_first(&dfa, haystack, Some(b'X'))?.is_none());
+    /// assert_eq!(find_leftmost_first(&dfa, haystack, Some(b'X'))?, None);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

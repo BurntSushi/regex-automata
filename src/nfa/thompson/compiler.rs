@@ -35,7 +35,7 @@ time.
 
 use core::{borrow::Borrow, cell::RefCell, mem};
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 use regex_syntax::hir::{
     self, Anchor, Class, Hir, HirKind, Literal, WordBoundary,
@@ -706,15 +706,49 @@ impl Compiler {
         n: u32,
     ) -> Result<ThompsonRef, Error> {
         if n == 0 {
-            let union = if greedy {
+            // When the expression cannot match the empty string, then we
+            // can get away with something much simpler: just one 'alt'
+            // instruction that optionally repeats itself. But if the expr
+            // can match the empty string... see below.
+            if !expr.is_match_empty() {
+                let union = if greedy {
+                    self.add_union()
+                } else {
+                    self.add_reverse_union()
+                };
+                let compiled = self.c(expr)?;
+                self.patch(union, compiled.start);
+                self.patch(compiled.end, union);
+                return Ok(ThompsonRef { start: union, end: union });
+            }
+
+            // What's going on here? Shouldn't x* be simpler than this? It
+            // turns out that when implementing leftmost-first (Perl-like)
+            // match semantics, x* results in an incorrect preference order
+            // when computing the transitive closure of states if and only if
+            // 'x' can match the empty string. So instead, we compile x* as
+            // (x+)?, which preserves the correct preference order.
+            //
+            // See: https://github.com/rust-lang/regex/issues/779
+            let compiled = self.c(expr)?;
+            let plus = if greedy {
                 self.add_union()
             } else {
                 self.add_reverse_union()
             };
-            let compiled = self.c(expr)?;
-            self.patch(union, compiled.start);
-            self.patch(compiled.end, union);
-            Ok(ThompsonRef { start: union, end: union })
+            self.patch(compiled.end, plus);
+            self.patch(plus, compiled.start);
+
+            let question = if greedy {
+                self.add_union()
+            } else {
+                self.add_reverse_union()
+            };
+            let empty = self.add_empty();
+            self.patch(question, compiled.start);
+            self.patch(question, empty);
+            self.patch(plus, empty);
+            Ok(ThompsonRef { start: question, end: empty })
         } else if n == 1 {
             let compiled = self.c(expr)?;
             let union = if greedy {
@@ -956,19 +990,11 @@ impl Compiler {
     }
 
     fn c_unanchored_prefix_valid_utf8(&self) -> Result<ThompsonRef, Error> {
-        self.c(&Hir::repetition(hir::Repetition {
-            kind: hir::RepetitionKind::ZeroOrMore,
-            greedy: false,
-            hir: Box::new(Hir::any(false)),
-        }))
+        self.c_at_least(&Hir::any(false), false, 0)
     }
 
     fn c_unanchored_prefix_invalid_utf8(&self) -> Result<ThompsonRef, Error> {
-        self.c(&Hir::repetition(hir::Repetition {
-            kind: hir::RepetitionKind::ZeroOrMore,
-            greedy: false,
-            hir: Box::new(Hir::any(true)),
-        }))
+        self.c_at_least(&Hir::any(true), false, 0)
     }
 
     fn patch(&self, from: StateID, to: StateID) {
@@ -1239,12 +1265,13 @@ mod tests {
         State::Match(id)
     }
 
-    // Test that building an unanchored NFA has an appropriate `.*?` prefix.
+    // Test that building an unanchored NFA has an appropriate `(?s:.)*?`
+    // prefix.
     #[test]
     fn compile_unanchored_prefix() {
         // When the machine can only match valid UTF-8.
         let nfa = Builder::new().build(r"a").unwrap();
-        // There should be many states since the `.` in `.*?` matches any
+        // There should be many states since the `.` in `(?s:.)*?` matches any
         // Unicode scalar value.
         assert_eq!(11, nfa.len());
         assert_eq!(nfa.states[10], s_match(0));

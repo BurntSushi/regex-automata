@@ -80,13 +80,13 @@ matches = [[0, 0], [2, 5]]
 name = "repeat3"
 regex = '(?m)(?:^|a)*'
 input = "a\naaa\n"
-matches = [[0, 1], [2, 5], [6, 6]]
+matches = [[0, 0], [1, 1], [2, 2], [3, 5], [6, 6]]
 
 [[tests]]
 name = "repeat3-no-multi"
 regex = '(?:^|a)*'
 input = "a\naaa\n"
-matches = [[0, 1], [2, 5], [6, 6]]
+matches = [[0, 0], [1, 1], [2, 5], [6, 6]]
 
 [[tests]]
 name = "repeat4"
