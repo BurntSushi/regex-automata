@@ -1,27 +1,22 @@
-use core::mem;
-
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
-
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 
 use crate::{
     classes::{Byte, ByteSet},
     dfa::{automaton::Start, dense, Error},
-    nfa::thompson::{self, Look},
-    sparse_set::SparseSet,
+    nfa::thompson::{self, Look, LookSet},
+    sparse_set::{SparseSet, SparseSets},
     state_id::{dead_id, StateID},
     MatchKind, PatternID,
 };
 
 /// A map from states to state identifiers. When using std, we use a standard
 /// hashmap, since it's a bit faster for this use case. (Other maps, like
-/// one's based on FNV, have not yet been benchmarks IIRC.)
+/// one's based on FNV, have not yet been benchmarked.)
 ///
 /// The main purpose of this map is to reuse states where possible. This won't
 /// fully minimize the DFA, but it works well in a lot of cases.
 #[cfg(feature = "std")]
-type StateMap<S> = HashMap<Rc<State>, S>;
+type StateMap<S> = std::collections::HashMap<Rc<State>, S>;
 #[cfg(not(feature = "std"))]
 type StateMap<S> = BTreeMap<Rc<State>, S>;
 
@@ -171,23 +166,6 @@ struct Runner<'a, S: StateID> {
     quit: ByteSet,
 }
 
-/// An intermediate representation for a DFA state during determinization.
-///
-/// This representation is used as a key in a map from states to their
-/// identifiers.
-#[derive(Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-struct State {
-    /// An ordered sequence of NFA states that make up this DFA state.
-    nfa_states: Vec<thompson::StateID>,
-    /// Whether this state is a match state or not. Note that when true,
-    /// this does NOT mean that this contains an NFA match state. Namely,
-    /// this represents the single source of truth about whether a DFA state
-    /// is matching or not. In particular, since the DFA delays matches by
-    /// a single byte (to handle $ and \b), the actual match state typically
-    /// comes immediately after a state containing an NFA match state.
-    facts: Facts,
-}
-
 impl<'a, S: StateID> Runner<'a, S> {
     /// Build the DFA. If there was a problem constructing the DFA (e.g., if
     /// the chosen state identifier representation is too small), then an error
@@ -208,11 +186,11 @@ impl<'a, S: StateID> Runner<'a, S> {
             self.dfa.byte_classes().representatives().collect();
         // A pair of sparse sets for tracking ordered sets of NFA state IDs.
         // These are reused throughout determinization.
-        let mut sparses = self.new_sparse_sets();
+        let mut sparses = SparseSets::new(self.nfa.len());
         // The set of all DFA state IDs that still need to have their
         // transitions set. We start by seeding this will all starting states.
         let mut uncompiled = vec![];
-        self.add_all_starts(&mut sparses.cur, &mut uncompiled)?;
+        self.add_all_starts(&mut sparses.set1, &mut uncompiled)?;
         while let Some(dfa_id) = uncompiled.pop() {
             for &b in &representative_bytes {
                 if b.as_u8().map_or(false, |b| self.quit.contains(b)) {
@@ -243,7 +221,7 @@ impl<'a, S: StateID> Runner<'a, S> {
             // is in this builder's cache, which we cleared above. This unwrap
             // avoids copying the state's Vec<PatternID>.
             let state = Rc::try_unwrap(state).unwrap();
-            if let Some(match_ids) = state.facts.state.matches.into_vec() {
+            if let Some(match_ids) = state.facts.into_match_pattern_ids() {
                 let id = self.dfa.from_index(i);
                 matches.insert(id, match_ids);
             }
@@ -277,16 +255,18 @@ impl<'a, S: StateID> Runner<'a, S> {
         sparses.clear();
         // Compute the set of all reachable NFA states, including epsilons.
         let facts = self.next(sparses, dfa_id, b);
-        if sparses.next.is_empty() && !facts.state.is_match() {
+        if sparses.set2.is_empty() && !facts.is_match() {
             return Ok((dead_id(), false));
         }
         // Build a candidate state and check if it has already been built.
-        let state = self.new_state(&sparses.next, facts);
+        let state = self.new_state(&sparses.set2, facts);
         if let Some(&cached_id) = self.cache.get(&state) {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
-            let _ =
-                mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
+            let _ = core::mem::replace(
+                &mut self.scratch_nfa_states,
+                state.nfa_states,
+            );
             return Ok((cached_id, false));
         }
         // Nothing was in the cache, so add this state to the cache.
@@ -302,7 +282,7 @@ impl<'a, S: StateID> Runner<'a, S> {
         // re-compute their epsilon closure.
         for i in 0..self.state(dfa_id).nfa_states.len() {
             let nfa_id = self.state(dfa_id).nfa_states[i];
-            sparses.cur.insert(nfa_id);
+            sparses.set1.insert(nfa_id);
         }
 
         let facts = &self.state(dfa_id).facts;
@@ -318,7 +298,7 @@ impl<'a, S: StateID> Runner<'a, S> {
                     look_have.insert(Look::EndLine);
                 }
             }
-            if facts.state.from_word == b.is_word_byte() {
+            if facts.from_word() == b.is_word_byte() {
                 look_have.insert(Look::WordBoundaryUnicodeNegate);
                 look_have.insert(Look::WordBoundaryAsciiNegate);
             } else {
@@ -330,11 +310,11 @@ impl<'a, S: StateID> Runner<'a, S> {
                 .intersect(facts.look_need)
                 .is_empty()
             {
-                for &nfa_id in &sparses.cur {
-                    self.epsilon_closure(nfa_id, look_have, &mut sparses.next);
+                for nfa_id in &sparses.set1 {
+                    self.epsilon_closure(nfa_id, look_have, &mut sparses.set2);
                 }
                 sparses.swap();
-                sparses.next.clear();
+                sparses.set2.clear();
             }
         }
 
@@ -343,9 +323,7 @@ impl<'a, S: StateID> Runner<'a, S> {
         // anywhere in this regex. Otherwise, there's no point in bloating
         // the number of states if we don't have one.
         if self.nfa.has_word_boundary() {
-            if b.is_word_byte() {
-                facts.state.from_word = true;
-            }
+            facts.set_from_word(b.is_word_byte());
         }
         // Similarly for the start-line look-around.
         if self.nfa.has_any_anchor() {
@@ -356,12 +334,12 @@ impl<'a, S: StateID> Runner<'a, S> {
                 facts.look_have.insert(Look::StartLine);
             }
         }
-        for &nfa_id in &sparses.cur {
+        for nfa_id in &sparses.set1 {
             match *self.nfa.state(nfa_id) {
                 thompson::State::Union { .. }
                 | thompson::State::Fail
                 | thompson::State::Look { .. } => {}
-                thompson::State::Match(mid) => {
+                thompson::State::Match(pid) => {
                     // Notice here that we are calling the NEW state a match
                     // state if the OLD state we are transitioning from
                     // contains an NFA match state. This is precisely how we
@@ -372,10 +350,9 @@ impl<'a, S: StateID> Runner<'a, S> {
                     // a DFA is a matching state or not would be determined
                     // by whether one of its own constituent NFA states was a
                     // match state. (And that would be done in 'new_state'.)
-                    if self.nfa.match_len() <= 1 {
-                        facts.state.matches = Matches::One;
-                    } else {
-                        facts.state.matches.add(mid);
+                    facts.set_is_match(true);
+                    if self.nfa.match_len() > 1 {
+                        facts.add_match_pattern_id(pid);
                     }
                     if !self.continue_past_first_match() {
                         break;
@@ -387,7 +364,7 @@ impl<'a, S: StateID> Runner<'a, S> {
                             self.epsilon_closure(
                                 r.next,
                                 facts.look_have,
-                                &mut sparses.next,
+                                &mut sparses.set2,
                             );
                         }
                     }
@@ -404,7 +381,7 @@ impl<'a, S: StateID> Runner<'a, S> {
                             self.epsilon_closure(
                                 r.next,
                                 facts.look_have,
-                                &mut sparses.next,
+                                &mut sparses.set2,
                             );
                             break;
                         }
@@ -431,19 +408,16 @@ impl<'a, S: StateID> Runner<'a, S> {
         set: &mut SparseSet,
     ) {
         if !self.nfa.state(start).is_epsilon() {
-            if !set.contains(start) {
-                set.insert(start);
-            }
+            set.insert(start);
             return;
         }
 
         self.stack.push(start);
         while let Some(mut id) = self.stack.pop() {
             loop {
-                if set.contains(id) {
+                if !set.insert(id) {
                     break;
                 }
-                set.insert(id);
                 match *self.nfa.state(id) {
                     thompson::State::Range { .. }
                     | thompson::State::Sparse { .. }
@@ -539,8 +513,10 @@ impl<'a, S: StateID> Runner<'a, S> {
         if let Some(&cached_id) = self.cache.get(&state) {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
-            let _ =
-                mem::replace(&mut self.scratch_nfa_states, state.nfa_states);
+            let _ = core::mem::replace(
+                &mut self.scratch_nfa_states,
+                state.nfa_states,
+            );
             return Ok(cached_id);
         }
         let id = self.add_state(state)?;
@@ -567,21 +543,24 @@ impl<'a, S: StateID> Runner<'a, S> {
     /// Convert the given set of ordered NFA states to a DFA state.
     fn new_state(&mut self, set: &SparseSet, facts: Facts) -> State {
         let mut state = State {
-            nfa_states: mem::replace(&mut self.scratch_nfa_states, vec![]),
+            nfa_states: core::mem::replace(
+                &mut self.scratch_nfa_states,
+                vec![],
+            ),
             facts,
         };
         state.nfa_states.clear();
 
-        for &id in set {
-            match *self.nfa.state(id) {
+        for nfa_id in set {
+            match *self.nfa.state(nfa_id) {
                 thompson::State::Range { .. } => {
-                    state.nfa_states.push(id);
+                    state.nfa_states.push(nfa_id);
                 }
                 thompson::State::Sparse { .. } => {
-                    state.nfa_states.push(id);
+                    state.nfa_states.push(nfa_id);
                 }
                 thompson::State::Look { look, .. } => {
-                    state.nfa_states.push(id);
+                    state.nfa_states.push(nfa_id);
                     state.facts.look_need.insert(look);
                 }
                 thompson::State::Union { .. } => {
@@ -629,15 +608,18 @@ impl<'a, S: StateID> Runner<'a, S> {
                     // that transition from the one we're building here. And
                     // the way we detect those cases is by looking for an NFA
                     // match state. See 'next' for how this is handled.
-                    state.nfa_states.push(id);
+                    state.nfa_states.push(nfa_id);
                     if !self.continue_past_first_match() {
                         break;
                     }
                 }
             }
         }
+        // If we know this state contains no look-around assertions, then
+        // there's no reason to track which look-around assertions were
+        // satisfied when this state was created.
         if state.facts.look_need.is_empty() {
-            state.facts.look_have = LookSet::default();
+            state.facts.look_have = LookSet::empty();
         }
         state
     }
@@ -649,18 +631,27 @@ impl<'a, S: StateID> Runner<'a, S> {
         &self.builder_states[self.dfa.to_index(id)]
     }
 
+    /// Returns true if and only if the DFA should be built to include all
+    /// possible match states.
+    ///
+    /// Generally speaking, this is false when we want to impose some kind of
+    /// match priority, like for leftmost-first.
     fn continue_past_first_match(&self) -> bool {
         self.match_kind.continue_past_first_match()
     }
+}
 
-    /// Create a new pair of sparse sets with enough capacity to hold all NFA
-    /// states.
-    fn new_sparse_sets(&self) -> SparseSets {
-        SparseSets {
-            cur: SparseSet::new(self.nfa.len()),
-            next: SparseSet::new(self.nfa.len()),
-        }
-    }
+/// An intermediate representation for a DFA state during determinization.
+///
+/// This representation is used as a key in a map from states to their
+/// identifiers.
+#[derive(Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+struct State {
+    /// An ordered sequence of NFA states that make up this DFA state.
+    nfa_states: Vec<thompson::StateID>,
+    /// A collection of "facts" about this state that, in addition to the NFA
+    /// state IDs above, contributes to this state's identity.
+    facts: Facts,
 }
 
 impl State {
@@ -670,224 +661,123 @@ impl State {
     }
 }
 
-#[derive(Debug)]
-struct SparseSets {
-    cur: SparseSet,
-    next: SparseSet,
-}
-
-impl SparseSets {
-    fn clear(&mut self) {
-        self.cur.clear();
-        self.next.clear();
-    }
-
-    fn swap(&mut self) {
-        mem::swap(&mut self.cur, &mut self.next);
-    }
-}
-
+/// A collection of "facts" or metadata about a DFA state. These facts include
+/// whether the state is matching or not in addition to the actual pattern
+/// IDs corresponding to that match. The facts also include information about
+/// look-around assertions, if relevant.
+///
+/// In addition to a DFA state's constituent NFA state IDs, these facts
+/// comprise the identity of a DFA state. That is, any two DFA states with
+/// unequal NFA state IDs or unequal facts is considered distinct. (This does
+/// not necessarily imply they are literally distinct from a theoretical
+/// perspective, but it's what we do here. Minimization, a separate thing,
+/// handles the fully general case.)
+///
+/// For that reason, we are careful to only set facts when they are needed.
+/// For example, one fact says whether the state was generated by a transition
+/// corresponding to a "word" byte, and this fact is used to determine whether
+/// a word boundary assertion is satisfied or not. But of course, if the NFA
+/// contains no word boundary assertions, then there is no reason to track
+/// whether transitions are "word" bytes or not. If we did, we would wind up
+/// generating more DFA states than we have too.
+///
+/// Similarly, if 'look_need' is empty, then we forcefully set 'look_have'
+/// to be empty. Namely, if a DFA state contains no NFA states that are
+/// look-around assertions, then there is no reason to track which assertions
+/// were true when the DFA state was created.
 #[derive(Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 struct Facts {
-    state: StateFacts,
-    look_need: LookSet,
+    /// A bitfield of flags about a DFA state.
+    ///
+    /// Bit 0 corresponds to whether this is a match state. (And since match
+    /// states are delayed by 1 byte, this means this state was created by
+    /// transitioning from a DFA state whose set of NFA states included a match
+    /// state.)
+    ///
+    /// Bit 1 corresponds to whether this DFA state was created from a
+    /// transition over an ASCII "word" byte. Note that this is only ever set
+    /// if the NFA has a word boundary assertion. Otherwise, this bit is always
+    /// unset since it would otherwise bloat the size of the DFA for no reason.
+    /// This information is used to determine whether a particular transition
+    /// satisfies a "word boundary" assertion.
+    bools: u8,
+    /// An ordered list of pattern IDs corresponding to the NFA match states
+    /// that produced this DFA state.
+    ///
+    /// Pattern IDs are only explicitly tracked if the NFA contains more than
+    /// 1 pattern. Otherwise, this is always empty since the only possible
+    /// matching pattern ID is `0`.
+    ///
+    /// This must only be non-empty when Bit 0 of 'bools' is set.
+    match_pattern_ids: Vec<PatternID>,
+    /// The set of look-around assertions that were true when this state was
+    /// created.
+    ///
+    /// Like look_need, this is also used to gate the re-computation of the
+    /// epsilon closure in 'next' when determining the next transition. Namely,
+    /// an assertion that is satisfied is only considered "new" if it is not
+    /// already in look_have. Why? Because if the assertion was satisfied
+    /// when the state was created, then the NFA states inside that DFA state
+    /// already account for that assertion being satisfied since that was the
+    /// context in which the epsilon closure was originally computed.
     look_have: LookSet,
+    /// The set of look-around assertions contained within this DFA state, where
+    /// a look-around assertion is present if and only if one of this DFA
+    /// state's NFA states corresponds to that look-around assertion.
+    ///
+    /// In essence, this is an efficient representation of the "interesting"
+    /// look-around assertions for this state. This is used to gate the
+    /// re-computation of the epsilon closure of the preceding state in
+    /// 'next'. That is, the epsilon closure is only re-computed if there are
+    /// new AND relevant look-around assertions.
+    look_need: LookSet,
 }
 
 impl Facts {
+    /// Compute the set of facts possible given the type of starting
+    /// conditions.
     fn start(start: Start) -> Facts {
-        let mut state = StateFacts::default();
-        let mut look_have = LookSet::default();
+        let mut facts = Facts::default();
         match start {
             Start::NonWordByte => {}
             Start::WordByte => {
-                state.from_word = true;
+                facts.set_from_word(true);
             }
             Start::Text => {
-                look_have.insert(Look::StartText);
-                look_have.insert(Look::StartLine);
+                facts.look_have.insert(Look::StartText);
+                facts.look_have.insert(Look::StartLine);
             }
             Start::Line => {
-                look_have.insert(Look::StartLine);
+                facts.look_have.insert(Look::StartLine);
             }
         }
-        Facts { state, look_need: LookSet::default(), look_have }
+        facts
     }
-}
 
-/// Various facts about a builder-DFA state.
-///
-/// These make up the state's identity, such that two states with the same
-/// set of NFA states but different facts are considered distinct states.
-#[derive(Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
-struct StateFacts {
-    from_word: bool,
-    matches: Matches,
-}
+    // Get and set whether this state is a match state or not.
+    define_bool!(0, is_match, set_is_match);
 
-impl StateFacts {
-    fn is_match(&self) -> bool {
-        self.matches.is_match()
+    // Get and set whether this state was created from a transition over an
+    // ASCII "word" byte.
+    define_bool!(1, from_word, set_from_word);
+
+    /// Add the given pattern ID to this state.
+    ///
+    /// Callers must ensure that this state is marked as a match state.
+    fn add_match_pattern_id(&mut self, pid: PatternID) {
+        self.match_pattern_ids.push(pid);
     }
-}
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-enum Matches {
-    /// This variant is always used for non-matching states.
-    None,
-    /// This variant is always used for matching states when the total number
-    /// of regexes in the NFA is 1.
-    One,
-    /// This variant is always used for matching states when the total number
-    /// of regexes in the NFA is greater than 1.
-    Many(Vec<PatternID>),
-}
-
-impl Default for Matches {
-    fn default() -> Matches {
-        Matches::None
-    }
-}
-
-impl Matches {
-    fn add(&mut self, pid: PatternID) {
-        match *self {
-            Matches::None => {
-                *self = Matches::Many(vec![pid]);
-            }
-            Matches::One => {
-                panic!("cannot add NFA match ID when compiling a single regex")
-            }
-            Matches::Many(ref mut many) => {
-                many.push(pid);
-            }
+    /// Return the match pattern IDs for this state, but only if this state
+    /// is a matching state. Otherwise, this returns None.
+    fn into_match_pattern_ids(self) -> Option<Vec<PatternID>> {
+        if !self.is_match() {
+            return None;
         }
-    }
-
-    fn is_match(&self) -> bool {
-        match *self {
-            Matches::None => false,
-            Matches::One | Matches::Many(_) => true,
-        }
-    }
-
-    fn into_vec(self) -> Option<Vec<PatternID>> {
-        match self {
-            Matches::None => None,
-            Matches::One => Some(vec![0]),
-            Matches::Many(pids) => Some(pids),
-        }
-    }
-}
-
-/// TODO
-///
-/// Various facts about a position in the input with respect to look-around
-/// conditions. These facts are used as a filter when following epsilon
-/// transitions. That is, only epsilon transitions (that also have look-around
-/// conditions attached to them) satisfying these facts are followed.
-#[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
-struct LookSet {
-    fields: u8,
-}
-
-impl LookSet {
-    fn is_empty(&self) -> bool {
-        self.fields == 0
-    }
-
-    fn subtract(&self, other: LookSet) -> LookSet {
-        LookSet { fields: self.fields & !other.fields }
-    }
-
-    fn intersect(&self, other: LookSet) -> LookSet {
-        LookSet { fields: self.fields & other.fields }
-    }
-
-    fn insert(&mut self, look: Look) {
-        self.fields |= look.as_bit_field();
-    }
-
-    #[cfg(test)]
-    fn remove(&mut self, look: Look) {
-        self.fields &= !look.as_bit_field();
-    }
-
-    fn contains(&self, look: Look) -> bool {
-        Look::bit_set_contains(self.fields, look)
-    }
-}
-
-impl core::fmt::Debug for LookSet {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let mut members = vec![];
-        for i in 0..8 {
-            let look = match Look::from_u8(1 << i) {
-                None => continue,
-                Some(look) => look,
-            };
-            if self.contains(look) {
-                members.push(look);
-            }
-        }
-        f.debug_tuple("LookSet").field(&members).finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn look_set() {
-        let mut f = LookSet::default();
-        assert!(!f.contains(Look::StartText));
-        assert!(!f.contains(Look::EndText));
-        assert!(!f.contains(Look::StartLine));
-        assert!(!f.contains(Look::EndLine));
-        assert!(!f.contains(Look::WordBoundaryUnicode));
-        assert!(!f.contains(Look::WordBoundaryUnicodeNegate));
-        assert!(!f.contains(Look::WordBoundaryAscii));
-        assert!(!f.contains(Look::WordBoundaryAsciiNegate));
-
-        f.insert(Look::StartText);
-        assert!(f.contains(Look::StartText));
-        f.remove(Look::StartText);
-        assert!(!f.contains(Look::StartText));
-
-        f.insert(Look::EndText);
-        assert!(f.contains(Look::EndText));
-        f.remove(Look::EndText);
-        assert!(!f.contains(Look::EndText));
-
-        f.insert(Look::StartLine);
-        assert!(f.contains(Look::StartLine));
-        f.remove(Look::StartLine);
-        assert!(!f.contains(Look::StartLine));
-
-        f.insert(Look::EndLine);
-        assert!(f.contains(Look::EndLine));
-        f.remove(Look::EndLine);
-        assert!(!f.contains(Look::EndLine));
-
-        f.insert(Look::WordBoundaryUnicode);
-        assert!(f.contains(Look::WordBoundaryUnicode));
-        f.remove(Look::WordBoundaryUnicode);
-        assert!(!f.contains(Look::WordBoundaryUnicode));
-
-        f.insert(Look::WordBoundaryUnicodeNegate);
-        assert!(f.contains(Look::WordBoundaryUnicodeNegate));
-        f.remove(Look::WordBoundaryUnicodeNegate);
-        assert!(!f.contains(Look::WordBoundaryUnicodeNegate));
-
-        f.insert(Look::WordBoundaryAscii);
-        assert!(f.contains(Look::WordBoundaryAscii));
-        f.remove(Look::WordBoundaryAscii);
-        assert!(!f.contains(Look::WordBoundaryAscii));
-
-        f.insert(Look::WordBoundaryAsciiNegate);
-        assert!(f.contains(Look::WordBoundaryAsciiNegate));
-        f.remove(Look::WordBoundaryAsciiNegate);
-        assert!(!f.contains(Look::WordBoundaryAsciiNegate));
+        Some(if self.match_pattern_ids.is_empty() {
+            vec![0]
+        } else {
+            self.match_pattern_ids
+        })
     }
 }
