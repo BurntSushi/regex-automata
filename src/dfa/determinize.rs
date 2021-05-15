@@ -1,3 +1,5 @@
+use core::convert::TryFrom;
+
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
@@ -442,24 +444,42 @@ impl<'a, S: StateID> Runner<'a, S> {
     }
 
     /// Compute the set of DFA start states and return their identifiers in
-    /// `dfa_state_ids`.
+    /// 'dfa_state_ids' (no duplicates are added).
     ///
     /// The sparse set given is used for scratch space, and must have capacity
-    /// equal to the total number of NFA states. Its contents are unspecified.
+    /// equal to the total number of NFA states. Its value given does not
+    /// matter and its value when this function returns is unspecified.
     fn add_all_starts(
         &mut self,
         sparse: &mut SparseSet,
         dfa_state_ids: &mut Vec<S>,
     ) -> Result<(), Error> {
+        // Always add the (possibly unanchored) start states for matching any
+        // of the patterns in this DFA.
         self.add_start_group(sparse, dfa_state_ids, None)?;
+        // We only need to compute anchored start states for each pattern if it
+        // was requested to do so.
         if self.dfa.has_starts_for_each_pattern() {
-            for pid in 0..self.dfa.pattern_count() {
-                self.add_start_group(sparse, dfa_state_ids, Some(pid as u32))?;
+            // pattern_count is guaranteed to be at least 1, otherwise this DFA
+            // would have no starts for each pattern.
+            let max = u32::try_from(self.dfa.pattern_count() - 1)
+                .expect("PatternID must fit in a u32");
+            for pid in 0..=max {
+                self.add_start_group(sparse, dfa_state_ids, Some(pid))?;
             }
         }
         Ok(())
     }
 
+    /// Add a group of start states for the given match pattern ID. Any new
+    /// DFA states added are pushed on to 'dfa_state_ids'. (No duplicates are
+    /// pushed.) Also, 'sparse' is used as scratch space; its value given does
+    /// not matter and its value when this function returns is unspecified.
+    ///
+    /// When pattern_id is None, then this will compile a group of unanchored
+    /// start states (if the DFA is unanchored). When the pattern_id is
+    /// present, then this will compile a group of anchored start states that
+    /// only match the given pattern.
     fn add_start_group(
         &mut self,
         sparse: &mut SparseSet,
@@ -471,6 +491,11 @@ impl<'a, S: StateID> Runner<'a, S> {
             None if self.anchored => self.nfa.start_anchored(),
             None => self.nfa.start_unanchored(),
         };
+
+        // When compiling start states, we're careful not to build additional
+        // states that aren't necessary. For example, if the NFA has no word
+        // boundary assertion, then there's no reason to have distinct start
+        // states for 'NonWordByte' and 'WordByte' starting configurations.
 
         let id = self.add_one_start(sparse, nfa_start, Start::NonWordByte)?;
         self.dfa.set_start_state(Start::NonWordByte, pattern_id, id);
@@ -499,6 +524,14 @@ impl<'a, S: StateID> Runner<'a, S> {
         Ok(())
     }
 
+    /// Add a new DFA start state corresponding to the given starting NFA
+    /// state, and the starting search configuration. (The starting search
+    /// configuration essentially tells us which look-behind assertions are
+    /// true for this particular state.)
+    ///
+    /// The 'sparse' set given can have unspecified contents. It is used as
+    /// scratch space to store the epislon closure of NFA states (beginning at
+    /// the given NFA start state).
     fn add_one_start(
         &mut self,
         sparse: &mut SparseSet,
@@ -507,6 +540,10 @@ impl<'a, S: StateID> Runner<'a, S> {
     ) -> Result<S, Error> {
         sparse.clear();
 
+        // Compute the look-behind assertions that are true in this starting
+        // configuration, and the determine the epsilon closure. While
+        // computing the epsilon closure, we only follow condiional epsilon
+        // transitions that satisfy the look-behind assertions in 'facts'.
         let facts = Facts::start(start);
         self.epsilon_closure(nfa_start, facts.look_have, sparse);
         let state = self.new_state(&sparse, facts);
@@ -526,7 +563,11 @@ impl<'a, S: StateID> Runner<'a, S> {
     /// Add the given state to the DFA and make it available in the cache.
     ///
     /// The state initially has no transitions. That is, it transitions to the
-    /// dead state for all possible inputs.
+    /// dead state for all possible inputs, and transitions to the quit state
+    /// for all quit bytes.
+    ///
+    /// If adding the state would exceed the maximum value for S, then an error
+    /// is returned.
     fn add_state(&mut self, state: State) -> Result<S, Error> {
         let id = self.dfa.add_empty_state()?;
         if !self.quit.is_empty() {
@@ -541,8 +582,28 @@ impl<'a, S: StateID> Runner<'a, S> {
     }
 
     /// Convert the given set of ordered NFA states to a DFA state.
+    ///
+    /// The facts given should be the things that are true immediately prior
+    /// to transitioning int this state. Generally speaking, this corresponds
+    /// to look-behind assertions (StateLine, StartText and whether this state
+    /// is being generated for a transition over a word byte) and whether and
+    /// which patterns matched in the state prior to this one. (Prior because
+    /// we delay matches by 1 byte.) The things that should _not_ be in facts
+    /// are look-ahead assertions (EndLine, EndText and whether the next byte
+    /// is a word byte or not). Facts should also not have 'look_need' set, as
+    /// this constructor will compute that for you.
+    ///
+    /// If caller's end up not using the state returned (perhaps because it's
+    /// identical to some previously existing state), then callers should
+    /// put the 'nfa_states' allocation back into the determinizer field
+    /// 'scratch_nfa_states'.
     fn new_state(&mut self, set: &SparseSet, facts: Facts) -> State {
         let mut state = State {
+            // We use this determinizer's scratch space to store the NFA state
+            // IDs because this state may not wind up being used if it's
+            // identical to some other existing state. When that happers,
+            // the caller should put the scratch allocation back into the
+            // determinizer.
             nfa_states: core::mem::replace(
                 &mut self.scratch_nfa_states,
                 vec![],
@@ -644,10 +705,16 @@ impl<'a, S: StateID> Runner<'a, S> {
 /// An intermediate representation for a DFA state during determinization.
 ///
 /// This representation is used as a key in a map from states to their
-/// identifiers.
+/// identifiers. The purpose of said map is to permit reusing DFA states that
+/// are trivially identical. While this won't achieve full minimization, it
+/// works well in practice to keep the size of the DFA reasonably small.
 #[derive(Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 struct State {
     /// An ordered sequence of NFA states that make up this DFA state.
+    ///
+    /// See the 'new_state' constructor above for what exactly goes in here.
+    /// The short answer is every NFA state in the epsilon closure except for
+    /// unconditional epsilon transitions.
     nfa_states: Vec<thompson::StateID>,
     /// A collection of "facts" about this state that, in addition to the NFA
     /// state IDs above, contributes to this state's identity.
@@ -656,9 +723,16 @@ struct State {
 
 impl State {
     /// Create a new empty dead state.
+    ///
+    /// A dead state is a state that never transitions to any other state
+    /// except another dead state. (Which is always itself because there is
+    /// only one dead state.)
     fn dead() -> State {
         State { nfa_states: vec![], facts: Facts::default() }
     }
+
+    // If you're looking for the constructor of a state, it's 'new_state'
+    // above on the determinizer.
 }
 
 /// A collection of "facts" or metadata about a DFA state. These facts include
