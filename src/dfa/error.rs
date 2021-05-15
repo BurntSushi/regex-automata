@@ -7,7 +7,11 @@ pub struct Error {
 }
 
 /// The kind of error that occurred during the construction of a DFA.
+///
+/// Note that this error is non-exhaustive. Adding new variants is not
+/// considered a breaking change.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum ErrorKind {
     /// An error that occurred while constructing an NFA as a precursor step
     /// before a DFA is compiled.
@@ -31,13 +35,6 @@ pub enum ErrorKind {
         /// The maximum possible state ID.
         max: usize,
     },
-    /// Hints that destructuring should not be exhaustive.
-    ///
-    /// This enum may grow additional variants, so this makes sure clients
-    /// don't count on exhaustive matching. (Otherwise, adding a new variant
-    /// could break existing code.)
-    #[doc(hidden)]
-    __Nonexhaustive,
 }
 
 impl Error {
@@ -70,7 +67,6 @@ impl std::error::Error for Error {
             ErrorKind::NFA(ref err) => Some(err),
             ErrorKind::Unsupported(_) => None,
             ErrorKind::StateIDOverflow { .. } => None,
-            ErrorKind::__Nonexhaustive => unreachable!(),
         }
     }
 }
@@ -89,7 +85,6 @@ impl core::fmt::Display for Error {
                  where the maximum ID for the chosen representation is {}",
                 max,
             ),
-            ErrorKind::__Nonexhaustive => unreachable!(),
         }
     }
 }
