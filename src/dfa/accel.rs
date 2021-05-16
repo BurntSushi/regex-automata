@@ -13,7 +13,7 @@
 //      *000002:
 //     A 000003: \x00-` => 3, a => 5, b-\xFF => 3
 //      >000004: \x00-` => 3, a => 4, b-\xFF => 3
-//       000005: \x00-\xFF => 2, EOF => 2
+//       000005: \x00-\xFF => 2, EOI => 2
 //     )
 //
 // In particular, state 3 is accelerated (shown via the 'A' indicator) since

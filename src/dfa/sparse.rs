@@ -293,16 +293,16 @@ impl<S: StateID> DFA<Vec<u8>, S> {
                         sparse.push(b1);
                         sparse.push(b2);
                     }
-                    (Byte::EOF(_), Byte::EOF(_)) => {}
-                    (Byte::U8(_), Byte::EOF(_))
-                    | (Byte::EOF(_), Byte::U8(_)) => {
+                    (Byte::EOI(_), Byte::EOI(_)) => {}
+                    (Byte::U8(_), Byte::EOI(_))
+                    | (Byte::EOI(_), Byte::U8(_)) => {
                         // can never occur because sparse_transitions never
-                        // groups EOF with any other transition.
+                        // groups EOI with any other transition.
                         unreachable!()
                     }
                 }
             }
-            // Add dummy EOF transition. This is never actually read while
+            // Add dummy EOI transition. This is never actually read while
             // searching, but having space equivalent to the total number
             // of transitions is convenient. Otherwise, we'd need to track
             // a different number of transitions for the byte ranges as for
@@ -1162,8 +1162,8 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
     }
 
     #[inline]
-    fn next_eof_state(&self, current: S) -> S {
-        self.trans.state(current).next_eof()
+    fn next_eoi_state(&self, current: S) -> S {
+        self.trans.state(current).next_eoi()
     }
 
     #[inline]
@@ -1252,7 +1252,7 @@ struct Transitions<T, S> {
     /// and a non-match in the DFA. Each equivalence class corresponds to a
     /// single character in this DFA's alphabet, where the maximum number of
     /// characters is 257 (each possible value of a byte plus the special
-    /// EOF transition). Consequently, the number of equivalence classes
+    /// EOI transition). Consequently, the number of equivalence classes
     /// corresponds to the number of transitions for each DFA state. Note
     /// though that the *space* used by each DFA state in the transition table
     /// may be larger. The total space used by each DFA state is known as the
@@ -2160,8 +2160,8 @@ impl<'a, S: StateID> State<'a, S> {
         dead_id()
     }
 
-    /// Returns the next state ID for the special EOF transition.
-    fn next_eof(&self) -> S {
+    /// Returns the next state ID for the special EOI transition.
+    fn next_eoi(&self) -> S {
         self.next_at(self.ntrans - 1)
     }
 
@@ -2241,12 +2241,12 @@ impl<'a, S: StateID> fmt::Debug for State<'a, S> {
             }
             printed = true;
         }
-        let eof = self.next_at(self.ntrans - 1);
-        if eof != dead_id() {
+        let eoi = self.next_at(self.ntrans - 1);
+        if eoi != dead_id() {
             if printed {
                 write!(f, ", ")?;
             }
-            write!(f, "EOF => {}", eof.as_usize())?;
+            write!(f, "EOI => {}", eoi.as_usize())?;
         }
         Ok(())
     }

@@ -521,7 +521,7 @@ impl Config {
     /// // occurs after the match. This is because search routines read one
     /// // byte past the end of the search to account for look-around. In
     /// // this case, the whitespace after '123' is when a match is known,
-    /// // but the first byte of the snowman is still read for the final EOF
+    /// // but the first byte of the snowman is still read for the final EOI
     /// // transition, which ends up triggering the quit state.
     /// let haystack = "foo 123 ☃".as_bytes();
     /// let expected = MatchError::Quit { byte: 0xE2, offset: 8 };
@@ -1260,8 +1260,8 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// unique values in a single byte. However, this implementation has two
     /// peculiarities that impact the alphabet length:
     ///
-    /// * Every state has a special "EOF" transition that is only followed
-    /// after the end of some haystack is reached. This EOF transition is
+    /// * Every state has a special "EOI" transition that is only followed
+    /// after the end of some haystack is reached. This EOI transition is
     /// necessary to account for one byte of look-ahead when implementing
     /// things like `\b` and `$`.
     /// * Bytes are grouped into equivalence classes such that no two bytes in
@@ -1297,7 +1297,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// The minimum `stride2` value is `1` (corresponding to a stride of `2`)
     /// while the maximum `stride2` value is `9` (corresponding to a stride of
     /// `512`). The maximum is not `8` since the maximum alphabet size is `257`
-    /// when accounting for the special EOF transition. However, an alphabet
+    /// when accounting for the special EOI transition. However, an alphabet
     /// length of that size is exceptionally rare since the alphabet is shrunk
     /// into equivalence classes.
     pub fn stride2(&self) -> usize {
@@ -2714,9 +2714,9 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
     }
 
     #[inline]
-    fn next_eof_state(&self, current: S) -> S {
-        let eof = self.byte_classes().eof().as_usize();
-        let o = current.as_usize() + eof;
+    fn next_eoi_state(&self, current: S) -> S {
+        let eoi = self.byte_classes().eoi().as_usize();
+        let o = current.as_usize() + eoi;
         self.trans()[o]
     }
 
@@ -2787,7 +2787,7 @@ pub(crate) struct TransitionTable<T, S> {
     /// row-major order. The representation is dense. That is, every state
     /// has precisely the same number of transitions. The maximum number of
     /// transitions per state is 257 (256 for each possible byte value, plus 1
-    /// for the special EOF transition). If a DFA has been instructed to use
+    /// for the special EOI transition). If a DFA has been instructed to use
     /// byte classes (the default), then the number of transitions is usually
     /// substantially fewer.
     ///
@@ -2798,7 +2798,7 @@ pub(crate) struct TransitionTable<T, S> {
     /// and a non-match in the DFA. Each equivalence class corresponds to a
     /// single character in this DFA's alphabet, where the maximum number of
     /// characters is 257 (each possible value of a byte plus the special
-    /// EOF transition). Consequently, the number of equivalence classes
+    /// EOI transition). Consequently, the number of equivalence classes
     /// corresponds to the number of transitions for each DFA state. Note
     /// though that the *space* used by each DFA state in the transition table
     /// may be larger. The total space used by each DFA state is known as the
@@ -3043,7 +3043,7 @@ impl<S: StateID> TransitionTable<Vec<S>, S> {
         assert!(self.is_valid(to), "invalid 'to' state");
         let class = match byte {
             Byte::U8(b) => self.classes.get(b) as usize,
-            Byte::EOF(b) => b as usize,
+            Byte::EOI(b) => b as usize,
         };
         self.table[from.as_usize() + class] = to;
     }
@@ -4209,8 +4209,8 @@ impl<'a, S: StateID> State<'a, S> {
             if id == self.id() {
                 continue;
             }
-            for byte_or_eof in classes.elements(class) {
-                if let Byte::U8(byte) = byte_or_eof {
+            for byte_or_eoi in classes.elements(class) {
+                if let Byte::U8(byte) = byte_or_eoi {
                     if !accel.add(byte) {
                         return None;
                     }
@@ -4306,7 +4306,7 @@ impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
     fn next(&mut self) -> Option<(Byte, S)> {
         self.it.next().map(|(i, &id)| {
             let b = if i + 1 == self.len {
-                Byte::EOF(i as u16)
+                Byte::EOI(i as u16)
             } else {
                 Byte::U8(i as u8)
             };
@@ -4334,7 +4334,7 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
     fn next(&mut self) -> Option<(Byte, &'a mut S)> {
         self.it.next().map(|(i, id)| {
             let b = if i + 1 == self.len {
-                Byte::EOF(i as u16)
+                Byte::EOI(i as u16)
             } else {
                 Byte::U8(i as u8)
             };
@@ -4351,8 +4351,8 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 /// to the transition taken for all bytes in the range.
 ///
 /// As a convenience, this always returns `Byte` values of the same type. That
-/// is, you'll never get a (Byte::U8, Byte::EOF) or a (Byte::EOF, Byte::U8).
-/// Only (Byte::U8, Byte::U8) and (Byte::EOF, Byte::EOF) values are yielded.
+/// is, you'll never get a (Byte::U8, Byte::EOI) or a (Byte::EOI, Byte::U8).
+/// Only (Byte::U8, Byte::U8) and (Byte::EOI, Byte::EOI) values are yielded.
 #[derive(Debug)]
 pub(crate) struct StateSparseTransitionIter<'a, S> {
     dense: StateTransitionIter<'a, S>,
@@ -4371,7 +4371,7 @@ impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
                     continue;
                 }
             };
-            if prev_next == next && !b.is_eof() {
+            if prev_next == next && !b.is_eoi() {
                 self.cur = Some((prev_start, b, prev_next));
             } else {
                 self.cur = Some((b, b, next));

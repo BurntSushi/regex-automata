@@ -133,7 +133,7 @@ fn find_fwd<A: Automaton + ?Sized>(
             at += 1;
         }
     }
-    Ok(eof_fwd(dfa, bytes, end, &mut state)?.or(last_match))
+    Ok(eoi_fwd(dfa, bytes, end, &mut state)?.or(last_match))
 }
 
 #[inline(never)]
@@ -224,7 +224,7 @@ fn find_rev<A: Automaton + ?Sized>(
             }
         }
     }
-    Ok(eof_rev(dfa, state, bytes, start)?.or(last_match))
+    Ok(eoi_rev(dfa, state, bytes, start)?.or(last_match))
 }
 
 #[inline(never)]
@@ -373,7 +373,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
         }
     }
 
-    let result = eof_fwd(dfa, bytes, end, &mut state);
+    let result = eoi_fwd(dfa, bytes, end, &mut state);
     caller_state.set_id(state);
     if let Ok(Some(ref last_match)) = result {
         caller_state.set_last_match(StateMatch {
@@ -412,7 +412,7 @@ fn init_rev<A: Automaton + ?Sized>(
     Ok(state)
 }
 
-fn eof_fwd<A: Automaton + ?Sized>(
+fn eoi_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     bytes: &[u8],
     end: usize,
@@ -431,7 +431,7 @@ fn eof_fwd<A: Automaton + ?Sized>(
             }
         }
         None => {
-            *state = dfa.next_eof_state(*state);
+            *state = dfa.next_eoi_state(*state);
             if dfa.is_match_state(*state) {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(*state, 0),
@@ -444,7 +444,7 @@ fn eof_fwd<A: Automaton + ?Sized>(
     }
 }
 
-fn eof_rev<A: Automaton + ?Sized>(
+fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
     state: A::ID,
     bytes: &[u8],
@@ -461,7 +461,7 @@ fn eof_rev<A: Automaton + ?Sized>(
             Ok(None)
         }
     } else {
-        let state = dfa.next_eof_state(state);
+        let state = dfa.next_eoi_state(state);
         if dfa.is_match_state(state) {
             Ok(Some(HalfMatch {
                 pattern: dfa.match_pattern(state, 0),

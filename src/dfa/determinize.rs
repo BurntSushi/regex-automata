@@ -295,7 +295,7 @@ impl<'a, S: StateID> Runner<'a, S> {
                     look_have.insert(Look::EndLine);
                 }
                 Byte::U8(_) => {}
-                Byte::EOF(_) => {
+                Byte::EOI(_) => {
                     look_have.insert(Look::EndText);
                     look_have.insert(Look::EndLine);
                 }
