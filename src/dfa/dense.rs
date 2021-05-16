@@ -20,7 +20,7 @@ use alloc::{
 
 use crate::{
     bytes::{self, DeserializeError, Endian, SerializeError},
-    classes::{Byte, ByteClasses},
+    classes::{ByteClasses, InputUnit},
     dfa::{
         accel::Accels,
         automaton::{fmt_state_indicator, Automaton, Start},
@@ -2117,7 +2117,7 @@ impl<S: StateID> OwnedDFA<S> {
 
     /// Add the given transition to this DFA. Both the `from` and `to` states
     /// must already exist.
-    pub(crate) fn add_transition(&mut self, from: S, byte: Byte, to: S) {
+    pub(crate) fn add_transition(&mut self, from: S, byte: InputUnit, to: S) {
         self.tt.set(from, byte, to);
     }
 
@@ -3038,12 +3038,12 @@ impl<S: StateID> TransitionTable<Vec<S>, S> {
     /// Set a transition in this table. Both the `from` and `to` states must
     /// already exist. `byte` should correspond to the transition out of `from`
     /// to set.
-    fn set(&mut self, from: S, byte: Byte, to: S) {
+    fn set(&mut self, from: S, byte: InputUnit, to: S) {
         assert!(self.is_valid(from), "invalid 'from' state");
         assert!(self.is_valid(to), "invalid 'to' state");
         let class = match byte {
-            Byte::U8(b) => self.classes.get(b) as usize,
-            Byte::EOI(b) => b as usize,
+            InputUnit::U8(b) => self.classes.get(b) as usize,
+            InputUnit::EOI(b) => b as usize,
         };
         self.table[from.as_usize() + class] = to;
     }
@@ -4210,7 +4210,7 @@ impl<'a, S: StateID> State<'a, S> {
                 continue;
             }
             for byte_or_eoi in classes.elements(class) {
-                if let Byte::U8(byte) = byte_or_eoi {
+                if let InputUnit::U8(byte) = byte_or_eoi {
                     if !accel.add(byte) {
                         return None;
                     }
@@ -4301,14 +4301,14 @@ pub(crate) struct StateTransitionIter<'a, S> {
 }
 
 impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
-    type Item = (Byte, S);
+    type Item = (InputUnit, S);
 
-    fn next(&mut self) -> Option<(Byte, S)> {
+    fn next(&mut self) -> Option<(InputUnit, S)> {
         self.it.next().map(|(i, &id)| {
             let b = if i + 1 == self.len {
-                Byte::EOI(i as u16)
+                InputUnit::EOI(i as u16)
             } else {
-                Byte::U8(i as u8)
+                InputUnit::U8(i as u8)
             };
             (b, id)
         })
@@ -4329,14 +4329,14 @@ pub(crate) struct StateTransitionIterMut<'a, S> {
 
 #[cfg(feature = "alloc")]
 impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
-    type Item = (Byte, &'a mut S);
+    type Item = (InputUnit, &'a mut S);
 
-    fn next(&mut self) -> Option<(Byte, &'a mut S)> {
+    fn next(&mut self) -> Option<(InputUnit, &'a mut S)> {
         self.it.next().map(|(i, id)| {
             let b = if i + 1 == self.len {
-                Byte::EOI(i as u16)
+                InputUnit::EOI(i as u16)
             } else {
-                Byte::U8(i as u8)
+                InputUnit::U8(i as u8)
             };
             (b, id)
         })
@@ -4350,19 +4350,20 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 /// triple comprise an inclusive byte range while the last element corresponds
 /// to the transition taken for all bytes in the range.
 ///
-/// As a convenience, this always returns `Byte` values of the same type. That
-/// is, you'll never get a (Byte::U8, Byte::EOI) or a (Byte::EOI, Byte::U8).
-/// Only (Byte::U8, Byte::U8) and (Byte::EOI, Byte::EOI) values are yielded.
+/// As a convenience, this always returns `InputUnit` values of the same
+/// type. That is, you'll never get a (InputUnit::U8, InputUnit::EOI) or a
+/// (InputUnit::EOI, InputUnit::U8). Only (InputUnit::U8, InputUnit::U8) and
+/// (InputUnit::EOI, InputUnit::EOI) values are yielded.
 #[derive(Debug)]
 pub(crate) struct StateSparseTransitionIter<'a, S> {
     dense: StateTransitionIter<'a, S>,
-    cur: Option<(Byte, Byte, S)>,
+    cur: Option<(InputUnit, InputUnit, S)>,
 }
 
 impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
-    type Item = (Byte, Byte, S);
+    type Item = (InputUnit, InputUnit, S);
 
-    fn next(&mut self) -> Option<(Byte, Byte, S)> {
+    fn next(&mut self) -> Option<(InputUnit, InputUnit, S)> {
         while let Some((b, next)) = self.dense.next() {
             let (prev_start, prev_end, prev_next) = match self.cur {
                 Some(t) => t,

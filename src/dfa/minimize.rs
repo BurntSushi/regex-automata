@@ -3,7 +3,7 @@ use core::{cell::RefCell, fmt, mem};
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
-    classes::Byte,
+    classes::InputUnit,
     dfa::{automaton::Automaton, dense},
     state_id::{dead_id, StateID},
     PatternID,
@@ -274,7 +274,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
 
     fn find_incoming_to(
         &self,
-        b: Byte,
+        b: InputUnit,
         set: &StateSet<S>,
         incoming: &mut StateSet<S>,
     ) {

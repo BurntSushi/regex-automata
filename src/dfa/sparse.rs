@@ -255,7 +255,7 @@ impl<S: StateID> DFA<Vec<u8>, S> {
         A: AsRef<[u8]>,
         S2: StateID,
     {
-        use crate::classes::Byte;
+        use crate::classes::InputUnit;
 
         // In order to build the transition table, we need to be able to write
         // state identifiers for each of the "next" transitions in each state.
@@ -288,14 +288,14 @@ impl<S: StateID> DFA<Vec<u8>, S> {
             let mut transition_count = 0;
             for (b1, b2, _) in state.sparse_transitions() {
                 match (b1, b2) {
-                    (Byte::U8(b1), Byte::U8(b2)) => {
+                    (InputUnit::U8(b1), InputUnit::U8(b2)) => {
                         transition_count += 1;
                         sparse.push(b1);
                         sparse.push(b2);
                     }
-                    (Byte::EOI(_), Byte::EOI(_)) => {}
-                    (Byte::U8(_), Byte::EOI(_))
-                    | (Byte::EOI(_), Byte::U8(_)) => {
+                    (InputUnit::EOI(_), InputUnit::EOI(_)) => {}
+                    (InputUnit::U8(_), InputUnit::EOI(_))
+                    | (InputUnit::EOI(_), InputUnit::U8(_)) => {
                         // can never occur because sparse_transitions never
                         // groups EOI with any other transition.
                         unreachable!()
