@@ -1,9 +1,16 @@
 use crate::bytes::{DeserializeError, SerializeError};
 
+/// InputUnit represents a single unit of input for DFA based regex engines.
+///
+/// Typically, a single unit of input for a DFA would be a single byte.
+/// However, for the DFAs in this crate, we delay matches by a single byte
+/// in order to handle look-ahead assertions (\b, $ and \z). Thus, once we have
+/// consumed the haystack, we must run the DFA through one additional transition
+/// using an input that indicates the haystack has ended. Thus, a
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Byte {
     U8(u8),
-    EOF(u16),
+    EOI(u16),
 }
 
 impl Byte {
@@ -11,28 +18,28 @@ impl Byte {
     pub fn as_u8(self) -> Option<u8> {
         match self {
             Byte::U8(b) => Some(b),
-            Byte::EOF(_) => None,
+            Byte::EOI(_) => None,
         }
     }
 
     #[cfg(feature = "alloc")]
-    pub fn as_eof(self) -> Option<usize> {
+    pub fn as_eoi(self) -> Option<usize> {
         match self {
             Byte::U8(_) => None,
-            Byte::EOF(eof) => Some(eof as usize),
+            Byte::EOI(eoi) => Some(eoi as usize),
         }
     }
 
     pub fn as_usize(self) -> usize {
         match self {
             Byte::U8(b) => b as usize,
-            Byte::EOF(eof) => eof as usize,
+            Byte::EOI(eoi) => eoi as usize,
         }
     }
 
-    pub fn is_eof(&self) -> bool {
+    pub fn is_eoi(&self) -> bool {
         match *self {
-            Byte::EOF(_) => true,
+            Byte::EOI(_) => true,
             _ => false,
         }
     }
@@ -47,7 +54,7 @@ impl core::fmt::Debug for Byte {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match *self {
             Byte::U8(b) => crate::util::fmt_byte(f, b),
-            Byte::EOF(_) => write!(f, "EOF"),
+            Byte::EOI(_) => write!(f, "EOI"),
         }
     }
 }
@@ -147,15 +154,15 @@ impl ByteClasses {
     }
 
     #[inline]
-    pub fn eof(&self) -> Byte {
-        Byte::EOF(self.alphabet_len() as u16 - 1)
+    pub fn eoi(&self) -> Byte {
+        Byte::EOI(self.alphabet_len() as u16 - 1)
     }
 
     #[inline]
     #[cfg(feature = "alloc")]
     pub fn usize_to_byte(&self, b: usize) -> Byte {
         if b == self.alphabet_len() - 1 {
-            self.eof()
+            self.eoi()
         } else {
             assert!(b <= 255);
             Byte::U8(b as u8)
@@ -168,7 +175,7 @@ impl ByteClasses {
     #[inline]
     pub fn alphabet_len(&self) -> usize {
         // Add one since the number of equivalence classes is one bigger than
-        // the last one. But add another to account for the final EOF class
+        // the last one. But add another to account for the final EOI class
         // that isn't explicitly represented.
         self.0[255] as usize + 1 + 1
     }
@@ -187,7 +194,7 @@ impl ByteClasses {
 
     /// Returns true if and only if every byte in this class maps to its own
     /// equivalence class. Equivalently, there are 257 equivalence classes
-    /// and each class contains exactly one byte (plus the special EOF class).
+    /// and each class contains exactly one byte (plus the special EOI class).
     #[inline]
     pub fn is_singleton(&self) -> bool {
         self.alphabet_len() == 257
@@ -265,7 +272,7 @@ impl<'a> Iterator for ByteClassIter<'a> {
         if self.i + 1 == self.classes.alphabet_len() {
             let class = self.i as u16;
             self.i += 1;
-            Some(Byte::EOF(class))
+            Some(Byte::EOI(class))
         } else if self.i < self.classes.alphabet_len() {
             let class = self.i as u8;
             self.i += 1;
@@ -302,7 +309,7 @@ impl<'a> Iterator for ByteClassRepresentatives<'a> {
         }
         if self.byte == 256 {
             self.byte += 1;
-            return Some(self.classes.eof());
+            return Some(self.classes.eoi());
         }
         None
     }
@@ -329,8 +336,8 @@ impl<'a> Iterator for ByteClassElements<'a> {
         }
         if self.byte < 257 {
             self.byte += 1;
-            if self.class.is_eof() {
-                return Some(Byte::EOF(256));
+            if self.class.is_eoi() {
+                return Some(Byte::EOI(256));
             }
         }
         None
@@ -360,7 +367,7 @@ impl<'a> Iterator for ByteClassElementRanges<'a> {
                 }
                 Some((start, end)) => {
                     if end.as_usize() + 1 != element.as_usize()
-                        || element.is_eof()
+                        || element.is_eoi()
                     {
                         self.range = Some((element, element));
                         return Some((start, end));
@@ -665,7 +672,7 @@ mod tests {
         // class 4: n-y
         // class 5: z-z
         // class 6: \x7B-\xFF
-        // class 7: EOF
+        // class 7: EOI
         assert_eq!(classes.alphabet_len(), 8);
 
         let elements = classes.elements(Byte::U8(0)).collect::<Vec<_>>();
@@ -709,8 +716,8 @@ mod tests {
         assert_eq!(elements[0], Byte::U8(b'\x7B'));
         assert_eq!(elements[132], Byte::U8(b'\xFF'));
 
-        let elements = classes.elements(Byte::EOF(7)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![Byte::EOF(256)]);
+        let elements = classes.elements(Byte::EOI(7)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Byte::EOI(256)]);
     }
 
     #[test]
@@ -721,8 +728,8 @@ mod tests {
         let elements = classes.elements(Byte::U8(b'a')).collect::<Vec<_>>();
         assert_eq!(elements, vec![Byte::U8(b'a')]);
 
-        let elements = classes.elements(Byte::EOF(5)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![Byte::EOF(256)]);
+        let elements = classes.elements(Byte::EOI(5)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Byte::EOI(256)]);
     }
 
     #[test]
@@ -735,7 +742,7 @@ mod tests {
         assert_eq!(elements[0], Byte::U8(b'\x00'));
         assert_eq!(elements[255], Byte::U8(b'\xFF'));
 
-        let elements = classes.elements(Byte::EOF(1)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![Byte::EOF(256)]);
+        let elements = classes.elements(Byte::EOI(1)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Byte::EOI(256)]);
     }
 }

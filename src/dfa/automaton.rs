@@ -10,9 +10,9 @@ use crate::{
 /// (ASCII-only) and $. In particular, both of these operators may require the
 /// identification of the end of input in order to confirm a match. Not only
 /// does this mean that all matches must therefore be delayed by a single byte,
-/// but that a special EOF value is added to the alphabet of all DFAs. (Which
+/// but that a special EOI value is added to the alphabet of all DFAs. (Which
 /// means that even though the alphabet of a DFA is typically all byte values,
-/// the actual maximum alphabet size is 257 due to the extra EOF value.)
+/// the actual maximum alphabet size is 257 due to the extra EOI value.)
 ///
 /// Since we delay matches by only 1 byte, this can't fully support a
 /// Unicode-aware \b operator, which require multi-byte look-around. Indeed,
@@ -107,7 +107,7 @@ impl HalfMatch {
 /// respectively.
 /// * All matches are delayed by one byte to support things like `$` and `\b`
 /// at the end of a pattern. Therefore, every use of a DFA is required to use
-/// [`Automaton::next_eof_state`]
+/// [`Automaton::next_eoi_state`]
 /// at the end of the search to compute the final transition.
 /// * For optimization reasons, some states are treated specially. Every
 /// state is either special or not, which can be determined via the
@@ -215,8 +215,8 @@ pub unsafe trait Automaton {
     ///     state = dfa.next_state(state, b);
     /// }
     /// // Matches are always delayed by 1 byte, so we must explicitly walk the
-    /// // special "EOF" transition at the end of the search.
-    /// state = dfa.next_eof_state(state);
+    /// // special "EOI" transition at the end of the search.
+    /// state = dfa.next_eoi_state(state);
     /// assert!(dfa.is_match_state(state));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -245,7 +245,7 @@ pub unsafe trait Automaton {
     ) -> Self::ID;
 
     /// Transitions from the current state to the next state for the special
-    /// EOF symbol.
+    /// EOI symbol.
     ///
     /// Implementations must guarantee that the returned ID is always a valid
     /// ID when `current` refers to a valid ID.
@@ -254,14 +254,14 @@ pub unsafe trait Automaton {
     /// implementation of search. Namely, DFAs in this crate delay matches
     /// by one byte in order to support look-around operators. Thus, after
     /// reaching the end of a haystack, a search implementation must follow one
-    /// last EOF transition.
+    /// last EOI transition.
     ///
-    /// It is best to think of EOF as an additional symbol in the alphabet of
+    /// It is best to think of EOI as an additional symbol in the alphabet of
     /// a DFA that is distinct from every other symbol. That is, the alphabet
     /// of DFAs in this crate has a logical size of 257 instead of 256, where
     /// 256 corresponds to every possible inhabitant of `u8`. (In practice, the
     /// physical alphabet size may be smaller because of alphabet compression
-    /// via equivalence classes, but EOF is always represented somehow in the
+    /// via equivalence classes, but EOI is always represented somehow in the
     /// alphabet.)
     ///
     /// # Panics
@@ -274,7 +274,7 @@ pub unsafe trait Automaton {
     /// # Example
     ///
     /// This shows a simplistic example for walking a DFA for a given haystack,
-    /// and then finishing the search with the final EOF transition.
+    /// and then finishing the search with the final EOI transition.
     ///
     /// ```
     /// use regex_automata::dfa::{Automaton, dense};
@@ -292,15 +292,15 @@ pub unsafe trait Automaton {
     ///     state = dfa.next_state(state, b);
     /// }
     /// // Matches are always delayed by 1 byte, so we must explicitly walk
-    /// // the special "EOF" transition at the end of the search. Without this
+    /// // the special "EOI" transition at the end of the search. Without this
     /// // final transition, the assert below will fail since the DFA will not
     /// // have entered a match state yet!
-    /// state = dfa.next_eof_state(state);
+    /// state = dfa.next_eoi_state(state);
     /// assert!(dfa.is_match_state(state));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn next_eof_state(&self, current: Self::ID) -> Self::ID;
+    fn next_eoi_state(&self, current: Self::ID) -> Self::ID;
 
     /// Return the ID of the start state for this DFA when executing a forward
     /// search.
@@ -442,8 +442,8 @@ pub unsafe trait Automaton {
     ///         }
     ///     }
     ///     // Matches are always delayed by 1 byte, so we must explicitly walk
-    ///     // the special "EOF" transition at the end of the search.
-    ///     state = dfa.next_eof_state(state);
+    ///     // the special "EOI" transition at the end of the search.
+    ///     state = dfa.next_eoi_state(state);
     ///     if dfa.is_match_state(state) {
     ///         last_match = Some(HalfMatch::new(
     ///             dfa.match_pattern(state, 0),
@@ -463,9 +463,9 @@ pub unsafe trait Automaton {
     /// assert_eq!(mat.pattern(), 0);
     /// assert_eq!(mat.offset(), 10);
     ///
-    /// // Here's another example that tests our handling of the special EOF
+    /// // Here's another example that tests our handling of the special EOI
     /// // transition. This will fail to find a match if we don't call
-    /// // 'next_eof_state' at the end of the search since the match isn't
+    /// // 'next_eoi_state' at the end of the search since the match isn't
     /// // found until the final byte in the haystack.
     /// let dfa = dense::DFA::new(r"[0-9]{4}")?;
     /// let haystack = "123 foobar 4567".as_bytes();
@@ -676,8 +676,8 @@ pub unsafe trait Automaton {
     ///         }
     ///     }
     ///     // Matches are always delayed by 1 byte, so we must explicitly walk
-    ///     // the special "EOF" transition at the end of the search.
-    ///     state = dfa.next_eof_state(state);
+    ///     // the special "EOI" transition at the end of the search.
+    ///     state = dfa.next_eoi_state(state);
     ///     if dfa.is_match_state(state) {
     ///         last_match = Some(HalfMatch::new(
     ///             dfa.match_pattern(state, 0),
@@ -744,7 +744,7 @@ pub unsafe trait Automaton {
     /// `(?-u)[^a]+a`. Namely, the `[^a]+` sub-expression gets compiled down
     /// into a single state where all transitions except for `a` loop back to
     /// itself, and where `a` is the only transition (other than the special
-    /// EOF transition) that goes to some other state. Thus, this state can
+    /// EOI transition) that goes to some other state. Thus, this state can
     /// be accelerated and implemented more efficiently by calling an
     /// optimized routine like `memchr` with `a` as the needle. Notice that
     /// the `(?-u)` to disable Unicode is necessary here, as without it,
@@ -850,7 +850,7 @@ pub unsafe trait Automaton {
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
     /// }
-    /// state = dfa.next_eof_state(state);
+    /// state = dfa.next_eoi_state(state);
     ///
     /// assert!(dfa.is_match_state(state));
     /// assert_eq!(dfa.match_count(state), 3);
@@ -1651,8 +1651,8 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn next_eof_state(&self, current: Self::ID) -> Self::ID {
-        (**self).next_eof_state(current)
+    fn next_eoi_state(&self, current: Self::ID) -> Self::ID {
+        (**self).next_eoi_state(current)
     }
 
     #[inline]

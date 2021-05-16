@@ -31,7 +31,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fst::Automaton
         if fst::Automaton::is_match(self, state) {
             return Some(*state);
         }
-        Some(self.next_eof_state(*state))
+        Some(self.next_eoi_state(*state))
     }
 
     #[inline]
@@ -66,7 +66,7 @@ impl<T: AsRef<[u8]>, S: StateID> fst::Automaton for sparse::DFA<T, S> {
         if fst::Automaton::is_match(self, state) {
             return Some(*state);
         }
-        Some(self.next_eof_state(*state))
+        Some(self.next_eoi_state(*state))
     }
 
     #[inline]
