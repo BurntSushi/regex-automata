@@ -3,7 +3,7 @@ use core::convert::TryFrom;
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
-    classes::{Byte, ByteSet},
+    classes::{ByteSet, InputUnit},
     dfa::{automaton::Start, dense, Error},
     nfa::thompson::{self, Look, LookSet},
     sparse_set::{SparseSet, SparseSets},
@@ -184,7 +184,7 @@ impl<'a, S: StateID> Runner<'a, S> {
         // state transitions. This allows us to avoid re-computing state
         // transitions for bytes that are guaranteed to produce identical
         // results.
-        let representative_bytes: Vec<Byte> =
+        let representative_bytes: Vec<InputUnit> =
             self.dfa.byte_classes().representatives().collect();
         // A pair of sparse sets for tracking ordered sets of NFA state IDs.
         // These are reused throughout determinization.
@@ -252,7 +252,7 @@ impl<'a, S: StateID> Runner<'a, S> {
         &mut self,
         sparses: &mut SparseSets,
         dfa_id: S,
-        b: Byte,
+        b: InputUnit,
     ) -> Result<(S, bool), Error> {
         sparses.clear();
         // Compute the set of all reachable NFA states, including epsilons.
@@ -277,7 +277,12 @@ impl<'a, S: StateID> Runner<'a, S> {
 
     /// Compute the set of all eachable NFA states, including the full epsilon
     /// closure, from a DFA state for a single byte of input.
-    fn next(&mut self, sparses: &mut SparseSets, dfa_id: S, b: Byte) -> Facts {
+    fn next(
+        &mut self,
+        sparses: &mut SparseSets,
+        dfa_id: S,
+        b: InputUnit,
+    ) -> Facts {
         sparses.clear();
 
         // Put the NFA state IDs into a sparse set in case we need to
@@ -291,11 +296,11 @@ impl<'a, S: StateID> Runner<'a, S> {
         if !facts.look_need.is_empty() {
             let mut look_have = facts.look_have.clone();
             match b {
-                Byte::U8(b'\n') => {
+                InputUnit::U8(b'\n') => {
                     look_have.insert(Look::EndLine);
                 }
-                Byte::U8(_) => {}
-                Byte::EOI(_) => {
+                InputUnit::U8(_) => {}
+                InputUnit::EOI(_) => {
                     look_have.insert(Look::EndText);
                     look_have.insert(Look::EndLine);
                 }
@@ -572,7 +577,11 @@ impl<'a, S: StateID> Runner<'a, S> {
         let id = self.dfa.add_empty_state()?;
         if !self.quit.is_empty() {
             for b in self.quit.iter() {
-                self.dfa.add_transition(id, Byte::U8(b), self.dfa.quit_id());
+                self.dfa.add_transition(
+                    id,
+                    InputUnit::U8(b),
+                    self.dfa.quit_id(),
+                );
             }
         }
         let rstate = Rc::new(state);
