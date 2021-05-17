@@ -9,12 +9,7 @@ This module also contains a [`dense::Builder`](Builder) and a
 
 #[cfg(feature = "alloc")]
 use core::cmp;
-use core::{
-    convert::{TryFrom, TryInto},
-    fmt, iter,
-    marker::PhantomData,
-    slice,
-};
+use core::{convert::TryFrom, fmt, iter, marker::PhantomData, slice};
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -1064,7 +1059,7 @@ pub struct DFA<T, A, S = usize> {
     /// multi-regexes. Namely, multi-regexes require answering not just whether
     /// a match exists, but _which_ patterns match. So we need to store the
     /// matching pattern IDs for each match state.
-    ms: MatchStates<T, A, S>,
+    ms: MatchStates<T, S>,
     /// Information about which states are "special." Special states are states
     /// that are dead, quit, matching, starting or accelerated. For more info,
     /// see the docs for `Special`.
@@ -2122,8 +2117,8 @@ impl<S: StateID> OwnedDFA<S> {
 
     /// Add the given transition to this DFA. Both the `from` and `to` states
     /// must already exist.
-    pub(crate) fn add_transition(&mut self, from: S, byte: InputUnit, to: S) {
-        self.tt.set(from, byte, to);
+    pub(crate) fn add_transition(&mut self, from: S, unit: InputUnit, to: S) {
+        self.tt.set(from, unit, to);
     }
 
     /// An an empty state (a state where all transitions lead to a dead state)
@@ -2168,10 +2163,7 @@ impl<S: StateID> OwnedDFA<S> {
     }
 
     /// Updates the match state pattern ID map to use the one provided.
-    pub(crate) fn set_pattern_map(
-        &mut self,
-        map: &BTreeMap<S, Vec<PatternID>>,
-    ) {
+    pub(crate) fn set_pattern_map(&mut self, map: &BTreeMap<S, Vec<S>>) {
         self.ms = self.ms.new_with_map(map);
     }
 
@@ -2386,10 +2378,7 @@ impl<S: StateID> OwnedDFA<S> {
     /// states and accelerated states are all contiguous.
     ///
     /// See dfa/special.rs for more details.
-    pub(crate) fn shuffle(
-        &mut self,
-        mut matches: BTreeMap<S, Vec<PatternID>>,
-    ) {
+    pub(crate) fn shuffle(&mut self, mut matches: BTreeMap<S, Vec<S>>) {
         // The determinizer always adds a quit state and it is always second.
         self.special.quit_id = self.from_index(1);
         // If all we have are the dead and quit states, then we're done and
@@ -2527,7 +2516,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     ///
     /// If the given state is not a match state, then this panics.
     #[cfg(feature = "alloc")]
-    pub(crate) fn match_pattern_ids(&self, id: S) -> PatternIDIter {
+    pub(crate) fn match_pattern_ids(&self, id: S) -> PatternIDIter<'_, S> {
         assert!(self.is_match_state(id));
         self.ms.match_pattern_ids(self.match_index(id))
     }
@@ -2548,7 +2537,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> DFA<T, A, S> {
     /// Returns a map from match state ID to a list of pattern IDs that match
     /// in that state.
     #[cfg(feature = "alloc")]
-    pub(crate) fn pattern_map(&self) -> BTreeMap<S, Vec<PatternID>> {
+    pub(crate) fn pattern_map(&self) -> BTreeMap<S, Vec<S>> {
         self.ms.to_map(self)
     }
 
@@ -2657,7 +2646,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fmt::Debug for DFA<T, A, S> {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", pid)?;
+                    write!(f, "{}", pid.as_usize())?;
                 }
                 writeln!(f, "")?;
             }
@@ -2736,7 +2725,7 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
     }
 
     #[inline]
-    fn match_pattern(&self, id: Self::ID, match_index: usize) -> PatternID {
+    fn match_pattern(&self, id: Self::ID, match_index: usize) -> S {
         // This is an optimization for the very common case of a DFA with a
         // single pattern. This conditional avoids a somewhat more costly path
         // that finds the pattern ID from the state machine, which requires
@@ -2744,7 +2733,7 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
         // matter when matches are frequent.
         if self.ms.patterns == 1 {
             assert_eq!(match_index, 0);
-            return 0;
+            return S::from_usize(0);
         }
         let state_index = self.match_index(id);
         self.ms.pattern_id(state_index, match_index)
@@ -2753,7 +2742,7 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
     #[inline]
     fn start_state_forward(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<S>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -2765,7 +2754,7 @@ unsafe impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> Automaton
     #[inline]
     fn start_state_reverse(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<S>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -3401,6 +3390,8 @@ pub(crate) struct StartTable<T, S> {
     /// The total number of patterns for which starting states are encoded.
     /// This may be zero for non-empty DFAs when the DFA was built without
     /// start states for each pattern.
+    ///
+    /// This is guaranteed to be representable in a u32.
     patterns: usize,
     /// The state ID representation. This is what's actually stored in `list`.
     _state_id: PhantomData<S>,
@@ -3614,17 +3605,14 @@ impl<T: AsRef<[S]>, S: StateID> StartTable<T, S> {
     /// starting state for the given pattern is returned. If this start table
     /// does not have individual starting states for each pattern, then this
     /// panics.
-    fn start(&self, index: Start, pattern_id: Option<PatternID>) -> S {
+    fn start(&self, index: Start, pattern_id: Option<S>) -> S {
         let start_index = index.as_usize();
         let index = match pattern_id {
             None => start_index,
             Some(pid) => {
-                assert!(
-                    pid < self.patterns as u32,
-                    "invalid pattern ID {:?}",
-                    pid
-                );
-                self.stride + (self.stride * pid as usize) + start_index
+                let pid = pid.as_usize();
+                assert!(pid < self.patterns, "invalid pattern ID {:?}", pid);
+                self.stride + (self.stride * pid) + start_index
             }
         };
         self.table()[index]
@@ -3716,9 +3704,9 @@ pub(crate) struct StartStateIter<'a, S> {
 }
 
 impl<'a, S: StateID> Iterator for StartStateIter<'a, S> {
-    type Item = (S, Start, Option<PatternID>);
+    type Item = (S, Start, Option<S>);
 
-    fn next(&mut self) -> Option<(S, Start, Option<PatternID>)> {
+    fn next(&mut self) -> Option<(S, Start, Option<S>)> {
         let i = self.i;
         let table = self.st.table();
         if i >= table.len() {
@@ -3732,7 +3720,7 @@ impl<'a, S: StateID> Iterator for StartStateIter<'a, S> {
         let pid = if i < self.st.stride {
             None
         } else {
-            Some(((i - self.st.stride) / self.st.stride) as u32)
+            Some(S::from_usize((i - self.st.stride) / self.st.stride))
         };
         Some((table[i], start_type, pid))
     }
@@ -3749,30 +3737,29 @@ impl<'a, S: StateID> Iterator for StartStateIter<'a, S> {
 /// of match states, we can use that to compute the position at which the match
 /// state occurs. That in turn is used as an offset into this structure.
 #[derive(Clone, Debug)]
-struct MatchStates<T, A, S> {
+struct MatchStates<T, S> {
     /// Slices is a flattened sequence of pairs, where each pair points to a
     /// sub-slice of pattern_ids. The first element of the pair is an offset
-    /// into pattern_ids and the second element of the pair is the number
-    /// of 32-bit pattern IDs starting at that position. That is, each pair
-    /// corresponds to a single DFA match state and its corresponding match
-    /// IDs. The number of pairs always corresponds to the number of distinct
-    /// DFA match states.
+    /// into pattern_ids and the second element of the pair is the number of
+    /// pattern IDs starting at that position. That is, each pair corresponds
+    /// to a single DFA match state and its corresponding match IDs. The number
+    /// of pairs always corresponds to the number of distinct DFA match states.
     ///
     /// In practice, T is either Vec<S> or &[S], where S: StateID.
     ///
-    /// It's a bit weird to use S for this since these aren't actually state
-    /// IDs. And in fact, they don't have anything to do with state IDs. But
-    /// we reuse the "state ID" abstraction because the state ID abstraction is
-    /// really just an abstraction around pointer sized fields. For example, on
-    /// a 16-bit target, S is guaranteed to be no bigger than a u16. And that's
-    /// exactly what we want here: to store pointers into some other slice,
-    /// which is all state IDs really are at the end of the day.
+    /// It's a bit weird to use S for this since these aren't actually IDs. And
+    /// in fact, they don't have anything to do with IDs. But we reuse the "ID"
+    /// abstraction because the ID abstraction is really just an abstraction
+    /// around pointer sized fields. For example, on a 16-bit target, S is
+    /// guaranteed to be no bigger than a u16. And that's exactly what we want
+    /// here: to store pointers into some other slice, which is all IDs really
+    /// are at the end of the day.
     slices: T,
     /// A flattened sequence of pattern IDs for each DFA match state. The only
     /// way to correctly read this sequence is indirectly via `slices`.
     ///
-    /// In practice, A is either Vec<u8> or &[u8].
-    pattern_ids: A,
+    /// In practice, T is either Vec<S> or &[S].
+    pattern_ids: T,
     /// The total number of unique patterns represented by these match states.
     patterns: usize,
     /// The 'S' type parameter isn't explicitly used above, so we need to fake
@@ -3780,11 +3767,10 @@ struct MatchStates<T, A, S> {
     _state_id: PhantomData<S>,
 }
 
-impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
+impl<'a, S: StateID> MatchStates<&'a [S], S> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
-    ) -> Result<(MatchStates<&'a [S], &'a [u8], S>, usize), DeserializeError>
-    {
+    ) -> Result<(MatchStates<&'a [S], S>, usize), DeserializeError> {
         let mut nread = 0;
 
         // Read the total number of match states.
@@ -3804,8 +3790,8 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
         //
-        // N.B. This is the only not-safe code in this function, so we mark
-        // it explicitly to call it out, even though it is technically
+        // N.B. This is one of the two not-safe code bits in this function, so
+        // we mark it explicitly to call it out, even though it is technically
         // superfluous.
         #[allow(unused_unsafe)]
         let slices = unsafe {
@@ -3822,7 +3808,8 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
         slice = &slice[8..];
 
         // Now read the pattern ID count. We don't need to store this
-        // explicitly, but we need it to know how many pattern IDs to read.
+        // explicitly since it's embedded into the pattern ID slice we end up
+        // creating.
         let idcount = bytes::try_read_u64_as_usize(slice, "pattern ID count")?;
         nread += 8;
         slice = &slice[8..];
@@ -3830,11 +3817,22 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
         // Read the actual pattern IDs.
         let pattern_ids_len = bytes::mul(
             idcount,
-            4, // each ID is a u32
+            core::mem::size_of::<S>(),
             "pattern ID byte length",
         )?;
         bytes::check_slice_len(slice, pattern_ids_len, "match pattern IDs")?;
-        let pattern_ids = &slice[..pattern_ids_len];
+        bytes::check_alignment::<S>(slice)?;
+        // SAFETY: Since S is always in {usize, u8, u16, u32, u64}, all we need
+        // to do is ensure that we have the proper length and alignment. We've
+        // checked both above, so the cast below is safe.
+        //
+        // N.B. This is one of the two not-safe code bits in this function, so
+        // we mark it explicitly to call it out, even though it is technically
+        // superfluous.
+        #[allow(unused_unsafe)]
+        let pattern_ids = unsafe {
+            core::slice::from_raw_parts(slice.as_ptr() as *const S, idcount)
+        };
         nread += pattern_ids_len;
         slice = &slice[pattern_ids_len..];
 
@@ -3854,8 +3852,8 @@ impl<'a, S: StateID> MatchStates<&'a [S], &'a [u8], S> {
 }
 
 #[cfg(feature = "alloc")]
-impl<S: StateID> MatchStates<Vec<S>, Vec<u8>, S> {
-    fn empty(pattern_count: usize) -> MatchStates<Vec<S>, Vec<u8>, S> {
+impl<S: StateID> MatchStates<Vec<S>, S> {
+    fn empty(pattern_count: usize) -> MatchStates<Vec<S>, S> {
         MatchStates {
             slices: vec![],
             pattern_ids: vec![],
@@ -3865,9 +3863,9 @@ impl<S: StateID> MatchStates<Vec<S>, Vec<u8>, S> {
     }
 
     fn new(
-        matches: &BTreeMap<S, Vec<PatternID>>,
+        matches: &BTreeMap<S, Vec<S>>,
         pattern_count: usize,
-    ) -> MatchStates<Vec<S>, Vec<u8>, S> {
+    ) -> MatchStates<Vec<S>, S> {
         let mut m = MatchStates::empty(pattern_count);
         for (_, pids) in matches.iter() {
             let start = S::from_usize(m.pattern_ids.len());
@@ -3875,7 +3873,13 @@ impl<S: StateID> MatchStates<Vec<S>, Vec<u8>, S> {
             let len = S::from_usize(pids.len());
             m.slices.push(len);
             for &pid in pids {
-                m.pattern_ids.extend_from_slice(&pid.to_ne_bytes());
+                assert!(
+                    pid.as_usize() < pattern_count,
+                    "{} is not less than pattern count {}",
+                    pid,
+                    pattern_count,
+                );
+                m.pattern_ids.push(pid);
             }
         }
         m.patterns = pattern_count;
@@ -3884,13 +3888,13 @@ impl<S: StateID> MatchStates<Vec<S>, Vec<u8>, S> {
 
     fn new_with_map(
         &self,
-        matches: &BTreeMap<S, Vec<PatternID>>,
-    ) -> MatchStates<Vec<S>, Vec<u8>, S> {
+        matches: &BTreeMap<S, Vec<S>>,
+    ) -> MatchStates<Vec<S>, S> {
         MatchStates::new(matches, self.patterns)
     }
 }
 
-impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
+impl<T: AsRef<[S]>, S: StateID> MatchStates<T, S> {
     /// Writes a serialized form of these match states to the buffer given. If
     /// the buffer is too small, then an error is returned. To determine how
     /// big the buffer must be, use `write_to_len`.
@@ -3917,20 +3921,15 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
         E::write_u64(self.patterns as u64, dst);
         dst = &mut dst[8..];
 
-        // write pattern ID count
-        E::write_u64(self.pattern_id_count() as u64, dst);
+        // write length of pattern_ids slice
+        E::write_u64(self.pattern_ids().len() as u64, dst);
         dst = &mut dst[8..];
 
         // write pattern IDs
-        dst[..self.pattern_ids().len()].copy_from_slice(self.pattern_ids());
-        dst = &mut dst[self.pattern_ids().len()..];
+        let pids = self.pattern_ids_bytes();
+        dst[..pids.len()].copy_from_slice(pids);
+        dst = &mut dst[pids.len()..];
 
-        // ... and also write padding bytes, just so that we are S-aligned
-        // everywhere.
-        for _ in 0..bytes::padding_len(self.pattern_ids().len()) {
-            dst[0] = 0;
-            dst = &mut dst[1..];
-        }
         Ok(nwrite)
     }
 
@@ -3940,14 +3939,16 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
         8   // match state count
         + self.slices_bytes().len()
         + 8 // unique pattern ID count
-        + 8 // pattern ID count
-        + self.pattern_ids().len()
-        + bytes::padding_len(self.pattern_ids().len())
+        + 8 // length of pattern_ids slice
+        + self.pattern_ids_bytes().len()
     }
 
     /// Valides that the match state info is itself internally consistent and
     /// consistent with the recorded match state region in the given DFA.
-    fn validate(&self, dfa: &DFA<T, A, S>) -> Result<(), DeserializeError> {
+    fn validate<A: AsRef<[u8]>>(
+        &self,
+        dfa: &DFA<T, A, S>,
+    ) -> Result<(), DeserializeError> {
         if self.count() != dfa.special.match_len(dfa.stride()) {
             return Err(DeserializeError::generic(
                 "match state count mismatch",
@@ -3961,14 +3962,14 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
                     "invalid pattern ID start offset",
                 ));
             }
-            if start + len * 4 > self.pattern_ids().len() {
+            if start + len > self.pattern_ids().len() {
                 return Err(DeserializeError::generic(
                     "invalid pattern ID length",
                 ));
             }
             for mi in 0..len {
                 let pid = self.pattern_id(si, mi);
-                if pid as usize >= self.patterns {
+                if pid.as_usize() >= self.patterns {
                     return Err(DeserializeError::generic(
                         "invalid pattern ID",
                     ));
@@ -3989,20 +3990,20 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     ///
     /// Once shuffling is done, use MatchStates::new to convert back.
     #[cfg(feature = "alloc")]
-    fn to_map(&self, dfa: &DFA<T, A, S>) -> BTreeMap<S, Vec<PatternID>> {
+    fn to_map<A: AsRef<[u8]>>(
+        &self,
+        dfa: &DFA<T, A, S>,
+    ) -> BTreeMap<S, Vec<S>> {
         let mut map = BTreeMap::new();
         for i in 0..self.count() {
-            let mut pids = vec![];
-            for j in 0..self.pattern_len(i) {
-                pids.push(self.pattern_id(i, j));
-            }
+            let pids = self.pattern_id_slice(i).to_vec();
             map.insert(self.match_state_id(dfa, i), pids);
         }
         map
     }
 
     /// Converts these match states to a borrowed value.
-    fn as_ref(&self) -> MatchStates<&'_ [S], &'_ [u8], S> {
+    fn as_ref(&self) -> MatchStates<&'_ [S], S> {
         MatchStates {
             slices: self.slices(),
             pattern_ids: self.pattern_ids(),
@@ -4013,7 +4014,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
 
     /// Converts these match states to an owned value.
     #[cfg(feature = "alloc")]
-    fn to_owned(&self) -> MatchStates<Vec<S>, Vec<u8>, S> {
+    fn to_owned(&self) -> MatchStates<Vec<S>, S> {
         MatchStates {
             slices: self.slices().to_vec(),
             pattern_ids: self.pattern_ids().to_vec(),
@@ -4030,10 +4031,10 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     #[cfg(feature = "alloc")]
     fn to_sized<S2: StateID>(
         &self,
-    ) -> Result<MatchStates<Vec<S2>, Vec<u8>, S2>, Error> {
+    ) -> Result<MatchStates<Vec<S2>, S2>, Error> {
         let mut ms = MatchStates {
             slices: Vec::with_capacity(self.slices().len()),
-            pattern_ids: self.pattern_ids().to_vec(),
+            pattern_ids: Vec::with_capacity(self.pattern_ids().len()),
             patterns: self.patterns,
             _state_id: PhantomData,
         };
@@ -4043,6 +4044,12 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
             }
             ms.slices.push(S2::from_usize(x.as_usize()));
         }
+        for x in self.pattern_ids().iter() {
+            if x.as_usize() > S2::max_id() {
+                return Err(Error::state_id_overflow(S2::max_id()));
+            }
+            ms.pattern_ids.push(S2::from_usize(x.as_usize()));
+        }
         Ok(ms)
     }
 
@@ -4050,7 +4057,11 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
     /// first match state corresponds to index 0.)
     ///
     /// This panics if there is no match state at the given index.
-    fn match_state_id(&self, dfa: &DFA<T, A, S>, index: usize) -> S {
+    fn match_state_id<A: AsRef<[u8]>>(
+        &self,
+        dfa: &DFA<T, A, S>,
+        index: usize,
+    ) -> S {
         assert!(dfa.special.matches(), "no match states to index");
         // This is one of the places where we rely on the fact that match
         // states are contiguous in the transition table. Namely, that the
@@ -4064,24 +4075,22 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
         id
     }
 
-    fn match_pattern_ids(&self, state_index: usize) -> PatternIDIter {
-        PatternIDIter { pattern_id_bytes: self.pattern_id_slice(state_index) }
+    fn match_pattern_ids(&self, state_index: usize) -> PatternIDIter<'_, S> {
+        PatternIDIter(self.pattern_ids().iter())
     }
 
-    fn pattern_id(&self, state_index: usize, match_index: usize) -> PatternID {
-        let pids = self.pattern_id_slice(state_index);
-        let pid = &pids[match_index * 4..match_index * 4 + 4];
-        u32::from_ne_bytes(pid.try_into().unwrap())
+    fn pattern_id(&self, state_index: usize, match_index: usize) -> S {
+        self.pattern_id_slice(state_index)[match_index]
     }
 
     fn pattern_len(&self, state_index: usize) -> usize {
         self.slices()[state_index * 2 + 1].as_usize()
     }
 
-    fn pattern_id_slice(&self, state_index: usize) -> &[u8] {
+    fn pattern_id_slice(&self, state_index: usize) -> &[S] {
         let start = self.slices()[state_index * 2].as_usize();
         let len = self.slices()[state_index * 2 + 1].as_usize();
-        &self.pattern_ids()[start..start + 4 * len]
+        &self.pattern_ids()[start..start + len]
     }
 
     fn slices(&self) -> &[S] {
@@ -4112,14 +4121,27 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> MatchStates<T, A, S> {
         self.slices().len() / 2
     }
 
-    fn pattern_ids(&self) -> &[u8] {
+    fn pattern_ids(&self) -> &[S] {
         self.pattern_ids.as_ref()
     }
 
-    /// Returns the total number of pattern IDs for all match states.
-    fn pattern_id_count(&self) -> usize {
-        assert_eq!(0, self.pattern_ids().len() % 4);
-        self.pattern_ids().len() / 4
+    /// Returns the pattern IDs as raw bytes.
+    ///
+    /// The length of the slice returned is always equivalent to
+    /// `self.pattern_ids().len() * self.state_size()`.
+    ///
+    /// This is generally only useful when serializing the pattern IDs to raw
+    /// bytes.
+    fn pattern_ids_bytes(&self) -> &[u8] {
+        let pattern_ids = self.pattern_ids();
+        // SAFETY: This is safe because S is guaranteed to be one of {usize,
+        // u8, u16, u32, u64}, and because u8 always has a smaller alignment.
+        unsafe {
+            core::slice::from_raw_parts(
+                pattern_ids.as_ptr() as *const u8,
+                pattern_ids.len() * self.state_size(),
+            )
+        }
     }
 
     /// Returns the size of the specific state ID representation, in bytes.
@@ -4405,20 +4427,13 @@ impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
 
 /// An iterator over pattern IDs for a single match state.
 #[derive(Debug)]
-pub(crate) struct PatternIDIter<'a> {
-    pattern_id_bytes: &'a [u8],
-}
+pub(crate) struct PatternIDIter<'a, S>(core::slice::Iter<'a, S>);
 
-impl<'a> Iterator for PatternIDIter<'a> {
-    type Item = u32;
+impl<'a, S: StateID> Iterator for PatternIDIter<'a, S> {
+    type Item = S;
 
-    fn next(&mut self) -> Option<u32> {
-        if self.pattern_id_bytes.is_empty() {
-            return None;
-        }
-        let bytes = &self.pattern_id_bytes[..4];
-        self.pattern_id_bytes = &self.pattern_id_bytes[4..];
-        Some(u32::from_ne_bytes(bytes.try_into().unwrap()))
+    fn next(&mut self) -> Option<S> {
+        self.0.next().map(|&pid| pid)
     }
 }
 

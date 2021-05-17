@@ -43,7 +43,12 @@ assert_eq!(end2, Some(HalfMatch::new(0, 7)));
 
 #[cfg(feature = "alloc")]
 use core::iter;
-use core::{convert::TryInto, fmt, marker::PhantomData, mem::size_of};
+use core::{
+    convert::{TryFrom, TryInto},
+    fmt,
+    marker::PhantomData,
+    mem::size_of,
+};
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -327,7 +332,7 @@ impl<S: StateID> DFA<Vec<u8>, S> {
             // state.
             if dfa.is_match_state(state.id()) {
                 let plen = dfa.match_pattern_len(state.id());
-                // Write the actual pattern IDs with a u32 length prefix.
+                // Write the actual pattern IDs with a u64 length prefix.
                 let mut pos = sparse.len();
                 sparse.extend(iter::repeat(0).take(4 + 4 * plen));
                 bytes::NE::write_u32(
@@ -1164,7 +1169,7 @@ unsafe impl<T: AsRef<[u8]>, S: StateID> Automaton for DFA<T, S> {
     }
 
     #[inline]
-    fn pattern_count(&self) -> usize {
+    fn pattern_count(&self) -> u32 {
         self.trans.patterns
     }
 
@@ -1279,7 +1284,7 @@ struct Transitions<T, S> {
     /// state. The dead state is never a match state.
     count: usize,
     /// The total number of unique patterns represented by these match states.
-    patterns: usize,
+    patterns: u32,
     /// The state ID representation.
     _state_id: PhantomData<S>,
 }
@@ -1290,13 +1295,11 @@ impl<'a, S: StateID> Transitions<&'a [u8], S> {
     ) -> Result<(Transitions<&'a [u8], S>, usize), DeserializeError> {
         let mut nread = 0;
 
-        let state_count: usize =
-            bytes::try_read_u64_as_usize(&slice, "state count")?;
+        let state_count = bytes::try_read_u64_as_usize(&slice, "state count")?;
         nread += 8;
         slice = &slice[8..];
 
-        let pattern_count: usize =
-            bytes::try_read_u64_as_usize(&slice, "pattern count")?;
+        let patterns = bytes::try_read_u32(&slice, "pattern count")?;
         nread += 8;
         slice = &slice[8..];
 
@@ -1317,7 +1320,7 @@ impl<'a, S: StateID> Transitions<&'a [u8], S> {
             sparse,
             classes,
             count: state_count,
-            patterns: pattern_count,
+            patterns,
             _state_id: PhantomData,
         };
         Ok((trans, nread))
@@ -1449,7 +1452,7 @@ impl<T: AsRef<[u8]>, S: StateID> Transitions<T, S> {
             // And also that every pattern ID is valid.
             for i in 0..state.pattern_count() {
                 let pid = state.pattern_id(i);
-                if pid >= self.patterns as u32 {
+                if pid >= self.patterns {
                     return Err(DeserializeError::generic(
                         "invalid pattern ID",
                     ));
@@ -1784,23 +1787,31 @@ struct StartTable<T, S> {
     /// The total number of patterns for which starting states are encoded.
     /// This may be zero for non-empty DFAs when the DFA was built without
     /// start states for each pattern.
-    patterns: usize,
+    patterns: u32,
     /// The state ID representation. This is what's actually stored in `list`.
     _state_id: PhantomData<S>,
 }
 
 #[cfg(feature = "alloc")]
 impl<S: StateID> StartTable<Vec<u8>, S> {
-    fn new(patterns: usize) -> StartTable<Vec<u8>, S> {
+    fn new(patterns: u32) -> Result<StartTable<Vec<u8>, S>, Error> {
         let stride = Start::count();
-        let start_count = stride + (stride * patterns);
-        let state_id_stride = core::mem::size_of::<S>();
-        StartTable {
-            table: vec![dead_id(); start_count * state_id_stride],
+        let patterns_usize = usize::try_from(patterns)
+            .expect("pattern count is always representable by usize");
+        let table_len = match stride
+            .checked_mul(patterns_usize)
+            .and_then(|x| x.checked_add(stride))
+            .and_then(|x| x.checked_mul(core::mem::size_of::<S>()))
+        {
+            Some(table_len) => table_len,
+            None => return Err(Error::state_id_overflow(S::max_id())),
+        };
+        Ok(StartTable {
+            table: vec![dead_id(); table_len],
             stride,
             patterns,
             _state_id: PhantomData,
-        }
+        })
     }
 
     fn from_dense_dfa<T: AsRef<[S]>, A: AsRef<[u8]>, S2: StateID>(
@@ -1812,7 +1823,7 @@ impl<S: StateID> StartTable<Vec<u8>, S> {
         } else {
             0
         };
-        let mut sl = StartTable::new(start_pattern_count);
+        let mut sl = StartTable::new(start_pattern_count)?;
         for (old_start_id, sty, pid) in dfa.starts() {
             let new_start_id = remap[dfa.to_index(old_start_id)];
             sl.set_start(sty, pid, new_start_id);
@@ -1952,13 +1963,13 @@ impl<T: AsRef<[u8]>, S: StateID> StartTable<T, S> {
     fn to_sized<S2: StateID>(
         &self,
         remap: &BTreeMap<S, S2>,
-    ) -> StartTable<Vec<u8>, S2> {
-        let mut sl = StartTable::new(self.patterns);
+    ) -> Result<StartTable<Vec<u8>, S2>, Error> {
+        let mut sl = StartTable::new(self.patterns)?;
         for (old_start_id, start_type, pid) in self.iter() {
             let new_start_id = remap[&old_start_id];
             sl.set_start(start_type, pid, new_start_id);
         }
-        sl
+        Ok(sl)
     }
 
     /// Return the start state for the given index and pattern ID. If the

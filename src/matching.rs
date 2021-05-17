@@ -102,19 +102,7 @@ impl Match {
 /// to match. The position (starting at 0) of each pattern in that sequence
 /// represents its identifier. This identifier is in turn used to identify and
 /// report matches of that pattern in various APIs.
-pub type PatternID = u32;
-
-/// The limit on the total number of patterns supported by this crate.
-///
-/// Generally, the limit can be expressed as
-/// `cmp::min(usize::MAX, u32::MAX) - 1`. That is, the maximum is `2^32 - 1`
-/// unless the current target's pointer size is less than 32 bits.
-pub fn pattern_limit() -> usize {
-    // The purpose of subtracting 1 here is so that the number of patterns
-    // is representable by a u32.
-    (core::cmp::min(core::usize::MAX as u64, core::u32::MAX as u64) - 1)
-        as usize
-}
+pub type PatternID = usize;
 
 /// A representation of a multi match reported by a regex engine.
 ///

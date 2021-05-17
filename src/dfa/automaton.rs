@@ -1,6 +1,5 @@
 use crate::{
     dfa::search, prefilter, state_id::StateID, word::is_word_byte, MatchError,
-    PatternID,
 };
 
 /// The offset, in bytes, that a match is delayed by in the DFAs generated
@@ -35,9 +34,9 @@ pub(crate) const MATCH_OFFSET: usize = 1;
 /// a single pattern is provided, then all matches are guaranteed to have a
 /// pattern ID of `0`.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct HalfMatch {
+pub struct HalfMatch<S> {
     /// The pattern ID.
-    pub(crate) pattern: PatternID,
+    pub(crate) pattern: S,
     /// The offset of the match.
     ///
     /// For forward searches, the offset is exclusive. For reverse searches,
@@ -45,10 +44,10 @@ pub struct HalfMatch {
     pub(crate) offset: usize,
 }
 
-impl HalfMatch {
+impl<S: StateID> HalfMatch<S> {
     /// Create a new half match from a pattern ID and a byte offset.
     #[inline]
-    pub fn new(pattern: PatternID, offset: usize) -> HalfMatch {
+    pub fn new(pattern: S, offset: usize) -> HalfMatch<S> {
         HalfMatch { pattern, offset }
     }
 
@@ -58,7 +57,7 @@ impl HalfMatch {
     /// originally inserted into the corresponding DFA. The first pattern has
     /// identifier `0`, and each subsequent pattern is `1`, `2` and so on.
     #[inline]
-    pub fn pattern(&self) -> PatternID {
+    pub fn pattern(&self) -> S {
         self.pattern
     }
 
@@ -333,7 +332,7 @@ pub unsafe trait Automaton {
     /// with anchored start states for each pattern.
     fn start_state_forward(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -369,7 +368,7 @@ pub unsafe trait Automaton {
     /// with anchored start states for each pattern.
     fn start_state_reverse(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -402,10 +401,7 @@ pub unsafe trait Automaton {
     /// continues until it reaches a dead state.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     MatchError, PatternID,
-    ///     dfa::{Automaton, HalfMatch, dense},
-    /// };
+    /// use regex_automata::{MatchError, dfa::{Automaton, HalfMatch, dense}};
     ///
     /// fn find_leftmost_first<A: Automaton>(
     ///     dfa: &A,
@@ -621,10 +617,7 @@ pub unsafe trait Automaton {
     /// are implementing your own search routine.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     MatchError, PatternID,
-    ///     dfa::{Automaton, HalfMatch, dense},
-    /// };
+    /// use regex_automata::{MatchError, dfa::{Automaton, HalfMatch, dense}};
     ///
     /// fn find_byte(slice: &[u8], at: usize, byte: u8) -> Option<usize> {
     ///     // Would be faster to use the memchr crate, but this is still
@@ -878,7 +871,7 @@ pub unsafe trait Automaton {
     ///
     /// Typically, this routine is used when implementing an overlapping
     /// search, as the example for `Automaton::match_count` does.
-    fn match_pattern(&self, id: Self::ID, index: usize) -> PatternID;
+    fn match_pattern(&self, id: Self::ID, index: usize) -> Self::ID;
 
     /// Return a slice of bytes to accelerate for the given state, if possible.
     ///
@@ -987,7 +980,7 @@ pub unsafe trait Automaton {
     fn find_earliest_fwd(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         self.find_earliest_fwd_at(None, None, bytes, 0, bytes.len())
     }
 
@@ -1052,7 +1045,7 @@ pub unsafe trait Automaton {
     fn find_earliest_rev(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         self.find_earliest_rev_at(None, bytes, 0, bytes.len())
     }
 
@@ -1123,7 +1116,7 @@ pub unsafe trait Automaton {
     fn find_leftmost_fwd(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         self.find_leftmost_fwd_at(None, None, bytes, 0, bytes.len())
     }
 
@@ -1194,7 +1187,7 @@ pub unsafe trait Automaton {
     fn find_leftmost_rev(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         self.find_leftmost_rev_at(None, bytes, 0, bytes.len())
     }
 
@@ -1265,7 +1258,7 @@ pub unsafe trait Automaton {
         &self,
         bytes: &[u8],
         state: &mut OverlappingState<Self::ID>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         self.find_overlapping_fwd_at(None, None, bytes, 0, bytes.len(), state)
     }
 
@@ -1457,11 +1450,11 @@ pub unsafe trait Automaton {
     fn find_earliest_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         search::find_earliest_fwd(pre, self, pattern_id, bytes, start, end)
     }
 
@@ -1496,11 +1489,11 @@ pub unsafe trait Automaton {
     #[inline]
     fn find_earliest_rev_at(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         search::find_earliest_rev(self, pattern_id, bytes, start, end)
     }
 
@@ -1532,11 +1525,11 @@ pub unsafe trait Automaton {
     fn find_leftmost_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         search::find_leftmost_fwd(pre, self, pattern_id, bytes, start, end)
     }
 
@@ -1568,11 +1561,11 @@ pub unsafe trait Automaton {
     #[inline]
     fn find_leftmost_rev_at(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         search::find_leftmost_rev(self, pattern_id, bytes, start, end)
     }
 
@@ -1621,12 +1614,12 @@ pub unsafe trait Automaton {
     fn find_overlapping_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
         state: &mut OverlappingState<Self::ID>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         search::find_overlapping_fwd(
             pre, self, pattern_id, bytes, start, end, state,
         )
@@ -1658,7 +1651,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn start_state_forward(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -1669,7 +1662,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn start_state_reverse(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
@@ -1718,7 +1711,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn match_pattern(&self, id: Self::ID, index: usize) -> PatternID {
+    fn match_pattern(&self, id: Self::ID, index: usize) -> Self::ID {
         (**self).match_pattern(id, index)
     }
 
@@ -1731,7 +1724,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_earliest_fwd(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_earliest_fwd(bytes)
     }
 
@@ -1739,7 +1732,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_earliest_rev(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_earliest_rev(bytes)
     }
 
@@ -1747,7 +1740,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_leftmost_fwd(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_leftmost_fwd(bytes)
     }
 
@@ -1755,7 +1748,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_leftmost_rev(
         &self,
         bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_leftmost_rev(bytes)
     }
 
@@ -1764,7 +1757,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         &self,
         bytes: &[u8],
         state: &mut OverlappingState<Self::ID>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_overlapping_fwd(bytes, state)
     }
 
@@ -1772,22 +1765,22 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_earliest_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_earliest_fwd_at(pre, pattern_id, bytes, start, end)
     }
 
     #[inline]
     fn find_earliest_rev_at(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_earliest_rev_at(pattern_id, bytes, start, end)
     }
 
@@ -1795,22 +1788,22 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_leftmost_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_leftmost_fwd_at(pre, pattern_id, bytes, start, end)
     }
 
     #[inline]
     fn find_leftmost_rev_at(
         &self,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self).find_leftmost_rev_at(pattern_id, bytes, start, end)
     }
 
@@ -1818,12 +1811,12 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_overlapping_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
+        pattern_id: Option<Self::ID>,
         bytes: &[u8],
         start: usize,
         end: usize,
         state: &mut OverlappingState<Self::ID>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch<Self::ID>>, MatchError> {
         (**self)
             .find_overlapping_fwd_at(pre, pattern_id, bytes, start, end, state)
     }
