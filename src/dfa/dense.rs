@@ -9,7 +9,12 @@ This module also contains a [`dense::Builder`](Builder) and a
 
 #[cfg(feature = "alloc")]
 use core::cmp;
-use core::{convert::TryInto, fmt, iter, marker::PhantomData, slice};
+use core::{
+    convert::{TryFrom, TryInto},
+    fmt, iter,
+    marker::PhantomData,
+    slice,
+};
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -2825,6 +2830,13 @@ pub(crate) struct TransitionTable<T, S> {
     /// indices. Instead, we can use simple logical shifts.
     ///
     /// See the docs for the `stride2` method for more details.
+    ///
+    /// The minimum `stride2` value is `1` (corresponding to a stride of `2`)
+    /// while the maximum `stride2` value is `9` (corresponding to a stride of
+    /// `512`). The maximum is not `8` since the maximum alphabet size is `257`
+    /// when accounting for the special EOI transition. However, an alphabet
+    /// length of that size is exceptionally rare since the alphabet is shrunk
+    /// into equivalence classes.
     stride2: usize,
     /// The total number of states in the table. Note that a DFA always has at
     /// least one state---the dead state---even the empty DFA. In particular,
@@ -3038,14 +3050,10 @@ impl<S: StateID> TransitionTable<Vec<S>, S> {
     /// Set a transition in this table. Both the `from` and `to` states must
     /// already exist. `byte` should correspond to the transition out of `from`
     /// to set.
-    fn set(&mut self, from: S, byte: InputUnit, to: S) {
+    fn set(&mut self, from: S, unit: InputUnit, to: S) {
         assert!(self.is_valid(from), "invalid 'from' state");
         assert!(self.is_valid(to), "invalid 'to' state");
-        let class = match byte {
-            InputUnit::U8(b) => self.classes.get(b) as usize,
-            InputUnit::EOI(b) => b as usize,
-        };
-        self.table[from.as_usize() + class] = to;
+        self.table[from.as_usize() + self.classes.get_by_unit(unit)] = to;
     }
 
     /// Add an empty state (a state where all transitions lead to a dead state)
@@ -3093,7 +3101,9 @@ impl<S: StateID> TransitionTable<Vec<S>, S> {
             // the code a bit more complex, especially during minimization and
             // when reshuffling states, as one needs to convert back and forth
             // between state IDs and state indices.)
-            let next = match self.count.checked_shl(self.stride2 as u32) {
+            let stride2 = u32::try_from(self.stride2)
+                .expect("maximum stride2 value is 9");
+            let next = match self.count.checked_shl(stride2) {
                 Some(next) => next,
                 None => {
                     return Err(Error::state_id_overflow(core::usize::MAX))
@@ -4209,8 +4219,8 @@ impl<'a, S: StateID> State<'a, S> {
             if id == self.id() {
                 continue;
             }
-            for byte_or_eoi in classes.elements(class) {
-                if let InputUnit::U8(byte) = byte_or_eoi {
+            for unit in classes.elements(class) {
+                if let Some(byte) = unit.as_u8() {
                     if !accel.add(byte) {
                         return None;
                     }
@@ -4293,7 +4303,7 @@ impl<'a, S: StateID> fmt::Debug for StateMut<'a, S> {
 /// corresponding DFA.
 ///
 /// Each transition is represented by a tuple. The first element is the input
-/// byte for that transition and the second element is the transitions itself.
+/// byte for that transition and the second element is the transition itself.
 #[derive(Debug)]
 pub(crate) struct StateTransitionIter<'a, S> {
     len: usize,
@@ -4305,12 +4315,14 @@ impl<'a, S: StateID> Iterator for StateTransitionIter<'a, S> {
 
     fn next(&mut self) -> Option<(InputUnit, S)> {
         self.it.next().map(|(i, &id)| {
-            let b = if i + 1 == self.len {
-                InputUnit::EOI(i as u16)
+            let unit = if i + 1 == self.len {
+                InputUnit::eoi(i)
             } else {
-                InputUnit::U8(i as u8)
+                let b = u8::try_from(i)
+                    .expect("raw byte alphabet is never exceeded");
+                InputUnit::u8(b)
             };
-            (b, id)
+            (unit, id)
         })
     }
 }
@@ -4333,12 +4345,14 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 
     fn next(&mut self) -> Option<(InputUnit, &'a mut S)> {
         self.it.next().map(|(i, id)| {
-            let b = if i + 1 == self.len {
-                InputUnit::EOI(i as u16)
+            let unit = if i + 1 == self.len {
+                InputUnit::eoi(i)
             } else {
-                InputUnit::U8(i as u8)
+                let b = u8::try_from(i)
+                    .expect("raw byte alphabet is never exceeded");
+                InputUnit::u8(b)
             };
-            (b, id)
+            (unit, id)
         })
     }
 }
@@ -4350,10 +4364,9 @@ impl<'a, S: StateID> Iterator for StateTransitionIterMut<'a, S> {
 /// triple comprise an inclusive byte range while the last element corresponds
 /// to the transition taken for all bytes in the range.
 ///
-/// As a convenience, this always returns `InputUnit` values of the same
-/// type. That is, you'll never get a (InputUnit::U8, InputUnit::EOI) or a
-/// (InputUnit::EOI, InputUnit::U8). Only (InputUnit::U8, InputUnit::U8) and
-/// (InputUnit::EOI, InputUnit::EOI) values are yielded.
+/// As a convenience, this always returns `InputUnit` values of the same type.
+/// That is, you'll never get a (byte, EOI) or a (EOI, byte). Only (byte, byte)
+/// and (EOI, EOI) values are yielded.
 #[derive(Debug)]
 pub(crate) struct StateSparseTransitionIter<'a, S> {
     dense: StateTransitionIter<'a, S>,
@@ -4364,18 +4377,18 @@ impl<'a, S: StateID> Iterator for StateSparseTransitionIter<'a, S> {
     type Item = (InputUnit, InputUnit, S);
 
     fn next(&mut self) -> Option<(InputUnit, InputUnit, S)> {
-        while let Some((b, next)) = self.dense.next() {
+        while let Some((unit, next)) = self.dense.next() {
             let (prev_start, prev_end, prev_next) = match self.cur {
                 Some(t) => t,
                 None => {
-                    self.cur = Some((b, b, next));
+                    self.cur = Some((unit, unit, next));
                     continue;
                 }
             };
-            if prev_next == next && !b.is_eoi() {
-                self.cur = Some((prev_start, b, prev_next));
+            if prev_next == next && !unit.is_eoi() {
+                self.cur = Some((prev_start, unit, prev_next));
             } else {
-                self.cur = Some((b, b, next));
+                self.cur = Some((unit, unit, next));
                 if prev_next != dead_id() {
                     return Some((prev_start, prev_end, prev_next));
                 }
