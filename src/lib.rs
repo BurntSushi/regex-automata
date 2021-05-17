@@ -8,15 +8,19 @@ TODO
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(feature = "alloc")]
-pub use crate::config::SyntaxConfig;
 pub use crate::{
     bytes::{DeserializeError, SerializeError},
+    classes::{
+        ByteClassElementRanges, ByteClassElements, ByteClassIter,
+        ByteClassSet, ByteClasses, InputUnit,
+    },
     matching::{
         pattern_limit, Match, MatchError, MatchKind, MultiMatch, PatternID,
     },
     state_id::StateID,
 };
+#[cfg(feature = "alloc")]
+pub use crate::{classes::ByteClassRepresentatives, config::SyntaxConfig};
 
 #[macro_use]
 mod macros;

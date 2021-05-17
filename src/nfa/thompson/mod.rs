@@ -2,10 +2,7 @@ use core::fmt;
 
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
-use crate::{
-    classes::{ByteClassSet, ByteClasses},
-    PatternID,
-};
+use crate::{classes::ByteClassSet, PatternID};
 
 pub use self::compiler::{Builder, Config};
 
@@ -36,9 +33,8 @@ pub struct NFA {
     /// state ID, and it is also guaranteed to contain exactly one `Match`
     /// state.
     states: Vec<State>,
-    byte_class_set: ByteClassSet,
-    /// A mapping from any byte value to its corresponding equivalence class
-    /// identifier. Two bytes in the same equivalence class cannot discriminate
+    /// A representation of equivalence classes over the transitions in this
+    /// NFA. Two bytes in the same equivalence class cannot discriminate
     /// between a match or a non-match. This map can be used to shrink the
     /// total size of a DFA's transition table with a small match-time cost.
     ///
@@ -48,7 +44,7 @@ pub struct NFA {
     /// help the NFA much since the NFA already uses a sparse representation
     /// to represent transitions. Byte classes are most effective in a dense
     /// representation.
-    byte_classes: ByteClasses,
+    byte_class_set: ByteClassSet,
     /// Various facts about this NFA, which can be used to improve failure
     /// modes (e.g., rejecting DFA construction if an NFA has Unicode word
     /// boundaries) or for performing optimizations (avoiding an increase in
@@ -67,7 +63,6 @@ impl NFA {
             start_pattern: vec![0],
             states: vec![State::Match(0)],
             byte_class_set: ByteClassSet::empty(),
-            byte_classes: ByteClasses::empty(),
             facts: Facts::default(),
         };
         nfa.set_match_len(1);
@@ -84,7 +79,6 @@ impl NFA {
             start_pattern: vec![],
             states: vec![State::Fail],
             byte_class_set: ByteClassSet::empty(),
-            byte_classes: ByteClasses::empty(),
             facts: Facts::default(),
         }
     }
@@ -172,20 +166,6 @@ impl NFA {
     #[inline]
     pub fn set_byte_class_set(&mut self, set: ByteClassSet) {
         self.byte_class_set = set;
-    }
-
-    /// Return the set of equivalence classes for this NFA. The slice returned
-    /// always has length 256 and maps each possible byte value to its
-    /// corresponding equivalence class ID (which is never more than 255).
-    #[inline]
-    pub fn byte_classes(&self) -> &ByteClasses {
-        &self.byte_classes
-    }
-
-    /// Set the byte classes for this NFA.
-    #[inline]
-    pub fn set_byte_classes(&mut self, classes: ByteClasses) {
-        self.byte_classes = classes;
     }
 
     /// Return the NFA state corresponding to the given ID.
@@ -308,6 +288,12 @@ impl fmt::Debug for NFA {
                 writeln!(f, "START({:06}): {:?}", pid, id)?;
             }
         }
+        writeln!(f, "")?;
+        writeln!(
+            f,
+            "transition equivalence classes: {:?}",
+            self.byte_class_set().byte_classes()
+        )?;
         writeln!(f, ")")?;
         Ok(())
     }
@@ -455,32 +441,37 @@ impl Facts {
 /// look-ahead (WordBoundary*).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Look {
-    /// The previous position is either \n or the current position is the
-    /// beginning of the haystack (i.e., at position 0).
+    /// The previous position is either `\n` or the current position is the
+    /// beginning of the haystack (i.e., at position `0`).
     StartLine = 1 << 0,
-    /// The next position is either \n or the current position is the end of
-    /// the haystack (i.e., at position haystack.len()).
+    /// The next position is either `\n` or the current position is the end of
+    /// the haystack (i.e., at position `haystack.len()`).
     EndLine = 1 << 1,
     /// The current position is the beginning of the haystack (i.e., at
-    /// position 0).
+    /// position `0`).
     StartText = 1 << 2,
     /// The current position is the end of the haystack (i.e., at position
-    /// haystack.len()).
+    /// `haystack.len()`).
     EndText = 1 << 3,
-    /// When tested at position i, where p=decode_utf8_rev(&haystack[..i]) and
-    /// n=decode_utf8(&haystack[i..]), this assertion passes if and only if
-    /// is_word(p) != is_word(n). If i=0, then is_word(p)=false and if
-    /// i=haystack.len(), then is_word(n)=false.
+    /// When tested at position `i`, where `p=decode_utf8_rev(&haystack[..i])`
+    /// and `n=decode_utf8(&haystack[i..])`, this assertion passes if and only
+    /// if `is_word(p) != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
+    /// `i=haystack.len()`, then `is_word(n)=false`.
     WordBoundaryUnicode = 1 << 4,
-    /// Same as for WordBoundaryUnicode, but requires that
-    /// is_word(p) == is_word(n).
+    /// Same as for `WordBoundaryUnicode`, but requires that
+    /// `is_word(p) == is_word(n)`.
     WordBoundaryUnicodeNegate = 1 << 5,
-    /// When tested at position i, where p=haystack[i-1] and n=haystack[i],
-    /// this assertion passes if and only if is_word(p) != is_word(n). If i=0,
-    /// then is_word(p)=false and if i=haystack.len(), then is_word(n)=false.
+    /// When tested at position `i`, where `p=haystack[i-1]` and
+    /// `n=haystack[i]`, this assertion passes if and only if `is_word(p)
+    /// != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
+    /// `i=haystack.len()`, then `is_word(n)=false`.
     WordBoundaryAscii = 1 << 6,
-    /// Same as for WordBoundaryAscii, but requires that
-    /// is_word(p) == is_word(n).
+    /// Same as for `WordBoundaryAscii`, but requires that
+    /// `is_word(p) == is_word(n)`.
+    ///
+    /// Note that it is possible for this assertion to match at positions that
+    /// split the UTF-8 encoding of a codepoint. For this reason, this may only
+    /// be used when UTF-8 mode is disable in the regex syntax.
     WordBoundaryAsciiNegate = 1 << 7,
 }
 
@@ -520,10 +511,8 @@ impl Look {
     /// is consistent with this look-around assertion.
     fn add_to_byteset(&self, set: &mut ByteClassSet) {
         match *self {
-            Look::StartLine
-            | Look::EndLine
-            | Look::StartText
-            | Look::EndText => {
+            Look::StartText | Look::EndText => {}
+            Look::StartLine | Look::EndLine => {
                 set.set_range(b'\n', b'\n');
             }
             Look::WordBoundaryUnicode

@@ -1,4 +1,7 @@
-use core::{fmt::Debug, hash::Hash};
+use core::{
+    fmt::{Debug, Display},
+    hash::Hash,
+};
 
 use crate::bytes::{self, Endian};
 
@@ -51,7 +54,16 @@ impl Sealed for u64 {}
 /// in turn access out-of-bounds memory in a DFA's search routine, where bounds
 /// checks are explicitly elided for performance reasons.
 pub unsafe trait StateID:
-    Sealed + Clone + Copy + Debug + Eq + Hash + PartialEq + PartialOrd + Ord
+    Sealed
+    + Clone
+    + Copy
+    + Debug
+    + Display
+    + Eq
+    + Hash
+    + PartialEq
+    + PartialOrd
+    + Ord
 {
     /// Convert from a `usize` to this implementation's representation.
     ///

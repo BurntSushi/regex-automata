@@ -281,7 +281,7 @@ impl<'a, S: StateID> Runner<'a, S> {
         &mut self,
         sparses: &mut SparseSets,
         dfa_id: S,
-        b: InputUnit,
+        unit: InputUnit,
     ) -> Facts {
         sparses.clear();
 
@@ -295,17 +295,17 @@ impl<'a, S: StateID> Runner<'a, S> {
         let facts = &self.state(dfa_id).facts;
         if !facts.look_need.is_empty() {
             let mut look_have = facts.look_have.clone();
-            match b {
-                InputUnit::U8(b'\n') => {
+            match unit.as_u8() {
+                Some(b'\n') => {
                     look_have.insert(Look::EndLine);
                 }
-                InputUnit::U8(_) => {}
-                InputUnit::EOI(_) => {
+                Some(_) => {}
+                None => {
                     look_have.insert(Look::EndText);
                     look_have.insert(Look::EndLine);
                 }
             }
-            if facts.from_word() == b.is_word_byte() {
+            if facts.from_word() == unit.is_word_byte() {
                 look_have.insert(Look::WordBoundaryUnicodeNegate);
                 look_have.insert(Look::WordBoundaryAsciiNegate);
             } else {
@@ -330,11 +330,11 @@ impl<'a, S: StateID> Runner<'a, S> {
         // anywhere in this regex. Otherwise, there's no point in bloating
         // the number of states if we don't have one.
         if self.nfa.has_word_boundary() {
-            facts.set_from_word(b.is_word_byte());
+            facts.set_from_word(unit.is_word_byte());
         }
         // Similarly for the start-line look-around.
         if self.nfa.has_any_anchor() {
-            if b.as_u8().map_or(false, |b| b == b'\n') {
+            if unit.as_u8().map_or(false, |b| b == b'\n') {
                 // Why only handle StartLine here and not StartText? That's
                 // because StartText can only impact the starting state, which
                 // is speical cased in 'add_one_start'.
@@ -366,7 +366,7 @@ impl<'a, S: StateID> Runner<'a, S> {
                     }
                 }
                 thompson::State::Range { range: ref r } => {
-                    if let Some(b) = b.as_u8() {
+                    if let Some(b) = unit.as_u8() {
                         if r.start <= b && b <= r.end {
                             self.epsilon_closure(
                                 r.next,
@@ -377,7 +377,7 @@ impl<'a, S: StateID> Runner<'a, S> {
                     }
                 }
                 thompson::State::Sparse { ref ranges } => {
-                    let b = match b.as_u8() {
+                    let b = match unit.as_u8() {
                         None => continue,
                         Some(b) => b,
                     };
@@ -579,7 +579,7 @@ impl<'a, S: StateID> Runner<'a, S> {
             for b in self.quit.iter() {
                 self.dfa.add_transition(
                     id,
-                    InputUnit::U8(b),
+                    InputUnit::u8(b),
                     self.dfa.quit_id(),
                 );
             }

@@ -538,7 +538,6 @@ impl Compiler {
         }
         // The compiler always begins the NFA at the first state.
         nfa.set_byte_class_set(byteset.clone());
-        nfa.set_byte_classes(byteset.byte_classes());
         nfa.set_start_anchored(remap[start_anchored]);
         nfa.set_start_unanchored(remap[start_unanchored]);
         for (i, &old_id) in start_pattern.iter().enumerate() {
