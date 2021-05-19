@@ -656,14 +656,14 @@ impl Compiler {
         // were `aaa?a?a?`. The problem here is that it leads to this program:
         //
         //     >000000: 61 => 01
-        //     000001: 61 => 02
-        //     000002: union(03, 04)
-        //     000003: 61 => 04
-        //     000004: union(05, 06)
-        //     000005: 61 => 06
-        //     000006: union(07, 08)
-        //     000007: 61 => 08
-        //     000008: MATCH
+        //      000001: 61 => 02
+        //      000002: union(03, 04)
+        //      000003: 61 => 04
+        //      000004: union(05, 06)
+        //      000005: 61 => 06
+        //      000006: union(07, 08)
+        //      000007: 61 => 08
+        //      000008: MATCH
         //
         // And effectively, once you hit state 2, the epsilon closure will
         // include states 3, 5, 6, 7 and 8, which is quite a bit. It is better
@@ -845,7 +845,9 @@ impl Compiler {
                 // sequences in the correct order. Unfortunately, building the
                 // range trie is fairly expensive (but not nearly as expensive
                 // as building a DFA). Hence the reason why the 'shrink' option
-                // exists, so that this path can be toggled off.
+                // exists, so that this path can be toggled off. For example,
+                // we might want to turn this off if we know we won't be
+                // compiling a DFA.
                 let mut trie = self.trie_state.borrow_mut();
                 trie.clear();
 
@@ -885,10 +887,12 @@ impl Compiler {
         // will generate about ~3000 NFA states using the naive approach below,
         // but only 283 states when using the approach above. This is because
         // the approach above actually compiles a *minimal* (or near minimal,
-        // because of the bounded hashmap) UTF-8 automaton.
+        // because of the bounded hashmap for reusing equivalent states) UTF-8
+        // automaton.
         //
         // The code below is kept as a reference point in order to make it
-        // easier to understand the higher level goal here.
+        // easier to understand the higher level goal here. Although, it will
+        // almost certainly bit-rot, so keep that in mind.
         /*
         let it = cls
             .iter()

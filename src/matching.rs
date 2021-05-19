@@ -106,9 +106,9 @@ pub type PatternID = u32;
 
 /// The limit on the total number of patterns supported by this crate.
 ///
-/// Generally, the limit can be expressed as
-/// `cmp::min(usize::MAX, u32::MAX) - 1`. That is, the maximum is `2^32 - 1`
-/// unless the current target's pointer size is less than 32 bits.
+/// Generally, the limit can be expressed as `cmp::min(usize::MAX, u32::MAX)`.
+/// That is, the maximum pattern ID is `2^32 - 2` unless the current target's
+/// pointer size is less than 32 bits.
 pub fn pattern_limit() -> usize {
     // The purpose of subtracting 1 here is so that the number of patterns
     // is representable by a u32.
