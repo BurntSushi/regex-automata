@@ -45,7 +45,10 @@ use core::{cmp, convert::TryInto};
 #[cfg(feature = "alloc")]
 use alloc::{vec, vec::Vec};
 
-use crate::StateID;
+use crate::{
+    id::{PatternID, PatternIDError, StateID as SnooID, StateIDError},
+    StateID,
+};
 
 /// An error that occurs when serializing an object from this crate.
 ///
@@ -126,6 +129,8 @@ enum DeserializeErrorKind {
     AlignmentMismatch { alignment: u64, address: u64 },
     LabelMismatch { expected: &'static str },
     ArithmeticOverflow { what: &'static str },
+    PatternID(PatternIDError),
+    StateID(StateIDError),
 }
 
 impl DeserializeError {
@@ -180,7 +185,18 @@ impl DeserializeError {
     fn arithmetic_overflow(what: &'static str) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::ArithmeticOverflow { what })
     }
+
+    fn pattern_id_error(err: PatternIDError) -> DeserializeError {
+        DeserializeError(DeserializeErrorKind::PatternID(err))
+    }
+
+    fn state_id_error(err: StateIDError) -> DeserializeError {
+        DeserializeError(DeserializeErrorKind::StateID(err))
+    }
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for DeserializeError {}
 
 impl core::fmt::Display for DeserializeError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
@@ -232,12 +248,23 @@ impl core::fmt::Display for DeserializeError {
             ArithmeticOverflow { what } => {
                 write!(f, "arithmetic overflow for {}", what,)
             }
+            PatternID(ref err) => err.fmt(f),
+            StateID(ref err) => err.fmt(f),
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for DeserializeError {}
+impl From<PatternIDError> for DeserializeError {
+    fn from(err: PatternIDError) -> DeserializeError {
+        DeserializeError::pattern_id_error(err)
+    }
+}
+
+impl From<StateIDError> for DeserializeError {
+    fn from(err: StateIDError) -> DeserializeError {
+        DeserializeError::state_id_error(err)
+    }
+}
 
 /// Checks that the given slice has an alignment that matches `S`.
 ///
@@ -537,6 +564,64 @@ pub fn write_state_id<E: Endian, S: StateID>(id: S, dst: &mut [u8]) -> usize {
         _ => unreachable!(),
     }
     size
+}
+
+/// Attempts to read a pattern ID from the given slice. If the slice has an
+/// insufficient number of bytes or if the pattern ID exceeds the limit for
+/// the current target, then this returns an error.
+pub fn try_read_pattern_id(
+    slice: &[u8],
+    what: &'static str,
+) -> Result<PatternID, DeserializeError> {
+    if slice.len() < 4 {
+        return Err(DeserializeError::buffer_too_small(what));
+    }
+    Ok(PatternID::from_ne_bytes(slice[..4].try_into().unwrap())?)
+}
+
+/// Reads a pattern ID from the given slice. If the slice has insufficient
+/// length, then this panics. Otherwise, the deserialized integer is assumed
+/// to be a valid pattern ID.
+pub fn read_pattern_id_unchecked(slice: &[u8]) -> PatternID {
+    PatternID::from_ne_bytes_unchecked(slice[..4].try_into().unwrap())
+}
+
+/// Write the given pattern ID to the beginning of the given slice of bytes
+/// using the specified endianness. The given slice must have length at least
+/// `PatternID::SIZE`, or else this panics. Upon success, the total number of
+/// bytes written is returned.
+pub fn write_pattern_id<E: Endian>(pid: PatternID, dst: &mut [u8]) -> usize {
+    E::write_u32(pid.as_u32(), dst);
+    PatternID::SIZE
+}
+
+/// Attempts to read a snoo ID from the given slice. If the slice has an
+/// insufficient number of bytes or if the snoo ID exceeds the limit for
+/// the current target, then this returns an error.
+pub fn try_read_snoo_id(
+    slice: &[u8],
+    what: &'static str,
+) -> Result<SnooID, DeserializeError> {
+    if slice.len() < 4 {
+        return Err(DeserializeError::buffer_too_small(what));
+    }
+    Ok(SnooID::from_ne_bytes(slice[..4].try_into().unwrap())?)
+}
+
+/// Reads a snoo ID from the given slice. If the slice has insufficient
+/// length, then this panics. Otherwise, the deserialized integer is assumed
+/// to be a valid snoo ID.
+pub fn read_snoo_id_unchecked(slice: &[u8]) -> SnooID {
+    SnooID::from_ne_bytes_unchecked(slice[..4].try_into().unwrap())
+}
+
+/// Write the given snoo ID to the beginning of the given slice of bytes
+/// using the specified endianness. The given slice must have length at least
+/// `SnooID::SIZE`, or else this panics. Upon success, the total number of
+/// bytes written is returned.
+pub fn write_snoo_id<E: Endian>(sid: SnooID, dst: &mut [u8]) -> usize {
+    E::write_u32(sid.as_u32(), dst);
+    SnooID::SIZE
 }
 
 /// Try to read a u16 as a usize from the beginning of the given slice in
