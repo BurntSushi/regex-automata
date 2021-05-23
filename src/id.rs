@@ -1,4 +1,7 @@
-use core::convert::{Infallible, TryFrom};
+use core::{
+    convert::{Infallible, TryFrom},
+    mem, ops,
+};
 
 /// An identifier for a regex pattern.
 ///
@@ -119,91 +122,13 @@ impl PatternID {
     pub fn to_ne_bytes(&self) -> [u8; 4] {
         self.0.to_ne_bytes()
     }
-}
 
-impl<T> core::ops::Index<PatternID> for [T] {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: PatternID) -> &T {
-        &self[index.as_usize()]
-    }
-}
-
-impl<T> core::ops::IndexMut<PatternID> for [T] {
-    #[inline]
-    fn index_mut(&mut self, index: PatternID) -> &mut T {
-        &mut self[index.as_usize()]
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<T> core::ops::Index<PatternID> for Vec<T> {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: PatternID) -> &T {
-        &self[index.as_usize()]
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<T> core::ops::IndexMut<PatternID> for Vec<T> {
-    #[inline]
-    fn index_mut(&mut self, index: PatternID) -> &mut T {
-        &mut self[index.as_usize()]
-    }
-}
-
-impl TryFrom<usize> for PatternID {
-    type Error = PatternIDError;
-
-    fn try_from(id: usize) -> Result<PatternID, PatternIDError> {
-        if id > PatternID::MAX {
-            return Err(PatternIDError { attempted: id as u64 });
-        }
-        Ok(PatternID::new_unchecked(id))
-    }
-}
-
-impl TryFrom<u8> for PatternID {
-    type Error = Infallible;
-
-    fn try_from(id: u8) -> Result<PatternID, Infallible> {
-        Ok(PatternID::new_unchecked(id as usize))
-    }
-}
-
-impl TryFrom<u16> for PatternID {
-    type Error = PatternIDError;
-
-    fn try_from(id: u16) -> Result<PatternID, PatternIDError> {
-        if id as u32 > PatternID::MAX as u32 {
-            return Err(PatternIDError { attempted: id as u64 });
-        }
-        Ok(PatternID::new_unchecked(id as usize))
-    }
-}
-
-impl TryFrom<u32> for PatternID {
-    type Error = PatternIDError;
-
-    fn try_from(id: u32) -> Result<PatternID, PatternIDError> {
-        if id > PatternID::MAX as u32 {
-            return Err(PatternIDError { attempted: id as u64 });
-        }
-        Ok(PatternID::new_unchecked(id as usize))
-    }
-}
-
-impl TryFrom<u64> for PatternID {
-    type Error = PatternIDError;
-
-    fn try_from(id: u64) -> Result<PatternID, PatternIDError> {
-        if id > PatternID::MAX as u64 {
-            return Err(PatternIDError { attempted: id });
-        }
-        Ok(PatternID::new_unchecked(id as usize))
+    /// Returns an iterator over all pattern IDs from 0 up to and not including
+    /// the given length.
+    ///
+    /// If the given length exceeds [`PatternID::LIMIT`], then this panics.
+    pub(crate) fn iter(len: usize) -> PatternIDIter {
+        PatternIDIter::new(len)
     }
 }
 
@@ -352,91 +277,13 @@ impl StateID {
     pub fn to_ne_bytes(&self) -> [u8; 4] {
         self.0.to_ne_bytes()
     }
-}
 
-impl<T> core::ops::Index<StateID> for [T] {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: StateID) -> &T {
-        &self[index.as_usize()]
-    }
-}
-
-impl<T> core::ops::IndexMut<StateID> for [T] {
-    #[inline]
-    fn index_mut(&mut self, index: StateID) -> &mut T {
-        &mut self[index.as_usize()]
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<T> core::ops::Index<StateID> for Vec<T> {
-    type Output = T;
-
-    #[inline]
-    fn index(&self, index: StateID) -> &T {
-        &self[index.as_usize()]
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<T> core::ops::IndexMut<StateID> for Vec<T> {
-    #[inline]
-    fn index_mut(&mut self, index: StateID) -> &mut T {
-        &mut self[index.as_usize()]
-    }
-}
-
-impl TryFrom<usize> for StateID {
-    type Error = StateIDError;
-
-    fn try_from(id: usize) -> Result<StateID, StateIDError> {
-        if id > StateID::MAX {
-            return Err(StateIDError { attempted: id as u64 });
-        }
-        Ok(StateID::new_unchecked(id))
-    }
-}
-
-impl TryFrom<u8> for StateID {
-    type Error = Infallible;
-
-    fn try_from(id: u8) -> Result<StateID, Infallible> {
-        Ok(StateID::new_unchecked(id as usize))
-    }
-}
-
-impl TryFrom<u16> for StateID {
-    type Error = StateIDError;
-
-    fn try_from(id: u16) -> Result<StateID, StateIDError> {
-        if id as u32 > StateID::MAX as u32 {
-            return Err(StateIDError { attempted: id as u64 });
-        }
-        Ok(StateID::new_unchecked(id as usize))
-    }
-}
-
-impl TryFrom<u32> for StateID {
-    type Error = StateIDError;
-
-    fn try_from(id: u32) -> Result<StateID, StateIDError> {
-        if id > StateID::MAX as u32 {
-            return Err(StateIDError { attempted: id as u64 });
-        }
-        Ok(StateID::new_unchecked(id as usize))
-    }
-}
-
-impl TryFrom<u64> for StateID {
-    type Error = StateIDError;
-
-    fn try_from(id: u64) -> Result<StateID, StateIDError> {
-        if id > StateID::MAX as u64 {
-            return Err(StateIDError { attempted: id });
-        }
-        Ok(StateID::new_unchecked(id as usize))
+    /// Returns an iterator over all state IDs from 0 up to and not including
+    /// the given length.
+    ///
+    /// If the given length exceeds [`StateID::LIMIT`], then this panics.
+    pub(crate) fn iter(len: usize) -> StateIDIter {
+        StateIDIter::new(len)
     }
 }
 
@@ -470,3 +317,187 @@ impl core::fmt::Display for StateIDError {
         )
     }
 }
+
+/// A macro for defining exactly identical (modulo names) impls for ID types.
+macro_rules! impls {
+    ($ty:ident, $tyerr:ident, $tyiter:ident) => {
+        #[derive(Clone, Debug)]
+        pub(crate) struct $tyiter {
+            rng: ops::Range<usize>,
+        }
+
+        impl $tyiter {
+            fn new(len: usize) -> $tyiter {
+                assert!(
+                    len <= $ty::LIMIT,
+                    "cannot create iterator with IDs when number of \
+                     elements exceed {:?}",
+                    $ty::LIMIT,
+                );
+                $tyiter { rng: 0..len }
+            }
+        }
+
+        impl Iterator for $tyiter {
+            type Item = $ty;
+
+            fn next(&mut self) -> Option<$ty> {
+                if self.rng.start >= self.rng.end {
+                    return None;
+                }
+                let next_id = self.rng.start + 1;
+                let id = mem::replace(&mut self.rng.start, next_id);
+                // new_unchecked is OK since we asserted that the number of
+                // elements in this iterator will fit in an ID at construction.
+                Some($ty::new_unchecked(id))
+            }
+        }
+
+        impl<T> core::ops::Index<$ty> for [T] {
+            type Output = T;
+
+            #[inline]
+            fn index(&self, index: $ty) -> &T {
+                &self[index.as_usize()]
+            }
+        }
+
+        impl<T> core::ops::IndexMut<$ty> for [T] {
+            #[inline]
+            fn index_mut(&mut self, index: $ty) -> &mut T {
+                &mut self[index.as_usize()]
+            }
+        }
+
+        #[cfg(feature = "alloc")]
+        impl<T> core::ops::Index<$ty> for Vec<T> {
+            type Output = T;
+
+            #[inline]
+            fn index(&self, index: $ty) -> &T {
+                &self[index.as_usize()]
+            }
+        }
+
+        #[cfg(feature = "alloc")]
+        impl<T> core::ops::IndexMut<$ty> for Vec<T> {
+            #[inline]
+            fn index_mut(&mut self, index: $ty) -> &mut T {
+                &mut self[index.as_usize()]
+            }
+        }
+
+        impl TryFrom<usize> for $ty {
+            type Error = $tyerr;
+
+            fn try_from(id: usize) -> Result<$ty, $tyerr> {
+                if id > $ty::MAX {
+                    return Err($tyerr { attempted: id as u64 });
+                }
+                Ok($ty::new_unchecked(id))
+            }
+        }
+
+        impl TryFrom<u8> for $ty {
+            type Error = Infallible;
+
+            fn try_from(id: u8) -> Result<$ty, Infallible> {
+                Ok($ty::new_unchecked(id as usize))
+            }
+        }
+
+        impl TryFrom<u16> for $ty {
+            type Error = $tyerr;
+
+            fn try_from(id: u16) -> Result<$ty, $tyerr> {
+                if id as u32 > $ty::MAX as u32 {
+                    return Err($tyerr { attempted: id as u64 });
+                }
+                Ok($ty::new_unchecked(id as usize))
+            }
+        }
+
+        impl TryFrom<u32> for $ty {
+            type Error = $tyerr;
+
+            fn try_from(id: u32) -> Result<$ty, $tyerr> {
+                if id > $ty::MAX as u32 {
+                    return Err($tyerr { attempted: id as u64 });
+                }
+                Ok($ty::new_unchecked(id as usize))
+            }
+        }
+
+        impl TryFrom<u64> for $ty {
+            type Error = $tyerr;
+
+            fn try_from(id: u64) -> Result<$ty, $tyerr> {
+                if id > $ty::MAX as u64 {
+                    return Err($tyerr { attempted: id });
+                }
+                Ok($ty::new_unchecked(id as usize))
+            }
+        }
+    };
+}
+
+impls!(PatternID, PatternIDError, PatternIDIter);
+impls!(StateID, StateIDError, StateIDIter);
+
+/// A utility trait that defines a couple of adapters for making it convenient
+/// to access indices as ID types. We require ExactSizeIterator so that
+/// iterator construction can do a single check to make sure the index of each
+/// element is representable by its ID type.
+pub(crate) trait IteratorIDExt: Iterator {
+    fn with_pattern_ids(self) -> WithPatternIDIter<Self>
+    where
+        Self: Sized + ExactSizeIterator,
+    {
+        WithPatternIDIter::new(self)
+    }
+
+    fn with_state_ids(self) -> WithStateIDIter<Self>
+    where
+        Self: Sized + ExactSizeIterator,
+    {
+        WithStateIDIter::new(self)
+    }
+}
+
+impl<I: Iterator> IteratorIDExt for I {}
+
+macro_rules! iditer {
+    ($ty:ident, $iterty:ident, $withiterty:ident) => {
+        /// An iterator adapter that is like std::iter::Enumerate, but attaches
+        /// IDs. It requires ExactSizeIterator. At construction, it ensures
+        /// that the index of each element in the iterator is representable in
+        /// the corresponding ID type.
+        #[derive(Clone, Debug)]
+        pub(crate) struct $withiterty<I> {
+            it: I,
+            ids: $iterty,
+        }
+
+        impl<I: Iterator + ExactSizeIterator> $withiterty<I> {
+            fn new(it: I) -> $withiterty<I> {
+                let ids = $ty::iter(it.len());
+                $withiterty { it, ids }
+            }
+        }
+
+        impl<I: Iterator + ExactSizeIterator> Iterator for $withiterty<I> {
+            type Item = ($ty, I::Item);
+
+            fn next(&mut self) -> Option<($ty, I::Item)> {
+                let item = self.it.next()?;
+                // Number of elements in this iterator must match, according
+                // to contract of ExactSizeIterator.
+                let id = self.ids.next().unwrap();
+                Some((id, item))
+            }
+        }
+    };
+}
+
+iditer!(PatternID, PatternIDIter, WithPatternIDIter);
+iditer!(StateID, StateIDIter, WithStateIDIter);

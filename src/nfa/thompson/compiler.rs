@@ -45,6 +45,7 @@ use regex_syntax::{
 
 use crate::{
     classes::ByteClassSet,
+    id::{IteratorIDExt, PatternID, StateID},
     nfa::{
         error::Error,
         thompson::{
@@ -53,7 +54,6 @@ use crate::{
             Look, State, Transition, NFA,
         },
     },
-    PatternID, StateID,
 };
 
 /// The configuration used for compiling a Thompson NFA from a regex pattern.
@@ -443,16 +443,15 @@ impl Compiler {
         };
 
         let mut start_pattern = vec![StateID::ZERO; exprs.len()];
-        let compiled =
-            self.c_alternation(exprs.iter().enumerate().map(|(i, e)| {
+        let compiled = self.c_alternation(
+            exprs.iter().with_pattern_ids().map(|(pid, e)| {
                 let one = self.c(e.borrow())?;
-                // OK since exprs.len() was checked above.
-                let pid = PatternID::new(i).unwrap();
                 let match_state_id = self.add_match(pid)?;
                 self.patch(one.end, match_state_id);
                 start_pattern[pid] = one.start;
                 Ok(ThompsonRef { start: one.start, end: match_state_id })
-            }))?;
+            }),
+        )?;
         self.patch(unanchored_prefix.end, compiled.start);
         self.finish(
             nfa,
@@ -486,8 +485,7 @@ impl Compiler {
         // transitions, which are expressed in terms of state IDs. The new
         // set of states will be smaller because of partial epsilon removal,
         // so the state IDs will not be the same.
-        for (i, bstate) in bstates.iter_mut().enumerate() {
-            let sid = StateID::new(i).unwrap();
+        for (sid, bstate) in bstates.iter_mut().with_state_ids() {
             match *bstate {
                 CState::Empty { next } => {
                     // Since we're removing empty states, we need to handle
@@ -548,9 +546,7 @@ impl Compiler {
         nfa.set_byte_class_set(byteset.clone());
         nfa.set_start_anchored(remap[start_anchored]);
         nfa.set_start_unanchored(remap[start_unanchored]);
-        for (i, &old_id) in start_pattern.iter().enumerate() {
-            // OK since NFA constructor checks number of patterns.
-            let pid = PatternID::new(i).unwrap();
+        for (pid, &old_id) in start_pattern.iter().with_pattern_ids() {
             nfa.set_start_pattern(pid, remap[old_id]);
         }
         Ok(())
@@ -1246,14 +1242,22 @@ mod tests {
             .unwrap()
     }
 
+    fn pid(id: usize) -> PatternID {
+        PatternID::new(id).unwrap()
+    }
+
+    fn sid(id: usize) -> StateID {
+        StateID::new(id).unwrap()
+    }
+
     fn s_byte(byte: u8, next: usize) -> State {
-        let next = StateID::new(next).unwrap();
+        let next = sid(next);
         let trans = Transition { start: byte, end: byte, next };
         State::Range { range: trans }
     }
 
     fn s_range(start: u8, end: u8, next: usize) -> State {
-        let next = StateID::new(next).unwrap();
+        let next = sid(next);
         let trans = Transition { start, end, next };
         State::Range { range: trans }
     }
@@ -1261,9 +1265,10 @@ mod tests {
     fn s_sparse(ranges: &[(u8, u8, usize)]) -> State {
         let ranges = ranges
             .iter()
-            .map(|&(start, end, next)| {
-                let next = StateID::new(next).unwrap();
-                Transition { start, end, next }
+            .map(|&(start, end, next)| Transition {
+                start,
+                end,
+                next: sid(next),
             })
             .collect();
         State::Sparse { ranges }
@@ -1273,14 +1278,14 @@ mod tests {
         State::Union {
             alternates: alts
                 .iter()
-                .map(|&sid| StateID::new(sid).unwrap())
+                .map(|&id| sid(id))
                 .collect::<Vec<StateID>>()
                 .into_boxed_slice(),
         }
     }
 
     fn s_match(id: usize) -> State {
-        State::Match(PatternID::new(id).unwrap())
+        State::Match(pid(id))
     }
 
     // Test that building an unanchored NFA has an appropriate `(?s:.)*?`
@@ -1436,13 +1441,7 @@ mod tests {
         assert_eq!(nfa.start_anchored().as_usize(), 4);
         assert_eq!(nfa.start_unanchored().as_usize(), 4);
         // Test that the start states for each individual pattern are correct.
-        assert_eq!(
-            nfa.start_pattern(PatternID::new(0).unwrap()).as_usize(),
-            0
-        );
-        assert_eq!(
-            nfa.start_pattern(PatternID::new(1).unwrap()).as_usize(),
-            2
-        );
+        assert_eq!(nfa.start_pattern(pid(0)), sid(0));
+        assert_eq!(nfa.start_pattern(pid(1)), sid(2));
     }
 }

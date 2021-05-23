@@ -4,7 +4,7 @@ use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
 use crate::{
     classes::ByteClassSet,
-    id::{PatternID, StateID},
+    id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
     nfa::error::Error,
 };
 
@@ -112,7 +112,7 @@ impl NFA {
     #[inline]
     pub fn patterns(&self) -> PatternIter {
         PatternIter {
-            it: 0..self.match_len(),
+            it: PatternID::iter(self.match_len()),
             _marker: core::marker::PhantomData,
         }
     }
@@ -280,8 +280,7 @@ impl NFA {
 impl fmt::Debug for NFA {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "thompson::NFA(")?;
-        for (i, state) in self.states.iter().enumerate() {
-            let sid = StateID::new(i).unwrap();
+        for (sid, state) in self.states.iter().with_state_ids() {
             let status = if sid == self.start_anchored {
                 '^'
             } else if sid == self.start_unanchored {
@@ -294,8 +293,8 @@ impl fmt::Debug for NFA {
         if self.match_len() > 1 {
             writeln!(f, "")?;
             for pid in self.patterns() {
-                let id = self.start_pattern(pid);
-                writeln!(f, "START({:06?}): {:?}", pid, id)?;
+                let sid = self.start_pattern(pid);
+                writeln!(f, "START({:06?}): {:?}", pid, sid)?;
             }
         }
         writeln!(f, "")?;
@@ -625,7 +624,7 @@ impl core::fmt::Debug for LookSet {
 
 /// An iterator over all pattern IDs in an NFA.
 pub struct PatternIter<'a> {
-    it: core::ops::Range<usize>,
+    it: PatternIDIter,
     /// We explicitly associate a lifetime with this iterator even though we
     /// don't actually borrow anything from the NFA. We do this for backward
     /// compatibility purposes. If we ever do need to borrow something from
@@ -638,9 +637,7 @@ impl<'a> Iterator for PatternIter<'a> {
     type Item = PatternID;
 
     fn next(&mut self) -> Option<PatternID> {
-        // CORRECTNESS: the unwrap is okay here since NFA construction
-        // guarantees that its pattern IDs never exceed PatternID::MAX.
-        self.it.next().map(|id| PatternID::new(id).unwrap())
+        self.it.next()
     }
 }
 
