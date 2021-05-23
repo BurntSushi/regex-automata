@@ -126,8 +126,8 @@ enum DeserializeErrorKind {
     AlignmentMismatch { alignment: u64, address: u64 },
     LabelMismatch { expected: &'static str },
     ArithmeticOverflow { what: &'static str },
-    PatternID(PatternIDError),
-    StateID(StateIDError),
+    PatternID { err: PatternIDError, what: &'static str },
+    StateID { err: StateIDError, what: &'static str },
 }
 
 impl DeserializeError {
@@ -183,12 +183,18 @@ impl DeserializeError {
         DeserializeError(DeserializeErrorKind::ArithmeticOverflow { what })
     }
 
-    fn pattern_id_error(err: PatternIDError) -> DeserializeError {
-        DeserializeError(DeserializeErrorKind::PatternID(err))
+    fn pattern_id_error(
+        err: PatternIDError,
+        what: &'static str,
+    ) -> DeserializeError {
+        DeserializeError(DeserializeErrorKind::PatternID { err, what })
     }
 
-    fn state_id_error(err: StateIDError) -> DeserializeError {
-        DeserializeError(DeserializeErrorKind::StateID(err))
+    fn state_id_error(
+        err: StateIDError,
+        what: &'static str,
+    ) -> DeserializeError {
+        DeserializeError(DeserializeErrorKind::StateID { err, what })
     }
 }
 
@@ -243,23 +249,15 @@ impl core::fmt::Display for DeserializeError {
                 expected,
             ),
             ArithmeticOverflow { what } => {
-                write!(f, "arithmetic overflow for {}", what,)
+                write!(f, "arithmetic overflow for {}", what)
             }
-            PatternID(ref err) => err.fmt(f),
-            StateID(ref err) => err.fmt(f),
+            PatternID { ref err, what } => {
+                write!(f, "failed to read pattern ID for {}: {}", what, err)
+            }
+            StateID { ref err, what } => {
+                write!(f, "failed to read state ID for {}: {}", what, err)
+            }
         }
-    }
-}
-
-impl From<PatternIDError> for DeserializeError {
-    fn from(err: PatternIDError) -> DeserializeError {
-        DeserializeError::pattern_id_error(err)
-    }
-}
-
-impl From<StateIDError> for DeserializeError {
-    fn from(err: StateIDError) -> DeserializeError {
-        DeserializeError::state_id_error(err)
     }
 }
 
@@ -514,7 +512,8 @@ pub fn try_read_pattern_id(
     if slice.len() < 4 {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    Ok(PatternID::from_ne_bytes(slice[..4].try_into().unwrap())?)
+    PatternID::from_ne_bytes(slice[..4].try_into().unwrap())
+        .map_err(|err| DeserializeError::pattern_id_error(err, what))
 }
 
 /// Reads a pattern ID from the given slice. If the slice has insufficient
@@ -543,7 +542,19 @@ pub fn try_read_state_id(
     if slice.len() < 4 {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    Ok(StateID::from_ne_bytes(slice[..4].try_into().unwrap())?)
+    StateID::from_ne_bytes(slice[..4].try_into().unwrap())
+        .map_err(|err| DeserializeError::state_id_error(err, what))
+}
+
+/// Reads a state ID from the given slice. If the slice has insufficient
+/// length, then this panics. If the deserialized integer exceeds the state ID
+/// limit for the current target, then this returns an error.
+pub fn read_state_id(
+    slice: &[u8],
+    what: &'static str,
+) -> Result<StateID, DeserializeError> {
+    StateID::from_ne_bytes(slice[..4].try_into().unwrap())
+        .map_err(|err| DeserializeError::state_id_error(err, what))
 }
 
 /// Reads a state ID from the given slice. If the slice has insufficient

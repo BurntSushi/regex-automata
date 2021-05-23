@@ -5,7 +5,8 @@ use crate::{
             Automaton, HalfMatch, OverlappingState, StateMatch, MATCH_OFFSET,
         },
     },
-    prefilter, MatchError, PatternID,
+    id::{PatternID, StateID},
+    prefilter, MatchError,
 };
 
 #[inline(never)]
@@ -235,7 +236,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-    caller_state: &mut OverlappingState<A::ID>,
+    caller_state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     // Searching with a pattern ID is always anchored, so we should only ever
     // use a prefilter when no pattern ID is given.
@@ -274,7 +275,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     bytes: &[u8],
     mut start: usize,
     end: usize,
-    caller_state: &mut OverlappingState<A::ID>,
+    caller_state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
     assert!(start <= bytes.len());
@@ -390,7 +391,7 @@ fn init_fwd<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<A::ID, MatchError> {
+) -> Result<StateID, MatchError> {
     let state = dfa.start_state_forward(pattern_id, bytes, start, end);
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
@@ -404,7 +405,7 @@ fn init_rev<A: Automaton + ?Sized>(
     bytes: &[u8],
     start: usize,
     end: usize,
-) -> Result<A::ID, MatchError> {
+) -> Result<StateID, MatchError> {
     let state = dfa.start_state_reverse(pattern_id, bytes, start, end);
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
@@ -416,7 +417,7 @@ fn eoi_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     bytes: &[u8],
     end: usize,
-    state: &mut A::ID,
+    state: &mut StateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     match bytes.get(end) {
         Some(&b) => {
@@ -446,7 +447,7 @@ fn eoi_fwd<A: Automaton + ?Sized>(
 
 fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    state: A::ID,
+    state: StateID,
     bytes: &[u8],
     start: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {

@@ -231,9 +231,8 @@ impl NFA {
                 }
             }
         }
-        let id = StateID::new(self.states.len()).map_err(|_| {
-            Error::too_many_states(self.states.len(), StateID::LIMIT)
-        })?;
+        let id = StateID::new(self.states.len())
+            .map_err(|_| Error::too_many_states(self.states.len()))?;
         self.states.push(state);
         Ok(id)
     }

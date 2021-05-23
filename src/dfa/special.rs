@@ -4,7 +4,8 @@ use core::mem::size_of;
 use crate::dfa::Error;
 use crate::{
     bytes::{self, DeserializeError, Endian, SerializeError},
-    state_id::{dead_id, StateID},
+    dfa::DEAD,
+    id::StateID,
 };
 
 macro_rules! err {
@@ -159,69 +160,49 @@ macro_rules! err {
 // The type parameter `S` refers to the state ID representation used by the
 // DFA. Typically, this is u8, u16, u32, u64 or usize.
 #[derive(Clone, Copy, Debug)]
-pub struct Special<S> {
+pub struct Special {
     /// The identifier of the last special state in a DFA. A state is special
     /// if and only if its identifier is less than or equal to `max`.
-    pub max: S,
+    pub max: StateID,
     /// The identifier of the quit state in a DFA. (There is no analogous field
     /// for the dead state since the dead state's ID is always zero, regardless
     /// of state ID size.)
-    pub quit_id: S,
+    pub quit_id: StateID,
     /// The identifier of the first match state.
-    pub min_match: S,
+    pub min_match: StateID,
     /// The identifier of the last match state.
-    pub max_match: S,
+    pub max_match: StateID,
     /// The identifier of the first accelerated state.
-    pub min_accel: S,
+    pub min_accel: StateID,
     /// The identifier of the last accelerated state.
-    pub max_accel: S,
+    pub max_accel: StateID,
     /// The identifier of the first start state.
-    pub min_start: S,
+    pub min_start: StateID,
     /// The identifier of the last start state.
-    pub max_start: S,
+    pub max_start: StateID,
 }
 
-impl<S: StateID> Special<S> {
+impl Special {
     /// Creates a new set of special ranges for a DFA. All ranges are
     /// initially empty (even ranges, like 'start', that cannot ultimately
     /// be empty).
     #[cfg(feature = "alloc")]
-    pub fn new() -> Special<S> {
+    pub fn new() -> Special {
         Special {
-            max: dead_id(),
-            quit_id: dead_id(),
-            min_match: dead_id(),
-            max_match: dead_id(),
-            min_accel: dead_id(),
-            max_accel: dead_id(),
-            min_start: dead_id(),
-            max_start: dead_id(),
+            max: DEAD,
+            quit_id: DEAD,
+            min_match: DEAD,
+            max_match: DEAD,
+            min_accel: DEAD,
+            max_accel: DEAD,
+            min_start: DEAD,
+            max_start: DEAD,
         }
-    }
-
-    /// Convert the state IDs recorded here to a new representation. If the
-    /// chosen representation is not big enough to fit the IDs, then an error
-    /// is returned.
-    #[cfg(feature = "alloc")]
-    pub fn to_sized<A: StateID>(&self) -> Result<Special<A>, Error> {
-        if self.max.as_usize() > A::max_id() {
-            return Err(Error::state_id_overflow(A::max_id()));
-        }
-        Ok(Special {
-            max: A::from_usize(self.max.as_usize()),
-            quit_id: A::from_usize(self.quit_id.as_usize()),
-            min_match: A::from_usize(self.min_match.as_usize()),
-            max_match: A::from_usize(self.max_match.as_usize()),
-            min_accel: A::from_usize(self.min_accel.as_usize()),
-            max_accel: A::from_usize(self.max_accel.as_usize()),
-            min_start: A::from_usize(self.min_start.as_usize()),
-            max_start: A::from_usize(self.max_start.as_usize()),
-        })
     }
 
     /// Remaps all of the special state identifiers using the function given.
     #[cfg(feature = "alloc")]
-    pub fn remap<A: StateID>(&self, map: impl Fn(S) -> A) -> Special<A> {
+    pub fn remap(&self, map: impl Fn(StateID) -> StateID) -> Special {
         Special {
             max: map(self.max),
             quit_id: map(self.quit_id),
@@ -244,25 +225,23 @@ impl<S: StateID> Special<S> {
     /// special state IDs themselves.
     pub fn from_bytes(
         mut slice: &[u8],
-    ) -> Result<(Special<S>, usize), DeserializeError> {
-        let size = size_of::<S>();
-        bytes::check_slice_len(slice, 8 * size, "special states")?;
+    ) -> Result<(Special, usize), DeserializeError> {
+        bytes::check_slice_len(slice, 8 * StateID::SIZE, "special states")?;
 
-        let max = S::read_bytes(slice);
-        slice = &slice[size..];
-        let quit_id = S::read_bytes(slice);
-        slice = &slice[size..];
-        let min_match = S::read_bytes(slice);
-        slice = &slice[size..];
-        let max_match = S::read_bytes(slice);
-        slice = &slice[size..];
-        let min_accel = S::read_bytes(slice);
-        slice = &slice[size..];
-        let max_accel = S::read_bytes(slice);
-        slice = &slice[size..];
-        let min_start = S::read_bytes(slice);
-        slice = &slice[size..];
-        let max_start = S::read_bytes(slice);
+        let mut read_id = |what| -> Result<StateID, DeserializeError> {
+            let id = bytes::try_read_state_id(slice, what)?;
+            slice = &slice[StateID::SIZE..];
+            Ok(id)
+        };
+
+        let max = read_id("special max id")?;
+        let quit_id = read_id("special quit id")?;
+        let min_match = read_id("special min match id")?;
+        let max_match = read_id("special max match id")?;
+        let min_accel = read_id("special min accel id")?;
+        let max_accel = read_id("special max accel id")?;
+        let min_start = read_id("special min start id")?;
+        let max_start = read_id("special max start id")?;
 
         let special = Special {
             max,
@@ -281,24 +260,24 @@ impl<S: StateID> Special<S> {
     /// Validate that the information describing special states satisfies
     /// all known invariants.
     pub fn validate(&self) -> Result<(), DeserializeError> {
-        // Check that both ends of the range are dead or neither are.
-        if self.min_match == dead_id() && self.max_match != dead_id() {
-            err!("min_match is dead, but max_match is not");
+        // Check that both ends of the range are DEAD or neither are.
+        if self.min_match == DEAD && self.max_match != DEAD {
+            err!("min_match is DEAD, but max_match is not");
         }
-        if self.min_match != dead_id() && self.max_match == dead_id() {
-            err!("max_match is dead, but min_match is not");
+        if self.min_match != DEAD && self.max_match == DEAD {
+            err!("max_match is DEAD, but min_match is not");
         }
-        if self.min_accel == dead_id() && self.max_accel != dead_id() {
-            err!("min_accel is dead, but max_accel is not");
+        if self.min_accel == DEAD && self.max_accel != DEAD {
+            err!("min_accel is DEAD, but max_accel is not");
         }
-        if self.min_accel != dead_id() && self.max_accel == dead_id() {
-            err!("max_accel is dead, but min_accel is not");
+        if self.min_accel != DEAD && self.max_accel == DEAD {
+            err!("max_accel is DEAD, but min_accel is not");
         }
-        if self.min_start == dead_id() && self.max_start != dead_id() {
-            err!("min_start is dead, but max_start is not");
+        if self.min_start == DEAD && self.max_start != DEAD {
+            err!("min_start is DEAD, but max_start is not");
         }
-        if self.min_start != dead_id() && self.max_start == dead_id() {
-            err!("max_start is dead, but min_start is not");
+        if self.min_start != DEAD && self.max_start == DEAD {
+            err!("max_start is DEAD, but min_start is not");
         }
 
         // Check that ranges are well formed.
@@ -357,7 +336,10 @@ impl<S: StateID> Special<S> {
         stride2: usize,
     ) -> Result<(), DeserializeError> {
         // We assume that 'validate' has already passed, so we know that 'max'
-        // is truly the max. So that's all we need to check.
+        // is truly the max. So all we need to check is that the max state ID
+        // is less than the state ID count.
+        //
+        // TODO: Shouldn't we be able to say that the max is equal to count-1?
         if (self.max.as_usize() >> stride2) >= count {
             err!("max should not be greater than or equal to state count");
         }
@@ -380,14 +362,14 @@ impl<S: StateID> Special<S> {
         }
 
         let mut nwrite = 0;
-        nwrite += write::<E, _>(self.max, &mut dst[nwrite..]);
-        nwrite += write::<E, _>(self.quit_id, &mut dst[nwrite..]);
-        nwrite += write::<E, _>(self.min_match, &mut dst[nwrite..]);
-        nwrite += write::<E, _>(self.max_match, &mut dst[nwrite..]);
-        nwrite += write::<E, _>(self.min_accel, &mut dst[nwrite..]);
-        nwrite += write::<E, _>(self.max_accel, &mut dst[nwrite..]);
-        nwrite += write::<E, _>(self.min_start, &mut dst[nwrite..]);
-        nwrite += write::<E, _>(self.max_start, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.max, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.quit_id, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.min_match, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.max_match, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.min_accel, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.max_accel, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.min_start, &mut dst[nwrite..]);
+        nwrite += write::<E>(self.max_start, &mut dst[nwrite..]);
 
         assert_eq!(
             self.write_to_len(),
@@ -404,7 +386,7 @@ impl<S: StateID> Special<S> {
 
     /// Returns the total number of bytes written by `write_to`.
     pub fn write_to_len(&self) -> usize {
-        size_of::<S>() * 8
+        StateID::SIZE * 8
     }
 
     /// Sets the maximum special state ID based on the current values. This
@@ -419,32 +401,32 @@ impl<S: StateID> Special<S> {
     }
 
     /// Returns true if and only if the given state ID is a special state.
-    pub fn is_special_state(&self, id: S) -> bool {
+    pub fn is_special_state(&self, id: StateID) -> bool {
         id <= self.max
     }
 
     /// Returns true if and only if the given state ID is a dead state.
-    pub fn is_dead_state(&self, id: S) -> bool {
-        id == dead_id()
+    pub fn is_dead_state(&self, id: StateID) -> bool {
+        id == DEAD
     }
 
     /// Returns true if and only if the given state ID is a quit state.
-    pub fn is_quit_state(&self, id: S) -> bool {
+    pub fn is_quit_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.quit_id == id
     }
 
     /// Returns true if and only if the given state ID is a match state.
-    pub fn is_match_state(&self, id: S) -> bool {
+    pub fn is_match_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.min_match <= id && id <= self.max_match
     }
 
     /// Returns true if and only if the given state ID is an accel state.
-    pub fn is_accel_state(&self, id: S) -> bool {
+    pub fn is_accel_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.min_accel <= id && id <= self.max_accel
     }
 
     /// Returns true if and only if the given state ID is a start state.
-    pub fn is_start_state(&self, id: S) -> bool {
+    pub fn is_start_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.min_start <= id && id <= self.max_start
     }
 
@@ -460,7 +442,7 @@ impl<S: StateID> Special<S> {
 
     /// Returns true if and only if there is at least one match state.
     pub fn matches(&self) -> bool {
-        self.min_match != dead_id()
+        self.min_match != DEAD
     }
 
     /// Returns the total number of accel states.
@@ -476,21 +458,11 @@ impl<S: StateID> Special<S> {
 
     /// Returns true if and only if there is at least one accel state.
     pub fn accels(&self) -> bool {
-        self.min_accel != dead_id()
+        self.min_accel != DEAD
     }
-
-    // Currently unused, but seems useful to keep around.
-    // /// Returns the total number of start states.
-    // pub fn start_len(&self) -> usize {
-    // if self.starts() {
-    // self.max_start.as_usize() - self.min_start.as_usize() + 1
-    // } else {
-    // 0
-    // }
-    // }
 
     /// Returns true if and only if there is at least one start state.
     pub fn starts(&self) -> bool {
-        self.min_start != dead_id()
+        self.min_start != DEAD
     }
 }

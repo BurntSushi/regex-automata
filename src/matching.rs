@@ -85,6 +85,12 @@ impl Match {
         self.end
     }
 
+    /// Returns the match location as a range.
+    #[inline]
+    pub fn range(&self) -> core::ops::Range<usize> {
+        self.start..self.end
+    }
+
     /// Returns true if and only if this match is empty. That is, when
     /// `start() == end()`.
     ///

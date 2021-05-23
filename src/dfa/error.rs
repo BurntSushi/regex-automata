@@ -1,4 +1,4 @@
-use crate::nfa;
+use crate::{id::StateID, nfa};
 
 /// An error that occurred during the construction of a DFA.
 #[derive(Clone, Debug)]
@@ -10,8 +10,8 @@ pub struct Error {
 ///
 /// Note that this error is non-exhaustive. Adding new variants is not
 /// considered a breaking change.
-#[derive(Clone, Debug)]
 #[non_exhaustive]
+#[derive(Clone, Debug)]
 pub enum ErrorKind {
     /// An error that occurred while constructing an NFA as a precursor step
     /// before a DFA is compiled.
@@ -25,15 +25,13 @@ pub enum ErrorKind {
     /// [`dense::Builder::allow_unicode_word_boundary`](dense/struct.Builder.html#method.allow_unicode_word_boundary)
     /// option when building a DFA.
     Unsupported(&'static str),
-    /// An error that occurs when constructing a DFA would require the use
-    /// of a state ID that overflows the chosen state ID representation. For
-    /// example, if one is using `u8` for state IDs and builds a DFA with too
-    /// many states, then it's possible that `u8` will not be able to represent
-    /// all state IDs. If this happens, then DFA construction will fail and
-    /// this error kind will be returned.
-    StateIDOverflow {
-        /// The maximum possible state ID.
-        max: usize,
+    /// An error that occurs if too states are produced while building an NFA.
+    TooManyStates {
+        /// The minimum number of states that are desired, which exceeds the
+        /// limit.
+        given: usize,
+        /// The limit on the number of states.
+        limit: usize,
     },
 }
 
@@ -55,8 +53,9 @@ impl Error {
         Error { kind: ErrorKind::Unsupported(msg) }
     }
 
-    pub(crate) fn state_id_overflow(max: usize) -> Error {
-        Error { kind: ErrorKind::StateIDOverflow { max } }
+    pub(crate) fn too_many_states(given: usize) -> Error {
+        let limit = StateID::LIMIT;
+        Error { kind: ErrorKind::TooManyStates { given, limit } }
     }
 }
 
@@ -66,7 +65,7 @@ impl std::error::Error for Error {
         match self.kind() {
             ErrorKind::NFA(ref err) => Some(err),
             ErrorKind::Unsupported(_) => None,
-            ErrorKind::StateIDOverflow { .. } => None,
+            ErrorKind::TooManyStates { .. } => None,
         }
     }
 }
@@ -78,12 +77,11 @@ impl core::fmt::Display for Error {
             ErrorKind::Unsupported(ref msg) => {
                 write!(f, "unsupported regex feature for DFAs: {}", msg)
             }
-            ErrorKind::StateIDOverflow { max } => write!(
+            ErrorKind::TooManyStates { given, limit } => write!(
                 f,
-                "building the DFA failed because it required building \
-                 more states that fit in the chosen state ID representation, \
-                 where the maximum ID for the chosen representation is {}",
-                max,
+                "attemped to compile {} DFA states, \
+                 which exceeds the limit of {}",
+                given, limit,
             ),
         }
     }

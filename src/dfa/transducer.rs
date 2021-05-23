@@ -1,25 +1,23 @@
 use crate::{
     dfa::{automaton::Automaton, dense, sparse},
-    StateID,
+    id::StateID,
 };
 
-impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fst::Automaton
-    for dense::DFA<T, A, S>
-{
-    type State = S;
+impl<T: AsRef<[u32]>, A: AsRef<[u8]>> fst::Automaton for dense::DFA<T, A> {
+    type State = StateID;
 
     #[inline]
-    fn start(&self) -> S {
+    fn start(&self) -> StateID {
         self.start_state_forward(None, &[], 0, 0)
     }
 
     #[inline]
-    fn is_match(&self, state: &S) -> bool {
+    fn is_match(&self, state: &StateID) -> bool {
         self.is_match_state(*state)
     }
 
     #[inline]
-    fn accept(&self, state: &S, byte: u8) -> S {
+    fn accept(&self, state: &StateID, byte: u8) -> S {
         if fst::Automaton::is_match(self, state) {
             return *state;
         }
@@ -27,7 +25,7 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fst::Automaton
     }
 
     #[inline]
-    fn accept_eof(&self, state: &S) -> Option<S> {
+    fn accept_eof(&self, state: &StateID) -> Option<StateID> {
         if fst::Automaton::is_match(self, state) {
             return Some(*state);
         }
@@ -35,26 +33,26 @@ impl<T: AsRef<[S]>, A: AsRef<[u8]>, S: StateID> fst::Automaton
     }
 
     #[inline]
-    fn can_match(&self, state: &S) -> bool {
+    fn can_match(&self, state: &StateID) -> bool {
         !self.is_dead_state(*state)
     }
 }
 
-impl<T: AsRef<[u8]>, S: StateID> fst::Automaton for sparse::DFA<T, S> {
-    type State = S;
+impl<T: AsRef<[u8]>> fst::Automaton for sparse::DFA<T> {
+    type State = StateID;
 
     #[inline]
-    fn start(&self) -> S {
+    fn start(&self) -> StateID {
         self.start_state_forward(None, &[], 0, 0)
     }
 
     #[inline]
-    fn is_match(&self, state: &S) -> bool {
+    fn is_match(&self, state: &StateID) -> bool {
         self.is_match_state(*state)
     }
 
     #[inline]
-    fn accept(&self, state: &S, byte: u8) -> S {
+    fn accept(&self, state: &StateID, byte: u8) -> StateID {
         if fst::Automaton::is_match(self, state) {
             return *state;
         }
@@ -62,7 +60,7 @@ impl<T: AsRef<[u8]>, S: StateID> fst::Automaton for sparse::DFA<T, S> {
     }
 
     #[inline]
-    fn accept_eof(&self, state: &S) -> Option<S> {
+    fn accept_eof(&self, state: &StateID) -> Option<StateID> {
         if fst::Automaton::is_match(self, state) {
             return Some(*state);
         }
@@ -70,7 +68,7 @@ impl<T: AsRef<[u8]>, S: StateID> fst::Automaton for sparse::DFA<T, S> {
     }
 
     #[inline]
-    fn can_match(&self, state: &S) -> bool {
+    fn can_match(&self, state: &StateID) -> bool {
         !self.is_dead_state(*state)
     }
 }

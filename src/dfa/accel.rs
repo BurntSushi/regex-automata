@@ -62,9 +62,10 @@ use crate::bytes::{self, DeserializeError, Endian, SerializeError};
 /// bytes that should be read.
 const ACCEL_LEN: usize = 4;
 
-/// The capacity of each accelerator, in bytes. We set this to 8 to make
-/// satisfying alignment requirements simpler. Namely, 8 bytes is compatible
-/// with the alignment of all state ID representations.
+/// The capacity of each accelerator, in bytes. We set this to 8 since it's a
+/// multiple of 4 (our ID size) and because it gives us a little wiggle room
+/// if we want to support more accel bytes in the future without a breaking
+/// change.
 const ACCEL_CAP: usize = 8;
 
 /// Search for between 1 and 3 needle bytes in the given haystack, starting the

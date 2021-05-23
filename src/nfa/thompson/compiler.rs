@@ -419,10 +419,7 @@ impl Compiler {
             return Ok(());
         }
         if exprs.len() > PatternID::LIMIT {
-            return Err(Error::too_many_patterns(
-                exprs.len(),
-                PatternID::LIMIT,
-            ));
+            return Err(Error::too_many_patterns(exprs.len()));
         }
 
         // We always add an unanchored prefix unless we were specifically told
@@ -1069,9 +1066,8 @@ impl Compiler {
 
     fn add_state(&self, state: CState) -> Result<StateID, Error> {
         let mut states = self.states.borrow_mut();
-        let id = StateID::new(states.len()).map_err(|_| {
-            Error::too_many_states(states.len(), StateID::LIMIT)
-        })?;
+        let id = StateID::new(states.len())
+            .map_err(|_| Error::too_many_states(states.len()))?;
         states.push(state);
         Ok(id)
     }

@@ -353,6 +353,14 @@ pub use crate::dfa::regex::{
 #[cfg(feature = "alloc")]
 pub use crate::dfa::regex::{RegexBuilder, RegexConfig};
 
+/// This is an alias for a state ID of zero. It has special significance
+/// because it always corresponds to the first state in a DFA, and the first
+/// state in a DFA is always "dead." That is, the dead state always has all
+/// of its transitions set to itself. Moreover, the dead state is used as a
+/// sentinel for various things. e.g., In search, reaching a dead state means
+/// that the search must stop.
+const DEAD: crate::id::StateID = crate::id::StateID::ZERO;
+
 mod accel;
 mod automaton;
 pub mod dense;

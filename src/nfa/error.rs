@@ -1,3 +1,5 @@
+use crate::id::{PatternID, StateID};
+
 /// An error that can occured during the construction of an NFA.
 #[derive(Clone, Debug)]
 pub struct Error {
@@ -13,13 +15,14 @@ pub enum ErrorKind {
     /// intended to be end user readable on its own.
     Syntax(regex_syntax::Error),
     /// An error that occurs if too many patterns were given to the NFA
-    /// compiler. The limit is `cmp::min(usize::MAX, u32::MAX) - 1`.
+    /// compiler.
     TooManyPatterns {
         /// The number of patterns given, which exceeds the limit.
         given: usize,
         /// The limit on the number of patterns.
         limit: usize,
     },
+    /// An error that occurs if too states are produced while building an NFA.
     TooManyStates {
         /// The minimum number of states that are desired, which exceeds the
         /// limit.
@@ -39,11 +42,13 @@ impl Error {
         Error { kind: ErrorKind::Syntax(err) }
     }
 
-    pub(crate) fn too_many_patterns(given: usize, limit: usize) -> Error {
+    pub(crate) fn too_many_patterns(given: usize) -> Error {
+        let limit = PatternID::LIMIT;
         Error { kind: ErrorKind::TooManyPatterns { given, limit } }
     }
 
-    pub(crate) fn too_many_states(given: usize, limit: usize) -> Error {
+    pub(crate) fn too_many_states(given: usize) -> Error {
+        let limit = StateID::LIMIT;
         Error { kind: ErrorKind::TooManyStates { given, limit } }
     }
 }

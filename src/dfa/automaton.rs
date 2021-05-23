@@ -1,6 +1,9 @@
 use crate::{
-    dfa::search, prefilter, state_id::StateID, util::is_word_byte, MatchError,
-    PatternID,
+    dfa::search,
+    id::{PatternID, StateID},
+    matching::MatchError,
+    prefilter,
+    util::is_word_byte,
 };
 
 /// The offset, in bytes, that a match is delayed by in the DFAs generated
@@ -164,22 +167,6 @@ impl HalfMatch {
 /// When implementing this trait, one must uphold the documented correctness
 /// guarantees. Otherwise, undefined behavior may occur.
 pub unsafe trait Automaton {
-    /// The representation used for state identifiers in this DFA.
-    ///
-    /// This is required to be one of `u8`, `u16`, `u32`, `u64` or `usize`.
-    /// The restriction on this representation permits aspects of the
-    /// implementation to make assumptions about the state ID representation,
-    /// which are necessary for providing cheap deserialization of dense and
-    /// sparse DFAs.
-    ///
-    /// This restriction does unfortunately limit the ability to develop more
-    /// expressive APIs, such as providing intersection, union and complement
-    /// adapters.
-    ///
-    /// If you have a use case for relaxing this restriction, please propose a
-    /// design on the issue tracker.
-    type ID: StateID;
-
     /// Transitions from the current state to the next state, given the next
     /// byte of input.
     ///
@@ -221,7 +208,7 @@ pub unsafe trait Automaton {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn next_state(&self, current: Self::ID, input: u8) -> Self::ID;
+    fn next_state(&self, current: StateID, input: u8) -> StateID;
 
     /// Transitions from the current state to the next state, given the next
     /// byte of input.
@@ -240,9 +227,9 @@ pub unsafe trait Automaton {
     /// returned is valid for all possible values of `input`.
     unsafe fn next_state_unchecked(
         &self,
-        current: Self::ID,
+        current: StateID,
         input: u8,
-    ) -> Self::ID;
+    ) -> StateID;
 
     /// Transitions from the current state to the next state for the special
     /// EOI symbol.
@@ -300,7 +287,7 @@ pub unsafe trait Automaton {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn next_eoi_state(&self, current: Self::ID) -> Self::ID;
+    fn next_eoi_state(&self, current: StateID) -> StateID;
 
     /// Return the ID of the start state for this DFA when executing a forward
     /// search.
@@ -337,7 +324,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Self::ID;
+    ) -> StateID;
 
     /// Return the ID of the start state for this DFA when executing a reverse
     /// search.
@@ -373,7 +360,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Self::ID;
+    ) -> StateID;
 
     /// Returns true if and only if the given identifier corresponds to a
     /// "special" state. A special state is one or more of the following:
@@ -490,7 +477,7 @@ pub unsafe trait Automaton {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn is_special_state(&self, id: Self::ID) -> bool;
+    fn is_special_state(&self, id: StateID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to a dead
     /// state. When a DFA enters a dead state, it is impossible to leave. That
@@ -521,7 +508,7 @@ pub unsafe trait Automaton {
     ///
     /// See the example for [`Automaton::is_special_state`] for how to use this
     /// method correctly.
-    fn is_dead_state(&self, id: Self::ID) -> bool;
+    fn is_dead_state(&self, id: StateID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to a quit
     /// state. A quit state is like a dead state (it has no transitions other
@@ -557,7 +544,7 @@ pub unsafe trait Automaton {
     ///
     /// See the example for [`Automaton::is_special_state`] for how to use this
     /// method correctly.
-    fn is_quit_state(&self, id: Self::ID) -> bool;
+    fn is_quit_state(&self, id: StateID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to a
     /// match state. A match state is also referred to as a "final" state and
@@ -586,7 +573,7 @@ pub unsafe trait Automaton {
     ///
     /// See the example for [`Automaton::is_special_state`] for how to use this
     /// method correctly.
-    fn is_match_state(&self, id: Self::ID) -> bool;
+    fn is_match_state(&self, id: StateID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to a
     /// start state. A start state is a state in which a DFA begins a search.
@@ -707,7 +694,7 @@ pub unsafe trait Automaton {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn is_start_state(&self, id: Self::ID) -> bool;
+    fn is_start_state(&self, id: StateID) -> bool;
 
     /// Returns true if and only if the given identifier corresponds to an
     /// accelerated state.
@@ -755,7 +742,7 @@ pub unsafe trait Automaton {
     /// Typically, this routine is used to guard calls to
     /// [`Automaton::accelerator`], which returns the accelerated bytes for
     /// the specified state.
-    fn is_accel_state(&self, id: Self::ID) -> bool;
+    fn is_accel_state(&self, id: StateID) -> bool;
 
     /// Returns the total number of patterns compiled into this DFA.
     ///
@@ -862,7 +849,7 @@ pub unsafe trait Automaton {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn match_count(&self, id: Self::ID) -> usize;
+    fn match_count(&self, id: StateID) -> usize;
 
     /// Returns the pattern ID corresponding to the given match index in the
     /// given state.
@@ -878,7 +865,7 @@ pub unsafe trait Automaton {
     ///
     /// Typically, this routine is used when implementing an overlapping
     /// search, as the example for `Automaton::match_count` does.
-    fn match_pattern(&self, id: Self::ID, index: usize) -> PatternID;
+    fn match_pattern(&self, id: StateID, index: usize) -> PatternID;
 
     /// Return a slice of bytes to accelerate for the given state, if possible.
     ///
@@ -930,7 +917,7 @@ pub unsafe trait Automaton {
     /// assert_eq!(accelerator, &[b'a', b'b', b'c']);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn accelerator(&self, _id: Self::ID) -> &[u8] {
+    fn accelerator(&self, _id: StateID) -> &[u8] {
         &[]
     }
 
@@ -1264,7 +1251,7 @@ pub unsafe trait Automaton {
     fn find_overlapping_fwd(
         &self,
         bytes: &[u8],
-        state: &mut OverlappingState<Self::ID>,
+        state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         self.find_overlapping_fwd_at(None, None, bytes, 0, bytes.len(), state)
     }
@@ -1625,7 +1612,7 @@ pub unsafe trait Automaton {
         bytes: &[u8],
         start: usize,
         end: usize,
-        state: &mut OverlappingState<Self::ID>,
+        state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_fwd(
             pre, self, pattern_id, bytes, start, end, state,
@@ -1634,24 +1621,22 @@ pub unsafe trait Automaton {
 }
 
 unsafe impl<'a, T: Automaton> Automaton for &'a T {
-    type ID = T::ID;
-
     #[inline]
-    fn next_state(&self, current: Self::ID, input: u8) -> Self::ID {
+    fn next_state(&self, current: StateID, input: u8) -> StateID {
         (**self).next_state(current, input)
     }
 
     #[inline]
     unsafe fn next_state_unchecked(
         &self,
-        current: Self::ID,
+        current: StateID,
         input: u8,
-    ) -> Self::ID {
+    ) -> StateID {
         (**self).next_state_unchecked(current, input)
     }
 
     #[inline]
-    fn next_eoi_state(&self, current: Self::ID) -> Self::ID {
+    fn next_eoi_state(&self, current: StateID) -> StateID {
         (**self).next_eoi_state(current)
     }
 
@@ -1662,7 +1647,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Self::ID {
+    ) -> StateID {
         (**self).start_state_forward(pattern_id, bytes, start, end)
     }
 
@@ -1673,37 +1658,37 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         bytes: &[u8],
         start: usize,
         end: usize,
-    ) -> Self::ID {
+    ) -> StateID {
         (**self).start_state_reverse(pattern_id, bytes, start, end)
     }
 
     #[inline]
-    fn is_special_state(&self, id: Self::ID) -> bool {
+    fn is_special_state(&self, id: StateID) -> bool {
         (**self).is_special_state(id)
     }
 
     #[inline]
-    fn is_dead_state(&self, id: Self::ID) -> bool {
+    fn is_dead_state(&self, id: StateID) -> bool {
         (**self).is_dead_state(id)
     }
 
     #[inline]
-    fn is_quit_state(&self, id: Self::ID) -> bool {
+    fn is_quit_state(&self, id: StateID) -> bool {
         (**self).is_quit_state(id)
     }
 
     #[inline]
-    fn is_match_state(&self, id: Self::ID) -> bool {
+    fn is_match_state(&self, id: StateID) -> bool {
         (**self).is_match_state(id)
     }
 
     #[inline]
-    fn is_start_state(&self, id: Self::ID) -> bool {
+    fn is_start_state(&self, id: StateID) -> bool {
         (**self).is_start_state(id)
     }
 
     #[inline]
-    fn is_accel_state(&self, id: Self::ID) -> bool {
+    fn is_accel_state(&self, id: StateID) -> bool {
         (**self).is_accel_state(id)
     }
 
@@ -1713,17 +1698,17 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn match_count(&self, id: Self::ID) -> usize {
+    fn match_count(&self, id: StateID) -> usize {
         (**self).match_count(id)
     }
 
     #[inline]
-    fn match_pattern(&self, id: Self::ID, index: usize) -> PatternID {
+    fn match_pattern(&self, id: StateID, index: usize) -> PatternID {
         (**self).match_pattern(id, index)
     }
 
     #[inline]
-    fn accelerator(&self, id: Self::ID) -> &[u8] {
+    fn accelerator(&self, id: StateID) -> &[u8] {
         (**self).accelerator(id)
     }
 
@@ -1763,7 +1748,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn find_overlapping_fwd(
         &self,
         bytes: &[u8],
-        state: &mut OverlappingState<Self::ID>,
+        state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).find_overlapping_fwd(bytes, state)
     }
@@ -1822,7 +1807,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         bytes: &[u8],
         start: usize,
         end: usize,
-        state: &mut OverlappingState<Self::ID>,
+        state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self)
             .find_overlapping_fwd_at(pre, pattern_id, bytes, start, end, state)
@@ -1846,7 +1831,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
 /// [`OverlappingState::start`] when starting a new search. Reusing state from
 /// a previous search may result in incorrect results.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OverlappingState<S> {
+pub struct OverlappingState {
     /// The state ID of the state at which the search was in when the call
     /// terminated. When this is a match state, `last_match` must be set to a
     /// non-None value.
@@ -1855,7 +1840,7 @@ pub struct OverlappingState<S> {
     /// automaton. We cannot use the actual ID, since any one automaton may
     /// have many start states, and which one is in use depends on several
     /// search-time factors.
-    id: Option<S>,
+    id: Option<StateID>,
     /// Information associated with a match when `id` corresponds to a match
     /// state.
     last_match: Option<StateMatch>,
@@ -1877,18 +1862,18 @@ pub(crate) struct StateMatch {
     pub(crate) offset: usize,
 }
 
-impl<S: StateID> OverlappingState<S> {
+impl OverlappingState {
     /// Create a new overlapping state that begins at the start state of any
     /// automaton.
-    pub fn start() -> OverlappingState<S> {
+    pub fn start() -> OverlappingState {
         OverlappingState { id: None, last_match: None }
     }
 
-    pub(crate) fn id(&self) -> Option<S> {
+    pub(crate) fn id(&self) -> Option<StateID> {
         self.id
     }
 
-    pub(crate) fn set_id(&mut self, id: S) {
+    pub(crate) fn set_id(&mut self, id: StateID) {
         self.id = Some(id);
     }
 
@@ -2011,7 +1996,7 @@ impl Start {
 pub(crate) fn fmt_state_indicator<A: Automaton>(
     f: &mut core::fmt::Formatter<'_>,
     dfa: A,
-    id: A::ID,
+    id: StateID,
 ) -> core::fmt::Result {
     if dfa.is_dead_state(id) {
         write!(f, "D")?;

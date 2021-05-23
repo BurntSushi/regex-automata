@@ -33,7 +33,7 @@ mod macros;
 
 mod bytes;
 mod classes;
-// pub mod dfa;
+pub mod dfa;
 mod id;
 mod matching;
 pub mod prefilter;
