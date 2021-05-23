@@ -5,6 +5,7 @@ pub struct Error {
 }
 
 /// The kind of error that occurred during the construction of an NFA.
+#[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum ErrorKind {
     /// An error that occurred while parsing a regular expression. Note that
@@ -19,13 +20,13 @@ pub enum ErrorKind {
         /// The limit on the number of patterns.
         limit: usize,
     },
-    /// Hints that destructuring should not be exhaustive.
-    ///
-    /// This enum may grow additional variants, so this makes sure clients
-    /// don't count on exhaustive matching. (Otherwise, adding a new variant
-    /// could break existing code.)
-    #[doc(hidden)]
-    __Nonexhaustive,
+    TooManyStates {
+        /// The minimum number of states that are desired, which exceeds the
+        /// limit.
+        given: usize,
+        /// The limit on the number of states.
+        limit: usize,
+    },
 }
 
 impl Error {
@@ -41,6 +42,10 @@ impl Error {
     pub(crate) fn too_many_patterns(given: usize, limit: usize) -> Error {
         Error { kind: ErrorKind::TooManyPatterns { given, limit } }
     }
+
+    pub(crate) fn too_many_states(given: usize, limit: usize) -> Error {
+        Error { kind: ErrorKind::TooManyStates { given, limit } }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -49,7 +54,7 @@ impl std::error::Error for Error {
         match self.kind() {
             ErrorKind::Syntax(ref err) => Some(err),
             ErrorKind::TooManyPatterns { .. } => None,
-            ErrorKind::__Nonexhaustive => unreachable!(),
+            ErrorKind::TooManyStates { .. } => None,
         }
     }
 }
@@ -64,7 +69,12 @@ impl core::fmt::Display for Error {
                  which exceeds the limit of {}",
                 given, limit,
             ),
-            ErrorKind::__Nonexhaustive => unreachable!(),
+            ErrorKind::TooManyStates { given, limit } => write!(
+                f,
+                "attemped to compile {} NFA states, \
+                 which exceeds the limit of {}",
+                given, limit,
+            ),
         }
     }
 }

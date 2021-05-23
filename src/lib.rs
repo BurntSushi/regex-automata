@@ -22,10 +22,8 @@ pub use crate::{
         ByteClassElementRanges, ByteClassElements, ByteClassIter,
         ByteClassSet, ByteClasses, InputUnit,
     },
-    matching::{
-        pattern_limit, Match, MatchError, MatchKind, MultiMatch, PatternID,
-    },
-    state_id::StateID,
+    id::{PatternID, PatternIDError, StateID, StateIDError},
+    matching::{Match, MatchError, MatchKind, MultiMatch},
 };
 #[cfg(feature = "alloc")]
 pub use crate::{classes::ByteClassRepresentatives, config::SyntaxConfig};
@@ -35,13 +33,11 @@ mod macros;
 
 mod bytes;
 mod classes;
-pub mod dfa;
+// pub mod dfa;
 mod id;
 mod matching;
 pub mod prefilter;
-mod state_id;
 mod util;
-mod word;
 
 #[cfg(feature = "alloc")]
 mod config;

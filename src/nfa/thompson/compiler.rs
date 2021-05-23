@@ -37,19 +37,24 @@ use core::{borrow::Borrow, cell::RefCell, mem};
 
 use alloc::{vec, vec::Vec};
 
-use regex_syntax::hir::{
-    self, Anchor, Class, Hir, HirKind, Literal, WordBoundary,
+use regex_syntax::{
+    hir::{self, Anchor, Class, Hir, HirKind, Literal, WordBoundary},
+    utf8::{Utf8Range, Utf8Sequences},
+    ParserBuilder,
 };
-use regex_syntax::utf8::{Utf8Range, Utf8Sequences};
-use regex_syntax::ParserBuilder;
 
-use crate::classes::ByteClassSet;
-use crate::{pattern_limit, PatternID};
-
-use super::super::error::Error;
-use super::map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap};
-use super::range_trie::RangeTrie;
-use super::{Look, State, StateID, Transition, NFA};
+use crate::{
+    classes::ByteClassSet,
+    nfa::{
+        error::Error,
+        thompson::{
+            map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
+            range_trie::RangeTrie,
+            Look, State, Transition, NFA,
+        },
+    },
+    PatternID, StateID,
+};
 
 /// The configuration used for compiling a Thompson NFA from a regex pattern.
 #[derive(Clone, Copy, Debug, Default)]
@@ -413,10 +418,10 @@ impl Compiler {
             *nfa = NFA::never_match();
             return Ok(());
         }
-        if exprs.len() > pattern_limit() {
+        if exprs.len() > PatternID::LIMIT {
             return Err(Error::too_many_patterns(
                 exprs.len(),
-                pattern_limit(),
+                PatternID::LIMIT,
             ));
         }
 
@@ -437,13 +442,15 @@ impl Compiler {
             }
         };
 
-        let mut start_pattern = vec![0; exprs.len()];
+        let mut start_pattern = vec![StateID::ZERO; exprs.len()];
         let compiled =
             self.c_alternation(exprs.iter().enumerate().map(|(i, e)| {
                 let one = self.c(e.borrow())?;
-                let match_state_id = self.add_match(i as PatternID);
+                // OK since exprs.len() was checked above.
+                let pid = PatternID::new(i).unwrap();
+                let match_state_id = self.add_match(pid)?;
                 self.patch(one.end, match_state_id);
-                start_pattern[i] = one.start;
+                start_pattern[pid] = one.start;
                 Ok(ThompsonRef { start: one.start, end: match_state_id })
             }))?;
         self.patch(unanchored_prefix.end, compiled.start);
@@ -452,7 +459,7 @@ impl Compiler {
             compiled.start,
             unanchored_prefix.start,
             &start_pattern,
-        );
+        )?;
         Ok(())
     }
 
@@ -464,10 +471,10 @@ impl Compiler {
         start_anchored: StateID,
         start_unanchored: StateID,
         start_pattern: &[StateID],
-    ) {
+    ) -> Result<(), Error> {
         let mut bstates = self.states.borrow_mut();
         let mut remap = self.remap.borrow_mut();
-        remap.resize(bstates.len(), 0);
+        remap.resize(bstates.len(), StateID::ZERO);
         let mut empties = self.empties.borrow_mut();
         empties.clear();
 
@@ -479,46 +486,47 @@ impl Compiler {
         // transitions, which are expressed in terms of state IDs. The new
         // set of states will be smaller because of partial epsilon removal,
         // so the state IDs will not be the same.
-        for (id, bstate) in bstates.iter_mut().enumerate() {
+        for (i, bstate) in bstates.iter_mut().enumerate() {
+            let sid = StateID::new(i).unwrap();
             match *bstate {
                 CState::Empty { next } => {
                     // Since we're removing empty states, we need to handle
                     // them later since we don't yet know which new state this
                     // empty state will be mapped to.
-                    empties.push((id, next));
+                    empties.push((sid, next));
                 }
                 CState::Range { range } => {
                     byteset.set_range(range.start, range.end);
-                    remap[id] = nfa.add(State::Range { range });
+                    remap[sid] = nfa.add(State::Range { range })?;
                 }
                 CState::Sparse { ref mut ranges } => {
                     let ranges = mem::replace(ranges, vec![]);
                     for r in &ranges {
                         byteset.set_range(r.start, r.end);
                     }
-                    remap[id] = nfa.add(State::Sparse {
+                    remap[sid] = nfa.add(State::Sparse {
                         ranges: ranges.into_boxed_slice(),
-                    });
+                    })?;
                 }
                 CState::Look { look, next } => {
                     look.add_to_byteset(&mut byteset);
-                    remap[id] = nfa.add(State::Look { look, next });
+                    remap[sid] = nfa.add(State::Look { look, next })?;
                 }
                 CState::Union { ref mut alternates } => {
                     let alternates = mem::replace(alternates, vec![]);
-                    remap[id] = nfa.add(State::Union {
+                    remap[sid] = nfa.add(State::Union {
                         alternates: alternates.into_boxed_slice(),
-                    });
+                    })?;
                 }
                 CState::UnionReverse { ref mut alternates } => {
                     let mut alternates = mem::replace(alternates, vec![]);
                     alternates.reverse();
-                    remap[id] = nfa.add(State::Union {
+                    remap[sid] = nfa.add(State::Union {
                         alternates: alternates.into_boxed_slice(),
-                    });
+                    })?;
                 }
-                CState::Match(mid) => {
-                    remap[id] = nfa.add(State::Match(mid));
+                CState::Match(pid) => {
+                    remap[sid] = nfa.add(State::Match(pid))?;
                 }
             }
         }
@@ -541,8 +549,11 @@ impl Compiler {
         nfa.set_start_anchored(remap[start_anchored]);
         nfa.set_start_unanchored(remap[start_unanchored]);
         for (i, &old_id) in start_pattern.iter().enumerate() {
-            nfa.set_start_pattern(i as PatternID, remap[old_id]);
+            // OK since NFA constructor checks number of patterns.
+            let pid = PatternID::new(i).unwrap();
+            nfa.set_start_pattern(pid, remap[old_id]);
         }
+        Ok(())
     }
 
     fn c(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
@@ -597,8 +608,8 @@ impl Compiler {
             Some(result) => result?,
         };
 
-        let union = self.add_union();
-        let end = self.add_empty();
+        let union = self.add_union()?;
+        let end = self.add_empty()?;
         self.patch(union, first.start);
         self.patch(first.end, end);
         self.patch(union, second.start);
@@ -680,14 +691,14 @@ impl Compiler {
         //      000008: MATCH
         //
         // So that the epsilon closure of state 2 is now just 3 and 8.
-        let empty = self.add_empty();
+        let empty = self.add_empty()?;
         let mut prev_end = prefix.end;
         for _ in min..max {
             let union = if greedy {
                 self.add_union()
             } else {
                 self.add_reverse_union()
-            };
+            }?;
             let compiled = self.c(expr)?;
             self.patch(prev_end, union);
             self.patch(union, compiled.start);
@@ -714,7 +725,7 @@ impl Compiler {
                     self.add_union()
                 } else {
                     self.add_reverse_union()
-                };
+                }?;
                 let compiled = self.c(expr)?;
                 self.patch(union, compiled.start);
                 self.patch(compiled.end, union);
@@ -734,7 +745,7 @@ impl Compiler {
                 self.add_union()
             } else {
                 self.add_reverse_union()
-            };
+            }?;
             self.patch(compiled.end, plus);
             self.patch(plus, compiled.start);
 
@@ -742,8 +753,8 @@ impl Compiler {
                 self.add_union()
             } else {
                 self.add_reverse_union()
-            };
-            let empty = self.add_empty();
+            }?;
+            let empty = self.add_empty()?;
             self.patch(question, compiled.start);
             self.patch(question, empty);
             self.patch(plus, empty);
@@ -754,7 +765,7 @@ impl Compiler {
                 self.add_union()
             } else {
                 self.add_reverse_union()
-            };
+            }?;
             self.patch(compiled.end, union);
             self.patch(union, compiled.start);
             Ok(ThompsonRef { start: compiled.start, end: union })
@@ -765,7 +776,7 @@ impl Compiler {
                 self.add_union()
             } else {
                 self.add_reverse_union()
-            };
+            }?;
             self.patch(prefix.end, last.start);
             self.patch(last.end, union);
             self.patch(union, last.start);
@@ -779,9 +790,9 @@ impl Compiler {
         greedy: bool,
     ) -> Result<ThompsonRef, Error> {
         let union =
-            if greedy { self.add_union() } else { self.add_reverse_union() };
+            if greedy { self.add_union() } else { self.add_reverse_union() }?;
         let compiled = self.c(expr)?;
-        let empty = self.add_empty();
+        let empty = self.add_empty()?;
         self.patch(union, compiled.start);
         self.patch(union, empty);
         self.patch(compiled.end, empty);
@@ -797,7 +808,7 @@ impl Compiler {
         &self,
         cls: &hir::ClassBytes,
     ) -> Result<ThompsonRef, Error> {
-        let end = self.add_empty();
+        let end = self.add_empty()?;
         let mut trans = Vec::with_capacity(cls.ranges().len());
         for r in cls.iter() {
             trans.push(Transition {
@@ -806,7 +817,7 @@ impl Compiler {
                 next: end,
             });
         }
-        Ok(ThompsonRef { start: self.add_sparse(trans), end })
+        Ok(ThompsonRef { start: self.add_sparse(trans)?, end })
     }
 
     fn c_unicode_class(
@@ -817,7 +828,7 @@ impl Compiler {
         // there is zero reason to bring out the big guns. We can fit all ASCII
         // ranges within a single sparse transition.
         if cls.is_all_ascii() {
-            let end = self.add_empty();
+            let end = self.add_empty()?;
             let mut trans = Vec::with_capacity(cls.ranges().len());
             for r in cls.iter() {
                 assert!(r.start() <= '\x7F');
@@ -828,7 +839,7 @@ impl Compiler {
                     next: end,
                 });
             }
-            Ok(ThompsonRef { start: self.add_sparse(trans), end })
+            Ok(ThompsonRef { start: self.add_sparse(trans)?, end })
         } else if self.is_reverse() {
             if !self.config.get_shrink() {
                 // When we don't want to spend the extra time shrinking, we
@@ -858,11 +869,11 @@ impl Compiler {
                     }
                 }
                 let mut utf8_state = self.utf8_state.borrow_mut();
-                let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state);
+                let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state)?;
                 trie.iter(|seq| {
                     utf8c.add(&seq);
                 });
-                Ok(utf8c.finish())
+                utf8c.finish()
             }
         } else {
             // In the forward direction, we always shrink our UTF-8 automata
@@ -870,13 +881,13 @@ impl Compiler {
             // is almost no downside (in either memory or time) to using this
             // approach.
             let mut utf8_state = self.utf8_state.borrow_mut();
-            let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state);
+            let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state)?;
             for rng in cls.iter() {
                 for seq in Utf8Sequences::new(rng.start(), rng.end()) {
                     utf8c.add(seq.as_slice());
                 }
             }
-            Ok(utf8c.finish())
+            utf8c.finish()
         }
 
         // For reference, the code below is the "naive" version of compiling a
@@ -919,8 +930,8 @@ impl Compiler {
         let mut cache = self.utf8_suffix.borrow_mut();
         cache.clear();
 
-        let union = self.add_union();
-        let alt_end = self.add_empty();
+        let union = self.add_union()?;
+        let alt_end = self.add_empty()?;
         for urng in cls.iter() {
             for seq in Utf8Sequences::new(urng.start(), urng.end()) {
                 let mut end = alt_end;
@@ -954,7 +965,7 @@ impl Compiler {
             Anchor::StartText => Look::StartText,
             Anchor::EndText => Look::EndText,
         };
-        let id = self.add_look(look);
+        let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
@@ -968,7 +979,7 @@ impl Compiler {
             WordBoundary::Ascii => Look::WordBoundaryAscii,
             WordBoundary::AsciiNegate => Look::WordBoundaryAsciiNegate,
         };
-        let id = self.add_look(look);
+        let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
@@ -983,12 +994,12 @@ impl Compiler {
     }
 
     fn c_range(&self, start: u8, end: u8) -> Result<ThompsonRef, Error> {
-        let id = self.add_range(start, end);
+        let id = self.add_range(start, end)?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
     fn c_empty(&self) -> Result<ThompsonRef, Error> {
-        let id = self.add_empty();
+        let id = self.add_empty()?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
@@ -1024,60 +1035,49 @@ impl Compiler {
         }
     }
 
-    fn add_empty(&self) -> StateID {
-        let id = self.states.borrow().len();
-        self.states.borrow_mut().push(CState::Empty { next: 0 });
-        id
+    fn add_empty(&self) -> Result<StateID, Error> {
+        self.add_state(CState::Empty { next: StateID::ZERO })
     }
 
-    fn add_range(&self, start: u8, end: u8) -> StateID {
-        let id = self.states.borrow().len();
-        let trans = Transition { start, end, next: 0 };
-        let state = CState::Range { range: trans };
-        self.states.borrow_mut().push(state);
-        id
+    fn add_range(&self, start: u8, end: u8) -> Result<StateID, Error> {
+        let trans = Transition { start, end, next: StateID::ZERO };
+        self.add_state(CState::Range { range: trans })
     }
 
-    fn add_sparse(&self, ranges: Vec<Transition>) -> StateID {
+    fn add_sparse(&self, ranges: Vec<Transition>) -> Result<StateID, Error> {
         if ranges.len() == 1 {
-            let id = self.states.borrow().len();
-            let state = CState::Range { range: ranges[0] };
-            self.states.borrow_mut().push(state);
-            return id;
+            self.add_state(CState::Range { range: ranges[0] })
+        } else {
+            self.add_state(CState::Sparse { ranges })
         }
-        let id = self.states.borrow().len();
-        let state = CState::Sparse { ranges };
-        self.states.borrow_mut().push(state);
-        id
     }
 
-    fn add_look(&self, mut look: Look) -> StateID {
+    fn add_look(&self, mut look: Look) -> Result<StateID, Error> {
         if self.is_reverse() {
             look = look.reversed();
         }
-        let id = self.states.borrow().len();
-        self.states.borrow_mut().push(CState::Look { look, next: 0 });
-        id
+        self.add_state(CState::Look { look, next: StateID::ZERO })
     }
 
-    fn add_union(&self) -> StateID {
-        let id = self.states.borrow().len();
-        let state = CState::Union { alternates: vec![] };
-        self.states.borrow_mut().push(state);
-        id
+    fn add_union(&self) -> Result<StateID, Error> {
+        self.add_state(CState::Union { alternates: vec![] })
     }
 
-    fn add_reverse_union(&self) -> StateID {
-        let id = self.states.borrow().len();
-        let state = CState::UnionReverse { alternates: vec![] };
-        self.states.borrow_mut().push(state);
-        id
+    fn add_reverse_union(&self) -> Result<StateID, Error> {
+        self.add_state(CState::UnionReverse { alternates: vec![] })
     }
 
-    fn add_match(&self, pid: PatternID) -> StateID {
-        let id = self.states.borrow().len();
-        self.states.borrow_mut().push(CState::Match(pid));
-        id
+    fn add_match(&self, pid: PatternID) -> Result<StateID, Error> {
+        self.add_state(CState::Match(pid))
+    }
+
+    fn add_state(&self, state: CState) -> Result<StateID, Error> {
+        let mut states = self.states.borrow_mut();
+        let id = StateID::new(states.len()).map_err(|_| {
+            Error::too_many_states(states.len(), StateID::LIMIT)
+        })?;
+        states.push(state);
+        Ok(id)
     }
 
     fn is_reverse(&self) -> bool {
@@ -1122,19 +1122,22 @@ impl Utf8State {
 }
 
 impl<'a> Utf8Compiler<'a> {
-    fn new(nfac: &'a Compiler, state: &'a mut Utf8State) -> Utf8Compiler<'a> {
-        let target = nfac.add_empty();
+    fn new(
+        nfac: &'a Compiler,
+        state: &'a mut Utf8State,
+    ) -> Result<Utf8Compiler<'a>, Error> {
+        let target = nfac.add_empty()?;
         state.clear();
         let mut utf8c = Utf8Compiler { nfac, state, target };
         utf8c.add_empty();
-        utf8c
+        Ok(utf8c)
     }
 
-    fn finish(&mut self) -> ThompsonRef {
-        self.compile_from(0);
+    fn finish(&mut self) -> Result<ThompsonRef, Error> {
+        self.compile_from(0)?;
         let node = self.pop_root();
-        let start = self.compile(node);
-        ThompsonRef { start, end: self.target }
+        let start = self.compile(node)?;
+        Ok(ThompsonRef { start, end: self.target })
     }
 
     fn add(&mut self, ranges: &[Utf8Range]) {
@@ -1152,23 +1155,24 @@ impl<'a> Utf8Compiler<'a> {
         self.add_suffix(&ranges[prefix_len..]);
     }
 
-    fn compile_from(&mut self, from: usize) {
+    fn compile_from(&mut self, from: usize) -> Result<(), Error> {
         let mut next = self.target;
         while from + 1 < self.state.uncompiled.len() {
             let node = self.pop_freeze(next);
-            next = self.compile(node);
+            next = self.compile(node)?;
         }
         self.top_last_freeze(next);
+        Ok(())
     }
 
-    fn compile(&mut self, node: Vec<Transition>) -> StateID {
+    fn compile(&mut self, node: Vec<Transition>) -> Result<StateID, Error> {
         let hash = self.state.compiled.hash(&node);
         if let Some(id) = self.state.compiled.get(&node, hash) {
-            return id;
+            return Ok(id);
         }
-        let id = self.nfac.add_sparse(node.clone());
+        let id = self.nfac.add_sparse(node.clone())?;
         self.state.compiled.set(node, hash, id);
-        id
+        Ok(id)
     }
 
     fn add_suffix(&mut self, ranges: &[Utf8Range]) {
@@ -1242,30 +1246,41 @@ mod tests {
             .unwrap()
     }
 
-    fn s_byte(byte: u8, next: StateID) -> State {
+    fn s_byte(byte: u8, next: usize) -> State {
+        let next = StateID::new(next).unwrap();
         let trans = Transition { start: byte, end: byte, next };
         State::Range { range: trans }
     }
 
-    fn s_range(start: u8, end: u8, next: StateID) -> State {
+    fn s_range(start: u8, end: u8, next: usize) -> State {
+        let next = StateID::new(next).unwrap();
         let trans = Transition { start, end, next };
         State::Range { range: trans }
     }
 
-    fn s_sparse(ranges: &[(u8, u8, StateID)]) -> State {
+    fn s_sparse(ranges: &[(u8, u8, usize)]) -> State {
         let ranges = ranges
             .iter()
-            .map(|&(start, end, next)| Transition { start, end, next })
+            .map(|&(start, end, next)| {
+                let next = StateID::new(next).unwrap();
+                Transition { start, end, next }
+            })
             .collect();
         State::Sparse { ranges }
     }
 
-    fn s_union(alts: &[StateID]) -> State {
-        State::Union { alternates: alts.to_vec().into_boxed_slice() }
+    fn s_union(alts: &[usize]) -> State {
+        State::Union {
+            alternates: alts
+                .iter()
+                .map(|&sid| StateID::new(sid).unwrap())
+                .collect::<Vec<StateID>>()
+                .into_boxed_slice(),
+        }
     }
 
-    fn s_match(id: PatternID) -> State {
-        State::Match(id)
+    fn s_match(id: usize) -> State {
+        State::Match(PatternID::new(id).unwrap())
     }
 
     // Test that building an unanchored NFA has an appropriate `(?s:.)*?`
@@ -1418,10 +1433,16 @@ mod tests {
                 s_union(&[0, 2]),
             ]
         );
-        assert_eq!(nfa.start_anchored(), 4);
-        assert_eq!(nfa.start_unanchored(), 4);
+        assert_eq!(nfa.start_anchored().as_usize(), 4);
+        assert_eq!(nfa.start_unanchored().as_usize(), 4);
         // Test that the start states for each individual pattern are correct.
-        assert_eq!(nfa.start_pattern(0), 0);
-        assert_eq!(nfa.start_pattern(1), 2);
+        assert_eq!(
+            nfa.start_pattern(PatternID::new(0).unwrap()).as_usize(),
+            0
+        );
+        assert_eq!(
+            nfa.start_pattern(PatternID::new(1).unwrap()).as_usize(),
+            2
+        );
     }
 }

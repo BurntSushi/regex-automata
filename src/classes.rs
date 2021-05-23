@@ -93,7 +93,7 @@ impl InputUnit {
 
     #[cfg(feature = "alloc")]
     pub fn is_word_byte(&self) -> bool {
-        self.as_u8().map_or(false, crate::word::is_word_byte)
+        self.as_u8().map_or(false, crate::util::is_word_byte)
     }
 }
 

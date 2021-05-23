@@ -33,7 +33,9 @@ use core::convert::{Infallible, TryFrom};
 /// targets), callers must not rely on this property for safety. Callers may
 /// choose to rely on this property for correctness however.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
+)]
 pub struct PatternID(u32);
 
 impl PatternID {
@@ -44,6 +46,13 @@ impl PatternID {
     /// The maximum pattern ID value, represented as a `usize`.
     #[cfg(target_pointer_width = "16")]
     pub const MAX: usize = core::usize::MAX - 1;
+
+    /// The total number of patterns that are allowed in any single regex
+    /// engine.
+    pub const LIMIT: usize = PatternID::MAX + 1;
+
+    /// The zero pattern ID value.
+    pub const ZERO: PatternID = PatternID(0);
 
     /// The number of bytes that a single `PatternID` uses in memory.
     pub const SIZE: usize = core::mem::size_of::<PatternID>();
@@ -73,6 +82,14 @@ impl PatternID {
     /// Return the internal u32 of this pattern ID.
     pub fn as_u32(&self) -> u32 {
         self.0
+    }
+
+    /// Returns one more than this pattern ID as a usize.
+    ///
+    /// Since a pattern ID has constrains on its maximum value, adding `1` to
+    /// it will always fit in a `usize` (and a `u32`).
+    pub fn one_more(&self) -> usize {
+        self.as_usize().checked_add(1).unwrap()
     }
 
     /// Decode this pattern ID from the bytes given using the native endian
@@ -114,6 +131,24 @@ impl<T> core::ops::Index<PatternID> for [T] {
 }
 
 impl<T> core::ops::IndexMut<PatternID> for [T] {
+    #[inline]
+    fn index_mut(&mut self, index: PatternID) -> &mut T {
+        &mut self[index.as_usize()]
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T> core::ops::Index<PatternID> for Vec<T> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, index: PatternID) -> &T {
+        &self[index.as_usize()]
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T> core::ops::IndexMut<PatternID> for Vec<T> {
     #[inline]
     fn index_mut(&mut self, index: PatternID) -> &mut T {
         &mut self[index.as_usize()]
@@ -228,7 +263,9 @@ impl core::fmt::Display for PatternIDError {
 /// targets), callers must not rely on this property for safety. Callers may
 /// choose to rely on this property for correctness however.
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
+)]
 pub struct StateID(u32);
 
 impl StateID {
@@ -239,6 +276,13 @@ impl StateID {
     /// The maximum state ID value, represented as a `usize`.
     #[cfg(target_pointer_width = "16")]
     pub const MAX: usize = core::usize::MAX - 1;
+
+    /// The total number of states that are allowed in any single regex
+    /// engine.
+    pub const LIMIT: usize = StateID::MAX + 1;
+
+    /// The zero state ID value.
+    pub const ZERO: StateID = StateID(0);
 
     /// The number of bytes that a single `StateID` uses in memory.
     pub const SIZE: usize = core::mem::size_of::<StateID>();
@@ -271,6 +315,14 @@ impl StateID {
     /// Return the internal u32 of this state ID.
     pub fn as_u32(&self) -> u32 {
         self.0
+    }
+
+    /// Returns one more than this state ID as a usize.
+    ///
+    /// Since a state ID has constrains on its maximum value, adding `1` to
+    /// it will always fit in a `usize` (and a `u32`).
+    pub fn one_more(&self) -> usize {
+        self.as_usize().checked_add(1).unwrap()
     }
 
     /// Decode this state ID from the bytes given using the native endian byte
@@ -312,6 +364,24 @@ impl<T> core::ops::Index<StateID> for [T] {
 }
 
 impl<T> core::ops::IndexMut<StateID> for [T] {
+    #[inline]
+    fn index_mut(&mut self, index: StateID) -> &mut T {
+        &mut self[index.as_usize()]
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T> core::ops::Index<StateID> for Vec<T> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, index: StateID) -> &T {
+        &self[index.as_usize()]
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T> core::ops::IndexMut<StateID> for Vec<T> {
     #[inline]
     fn index_mut(&mut self, index: StateID) -> &mut T {
         &mut self[index.as_usize()]

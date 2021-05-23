@@ -1,5 +1,5 @@
 use crate::{
-    dfa::search, prefilter, state_id::StateID, word::is_word_byte, MatchError,
+    dfa::search, prefilter, state_id::StateID, util::is_word_byte, MatchError,
     PatternID,
 };
 

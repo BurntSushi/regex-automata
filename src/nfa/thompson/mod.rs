@@ -2,16 +2,17 @@ use core::fmt;
 
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
-use crate::{classes::ByteClassSet, PatternID};
+use crate::{
+    classes::ByteClassSet,
+    id::{PatternID, StateID},
+    nfa::error::Error,
+};
 
 pub use self::compiler::{Builder, Config};
 
 mod compiler;
 mod map;
 mod range_trie;
-
-/// The representation for an NFA state identifier.
-pub type StateID = usize;
 
 /// A final compiled NFA.
 ///
@@ -58,10 +59,10 @@ impl NFA {
     #[inline]
     pub fn always_match() -> NFA {
         let mut nfa = NFA {
-            start_anchored: 0,
-            start_unanchored: 0,
-            start_pattern: vec![0],
-            states: vec![State::Match(0)],
+            start_anchored: StateID::ZERO,
+            start_unanchored: StateID::ZERO,
+            start_pattern: vec![StateID::ZERO],
+            states: vec![State::Match(PatternID::ZERO)],
             byte_class_set: ByteClassSet::empty(),
             facts: Facts::default(),
         };
@@ -74,8 +75,8 @@ impl NFA {
     #[inline]
     pub fn never_match() -> NFA {
         NFA {
-            start_anchored: 0,
-            start_unanchored: 0,
+            start_anchored: StateID::ZERO,
+            start_unanchored: StateID::ZERO,
             start_pattern: vec![],
             states: vec![State::Fail],
             byte_class_set: ByteClassSet::empty(),
@@ -84,6 +85,9 @@ impl NFA {
     }
 
     /// Return the number of states in this NFA.
+    ///
+    /// This is guaranteed to be no bigger than one more than
+    /// [`StateID::MAX`].
     #[inline]
     pub fn len(&self) -> usize {
         self.states.len()
@@ -96,6 +100,9 @@ impl NFA {
     /// This may return zero if the NFA was constructed with no patterns. In
     /// this case, and only this case, the NFA can never produce a match for
     /// any input.
+    ///
+    /// This is guaranteed to be no bigger than one more than
+    /// [`PatternID::MAX`].
     #[inline]
     pub fn match_len(&self) -> usize {
         self.start_pattern.len()
@@ -105,7 +112,7 @@ impl NFA {
     #[inline]
     pub fn patterns(&self) -> PatternIter {
         PatternIter {
-            it: 0..(self.match_len() as PatternID),
+            it: 0..self.match_len(),
             _marker: core::marker::PhantomData,
         }
     }
@@ -113,7 +120,7 @@ impl NFA {
     /// Configures the NFA to match the specified number of patterns.
     #[inline]
     pub(crate) fn set_match_len(&mut self, patterns: usize) {
-        self.start_pattern.resize(patterns, 0);
+        self.start_pattern.resize(patterns, StateID::ZERO);
     }
 
     /// Return the ID of the initial anchored state of this NFA.
@@ -145,7 +152,7 @@ impl NFA {
     /// If the pattern doesn't exist in this NFA, then this panics.
     #[inline]
     pub fn start_pattern(&self, pid: PatternID) -> StateID {
-        self.start_pattern[pid as usize]
+        self.start_pattern[pid]
     }
 
     /// Set the anchored starting state ID for the given pattern in this NFA.
@@ -153,7 +160,7 @@ impl NFA {
     /// If the pattern doesn't exist in this NFA, then this panics.
     #[inline]
     pub fn set_start_pattern(&mut self, pid: PatternID, id: StateID) {
-        self.start_pattern[pid as usize] = id;
+        self.start_pattern[pid] = id;
     }
 
     /// Get the byte class set for this NFA.
@@ -192,14 +199,14 @@ impl NFA {
 
     /// Add a new state to this NFA and return its ID.
     #[inline]
-    pub fn add(&mut self, state: State) -> StateID {
+    pub fn add(&mut self, state: State) -> Result<StateID, Error> {
         match state {
             State::Range { .. }
             | State::Sparse { .. }
             | State::Union { .. }
             | State::Fail => {}
-            State::Match(mid) => {
-                let len = (mid as usize).checked_add(1).unwrap();
+            State::Match(pid) => {
+                let len = pid.one_more();
                 if len > self.match_len() {
                     self.set_match_len(len);
                 }
@@ -224,9 +231,11 @@ impl NFA {
                 }
             }
         }
-        let id = self.states.len();
+        let id = StateID::new(self.states.len()).map_err(|_| {
+            Error::too_many_states(self.states.len(), StateID::LIMIT)
+        })?;
         self.states.push(state);
-        id
+        Ok(id)
     }
 
     /// Clear this NFA such that it has zero states.
@@ -272,20 +281,21 @@ impl fmt::Debug for NFA {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "thompson::NFA(")?;
         for (i, state) in self.states.iter().enumerate() {
-            let status = if i == self.start_anchored {
+            let sid = StateID::new(i).unwrap();
+            let status = if sid == self.start_anchored {
                 '^'
-            } else if i == self.start_unanchored {
+            } else if sid == self.start_unanchored {
                 '>'
             } else {
                 ' '
             };
-            writeln!(f, "{}{:06}: {:?}", status, i, state)?;
+            writeln!(f, "{}{:06?}: {:?}", status, sid, state)?;
         }
         if self.match_len() > 1 {
             writeln!(f, "")?;
             for pid in self.patterns() {
                 let id = self.start_pattern(pid);
-                writeln!(f, "START({:06}): {:?}", pid, id)?;
+                writeln!(f, "START({:06?}): {:?}", pid, id)?;
             }
         }
         writeln!(f, "")?;
@@ -381,18 +391,18 @@ impl fmt::Debug for State {
                 write!(f, "sparse({})", rs)
             }
             State::Look { ref look, next } => {
-                write!(f, "{:?} => {}", look, next)
+                write!(f, "{:?} => {:?}", look, next)
             }
             State::Union { ref alternates } => {
                 let alts = alternates
                     .iter()
-                    .map(|id| format!("{}", id))
+                    .map(|id| format!("{:?}", id))
                     .collect::<Vec<String>>()
                     .join(", ");
                 write!(f, "alt({})", alts)
             }
             State::Fail => write!(f, "FAIL"),
-            State::Match(id) => write!(f, "MATCH({})", id),
+            State::Match(id) => write!(f, "MATCH({:?})", id),
         }
     }
 }
@@ -408,11 +418,19 @@ pub struct Transition {
 
 impl fmt::Debug for Transition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::util::DebugByte;
+
         let Transition { start, end, next } = *self;
         if self.start == self.end {
-            write!(f, "{} => {}", escape(start), next)
+            write!(f, "{:?} => {:?}", DebugByte(start), next)
         } else {
-            write!(f, "{}-{} => {}", escape(start), escape(end), next)
+            write!(
+                f,
+                "{:?}-{:?} => {:?}",
+                DebugByte(start),
+                DebugByte(end),
+                next
+            )
         }
     }
 }
@@ -607,7 +625,7 @@ impl core::fmt::Debug for LookSet {
 
 /// An iterator over all pattern IDs in an NFA.
 pub struct PatternIter<'a> {
-    it: core::ops::Range<PatternID>,
+    it: core::ops::Range<usize>,
     /// We explicitly associate a lifetime with this iterator even though we
     /// don't actually borrow anything from the NFA. We do this for backward
     /// compatibility purposes. If we ever do need to borrow something from
@@ -620,20 +638,16 @@ impl<'a> Iterator for PatternIter<'a> {
     type Item = PatternID;
 
     fn next(&mut self) -> Option<PatternID> {
-        self.it.next()
+        // CORRECTNESS: the unwrap is okay here since NFA construction
+        // guarantees that its pattern IDs never exceed PatternID::MAX.
+        self.it.next().map(|id| PatternID::new(id).unwrap())
     }
-}
-
-/// Return the given byte as its escaped string form.
-fn escape(b: u8) -> String {
-    use core::ascii;
-
-    String::from_utf8(ascii::escape_default(b).collect::<Vec<_>>()).unwrap()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // TODO: Replace tests using DFA with NFA matching engine once implemented.
     use crate::dfa::{dense, Automaton};
 
     #[test]

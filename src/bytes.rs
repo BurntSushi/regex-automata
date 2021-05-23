@@ -45,10 +45,7 @@ use core::{cmp, convert::TryInto};
 #[cfg(feature = "alloc")]
 use alloc::{vec, vec::Vec};
 
-use crate::{
-    id::{PatternID, PatternIDError, StateID as SnooID, StateIDError},
-    StateID,
-};
+use crate::id::{PatternID, PatternIDError, StateID, StateIDError};
 
 /// An error that occurs when serializing an object from this crate.
 ///
@@ -234,7 +231,7 @@ impl core::fmt::Display for DeserializeError {
             ),
             AlignmentMismatch { alignment, address } => write!(
                 f,
-                "alignment mismatch: serialize object starts at address \
+                "alignment mismatch: slice starts at address \
                  0x{:X}, which is not aligned to a {} byte boundary",
                 address, alignment,
             ),
@@ -266,15 +263,13 @@ impl From<StateIDError> for DeserializeError {
     }
 }
 
-/// Checks that the given slice has an alignment that matches `S`.
+/// Checks that the given slice has an alignment that matches `T`.
 ///
-/// Since `S` is guaranteed to be one of {u8, u16, u32, u64, usize}, then it
-/// follows that if the given slice has the same alignment as `S`, then it can
-/// be safely cast to a `&[S]` (assuming a correct length).
-pub fn check_alignment<S: StateID>(
-    slice: &[u8],
-) -> Result<(), DeserializeError> {
-    let alignment = core::mem::align_of::<S>() as u64;
+/// This is useful for checking that a slice has an appropriate alignment
+/// before casting it to a &[T]. Note though that alignment is not itself
+/// sufficient to perform the cast for any `T`.
+pub fn check_alignment<T>(slice: &[u8]) -> Result<(), DeserializeError> {
+    let alignment = core::mem::align_of::<T>() as u64;
     let address = slice.as_ptr() as u64;
     if address % alignment == 0 {
         return Ok(());
@@ -300,19 +295,23 @@ pub fn skip_initial_padding(slice: &[u8]) -> usize {
 }
 
 /// Allocate a byte buffer of the given size, along with some initial padding
-/// such that `buf[padding..]` has the same alignment as `S`. In particular,
-/// callers should treat the first N bytes (second return value) as padding
-/// bytes that must not be overwritten. In all cases, the following identity
-/// holds:
+/// such that `buf[padding..]` has the same alignment as `T`, where the
+/// alignment of `T` must be at most `8`. In particular, callers should treat
+/// the first N bytes (second return value) as padding bytes that must not be
+/// overwritten. In all cases, the following identity holds:
 ///
 /// ```ignore
-/// let (buf, padding) = alloc_aligned_buffer(SIZE);
+/// let (buf, padding) = alloc_aligned_buffer::<StateID>(SIZE);
 /// assert_eq!(SIZE, buf[padding..].len());
 /// ```
 ///
 /// In practice, padding is often zero.
+///
+/// The requirement for `8` here is somewhat arbitrary. In practice, we never
+/// need anything bigger in this crate, and so this function does some sanity
+/// asserts under the assumption of a max alignment of `8`.
 #[cfg(feature = "alloc")]
-pub fn alloc_aligned_buffer<S: StateID>(size: usize) -> (Vec<u8>, usize) {
+pub fn alloc_aligned_buffer<T>(size: usize) -> (Vec<u8>, usize) {
     // FIXME: This is a kludge because there's no easy way to allocate a
     // Vec<u8> with an alignment guaranteed to be greater than 1. We could
     // create a Vec<usize>, but this cannot be safely transmuted to a Vec<u8>
@@ -322,7 +321,7 @@ pub fn alloc_aligned_buffer<S: StateID>(size: usize) -> (Vec<u8>, usize) {
     // alignment, then other aspects of this library could be simplified as
     // well.
     let mut buf = vec![0; size];
-    let align = core::mem::align_of::<S>();
+    let align = core::mem::align_of::<T>();
     let address = buf.as_ptr() as usize;
     if address % align == 0 {
         return (buf, 0);
@@ -505,67 +504,6 @@ pub fn write_version_len() -> usize {
     8
 }
 
-/// Reads a state size from the beginning of the given slice and confirms that
-/// is matches the expected state size, as determined by the size of `S`. If
-/// the slice is too small or if the state sizes aren't equivalent, then an
-/// error is returned.
-///
-/// Upon success, the total number of bytes read is returned.
-pub fn read_state_size<S: StateID>(
-    slice: &[u8],
-) -> Result<usize, DeserializeError> {
-    let expected = core::mem::size_of::<S>() as u64;
-    let n = try_read_u64(slice, "state size")?;
-    if n != expected {
-        return Err(DeserializeError::state_size_mismatch(expected, n));
-    }
-    Ok(write_state_size_len())
-}
-
-/// Writes the size of the state ID representation (as determined by `S`) to
-/// the beginning of the given slice using the indicated endianness.
-///
-/// This is useful for writing into the header of a serialized object. It can
-/// be read during deserialization as a sanity check to ensure that the caller
-/// indicated state size matches the state size of the serialized object.
-///
-/// Upon success, the total number of bytes written is returned.
-pub fn write_state_size<E: Endian, S: StateID>(
-    dst: &mut [u8],
-) -> Result<usize, SerializeError> {
-    let size = core::mem::size_of::<S>() as u64;
-    let nwrite = write_state_size_len();
-    if dst.len() < nwrite {
-        return Err(SerializeError::buffer_too_small("state size"));
-    }
-    E::write_u64(size, dst);
-    Ok(nwrite)
-}
-
-/// Returns the number of bytes written by writing the state size.
-pub fn write_state_size_len() -> usize {
-    8
-}
-
-/// Write the given identifier to the beginning of the given slice of bytes
-/// using the specified endianness. The given slice must have length at least
-/// `size_of::<S>()`, or else this panics. Upon success, the total number of
-/// bytes written is returned.
-pub fn write_state_id<E: Endian, S: StateID>(id: S, dst: &mut [u8]) -> usize {
-    let size = core::mem::size_of::<S>();
-    // Guaranteed to pass because StateID is sealed.
-    assert!(size == 1 || size == 2 || size == 4 || size == 8);
-
-    match size {
-        1 => dst[0] = id.as_usize() as u8,
-        2 => E::write_u16(id.as_usize() as u16, dst),
-        4 => E::write_u32(id.as_usize() as u32, dst),
-        8 => E::write_u64(id.as_usize() as u64, dst),
-        _ => unreachable!(),
-    }
-    size
-}
-
 /// Attempts to read a pattern ID from the given slice. If the slice has an
 /// insufficient number of bytes or if the pattern ID exceeds the limit for
 /// the current target, then this returns an error.
@@ -595,33 +533,33 @@ pub fn write_pattern_id<E: Endian>(pid: PatternID, dst: &mut [u8]) -> usize {
     PatternID::SIZE
 }
 
-/// Attempts to read a snoo ID from the given slice. If the slice has an
-/// insufficient number of bytes or if the snoo ID exceeds the limit for
+/// Attempts to read a state ID from the given slice. If the slice has an
+/// insufficient number of bytes or if the state ID exceeds the limit for
 /// the current target, then this returns an error.
-pub fn try_read_snoo_id(
+pub fn try_read_state_id(
     slice: &[u8],
     what: &'static str,
-) -> Result<SnooID, DeserializeError> {
+) -> Result<StateID, DeserializeError> {
     if slice.len() < 4 {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    Ok(SnooID::from_ne_bytes(slice[..4].try_into().unwrap())?)
+    Ok(StateID::from_ne_bytes(slice[..4].try_into().unwrap())?)
 }
 
-/// Reads a snoo ID from the given slice. If the slice has insufficient
+/// Reads a state ID from the given slice. If the slice has insufficient
 /// length, then this panics. Otherwise, the deserialized integer is assumed
-/// to be a valid snoo ID.
-pub fn read_snoo_id_unchecked(slice: &[u8]) -> SnooID {
-    SnooID::from_ne_bytes_unchecked(slice[..4].try_into().unwrap())
+/// to be a valid state ID.
+pub fn read_state_id_unchecked(slice: &[u8]) -> StateID {
+    StateID::from_ne_bytes_unchecked(slice[..4].try_into().unwrap())
 }
 
-/// Write the given snoo ID to the beginning of the given slice of bytes
+/// Write the given state ID to the beginning of the given slice of bytes
 /// using the specified endianness. The given slice must have length at least
-/// `SnooID::SIZE`, or else this panics. Upon success, the total number of
+/// `StateID::SIZE`, or else this panics. Upon success, the total number of
 /// bytes written is returned.
-pub fn write_snoo_id<E: Endian>(sid: SnooID, dst: &mut [u8]) -> usize {
+pub fn write_state_id<E: Endian>(sid: StateID, dst: &mut [u8]) -> usize {
     E::write_u32(sid.as_u32(), dst);
-    SnooID::SIZE
+    StateID::SIZE
 }
 
 /// Try to read a u16 as a usize from the beginning of the given slice in

@@ -24,14 +24,17 @@ pub fn fmt_byte(f: &mut fmt::Formatter, b: u8) -> fmt::Result {
         bytes[len] = b;
         len += 1;
     }
-    write!(f, r"{}", str::from_utf8(&bytes[..len]).unwrap())
+    write!(f, "{}", str::from_utf8(&bytes[..len]).unwrap())
 }
 
 /// Returns the smallest possible index of the next valid UTF-8 sequence
 /// starting after `i`.
 ///
-/// For all inputs, the return value is guaranteed to be greater than `i`.
+/// For all inputs, including invalid UTF-8 and any value of `i`, the return
+/// value is guaranteed to be greater than `i`.
 pub fn next_utf8(text: &[u8], i: usize) -> usize {
+    // TODO: Maybe this function should just take a `u8` to make it clearer?
+    // Instead of trying to read from the slice itself. Try it out.
     let b = match text.get(i) {
         None => return i.checked_add(1).unwrap(),
         Some(&b) => b,
@@ -46,4 +49,17 @@ pub fn next_utf8(text: &[u8], i: usize) -> usize {
         4
     };
     i.checked_add(inc).unwrap()
+}
+
+/// Returns true if and only if the given byte is considered a word character.
+/// This only applies to ASCII.
+///
+/// This was copied from regex-syntax so that we can use it to determine the
+/// starting DFA state while searching without depending on regex-syntax.
+#[inline(always)]
+pub fn is_word_byte(b: u8) -> bool {
+    match b {
+        b'_' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => true,
+        _ => false,
+    }
 }
