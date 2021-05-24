@@ -4,11 +4,11 @@ use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
     classes::{ByteSet, InputUnit},
-    dfa::{automaton::Start, dense, Error},
+    dfa::{automaton::Start, dense, Error, DEAD},
+    id::{PatternID, StateID},
+    matching::MatchKind,
     nfa::thompson::{self, Look, LookSet},
     sparse_set::{SparseSet, SparseSets},
-    state_id::{dead_id, StateID},
-    MatchKind, PatternID,
 };
 
 /// A map from states to state identifiers. When using std, we use a standard
@@ -18,9 +18,9 @@ use crate::{
 /// The main purpose of this map is to reuse states where possible. This won't
 /// fully minimize the DFA, but it works well in a lot of cases.
 #[cfg(feature = "std")]
-type StateMap<S> = std::collections::HashMap<Rc<State>, S>;
+type StateMap = std::collections::HashMap<Rc<State>, StateID>;
 #[cfg(not(feature = "std"))]
-type StateMap<S> = BTreeMap<Rc<State>, S>;
+type StateMap = BTreeMap<Rc<State>, StateID>;
 
 /// A builder for configuring and running a DFA determinizer.
 #[derive(Clone, Debug)]
@@ -45,10 +45,10 @@ impl Determinizer {
     /// the one given. The DFA given should be initialized but otherwise empty.
     /// "Initialized" means that it is setup to handle the NFA's byte classes,
     /// number of patterns and whether to build start states for each pattern.
-    pub fn run<S: StateID>(
+    pub fn run(
         &self,
         nfa: &thompson::NFA,
-        dfa: &mut dense::OwnedDFA<S>,
+        dfa: &mut dense::OwnedDFA,
     ) -> Result<(), Error> {
         let dead = Rc::new(State::dead());
         let quit = Rc::new(State::dead());
@@ -57,7 +57,7 @@ impl Determinizer {
         // identical to the quit state. And we never want anything pointing
         // to the quit state other than specific transitions derived from the
         // determinizer's configured "quit" bytes.
-        cache.insert(dead.clone(), dead_id());
+        cache.insert(dead.clone(), DEAD);
 
         Runner {
             nfa,
@@ -123,11 +123,11 @@ impl Determinizer {
 /// The lifetime variable `'a` refers to the lifetime of the NFA and DFA,
 /// whichever is shorter.
 #[derive(Debug)]
-struct Runner<'a, S: StateID> {
+struct Runner<'a> {
     /// The NFA we're converting into a DFA.
     nfa: &'a thompson::NFA,
     /// The DFA we're building.
-    dfa: &'a mut dense::OwnedDFA<S>,
+    dfa: &'a mut dense::OwnedDFA,
     /// Each DFA state being built is defined as an *ordered* set of NFA
     /// states, along with some meta facts about the ordered set of NFA states.
     ///
@@ -149,17 +149,17 @@ struct Runner<'a, S: StateID> {
     ///
     /// See `builder_states` docs for why we store states in two different
     /// ways.
-    cache: StateMap<S>,
+    cache: StateMap,
     /// Scratch space for a stack of NFA states to visit, for depth first
     /// visiting without recursion.
-    stack: Vec<thompson::StateID>,
+    stack: Vec<StateID>,
     /// Scratch space for storing an ordered sequence of NFA states, for
     /// amortizing allocation. This is principally useful for when we avoid
     /// adding a new DFA state since it already exists. In order to detect this
     /// case though, we still need an ordered set of NFA state IDs. So we use
     /// this space to stage that ordered set before we know whether we need to
     /// create a new DFA state or not.
-    scratch_nfa_states: Vec<thompson::StateID>,
+    scratch_nfa_states: Vec<StateID>,
     /// Whether to build an anchored DFA or not.
     anchored: bool,
     /// Match semantics for this DFA.
@@ -168,7 +168,7 @@ struct Runner<'a, S: StateID> {
     quit: ByteSet,
 }
 
-impl<'a, S: StateID> Runner<'a, S> {
+impl<'a> Runner<'a> {
     /// Build the DFA. If there was a problem constructing the DFA (e.g., if
     /// the chosen state identifier representation is too small), then an error
     /// is returned.
@@ -216,7 +216,7 @@ impl<'a, S: StateID> Runner<'a, S> {
         // A map from DFA state ID to one or more NFA match IDs. Each NFA match
         // ID corresponds to a distinct regex pattern that matches in the state
         // corresponding to the key.
-        let mut matches: BTreeMap<S, Vec<PatternID>> = BTreeMap::new();
+        let mut matches: BTreeMap<StateID, Vec<PatternID>> = BTreeMap::new();
         self.cache.clear();
         for (i, state) in self.builder_states.into_iter().enumerate() {
             // This unwrap is okay, because the only other reference to a state
@@ -251,14 +251,14 @@ impl<'a, S: StateID> Runner<'a, S> {
     fn cached_state(
         &mut self,
         sparses: &mut SparseSets,
-        dfa_id: S,
+        dfa_id: StateID,
         b: InputUnit,
-    ) -> Result<(S, bool), Error> {
+    ) -> Result<(StateID, bool), Error> {
         sparses.clear();
         // Compute the set of all reachable NFA states, including epsilons.
         let facts = self.next(sparses, dfa_id, b);
         if sparses.set2.is_empty() && !facts.is_match() {
-            return Ok((dead_id(), false));
+            return Ok((DEAD, false));
         }
         // Build a candidate state and check if it has already been built.
         let state = self.new_state(&sparses.set2, facts);
@@ -280,7 +280,7 @@ impl<'a, S: StateID> Runner<'a, S> {
     fn next(
         &mut self,
         sparses: &mut SparseSets,
-        dfa_id: S,
+        dfa_id: StateID,
         unit: InputUnit,
     ) -> Facts {
         sparses.clear();
@@ -410,7 +410,7 @@ impl<'a, S: StateID> Runner<'a, S> {
     /// only followed if they are satisfied by `look_have`.
     fn epsilon_closure(
         &mut self,
-        start: thompson::StateID,
+        start: StateID,
         look_have: LookSet,
         set: &mut SparseSet,
     ) {
@@ -457,7 +457,7 @@ impl<'a, S: StateID> Runner<'a, S> {
     fn add_all_starts(
         &mut self,
         sparse: &mut SparseSet,
-        dfa_state_ids: &mut Vec<S>,
+        dfa_state_ids: &mut Vec<StateID>,
     ) -> Result<(), Error> {
         // Always add the (possibly unanchored) start states for matching any
         // of the patterns in this DFA.
@@ -467,9 +467,7 @@ impl<'a, S: StateID> Runner<'a, S> {
         if self.dfa.has_starts_for_each_pattern() {
             // pattern_count is guaranteed to be at least 1, otherwise this DFA
             // would have no starts for each pattern.
-            let max = u32::try_from(self.dfa.pattern_count() - 1)
-                .expect("PatternID must fit in a u32");
-            for pid in 0..=max {
+            for pid in PatternID::iter(self.dfa.pattern_count()) {
                 self.add_start_group(sparse, dfa_state_ids, Some(pid))?;
             }
         }
@@ -488,7 +486,7 @@ impl<'a, S: StateID> Runner<'a, S> {
     fn add_start_group(
         &mut self,
         sparse: &mut SparseSet,
-        dfa_state_ids: &mut Vec<S>,
+        dfa_state_ids: &mut Vec<StateID>,
         pattern_id: Option<PatternID>,
     ) -> Result<(), Error> {
         let nfa_start = match pattern_id {
@@ -540,9 +538,9 @@ impl<'a, S: StateID> Runner<'a, S> {
     fn add_one_start(
         &mut self,
         sparse: &mut SparseSet,
-        nfa_start: thompson::StateID,
+        nfa_start: StateID,
         start: Start,
-    ) -> Result<S, Error> {
+    ) -> Result<StateID, Error> {
         sparse.clear();
 
         // Compute the look-behind assertions that are true in this starting
@@ -573,7 +571,7 @@ impl<'a, S: StateID> Runner<'a, S> {
     ///
     /// If adding the state would exceed the maximum value for S, then an error
     /// is returned.
-    fn add_state(&mut self, state: State) -> Result<S, Error> {
+    fn add_state(&mut self, state: State) -> Result<StateID, Error> {
         let id = self.dfa.add_empty_state()?;
         if !self.quit.is_empty() {
             for b in self.quit.iter() {
@@ -697,7 +695,7 @@ impl<'a, S: StateID> Runner<'a, S> {
     /// Return a reference to this builder's representation of the state with
     /// the given identifier. A builder's representation of a state contains
     /// the IDs of its constituent NFA states.
-    fn state(&self, id: S) -> &State {
+    fn state(&self, id: StateID) -> &State {
         &self.builder_states[self.dfa.to_index(id)]
     }
 
@@ -724,7 +722,7 @@ struct State {
     /// See the 'new_state' constructor above for what exactly goes in here.
     /// The short answer is every NFA state in the epsilon closure except for
     /// unconditional epsilon transitions.
-    nfa_states: Vec<thompson::StateID>,
+    nfa_states: Vec<StateID>,
     /// A collection of "facts" about this state that, in addition to the NFA
     /// state IDs above, contributes to this state's identity.
     facts: Facts,
@@ -740,8 +738,8 @@ impl State {
         State { nfa_states: vec![], facts: Facts::default() }
     }
 
-    // If you're looking for the constructor of a state, it's 'new_state'
-    // above on the determinizer.
+    // If you're looking for the proper constructor of a state, it's
+    // 'new_state' above on the determinizer.
 }
 
 /// A collection of "facts" or metadata about a DFA state. These facts include
@@ -858,7 +856,7 @@ impl Facts {
             return None;
         }
         Some(if self.match_pattern_ids.is_empty() {
-            vec![0]
+            vec![PatternID::ZERO]
         } else {
             self.match_pattern_ids
         })

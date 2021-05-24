@@ -346,12 +346,12 @@ dramatically.
 pub use crate::dfa::automaton::{Automaton, HalfMatch, OverlappingState};
 #[cfg(feature = "alloc")]
 pub use crate::dfa::error::{Error, ErrorKind};
-pub use crate::dfa::regex::{
-    FindEarliestMatches, FindLeftmostMatches, FindOverlappingMatches, Regex,
-    TryFindEarliestMatches, TryFindLeftmostMatches, TryFindOverlappingMatches,
-};
-#[cfg(feature = "alloc")]
-pub use crate::dfa::regex::{RegexBuilder, RegexConfig};
+// pub use crate::dfa::regex::{
+// FindEarliestMatches, FindLeftmostMatches, FindOverlappingMatches, Regex,
+// TryFindEarliestMatches, TryFindLeftmostMatches, TryFindOverlappingMatches,
+// };
+// #[cfg(feature = "alloc")]
+// pub use crate::dfa::regex::{RegexBuilder, RegexConfig};
 
 /// This is an alias for a state ID of zero. It has special significance
 /// because it always corresponds to the first state in a DFA, and the first
@@ -370,9 +370,9 @@ mod determinize;
 pub(crate) mod error;
 #[cfg(feature = "alloc")]
 mod minimize;
-mod regex;
+// mod regex;
 mod search;
-pub mod sparse;
+// pub mod sparse;
 mod special;
 #[cfg(feature = "transducer")]
 mod transducer;

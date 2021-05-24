@@ -1,5 +1,7 @@
 use alloc::{boxed::Box, vec, vec::Vec};
 
+use crate::id::StateID;
+
 /// A pairse of sparse sets.
 ///
 /// This is useful when one needs to compute NFA epsilon closures from a
@@ -54,14 +56,13 @@ impl SparseSets {
 pub(crate) struct SparseSet {
     /// The number of elements currently in this set.
     len: usize,
-    /// Dense contains the instruction pointers in the order in which they
-    /// were inserted.
-    dense: Box<[usize]>,
-    /// Sparse maps instruction pointers to their location in dense.
+    /// Dense contains the ids in the order in which they were inserted.
+    dense: Box<[StateID]>,
+    /// Sparse maps ids to their location in dense.
     ///
-    /// An instruction pointer is in the set if and only if
-    /// sparse[ip] < dense.len() && ip == dense[sparse[ip]].
-    sparse: Box<[usize]>,
+    /// A state ID is in the set if and only if
+    /// sparse[id] < dense.len() && id == dense[sparse[id]].
+    sparse: Box<[StateID]>,
 }
 
 impl SparseSet {
@@ -70,12 +71,19 @@ impl SparseSet {
     /// Sparse sets have a fixed size and they cannot grow. Attempting to
     /// insert more distinct elements than the total capacity of the set will
     /// result in a panic.
+    ///
+    /// This panics if the capacity given is bigger than `StateID::LIMIT`.
     #[inline]
     pub(crate) fn new(capacity: usize) -> SparseSet {
+        assert!(
+            capacity <= StateID::LIMIT,
+            "sparse set capacity cannot excced {:?}",
+            StateID::LIMIT
+        );
         SparseSet {
             len: 0,
-            dense: vec![0; capacity].into_boxed_slice(),
-            sparse: vec![0; capacity].into_boxed_slice(),
+            dense: vec![StateID::ZERO; capacity].into_boxed_slice(),
+            sparse: vec![StateID::ZERO; capacity].into_boxed_slice(),
         }
     }
 
@@ -100,18 +108,18 @@ impl SparseSet {
         self.len() == 0
     }
 
-    /// Insert the given value into this set and return true if the given value
-    /// was not previously in this set.
+    /// Insert the state ID value into this set and return true if the given
+    /// state ID was not previously in this set.
     ///
     /// This operation is idempotent. If the given value is already in this
     /// set, then this is a no-op.
     ///
-    /// If more than `capacity` elements are inserted, then this panics.
+    /// If more than `capacity` ids are inserted, then this panics.
     ///
     /// This is marked as inline(always) since the compiler won't inline it
     /// otherwise, and it's a fairly hot piece of code in DFA determinization.
     #[inline(always)]
-    pub(crate) fn insert(&mut self, value: usize) -> bool {
+    pub(crate) fn insert(&mut self, value: StateID) -> bool {
         if self.contains(value) {
             return false;
         }
@@ -119,22 +127,25 @@ impl SparseSet {
         let i = self.len();
         assert!(
             i < self.capacity(),
-            "{} exceeds capacity of {} when inserting {}",
+            "{:?} exceeds capacity of {:?} when inserting {:?}",
             i,
             self.capacity(),
             value,
         );
-        self.dense[i] = value;
-        self.sparse[value] = i;
+        // OK since i < self.capacity() and self.capacity() is guaranteed to
+        // be <= StateID::LIMIT.
+        let id = StateID::new_unchecked(i);
+        self.dense[id] = value;
+        self.sparse[value] = id;
         self.len += 1;
         true
     }
 
     /// Returns true if and only if this set contains the given value.
     #[inline]
-    pub(crate) fn contains(&self, value: usize) -> bool {
+    pub(crate) fn contains(&self, value: StateID) -> bool {
         let i = self.sparse[value];
-        i < self.len() && self.dense[i] == value
+        i.as_usize() < self.len() && self.dense[i] == value
     }
 
     /// Clear this set such that it has no members.
@@ -146,7 +157,7 @@ impl SparseSet {
 
 impl core::fmt::Debug for SparseSet {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let elements: Vec<usize> = self.into_iter().collect();
+        let elements: Vec<StateID> = self.into_iter().collect();
         f.debug_tuple("SparseSet").field(&elements).finish()
     }
 }
@@ -155,10 +166,10 @@ impl core::fmt::Debug for SparseSet {
 ///
 /// The lifetime `'a` refers to the lifetime of the set being iterated over.
 #[derive(Debug)]
-pub(crate) struct SparseSetIter<'a>(core::slice::Iter<'a, usize>);
+pub(crate) struct SparseSetIter<'a>(core::slice::Iter<'a, StateID>);
 
 impl<'a> IntoIterator for &'a SparseSet {
-    type Item = usize;
+    type Item = StateID;
     type IntoIter = SparseSetIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -167,10 +178,10 @@ impl<'a> IntoIterator for &'a SparseSet {
 }
 
 impl<'a> Iterator for SparseSetIter<'a> {
-    type Item = usize;
+    type Item = StateID;
 
     #[inline(always)]
-    fn next(&mut self) -> Option<usize> {
+    fn next(&mut self) -> Option<StateID> {
         self.0.next().map(|value| *value)
     }
 }

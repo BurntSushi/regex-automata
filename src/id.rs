@@ -44,15 +44,15 @@ pub struct PatternID(u32);
 impl PatternID {
     /// The maximum pattern ID value, represented as a `usize`.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-    pub const MAX: usize = core::u32::MAX as usize - 1;
+    pub const MAX: PatternID = PatternID(core::u32::MAX - 1);
 
     /// The maximum pattern ID value, represented as a `usize`.
     #[cfg(target_pointer_width = "16")]
-    pub const MAX: usize = core::usize::MAX - 1;
+    pub const MAX: PatternID = PatternID(core::usize::MAX as u32 - 1);
 
     /// The total number of patterns that are allowed in any single regex
     /// engine.
-    pub const LIMIT: usize = PatternID::MAX + 1;
+    pub const LIMIT: usize = PatternID::MAX.0 as usize + 1;
 
     /// The zero pattern ID value.
     pub const ZERO: PatternID = PatternID(0);
@@ -102,7 +102,7 @@ impl PatternID {
     /// current target, then this returns an error.
     pub fn from_ne_bytes(bytes: [u8; 4]) -> Result<PatternID, PatternIDError> {
         let id = u32::from_ne_bytes(bytes);
-        if id > PatternID::MAX as u32 {
+        if id > PatternID::MAX.as_u32() {
             return Err(PatternIDError { attempted: id as u64 });
         }
         Ok(PatternID::new_unchecked(id as usize))
@@ -156,7 +156,7 @@ impl core::fmt::Display for PatternIDError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
-            "failed to create PatternID from {}, which exceeds {}",
+            "failed to create PatternID from {:?}, which exceeds {:?}",
             self.attempted(),
             PatternID::MAX,
         )
@@ -194,17 +194,17 @@ impl core::fmt::Display for PatternIDError {
 pub struct StateID(u32);
 
 impl StateID {
-    /// The maximum state ID value, represented as a `usize`.
+    /// The maximum state ID value.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-    pub const MAX: usize = core::u32::MAX as usize - 1;
+    pub const MAX: StateID = StateID(core::u32::MAX - 1);
 
-    /// The maximum state ID value, represented as a `usize`.
+    /// The maximum state ID value.
     #[cfg(target_pointer_width = "16")]
-    pub const MAX: usize = core::usize::MAX - 1;
+    pub const MAX: StateID = StateID(core::usize::MAX as u32 - 1);
 
     /// The total number of states that are allowed in any single regex
-    /// engine.
-    pub const LIMIT: usize = StateID::MAX + 1;
+    /// engine, represented as a `usize`.
+    pub const LIMIT: usize = StateID::MAX.0 as usize + 1;
 
     /// The zero state ID value.
     pub const ZERO: StateID = StateID(0);
@@ -257,7 +257,7 @@ impl StateID {
     /// current target, then this returns an error.
     pub fn from_ne_bytes(bytes: [u8; 4]) -> Result<StateID, StateIDError> {
         let id = u32::from_ne_bytes(bytes);
-        if id > StateID::MAX as u32 {
+        if id > StateID::MAX.as_u32() {
             return Err(StateIDError { attempted: id as u64 });
         }
         Ok(StateID::new_unchecked(id as usize))
@@ -311,7 +311,7 @@ impl core::fmt::Display for StateIDError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
-            "failed to create StateID from {}, which exceeds {}",
+            "failed to create StateID from {:?}, which exceeds {:?}",
             self.attempted(),
             StateID::MAX,
         )
@@ -391,7 +391,7 @@ macro_rules! impls {
             type Error = $tyerr;
 
             fn try_from(id: usize) -> Result<$ty, $tyerr> {
-                if id > $ty::MAX {
+                if id > $ty::MAX.as_usize() {
                     return Err($tyerr { attempted: id as u64 });
                 }
                 Ok($ty::new_unchecked(id))
@@ -410,7 +410,7 @@ macro_rules! impls {
             type Error = $tyerr;
 
             fn try_from(id: u16) -> Result<$ty, $tyerr> {
-                if id as u32 > $ty::MAX as u32 {
+                if id as u32 > $ty::MAX.as_u32() {
                     return Err($tyerr { attempted: id as u64 });
                 }
                 Ok($ty::new_unchecked(id as usize))
@@ -421,7 +421,7 @@ macro_rules! impls {
             type Error = $tyerr;
 
             fn try_from(id: u32) -> Result<$ty, $tyerr> {
-                if id > $ty::MAX as u32 {
+                if id > $ty::MAX.as_u32() {
                     return Err($tyerr { attempted: id as u64 });
                 }
                 Ok($ty::new_unchecked(id as usize))
@@ -432,7 +432,7 @@ macro_rules! impls {
             type Error = $tyerr;
 
             fn try_from(id: u64) -> Result<$ty, $tyerr> {
-                if id > $ty::MAX as u64 {
+                if id > $ty::MAX.as_u32() as u64 {
                     return Err($tyerr { attempted: id });
                 }
                 Ok($ty::new_unchecked(id as usize))

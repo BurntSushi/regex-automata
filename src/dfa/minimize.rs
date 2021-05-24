@@ -4,9 +4,8 @@ use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
     classes::InputUnit,
-    dfa::{automaton::Automaton, dense},
-    state_id::{dead_id, StateID},
-    PatternID,
+    dfa::{automaton::Automaton, dense, DEAD},
+    id::{PatternID, StateID},
 };
 
 /// An implementation of Hopcroft's algorithm for minimizing DFAs.
@@ -40,14 +39,14 @@ use crate::{
 ///    point during NFA compilation via the algorithm described in the
 ///    "Incremental Construction of MinimalAcyclic Finite-State Automata"
 ///    paper.)
-pub(crate) struct Minimizer<'a, S> {
-    dfa: &'a mut dense::OwnedDFA<S>,
-    in_transitions: Vec<Vec<Vec<S>>>,
-    partitions: Vec<StateSet<S>>,
-    waiting: Vec<StateSet<S>>,
+pub(crate) struct Minimizer<'a> {
+    dfa: &'a mut dense::OwnedDFA,
+    in_transitions: Vec<Vec<Vec<StateID>>>,
+    partitions: Vec<StateSet>,
+    waiting: Vec<StateSet>,
 }
 
-impl<'a, S: StateID> fmt::Debug for Minimizer<'a, S> {
+impl<'a> fmt::Debug for Minimizer<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Minimizer")
             .field("dfa", &self.dfa)
@@ -71,12 +70,12 @@ impl<'a, S: StateID> fmt::Debug for Minimizer<'a, S> {
 /// computing intersection/subtraction on this representation is especially
 /// fast.
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-struct StateSet<S> {
-    ids: Rc<RefCell<Vec<S>>>,
+struct StateSet {
+    ids: Rc<RefCell<Vec<StateID>>>,
 }
 
-impl<'a, S: StateID> Minimizer<'a, S> {
-    pub fn new(dfa: &'a mut dense::OwnedDFA<S>) -> Minimizer<'a, S> {
+impl<'a> Minimizer<'a> {
+    pub fn new(dfa: &'a mut dense::OwnedDFA) -> Minimizer<'a> {
         let in_transitions = Minimizer::incoming_transitions(dfa);
         let partitions = Minimizer::initial_partitions(dfa);
         let waiting = partitions.clone();
@@ -85,9 +84,10 @@ impl<'a, S: StateID> Minimizer<'a, S> {
 
     pub fn run(mut self) {
         let stride2 = self.dfa.stride2();
-        let as_state_id =
-            |index: usize| -> S { S::from_usize(index << stride2) };
-        let as_index = |id: S| -> usize { id.as_usize() >> stride2 };
+        let as_state_id = |index: usize| -> StateID {
+            StateID::new(index << stride2).unwrap()
+        };
+        let as_index = |id: StateID| -> usize { id.as_usize() >> stride2 };
 
         let mut incoming = StateSet::empty();
         let mut scratch1 = StateSet::empty();
@@ -156,7 +156,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         // Create a map from DFA state ID to the representative ID of the
         // equivalence class to which it belongs. The representative ID of an
         // equivalence class of states is the minimum ID in that class.
-        let mut state_to_part = vec![dead_id(); self.dfa.state_count()];
+        let mut state_to_part = vec![DEAD; self.dfa.state_count()];
         for p in &self.partitions {
             p.iter(|id| state_to_part[as_index(id)] = p.min());
         }
@@ -165,7 +165,7 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         // create a map from equivalence IDs to the new IDs. Thus, the new
         // minimal ID of *any* state in the unminimized DFA can be obtained
         // with minimals_ids[state_to_part[old_id]].
-        let mut minimal_ids = vec![dead_id(); self.dfa.state_count()];
+        let mut minimal_ids = vec![DEAD; self.dfa.state_count()];
         let mut new_index = 0;
         for state in self.dfa.states() {
             if state_to_part[as_index(state.id())] == state.id() {
@@ -232,8 +232,8 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         let new = self.dfa.special_mut();
         // ... but only remap if we had match states.
         if old.matches() {
-            new.min_match = S::from_usize(S::max_id());
-            new.max_match = dead_id();
+            new.min_match = StateID::MAX;
+            new.max_match = StateID::ZERO;
             for i in as_index(old.min_match)..=as_index(old.max_match) {
                 let new_id = remap(as_state_id(i));
                 if new_id < new.min_match {
@@ -246,11 +246,11 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         }
         // ... same, but for start states.
         if old.starts() {
-            new.min_start = S::from_usize(S::max_id());
-            new.max_start = dead_id();
+            new.min_start = StateID::MAX;
+            new.max_start = StateID::ZERO;
             for i in as_index(old.min_start)..=as_index(old.max_start) {
                 let new_id = remap(as_state_id(i));
-                if new_id == dead_id() {
+                if new_id == DEAD {
                     continue;
                 }
                 if new_id < new.min_start {
@@ -260,23 +260,23 @@ impl<'a, S: StateID> Minimizer<'a, S> {
                     new.max_start = new_id;
                 }
             }
-            if new.max_start == dead_id() {
-                new.min_start = dead_id();
+            if new.max_start == DEAD {
+                new.min_start = DEAD;
             }
         }
         new.quit_id = remap(new.quit_id);
         new.set_max();
     }
 
-    fn find_waiting(&self, set: &StateSet<S>) -> Option<usize> {
+    fn find_waiting(&self, set: &StateSet) -> Option<usize> {
         self.waiting.iter().position(|s| s == set)
     }
 
     fn find_incoming_to(
         &self,
         b: InputUnit,
-        set: &StateSet<S>,
-        incoming: &mut StateSet<S>,
+        set: &StateSet,
+        incoming: &mut StateSet,
     ) {
         incoming.clear();
         set.iter(|id| {
@@ -289,12 +289,11 @@ impl<'a, S: StateID> Minimizer<'a, S> {
         incoming.canonicalize();
     }
 
-    fn initial_partitions(dfa: &dense::OwnedDFA<S>) -> Vec<StateSet<S>> {
+    fn initial_partitions(dfa: &dense::OwnedDFA) -> Vec<StateSet> {
         // For match states, we know that two match states with different
         // pattern ID lists will *always* be distinct, so we can partition them
         // initially based on that.
-        let mut matching: BTreeMap<Vec<PatternID>, StateSet<S>> =
-            BTreeMap::new();
+        let mut matching: BTreeMap<Vec<PatternID>, StateSet> = BTreeMap::new();
         let mut is_quit = StateSet::empty();
         let mut no_match = StateSet::empty();
         for state in dfa.states() {
@@ -314,14 +313,14 @@ impl<'a, S: StateID> Minimizer<'a, S> {
             }
         }
 
-        let mut sets: Vec<StateSet<S>> =
+        let mut sets: Vec<StateSet> =
             matching.into_iter().map(|(_, set)| set).collect();
         sets.push(no_match);
         sets.push(is_quit);
         sets
     }
 
-    fn incoming_transitions(dfa: &dense::OwnedDFA<S>) -> Vec<Vec<Vec<S>>> {
+    fn incoming_transitions(dfa: &dense::OwnedDFA) -> Vec<Vec<Vec<StateID>>> {
         let mut incoming = vec![];
         for _ in dfa.states() {
             incoming.push(vec![vec![]; dfa.alphabet_len()]);
@@ -335,16 +334,16 @@ impl<'a, S: StateID> Minimizer<'a, S> {
     }
 }
 
-impl<S: StateID> StateSet<S> {
-    fn empty() -> StateSet<S> {
+impl StateSet {
+    fn empty() -> StateSet {
         StateSet { ids: Rc::new(RefCell::new(vec![])) }
     }
 
-    fn add(&mut self, id: S) {
+    fn add(&mut self, id: StateID) {
         self.ids.borrow_mut().push(id);
     }
 
-    fn min(&self) -> S {
+    fn min(&self) -> StateID {
         self.ids.borrow()[0]
     }
 
@@ -365,18 +364,18 @@ impl<S: StateID> StateSet<S> {
         self.len() == 0
     }
 
-    fn deep_clone(&self) -> StateSet<S> {
+    fn deep_clone(&self) -> StateSet {
         let ids = self.ids.borrow().iter().cloned().collect();
         StateSet { ids: Rc::new(RefCell::new(ids)) }
     }
 
-    fn iter<F: FnMut(S)>(&self, mut f: F) {
+    fn iter<F: FnMut(StateID)>(&self, mut f: F) {
         for &id in self.ids.borrow().iter() {
             f(id);
         }
     }
 
-    fn intersection(&self, other: &StateSet<S>, dest: &mut StateSet<S>) {
+    fn intersection(&self, other: &StateSet, dest: &mut StateSet) {
         dest.clear();
         if self.is_empty() || other.is_empty() {
             return;
@@ -410,7 +409,7 @@ impl<S: StateID> StateSet<S> {
         }
     }
 
-    fn subtract(&self, other: &StateSet<S>, dest: &mut StateSet<S>) {
+    fn subtract(&self, other: &StateSet, dest: &mut StateSet) {
         dest.clear();
         if self.is_empty() || other.is_empty() {
             self.iter(|s| dest.add(s));
