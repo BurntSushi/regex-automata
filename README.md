@@ -6,7 +6,8 @@ configuring the best space vs time trade off for your use case and provides
 support for cheap deserialization of automata for use in `no_std` environments.
 
 [![Build status](https://github.com/BurntSushi/regex-automata/workflows/ci/badge.svg)](https://github.com/BurntSushi/regex-automata/actions)
-[![](https://meritbadge.herokuapp.com/regex-automata)](https://crates.io/crates/regex-automata)
+[![on crates.io](https://meritbadge.herokuapp.com/regex-automata)](https://crates.io/crates/regex-automata)
+![Minimum Supported Rust Version 1.40](https://img.shields.io/badge/rustc-1.40-red)
 
 Dual-licensed under MIT or the [UNLICENSE](https://unlicense.org/).
 
