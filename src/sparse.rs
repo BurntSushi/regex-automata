@@ -8,8 +8,8 @@ use core::mem::size_of;
 use std::collections::HashMap;
 
 #[cfg(feature = "std")]
-use byteorder::{BigEndian, LittleEndian};
-use byteorder::{ByteOrder, NativeEndian};
+use crate::byte::{BigEndian, LittleEndian};
+use crate::byte::{Endian, NativeEndian};
 
 use classes::ByteClasses;
 use dense;
@@ -765,7 +765,7 @@ impl<T: AsRef<[u8]>, S: StateID> Repr<T, S> {
     /// Unlike dense DFAs, the result is not necessarily aligned since a
     /// sparse DFA's transition table is always read as a sequence of bytes.
     #[cfg(feature = "std")]
-    fn to_bytes<A: ByteOrder>(&self) -> Result<Vec<u8>> {
+    fn to_bytes<A: Endian>(&self) -> Result<Vec<u8>> {
         let label = b"rust-regex-automata-sparse-dfa\x00";
         let size =
             // For human readable label.

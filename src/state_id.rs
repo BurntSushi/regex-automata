@@ -1,15 +1,14 @@
 use core::fmt::Debug;
 use core::hash::Hash;
-use core::mem::size_of;
 
-use byteorder::{ByteOrder, NativeEndian};
+use crate::byte::{Endian, NativeEndian};
 
 #[cfg(feature = "std")]
 pub use self::std::*;
 
 #[cfg(feature = "std")]
 mod std {
-    use byteorder::ByteOrder;
+    use crate::byte::Endian;
     use core::mem::size_of;
     use error::{Error, Result};
 
@@ -63,7 +62,7 @@ mod std {
     /// `size_of::<S>()`.
     ///
     /// The given state identifier representation must have size 1, 2, 4 or 8.
-    pub fn write_state_id_bytes<E: ByteOrder, S: StateID>(
+    pub fn write_state_id_bytes<E: Endian, S: StateID>(
         slice: &mut [u8],
         id: S,
     ) {
@@ -171,12 +170,12 @@ unsafe impl StateID for usize {
 
     #[inline]
     fn read_bytes(slice: &[u8]) -> Self {
-        NativeEndian::read_uint(slice, size_of::<usize>()) as usize
+        NativeEndian::read_usize(slice)
     }
 
     #[inline]
     fn write_bytes(self, slice: &mut [u8]) {
-        NativeEndian::write_uint(slice, self as u64, size_of::<usize>())
+        NativeEndian::write_usize(slice, self)
     }
 }
 

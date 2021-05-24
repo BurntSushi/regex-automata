@@ -6,8 +6,9 @@ use core::mem;
 use core::slice;
 
 #[cfg(feature = "std")]
-use byteorder::{BigEndian, LittleEndian};
-use byteorder::{ByteOrder, NativeEndian};
+use crate::byte::{BigEndian, LittleEndian};
+use crate::byte::{Endian, NativeEndian};
+
 #[cfg(feature = "std")]
 use regex_syntax::ParserBuilder;
 
@@ -1202,7 +1203,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
     /// implementations of `StateID` provided by this crate satisfy this
     /// requirement.
     #[cfg(feature = "std")]
-    pub(crate) fn to_bytes<A: ByteOrder>(&self) -> Result<Vec<u8>> {
+    pub(crate) fn to_bytes<A: Endian>(&self) -> Result<Vec<u8>> {
         let label = b"rust-regex-automata-dfa\x00";
         assert_eq!(24, label.len());
 
@@ -1210,7 +1211,7 @@ impl<T: AsRef<[S]>, S: StateID> Repr<T, S> {
         let size =
             // For human readable label.
             label.len()
-            // endiannes check, must be equal to 0xFEFF for native endian
+            // endianness check, must be equal to 0xFEFF for native endian
             + 2
             // For version number.
             + 2
