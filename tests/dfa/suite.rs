@@ -1,5 +1,5 @@
 use regex_automata::{
-    dfa::{dense, sparse, Automaton, Regex, RegexBuilder, RegexConfig},
+    dfa::{dense, /*sparse,*/ Automaton, Regex, RegexBuilder, RegexConfig,},
     nfa::thompson,
     MatchKind, SyntaxConfig,
 };
@@ -67,6 +67,7 @@ fn minimized_no_byte_class() -> Result<()> {
     Ok(())
 }
 
+/*
 #[test]
 fn sparse_unminimized_default() -> Result<()> {
     let builder = RegexBuilder::new();
@@ -75,44 +76,7 @@ fn sparse_unminimized_default() -> Result<()> {
         .assert();
     Ok(())
 }
-
-// A basic sanity test that checks we can convert a regex to a smaller
-// representation and that the resulting regex still passes our tests.
-//
-// If tests grow minimal regexes that cannot be represented in 16 bits, then
-// we'll either want to skip those or increase the size to test to u32.
-#[test]
-fn u16_unminimized_default() -> Result<()> {
-    let builder = RegexBuilder::new();
-    TestRunner::new()?
-        // Some of these are too big to fit into u16 state IDs.
-        .blacklist("expensive")
-        // These too. Because \w is gigantic.
-        .blacklist("bytes/perl-word-unicode")
-        .blacklist("unicode/perl")
-        .blacklist("no-unicode/word-unicode")
-        .blacklist("unicode/class9")
-        .test_iter(suite()?.iter(), u16_compiler(builder))
-        .assert();
-    Ok(())
-}
-
-// Test that sparse DFAs work after converting them to a different state ID
-// representation.
-#[test]
-fn sparse_u16_unminimized_default() -> Result<()> {
-    let builder = RegexBuilder::new();
-    TestRunner::new()?
-        // Some of these are too big to fit into u16 state IDs.
-        .blacklist("expensive")
-        // These too. Because \w is gigantic.
-        .blacklist("bytes/perl-word-unicode")
-        .blacklist("unicode/perl")
-        .blacklist("no-unicode/word-unicode")
-        .test_iter(suite()?.iter(), sparse_u16_compiler(builder))
-        .assert();
-    Ok(())
-}
+*/
 
 // Another basic sanity test that checks we can serialize and then deserialize
 // a regex, and that the resulting regex can be used for searching correctly.
@@ -125,9 +89,9 @@ fn serialization_unminimized_default() -> Result<()> {
             let (fwd_bytes, _) = re.forward().to_bytes_native_endian();
             let (rev_bytes, _) = re.reverse().to_bytes_native_endian();
             Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
-                let fwd: dense::DFA<&[usize], &[u8], usize> =
+                let fwd: dense::DFA<&[u32], &[u8]> =
                     dense::DFA::from_bytes(&fwd_bytes).unwrap().0;
-                let rev: dense::DFA<&[usize], &[u8], usize> =
+                let rev: dense::DFA<&[u32], &[u8]> =
                     dense::DFA::from_bytes(&rev_bytes).unwrap().0;
                 let re = builder.build_from_dfas(fwd, rev);
 
@@ -141,6 +105,7 @@ fn serialization_unminimized_default() -> Result<()> {
     Ok(())
 }
 
+/*
 // A basic sanity test that checks we can serialize and then deserialize a
 // regex using sparse DFAs, and that the resulting regex can be used for
 // searching correctly.
@@ -153,9 +118,9 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
             let fwd_bytes = re.forward().to_sparse()?.to_bytes_native_endian();
             let rev_bytes = re.reverse().to_sparse()?.to_bytes_native_endian();
             Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
-                let fwd: sparse::DFA<&[u8], usize> =
+                let fwd: sparse::DFA<&[u8]> =
                     sparse::DFA::from_bytes(&fwd_bytes).unwrap().0;
-                let rev: sparse::DFA<&[u8], usize> =
+                let rev: sparse::DFA<&[u8]> =
                     sparse::DFA::from_bytes(&rev_bytes).unwrap().0;
                 let re = builder.build_from_dfas(fwd, rev);
 
@@ -168,6 +133,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
         .assert();
     Ok(())
 }
+*/
 
 fn dense_compiler(
     builder: RegexBuilder,
@@ -179,6 +145,7 @@ fn dense_compiler(
     })
 }
 
+/*
 fn sparse_compiler(
     builder: RegexBuilder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
@@ -191,32 +158,7 @@ fn sparse_compiler(
         }))
     })
 }
-
-fn u16_compiler(
-    builder: RegexBuilder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |builder, re| {
-        let fwd = re.forward().to_sized::<u16>()?;
-        let rev = re.reverse().to_sized::<u16>()?;
-        let re = builder.build_from_dfas(fwd, rev);
-        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
-            run_test(&re, test)
-        }))
-    })
-}
-
-fn sparse_u16_compiler(
-    builder: RegexBuilder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |builder, re| {
-        let fwd = re.forward().to_sparse()?.to_sized::<u16>()?;
-        let rev = re.reverse().to_sparse()?.to_sized::<u16>()?;
-        let re = builder.build_from_dfas(fwd, rev);
-        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
-            run_test(&re, test)
-        }))
-    })
-}
+*/
 
 fn compiler(
     mut builder: RegexBuilder,
@@ -259,7 +201,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> Vec<TestResult> {
                 .find_earliest_iter(test.input())
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|m| Match {
-                    id: m.pattern(),
+                    id: m.pattern().as_usize(),
                     start: m.start(),
                     end: m.end(),
                 });
@@ -270,7 +212,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> Vec<TestResult> {
                 .find_leftmost_iter(test.input())
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|m| Match {
-                    id: m.pattern(),
+                    id: m.pattern().as_usize(),
                     start: m.start(),
                     end: m.end(),
                 });
@@ -281,7 +223,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> Vec<TestResult> {
                 .find_overlapping_iter(test.input())
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|m| Match {
-                    id: m.pattern(),
+                    id: m.pattern().as_usize(),
                     start: m.start(),
                     end: m.end(),
                 });

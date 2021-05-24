@@ -8,9 +8,10 @@ use crate::{
 };
 #[cfg(feature = "alloc")]
 use crate::{
-    dfa::{dense, error::Error, sparse},
+    dfa::{dense, error::Error /*, sparse*/},
+    id::StateID,
+    matching::MatchKind,
     nfa::thompson,
-    MatchKind, StateID,
 };
 
 // When the alloc feature is enabled, the regex type sets its A type parameter
@@ -25,7 +26,7 @@ macro_rules! define_regex_type {
     ($(#[$doc:meta])*) => {
         #[cfg(feature = "alloc")]
         $(#[$doc])*
-        pub struct Regex<A = dense::OwnedDFA<usize>, P = prefilter::None> {
+        pub struct Regex<A = dense::OwnedDFA, P = prefilter::None> {
             prefilter: Option<P>,
             forward: A,
             reverse: A,
@@ -118,14 +119,14 @@ define_regex_type!(
     ///
     /// // "earliest" searching isn't impacted by greediness
     /// let mut it = re.find_earliest_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 1, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 2, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 2, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// // "leftmost" searching supports greediness (and non-greediness)
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// // For overlapping, we want "all" match kind semantics.
@@ -136,9 +137,9 @@ define_regex_type!(
     /// // In the overlapping search, we find all three possible matches
     /// // starting at the beginning of the haystack.
     /// let mut it = re.find_overlapping_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -208,7 +209,7 @@ define_regex_type!(
     /// across a line boundary.
     ///
     /// ```
-    /// use regex_automata::{dfa, MultiMatch, MatchError};
+    /// use regex_automata::{dfa, MatchError};
     ///
     /// let re = dfa::RegexBuilder::new()
     ///     .dense(dfa::dense::Config::new().quit(b'\n', true))
@@ -242,7 +243,7 @@ impl Regex {
     ///
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::new(0, 3, 14)),
+    ///     Some(MultiMatch::must(0, 3, 14)),
     ///     re.find_leftmost(b"zzzfoo12345barzzz"),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -262,12 +263,12 @@ impl Regex {
     /// let re = Regex::new_many(&["[a-z]+", "[0-9]+"])?;
     ///
     /// let mut it = re.find_leftmost_iter(b"abc 1 foo 4567 0 quux");
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(1, 4, 5)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 6, 9)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(1, 10, 14)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(1, 15, 16)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 17, 21)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 4, 5)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 6, 9)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 10, 14)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 15, 16)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 17, 21)), it.next());
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -276,6 +277,7 @@ impl Regex {
     }
 }
 
+/*
 #[cfg(feature = "alloc")]
 impl Regex<sparse::DFA<Vec<u8>, usize>> {
     /// Parse the given regular expression using the default configuration,
@@ -291,7 +293,7 @@ impl Regex<sparse::DFA<Vec<u8>, usize>> {
     ///
     /// let re = Regex::new_sparse("foo[0-9]+bar")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::new(0, 3, 14)),
+    ///     Some(MultiMatch::must(0, 3, 14)),
     ///     re.find_leftmost(b"zzzfoo12345barzzz"),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -314,12 +316,12 @@ impl Regex<sparse::DFA<Vec<u8>, usize>> {
     /// let re = Regex::new_many_sparse(&["[a-z]+", "[0-9]+"])?;
     ///
     /// let mut it = re.find_leftmost_iter(b"abc 1 foo 4567 0 quux");
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(1, 4, 5)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 6, 9)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(1, 10, 14)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(1, 15, 16)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 17, 21)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 4, 5)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 6, 9)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 10, 14)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 15, 16)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 17, 21)), it.next());
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -329,6 +331,7 @@ impl Regex<sparse::DFA<Vec<u8>, usize>> {
         RegexBuilder::new().build_many_sparse(patterns)
     }
 }
+*/
 
 /// Conveniece routines for regex construction.
 #[cfg(feature = "alloc")]
@@ -353,12 +356,12 @@ impl Regex {
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 0)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 1, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 2, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 3, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 4, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 5, 5)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 0)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 2, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 3, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 4, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 5, 5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -390,7 +393,7 @@ impl Regex {
     ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
-    /// let expected = Some(MultiMatch::new(0, 1, 9));
+    /// let expected = Some(MultiMatch::must(0, 1, 9));
     /// let got = re.find_leftmost(haystack);
     /// assert_eq!(expected, got);
     ///
@@ -459,14 +462,14 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // digit is seen.
     /// let re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::new(0, 0, 4)),
+    ///     Some(MultiMatch::must(0, 0, 4)),
     ///     re.find_earliest(b"foo12345"),
     /// );
     ///
     /// // Normally, the end of the leftmost first match here would be 3,
     /// // but the "earliest" match semantics detect a match earlier.
     /// let re = Regex::new("abc|a")?;
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 1)), re.find_earliest(b"abc"));
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), re.find_earliest(b"abc"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn find_earliest(&self, haystack: &[u8]) -> Option<MultiMatch> {
@@ -493,7 +496,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // Greediness is applied appropriately when compared to find_earliest.
     /// let re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::new(0, 3, 11)),
+    ///     Some(MultiMatch::must(0, 3, 11)),
     ///     re.find_leftmost(b"zzzfoo12345zzz"),
     /// );
     ///
@@ -502,7 +505,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // earliest match that prefers earlier parts of the pattern over latter
     /// // parts.
     /// let re = Regex::new("abc|a")?;
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 3)), re.find_leftmost(b"abc"));
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), re.find_leftmost(b"abc"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn find_leftmost(&self, haystack: &[u8]) -> Option<MultiMatch> {
@@ -540,7 +543,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// let haystack = "@foo".as_bytes();
     /// let mut state = dfa::OverlappingState::start();
     ///
-    /// let expected = Some(MultiMatch::new(1, 0, 4));
+    /// let expected = Some(MultiMatch::must(1, 0, 4));
     /// let got = re.find_overlapping(haystack, &mut state);
     /// assert_eq!(expected, got);
     ///
@@ -549,7 +552,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // pattern is returned after the second. This is because the second
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
-    /// let expected = Some(MultiMatch::new(0, 1, 4));
+    /// let expected = Some(MultiMatch::must(0, 1, 4));
     /// let got = re.find_overlapping(haystack, &mut state);
     /// assert_eq!(expected, got);
     ///
@@ -558,7 +561,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn find_overlapping(
         &self,
         haystack: &[u8],
-        state: &mut OverlappingState<A::ID>,
+        state: &mut OverlappingState,
     ) -> Option<MultiMatch> {
         self.find_overlapping_at(haystack, 0, haystack.len(), state)
     }
@@ -591,9 +594,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // match, but since "earliest" detects matches earlier, we get
     /// // three matches.
     /// let mut it = re.find_earliest_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 1, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 2, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 2, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -628,9 +631,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// let text = b"foo1 foo12 foo123";
     /// let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
     /// assert_eq!(matches, vec![
-    ///     MultiMatch::new(0, 0, 4),
-    ///     MultiMatch::new(0, 5, 10),
-    ///     MultiMatch::new(0, 11, 17),
+    ///     MultiMatch::must(0, 0, 4),
+    ///     MultiMatch::must(0, 5, 10),
+    ///     MultiMatch::must(0, 11, 17),
     /// ]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -671,8 +674,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// let haystack = "@foo".as_bytes();
     ///
     /// let mut it = re.find_overlapping_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(1, 0, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 1, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 0, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 4)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -811,7 +814,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-        state: &mut OverlappingState<A::ID>,
+        state: &mut OverlappingState,
     ) -> Option<MultiMatch> {
         self.try_find_overlapping_at(haystack, start, end, state).unwrap()
     }
@@ -935,7 +938,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn try_find_overlapping(
         &self,
         haystack: &[u8],
-        state: &mut OverlappingState<A::ID>,
+        state: &mut OverlappingState,
     ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_overlapping_at(haystack, 0, haystack.len(), state)
     }
@@ -972,9 +975,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // match, but since "earliest" detects matches earlier, we get
     /// // three matches.
     /// let mut it = re.find_earliest_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 1, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 2, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 2, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1271,7 +1274,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-        state: &mut OverlappingState<A::ID>,
+        state: &mut OverlappingState,
     ) -> Result<Option<MultiMatch>, MatchError> {
         self.try_find_overlapping_at_imp(
             self.scanner().as_mut(),
@@ -1291,7 +1294,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-        state: &mut OverlappingState<A::ID>,
+        state: &mut OverlappingState,
     ) -> Result<Option<MultiMatch>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
@@ -1685,7 +1688,7 @@ pub struct TryFindOverlappingMatches<'r, 't, A: Automaton, P> {
     scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
-    state: OverlappingState<A::ID>,
+    state: OverlappingState,
 }
 
 impl<'r, 't, A: Automaton, P: Prefilter>
@@ -1784,12 +1787,12 @@ impl RegexConfig {
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 0)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 1, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 2, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 3, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 4, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 5, 5)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 0)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 2, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 3, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 4, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 5, 5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1810,10 +1813,10 @@ impl RegexConfig {
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::new(0, 0, 0)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 1, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 4, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::new(0, 5, 5)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 0)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 4, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 5, 5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1912,7 +1915,7 @@ impl RegexConfig {
 ///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
-/// let expected = Some(MultiMatch::new(0, 1, 9));
+/// let expected = Some(MultiMatch::must(0, 1, 9));
 /// let got = re.find_leftmost(haystack);
 /// assert_eq!(expected, got);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
@@ -1954,6 +1957,7 @@ impl RegexBuilder {
         self.build_many(&[pattern])
     }
 
+    /*
     /// Build a regex from the given pattern using sparse DFAs.
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
@@ -1962,76 +1966,16 @@ impl RegexBuilder {
         &self,
         pattern: &str,
     ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
-        self.build_with_size_sparse::<usize>(pattern)
+        self.build_many_sparse::<usize>(&[pattern])
     }
+    */
 
     /// Build a regex from the given patterns.
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
     ) -> Result<Regex, Error> {
-        self.build_many_with_size::<usize, _>(patterns)
-    }
-
-    /// Build a sparse regex from the given patterns.
-    pub fn build_many_sparse<P: AsRef<str>>(
-        &self,
-        patterns: &[P],
-    ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
-        self.build_many_with_size_sparse::<usize, _>(patterns)
-    }
-
-    /// Build a regex from the given pattern using a specific representation
-    /// for the underlying DFA state IDs. The representation can be chosen
-    /// by using the turbofish or specifying the concrete type of the DFA.
-    ///
-    /// If there was a problem parsing or compiling the pattern, then an error
-    /// is returned.
-    ///
-    /// The representation of state IDs is determined by the `S` type
-    /// parameter. In general, `S` is usually one of `u8`, `u16`, `u32`, `u64`
-    /// or `usize`, where `usize` is the default used for `build`. The purpose
-    /// of specifying a representation for state IDs is to reduce the memory
-    /// footprint of the underlying DFAs.
-    ///
-    /// When using this routine, the chosen state ID representation will be
-    /// used throughout determinization and minimization, if minimization was
-    /// requested. Even if the minimized DFAs can fit into the chosen state ID
-    /// representation but the initial determinized DFA cannot, then this will
-    /// still return an error. To get a minimized DFA with a smaller state ID
-    /// representation, first build it with a bigger state ID representation,
-    /// and then shrink the sizes of the DFAs using one of its conversion
-    /// routines, such as [`dense::DFA::to_sized`]. Finally, the regex can be
-    /// built directly from DFAs using [`RegexBuilder::build_from_dfas`].
-    pub fn build_with_size<S: StateID>(
-        &self,
-        pattern: &str,
-    ) -> Result<Regex<dense::OwnedDFA<S>>, Error> {
-        self.build_many_with_size(&[pattern])
-    }
-
-    /// Build a regex from the given pattern using a specific representation
-    /// for the underlying DFA state IDs using sparse DFAs.
-    ///
-    /// If there was a problem parsing or compiling any of the patterns, then
-    /// an error is returned.
-    pub fn build_with_size_sparse<S: StateID>(
-        &self,
-        pattern: &str,
-    ) -> Result<Regex<sparse::DFA<Vec<u8>, S>>, Error> {
-        self.build_many_with_size_sparse(&[pattern])
-    }
-
-    /// Build a regex from the given patterns using `S` as the state identifier
-    /// representation.
-    ///
-    /// If there was a problem parsing or compiling any of the patterns, then
-    /// an error is returned.
-    pub fn build_many_with_size<S: StateID, P: AsRef<str>>(
-        &self,
-        patterns: &[P],
-    ) -> Result<Regex<dense::OwnedDFA<S>>, Error> {
-        let forward = self.dfa.build_many_with_size(patterns)?;
+        let forward = self.dfa.build_many(patterns)?;
         let reverse = self
             .dfa
             .clone()
@@ -2042,24 +1986,22 @@ impl RegexBuilder {
                     .starts_for_each_pattern(true),
             )
             .thompson(thompson::Config::new().reverse(true))
-            .build_many_with_size(patterns)?;
+            .build_many(patterns)?;
         Ok(self.build_from_dfas(forward, reverse))
     }
 
-    /// Build a sparse regex from the given patterns using `S` as the state
-    /// identifier representation.
-    ///
-    /// If there was a problem parsing or compiling any of the patterns, then
-    /// an error is returned.
-    pub fn build_many_with_size_sparse<S: StateID, P: AsRef<str>>(
+    /*
+    /// Build a sparse regex from the given patterns.
+    pub fn build_many_sparse<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<Regex<sparse::DFA<Vec<u8>, S>>, Error> {
-        let re = self.build_many_with_size(patterns)?;
+    ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
+        let re = self.build_many(patterns)?;
         let forward = re.forward().to_sparse()?;
         let reverse = re.reverse().to_sparse()?;
         Ok(self.build_from_dfas(forward, reverse))
     }
+    */
 
     /// Build a regex from its component forward and reverse DFAs.
     ///

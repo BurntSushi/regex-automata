@@ -55,6 +55,16 @@ impl HalfMatch {
         HalfMatch { pattern, offset }
     }
 
+    /// Create a new half match from a pattern ID and a byte offset.
+    ///
+    /// This is like [`HalfMatch::new`], but accepts a `usize` instead of a
+    /// [`PatternID`]. This panics if the given `usize` is not representable
+    /// as a `PatternID`.
+    #[inline]
+    pub fn must(pattern: usize, offset: usize) -> HalfMatch {
+        HalfMatch::new(PatternID::new(pattern).unwrap(), offset)
+    }
+
     /// Returns the ID of the pattern that matched.
     ///
     /// The ID of a pattern is derived from the position in which it was

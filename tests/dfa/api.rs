@@ -70,7 +70,7 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
         config = config.quit(b, true);
     }
     let dfa = dense::Builder::new().configure(config).build(r"\b")?;
-    let expected = HalfMatch::new(0, 1);
+    let expected = HalfMatch::must(0, 1);
     assert_eq!(dfa.find_leftmost_fwd(b" a"), Ok(Some(expected)));
     Ok(())
 }
@@ -100,8 +100,8 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
     let re = Regex::new(r"a[0-9]+")
         .unwrap()
         .with_prefilter(SubstringPrefilter::new("a"));
-    assert_eq!(re.find_leftmost(b"za123"), Some(MultiMatch::new(0, 1, 5)));
-    assert_eq!(re.find_leftmost(b"a123"), Some(MultiMatch::new(0, 0, 4)));
+    assert_eq!(re.find_leftmost(b"za123"), Some(MultiMatch::must(0, 1, 5)));
+    assert_eq!(re.find_leftmost(b"a123"), Some(MultiMatch::must(0, 0, 4)));
     let re = re.with_prefilter(BunkPrefilter::new());
     assert_eq!(re.find_leftmost(b"za123"), None);
     // This checks that the prefilter is used when first starting the search,

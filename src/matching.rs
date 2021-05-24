@@ -136,6 +136,20 @@ impl MultiMatch {
         MultiMatch { pattern, start, end }
     }
 
+    /// Create a new match from a pattern ID and a byte offset span.
+    ///
+    /// This is like [`MultiMatch::new`], but accepts a `usize` instead of a
+    /// [`PatternID`]. This panics if the given `usize` is not representable
+    /// as a `PatternID`.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `end < start` or if `pattern > PatternID::MAX`.
+    #[inline]
+    pub fn must(pattern: usize, start: usize, end: usize) -> MultiMatch {
+        MultiMatch::new(PatternID::new(pattern).unwrap(), start, end)
+    }
+
     /// Returns the ID of the pattern that matched.
     ///
     /// The ID of a pattern is derived from the position in which it was

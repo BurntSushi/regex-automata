@@ -41,7 +41,7 @@ regex-test = { version = "*", path = "regex-test" }
 
 [[test]]
 path = "tests/tests.rs"
-name = "default"
+name = "integration"
 
 [profile.dev]
 # Running tests takes too long in debug mode, so we forcefully always build

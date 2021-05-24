@@ -118,7 +118,7 @@ pub struct Match {
     /// The ID is the index of the regex provided to the regex compiler,
     /// starting from `0`. In the case of a single regex search, the only
     /// possible ID is `0`.
-    pub id: u32,
+    pub id: usize,
     /// The starting byte offset of the match.
     pub start: usize,
     /// The ending byte offset of the match.
@@ -1120,7 +1120,7 @@ impl<'a> Iterator for RegexTestsIter<'a> {
 #[serde(untagged)]
 enum MatchFormat {
     Zero([usize; 2]),
-    Identified { id: u32, offsets: [usize; 2] },
+    Identified { id: usize, offsets: [usize; 2] },
 }
 
 impl From<MatchFormat> for Match {
