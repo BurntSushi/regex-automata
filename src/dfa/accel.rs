@@ -33,8 +33,7 @@
 // non-loop transitions. At a certain point, you get diminishing returns, but
 // also because that's what the memchr crate supports. The structures below
 // hard-code this assumption and provide (de)serialization APIs for use inside
-// a DFA. Note though that its serialization format permits any number of
-// accelerated bytes.
+// a DFA.
 //
 // And finally, note that there is some trickery involved in making it very
 // fast to not only check whether a state is accelerated at search time, but
@@ -49,6 +48,10 @@
 // And find its corresponding accelerator with:
 //
 //     accels.get((id - min_accel_id) / dfa_stride)
+
+// TODO: Consider whether we can use [u32] below instead of [u8].
+// If we can get everything into [u32], then we can remove a type parameter
+// on dense::DFA! Yay!
 
 use core::convert::TryInto;
 

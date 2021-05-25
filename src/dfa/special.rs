@@ -30,13 +30,13 @@ macro_rules! err {
 //   This state is only reachable when the caller configures the DFA to quit
 //   on certain bytes. There is always exactly one of these states and it
 //   is always the second state. (Its actual ID depends on the size of the
-//   alphabet in dense DFAs, since state IDs are premultiplied in order to allow
-//   them to be used directly as indices into the transition table.)
+//   alphabet in dense DFAs, since state IDs are premultiplied in order to
+//   allow them to be used directly as indices into the transition table.)
 // * match - An accepting state, i.e., indicative of a match. There may be
 //   zero or more of these states.
 // * accelerated - A state where all of its outgoing transitions, except a
 //   few, loop back to itself. These states are candidates for acceleration
-//   via memchr during search.
+//   via memchr during search. There may be zero or more of these states.
 // * start - A non-matching state that indicates where the automaton should
 //   start during a search. There is always at least one starting state and
 //   all are guaranteed to be non-match states. (A start state cannot be a
@@ -53,7 +53,7 @@ macro_rules! err {
 // * {match, accelerated} - It is possible for a match state to have the
 //   majority of its transitions loop back to itself, which means it's
 //   possible for a match state to be accelerated.
-// * {start, accelerated} - Similarly, it is possible for a state state to be
+// * {start, accelerated} - Similarly, it is possible for a start state to be
 //   accelerated. Note that it is possible for an accelerated state to be
 //   neither a match or a start state. Also note that just because both match
 //   and start states overlap with accelerated states does not mean that
@@ -67,15 +67,16 @@ macro_rules! err {
 // distguish between whether a search finished successfully without finding
 // anything or whether it gave up before finishing.
 //
-// So the main problem we want to solve here is the *fast* detection of
-// whether a state is special or not. And we also want to do this while
-// storing as little extra data as possible.
+// So the main problem we want to solve here is the *fast* detection of whether
+// a state is special or not. And we also want to do this while storing as
+// little extra data as possible. AND we want to be able to quickly determine
+// which categories a state falls into above if it is special.
 //
-// We achieve this by essentially shuffling all special states to the
-// beginning of a DFA. That is, any special state appears before every
-// other non-special state. By representing special states this way, we can
-// determine whether a state is special or not by a single comparison, where
-// special.max is the identifier of the last special state in the DFA:
+// We achieve this by essentially shuffling all special states to the beginning
+// of a DFA. That is, all special states appear before every other non-special
+// state. By representing special states this way, we can determine whether a
+// state is special or not by a single comparison, where special.max is the
+// identifier of the last special state in the DFA:
 //
 //     if current_state <= special.max:
 //         ... do something with special state
@@ -129,7 +130,8 @@ macro_rules! err {
 //     i = (state_id - special.min_accel) / stride
 //
 // (N.B. 'stride' is always a power of 2, so the above can be implemented via
-// 'state_id >> stride2', where 'stride2' is x in 2^x=stride.)
+// '(state_id - special.min_accel) >> stride2', where 'stride2' is x in
+// 2^x=stride.)
 //
 // Moreover, some of these specialty categories may be empty. For example,
 // DFAs are not required to have any match states or any accelerated states.
@@ -156,9 +158,6 @@ macro_rules! err {
 //     |                            |                       |
 //     |----------------------------|------------------------
 //              special                   non-special*
-//
-// The type parameter `S` refers to the state ID representation used by the
-// DFA. Typically, this is u8, u16, u32, u64 or usize.
 #[derive(Clone, Copy, Debug)]
 pub struct Special {
     /// The identifier of the last special state in a DFA. A state is special
@@ -183,9 +182,9 @@ pub struct Special {
 }
 
 impl Special {
-    /// Creates a new set of special ranges for a DFA. All ranges are
-    /// initially empty (even ranges, like 'start', that cannot ultimately
-    /// be empty).
+    /// Creates a new set of special ranges for a DFA. All ranges are initially
+    /// set to only contain the dead state. This is interpreted as an empty
+    /// range.
     #[cfg(feature = "alloc")]
     pub fn new() -> Special {
         Special {
@@ -336,10 +335,9 @@ impl Special {
         stride2: usize,
     ) -> Result<(), DeserializeError> {
         // We assume that 'validate' has already passed, so we know that 'max'
-        // is truly the max. So all we need to check is that the max state ID
-        // is less than the state ID count.
-        //
-        // TODO: Shouldn't we be able to say that the max is equal to count-1?
+        // is truly the max. So all we need to check is that the max state
+        // ID is less than the state ID count. The max legal value here is
+        // count-1, which occurs when there are no non-special states.
         if (self.max.as_usize() >> stride2) >= count {
             err!("max should not be greater than or equal to state count");
         }
@@ -386,7 +384,7 @@ impl Special {
 
     /// Returns the total number of bytes written by `write_to`.
     pub fn write_to_len(&self) -> usize {
-        StateID::SIZE * 8
+        8 * StateID::SIZE
     }
 
     /// Sets the maximum special state ID based on the current values. This

@@ -35,8 +35,8 @@ pub(crate) const MATCH_OFFSET: usize = 1;
 /// A half match also includes the pattern that matched. The pattern is
 /// identified by an ID, which corresponds to its position (starting from `0`)
 /// relative to other patterns used to construct the corresponding DFA. If only
-/// a single pattern is provided, then all matches are guaranteed to have a
-/// pattern ID of `0`.
+/// a single pattern is provided to the DFA, then all matches are guaranteed to
+/// have a pattern ID of `0`.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct HalfMatch {
     /// The pattern ID.
@@ -230,8 +230,8 @@ pub unsafe trait Automaton {
     /// # Safety
     ///
     /// Callers of this method must guarantee that `current` refers to a valid
-    /// state ID. If `current` is not a valid state ID, then calling this
-    /// routine may result in undefined behavior.
+    /// state ID. If `current` is not a valid state ID for this automaton, then
+    /// calling this routine may result in undefined behavior.
     ///
     /// If `current` is valid, then implementations must guarantee that the ID
     /// returned is valid for all possible values of `input`.
@@ -394,9 +394,9 @@ pub unsafe trait Automaton {
     ///
     /// This example shows how `is_special_state` can be used to implement a
     /// correct search routine with minimal branching. In particular, this
-    /// search routine implements "leftmost first" matching, which means
-    /// that it doesn't immediately stop once a match is found. Instead, it
-    /// continues until it reaches a dead state.
+    /// search routine implements "leftmost" matching, which means that it
+    /// doesn't immediately stop once a match is found. Instead, it continues
+    /// until it reaches a dead state.
     ///
     /// ```
     /// use regex_automata::{
@@ -457,7 +457,7 @@ pub unsafe trait Automaton {
     /// let dfa = dense::DFA::new(r"[a-z]+")?;
     /// let haystack = "123 foobar 4567".as_bytes();
     /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
-    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.pattern().as_usize(), 0);
     /// assert_eq!(mat.offset(), 10);
     ///
     /// // Here's another example that tests our handling of the special EOI
@@ -467,7 +467,7 @@ pub unsafe trait Automaton {
     /// let dfa = dense::DFA::new(r"[0-9]{4}")?;
     /// let haystack = "123 foobar 4567".as_bytes();
     /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
-    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.pattern().as_usize(), 0);
     /// assert_eq!(mat.offset(), 15);
     ///
     /// // And note that our search implementation above automatically works
@@ -476,13 +476,13 @@ pub unsafe trait Automaton {
     /// let dfa = dense::DFA::new_many(&[r"[a-z]+", r"[0-9]+"])?;
     /// let haystack = "123 foobar 4567".as_bytes();
     /// let mat = find_leftmost_first(&dfa, haystack)?.unwrap();
-    /// assert_eq!(mat.pattern(), 1);
+    /// assert_eq!(mat.pattern().as_usize(), 1);
     /// assert_eq!(mat.offset(), 3);
     /// let mat = find_leftmost_first(&dfa, &haystack[3..])?.unwrap();
-    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.pattern().as_usize(), 0);
     /// assert_eq!(mat.offset(), 7);
     /// let mat = find_leftmost_first(&dfa, &haystack[10..])?.unwrap();
-    /// assert_eq!(mat.pattern(), 1);
+    /// assert_eq!(mat.pattern().as_usize(), 1);
     /// assert_eq!(mat.offset(), 5);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -529,13 +529,14 @@ pub unsafe trait Automaton {
     /// In practice, the quit state always corresponds to the state immediately
     /// following the dead state. (Which is not usually represented by `1`,
     /// since state identifiers are pre-multiplied by the state machine's
-    /// alphabet stride.)
+    /// alphabet stride, and the alphabet stride varies between DFAs.)
     ///
     /// By default, state machines created by this crate will never enter a
-    /// quit state. Since entering a quit state is the only way for a DFA in
-    /// this crate to fail, it follows that the default configuration can never
-    /// produce a match error. Nevertheless, handling quit states is necessary
-    /// to correctly support all configurations in this crate.
+    /// quit state. Since entering a quit state is the only way for a DFA
+    /// in this crate to fail at search time, it follows that the default
+    /// configuration can never produce a match error. Nevertheless, handling
+    /// quit states is necessary to correctly support all configurations in
+    /// this crate.
     ///
     /// The typical way in which a quit state can occur is when heuristic
     /// support for Unicode word boundaries is enabled via the
@@ -570,7 +571,7 @@ pub unsafe trait Automaton {
     /// search implementations should record the most recent location in
     /// which a match state was entered, but otherwise continue executing the
     /// search as normal. (The search may even leave the match state.) Once
-    /// the termination condition is reached, the most recently record match
+    /// the termination condition is reached, the most recently recorded match
     /// location should be returned.
     ///
     /// Finally, one additional power given to match states in this crate
@@ -689,13 +690,13 @@ pub unsafe trait Automaton {
     /// let dfa = dense::DFA::new(r"Z[a-z]+")?;
     /// let haystack = "123 foobar Zbaz quux".as_bytes();
     /// let mat = find_leftmost_first(&dfa, haystack, Some(b'Z'))?.unwrap();
-    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.pattern().as_usize(), 0);
     /// assert_eq!(mat.offset(), 15);
     ///
     /// // But note that we don't need to pass in a prefix byte. If we don't,
     /// // then the search routine does no acceleration.
     /// let mat = find_leftmost_first(&dfa, haystack, None)?.unwrap();
-    /// assert_eq!(mat.pattern(), 0);
+    /// assert_eq!(mat.pattern().as_usize(), 0);
     /// assert_eq!(mat.offset(), 15);
     ///
     /// // However, if we pass an incorrect byte, then the prefix search will
@@ -747,7 +748,7 @@ pub unsafe trait Automaton {
     /// the `(?-u)` to disable Unicode is necessary here, as without it,
     /// `[^a]` will match any UTF-8 encoding of any Unicode scalar value other
     /// than `a`. This more complicated expression compiles down to many DFA
-    /// states and the simple acceleration optimization is no longer detected.
+    /// states and the simple acceleration optimization is no longer available.
     ///
     /// Typically, this routine is used to guard calls to
     /// [`Automaton::accelerator`], which returns the accelerated bytes for
@@ -756,8 +757,7 @@ pub unsafe trait Automaton {
 
     /// Returns the total number of patterns compiled into this DFA.
     ///
-    /// In the case of a DFA that never matches any pattern, this should
-    /// return `0`.
+    /// In the case of a DFA that contains no patterns, this must return `0`.
     ///
     /// # Example
     ///
@@ -766,7 +766,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::dfa::{Automaton, dense::DFA};
     ///
-    /// let dfa: DFA<Vec<usize>, Vec<u8>, usize> = DFA::never_match()?;
+    /// let dfa: DFA<Vec<u32>, Vec<u8>> = DFA::never_match()?;
     /// assert_eq!(dfa.pattern_count(), 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -776,7 +776,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::dfa::{Automaton, dense::DFA};
     ///
-    /// let dfa: DFA<Vec<usize>, Vec<u8>, usize> = DFA::always_match()?;
+    /// let dfa: DFA<Vec<u32>, Vec<u8>> = DFA::always_match()?;
     /// assert_eq!(dfa.pattern_count(), 1);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -797,11 +797,11 @@ pub unsafe trait Automaton {
     /// If the given state is not a match state, then this always returns zero.
     ///
     /// If the DFA was compiled with one pattern, then this must necessarily
-    /// always return `1`.
+    /// always return `1` for all match states.
     ///
-    /// Implementations must guarantee that [`Automaton::match_pattern`] can be
-    /// called with indices up to the count returned by this routine without
-    /// panicking.
+    /// Implementations must guarantee that [`Automaton::match_pattern`] can
+    /// be called with indices up to (but not including) the count returned by
+    /// this routine without panicking.
     ///
     /// # Example
     ///
@@ -853,9 +853,9 @@ pub unsafe trait Automaton {
     /// assert_eq!(dfa.match_count(state), 3);
     /// // The following calls are guaranteed to not panic since `match_count`
     /// // returned `3` above.
-    /// assert_eq!(dfa.match_pattern(state, 0), 3);
-    /// assert_eq!(dfa.match_pattern(state, 1), 0);
-    /// assert_eq!(dfa.match_pattern(state, 2), 1);
+    /// assert_eq!(dfa.match_pattern(state, 0).as_usize(), 3);
+    /// assert_eq!(dfa.match_pattern(state, 1).as_usize(), 0);
+    /// assert_eq!(dfa.match_pattern(state, 2).as_usize(), 1);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -899,6 +899,7 @@ pub unsafe trait Automaton {
     /// use regex_automata::{
     ///     nfa::thompson,
     ///     dfa::{Automaton, dense},
+    ///     StateID,
     ///     SyntaxConfig,
     /// };
     ///
@@ -912,16 +913,16 @@ pub unsafe trait Automaton {
     ///     // isn't necessary to get acceleration to work in this case, but
     ///     // it does make the DFA substantially simpler.
     ///     .thompson(thompson::Config::new().utf8(false))
-    ///     .build_with_size::<u8>("[^abc]+a")?;
+    ///     .build("[^abc]+a")?;
     ///
     /// // Here we just pluck out the state that we know is accelerated.
     /// // While the stride calculations are something that can be relied
     /// // on by callers, the specific position of the accelerated state is
     /// // implementation defined.
-    /// let bytes_per_state = dfa.stride() * std::mem::size_of::<u8>();
-    /// // We get '3' by inspecting the state machine using 'regex-cli'. e.g.,
-    /// // try `regex-cli debug dfa dense '[^abc]+a' -BbUC`.
-    /// let id = 3 * bytes_per_state as u8;
+    /// //
+    /// // N.B. We get '3' by inspecting the state machine using 'regex-cli'.
+    /// // e.g., try `regex-cli debug dfa dense '[^abc]+a' -BbUC`.
+    /// let id = StateID::new(3 * dfa.stride()).unwrap();
     /// let accelerator = dfa.accelerator(id);
     /// // The `[^abc]+` sub-expression permits [a, b, c] to be accelerated.
     /// assert_eq!(accelerator, &[b'a', b'b', b'c']);
@@ -970,13 +971,13 @@ pub unsafe trait Automaton {
     /// // corresponding to the end of the input. But the "earliest" semantics
     /// // this routine cause it to stop as soon as a match is known, which
     /// // occurs once 'foo[0-9]' has matched.
-    /// let expected = HalfMatch::new(0, 4);
+    /// let expected = HalfMatch::must(0, 4);
     /// assert_eq!(Some(expected), dfa.find_earliest_fwd(b"foo12345")?);
     ///
     /// let dfa = dense::DFA::new("abc|a")?;
     /// // Normally, the end of the leftmost first match here would be 3,
     /// // but the shortest match semantics detect a match earlier.
-    /// let expected = HalfMatch::new(0, 1);
+    /// let expected = HalfMatch::must(0, 1);
     /// assert_eq!(Some(expected), dfa.find_earliest_fwd(b"abc")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1033,7 +1034,7 @@ pub unsafe trait Automaton {
     /// // corresponding to the beginning of the input. But the "earliest"
     /// // semantics of this routine cause it to stop as soon as a match is
     /// // known, which occurs once '[a-z][0-9]+' has matched.
-    /// let expected = HalfMatch::new(0, 2);
+    /// let expected = HalfMatch::must(0, 2);
     /// assert_eq!(Some(expected), dfa.find_earliest_rev(b"foo12345")?);
     ///
     /// let dfa = dense::Builder::new()
@@ -1041,7 +1042,7 @@ pub unsafe trait Automaton {
     ///     .build("abc|c")?;
     /// // Normally, the end of the leftmost first match here would be 0,
     /// // but the shortest match semantics detect a match earlier.
-    /// let expected = HalfMatch::new(0, 2);
+    /// let expected = HalfMatch::must(0, 2);
     /// assert_eq!(Some(expected), dfa.find_earliest_rev(b"abc")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1104,14 +1105,14 @@ pub unsafe trait Automaton {
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+")?;
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     ///
     /// // Even though a match is found after reading the first byte (`a`),
     /// // the leftmost first match semantics demand that we find the earliest
     /// // match that prefers earlier parts of the pattern over latter parts.
     /// let dfa = dense::DFA::new("abc|a")?;
-    /// let expected = HalfMatch::new(0, 3);
+    /// let expected = HalfMatch::must(0, 3);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"abc")?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1173,7 +1174,7 @@ pub unsafe trait Automaton {
     /// let dfa = dense::Builder::new()
     ///     .thompson(thompson::Config::new().reverse(true))
     ///     .build("foo[0-9]+")?;
-    /// let expected = HalfMatch::new(0, 0);
+    /// let expected = HalfMatch::must(0, 0);
     /// assert_eq!(Some(expected), dfa.find_leftmost_rev(b"foo12345")?);
     ///
     /// // Even though a match is found after reading the last byte (`c`),
@@ -1182,7 +1183,7 @@ pub unsafe trait Automaton {
     /// let dfa = dense::Builder::new()
     ///     .thompson(thompson::Config::new().reverse(true))
     ///     .build("abc|c")?;
-    /// let expected = HalfMatch::new(0, 0);
+    /// let expected = HalfMatch::must(0, 0);
     /// assert_eq!(Some(expected), dfa.find_leftmost_rev(b"abc")?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1242,7 +1243,7 @@ pub unsafe trait Automaton {
     /// let haystack = "@foo".as_bytes();
     /// let mut state = OverlappingState::start();
     ///
-    /// let expected = Some(HalfMatch::new(1, 4));
+    /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
     /// assert_eq!(expected, got);
     ///
@@ -1251,7 +1252,7 @@ pub unsafe trait Automaton {
     /// // pattern is returned after the second. This is because the second
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
-    /// let expected = Some(HalfMatch::new(0, 4));
+    /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
     /// assert_eq!(expected, got);
     ///
@@ -1351,7 +1352,7 @@ pub unsafe trait Automaton {
     /// // determine whether a prefilter is still "effective" or not.
     /// let mut scanner = Scanner::new(&ZPrefilter);
     ///
-    /// let expected = Some(HalfMatch::new(0, 11));
+    /// let expected = Some(HalfMatch::must(0, 11));
     /// let got = dfa.find_earliest_fwd_at(
     ///     Some(&mut scanner),
     ///     None,
@@ -1381,7 +1382,7 @@ pub unsafe trait Automaton {
     /// // patterns match at the same starting position, only the first pattern
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
-    /// let expected = Some(HalfMatch::new(0, 6));
+    /// let expected = Some(HalfMatch::must(0, 6));
     /// let got = dfa.find_earliest_fwd_at(
     ///     None,
     ///     None,
@@ -1393,7 +1394,7 @@ pub unsafe trait Automaton {
     ///
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
-    /// let expected = Some(HalfMatch::new(1, 6));
+    /// let expected = Some(HalfMatch::must(1, 6));
     /// let got = dfa.find_earliest_fwd_at(
     ///     None,
     ///     Some(1),
@@ -1424,7 +1425,7 @@ pub unsafe trait Automaton {
     /// // larger context and assumes that `123` is surrounded by word
     /// // boundaries. And of course, the match position is reported relative
     /// // to the sub-slice as well, which means we get `3` instead of `6`.
-    /// let expected = Some(HalfMatch::new(0, 3));
+    /// let expected = Some(HalfMatch::must(0, 3));
     /// let got = dfa.find_earliest_fwd_at(
     ///     None,
     ///     None,
@@ -1913,7 +1914,6 @@ impl OverlappingState {
 /// by minimization and may even be accomplished by normal determinization,
 /// since it attempts to reuse equivalent states too.)
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
 pub(crate) enum Start {
     /// This occurs when the starting position is not any of the ones below.
     NonWordByte = 0,
@@ -1931,7 +1931,7 @@ pub(crate) enum Start {
 impl Start {
     /// Return the starting state corresponding to the given integer. If no
     /// starting state exists for the given integer, then None is returned.
-    pub fn from_usize(n: usize) -> Option<Start> {
+    pub(crate) fn from_usize(n: usize) -> Option<Start> {
         match n {
             0 => Some(Start::NonWordByte),
             1 => Some(Start::WordByte),
@@ -1942,14 +1942,18 @@ impl Start {
     }
 
     /// Returns the total number of starting state configurations.
-    pub fn count() -> usize {
+    pub(crate) fn count() -> usize {
         4
     }
 
     /// Returns the starting state configuration for the given search
     /// parameters. If the given offset range is not valid, then this panics.
     #[inline(always)]
-    pub fn from_position_fwd(bytes: &[u8], start: usize, end: usize) -> Start {
+    pub(crate) fn from_position_fwd(
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Start {
         assert!(
             bytes.get(start..end).is_some(),
             "{}..{} is invalid",
@@ -1971,7 +1975,11 @@ impl Start {
     /// given search parameters. If the given offset range is not valid, then
     /// this panics.
     #[inline(always)]
-    pub fn from_position_rev(bytes: &[u8], start: usize, end: usize) -> Start {
+    pub(crate) fn from_position_rev(
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Start {
         assert!(
             bytes.get(start..end).is_some(),
             "{}..{} is invalid",
@@ -1992,7 +2000,7 @@ impl Start {
     /// Return this starting configuration as an integer. It is guaranteed to
     /// be less than `Start::count()`.
     #[inline(always)]
-    pub fn as_usize(&self) -> usize {
+    pub(crate) fn as_usize(&self) -> usize {
         *self as usize
     }
 }

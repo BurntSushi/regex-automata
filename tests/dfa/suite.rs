@@ -1,5 +1,5 @@
 use regex_automata::{
-    dfa::{dense, /*sparse,*/ Automaton, Regex, RegexBuilder, RegexConfig,},
+    dfa::{dense, sparse, Automaton, Regex, RegexBuilder, RegexConfig},
     nfa::thompson,
     MatchKind, SyntaxConfig,
 };
@@ -67,7 +67,6 @@ fn minimized_no_byte_class() -> Result<()> {
     Ok(())
 }
 
-/*
 #[test]
 fn sparse_unminimized_default() -> Result<()> {
     let builder = RegexBuilder::new();
@@ -76,7 +75,6 @@ fn sparse_unminimized_default() -> Result<()> {
         .assert();
     Ok(())
 }
-*/
 
 // Another basic sanity test that checks we can serialize and then deserialize
 // a regex, and that the resulting regex can be used for searching correctly.
@@ -105,7 +103,6 @@ fn serialization_unminimized_default() -> Result<()> {
     Ok(())
 }
 
-/*
 // A basic sanity test that checks we can serialize and then deserialize a
 // regex using sparse DFAs, and that the resulting regex can be used for
 // searching correctly.
@@ -133,7 +130,6 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
         .assert();
     Ok(())
 }
-*/
 
 fn dense_compiler(
     builder: RegexBuilder,
@@ -145,7 +141,6 @@ fn dense_compiler(
     })
 }
 
-/*
 fn sparse_compiler(
     builder: RegexBuilder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
@@ -158,7 +153,6 @@ fn sparse_compiler(
         }))
     })
 }
-*/
 
 fn compiler(
     mut builder: RegexBuilder,

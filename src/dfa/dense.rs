@@ -38,11 +38,8 @@ use crate::{
 use crate::{
     classes::ByteSet,
     dfa::{
-        accel::Accel,
-        determinize::Determinizer,
-        error::Error,
-        minimize::Minimizer,
-        // sparse,
+        accel::Accel, determinize::Determinizer, error::Error,
+        minimize::Minimizer, sparse,
     },
     nfa::thompson,
     MatchKind,
@@ -1265,7 +1262,6 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
 /// sparse DFAs, smaller state identifiers or raw bytes suitable for persistent
 /// storage.
 impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
-    /*
     /// Convert this dense DFA to a sparse DFA.
     ///
     /// This is a convenience routine for `to_sparse_sized` that fixes the
@@ -1293,7 +1289,6 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     pub fn to_sparse(&self) -> Result<sparse::DFA<Vec<u8>>, Error> {
         sparse::DFA::from_dense(self)
     }
-    */
 
     /// Serialize this DFA as raw bytes to a `Vec<u8>` in little endian
     /// format. Upon success, the `Vec<u8>` and the initial padding length are
@@ -4320,51 +4315,6 @@ impl Remapper {
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tiny_dfa_works() {
-        let pattern = r"\w";
-        Builder::new()
-            .configure(Config::new().anchored(true))
-            .syntax(crate::SyntaxConfig::new().unicode(false))
-            .build_with_size::<u8>(pattern)
-            .unwrap();
-    }
-
-    #[test]
-    fn errors_when_converting_to_smaller_dfa() {
-        let pattern = r"\w{10}";
-        let dfa = Builder::new()
-            .configure(Config::new().anchored(true).byte_classes(false))
-            .build_with_size::<u32>(pattern)
-            .unwrap();
-        assert!(dfa.to_sized::<u16>().is_err());
-    }
-
-    #[test]
-    fn errors_when_determinization_would_overflow() {
-        let pattern = r"\w{10}";
-
-        let mut builder = Builder::new();
-        builder.configure(Config::new().anchored(true).byte_classes(false));
-        // using u32 is fine
-        assert!(builder.build_with_size::<u32>(pattern).is_ok());
-        // // ... but u16 results in overflow (because there are >65536 states)
-        assert!(builder.build_with_size::<u16>(pattern).is_err());
-    }
-
-    #[test]
-    fn errors_when_classes_would_overflow() {
-        let pattern = r"[a-z]";
-
-        let mut builder = Builder::new();
-        builder.configure(Config::new().anchored(true).byte_classes(true));
-        // with classes is OK
-        assert!(builder.build_with_size::<u8>(pattern).is_ok());
-        // ... but without classes, it fails, since states become much bigger.
-        builder.configure(Config::new().byte_classes(false));
-        assert!(builder.build_with_size::<u8>(pattern).is_err());
-    }
 
     #[test]
     fn errors_with_unicode_word_boundary() {

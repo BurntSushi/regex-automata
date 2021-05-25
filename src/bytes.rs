@@ -183,14 +183,14 @@ impl DeserializeError {
         DeserializeError(DeserializeErrorKind::ArithmeticOverflow { what })
     }
 
-    fn pattern_id_error(
+    pub(crate) fn pattern_id_error(
         err: PatternIDError,
         what: &'static str,
     ) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::PatternID { err, what })
     }
 
-    fn state_id_error(
+    pub(crate) fn state_id_error(
         err: StateIDError,
         what: &'static str,
     ) -> DeserializeError {
@@ -512,6 +512,17 @@ pub fn try_read_pattern_id(
     if slice.len() < 4 {
         return Err(DeserializeError::buffer_too_small(what));
     }
+    PatternID::from_ne_bytes(slice[..4].try_into().unwrap())
+        .map_err(|err| DeserializeError::pattern_id_error(err, what))
+}
+
+/// Reads a pattern ID from the given slice. If the slice has insufficient
+/// length, then this panics. If the deserialized integer exceeds the pattern
+/// ID limit for the current target, then this returns an error.
+pub fn read_pattern_id(
+    slice: &[u8],
+    what: &'static str,
+) -> Result<PatternID, DeserializeError> {
     PatternID::from_ne_bytes(slice[..4].try_into().unwrap())
         .map_err(|err| DeserializeError::pattern_id_error(err, what))
 }

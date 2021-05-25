@@ -372,7 +372,7 @@ pub(crate) mod error;
 mod minimize;
 mod regex;
 mod search;
-// pub mod sparse;
+pub mod sparse;
 mod special;
 #[cfg(feature = "transducer")]
 mod transducer;
