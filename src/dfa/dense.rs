@@ -38,8 +38,7 @@ use crate::{
 use crate::{
     classes::ByteSet,
     dfa::{
-        accel::Accel, determinize::Determinizer, error::Error,
-        minimize::Minimizer, sparse,
+        accel::Accel, determinize, error::Error, minimize::Minimizer, sparse,
     },
     nfa::thompson,
     MatchKind,
@@ -857,7 +856,7 @@ impl Builder {
             nfa.match_len(),
             self.config.get_starts_for_each_pattern(),
         )?;
-        Determinizer::new()
+        determinize::Config::new()
             .anchored(self.config.get_anchored())
             .match_kind(self.config.get_match_kind())
             .quit(quit)
@@ -2945,9 +2944,15 @@ impl TransitionTable<Vec<u32>> {
             StateID::new(next).map_err(|_| Error::too_many_states(next))?
         };
         self.table.extend(iter::repeat(0).take(self.stride()));
-        // This should never panic, since count is a usize. The transition
-        // table size would have run out of room long ago.
-        self.count = self.count.checked_add(1).unwrap();
+        // I believe it's impossible for this to fail, since if this fails,
+        // then it must be the case that self.count << stride2 would fail
+        // above. Nevertheless, it's no problem to just return an error if it
+        // does fail. (Maybe there are pathological cases where stride2 is 0?
+        // I don't think so...
+        self.count = match self.count.checked_add(1) {
+            Some(count) => count,
+            None => return Err(Error::too_many_states(core::usize::MAX)),
+        };
         Ok(id)
     }
 

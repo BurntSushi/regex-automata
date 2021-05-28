@@ -11,30 +11,19 @@ use crate::{
     sparse_set::{SparseSet, SparseSets},
 };
 
-/// A map from states to state identifiers. When using std, we use a standard
-/// hashmap, since it's a bit faster for this use case. (Other maps, like
-/// one's based on FNV, have not yet been benchmarked.)
-///
-/// The main purpose of this map is to reuse states where possible. This won't
-/// fully minimize the DFA, but it works well in a lot of cases.
-#[cfg(feature = "std")]
-type StateMap = std::collections::HashMap<Rc<State>, StateID>;
-#[cfg(not(feature = "std"))]
-type StateMap = BTreeMap<Rc<State>, StateID>;
-
 /// A builder for configuring and running a DFA determinizer.
 #[derive(Clone, Debug)]
-pub(crate) struct Determinizer {
+pub(crate) struct Config {
     anchored: bool,
     match_kind: MatchKind,
     quit: ByteSet,
 }
 
-impl Determinizer {
+impl Config {
     /// Create a new determinizer. The determinizer may be configured before
     /// calling `run`.
-    pub fn new() -> Determinizer {
-        Determinizer {
+    pub fn new() -> Config {
+        Config {
             anchored: false,
             match_kind: MatchKind::LeftmostFirst,
             quit: ByteSet::empty(),
@@ -60,15 +49,13 @@ impl Determinizer {
         cache.insert(dead.clone(), DEAD);
 
         Runner {
+            config: self.clone(),
             nfa,
             dfa,
             builder_states: vec![dead, quit],
             cache,
             stack: vec![],
             scratch_nfa_states: vec![],
-            anchored: self.anchored,
-            match_kind: self.match_kind,
-            quit: self.quit,
         }
         .run()
     }
@@ -76,7 +63,7 @@ impl Determinizer {
     /// Whether to build an anchored DFA or not. When disabled (the default),
     /// the unanchored prefix from the NFA is used to start the DFA. Otherwise,
     /// the anchored start state of the NFA is used to start the DFA.
-    pub fn anchored(&mut self, yes: bool) -> &mut Determinizer {
+    pub fn anchored(&mut self, yes: bool) -> &mut Config {
         self.anchored = yes;
         self
     }
@@ -91,14 +78,14 @@ impl Determinizer {
     /// stop searches with an unanchored prefix.
     ///
     /// The default is MatchKind::LeftmostFirst.
-    pub fn match_kind(&mut self, kind: MatchKind) -> &mut Determinizer {
+    pub fn match_kind(&mut self, kind: MatchKind) -> &mut Config {
         self.match_kind = kind;
         self
     }
 
     /// The set of bytes to use that will cause the DFA to enter a quit state,
     /// stop searching and return an error. By default, this is empty.
-    pub fn quit(&mut self, set: ByteSet) -> &mut Determinizer {
+    pub fn quit(&mut self, set: ByteSet) -> &mut Config {
         self.quit = set;
         self
     }
@@ -117,13 +104,12 @@ impl Determinizer {
 /// are that this implementation delays matches by one state and hackily makes
 /// look-around work. Comments below attempt to explain this.
 ///
-/// The type variable `S` refers to the chosen state identifier representation
-/// used for the DFA.
-///
-/// The lifetime variable `'a` refers to the lifetime of the NFA and DFA,
+/// The lifetime variable `'a` refers to the lifetime of the NFA or DFA,
 /// whichever is shorter.
 #[derive(Debug)]
 struct Runner<'a> {
+    /// The configuration used to initialize determinization.
+    config: Config,
     /// The NFA we're converting into a DFA.
     nfa: &'a thompson::NFA,
     /// The DFA we're building.
@@ -138,11 +124,26 @@ struct Runner<'a> {
     /// Why do we have states in both a `Vec` and in a cache map below?
     /// Well, they serve two different roles based on access patterns.
     /// `builder_states` is the canonical home of each state, and provides
-    /// constant random access by a state's ID. The cache map below, on the
-    /// other hand, provides a quick way of searching for identical DFA states
-    /// by using the DFA state as a key in the map. Of course, we use reference
-    /// counting to avoid actually duplicating the state's data itself.
-    /// (Although this has never been benchmarked.)
+    /// constant random access by a DFA state's ID. The cache map below, on
+    /// the other hand, provides a quick way of searching for identical DFA
+    /// states by using the DFA state as a key in the map. Of course, we use
+    /// reference counting to avoid actually duplicating the state's data
+    /// itself. (Although this has never been benchmarked.) Note that the cache
+    /// map does not give us full minimization; it just lets us avoid some very
+    /// obvious redundant states.
+    ///
+    /// Note that the index into this Vec isn't quite the DFA's state ID.
+    /// Rather, it's just an index. To get the state ID, you have to multiply
+    /// it by the DFA's stride. That's done by self.dfa.from_index. And the
+    /// inverse is self.dfa.to_index.
+    ///
+    /// Moreover, DFA states don't usually retain the IDs assigned to them
+    /// by their position in this Vec. After determinization completes,
+    /// states are shuffled around to support other optimizations. See the
+    /// sibling 'special' module for more details on that. (The reason for
+    /// mentioning this is that if you print out the DFA for debugging during
+    /// determinization, and then print out the final DFA after it is fully
+    /// built, then the state IDs likely won't match up.)
     builder_states: Vec<Rc<State>>,
     /// A cache of DFA states that already exist and can be easily looked up
     /// via ordered sets of NFA states.
@@ -160,13 +161,18 @@ struct Runner<'a> {
     /// this space to stage that ordered set before we know whether we need to
     /// create a new DFA state or not.
     scratch_nfa_states: Vec<StateID>,
-    /// Whether to build an anchored DFA or not.
-    anchored: bool,
-    /// Match semantics for this DFA.
-    match_kind: MatchKind,
-    /// Bytes on which the DFA should halt the search and report an error.
-    quit: ByteSet,
 }
+
+/// A map from states to state identifiers. When using std, we use a standard
+/// hashmap, since it's a bit faster for this use case. (Other maps, like
+/// one's based on FNV, have not yet been benchmarked.)
+///
+/// The main purpose of this map is to reuse states where possible. This won't
+/// fully minimize the DFA, but it works well in a lot of cases.
+#[cfg(feature = "std")]
+type StateMap = std::collections::HashMap<Rc<State>, StateID>;
+#[cfg(not(feature = "std"))]
+type StateMap = BTreeMap<Rc<State>, StateID>;
 
 impl<'a> Runner<'a> {
     /// Build the DFA. If there was a problem constructing the DFA (e.g., if
@@ -174,7 +180,7 @@ impl<'a> Runner<'a> {
     /// is returned.
     fn run(mut self) -> Result<(), Error> {
         if self.nfa.has_word_boundary_unicode()
-            && !self.quit.contains_range(0x80, 0xFF)
+            && !self.config.quit.contains_range(0x80, 0xFF)
         {
             return Err(Error::unsupported_dfa_word_boundary_unicode());
         }
@@ -187,7 +193,8 @@ impl<'a> Runner<'a> {
         let representative_bytes: Vec<InputUnit> =
             self.dfa.byte_classes().representatives().collect();
         // A pair of sparse sets for tracking ordered sets of NFA state IDs.
-        // These are reused throughout determinization.
+        // These are reused throughout determinization. A bounded sparse set
+        // gives us constant time insertion, membership testing and clearing.
         let mut sparses = SparseSets::new(self.nfa.len());
         // The set of all DFA state IDs that still need to have their
         // transitions set. We start by seeding this will all starting states.
@@ -195,7 +202,7 @@ impl<'a> Runner<'a> {
         self.add_all_starts(&mut sparses.set1, &mut uncompiled)?;
         while let Some(dfa_id) = uncompiled.pop() {
             for &b in &representative_bytes {
-                if b.as_u8().map_or(false, |b| self.quit.contains(b)) {
+                if b.as_u8().map_or(false, |b| self.config.quit.contains(b)) {
                     continue;
                 }
                 // In many cases, the state we transition too has already been
@@ -262,17 +269,7 @@ impl<'a> Runner<'a> {
         }
         // Build a candidate state and check if it has already been built.
         let state = self.new_state(&sparses.set2, facts);
-        if let Some(&cached_id) = self.cache.get(&state) {
-            // Since we have a cached state, put the constructed state's
-            // memory back into our scratch space, so that it can be reused.
-            let _ = core::mem::replace(
-                &mut self.scratch_nfa_states,
-                state.nfa_states,
-            );
-            return Ok((cached_id, false));
-        }
-        // Nothing was in the cache, so add this state to the cache.
-        self.add_state(state).map(|s| (s, true))
+        self.maybe_add_state(state)
     }
 
     /// Compute the set of all eachable NFA states, including the full epsilon
@@ -287,13 +284,23 @@ impl<'a> Runner<'a> {
 
         // Put the NFA state IDs into a sparse set in case we need to
         // re-compute their epsilon closure.
+        //
+        // TODO: Experiment with perf improvements from NOT doing this unless
+        // we actually need to re-compute the epsilon closure. The main problem
+        // is that it will make the code a bit awkward I think.
         for i in 0..self.state(dfa_id).nfa_states.len() {
             let nfa_id = self.state(dfa_id).nfa_states[i];
             sparses.set1.insert(nfa_id);
         }
 
+        // Compute look-ahead assertions originating from the current state.
+        // Based on the input unit we're transitioning over, some additional
+        // set of assertions may be true. Thus, we re-compute this state's
+        // epsilon closure (but only if necessary).
         let facts = &self.state(dfa_id).facts;
         if !facts.look_need.is_empty() {
+            // Add look-ahead assertions that are now true based on the current
+            // input unit.
             let mut look_have = facts.look_have.clone();
             match unit.as_u8() {
                 Some(b'\n') => {
@@ -312,6 +319,12 @@ impl<'a> Runner<'a> {
                 look_have.insert(Look::WordBoundaryUnicode);
                 look_have.insert(Look::WordBoundaryAscii);
             }
+            // If we have new assertions satisfied that are among the set of
+            // assertions that exist in this state (that is, just because
+            // we added an EndLine assertion above doesn't mean there is an
+            // EndLine conditional epsilon transition in this state), then we
+            // re-compute this state's epsilon closure using the updated set of
+            // assertions.
             if !look_have
                 .subtract(facts.look_have)
                 .intersect(facts.look_need)
@@ -325,6 +338,8 @@ impl<'a> Runner<'a> {
             }
         }
 
+        // Compute look-behind assertions that are true while entering the new
+        // state we create below.
         let mut facts = Facts::default();
         // We only set the word byte if there's a word boundary look-around
         // anywhere in this regex. Otherwise, there's no point in bloating
@@ -448,7 +463,7 @@ impl<'a> Runner<'a> {
         }
     }
 
-    /// Compute the set of DFA start states and return their identifiers in
+    /// Compute the set of DFA start states and add their identifiers in
     /// 'dfa_state_ids' (no duplicates are added).
     ///
     /// The sparse set given is used for scratch space, and must have capacity
@@ -461,14 +476,12 @@ impl<'a> Runner<'a> {
     ) -> Result<(), Error> {
         // Always add the (possibly unanchored) start states for matching any
         // of the patterns in this DFA.
-        self.add_start_group(sparse, dfa_state_ids, None)?;
+        self.add_start_group(sparse, None, dfa_state_ids)?;
         // We only need to compute anchored start states for each pattern if it
         // was requested to do so.
         if self.dfa.has_starts_for_each_pattern() {
-            // pattern_count is guaranteed to be at least 1, otherwise this DFA
-            // would have no starts for each pattern.
             for pid in PatternID::iter(self.dfa.pattern_count()) {
-                self.add_start_group(sparse, dfa_state_ids, Some(pid))?;
+                self.add_start_group(sparse, Some(pid), dfa_state_ids)?;
             }
         }
         Ok(())
@@ -486,12 +499,12 @@ impl<'a> Runner<'a> {
     fn add_start_group(
         &mut self,
         sparse: &mut SparseSet,
-        dfa_state_ids: &mut Vec<StateID>,
         pattern_id: Option<PatternID>,
+        dfa_state_ids: &mut Vec<StateID>,
     ) -> Result<(), Error> {
         let nfa_start = match pattern_id {
             Some(pid) => self.nfa.start_pattern(pid),
-            None if self.anchored => self.nfa.start_anchored(),
+            None if self.config.anchored => self.nfa.start_anchored(),
             None => self.nfa.start_unanchored(),
         };
 
@@ -499,6 +512,8 @@ impl<'a> Runner<'a> {
         // states that aren't necessary. For example, if the NFA has no word
         // boundary assertion, then there's no reason to have distinct start
         // states for 'NonWordByte' and 'WordByte' starting configurations.
+        // Instead, the 'WordByte' starting configuration can just point
+        // directly to the start state for the 'NonWordByte' config.
 
         let id = self.add_one_start(sparse, nfa_start, Start::NonWordByte)?;
         self.dfa.set_start_state(Start::NonWordByte, pattern_id, id);
@@ -550,6 +565,24 @@ impl<'a> Runner<'a> {
         let facts = Facts::start(start);
         self.epsilon_closure(nfa_start, facts.look_have, sparse);
         let state = self.new_state(&sparse, facts);
+        self.maybe_add_state(state).map(|(state, _)| state)
+    }
+
+    /// Adds the given state to the DFA being built depending on whether it
+    /// already exists in this determinizer's cache.
+    ///
+    /// If it does exist, then the memory used by 'state' is put back into the
+    /// determinizer and the previously created state's ID is returned. (Along
+    /// with 'false', indicating that no new state was added.)
+    ///
+    /// If it does not exist, then the state is added to the DFA being built
+    /// and a fresh ID is allocated (if ID allocation fails, then an error is
+    /// returned) and returned. (Along with 'true', indicating that a new state
+    /// was added.)
+    fn maybe_add_state(
+        &mut self,
+        state: State,
+    ) -> Result<(StateID, bool), Error> {
         if let Some(&cached_id) = self.cache.get(&state) {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
@@ -557,10 +590,9 @@ impl<'a> Runner<'a> {
                 &mut self.scratch_nfa_states,
                 state.nfa_states,
             );
-            return Ok(cached_id);
+            return Ok((cached_id, false));
         }
-        let id = self.add_state(state)?;
-        Ok(id)
+        self.add_state(state).map(|s| (s, true))
     }
 
     /// Add the given state to the DFA and make it available in the cache.
@@ -569,12 +601,12 @@ impl<'a> Runner<'a> {
     /// dead state for all possible inputs, and transitions to the quit state
     /// for all quit bytes.
     ///
-    /// If adding the state would exceed the maximum value for S, then an error
-    /// is returned.
+    /// If adding the state would exceed the maximum value for StateID, then an
+    /// error is returned.
     fn add_state(&mut self, state: State) -> Result<StateID, Error> {
         let id = self.dfa.add_empty_state()?;
-        if !self.quit.is_empty() {
-            for b in self.quit.iter() {
+        if !self.config.quit.is_empty() {
+            for b in self.config.quit.iter() {
                 self.dfa.add_transition(
                     id,
                     InputUnit::u8(b),
@@ -591,8 +623,8 @@ impl<'a> Runner<'a> {
     /// Convert the given set of ordered NFA states to a DFA state.
     ///
     /// The facts given should be the things that are true immediately prior
-    /// to transitioning int this state. Generally speaking, this corresponds
-    /// to look-behind assertions (StateLine, StartText and whether this state
+    /// to transitioning into this state. Generally speaking, this corresponds
+    /// to look-behind assertions (StartLine, StartText and whether this state
     /// is being generated for a transition over a word byte) and whether and
     /// which patterns matched in the state prior to this one. (Prior because
     /// we delay matches by 1 byte.) The things that should _not_ be in facts
@@ -600,7 +632,7 @@ impl<'a> Runner<'a> {
     /// is a word byte or not). Facts should also not have 'look_need' set, as
     /// this constructor will compute that for you.
     ///
-    /// If caller's end up not using the state returned (perhaps because it's
+    /// If callers end up not using the state returned (perhaps because it's
     /// identical to some previously existing state), then callers should
     /// put the 'nfa_states' allocation back into the determinizer field
     /// 'scratch_nfa_states'.
@@ -705,7 +737,7 @@ impl<'a> Runner<'a> {
     /// Generally speaking, this is false when we want to impose some kind of
     /// match priority, like for leftmost-first.
     fn continue_past_first_match(&self) -> bool {
-        self.match_kind.continue_past_first_match()
+        self.config.match_kind.continue_past_first_match()
     }
 }
 
@@ -722,6 +754,9 @@ struct State {
     /// See the 'new_state' constructor above for what exactly goes in here.
     /// The short answer is every NFA state in the epsilon closure except for
     /// unconditional epsilon transitions.
+    ///
+    /// TODO: Use Box<[StateID]> for this? Seems like an obvious good idea,
+    /// but check out a before/after in regex-cli.
     nfa_states: Vec<StateID>,
     /// A collection of "facts" about this state that, in addition to the NFA
     /// state IDs above, contributes to this state's identity.
@@ -752,15 +787,18 @@ impl State {
 /// unequal NFA state IDs or unequal facts is considered distinct. (This does
 /// not necessarily imply they are literally distinct from a theoretical
 /// perspective, but it's what we do here. Minimization, a separate thing,
-/// handles the fully general case.)
+/// handles the fully general case.) It's worth pointing out that "facts" are
+/// a fleeting aspect of determinization. The DFA that is actually built from
+/// determinization neither has a record of "facts" nor does it store its
+/// constituent NFA states.
 ///
-/// For that reason, we are careful to only set facts when they are needed.
-/// For example, one fact says whether the state was generated by a transition
-/// corresponding to a "word" byte, and this fact is used to determine whether
-/// a word boundary assertion is satisfied or not. But of course, if the NFA
-/// contains no word boundary assertions, then there is no reason to track
-/// whether transitions are "word" bytes or not. If we did, we would wind up
-/// generating more DFA states than we have too.
+/// We are careful to only set facts when they are needed. For example, one
+/// fact says whether the state was generated by a transition corresponding to
+/// a "word" byte, and this fact is used to determine whether a word boundary
+/// assertion is satisfied or not. But of course, if the NFA contains no word
+/// boundary assertions, then there is no reason to track whether transitions
+/// are "word" bytes or not. If we did, we would wind up generating more DFA
+/// states than we have too.
 ///
 /// Similarly, if 'look_need' is empty, then we forcefully set 'look_have'
 /// to be empty. Namely, if a DFA state contains no NFA states that are
