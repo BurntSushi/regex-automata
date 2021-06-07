@@ -100,10 +100,8 @@ fn find_fwd<A: Automaton + ?Sized>(
                     }
                 } else if dfa.is_accel_state(state) {
                     let needles = dfa.accelerator(state);
-                    if !needles.is_empty() {
-                        at = accel::find_fwd(needles, bytes, at)
-                            .unwrap_or(bytes.len());
-                    }
+                    at = accel::find_fwd(needles, bytes, at)
+                        .unwrap_or(bytes.len());
                 }
             } else if dfa.is_match_state(state) {
                 last_match = Some(HalfMatch {
@@ -115,10 +113,8 @@ fn find_fwd<A: Automaton + ?Sized>(
                 }
                 if dfa.is_accel_state(state) {
                     let needles = dfa.accelerator(state);
-                    if !needles.is_empty() {
-                        at = accel::find_fwd(needles, bytes, at)
-                            .unwrap_or(bytes.len());
-                    }
+                    at = accel::find_fwd(needles, bytes, at)
+                        .unwrap_or(bytes.len());
                 }
             } else if dfa.is_accel_state(state) {
                 let needs = dfa.accelerator(state);
@@ -190,11 +186,9 @@ fn find_rev<A: Automaton + ?Sized>(
             if dfa.is_start_state(state) {
                 if dfa.is_accel_state(state) {
                     let needles = dfa.accelerator(state);
-                    if !needles.is_empty() {
-                        at = accel::find_rev(needles, bytes, at)
-                            .map(|i| i + 1)
-                            .unwrap_or(0);
-                    }
+                    at = accel::find_rev(needles, bytes, at)
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
                 }
             } else if dfa.is_match_state(state) {
                 last_match = Some(HalfMatch {
@@ -206,11 +200,9 @@ fn find_rev<A: Automaton + ?Sized>(
                 }
                 if dfa.is_accel_state(state) {
                     let needles = dfa.accelerator(state);
-                    if !needles.is_empty() {
-                        at = accel::find_rev(needles, bytes, at)
-                            .map(|i| i + 1)
-                            .unwrap_or(0);
-                    }
+                    at = accel::find_rev(needles, bytes, at)
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
                 }
             } else if dfa.is_accel_state(state) {
                 let needles = dfa.accelerator(state);
@@ -349,10 +341,8 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                     }
                 } else if dfa.is_accel_state(state) {
                     let needles = dfa.accelerator(state);
-                    if !needles.is_empty() {
-                        at = accel::find_fwd(needles, bytes, at)
-                            .unwrap_or(bytes.len());
-                    }
+                    at = accel::find_fwd(needles, bytes, at)
+                        .unwrap_or(bytes.len());
                 }
             } else if dfa.is_match_state(state) {
                 let offset = at - MATCH_OFFSET;

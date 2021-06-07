@@ -87,9 +87,9 @@ fn serialization_unminimized_default() -> Result<()> {
             let (fwd_bytes, _) = re.forward().to_bytes_native_endian();
             let (rev_bytes, _) = re.reverse().to_bytes_native_endian();
             Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
-                let fwd: dense::DFA<&[u32], &[u8]> =
+                let fwd: dense::DFA<&[u32]> =
                     dense::DFA::from_bytes(&fwd_bytes).unwrap().0;
-                let rev: dense::DFA<&[u32], &[u8]> =
+                let rev: dense::DFA<&[u32]> =
                     dense::DFA::from_bytes(&rev_bytes).unwrap().0;
                 let re = builder.build_from_dfas(fwd, rev);
 

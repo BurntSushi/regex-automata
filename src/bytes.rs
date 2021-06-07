@@ -40,7 +40,11 @@ generally requires serializing both its big-endian and little-endian variants,
 and then loading the correct one based on the target's endianness.
 */
 
-use core::{cmp, convert::TryInto};
+use core::{
+    cmp,
+    convert::{TryFrom, TryInto},
+    mem::size_of,
+};
 
 #[cfg(feature = "alloc")]
 use alloc::{vec, vec::Vec};
@@ -120,10 +124,10 @@ enum DeserializeErrorKind {
     BufferTooSmall { what: &'static str },
     InvalidUsize { what: &'static str },
     InvalidVarint { what: &'static str },
-    VersionMismatch { expected: u64, found: u64 },
-    EndianMismatch { expected: u64, found: u64 },
-    StateSizeMismatch { expected: u64, found: u64 },
-    AlignmentMismatch { alignment: u64, address: u64 },
+    VersionMismatch { expected: u32, found: u32 },
+    EndianMismatch { expected: u32, found: u32 },
+    StateSizeMismatch { expected: u32, found: u32 },
+    AlignmentMismatch { alignment: usize, address: usize },
     LabelMismatch { expected: &'static str },
     ArithmeticOverflow { what: &'static str },
     PatternID { err: PatternIDError, what: &'static str },
@@ -147,28 +151,31 @@ impl DeserializeError {
         DeserializeError(DeserializeErrorKind::InvalidVarint { what })
     }
 
-    fn version_mismatch(expected: u64, found: u64) -> DeserializeError {
+    fn version_mismatch(expected: u32, found: u32) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::VersionMismatch {
             expected,
             found,
         })
     }
 
-    fn endian_mismatch(expected: u64, found: u64) -> DeserializeError {
+    fn endian_mismatch(expected: u32, found: u32) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::EndianMismatch {
             expected,
             found,
         })
     }
 
-    fn state_size_mismatch(expected: u64, found: u64) -> DeserializeError {
+    fn state_size_mismatch(expected: u32, found: u32) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::StateSizeMismatch {
             expected,
             found,
         })
     }
 
-    fn alignment_mismatch(alignment: u64, address: u64) -> DeserializeError {
+    fn alignment_mismatch(
+        alignment: usize,
+        address: usize,
+    ) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::AlignmentMismatch {
             alignment,
             address,
@@ -267,8 +274,8 @@ impl core::fmt::Display for DeserializeError {
 /// before casting it to a &[T]. Note though that alignment is not itself
 /// sufficient to perform the cast for any `T`.
 pub fn check_alignment<T>(slice: &[u8]) -> Result<(), DeserializeError> {
-    let alignment = core::mem::align_of::<T>() as u64;
-    let address = slice.as_ptr() as u64;
+    let alignment = core::mem::align_of::<T>();
+    let address = slice.as_ptr() as usize;
     if address % alignment == 0 {
         return Ok(());
     }
@@ -305,19 +312,18 @@ pub fn skip_initial_padding(slice: &[u8]) -> usize {
 ///
 /// In practice, padding is often zero.
 ///
-/// The requirement for `8` here is somewhat arbitrary. In practice, we never
-/// need anything bigger in this crate, and so this function does some sanity
-/// asserts under the assumption of a max alignment of `8`.
+/// The requirement for `8` as a maximum here is somewhat arbitrary. In
+/// practice, we never need anything bigger in this crate, and so this function
+/// does some sanity asserts under the assumption of a max alignment of `8`.
 #[cfg(feature = "alloc")]
 pub fn alloc_aligned_buffer<T>(size: usize) -> (Vec<u8>, usize) {
     // FIXME: This is a kludge because there's no easy way to allocate a
     // Vec<u8> with an alignment guaranteed to be greater than 1. We could
-    // create a Vec<usize>, but this cannot be safely transmuted to a Vec<u8>
+    // create a Vec<u32>, but this cannot be safely transmuted to a Vec<u8>
     // without concern, since reallocing or dropping the Vec<u8> is UB
-    // (different alignment than the initial allocation). It's plausible
-    // that if there was a reliable way to create a Vec<u8> with a different
-    // alignment, then other aspects of this library could be simplified as
-    // well.
+    // (different alignment than the initial allocation). We could define a
+    // wrapper type to manage this for us, but it seems like more machinery
+    // than it's worth.
     let mut buf = vec![0; size];
     let align = core::mem::align_of::<T>();
     let address = buf.as_ptr() as usize;
@@ -386,7 +392,7 @@ pub fn read_label(
 /// must not be longer than 255 bytes, otherwise this will panic.
 ///
 /// Additional NUL bytes are written as necessary to ensure that the number of
-/// bytes written is always a multiple of 8.
+/// bytes written is always a multiple of 4.
 ///
 /// Upon success, the total number of bytes written (including padding) is
 /// returned.
@@ -402,7 +408,7 @@ pub fn write_label(
     for i in 0..(nwrite - label.len()) {
         dst[label.len() + i] = 0;
     }
-    assert_eq!(nwrite % 8, 0);
+    assert_eq!(nwrite % 4, 0);
     Ok(nwrite)
 }
 
@@ -428,7 +434,7 @@ pub fn write_label_len(label: &str) -> usize {
 ///
 /// Upon success, the total number of bytes read is returned.
 pub fn read_endianness_check(slice: &[u8]) -> Result<usize, DeserializeError> {
-    let n = try_read_u64(slice, "endianness check")?;
+    let n = try_read_u32(slice, "endianness check")?;
     if n != 0xFEFF {
         return Err(DeserializeError::endian_mismatch(0xFEFF, n));
     }
@@ -449,13 +455,13 @@ pub fn write_endianness_check<E: Endian>(
     if dst.len() < nwrite {
         return Err(SerializeError::buffer_too_small("endianness check"));
     }
-    E::write_u64(0xFEFF, dst);
+    E::write_u32(0xFEFF, dst);
     Ok(nwrite)
 }
 
 /// Returns the number of bytes written by the endianness check.
 pub fn write_endianness_check_len() -> usize {
-    8
+    size_of::<u32>()
 }
 
 /// Reads a version number from the beginning of the given slice and confirms
@@ -469,9 +475,9 @@ pub fn write_endianness_check_len() -> usize {
 /// we'll need to relax this a bit and support older versions.
 pub fn read_version(
     slice: &[u8],
-    expected_version: u64,
+    expected_version: u32,
 ) -> Result<usize, DeserializeError> {
-    let n = try_read_u64(slice, "version")?;
+    let n = try_read_u32(slice, "version")?;
     if n != expected_version {
         return Err(DeserializeError::version_mismatch(expected_version, n));
     }
@@ -486,20 +492,20 @@ pub fn read_version(
 ///
 /// Upon success, the total number of bytes written is returned.
 pub fn write_version<E: Endian>(
-    version: u64,
+    version: u32,
     dst: &mut [u8],
 ) -> Result<usize, SerializeError> {
     let nwrite = write_version_len();
     if dst.len() < nwrite {
         return Err(SerializeError::buffer_too_small("version number"));
     }
-    E::write_u64(version, dst);
+    E::write_u32(version, dst);
     Ok(nwrite)
 }
 
 /// Returns the number of bytes written by writing the version number.
 pub fn write_version_len() -> usize {
-    8
+    size_of::<u32>()
 }
 
 /// Attempts to read a pattern ID from the given slice. If the slice has an
@@ -509,10 +515,10 @@ pub fn try_read_pattern_id(
     slice: &[u8],
     what: &'static str,
 ) -> Result<PatternID, DeserializeError> {
-    if slice.len() < 4 {
+    if slice.len() < PatternID::SIZE {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    PatternID::from_ne_bytes(slice[..4].try_into().unwrap())
+    PatternID::from_ne_bytes(slice[..PatternID::SIZE].try_into().unwrap())
         .map_err(|err| DeserializeError::pattern_id_error(err, what))
 }
 
@@ -523,7 +529,7 @@ pub fn read_pattern_id(
     slice: &[u8],
     what: &'static str,
 ) -> Result<PatternID, DeserializeError> {
-    PatternID::from_ne_bytes(slice[..4].try_into().unwrap())
+    PatternID::from_ne_bytes(slice[..PatternID::SIZE].try_into().unwrap())
         .map_err(|err| DeserializeError::pattern_id_error(err, what))
 }
 
@@ -531,7 +537,9 @@ pub fn read_pattern_id(
 /// length, then this panics. Otherwise, the deserialized integer is assumed
 /// to be a valid pattern ID.
 pub fn read_pattern_id_unchecked(slice: &[u8]) -> PatternID {
-    PatternID::from_ne_bytes_unchecked(slice[..4].try_into().unwrap())
+    PatternID::from_ne_bytes_unchecked(
+        slice[..PatternID::SIZE].try_into().unwrap(),
+    )
 }
 
 /// Write the given pattern ID to the beginning of the given slice of bytes
@@ -550,10 +558,10 @@ pub fn try_read_state_id(
     slice: &[u8],
     what: &'static str,
 ) -> Result<StateID, DeserializeError> {
-    if slice.len() < 4 {
+    if slice.len() < StateID::SIZE {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    StateID::from_ne_bytes(slice[..4].try_into().unwrap())
+    StateID::from_ne_bytes(slice[..StateID::SIZE].try_into().unwrap())
         .map_err(|err| DeserializeError::state_id_error(err, what))
 }
 
@@ -564,7 +572,7 @@ pub fn read_state_id(
     slice: &[u8],
     what: &'static str,
 ) -> Result<StateID, DeserializeError> {
-    StateID::from_ne_bytes(slice[..4].try_into().unwrap())
+    StateID::from_ne_bytes(slice[..StateID::SIZE].try_into().unwrap())
         .map_err(|err| DeserializeError::state_id_error(err, what))
 }
 
@@ -572,7 +580,9 @@ pub fn read_state_id(
 /// length, then this panics. Otherwise, the deserialized integer is assumed
 /// to be a valid state ID.
 pub fn read_state_id_unchecked(slice: &[u8]) -> StateID {
-    StateID::from_ne_bytes_unchecked(slice[..4].try_into().unwrap())
+    StateID::from_ne_bytes_unchecked(
+        slice[..StateID::SIZE].try_into().unwrap(),
+    )
 }
 
 /// Write the given state ID to the beginning of the given slice of bytes
@@ -595,7 +605,22 @@ pub fn try_read_u16_as_usize(
     what: &'static str,
 ) -> Result<usize, DeserializeError> {
     try_read_u16(slice, what).and_then(|n| {
-        n.try_into().map_err(|_| DeserializeError::invalid_usize(what))
+        usize::try_from(n).map_err(|_| DeserializeError::invalid_usize(what))
+    })
+}
+
+/// Try to read a u32 as a usize from the beginning of the given slice in
+/// native endian format. If the slice has fewer than 4 bytes or if the
+/// deserialized number cannot be represented by usize, then this returns an
+/// error. The error message will include the `what` description of what is
+/// being deserialized, for better error messages. `what` should be a noun in
+/// singular form.
+pub fn try_read_u32_as_usize(
+    slice: &[u8],
+    what: &'static str,
+) -> Result<usize, DeserializeError> {
+    try_read_u32(slice, what).and_then(|n| {
+        usize::try_from(n).map_err(|_| DeserializeError::invalid_usize(what))
     })
 }
 
@@ -609,12 +634,9 @@ pub fn try_read_u64_as_usize(
     slice: &[u8],
     what: &'static str,
 ) -> Result<usize, DeserializeError> {
-    if slice.len() < 8 {
-        return Err(DeserializeError::buffer_too_small(what));
-    }
-    read_u64(slice)
-        .try_into()
-        .map_err(|_| DeserializeError::invalid_usize(what))
+    try_read_u64(slice, what).and_then(|n| {
+        usize::try_from(n).map_err(|_| DeserializeError::invalid_usize(what))
+    })
 }
 
 /// Try to read a u16 from the beginning of the given slice in native endian
@@ -626,7 +648,7 @@ pub fn try_read_u16(
     slice: &[u8],
     what: &'static str,
 ) -> Result<u16, DeserializeError> {
-    if slice.len() < 2 {
+    if slice.len() < size_of::<u16>() {
         return Err(DeserializeError::buffer_too_small(what));
     }
     Ok(read_u16(slice))
@@ -641,7 +663,7 @@ pub fn try_read_u32(
     slice: &[u8],
     what: &'static str,
 ) -> Result<u32, DeserializeError> {
-    if slice.len() < 4 {
+    if slice.len() < size_of::<u32>() {
         return Err(DeserializeError::buffer_too_small(what));
     }
     Ok(read_u32(slice))
@@ -656,7 +678,7 @@ pub fn try_read_u64(
     slice: &[u8],
     what: &'static str,
 ) -> Result<u64, DeserializeError> {
-    if slice.len() < 8 {
+    if slice.len() < size_of::<u64>() {
         return Err(DeserializeError::buffer_too_small(what));
     }
     Ok(read_u64(slice))
@@ -669,7 +691,7 @@ pub fn try_read_u64(
 /// its automaton at search time.
 #[inline(always)]
 pub fn read_u16(slice: &[u8]) -> u16 {
-    let bytes: [u8; 2] = slice[..2].try_into().unwrap();
+    let bytes: [u8; 2] = slice[..size_of::<u16>()].try_into().unwrap();
     u16::from_ne_bytes(bytes)
 }
 
@@ -680,7 +702,7 @@ pub fn read_u16(slice: &[u8]) -> u16 {
 /// its automaton at search time.
 #[inline(always)]
 pub fn read_u32(slice: &[u8]) -> u32 {
-    let bytes: [u8; 4] = slice[..4].try_into().unwrap();
+    let bytes: [u8; 4] = slice[..size_of::<u32>()].try_into().unwrap();
     u32::from_ne_bytes(bytes)
 }
 
@@ -691,7 +713,7 @@ pub fn read_u32(slice: &[u8]) -> u32 {
 /// its automaton at search time.
 #[inline(always)]
 pub fn read_u64(slice: &[u8]) -> u64 {
-    let bytes: [u8; 8] = slice[..8].try_into().unwrap();
+    let bytes: [u8; 8] = slice[..size_of::<u64>()].try_into().unwrap();
     u64::from_ne_bytes(bytes)
 }
 
@@ -743,9 +765,10 @@ pub fn write_varu64_len(mut n: u64) -> usize {
 pub fn read_varu64_as_usize(
     slice: &[u8],
     what: &'static str,
-) -> Result<(u64, usize), DeserializeError> {
+) -> Result<(usize, usize), DeserializeError> {
     let (n, nread) = read_varu64(slice, what)?;
-    let n = n.try_into().map_err(|_| DeserializeError::invalid_usize(what))?;
+    let n = usize::try_from(n)
+        .map_err(|_| DeserializeError::invalid_usize(what))?;
     Ok((n, nread))
 }
 
@@ -835,8 +858,7 @@ pub fn shl(
     b: usize,
     what: &'static str,
 ) -> Result<usize, DeserializeError> {
-    let amount: u32 = b
-        .try_into()
+    let amount = u32::try_from(b)
         .map_err(|_| DeserializeError::arithmetic_overflow(what))?;
     match a.checked_shl(amount) {
         Some(c) => Ok(c),
@@ -904,10 +926,10 @@ impl Endian for BE {
 }
 
 /// Returns the number of additional bytes required to add to the given length
-/// in order to make the total length a multiple of 8. The return value is
-/// always less than 8.
+/// in order to make the total length a multiple of 4. The return value is
+/// always less than 4.
 pub fn padding_len(non_padding_len: usize) -> usize {
-    (8 - (non_padding_len & 0b111)) & 0b111
+    (4 - (non_padding_len & 0b11)) & 0b11
 }
 
 #[cfg(all(test, feature = "alloc"))]

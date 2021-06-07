@@ -67,7 +67,7 @@ use crate::{
 };
 
 const LABEL: &str = "rust-regex-automata-dfa-sparse";
-const VERSION: u64 = 2;
+const VERSION: u32 = 2;
 
 /// A sparse deterministic finite automaton (DFA) with variable sized states.
 ///
@@ -247,13 +247,9 @@ impl DFA<Vec<u8>> {
     }
 
     /// The implementation for constructing a sparse DFA from a dense DFA.
-    pub(crate) fn from_dense<T, A>(
-        dfa: &dense::DFA<T, A>,
-    ) -> Result<DFA<Vec<u8>>, Error>
-    where
-        T: AsRef<[u32]>,
-        A: AsRef<[u8]>,
-    {
+    pub(crate) fn from_dense<T: AsRef<[u32]>>(
+        dfa: &dense::DFA<T>,
+    ) -> Result<DFA<Vec<u8>>, Error> {
         // In order to build the transition table, we need to be able to write
         // state identifiers for each of the "next" transitions in each state.
         // Our state identifiers correspond to the byte offset in the
@@ -277,7 +273,7 @@ impl DFA<Vec<u8>> {
             let pos = sparse.len();
 
             remap[dfa.to_index(state.id())] =
-                StateID::new(pos).map_err(|_| Error::too_many_states(pos))?;
+                StateID::new(pos).map_err(|_| Error::too_many_states())?;
             // zero-filled space for the transition count
             sparse.push(0);
             sparse.push(0);
@@ -337,7 +333,7 @@ impl DFA<Vec<u8>> {
                     &mut sparse[pos..],
                 );
                 pos += 4;
-                for pid in dfa.match_pattern_ids(state.id()) {
+                for &pid in dfa.pattern_id_slice(state.id()) {
                     pos += bytes::write_pattern_id::<bytes::NE>(
                         pid,
                         &mut sparse[pos..],
@@ -1697,8 +1693,8 @@ impl StartTable<Vec<u8>> {
         }
     }
 
-    fn from_dense_dfa<T: AsRef<[u32]>, A: AsRef<[u8]>>(
-        dfa: &dense::DFA<T, A>,
+    fn from_dense_dfa<T: AsRef<[u32]>>(
+        dfa: &dense::DFA<T>,
         remap: &[StateID],
     ) -> Result<StartTable<Vec<u8>>, Error> {
         let start_pattern_count = if dfa.has_starts_for_each_pattern() {

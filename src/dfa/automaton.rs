@@ -864,8 +864,11 @@ pub unsafe trait Automaton {
     /// Returns the pattern ID corresponding to the given match index in the
     /// given state.
     ///
-    /// This must panic if the given match index is out of bounds or if the
-    /// given state ID does not correspond to a match state.
+    /// If the state ID is not a match state or if the match index is out
+    /// of bounds for the given state, then this routine may either panic
+    /// or produce an incorrect result. If the state ID is correct and the
+    /// match index is correct, then this routine must always produce a valid
+    /// `PatternID`.
     ///
     /// See [`Automaton::match_count`] for an example of how to use this
     /// method correctly. Note that if you know your DFA is compiled with a
@@ -880,10 +883,12 @@ pub unsafe trait Automaton {
     /// Return a slice of bytes to accelerate for the given state, if possible.
     ///
     /// If the given state has no accelerator, then an empty slice must be
-    /// returned. This routine must never panic. If `Automaton::is_accel_state`
-    /// returns true for the given ID, then this routine _should_ return a
-    /// non-empty slice, but it is not required to do so. (Thus, it is always
-    /// correct to return an empty slice.)
+    /// returned. If `Automaton::is_accel_state` returns true for the given
+    /// ID, then this routine _must_ return a non-empty slice, but it is not
+    /// required to do so.
+    ///
+    /// If the given ID is not a valid state ID for this automaton, then
+    /// implementations may panic or produce incorrect results.
     ///
     /// See [`Automaton::is_accel_state`] for more details on state
     /// acceleration.

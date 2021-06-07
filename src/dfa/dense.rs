@@ -13,6 +13,7 @@ use core::{
     convert::{TryFrom, TryInto},
     fmt, iter,
     marker::PhantomData,
+    mem::size_of,
     slice,
 };
 
@@ -51,7 +52,7 @@ const LABEL: &str = "rust-regex-automata-dfa-dense";
 /// change occurs. A change may not necessarily be a breaking change, but the
 /// version does permit good error messages in the case where a breaking change
 /// is made.
-const VERSION: u64 = 2;
+const VERSION: u32 = 2;
 
 /// The configuration used for compiling a dense DFA.
 ///
@@ -97,11 +98,11 @@ impl Config {
     /// disabled, the DFA will act as if the pattern started with a `(?s:.)*?`,
     /// which enables a match to appear anywhere.
     ///
-    /// Note that if you want to run both anchored and unanchored searches
-    /// without building multiple automatons, you can enable the
+    /// Note that if you want to run both anchored and unanchored
+    /// searches without building multiple automatons, you can enable the
     /// [`Config::starts_for_each_pattern`] configuration instead. This will
-    /// permit unanchored searches and pattern-specific anchored searches. See
-    /// the documentation for that configuration for an example.
+    /// permit unanchored any-pattern searches and pattern-specific anchored
+    /// searches. See the documentation for that configuration for an example.
     ///
     /// By default this is disabled.
     ///
@@ -159,7 +160,7 @@ impl Config {
     /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 2, 3)?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
-    /// let expected = Some(HalfMatch::new(0, 3));
+    /// let expected = Some(HalfMatch::must(0, 3));
     /// assert_eq!(expected, got);
     ///
     /// let dfa = dense::Builder::new()
@@ -179,7 +180,7 @@ impl Config {
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
     /// // prefix allows the search to match 'a'.
-    /// let expected = Some(HalfMatch::new(0, 3));
+    /// let expected = Some(HalfMatch::must(0, 3));
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -294,7 +295,7 @@ impl Config {
     /// let haystack = "@foo".as_bytes();
     /// let mut state = OverlappingState::start();
     ///
-    /// let expected = Some(HalfMatch::new(1, 4));
+    /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
     /// assert_eq!(expected, got);
     ///
@@ -303,7 +304,7 @@ impl Config {
     /// // pattern is returned after the second. This is because the second
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
-    /// let expected = Some(HalfMatch::new(0, 4));
+    /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
     /// assert_eq!(expected, got);
     ///
@@ -337,8 +338,8 @@ impl Config {
     ///         .match_kind(MatchKind::All)
     ///     )
     ///     .build(pattern)?;
-    /// let expected_fwd = HalfMatch::new(0, 9);
-    /// let expected_rev = HalfMatch::new(0, 3);
+    /// let expected_fwd = HalfMatch::must(0, 9);
+    /// let expected_rev = HalfMatch::must(0, 3);
     /// let got_fwd = dfa_fwd.find_leftmost_fwd(haystack)?.unwrap();
     /// // Here we don't specify the pattern to search for since there's only
     /// // one pattern and we're doing a leftmost search. But if this were an
@@ -346,7 +347,7 @@ impl Config {
     /// // in the forward direction. (Otherwise, you might wind up finding the
     /// // starting position of a match of some other pattern.) That in turn
     /// // requires building the reverse automaton with starts_for_each_pattern
-    /// // enabled.
+    /// // enabled. Indeed, this is what Regex does internally.
     /// let got_rev = dfa_rev.find_leftmost_rev_at(
     ///     None, haystack, 0, got_fwd.offset(),
     /// )?.unwrap();
@@ -409,7 +410,7 @@ impl Config {
     /// // Here's a normal unanchored search. Notice that we use 'None' for the
     /// // pattern ID. Since the DFA was built as an unanchored machine, it
     /// // use its default unanchored starting state.
-    /// let expected = HalfMatch::new(0, 11);
+    /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
     ///     None, None, haystack, 0, haystack.len(),
     /// )?);
@@ -449,12 +450,12 @@ impl Config {
     /// equivalence classes because they never discriminate between a match
     /// and a non-match.
     ///
-    /// The advantage of this map is that the size of the transition table can
-    /// be reduced drastically from `#states * 256 * sizeof(id)` to `#states *
-    /// k * sizeof(id)` where `k` is the number of equivalence classes (rounded
-    /// up to the nearest power of 2). As a result, total space usage can
-    /// decrease substantially. Moreover, since a smaller alphabet is used, DFA
-    /// compilation becomes faster as well.
+    /// The advantage of this map is that the size of the transition table
+    /// can be reduced drastically from `#states * 256 * sizeof(StateID)` to
+    /// `#states * k * sizeof(StateID)` where `k` is the number of equivalence
+    /// classes (rounded up to the nearest power of 2). As a result, total
+    /// space usage can decrease substantially. Moreover, since a smaller
+    /// alphabet is used, DFA compilation becomes faster as well.
     ///
     /// **WARNING:** This is only useful for debugging DFAs. Disabling this
     /// does not yield any speed advantages. Namely, even when this is
@@ -517,7 +518,7 @@ impl Config {
     /// // The match occurs before the search ever observes the snowman
     /// // character, so no error occurs.
     /// let haystack = "foo 123 x☃".as_bytes();
-    /// let expected = Some(HalfMatch::new(0, 7));
+    /// let expected = Some(HalfMatch::must(0, 7));
     /// let got = dfa.find_leftmost_fwd(haystack)?;
     /// assert_eq!(expected, got);
     ///
@@ -705,14 +706,14 @@ impl Config {
 /// 1. It provides a number of different `build` routines for actually
 /// constructing a DFA from different kinds of inputs. The most convenient is
 /// [`Builder::build`], which builds a DFA directly from a pattern string. The
-/// most flexible is [`Builder::build_from_nfa_with_size`], which builds a DFA
-/// straight from an NFA with a chosen state ID representation.
+/// most flexible is [`Builder::build_from_nfa`], which builds a DFA straight
+/// from an NFA.
 /// 2. The builder permits configuring a number of things.
 /// [`Builder::configure`] is used with [`Config`] to configure aspects of
 /// the DFA and the construction process itself. [`Builder::syntax`] and
 /// [`Builder::thompson`] permit configuring the regex parser and Thompson NFA
 /// construction, respectively. The syntax and thompson configurations only
-/// apply when building from a pattern.
+/// apply when building from a pattern string.
 ///
 /// This builder always constructs a *single* DFA. As such, this builder
 /// can only be used to construct regexes that either detect the presence
@@ -757,7 +758,7 @@ impl Config {
 ///     .build(r"foo[^b]ar.*")?;
 ///
 /// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";
-/// let expected = Some(HalfMatch::new(0, 10));
+/// let expected = Some(HalfMatch::must(0, 10));
 /// let got = dfa.find_leftmost_fwd(haystack)?;
 /// assert_eq!(expected, got);
 ///
@@ -815,12 +816,12 @@ impl Builder {
     ///
     /// let haystack = "foo123bar".as_bytes();
     ///
+    /// // This shows how to set non-default options for building an NFA.
     /// let nfa = thompson::Builder::new()
     ///     .configure(thompson::Config::new().shrink(false))
     ///     .build(r"[0-9]+")?;
-    /// let dfa = dense::Builder::new()
-    ///     .build_from_nfa(&nfa)?;
-    /// let expected = Some(HalfMatch::new(0, 6));
+    /// let dfa = dense::Builder::new().build_from_nfa(&nfa)?;
+    /// let expected = Some(HalfMatch::must(0, 6));
     /// let got = dfa.find_leftmost_fwd(haystack)?;
     /// assert_eq!(expected, got);
     ///
@@ -914,10 +915,10 @@ impl Default for Builder {
 /// A convenience alias for an owned DFA. We use this particular instantiation
 /// a lot in this crate, so it's worth giving it a name. This instantiation
 /// is commonly used for mutable APIs on the DFA while building it. The main
-/// reason for making it generic is no_std support, and more generally, making
-/// it possible to load a DFA from an arbitrary slice of bytes.
+/// reason for making DFAs generic is no_std support, and more generally,
+/// making it possible to load a DFA from an arbitrary slice of bytes.
 #[cfg(feature = "alloc")]
-pub(crate) type OwnedDFA = DFA<Vec<u32>, Vec<u8>>;
+pub(crate) type OwnedDFA = DFA<Vec<u32>>;
 
 /// A dense table-based deterministic finite automaton (DFA).
 ///
@@ -948,28 +949,18 @@ pub(crate) type OwnedDFA = DFA<Vec<u32>, Vec<u8>>;
 ///
 /// 1. Detection of a match.
 /// 2. Location of the end of a match.
+/// 3. In the case of a DFA with multiple patterns, which pattern matched is
+///    reported as well.
 ///
 /// A notable absence from the above list of capabilities is the location of
 /// the *start* of a match. In order to provide both the start and end of
 /// a match, *two* DFAs are required. This functionality is provided by a
 /// [`Regex`](crate::dfa::Regex).
 ///
-/// # Type parameters and state size
+/// # Type parameters
 ///
-/// A `DFA` has two type parameters, `T`, `A`:
-///
-/// * `T` is the type of the DFA's transition table. `T` is typically
-///   `Vec<S>` or `&[S]`.
-/// * `A` is the type used for the DFA's acceleration table. `A` is typically
-///   `Vec<u8>` or `&[u8]`.
-///
-/// While the reduction in heap memory used by a DFA is one reason for
-/// choosing a smaller state identifier representation, another possible
-/// reason is for decreasing the serialization size of a DFA, as returned
-/// by [`DFA::to_bytes_little_endian`], [`DFA::to_bytes_big_endian`] or
-/// [`DFA::to_bytes_native_endian`]. A smaller DFA also means that more of it
-/// will fit in your CPU's cache, potentially leading to overall better search
-/// performance.
+/// A `DFA` has one type parameters `T`, which is used to represent state IDs,
+/// pattern IDs and accelerators. `T` is typically a `Vec<u32>` or a `&[u32]`.
 ///
 /// # The `Automaton` trait
 ///
@@ -980,12 +971,12 @@ pub(crate) type OwnedDFA = DFA<Vec<u32>, Vec<u8>>;
 /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
-/// let expected = HalfMatch::new(0, 8);
+/// let expected = HalfMatch::must(0, 8);
 /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
-pub struct DFA<T, A> {
+pub struct DFA<T> {
     /// The transition table for this DFA. This includes the transitions
     /// themselves, along with the stride, number of states and the equivalence
     /// class mapping.
@@ -1001,8 +992,10 @@ pub struct DFA<T, A> {
     /// This structure is technically only needed because of support for
     /// multi-regexes. Namely, multi-regexes require answering not just whether
     /// a match exists, but _which_ patterns match. So we need to store the
-    /// matching pattern IDs for each match state.
-    ms: MatchStates<T, A>,
+    /// matching pattern IDs for each match state. We do this even when there
+    /// is only one pattern for the sake of simplicity. In practice, this uses
+    /// up very little space for the case of on pattern.
+    ms: MatchStates<T>,
     /// Information about which states are "special." Special states are states
     /// that are dead, quit, matching, starting or accelerated. For more info,
     /// see the docs for `Special`.
@@ -1017,18 +1010,13 @@ pub struct DFA<T, A> {
     /// All accelerated states exist in a contiguous range in the DFA's
     /// transition table. See dfa/special.rs for more details on how states are
     /// arranged.
-    ///
-    /// In practice, A is either Vec<u8> or &[u8].
-    accels: Accels<A>,
+    accels: Accels<T>,
 }
 
 #[cfg(feature = "alloc")]
 impl OwnedDFA {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding DFA.
-    ///
-    /// The default configuration uses `usize` for state IDs. The DFA is *not*
-    /// minimized.
     ///
     /// If you want a non-default configuration, then use the
     /// [`dense::Builder`](Builder) to set your own configuration.
@@ -1039,7 +1027,7 @@ impl OwnedDFA {
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+bar")?;
-    /// let expected = HalfMatch::new(0, 11);
+    /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1050,9 +1038,6 @@ impl OwnedDFA {
     /// Parse the given regular expressions using a default configuration and
     /// return the corresponding multi-DFA.
     ///
-    /// The default configuration uses `usize` for state IDs. The DFA is *not*
-    /// minimized.
-    ///
     /// If you want a non-default configuration, then use the
     /// [`dense::Builder`](Builder) to set your own configuration.
     ///
@@ -1062,7 +1047,7 @@ impl OwnedDFA {
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
     /// let dfa = dense::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
-    /// let expected = HalfMatch::new(1, 3);
+    /// let expected = HalfMatch::must(1, 3);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1077,15 +1062,12 @@ impl OwnedDFA {
     ///
     /// # Example
     ///
-    /// In order to build a DFA that always matches, callers must provide a
-    /// type hint indicating their choice of state identifier representation.
-    ///
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
-    /// let dfa: dense::DFA<Vec<_>, _> = dense::DFA::always_match()?;
+    /// let dfa = dense::DFA::always_match()?;
     ///
-    /// let expected = HalfMatch::new(0, 0);
+    /// let expected = HalfMatch::must(0, 0);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"")?);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1099,13 +1081,10 @@ impl OwnedDFA {
     ///
     /// # Example
     ///
-    /// In order to build a DFA that never matches, callers must provide a type
-    /// hint indicating their choice of state identifier representation.
-    ///
     /// ```
     /// use regex_automata::dfa::{Automaton, dense};
     ///
-    /// let dfa: dense::DFA<Vec<_>, _> = dense::DFA::never_match()?;
+    /// let dfa = dense::DFA::never_match()?;
     /// assert_eq!(None, dfa.find_leftmost_fwd(b"")?);
     /// assert_eq!(None, dfa.find_leftmost_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1126,8 +1105,8 @@ impl OwnedDFA {
         let start_pattern_count =
             if starts_for_each_pattern { pattern_count } else { 0 };
         Ok(DFA {
-            tt: TransitionTable::minimal(classes)?,
-            st: StartTable::dead(start_pattern_count),
+            tt: TransitionTable::minimal(classes),
+            st: StartTable::dead(start_pattern_count)?,
             ms: MatchStates::empty(pattern_count),
             special: Special::new(),
             accels: Accels::empty(),
@@ -1135,11 +1114,10 @@ impl OwnedDFA {
     }
 }
 
-impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
-    /// Cheaply return a borrowed version of this dense DFA. Specifically, the
-    /// DFA returned always uses `&[S]` for its transition table while keeping
-    /// the same state identifier representation.
-    pub fn as_ref(&self) -> DFA<&'_ [u32], &'_ [u8]> {
+impl<T: AsRef<[u32]>> DFA<T> {
+    /// Cheaply return a borrowed version of this dense DFA. Specifically,
+    /// the DFA returned always uses `&[u32]` for its transition table.
+    pub fn as_ref(&self) -> DFA<&'_ [u32]> {
         DFA {
             tt: self.tt.as_ref(),
             st: self.st.as_ref(),
@@ -1150,8 +1128,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     }
 
     /// Return an owned version of this sparse DFA. Specifically, the DFA
-    /// returned always uses `Vec<S>` for its transition table while keeping
-    /// the same state identifier representation.
+    /// returned always uses `Vec<u32>` for its transition table.
     ///
     /// Effectively, this returns a dense DFA whose transition table lives on
     /// the heap.
@@ -1258,19 +1235,14 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
 }
 
 /// Routines for converting a dense DFA to other representations, such as
-/// sparse DFAs, smaller state identifiers or raw bytes suitable for persistent
-/// storage.
-impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
+/// sparse DFAs or raw bytes suitable for persistent storage.
+impl<T: AsRef<[u32]>> DFA<T> {
     /// Convert this dense DFA to a sparse DFA.
     ///
-    /// This is a convenience routine for `to_sparse_sized` that fixes the
-    /// state identifier representation of the sparse DFA to the same
-    /// representation used for this dense DFA.
-    ///
-    /// If the state identifier representation is too small to represent all
-    /// states in the sparse DFA, then this returns an error. In most cases,
-    /// if a dense DFA is constructable with `S` then a sparse DFA will be as
-    /// well. However, it is not guaranteed.
+    /// If a `StateID` is too small to represent all states in the sparse
+    /// DFA, then this returns an error. In most cases, if a dense DFA is
+    /// constructable with `StateID` then a sparse DFA will be as well.
+    /// However, it is not guaranteed.
     ///
     /// # Example
     ///
@@ -1280,7 +1252,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// let dense = dense::DFA::new("foo[0-9]+")?;
     /// let sparse = dense.to_sparse()?;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), sparse.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1302,10 +1274,9 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// * [`DFA::from_bytes_unchecked`]
     ///
     /// The padding returned is non-zero if the returned `Vec<u8>` starts at
-    /// an address that does not have the same alignment as `S`. The padding
+    /// an address that does not have the same alignment as `u32`. The padding
     /// corresponds to the number of leading bytes written to the returned
-    /// `Vec<u8>`. The number of padding bytes written is typically zero, but
-    /// will never be more than 7.
+    /// `Vec<u8>`.
     ///
     /// # Example
     ///
@@ -1314,18 +1285,17 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // N.B. We use native endianness here to make the example work, but
     /// // using to_bytes_little_endian would work on a little endian target.
     /// let (buf, _) = original_dfa.to_bytes_native_endian();
     /// // Even if buf has initial padding, DFA::from_bytes will automatically
     /// // ignore it.
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf)?.0;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1347,10 +1317,9 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// * [`DFA::from_bytes_unchecked`]
     ///
     /// The padding returned is non-zero if the returned `Vec<u8>` starts at
-    /// an address that does not have the same alignment as `S`. The padding
+    /// an address that does not have the same alignment as `u32`. The padding
     /// corresponds to the number of leading bytes written to the returned
-    /// `Vec<u8>`. The number of padding bytes written is typically zero, but
-    /// will never be more than 7.
+    /// `Vec<u8>`.
     ///
     /// # Example
     ///
@@ -1359,18 +1328,17 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // N.B. We use native endianness here to make the example work, but
     /// // using to_bytes_big_endian would work on a big endian target.
     /// let (buf, _) = original_dfa.to_bytes_native_endian();
     /// // Even if buf has initial padding, DFA::from_bytes will automatically
     /// // ignore it.
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf)?.0;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1392,10 +1360,9 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// * [`DFA::from_bytes_unchecked`]
     ///
     /// The padding returned is non-zero if the returned `Vec<u8>` starts at
-    /// an address that does not have the same alignment as `S`. The padding
+    /// an address that does not have the same alignment as `u32`. The padding
     /// corresponds to the number of leading bytes written to the returned
-    /// `Vec<u8>`. The number of padding bytes written is typically zero, but
-    /// will never be more than 7.
+    /// `Vec<u8>`.
     ///
     /// Generally speaking, native endian format should only be used when
     /// you know that the target you're compiling the DFA for matches the
@@ -1413,16 +1380,15 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// let (buf, _) = original_dfa.to_bytes_native_endian();
     /// // Even if buf has initial padding, DFA::from_bytes will automatically
     /// // ignore it.
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf)?.0;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1481,9 +1447,9 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// // N.B. We use native endianness here to make the example work, but
     /// // using write_to_little_endian would work on a little endian target.
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u32], &[u8]> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1531,9 +1497,9 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// // N.B. We use native endianness here to make the example work, but
     /// // using write_to_big_endian would work on a big endian target.
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1588,9 +1554,9 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// // Create a 4KB buffer on the stack to store our serialized DFA.
     /// let mut buf = [0u8; 4 * (1<<10)];
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1611,7 +1577,8 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// * [`DFA::write_to_native_endian`]
     ///
     /// Passing a buffer smaller than the size returned by this method will
-    /// result in a serialization error.
+    /// result in a serialization error. Serialization routines are guaranteed
+    /// to succeed when the buffer is big enough.
     ///
     /// # Example
     ///
@@ -1626,15 +1593,15 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     ///
     /// let mut buf = vec![0; original_dfa.write_to_len()];
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
     /// Note that this example isn't actually guaranteed to work! In
-    /// particular, if `buf` is aligned to a 2-byte boundary, then the
+    /// particular, if `buf` is not aligned to a 4-byte boundary, then the
     /// `DFA::from_bytes` call will fail. If you need this to work, then you
     /// either need to deal with adding some initial padding yourself, or use
     /// one of the `to_bytes` methods, which will do it for you.
@@ -1642,8 +1609,8 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
         bytes::write_label_len(LABEL)
         + bytes::write_endianness_check_len()
         + bytes::write_version_len()
-        + 8 // unused, intended for future flexibility
-        + self.tt.as_ref().write_to_len()
+        + size_of::<u32>() // unused, intended for future flexibility
+        + self.tt.write_to_len()
         + self.st.write_to_len()
         + self.ms.write_to_len()
         + self.special.write_to_len()
@@ -1651,7 +1618,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     }
 }
 
-impl<'a> DFA<&'a [u32], &'a [u8]> {
+impl<'a> DFA<&'a [u32]> {
     /// Safely deserialize a DFA with a specific state identifier
     /// representation. Upon success, this returns both the deserialized DFA
     /// and the number of bytes read from the given slice. Namely, the contents
@@ -1683,11 +1650,6 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// DFAs for both forms of endianness and then load the correct one based
     /// on endianness.)
     ///
-    /// If the state identifier representation is `usize`, then deserialization
-    /// is dependent on the pointer size. For this reason, it is best to
-    /// serialize DFAs using a fixed size representation for your state
-    /// identifiers, such as `u8`, `u16`, `u32` or `u64`.
-    ///
     /// # Errors
     ///
     /// Generally speaking, it's easier to state the conditions in which an
@@ -1695,12 +1657,9 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     ///
     /// * The bytes given must be produced by one of the serialization APIs
     ///   on this DFA, as mentioned above.
-    /// * The state ID representation chosen by type inference (that's the `S`
-    ///   type parameter) must match the state ID representation in the given
-    ///   serialized DFA.
     /// * The endianness of the target platform matches the endianness used to
     ///   serialized the provided DFA.
-    /// * The slice given must have the same alignment as `S`.
+    /// * The slice given must have the same alignment as `u32`.
     ///
     /// If any of the above are not true, then an error will be returned.
     ///
@@ -1711,20 +1670,16 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// # Example
     ///
     /// This example shows how to serialize a DFA to raw bytes, deserialize it
-    /// and then use it for searching. Note that we first convert the DFA to
-    /// using `u16` for its state identifier representation before serializing
-    /// it. While this isn't strictly necessary, it's good practice in order to
-    /// decrease the size of the DFA and to avoid platform specific pitfalls
-    /// such as differing pointer sizes.
+    /// and then use it for searching.
     ///
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
-    /// let (bytes, _) = initial.to_sized::<u16>()?.to_bytes_native_endian();
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&bytes)?.0;
+    /// let (bytes, _) = initial.to_bytes_native_endian();
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&bytes)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1736,7 +1691,7 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// to padding added to the beginning of the serialized DFA. This is OK
     /// because deserialization will skip this initial padding. What matters
     /// is that the address immediately following the padding has an alignment
-    /// that matches `S`. That is, the following is an equivalent but
+    /// that matches `u32`. That is, the following is an equivalent but
     /// alternative way to write the above example:
     ///
     /// ```
@@ -1745,10 +1700,10 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// let initial = DFA::new("foo[0-9]+")?;
     /// // Serialization returns the number of leading padding bytes added to
     /// // the returned Vec<u8>.
-    /// let (bytes, pad) = initial.to_sized::<u16>()?.to_bytes_native_endian();
-    /// let dfa: DFA<&[u16], &[u8], u16> = DFA::from_bytes(&bytes[pad..])?.0;
+    /// let (bytes, pad) = initial.to_bytes_native_endian();
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&bytes[pad..])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1761,10 +1716,10 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     ///
     /// The purpose of exposing the padding like this is flexibility for the
     /// caller. For example, if one wants to embed a serialized DFA into a
-    /// compiled program, then it's important to guarantee that it starts at
-    /// an `S`-aligned address. The simplest way to do this is to discard the
-    /// padding bytes and set it up so that the serialized DFA itself begins
-    /// at a properly aligned address. We can show this in two parts. The first
+    /// compiled program, then it's important to guarantee that it starts at a
+    /// `u32`-aligned address. The simplest way to do this is to discard the
+    /// padding bytes and set it up so that the serialized DFA itself begins at
+    /// a properly aligned address. We can show this in two parts. The first
     /// part is serializing the DFA to a file:
     ///
     /// ```no_run
@@ -1772,12 +1727,12 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     ///
     /// let dfa = DFA::new("foo[0-9]+")?;
     ///
-    /// let (bytes, pad) = dfa.to_sized::<u16>()?.to_bytes_big_endian();
+    /// let (bytes, pad) = dfa.to_bytes_big_endian();
     /// // Write the contents of the DFA *without* the initial padding.
     /// std::fs::write("foo.bigendian.dfa", &bytes[pad..])?;
     ///
     /// // Do it again, but this time for little endian.
-    /// let (bytes, pad) = dfa.to_sized::<u16>()?.to_bytes_little_endian();
+    /// let (bytes, pad) = dfa.to_bytes_little_endian();
     /// std::fs::write("foo.littleendian.dfa", &bytes[pad..])?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1789,8 +1744,8 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// ```no_run
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
     ///
-    /// type S = u16;
-    /// type DFA = dense::DFA<&'static [S], &'static [u8], S>;
+    /// type S = u32;
+    /// type DFA = dense::DFA<&'static [S]>;
     ///
     /// fn get_foo() -> &'static DFA {
     ///     use std::cell::Cell;
@@ -1848,7 +1803,7 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// }
     ///
     /// let dfa = get_foo();
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Ok(Some(expected)), dfa.find_leftmost_fwd(b"foo12345"));
     /// ```
     ///
@@ -1861,23 +1816,23 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// do and `from_bytes` will return an error if you get it wrong.
     pub fn from_bytes(
         slice: &'a [u8],
-    ) -> Result<(DFA<&'a [u32], &'a [u8]>, usize), DeserializeError> {
-        // SAFETY: This is safe because we validate both the transition table
-        // and start state ID list below. If either validation fails, then we
-        // return an error.
+    ) -> Result<(DFA<&'a [u32]>, usize), DeserializeError> {
+        // SAFETY: This is safe because we validate both the transition table,
+        // start state ID list and the match states below. If either validation
+        // fails, then we return an error.
         let (dfa, nread) = unsafe { DFA::from_bytes_unchecked(slice)? };
         dfa.tt.validate()?;
         dfa.st.validate(&dfa.tt)?;
         dfa.ms.validate(&dfa)?;
+        dfa.accels.validate()?;
         // N.B. dfa.special doesn't have a way to do unchecked deserialization,
-        // so it has already been validated. dfa.accels doesn't either,
-        // although it probably should.
+        // so it has already been validated.
         Ok((dfa, nread))
     }
 
     /// Deserialize a DFA with a specific state identifier representation in
     /// constant time by omitting the verification of the validity of the
-    /// transition table.
+    /// transition table and other data inside the DFA.
     ///
     /// This is just like [`DFA::from_bytes`], except it can potentially return
     /// a DFA that exhibits undefined behavior if its transition table contains
@@ -1893,20 +1848,18 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
-    /// let (bytes, _) = initial.to_sized::<u16>()?.to_bytes_native_endian();
+    /// let (bytes, _) = initial.to_bytes_native_endian();
     /// // SAFETY: This is guaranteed to be safe since the bytes given come
     /// // directly from a compatible serialization routine.
-    /// let dfa: DFA<&[u16], &[u8], u16> = unsafe {
-    ///     DFA::from_bytes_unchecked(&bytes)?.0
-    /// };
+    /// let dfa: DFA<&[u32]> = unsafe { DFA::from_bytes_unchecked(&bytes)?.0 };
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub unsafe fn from_bytes_unchecked(
         slice: &'a [u8],
-    ) -> Result<(DFA<&'a [u32], &'a [u8]>, usize), DeserializeError> {
+    ) -> Result<(DFA<&'a [u32]>, usize), DeserializeError> {
         let mut nr = 0;
 
         nr += bytes::skip_initial_padding(slice);
@@ -1915,8 +1868,8 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
         nr += bytes::read_endianness_check(&slice[nr..])?;
         nr += bytes::read_version(&slice[nr..], VERSION)?;
 
-        let _unused = bytes::try_read_u64(&slice[nr..], "unused space")?;
-        nr += 8;
+        let _unused = bytes::try_read_u32(&slice[nr..], "unused space")?;
+        nr += size_of::<u32>();
 
         let (tt, nread) = TransitionTable::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
@@ -1929,9 +1882,9 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
 
         let (special, nread) = Special::from_bytes(&slice[nr..])?;
         nr += nread;
-        special.validate_state_count(tt.count, tt.stride2)?;
+        special.validate_state_count(tt.count(), tt.stride2)?;
 
-        let (accels, nread) = Accels::from_bytes(&slice[nr..])?;
+        let (accels, nread) = Accels::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
         Ok((DFA { tt, st, ms, special, accels }, nr))
@@ -1940,21 +1893,27 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
     /// The implementation of the public `write_to` serialization methods,
     /// which is generic over endianness.
     ///
-    /// This is defined only for &[S] to reduce binary size/compilation time.
+    /// This is defined only for &[u32] to reduce binary size/compilation time.
     fn write_to<E: Endian>(
         &self,
-        dst: &mut [u8],
+        mut dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
+        let nwrite = self.write_to_len();
+        if dst.len() < nwrite {
+            return Err(SerializeError::buffer_too_small("dense DFA"));
+        }
+        dst = &mut dst[..nwrite];
+
         let mut nw = 0;
         nw += bytes::write_label(LABEL, &mut dst[nw..])?;
         nw += bytes::write_endianness_check::<E>(&mut dst[nw..])?;
         nw += bytes::write_version::<E>(VERSION, &mut dst[nw..])?;
         nw += {
             // Currently unused, intended for future flexibility
-            E::write_u64(0, &mut dst[nw..]);
-            8
+            E::write_u32(0, &mut dst[nw..]);
+            size_of::<u32>()
         };
-        nw += self.tt.as_ref().write_to::<E>(&mut dst[nw..])?;
+        nw += self.tt.write_to::<E>(&mut dst[nw..])?;
         nw += self.st.write_to::<E>(&mut dst[nw..])?;
         nw += self.ms.write_to::<E>(&mut dst[nw..])?;
         nw += self.special.write_to::<E>(&mut dst[nw..])?;
@@ -1964,8 +1923,8 @@ impl<'a> DFA<&'a [u32], &'a [u8]> {
 }
 
 /// The following methods implement mutable routines on the internal
-/// representation of a DFA. As such, we must fix the first type parameter to
-/// a `Vec<S>` since a generic `T: AsRef<[S]>` does not permit mutation. We
+/// representation of a DFA. As such, we must fix the first type parameter to a
+/// `Vec<u32>` since a generic `T: AsRef<[u32]>` does not permit mutation. We
 /// can get away with this because these methods are internal to the crate and
 /// are exclusively used during construction of the DFA.
 #[cfg(feature = "alloc")]
@@ -1996,9 +1955,8 @@ impl OwnedDFA {
     /// and return its identifier. The identifier returned is guaranteed to
     /// not point to any other existing state.
     ///
-    /// If adding a state would exhaust the state identifier space (given by
-    /// `S`), then this returns an error. In practice, this means that the
-    /// state identifier representation chosen is too small.
+    /// If adding a state would exceed `StateID::LIMIT`, then this returns an
+    /// error.
     pub(crate) fn add_empty_state(&mut self) -> Result<StateID, Error> {
         self.tt.add_empty_state()
     }
@@ -2034,18 +1992,25 @@ impl OwnedDFA {
     }
 
     /// Updates the match state pattern ID map to use the one provided.
+    ///
+    /// This is useful when it's convenient to manipulate matching states
+    /// (and their corresponding pattern IDs) as a map. In particular, the
+    /// representation used by a DFA for this map is not amenable to mutation,
+    /// so if things need to be changed (like when shuffling states), it's
+    /// often easier to work with the map form.
     pub(crate) fn set_pattern_map(
         &mut self,
         map: &BTreeMap<StateID, Vec<PatternID>>,
-    ) {
-        self.ms = self.ms.new_with_map(map);
+    ) -> Result<(), Error> {
+        self.ms = self.ms.new_with_map(map)?;
+        Ok(())
     }
 
     /// Find states that have a small number of non-loop transitions and mark
     /// them as candidates for acceleration during search.
     pub(crate) fn accelerate(&mut self) {
         // dead and quit states can never be accelerated.
-        if self.tt.count <= 2 {
+        if self.state_count() <= 2 {
             return;
         }
 
@@ -2160,7 +2125,7 @@ impl OwnedDFA {
         if cnormal > 0 {
             // our next available starting and normal states for swapping.
             let mut next_start_id = self.special.min_start;
-            let mut cur_id = self.from_index(self.tt.count - 1);
+            let mut cur_id = self.from_index(self.state_count() - 1);
             // This is guaranteed to exist since cnormal > 0.
             let mut next_norm_id =
                 self.tt.next_state_id(self.special.max_start);
@@ -2218,11 +2183,15 @@ impl OwnedDFA {
 
         // Remap all transitions in our DFA and assert some things.
         remapper.remap(self);
-        self.set_pattern_map(&new_matches);
+        // This unwrap is OK because acceleration never changes the number of
+        // match states or patterns in those match states. Since acceleration
+        // runs after the pattern map has been set at least once, we know that
+        // our match states cannot error.
+        self.set_pattern_map(&new_matches).unwrap();
         self.special.set_max();
         self.special.validate().expect("special state ranges should validate");
         self.special
-            .validate_state_count(self.tt.count, self.stride2())
+            .validate_state_count(self.state_count(), self.stride2())
             .expect(
                 "special state ranges should be consistent with state count",
             );
@@ -2256,14 +2225,14 @@ impl OwnedDFA {
     pub(crate) fn shuffle(
         &mut self,
         mut matches: BTreeMap<StateID, Vec<PatternID>>,
-    ) {
+    ) -> Result<(), Error> {
         // The determinizer always adds a quit state and it is always second.
         self.special.quit_id = self.from_index(1);
         // If all we have are the dead and quit states, then we're done and
         // the DFA will never produce a match.
-        if self.tt.count <= 2 {
+        if self.state_count() <= 2 {
             self.special.set_max();
-            return;
+            return Ok(());
         }
 
         // Collect all our start states into a convenient set and confirm there
@@ -2282,7 +2251,9 @@ impl OwnedDFA {
             // removed and the code below fixed.
             //
             // N.B. Minimization can cause start states to be dead, but that
-            // happens after states are shuffled, so it's OK.
+            // happens after states are shuffled, so it's OK. Also, start
+            // states are dead for the DFA that never matches anything, but
+            // in that case, there are no states to shuffle.
             assert_ne!(start_id, DEAD, "start state cannot be dead");
             assert!(
                 !matches.contains_key(&start_id),
@@ -2346,19 +2317,20 @@ impl OwnedDFA {
 
         // Finally remap all transitions in our DFA.
         remapper.remap(self);
-        self.set_pattern_map(&matches);
+        self.set_pattern_map(&matches)?;
         self.special.set_max();
         self.special.validate().expect("special state ranges should validate");
         self.special
-            .validate_state_count(self.tt.count, self.stride2())
+            .validate_state_count(self.state_count(), self.stride2())
             .expect(
                 "special state ranges should be consistent with state count",
             );
+        Ok(())
     }
 }
 
 /// A variety of generic internal methods for accessing DFA internals.
-impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
+impl<T: AsRef<[u32]>> DFA<T> {
     /// Return the byte classes used by this DFA.
     pub(crate) fn byte_classes(&self) -> &ByteClasses {
         &self.tt.classes
@@ -2387,16 +2359,16 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// Return the total number of states in this DFA. Every DFA has at least
     /// 1 state, even the empty DFA.
     pub(crate) fn state_count(&self) -> usize {
-        self.tt.count
+        self.tt.count()
     }
 
     /// Return an iterator over all pattern IDs for the given match state.
     ///
     /// If the given state is not a match state, then this panics.
     #[cfg(feature = "alloc")]
-    pub(crate) fn match_pattern_ids(&self, id: StateID) -> PatternIDIter {
+    pub(crate) fn pattern_id_slice(&self, id: StateID) -> &[PatternID] {
         assert!(self.is_match_state(id));
-        self.ms.match_pattern_ids(self.match_index(id))
+        self.ms.pattern_id_slice(self.match_state_index(id))
     }
 
     /// Return the total number of pattern IDs for the given match state.
@@ -2404,7 +2376,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// If the given state is not a match state, then this panics.
     pub(crate) fn match_pattern_len(&self, id: StateID) -> usize {
         assert!(self.is_match_state(id));
-        self.ms.pattern_len(self.match_index(id))
+        self.ms.pattern_len(self.match_state_index(id))
     }
 
     /// Returns the total number of patterns matched by this DFA.
@@ -2434,8 +2406,8 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
         self.tt.to_index(id)
     }
 
-    /// Convert an index to a state (in the range 0..count) to an actual state
-    /// identifier.
+    /// Convert an index to a state (in the range 0..self.state_count()) to an
+    /// actual state identifier.
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
     /// to some other information (such as a remapped state ID).
@@ -2452,14 +2424,17 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// Returns the index of the match state for the given ID. If the
     /// given ID does not correspond to a match state, then this may
     /// panic or produce an incorrect result.
-    fn match_index(&self, id: StateID) -> usize {
+    fn match_state_index(&self, id: StateID) -> usize {
+        debug_assert!(self.is_match_state(id));
         // This is one of the places where we rely on the fact that match
         // states are contiguous in the transition table. Namely, that the
         // first match state ID always corresponds to dfa.special.min_start.
         // From there, since we know the stride, we can compute the overall
         // index of any match state given the match state's ID.
         let min = self.special().min_match.as_usize();
-        // TODO: justify this use of unchecked
+        // CORRECTNESS: We're allowed to produce an incorrect result or panic,
+        // so both the subtraction and the unchecked StateID construction is
+        // OK.
         self.to_index(StateID::new_unchecked(id.as_usize() - min))
     }
 
@@ -2468,12 +2443,14 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     /// panic or produce an incorrect result.
     fn accelerator_index(&self, id: StateID) -> usize {
         let min = self.special().min_accel.as_usize();
-        // TODO: justify this use of unchecked
+        // CORRECTNESS: We're allowed to produce an incorrect result or panic,
+        // so both the subtraction and the unchecked StateID construction is
+        // OK.
         self.to_index(StateID::new_unchecked(id.as_usize() - min))
     }
 
     /// Return the accelerators for this DFA.
-    fn accels(&self) -> Accels<&[u8]> {
+    fn accels(&self) -> Accels<&[u32]> {
         self.accels.as_ref()
     }
 
@@ -2483,7 +2460,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> DFA<T, A> {
     }
 }
 
-impl<T: AsRef<[u32]>, A: AsRef<[u8]>> fmt::Debug for DFA<T, A> {
+impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "dense::DFA(")?;
         for state in self.states() {
@@ -2524,7 +2501,8 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> fmt::Debug for DFA<T, A> {
                     self.to_index(id)
                 };
                 write!(f, "MATCH({:06?}): ", id)?;
-                for (i, pid) in self.ms.match_pattern_ids(i).enumerate() {
+                for (i, &pid) in self.ms.pattern_id_slice(i).iter().enumerate()
+                {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
@@ -2540,7 +2518,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> fmt::Debug for DFA<T, A> {
     }
 }
 
-unsafe impl<T: AsRef<[u32]>, A: AsRef<[u8]>> Automaton for DFA<T, A> {
+unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     #[inline]
     fn is_special_state(&self, id: StateID) -> bool {
         self.special.is_special_state(id)
@@ -2574,7 +2552,7 @@ unsafe impl<T: AsRef<[u32]>, A: AsRef<[u8]>> Automaton for DFA<T, A> {
     #[inline]
     fn next_state(&self, current: StateID, input: u8) -> StateID {
         let input = self.byte_classes().get(input);
-        let o = current.as_usize() + input as usize;
+        let o = current.as_usize() + usize::from(input);
         self.trans()[o]
     }
 
@@ -2585,7 +2563,7 @@ unsafe impl<T: AsRef<[u32]>, A: AsRef<[u8]>> Automaton for DFA<T, A> {
         input: u8,
     ) -> StateID {
         let input = self.byte_classes().get_unchecked(input);
-        let o = current.as_usize() + input as usize;
+        let o = current.as_usize() + usize::from(input);
         *self.trans().get_unchecked(o)
     }
 
@@ -2614,10 +2592,9 @@ unsafe impl<T: AsRef<[u32]>, A: AsRef<[u8]>> Automaton for DFA<T, A> {
         // a bit of slicing/pointer-chasing. This optimization tends to only
         // matter when matches are frequent.
         if self.ms.patterns == 1 {
-            assert_eq!(match_index, 0);
             return PatternID::ZERO;
         }
-        let state_index = self.match_index(id);
+        let state_index = self.match_state_index(id);
         self.ms.pattern_id(state_index, match_index)
     }
 
@@ -2645,6 +2622,7 @@ unsafe impl<T: AsRef<[u32]>, A: AsRef<[u8]>> Automaton for DFA<T, A> {
         self.st.start(index, pattern_id)
     }
 
+    #[inline]
     fn accelerator(&self, id: StateID) -> &[u8] {
         if !self.is_accel_state(id) {
             return &[];
@@ -2667,7 +2645,7 @@ pub(crate) struct TransitionTable<T> {
     /// byte classes (the default), then the number of transitions is usually
     /// substantially fewer.
     ///
-    /// In practice, T is either `Vec<S>` or `&[S]`.
+    /// In practice, T is either `Vec<u32>` or `&[u32]`.
     table: T,
     /// A set of equivalence classes, where a single equivalence class
     /// represents a set of bytes that never discriminate between a match
@@ -2678,10 +2656,10 @@ pub(crate) struct TransitionTable<T> {
     /// corresponds to the number of transitions for each DFA state. Note
     /// though that the *space* used by each DFA state in the transition table
     /// may be larger. The total space used by each DFA state is known as the
-    /// stride and is documented above.
+    /// stride.
     ///
-    /// The only time the number of equivalence classes is fewer than 257 is
-    /// if the DFA's kind uses byte classes which is the default. Equivalence
+    /// The only time the number of equivalence classes is fewer than 257 is if
+    /// the DFA's kind uses byte classes (which is the default). Equivalence
     /// classes should generally only be disabled when debugging, so that
     /// the transitions themselves aren't obscured. Disabling them has no
     /// other benefit, since the equivalence class map is always used while
@@ -2698,7 +2676,7 @@ pub(crate) struct TransitionTable<T> {
     ///
     /// While this wastes space, this avoids the need for integer division
     /// to convert between premultiplied state IDs and their corresponding
-    /// indices. Instead, we can use simple logical shifts.
+    /// indices. Instead, we can use simple bit-shifts.
     ///
     /// See the docs for the `stride2` method for more details.
     ///
@@ -2709,11 +2687,6 @@ pub(crate) struct TransitionTable<T> {
     /// length of that size is exceptionally rare since the alphabet is shrunk
     /// into equivalence classes.
     stride2: usize,
-    /// The total number of states in the table. Note that a DFA always has at
-    /// least one state---the dead state---even the empty DFA. In particular,
-    /// the dead state always has ID 0 and is correspondingly always the first
-    /// state. The dead state is never a match state.
-    count: usize,
 }
 
 impl<'a> TransitionTable<&'a [u32]> {
@@ -2723,8 +2696,8 @@ impl<'a> TransitionTable<&'a [u32]> {
     ///
     /// If there was a problem deserializing any part of the transition table,
     /// then this returns an error. Notably, if the given slice does not have
-    /// the same alignment as `S`, then this will return an error (among other
-    /// possible errors).
+    /// the same alignment as `StateID`, then this will return an error (among
+    /// other possible errors).
     ///
     /// This is guaranteed to execute in constant time.
     ///
@@ -2743,23 +2716,34 @@ impl<'a> TransitionTable<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(TransitionTable<&'a [u32]>, usize), DeserializeError> {
-        let count = bytes::try_read_u64_as_usize(slice, "state count")?;
-        slice = &slice[8..];
+        let count = bytes::try_read_u32_as_usize(slice, "state count")?;
+        slice = &slice[size_of::<u32>()..];
 
-        let stride2 = bytes::try_read_u64_as_usize(slice, "stride2")?;
-        slice = &slice[8..];
+        let stride2 = bytes::try_read_u32_as_usize(slice, "stride2")?;
+        slice = &slice[size_of::<u32>()..];
 
         let (classes, nread) = ByteClasses::from_bytes(slice)?;
         slice = &slice[nread..];
 
         // The alphabet length (determined by the byte class map) cannot be
         // bigger than the stride (total space used by each DFA state).
-        if stride2 < 1 || stride2 > 9 {
+        if stride2 > 9 {
             return Err(DeserializeError::generic(
-                "dense DFA has invalid stride2",
+                "dense DFA has invalid stride2 (too big)",
             ));
         }
-        let stride = 1 << stride2;
+        // It also cannot be zero, since even a DFA that never matches anything
+        // has a non-zero number of states with at least two equivalence
+        // classes: one for all 256 byte values and another for the EOI
+        // sentinel.
+        if stride2 < 1 {
+            return Err(DeserializeError::generic(
+                "dense DFA has invalid stride2 (too small)",
+            ));
+        }
+        // This is OK since 1 <= stride2 <= 9.
+        let stride =
+            1usize.checked_shl(u32::try_from(stride2).unwrap()).unwrap();
         if classes.alphabet_len() > stride {
             return Err(DeserializeError::generic(
                 "alphabet size cannot be bigger than transition table stride",
@@ -2778,7 +2762,7 @@ impl<'a> TransitionTable<&'a [u32]> {
         // This doesn't need to be handled because we've verified that our
         // slice is at least this long, and thus, nread fits into a usize.
         let nread = nread
-            .checked_add(8 + 8)
+            .checked_add(size_of::<u32>() * 2)
             .unwrap()
             .checked_add(table_bytes_len)
             .unwrap();
@@ -2796,64 +2780,8 @@ impl<'a> TransitionTable<&'a [u32]> {
                 trans_count,
             )
         };
-        let tt = TransitionTable { table, classes, stride2, count };
+        let tt = TransitionTable { table, classes, stride2 };
         Ok((tt, nread))
-    }
-
-    /// Writes a serialized form of this transition table to the buffer given.
-    /// If the buffer is too small, then an error is returned. To determine
-    /// how big the buffer must be, use `write_to_len`.
-    fn write_to<E: Endian>(
-        &self,
-        mut dst: &mut [u8],
-    ) -> Result<usize, SerializeError> {
-        let nwrite = self.write_to_len();
-        if dst.len() < nwrite {
-            return Err(SerializeError::buffer_too_small("transition table"));
-        }
-        dst = &mut dst[..nwrite];
-
-        // write state count
-        E::write_u64(self.count as u64, dst);
-        dst = &mut dst[8..];
-
-        // write state stride (as power of 2)
-        E::write_u64(self.stride2 as u64, dst);
-        dst = &mut dst[8..];
-
-        // write byte class map
-        let n = self.classes.write_to(dst)?;
-        dst = &mut dst[n..];
-
-        // write actual transitions
-        dst.copy_from_slice(self.table_bytes());
-        Ok(nwrite)
-    }
-
-    /// Returns the number of bytes the serialized form of this transition
-    /// table will use.
-    fn write_to_len(&self) -> usize {
-        8   // state count
-        + 8 // stride2
-        + self.classes.write_to_len()
-        + self.table_bytes().len()
-    }
-
-    /// Validates that every state ID in this transition table is valid.
-    ///
-    /// That is, every state ID can be used to correctly index a state in this
-    /// table.
-    fn validate(&self) -> Result<(), DeserializeError> {
-        for state in self.states() {
-            for (_, to) in state.transitions() {
-                if !self.is_valid(to) {
-                    return Err(DeserializeError::generic(
-                        "found invalid state ID in transition table",
-                    ));
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -2862,27 +2790,21 @@ impl TransitionTable<Vec<u32>> {
     /// Create a minimal transition table with just two states: a dead state
     /// and a quit state. The alphabet length and stride of the transition
     /// table is determined by the given set of equivalence classes.
-    ///
-    /// This returns an error if the resulting transition table's state IDs
-    /// cannot fit in `S`. (This can actually occur, e.g., if S = u8 and every
-    /// equivalence class is a singleton.)
-    fn minimal(
-        classes: ByteClasses,
-    ) -> Result<TransitionTable<Vec<u32>>, Error> {
+    fn minimal(classes: ByteClasses) -> TransitionTable<Vec<u32>> {
         let mut tt = TransitionTable {
             table: vec![],
             classes,
             stride2: classes.stride2(),
-            count: 0,
         };
-        tt.add_empty_state()?; // dead state
-        tt.add_empty_state()?; // quit state
-        Ok(tt)
+        // Two states, regardless of alphabet size, can always fit into u32.
+        tt.add_empty_state().unwrap(); // dead state
+        tt.add_empty_state().unwrap(); // quit state
+        tt
     }
 
     /// Set a transition in this table. Both the `from` and `to` states must
-    /// already exist. `byte` should correspond to the transition out of `from`
-    /// to set.
+    /// already exist, otherwise this panics. `unit` should correspond to the
+    /// transition out of `from` to set to `to`.
     fn set(&mut self, from: StateID, unit: InputUnit, to: StateID) {
         assert!(self.is_valid(from), "invalid 'from' state");
         assert!(self.is_valid(to), "invalid 'to' state");
@@ -2894,11 +2816,10 @@ impl TransitionTable<Vec<u32>> {
     /// and return its identifier. The identifier returned is guaranteed to
     /// not point to any other existing state.
     ///
-    /// If adding a state would exhaust the state identifier space (determined
-    /// by `S`), then this returns an error. In practice, this means that the
-    /// state identifier representation chosen is too small.
+    /// If adding a state would exhaust the state identifier space, then this
+    /// returns an error.
     fn add_empty_state(&mut self) -> Result<StateID, Error> {
-        let id = if self.count == 0 {
+        let id = if self.count() == 0 {
             StateID::ZERO
         } else {
             // Normally, to get a fresh state identifier, we would just
@@ -2935,24 +2856,15 @@ impl TransitionTable<Vec<u32>> {
             // the code a bit more complex, especially during minimization and
             // when reshuffling states, as one needs to convert back and forth
             // between state IDs and state indices.)
-            let stride2 = u32::try_from(self.stride2)
-                .expect("maximum stride2 value is 9");
-            let next = match self.count.checked_shl(stride2) {
-                Some(next) => next,
-                None => return Err(Error::too_many_states(core::usize::MAX)),
-            };
-            StateID::new(next).map_err(|_| Error::too_many_states(next))?
+            //
+            // To do this, we simply take the index of the state into the
+            // entire transition table, rather than the index of the state
+            // itself. e.g., If the stride is 64, then the ID of the 3rd state
+            // is 192, not 2.
+            let next = self.table.len();
+            StateID::new(next).map_err(|_| Error::too_many_states())?
         };
         self.table.extend(iter::repeat(0).take(self.stride()));
-        // I believe it's impossible for this to fail, since if this fails,
-        // then it must be the case that self.count << stride2 would fail
-        // above. Nevertheless, it's no problem to just return an error if it
-        // does fail. (Maybe there are pathological cases where stride2 is 0?
-        // I don't think so...
-        self.count = match self.count.checked_add(1) {
-            Some(count) => count,
-            None => return Err(Error::too_many_states(core::usize::MAX)),
-        };
         Ok(id)
     }
 
@@ -2962,10 +2874,13 @@ impl TransitionTable<Vec<u32>> {
     /// swap. Callers must ensure that other states pointing to id1 and id2 are
     /// updated appropriately.
     ///
-    /// Both id1 and id2 must point to valid states.
+    /// Both id1 and id2 must point to valid states, otherwise this panics.
     fn swap(&mut self, id1: StateID, id2: StateID) {
         assert!(self.is_valid(id1), "invalid 'id1' state: {:?}", id1);
         assert!(self.is_valid(id2), "invalid 'id2' state: {:?}", id2);
+        // We only need to swap the parts of the state that are used. So if the
+        // stride is 64, but the alphabet length is only 33, then we save a lot
+        // of work.
         for b in 0..self.classes.alphabet_len() {
             self.table.swap(id1.as_usize() + b, id2.as_usize() + b);
         }
@@ -2978,7 +2893,6 @@ impl TransitionTable<Vec<u32>> {
     /// states are updated appropriately.
     fn truncate(&mut self, count: usize) {
         self.table.truncate(count << self.stride2);
-        self.count = count;
     }
 
     /// Return a mutable representation of the state corresponding to the given
@@ -2996,12 +2910,72 @@ impl TransitionTable<Vec<u32>> {
 }
 
 impl<T: AsRef<[u32]>> TransitionTable<T> {
+    /// Writes a serialized form of this transition table to the buffer given.
+    /// If the buffer is too small, then an error is returned. To determine
+    /// how big the buffer must be, use `write_to_len`.
+    fn write_to<E: Endian>(
+        &self,
+        mut dst: &mut [u8],
+    ) -> Result<usize, SerializeError> {
+        let nwrite = self.write_to_len();
+        if dst.len() < nwrite {
+            return Err(SerializeError::buffer_too_small("transition table"));
+        }
+        dst = &mut dst[..nwrite];
+
+        // write state count
+        // Unwrap is OK since number of states is guaranteed to fit in a u32.
+        E::write_u32(u32::try_from(self.count()).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
+
+        // write state stride (as power of 2)
+        // Unwrap is OK since stride2 is guaranteed to be <= 9.
+        E::write_u32(u32::try_from(self.stride2).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
+
+        // write byte class map
+        let n = self.classes.write_to(dst)?;
+        dst = &mut dst[n..];
+
+        // write actual transitions
+        for &sid in self.table() {
+            let n = bytes::write_state_id::<E>(sid, &mut dst);
+            dst = &mut dst[n..];
+        }
+        Ok(nwrite)
+    }
+
+    /// Returns the number of bytes the serialized form of this transition
+    /// table will use.
+    fn write_to_len(&self) -> usize {
+        size_of::<u32>()   // state count
+        + size_of::<u32>() // stride2
+        + self.classes.write_to_len()
+        + (self.table().len() * StateID::SIZE)
+    }
+
+    /// Validates that every state ID in this transition table is valid.
+    ///
+    /// That is, every state ID can be used to correctly index a state in this
+    /// table.
+    fn validate(&self) -> Result<(), DeserializeError> {
+        for state in self.states() {
+            for (_, to) in state.transitions() {
+                if !self.is_valid(to) {
+                    return Err(DeserializeError::generic(
+                        "found invalid state ID in transition table",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Converts this transition table to a borrowed value.
     fn as_ref(&self) -> TransitionTable<&'_ [u32]> {
         TransitionTable {
             table: self.table.as_ref(),
             classes: self.classes.clone(),
-            count: self.count,
             stride2: self.stride2,
         }
     }
@@ -3012,7 +2986,6 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
         TransitionTable {
             table: self.table.as_ref().to_vec(),
             classes: self.classes.clone(),
-            count: self.count,
             stride2: self.stride2,
         }
     }
@@ -3043,20 +3016,28 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     }
 
     /// Convert a state identifier to an index to a state (in the range
-    /// 0..count).
+    /// 0..self.count()).
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
     /// to some other information (such as a remapped state ID).
+    ///
+    /// If the given ID is not valid, then this may panic or produce an
+    /// incorrect index.
     fn to_index(&self, id: StateID) -> usize {
         id.as_usize() >> self.stride2
     }
 
-    /// Convert an index to a state (in the range 0..count) to an actual state
-    /// identifier.
+    /// Convert an index to a state (in the range 0..self.count()) to an actual
+    /// state identifier.
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
     /// to some other information (such as a remapped state ID).
+    ///
+    /// If the given index is not in the specified range, then this may panic
+    /// or produce an incorrect state ID.
     fn from_index(&self, index: usize) -> StateID {
+        // CORRECTNESS: If the given index is not valid, then it is not
+        // required for this to panic or return a valid state ID.
         StateID::new_unchecked(index << self.stride2)
     }
 
@@ -3091,23 +3072,14 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
         }
     }
 
-    /// Returns the transition table in its raw byte representation.
+    /// Returns the total number of states in this transition table.
     ///
-    /// The length of the slice returned is always equivalent to
-    /// `self.table().len() * self.state_size()`.
-    ///
-    /// This is generally only useful when serializing the transition table
-    /// to raw bytes.
-    fn table_bytes(&self) -> &[u8] {
-        let table = self.table();
-        // SAFETY: This is safe because StateID is guaranteed to be
-        // representable as a u32.
-        unsafe {
-            core::slice::from_raw_parts(
-                table.as_ptr() as *const u8,
-                table.len() * self.state_size(),
-            )
-        }
+    /// Note that a DFA always has at least two states: the dead and quit
+    /// states. In particular, the dead state always has ID 0 and is
+    /// correspondingly always the first state. The dead state is never a match
+    /// state.
+    fn count(&self) -> usize {
+        self.table().len() >> self.stride2
     }
 
     /// Returns the total stride for every state in this DFA. This corresponds
@@ -3134,18 +3106,11 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
         id < self.table().len() && id % self.stride() == 0
     }
 
-    /// Returns the size of the specific state ID representation, in bytes.
-    ///
-    /// This is always 1, 2, 4 or 8.
-    fn state_size(&self) -> usize {
-        StateID::SIZE
-    }
-
     /// Return the memory usage, in bytes, of this transition table.
     ///
     /// This does not include the size of a `TransitionTable` value itself.
     fn memory_usage(&self) -> usize {
-        self.table_bytes().len()
+        self.table().len() * StateID::SIZE
     }
 }
 
@@ -3181,7 +3146,7 @@ impl<T: AsMut<[u32]>> TransitionTable<T> {
 ///
 /// * `haystack` - The bytes to execute the search. The search always starts
 ///   at the beginning of `haystack` and ends before or at the end of
-///   haystack`.
+///   `haystack`.
 /// * `context` - The (possibly empty) bytes surrounding `haystack`. `haystack`
 ///   must be contained within `context` such that `context` is at least as big
 ///   as `haystack`.
@@ -3192,7 +3157,9 @@ impl<T: AsMut<[u32]>> TransitionTable<T> {
 /// beginning of the input. Similarly, the regex `\Bbar\B` should match the
 /// haystack because `bar` is not surrounded by word boundaries. But a search
 /// that does not take context into account would not permit `\B` to match
-/// since the beginning of any string matches a word boundary.
+/// since the beginning of any string matches a word boundary. Similarly, a
+/// search that does not take context into account when searching `^bar$` in
+/// the haystack `bar` would produce a match when it shouldn't.
 ///
 /// Thus, it follows that the starting state is chosen based on the following
 /// criteria, derived from the position at which the search starts in the
@@ -3205,21 +3172,24 @@ impl<T: AsMut<[u32]>> TransitionTable<T> {
 ///    terminator, then the `Line` start state is used. (Since `(?m:^)`
 ///    corresponds to `hir::Anchor::StartLine`.)
 /// 3. If the search starts at a position immediately following a byte
-///    classified as a "word" character ([_0-9a-zA-Z]), then the `WordByte`
+///    classified as a "word" character (`[_0-9a-zA-Z]`), then the `WordByte`
 ///    start state is used. (Since `(?-u:\b)` corresponds to a word boundary.)
 /// 4. Otherwise, if the search starts at a position immediately following
-///    a byte that is not classified as a "word" character ([^_0-9a-zA-Z]),
+///    a byte that is not classified as a "word" character (`[^_0-9a-zA-Z]`),
 ///    then the `NonWordByte` start state is used. (Since `(?-u:\B)`
 ///    corresponds to a not-word-boundary.)
+///
+/// (N.B. Unicode word boundaries are not supported by the DFA because they
+/// require multi-byte look-around and this is difficult to support in a DFA.)
 ///
 /// To further complicate things, we also support constructing individual
 /// anchored start states for each pattern in the DFA. (Which is required to
 /// implement overlapping regexes correctly, but is also generally useful.)
-/// Thus, when individual start states for each pattern is enabled, then the
-/// total number of start states represented is 4 + (4 * #patterns), where the
-/// 4 comes from each of the 4 possibilities above. The first 4 represents the
-/// starting states for the entire DFA, which support searching for multiple
-/// patterns simultaneously.
+/// Thus, when individual start states for each pattern are enabled, then the
+/// total number of start states represented is `4 + (4 * #patterns)`, where
+/// the 4 comes from each of the 4 possibilities above. The first 4 represents
+/// the starting states for the entire DFA, which support searching for
+/// multiple patterns simultaneously (possibly unanchored).
 ///
 /// If individual start states are disabled, then this will only store 4
 /// start states. Typically, individual start states are only enabled when
@@ -3229,15 +3199,15 @@ impl<T: AsMut<[u32]>> TransitionTable<T> {
 ///
 /// Note though that while the start table always has either `4` or
 /// `4 + (4 * #patterns)` starting state *ids*, the total number of states
-/// might be considerably smaller. That is, many of the IDs may just be
-/// duplicative. (For example, if a regex doesn't have a `\b` sub-pattern, then
-/// there's no reason to generate a unique starting state for handling word
-/// boundaries. Similarly for start/end anchors.)
+/// might be considerably smaller. That is, many of the IDs may be duplicative.
+/// (For example, if a regex doesn't have a `\b` sub-pattern, then there's no
+/// reason to generate a unique starting state for handling word boundaries.
+/// Similarly for start/end anchors.)
 #[derive(Clone)]
 pub(crate) struct StartTable<T> {
     /// The initial start state IDs.
     ///
-    /// In practice, T is either `Vec<S>` or `&[S]`.
+    /// In practice, T is either `Vec<u32>` or `&[u32]`.
     ///
     /// The first `stride` (currently always 4) entries always correspond to
     /// the start states for the entire DFA. After that, there are
@@ -3249,7 +3219,9 @@ pub(crate) struct StartTable<T> {
     stride: usize,
     /// The total number of patterns for which starting states are encoded.
     /// This may be zero for non-empty DFAs when the DFA was built without
-    /// start states for each pattern.
+    /// start states for each pattern. Thus, one cannot use this field to
+    /// say how many patterns are in the DFA in all cases. It is specific to
+    /// how many patterns are represented in this start table.
     patterns: usize,
 }
 
@@ -3260,14 +3232,27 @@ impl StartTable<Vec<u32>> {
     /// When the corresponding DFA is constructed with start states for each
     /// pattern, then `patterns` should be the number of patterns. Otherwise,
     /// it should be zero.
-    fn dead(patterns: usize) -> StartTable<Vec<u32>> {
+    ///
+    /// If the total table size could exceed the allocatable limit, then this
+    /// returns an error. In practice, this is unlikely to be able to occur,
+    /// since it's likely that allocation would have failed long before it got
+    /// to this point.
+    fn dead(patterns: usize) -> Result<StartTable<Vec<u32>>, Error> {
         assert!(patterns <= PatternID::LIMIT);
         let stride = Start::count();
-        StartTable {
-            table: vec![DEAD.as_u32(); stride + (stride * patterns)],
-            stride,
-            patterns,
+        let pattern_starts_len = match stride.checked_mul(patterns) {
+            Some(x) => x,
+            None => return Err(Error::too_many_start_states()),
+        };
+        let table_len = match stride.checked_add(pattern_starts_len) {
+            Some(x) => x,
+            None => return Err(Error::too_many_start_states()),
+        };
+        if table_len > isize::MAX as usize {
+            return Err(Error::too_many_start_states());
         }
+        let table = vec![DEAD.as_u32(); table_len];
+        Ok(StartTable { table, stride, patterns })
     }
 }
 
@@ -3278,8 +3263,8 @@ impl<'a> StartTable<&'a [u32]> {
     ///
     /// If there was a problem deserializing any part of the starting IDs,
     /// then this returns an error. Notably, if the given slice does not have
-    /// the same alignment as `S`, then this will return an error (among other
-    /// possible errors).
+    /// the same alignment as `StateID`, then this will return an error (among
+    /// other possible errors).
     ///
     /// This is guaranteed to execute in constant time.
     ///
@@ -3300,11 +3285,11 @@ impl<'a> StartTable<&'a [u32]> {
         mut slice: &'a [u8],
     ) -> Result<(StartTable<&'a [u32]>, usize), DeserializeError> {
         let stride =
-            bytes::try_read_u64_as_usize(slice, "start table stride")?;
-        slice = &slice[8..];
+            bytes::try_read_u32_as_usize(slice, "start table stride")?;
+        slice = &slice[size_of::<u32>()..];
         let patterns =
-            bytes::try_read_u64_as_usize(slice, "start table patterns")?;
-        slice = &slice[8..];
+            bytes::try_read_u32_as_usize(slice, "start table patterns")?;
+        slice = &slice[size_of::<u32>()..];
 
         if stride != Start::count() {
             return Err(DeserializeError::generic(
@@ -3334,7 +3319,7 @@ impl<'a> StartTable<&'a [u32]> {
         bytes::check_slice_len(slice, table_bytes_len, "start ID table")?;
         bytes::check_alignment::<StateID>(slice)?;
         // Our slice is at least this long, so this add should always work.
-        let nread = table_bytes_len.checked_add(8 + 8).unwrap();
+        let nread = table_bytes_len.checked_add(size_of::<u32>() * 2).unwrap();
         // SAFETY: Since StateID is always representable as a u32, all we need
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
@@ -3371,22 +3356,27 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         dst = &mut dst[..nwrite];
 
         // write stride
-        E::write_u64(self.stride as u64, dst);
-        dst = &mut dst[8..];
+        // Unwrap is OK since the stride is always 4 (currently).
+        E::write_u32(u32::try_from(self.stride).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
         // write pattern count
-        E::write_u64(self.patterns as u64, dst);
-        dst = &mut dst[8..];
+        // Unwrap is OK since number of patterns is guaranteed to fit in a u32.
+        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
         // write start IDs
-        dst.copy_from_slice(self.table_bytes());
+        for &sid in self.table() {
+            let n = bytes::write_state_id::<E>(sid, &mut dst);
+            dst = &mut dst[n..];
+        }
         Ok(nwrite)
     }
 
     /// Returns the number of bytes the serialized form of this start ID table
     /// will use.
     fn write_to_len(&self) -> usize {
-        8 // stride
-        + 8 // # patterns
-        + self.table_bytes().len()
+        size_of::<u32>()   // stride
+        + size_of::<u32>() // # patterns
+        + (self.table().len() * StateID::SIZE)
     }
 
     /// Validates that every state ID in this start table is valid by checking
@@ -3426,7 +3416,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         }
     }
 
-    /// Return the start state for the given index and pattern ID. If the
+    /// Return the start state for the given start index and pattern ID. If the
     /// pattern ID is None, then the corresponding start state for the entire
     /// DFA is returned. If the pattern ID is not None, then the corresponding
     /// starting state for the given pattern is returned. If this start table
@@ -3439,7 +3429,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
             Some(pid) => {
                 let pid = pid.as_usize();
                 assert!(pid < self.patterns, "invalid pattern ID {:?}", pid);
-                self.stride + (self.stride * pid as usize) + start_index
+                self.stride + (self.stride * pid) + start_index
             }
         };
         self.table()[index]
@@ -3466,38 +3456,11 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         }
     }
 
-    /// Returns the table of start IDs as its raw byte representation.
-    ///
-    /// The length of the slice returned is always equivalent to
-    /// `self.table().len() * self.state_size()`.
-    ///
-    /// This is generally only useful when serializing the starting IDs to raw
-    /// bytes.
-    fn table_bytes(&self) -> &[u8] {
-        let table = self.table();
-        // SAFETY: This is safe because S is guaranteed to be one of {usize,
-        // u8, u16, u32, u64}, and because u8 always has a smaller or
-        // equivalent alignment.
-        unsafe {
-            core::slice::from_raw_parts(
-                table.as_ptr() as *const u8,
-                table.len() * self.state_size(),
-            )
-        }
-    }
-
-    /// Returns the size of the specific state ID representation, in bytes.
-    ///
-    /// This is always 1, 2, 4 or 8.
-    fn state_size(&self) -> usize {
-        StateID::SIZE
-    }
-
     /// Return the memory usage, in bytes, of this start list.
     ///
     /// This does not include the size of a `StartList` value itself.
     fn memory_usage(&self) -> usize {
-        self.table_bytes().len()
+        self.table().len() * StateID::SIZE
     }
 }
 
@@ -3557,8 +3520,8 @@ impl<'a> Iterator for StartStateIter<'a> {
         }
         self.i += 1;
 
-        // This unwrap is okay since the stride of any DFA must always match
-        // the number of start state types.
+        // This unwrap is okay since the stride of the starting state table
+        // must always match the number of start state types.
         let start_type = Start::from_usize(i % self.st.stride).unwrap();
         let pid = if i < self.st.stride {
             None
@@ -3582,7 +3545,7 @@ impl<'a> Iterator for StartStateIter<'a> {
 /// of match states, we can use that to compute the position at which the match
 /// state occurs. That in turn is used as an offset into this structure.
 #[derive(Clone, Debug)]
-struct MatchStates<T, A> {
+struct MatchStates<T> {
     /// Slices is a flattened sequence of pairs, where each pair points to a
     /// sub-slice of pattern_ids. The first element of the pair is an offset
     /// into pattern_ids and the second element of the pair is the number
@@ -3591,48 +3554,32 @@ struct MatchStates<T, A> {
     /// IDs. The number of pairs always corresponds to the number of distinct
     /// DFA match states.
     ///
-    /// In practice, T is either Vec<S> or &[S], where S: StateID.
-    ///
-    /// It's a bit weird to use S for this since these aren't actually state
-    /// IDs. And in fact, they don't have anything to do with state IDs. But
-    /// we reuse the "state ID" abstraction because the state ID abstraction is
-    /// really just an abstraction around pointer sized fields. For example, on
-    /// a 16-bit target, S is guaranteed to be no bigger than a u16. And that's
-    /// exactly what we want here: to store pointers into some other slice,
-    /// which is all state IDs really are at the end of the day.
+    /// In practice, T is either Vec<u32> or &[u32].
     slices: T,
     /// A flattened sequence of pattern IDs for each DFA match state. The only
     /// way to correctly read this sequence is indirectly via `slices`.
     ///
-    /// In practice, A is either Vec<u8> or &[u8].
-    pattern_ids: A,
+    /// In practice, T is either Vec<u32> or &[u32].
+    pattern_ids: T,
     /// The total number of unique patterns represented by these match states.
     patterns: usize,
 }
 
-// TODO: We might have a problem here. If we reuse one of our ID types here for
-// slice indexing, then it's possible for slice offsets to exceed our ID
-// bounds even if the total number of states/patterns fits within our bound.
-//
-// Inventing machinery to avoid this up front would lead to much more complex
-// code. Instead, I think we should just use PatternID for everything here and
-// return an error if our slice offsets go out of bounds...
-
-impl<'a> MatchStates<&'a [u32], &'a [u8]> {
+impl<'a> MatchStates<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
-    ) -> Result<(MatchStates<&'a [u32], &'a [u8]>, usize), DeserializeError>
-    {
+    ) -> Result<(MatchStates<&'a [u32]>, usize), DeserializeError> {
         let mut nread = 0;
 
         // Read the total number of match states.
-        let count = bytes::try_read_u64_as_usize(slice, "match state count")?;
-        nread += 8;
-        slice = &slice[8..];
+        let count = bytes::try_read_u32_as_usize(slice, "match state count")?;
+        nread += size_of::<u32>();
+        slice = &slice[size_of::<u32>()..];
 
         // Read the slice start/length pairs.
+        let pair_count = bytes::mul(2, count, "match state offset pairs")?;
         let slices_bytes_len = bytes::mul(
-            bytes::mul(2, count, "match state slice offset length")?,
+            pair_count,
             PatternID::SIZE,
             "match state slice offset byte length",
         )?;
@@ -3642,14 +3589,14 @@ impl<'a> MatchStates<&'a [u32], &'a [u8]> {
         // need to do is ensure that we have the proper length and alignment.
         // We've checked both above, so the cast below is safe.
         //
-        // N.B. This is the only not-safe code in this function, so we mark
-        // it explicitly to call it out, even though it is technically
+        // N.B. This is one of the few not-safe snippets in this function, so
+        // we mark it explicitly to call it out, even though it is technically
         // superfluous.
         #[allow(unused_unsafe)]
         let slices = unsafe {
             core::slice::from_raw_parts(
                 slice.as_ptr() as *const u32,
-                2 * count,
+                pair_count,
             )
         };
         nread += slices_bytes_len;
@@ -3658,28 +3605,34 @@ impl<'a> MatchStates<&'a [u32], &'a [u8]> {
         // Read the total number of unique pattern IDs (which is always 1 more
         // than the maximum pattern ID in this automaton, since pattern IDs are
         // handed out contiguously starting at 0).
-        let patterns = bytes::try_read_u64_as_usize(slice, "pattern count")?;
-        nread += 8;
-        slice = &slice[8..];
+        let patterns = bytes::try_read_u32_as_usize(slice, "pattern count")?;
+        nread += size_of::<u32>();
+        slice = &slice[size_of::<u32>()..];
 
         // Now read the pattern ID count. We don't need to store this
         // explicitly, but we need it to know how many pattern IDs to read.
-        let idcount = bytes::try_read_u64_as_usize(slice, "pattern ID count")?;
-        nread += 8;
-        slice = &slice[8..];
+        let idcount = bytes::try_read_u32_as_usize(slice, "pattern ID count")?;
+        nread += size_of::<u32>();
+        slice = &slice[size_of::<u32>()..];
 
         // Read the actual pattern IDs.
         let pattern_ids_len =
             bytes::mul(idcount, PatternID::SIZE, "pattern ID byte length")?;
         bytes::check_slice_len(slice, pattern_ids_len, "match pattern IDs")?;
-        let pattern_ids = &slice[..pattern_ids_len];
+        bytes::check_alignment::<PatternID>(slice)?;
+        // SAFETY: Since PatternID is always representable as a u32, all we
+        // need to do is ensure that we have the proper length and alignment.
+        // We've checked both above, so the cast below is safe.
+        //
+        // N.B. This is one of the few not-safe snippets in this function, so
+        // we mark it explicitly to call it out, even though it is technically
+        // superfluous.
+        #[allow(unused_unsafe)]
+        let pattern_ids = unsafe {
+            core::slice::from_raw_parts(slice.as_ptr() as *const u32, idcount)
+        };
         nread += pattern_ids_len;
         slice = &slice[pattern_ids_len..];
-
-        // And finally, make sure there are appropriate padding bytes.
-        let pad = bytes::padding_len(pattern_ids.len());
-        bytes::check_slice_len(slice, pad, "match pattern ID padding")?;
-        nread += pad;
 
         let ms = MatchStates { slices, pattern_ids, patterns };
         Ok((ms, nread))
@@ -3687,8 +3640,8 @@ impl<'a> MatchStates<&'a [u32], &'a [u8]> {
 }
 
 #[cfg(feature = "alloc")]
-impl MatchStates<Vec<u32>, Vec<u8>> {
-    fn empty(pattern_count: usize) -> MatchStates<Vec<u32>, Vec<u8>> {
+impl MatchStates<Vec<u32>> {
+    fn empty(pattern_count: usize) -> MatchStates<Vec<u32>> {
         assert!(pattern_count <= PatternID::LIMIT);
         MatchStates {
             slices: vec![],
@@ -3700,35 +3653,36 @@ impl MatchStates<Vec<u32>, Vec<u8>> {
     fn new(
         matches: &BTreeMap<StateID, Vec<PatternID>>,
         pattern_count: usize,
-    ) -> MatchStates<Vec<u32>, Vec<u8>> {
+    ) -> Result<MatchStates<Vec<u32>>, Error> {
         let mut m = MatchStates::empty(pattern_count);
         for (_, pids) in matches.iter() {
-            // TODO: Convert to error return.
-            let start = PatternID::new(m.pattern_ids.len()).unwrap();
+            let start = PatternID::new(m.pattern_ids.len())
+                .map_err(|_| Error::too_many_match_pattern_ids())?;
             m.slices.push(start.as_u32());
             // This is always correct since the number of patterns in a single
             // match state can never exceed maximum number of allowable
             // patterns. Why? Because a pattern can only appear once in a
-            // particular match state, by construction.
-            let len = PatternID::new(pids.len()).unwrap();
-            m.slices.push(len.as_u32());
+            // particular match state, by construction. (And since our pattern
+            // ID limit is one less than u32::MAX, we're guaranteed that the
+            // length fits in a u32.)
+            m.slices.push(u32::try_from(pids.len()).unwrap());
             for &pid in pids {
-                m.pattern_ids.extend_from_slice(&pid.to_ne_bytes());
+                m.pattern_ids.push(pid.as_u32());
             }
         }
         m.patterns = pattern_count;
-        m
+        Ok(m)
     }
 
     fn new_with_map(
         &self,
         matches: &BTreeMap<StateID, Vec<PatternID>>,
-    ) -> MatchStates<Vec<u32>, Vec<u8>> {
+    ) -> Result<MatchStates<Vec<u32>>, Error> {
         MatchStates::new(matches, self.patterns)
     }
 }
 
-impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
+impl<T: AsRef<[u32]>> MatchStates<T> {
     /// Writes a serialized form of these match states to the buffer given. If
     /// the buffer is too small, then an error is returned. To determine how
     /// big the buffer must be, use `write_to_len`.
@@ -3743,49 +3697,49 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
         dst = &mut dst[..nwrite];
 
         // write state ID count
-        E::write_u64(self.count() as u64, dst);
-        dst = &mut dst[8..];
+        // Unwrap is OK since number of states is guaranteed to fit in a u32.
+        E::write_u32(u32::try_from(self.count()).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
 
         // write slice offset pairs
-        let slices = self.slices_bytes();
-        dst[..slices.len()].copy_from_slice(slices);
-        dst = &mut dst[slices.len()..];
+        for &pid in self.slices() {
+            let n = bytes::write_pattern_id::<E>(pid, &mut dst);
+            dst = &mut dst[n..];
+        }
 
         // write unique pattern ID count
-        E::write_u64(self.patterns as u64, dst);
-        dst = &mut dst[8..];
+        // Unwrap is OK since number of patterns is guaranteed to fit in a u32.
+        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
 
         // write pattern ID count
-        E::write_u64(self.pattern_id_count() as u64, dst);
-        dst = &mut dst[8..];
+        // Unwrap is OK since we check at construction (and deserialization)
+        // that the number of patterns is representable as a u32.
+        E::write_u32(u32::try_from(self.pattern_ids().len()).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
 
         // write pattern IDs
-        dst[..self.pattern_ids().len()].copy_from_slice(self.pattern_ids());
-        dst = &mut dst[self.pattern_ids().len()..];
-
-        // ... and also write padding bytes, just so that we are S-aligned
-        // everywhere.
-        for _ in 0..bytes::padding_len(self.pattern_ids().len()) {
-            dst[0] = 0;
-            dst = &mut dst[1..];
+        for &pid in self.pattern_ids() {
+            let n = bytes::write_pattern_id::<E>(pid, &mut dst);
+            dst = &mut dst[n..];
         }
+
         Ok(nwrite)
     }
 
     /// Returns the number of bytes the serialized form of this transition
     /// table will use.
     fn write_to_len(&self) -> usize {
-        8   // match state count
-        + self.slices_bytes().len()
-        + 8 // unique pattern ID count
-        + 8 // pattern ID count
-        + self.pattern_ids().len()
-        + bytes::padding_len(self.pattern_ids().len())
+        size_of::<u32>()   // match state count
+        + (self.slices().len() * PatternID::SIZE)
+        + size_of::<u32>() // unique pattern ID count
+        + size_of::<u32>() // pattern ID count
+        + (self.pattern_ids().len() * PatternID::SIZE)
     }
 
     /// Valides that the match state info is itself internally consistent and
     /// consistent with the recorded match state region in the given DFA.
-    fn validate(&self, dfa: &DFA<T, A>) -> Result<(), DeserializeError> {
+    fn validate(&self, dfa: &DFA<T>) -> Result<(), DeserializeError> {
         if self.count() != dfa.special.match_len(dfa.stride()) {
             return Err(DeserializeError::generic(
                 "match state count mismatch",
@@ -3799,7 +3753,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
                     "invalid pattern ID start offset",
                 ));
             }
-            if start + len * 4 > self.pattern_ids().len() {
+            if start + len > self.pattern_ids().len() {
                 return Err(DeserializeError::generic(
                     "invalid pattern ID length",
                 ));
@@ -3827,7 +3781,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
     ///
     /// Once shuffling is done, use MatchStates::new to convert back.
     #[cfg(feature = "alloc")]
-    fn to_map(&self, dfa: &DFA<T, A>) -> BTreeMap<StateID, Vec<PatternID>> {
+    fn to_map(&self, dfa: &DFA<T>) -> BTreeMap<StateID, Vec<PatternID>> {
         let mut map = BTreeMap::new();
         for i in 0..self.count() {
             let mut pids = vec![];
@@ -3840,7 +3794,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
     }
 
     /// Converts these match states to a borrowed value.
-    fn as_ref(&self) -> MatchStates<&'_ [u32], &'_ [u8]> {
+    fn as_ref(&self) -> MatchStates<&'_ [u32]> {
         MatchStates {
             slices: self.slices.as_ref(),
             pattern_ids: self.pattern_ids.as_ref(),
@@ -3850,7 +3804,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
 
     /// Converts these match states to an owned value.
     #[cfg(feature = "alloc")]
-    fn to_owned(&self) -> MatchStates<Vec<u32>, Vec<u8>> {
+    fn to_owned(&self) -> MatchStates<Vec<u32>> {
         MatchStates {
             slices: self.slices.as_ref().to_vec(),
             pattern_ids: self.pattern_ids.as_ref().to_vec(),
@@ -3862,7 +3816,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
     /// first match state corresponds to index 0.)
     ///
     /// This panics if there is no match state at the given index.
-    fn match_state_id(&self, dfa: &DFA<T, A>, index: usize) -> StateID {
+    fn match_state_id(&self, dfa: &DFA<T>, index: usize) -> StateID {
         assert!(dfa.special.matches(), "no match states to index");
         // This is one of the places where we rely on the fact that match
         // states are contiguous in the transition table. Namely, that the
@@ -3878,26 +3832,37 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
         id
     }
 
-    fn match_pattern_ids(&self, state_index: usize) -> PatternIDIter {
-        PatternIDIter { pattern_id_bytes: self.pattern_id_slice(state_index) }
-    }
-
+    /// Returns the pattern ID at the given match index for the given match
+    /// state.
+    ///
+    /// The match state index is the state index minus the state index of the
+    /// first match state in the DFA.
+    ///
+    /// The match index is the index of the pattern ID for the given state.
+    /// The index must be less than `self.pattern_len(state_index)`.
     fn pattern_id(&self, state_index: usize, match_index: usize) -> PatternID {
-        let pids = self.pattern_id_slice(state_index);
-        let pid = &pids[match_index * 4..match_index * 4 + 4];
-        PatternID::from_ne_bytes_unchecked(pid.try_into().unwrap())
+        self.pattern_id_slice(state_index)[match_index]
     }
 
+    /// Returns the number of patterns in the given match state.
+    ///
+    /// The match state index is the state index minus the state index of the
+    /// first match state in the DFA.
     fn pattern_len(&self, state_index: usize) -> usize {
         self.slices()[state_index * 2 + 1].as_usize()
     }
 
-    fn pattern_id_slice(&self, state_index: usize) -> &[u8] {
+    /// Returns all of the pattern IDs for the given match state index.
+    ///
+    /// The match state index is the state index minus the state index of the
+    /// first match state in the DFA.
+    fn pattern_id_slice(&self, state_index: usize) -> &[PatternID] {
         let start = self.slices()[state_index * 2].as_usize();
-        let len = self.slices()[state_index * 2 + 1].as_usize();
-        &self.pattern_ids()[start..start + 4 * len]
+        let len = self.pattern_len(state_index);
+        &self.pattern_ids()[start..start + len]
     }
 
+    /// Returns the pattern ID offset slice of u32 as a slice of PatternID.
     fn slices(&self) -> &[PatternID] {
         let integers = self.slices.as_ref();
         // SAFETY: This is safe because PatternID is guaranteed to be
@@ -3910,50 +3875,28 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
         }
     }
 
-    /// Returns the slice pairs as raw bytes.
-    ///
-    /// The length of the slice returned is always equivalent to
-    /// `self.slices().len() * self.state_size()`.
-    ///
-    /// This is generally only useful when serializing the slices to raw bytes.
-    fn slices_bytes(&self) -> &[u8] {
-        let slices = self.slices();
-        // SAFETY: This is safe because S is guaranteed to be one of {usize,
-        // u8, u16, u32, u64}, and because u8 always has a smaller alignment.
-        unsafe {
-            core::slice::from_raw_parts(
-                slices.as_ptr() as *const u8,
-                slices.len() * self.state_size(),
-            )
-        }
-    }
-
     /// Returns the total number of match states.
     fn count(&self) -> usize {
         assert_eq!(0, self.slices().len() % 2);
         self.slices().len() / 2
     }
 
-    fn pattern_ids(&self) -> &[u8] {
-        self.pattern_ids.as_ref()
-    }
-
-    /// Returns the total number of pattern IDs for all match states.
-    fn pattern_id_count(&self) -> usize {
-        assert_eq!(0, self.pattern_ids().len() % 4);
-        self.pattern_ids().len() / 4
-    }
-
-    /// Returns the size of the specific state ID representation, in bytes.
-    ///
-    /// This is always 1, 2, 4 or 8.
-    fn state_size(&self) -> usize {
-        PatternID::SIZE
+    /// Returns the pattern ID slice of u32 as a slice of PatternID.
+    fn pattern_ids(&self) -> &[PatternID] {
+        let integers = self.pattern_ids.as_ref();
+        // SAFETY: This is safe because PatternID is guaranteed to be
+        // representable as a u32.
+        unsafe {
+            core::slice::from_raw_parts(
+                integers.as_ptr() as *const PatternID,
+                integers.len(),
+            )
+        }
     }
 
     /// Return the memory usage, in bytes, of these match pairs.
     fn memory_usage(&self) -> usize {
-        self.slices_bytes().len() + self.pattern_ids().len()
+        (self.slices().len() + self.pattern_ids().len()) * PatternID::SIZE
     }
 }
 
@@ -3964,8 +3907,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> MatchStates<T, A> {
 /// corresponds to the state itself (comprised of its transitions).
 ///
 /// `'a` corresponding to the lifetime of original DFA, `T` corresponds to
-/// the type of the transition table itself and `S` corresponds to the state
-/// identifier representation.
+/// the type of the transition table itself.
 pub(crate) struct StateIter<'a, T> {
     tt: &'a TransitionTable<T>,
     it: iter::Enumerate<slice::Chunks<'a, StateID>>,
@@ -3984,8 +3926,7 @@ impl<'a, T: AsRef<[u32]>> Iterator for StateIter<'a, T> {
 
 /// An immutable representation of a single DFA state.
 ///
-/// `'a` correspondings to the lifetime of a DFA's transition table and `S`
-/// corresponds to the state identifier representation.
+/// `'a` correspondings to the lifetime of a DFA's transition table.
 pub(crate) struct State<'a> {
     id: StateID,
     stride2: usize,
@@ -4078,8 +4019,7 @@ impl<'a> fmt::Debug for State<'a> {
 
 /// A mutable representation of a single DFA state.
 ///
-/// `'a` correspondings to the lifetime of a DFA's transition table and `S`
-/// corresponds to the state identifier representation.
+/// `'a` correspondings to the lifetime of a DFA's transition table.
 #[cfg(feature = "alloc")]
 pub(crate) struct StateMut<'a> {
     id: StateID,
@@ -4225,23 +4165,13 @@ impl<'a> Iterator for StateSparseTransitionIter<'a> {
 
 /// An iterator over pattern IDs for a single match state.
 #[derive(Debug)]
-pub(crate) struct PatternIDIter<'a> {
-    pattern_id_bytes: &'a [u8],
-}
+pub(crate) struct PatternIDIter<'a>(slice::Iter<'a, PatternID>);
 
 impl<'a> Iterator for PatternIDIter<'a> {
     type Item = PatternID;
 
     fn next(&mut self) -> Option<PatternID> {
-        if self.pattern_id_bytes.is_empty() {
-            return None;
-        }
-        let bytes = &self.pattern_id_bytes[..4];
-        self.pattern_id_bytes = &self.pattern_id_bytes[4..];
-        // TODO: justify unchecked use here
-        // (Or don't deserialize pattern IDs like this. Instead, do it like
-        // state IDs.)
-        Some(PatternID::from_ne_bytes_unchecked(bytes.try_into().unwrap()))
+        self.0.next().copied()
     }
 }
 
@@ -4257,6 +4187,19 @@ impl<'a> Iterator for PatternIDIter<'a> {
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 struct Remapper {
+    /// A map from the index of a state to its pre-multiplied identifier.
+    ///
+    /// When a state is swapped with another, then their corresponding
+    /// locations in this map are also swapped. Thus, its new position will
+    /// still point to its old pre-multiplied StateID.
+    ///
+    /// While there is a bit more to it, this then allows us to rewrite the
+    /// state IDs in a DFA's transition table in a single pass. This is done
+    /// by iterating over every ID in this map, then iterating over each
+    /// transition for the state at that ID and re-mapping the transition from
+    /// `old_id` to `map[dfa.to_index(old_id)]`. That is, we find the position
+    /// in this map where `old_id` *started*, and set it to where it ended up
+    /// after all swaps have been completed.
     map: Vec<StateID>,
 }
 
@@ -4264,7 +4207,7 @@ struct Remapper {
 impl Remapper {
     fn from_dfa(dfa: &OwnedDFA) -> Remapper {
         Remapper {
-            map: (0..dfa.tt.count).map(|i| dfa.from_index(i)).collect(),
+            map: (0..dfa.state_count()).map(|i| dfa.from_index(i)).collect(),
         }
     }
 
@@ -4274,12 +4217,6 @@ impl Remapper {
     }
 
     fn remap(mut self, dfa: &mut OwnedDFA) {
-        // To work around the borrow checker for converting state IDs to
-        // indices. We cannot borrow self while mutably iterating over a
-        // state's transitions. Otherwise, we'd just use dfa.to_index(..).
-        let stride2 = dfa.stride2();
-        let to_index = |id: StateID| -> usize { id.as_usize() >> stride2 };
-
         // Update the map to account for states that have been swapped
         // multiple times. For example, if (A, C) and (C, G) are swapped, then
         // transitions previously pointing to A should now point to G. But if
@@ -4287,7 +4224,7 @@ impl Remapper {
         // do is follow the swaps in our map until we see our original state
         // ID.
         let oldmap = self.map.clone();
-        for i in 0..dfa.tt.count {
+        for i in 0..dfa.state_count() {
             let cur_id = dfa.from_index(i);
             let mut new = oldmap[i];
             if cur_id == new {
@@ -4302,6 +4239,12 @@ impl Remapper {
                 new = id;
             }
         }
+
+        // To work around the borrow checker for converting state IDs to
+        // indices. We cannot borrow self while mutably iterating over a
+        // state's transitions. Otherwise, we'd just use dfa.to_index(..).
+        let stride2 = dfa.stride2();
+        let to_index = |id: StateID| -> usize { id.as_usize() >> stride2 };
 
         // Now that we've finished shuffling, we need to remap all of our
         // transitions. We don't need to handle re-mapping accelerated states
@@ -4325,5 +4268,28 @@ mod tests {
     fn errors_with_unicode_word_boundary() {
         let pattern = r"\b";
         assert!(Builder::new().build(pattern).is_err());
+    }
+
+    #[test]
+    fn roundtrip_never_match() {
+        let dfa = DFA::never_match().unwrap();
+        let (buf, _) = dfa.to_bytes_native_endian();
+        let dfa: DFA<&[u32]> = DFA::from_bytes(&buf).unwrap().0;
+
+        assert_eq!(None, dfa.find_leftmost_fwd(b"foo12345").unwrap());
+    }
+
+    #[test]
+    fn roundtrip_always_match() {
+        use crate::dfa::HalfMatch;
+
+        let dfa = DFA::always_match().unwrap();
+        let (buf, _) = dfa.to_bytes_native_endian();
+        let dfa: DFA<&[u32]> = DFA::from_bytes(&buf).unwrap().0;
+
+        assert_eq!(
+            Some(HalfMatch::must(0, 0)),
+            dfa.find_leftmost_fwd(b"foo12345").unwrap()
+        );
     }
 }

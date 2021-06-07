@@ -219,7 +219,11 @@ impl<'a> Minimizer<'a> {
             let new_id = remap(match_id);
             pmap.insert(new_id, pattern_ids);
         }
-        self.dfa.set_pattern_map(&pmap);
+        // This unwrap is OK because minimization never increases the number of
+        // match states or patterns in those match states. Since minimization
+        // runs after the pattern map has already been set at least once, we
+        // know that our match states cannot error.
+        self.dfa.set_pattern_map(&pmap).unwrap();
 
         // In order to update the ID of the maximum match state, we need to
         // find the maximum ID among all of the match states in the minimized
