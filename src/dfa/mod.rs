@@ -37,8 +37,8 @@ let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::new(0, 0, 10),
-    MultiMatch::new(0, 11, 21),
+    MultiMatch::must(0, 0, 10),
+    MultiMatch::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -56,8 +56,8 @@ let re = Regex::new_many(&[r"\w+", r"\S+"])?;
 let text = b"@foo bar";
 let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::new(1, 0, 4),
-    MultiMatch::new(0, 5, 8),
+    MultiMatch::must(1, 0, 4),
+    MultiMatch::must(0, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -75,11 +75,11 @@ let re = Regex::builder()
 let text = b"@foo bar";
 let matches: Vec<MultiMatch> = re.find_overlapping_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::new(1, 0, 3),
-    MultiMatch::new(0, 1, 4),
-    MultiMatch::new(1, 1, 4),
-    MultiMatch::new(0, 5, 8),
-    MultiMatch::new(1, 5, 8),
+    MultiMatch::must(1, 0, 3),
+    MultiMatch::must(0, 1, 4),
+    MultiMatch::must(1, 1, 4),
+    MultiMatch::must(0, 5, 8),
+    MultiMatch::must(1, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -101,8 +101,8 @@ let re = Regex::new_sparse(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::new(0, 0, 10),
-    MultiMatch::new(0, 11, 21),
+    MultiMatch::must(0, 0, 10),
+    MultiMatch::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -121,8 +121,8 @@ let sparse_re = RegexBuilder::new().build_from_dfas(
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<MultiMatch> = sparse_re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::new(0, 0, 10),
-    MultiMatch::new(0, 11, 21),
+    MultiMatch::must(0, 0, 10),
+    MultiMatch::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -139,15 +139,11 @@ use regex_automata::{MultiMatch, dfa::{dense, Regex, RegexBuilder}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both the forward and reverse DFAs, see note below
-let (fwd_bytes, fwd_pad) =
-    re1.forward().to_sized::<u16>()?.to_bytes_native_endian();
-let (rev_bytes, rev_pad) =
-    re1.reverse().to_sized::<u16>()?.to_bytes_native_endian();
+let (fwd_bytes, fwd_pad) = re1.forward().to_bytes_native_endian();
+let (rev_bytes, rev_pad) = re1.reverse().to_bytes_native_endian();
 // now deserialize both---we need to specify the correct type!
-let fwd: dense::DFA<&[u16], &[u8], u16> =
-    dense::DFA::from_bytes(&fwd_bytes[fwd_pad..])?.0;
-let rev: dense::DFA<&[u16], &[u8], u16> =
-    dense::DFA::from_bytes(&rev_bytes[rev_pad..])?.0;
+let fwd: dense::DFA<&[u32]> = dense::DFA::from_bytes(&fwd_bytes[fwd_pad..])?.0;
+let rev: dense::DFA<&[u32]> = dense::DFA::from_bytes(&rev_bytes[rev_pad..])?.0;
 // finally, reconstruct our regex
 let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
 
@@ -155,8 +151,8 @@ let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<MultiMatch> = re2.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::new(0, 0, 10),
-    MultiMatch::new(0, 11, 21),
+    MultiMatch::must(0, 0, 10),
+    MultiMatch::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -168,13 +164,6 @@ can build the DFAs manually yourself using [`dense::Builder`], but using
 the DFAs from a `Regex` guarantees that the DFAs are built correctly. (In
 particular, a `Regex` constructs a reverse DFA for finding the starting
 location of matches.)
-* We specifically convert the dense DFA to a representation that uses `u16` for
-its state identifiers using [`dense::DFA::to_sized`]. While this isn't strictly
-necessary, if we skipped this step, then the serialized bytes would use `usize`
-for state identifiers, which does not have a fixed size. Using `u16` ensures
-that we can deserialize this DFA even on platforms with a smaller pointer size.
-If our DFA is too big for `u16` state identifiers, then one can use `u32` or
-`u64`.
 * To convert the DFA to raw bytes, we use the `to_bytes_native_endian` method.
 In practice, you'll want to use either [`dense::DFA::to_bytes_little_endian`]
 or [`dense::DFA::to_bytes_big_endian`], depending on which platform you're
@@ -197,11 +186,11 @@ use regex_automata::{MultiMatch, dfa::{sparse, Regex, RegexBuilder}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both
-let fwd_bytes = re1.forward().to_sized::<u16>()?.to_sparse()?.to_bytes_native_endian();
-let rev_bytes = re1.reverse().to_sized::<u16>()?.to_sparse()?.to_bytes_native_endian();
+let fwd_bytes = re1.forward().to_sparse()?.to_bytes_native_endian();
+let rev_bytes = re1.reverse().to_sparse()?.to_bytes_native_endian();
 // now deserialize both---we need to specify the correct type!
-let fwd: sparse::DFA<&[u8], u16> = sparse::DFA::from_bytes(&fwd_bytes)?.0;
-let rev: sparse::DFA<&[u8], u16> = sparse::DFA::from_bytes(&rev_bytes)?.0;
+let fwd: sparse::DFA<&[u8]> = sparse::DFA::from_bytes(&fwd_bytes)?.0;
+let rev: sparse::DFA<&[u8]> = sparse::DFA::from_bytes(&rev_bytes)?.0;
 // finally, reconstruct our regex
 let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
 
@@ -209,8 +198,8 @@ let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<MultiMatch> = re2.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::new(0, 0, 10),
-    MultiMatch::new(0, 11, 21),
+    MultiMatch::must(0, 0, 10),
+    MultiMatch::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

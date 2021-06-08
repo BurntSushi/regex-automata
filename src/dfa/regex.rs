@@ -8,7 +8,7 @@ use crate::{
 };
 #[cfg(feature = "alloc")]
 use crate::{
-    dfa::{dense, error::Error /*, sparse*/},
+    dfa::{dense, error::Error, sparse},
     id::StateID,
     matching::MatchKind,
     nfa::thompson,
@@ -277,9 +277,8 @@ impl Regex {
     }
 }
 
-/*
 #[cfg(feature = "alloc")]
-impl Regex<sparse::DFA<Vec<u8>, usize>> {
+impl Regex<sparse::DFA<Vec<u8>>> {
     /// Parse the given regular expression using the default configuration,
     /// except using sparse DFAs, and return the corresponding regex.
     ///
@@ -300,7 +299,7 @@ impl Regex<sparse::DFA<Vec<u8>, usize>> {
     /// ```
     pub fn new_sparse(
         pattern: &str,
-    ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
         RegexBuilder::new().build_sparse(pattern)
     }
 
@@ -327,11 +326,10 @@ impl Regex<sparse::DFA<Vec<u8>, usize>> {
     /// ```
     pub fn new_many_sparse<P: AsRef<str>>(
         patterns: &[P],
-    ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
         RegexBuilder::new().build_many_sparse(patterns)
     }
 }
-*/
 
 /// Conveniece routines for regex construction.
 #[cfg(feature = "alloc")]
@@ -1957,7 +1955,6 @@ impl RegexBuilder {
         self.build_many(&[pattern])
     }
 
-    /*
     /// Build a regex from the given pattern using sparse DFAs.
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
@@ -1965,10 +1962,9 @@ impl RegexBuilder {
     pub fn build_sparse(
         &self,
         pattern: &str,
-    ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
-        self.build_many_sparse::<usize>(&[pattern])
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
+        self.build_many_sparse(&[pattern])
     }
-    */
 
     /// Build a regex from the given patterns.
     pub fn build_many<P: AsRef<str>>(
@@ -1990,18 +1986,16 @@ impl RegexBuilder {
         Ok(self.build_from_dfas(forward, reverse))
     }
 
-    /*
     /// Build a sparse regex from the given patterns.
     pub fn build_many_sparse<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<Regex<sparse::DFA<Vec<u8>, usize>>, Error> {
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
         let re = self.build_many(patterns)?;
         let forward = re.forward().to_sparse()?;
         let reverse = re.reverse().to_sparse()?;
         Ok(self.build_from_dfas(forward, reverse))
     }
-    */
 
     /// Build a regex from its component forward and reverse DFAs.
     ///
@@ -2047,25 +2041,9 @@ impl RegexBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
-    /// This example shows how you might build smaller DFAs, and then use those
-    /// smaller DFAs to build a new regex.
-    ///
-    /// ```
-    /// use regex_automata::dfa::{Regex, RegexBuilder};
-    ///
-    /// let initial_re = Regex::new("foo[0-9]+")?;
-    /// assert_eq!(true, initial_re.is_match(b"foo123"));
-    ///
-    /// let fwd = initial_re.forward().to_sized::<u16>()?;
-    /// let rev = initial_re.reverse().to_sized::<u16>()?;
-    /// let re = RegexBuilder::new()
-    ///     .build_from_dfas(fwd, rev);
-    /// assert_eq!(true, re.is_match(b"foo123"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
     /// This example shows how to build a `Regex` that uses sparse DFAs instead
-    /// of dense DFAs:
+    /// of dense DFAs without using one of the convenience `build_sparse`
+    /// routines:
     ///
     /// ```
     /// use regex_automata::dfa::{Regex, RegexBuilder};

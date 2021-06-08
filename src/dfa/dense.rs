@@ -400,7 +400,7 @@ impl Config {
     /// run both anchored and unanchored searches for a single pattern.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{PatternID, dfa::{Automaton, HalfMatch, dense}};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().starts_for_each_pattern(true))
@@ -420,13 +420,13 @@ impl Config {
     /// // pattern doesn't have a match at the beginning of the haystack, we
     /// // find nothing.
     /// assert_eq!(None, dfa.find_leftmost_fwd_at(
-    ///     None, Some(0), haystack, 0, haystack.len(),
+    ///     None, Some(PatternID::must(0)), haystack, 0, haystack.len(),
     /// )?);
     /// // And finally, an anchored search is not the same as putting a '^' at
     /// // beginning of the pattern. An anchored search can only match at the
     /// // beginning of the *search*, which we can change:
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
-    ///     None, Some(0), haystack, 5, haystack.len(),
+    ///     None, Some(PatternID::must(0)), haystack, 5, haystack.len(),
     /// )?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())

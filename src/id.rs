@@ -77,6 +77,11 @@ impl PatternID {
         PatternID(id as u32)
     }
 
+    /// Like [`PatternID::new`], but panics if the given ID is not valid.
+    pub fn must(id: usize) -> PatternID {
+        PatternID::new(id).unwrap()
+    }
+
     /// Return this pattern ID as a `usize`.
     pub fn as_usize(&self) -> usize {
         self.0 as usize
@@ -230,6 +235,11 @@ impl StateID {
     /// sacrifice memory safety, as documented above.
     pub fn new_unchecked(id: usize) -> StateID {
         StateID(id as u32)
+    }
+
+    /// Like [`StateID::new`], but panics if the given ID is not valid.
+    pub fn must(id: usize) -> StateID {
+        StateID::new(id).unwrap()
     }
 
     /// Return this pattern ID as a `usize`.
