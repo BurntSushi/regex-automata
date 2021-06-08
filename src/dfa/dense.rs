@@ -2716,14 +2716,16 @@ impl<'a> TransitionTable<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(TransitionTable<&'a [u32]>, usize), DeserializeError> {
-        let count = bytes::try_read_u32_as_usize(slice, "state count")?;
-        slice = &slice[size_of::<u32>()..];
+        let slice_start = slice.as_ptr() as usize;
 
-        let stride2 = bytes::try_read_u32_as_usize(slice, "stride2")?;
-        slice = &slice[size_of::<u32>()..];
+        let (count, nr) = bytes::try_read_u32_as_usize(slice, "state count")?;
+        slice = &slice[nr..];
 
-        let (classes, nread) = ByteClasses::from_bytes(slice)?;
-        slice = &slice[nread..];
+        let (stride2, nr) = bytes::try_read_u32_as_usize(slice, "stride2")?;
+        slice = &slice[nr..];
+
+        let (classes, nr) = ByteClasses::from_bytes(slice)?;
+        slice = &slice[nr..];
 
         // The alphabet length (determined by the byte class map) cannot be
         // bigger than the stride (total space used by each DFA state).
@@ -2759,13 +2761,8 @@ impl<'a> TransitionTable<&'a [u32]> {
         )?;
         bytes::check_slice_len(slice, table_bytes_len, "transition table")?;
         bytes::check_alignment::<StateID>(slice)?;
-        // This doesn't need to be handled because we've verified that our
-        // slice is at least this long, and thus, nread fits into a usize.
-        let nread = nread
-            .checked_add(size_of::<u32>() * 2)
-            .unwrap()
-            .checked_add(table_bytes_len)
-            .unwrap();
+        let table_bytes = &slice[..table_bytes_len];
+        slice = &slice[table_bytes_len..];
         // SAFETY: Since StateID is always representable as a u32, all we need
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
@@ -2776,12 +2773,12 @@ impl<'a> TransitionTable<&'a [u32]> {
         #[allow(unused_unsafe)]
         let table = unsafe {
             core::slice::from_raw_parts(
-                slice.as_ptr() as *const u32,
+                table_bytes.as_ptr() as *const u32,
                 trans_count,
             )
         };
         let tt = TransitionTable { table, classes, stride2 };
-        Ok((tt, nread))
+        Ok((tt, slice.as_ptr() as usize - slice_start))
     }
 }
 
@@ -3284,12 +3281,15 @@ impl<'a> StartTable<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(StartTable<&'a [u32]>, usize), DeserializeError> {
-        let stride =
+        let slice_start = slice.as_ptr() as usize;
+
+        let (stride, nr) =
             bytes::try_read_u32_as_usize(slice, "start table stride")?;
-        slice = &slice[size_of::<u32>()..];
-        let patterns =
+        slice = &slice[nr..];
+
+        let (patterns, nr) =
             bytes::try_read_u32_as_usize(slice, "start table patterns")?;
-        slice = &slice[size_of::<u32>()..];
+        slice = &slice[nr..];
 
         if stride != Start::count() {
             return Err(DeserializeError::generic(
@@ -3318,8 +3318,8 @@ impl<'a> StartTable<&'a [u32]> {
         )?;
         bytes::check_slice_len(slice, table_bytes_len, "start ID table")?;
         bytes::check_alignment::<StateID>(slice)?;
-        // Our slice is at least this long, so this add should always work.
-        let nread = table_bytes_len.checked_add(size_of::<u32>() * 2).unwrap();
+        let table_bytes = &slice[..table_bytes_len];
+        slice = &slice[table_bytes_len..];
         // SAFETY: Since StateID is always representable as a u32, all we need
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
@@ -3330,12 +3330,12 @@ impl<'a> StartTable<&'a [u32]> {
         #[allow(unused_unsafe)]
         let table = unsafe {
             core::slice::from_raw_parts(
-                slice.as_ptr() as *const u32,
+                table_bytes.as_ptr() as *const u32,
                 start_state_count,
             )
         };
         let st = StartTable { table, stride, patterns };
-        Ok((st, nread))
+        Ok((st, slice.as_ptr() as usize - slice_start))
     }
 }
 
@@ -3569,12 +3569,12 @@ impl<'a> MatchStates<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(MatchStates<&'a [u32]>, usize), DeserializeError> {
-        let mut nread = 0;
+        let slice_start = slice.as_ptr() as usize;
 
         // Read the total number of match states.
-        let count = bytes::try_read_u32_as_usize(slice, "match state count")?;
-        nread += size_of::<u32>();
-        slice = &slice[size_of::<u32>()..];
+        let (count, nr) =
+            bytes::try_read_u32_as_usize(slice, "match state count")?;
+        slice = &slice[nr..];
 
         // Read the slice start/length pairs.
         let pair_count = bytes::mul(2, count, "match state offset pairs")?;
@@ -3585,6 +3585,8 @@ impl<'a> MatchStates<&'a [u32]> {
         )?;
         bytes::check_slice_len(slice, slices_bytes_len, "match state slices")?;
         bytes::check_alignment::<PatternID>(slice)?;
+        let slices_bytes = &slice[..slices_bytes_len];
+        slice = &slice[slices_bytes_len..];
         // SAFETY: Since PatternID is always representable as a u32, all we
         // need to do is ensure that we have the proper length and alignment.
         // We've checked both above, so the cast below is safe.
@@ -3595,31 +3597,31 @@ impl<'a> MatchStates<&'a [u32]> {
         #[allow(unused_unsafe)]
         let slices = unsafe {
             core::slice::from_raw_parts(
-                slice.as_ptr() as *const u32,
+                slices_bytes.as_ptr() as *const u32,
                 pair_count,
             )
         };
-        nread += slices_bytes_len;
-        slice = &slice[slices_bytes_len..];
 
         // Read the total number of unique pattern IDs (which is always 1 more
         // than the maximum pattern ID in this automaton, since pattern IDs are
         // handed out contiguously starting at 0).
-        let patterns = bytes::try_read_u32_as_usize(slice, "pattern count")?;
-        nread += size_of::<u32>();
-        slice = &slice[size_of::<u32>()..];
+        let (patterns, nr) =
+            bytes::try_read_u32_as_usize(slice, "pattern count")?;
+        slice = &slice[nr..];
 
         // Now read the pattern ID count. We don't need to store this
         // explicitly, but we need it to know how many pattern IDs to read.
-        let idcount = bytes::try_read_u32_as_usize(slice, "pattern ID count")?;
-        nread += size_of::<u32>();
-        slice = &slice[size_of::<u32>()..];
+        let (idcount, nr) =
+            bytes::try_read_u32_as_usize(slice, "pattern ID count")?;
+        slice = &slice[nr..];
 
         // Read the actual pattern IDs.
         let pattern_ids_len =
             bytes::mul(idcount, PatternID::SIZE, "pattern ID byte length")?;
         bytes::check_slice_len(slice, pattern_ids_len, "match pattern IDs")?;
         bytes::check_alignment::<PatternID>(slice)?;
+        let pattern_ids_bytes = &slice[..pattern_ids_len];
+        slice = &slice[pattern_ids_len..];
         // SAFETY: Since PatternID is always representable as a u32, all we
         // need to do is ensure that we have the proper length and alignment.
         // We've checked both above, so the cast below is safe.
@@ -3629,13 +3631,14 @@ impl<'a> MatchStates<&'a [u32]> {
         // superfluous.
         #[allow(unused_unsafe)]
         let pattern_ids = unsafe {
-            core::slice::from_raw_parts(slice.as_ptr() as *const u32, idcount)
+            core::slice::from_raw_parts(
+                pattern_ids_bytes.as_ptr() as *const u32,
+                idcount,
+            )
         };
-        nread += pattern_ids_len;
-        slice = &slice[pattern_ids_len..];
 
         let ms = MatchStates { slices, pattern_ids, patterns };
-        Ok((ms, nread))
+        Ok((ms, slice.as_ptr() as usize - slice_start))
     }
 }
 

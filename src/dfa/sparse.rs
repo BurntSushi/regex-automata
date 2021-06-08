@@ -1243,30 +1243,26 @@ impl<'a> Transitions<&'a [u8]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(Transitions<&'a [u8]>, usize), DeserializeError> {
-        let mut nread = 0;
+        let slice_start = slice.as_ptr() as usize;
 
-        let state_count: usize =
+        let (state_count, nr) =
             bytes::try_read_u64_as_usize(&slice, "state count")?;
-        nread += 8;
-        slice = &slice[8..];
+        slice = &slice[nr..];
 
-        let pattern_count: usize =
+        let (pattern_count, nr) =
             bytes::try_read_u64_as_usize(&slice, "pattern count")?;
-        nread += 8;
-        slice = &slice[8..];
+        slice = &slice[nr..];
 
-        let (classes, n) = ByteClasses::from_bytes(&slice)?;
-        nread += n;
-        slice = &slice[n..];
+        let (classes, nr) = ByteClasses::from_bytes(&slice)?;
+        slice = &slice[nr..];
 
-        let len =
+        let (len, nr) =
             bytes::try_read_u64_as_usize(&slice, "sparse transitions length")?;
-        nread += 8;
-        slice = &slice[8..];
+        slice = &slice[nr..];
 
         bytes::check_slice_len(slice, len, "sparse states byte length")?;
         let sparse = &slice[..len];
-        nread += len;
+        slice = &slice[len..];
 
         let trans = Transitions {
             sparse,
@@ -1274,7 +1270,7 @@ impl<'a> Transitions<&'a [u8]> {
             count: state_count,
             patterns: pattern_count,
         };
-        Ok((trans, nread))
+        Ok((trans, slice.as_ptr() as usize - slice_start))
     }
 }
 
@@ -1479,7 +1475,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         let mut state = &self.sparse()[id.as_usize()..];
         // Encoding format starts with a u16 that stores the total number of
         // transitions in this state.
-        let mut ntrans =
+        let (mut ntrans, _) =
             bytes::try_read_u16_as_usize(state, "state transition count")?;
         let is_match = (1 << 15) & ntrans != 0;
         ntrans &= !(1 << 15);
@@ -1512,7 +1508,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         let (next, state) = state.split_at(next_len);
         // We can at least verify that every state ID is in bounds.
         for idbytes in next.chunks(self.id_len()) {
-            let id =
+            let (id, _) =
                 bytes::read_state_id(idbytes, "sparse state ID in try_state")?;
             bytes::check_slice_len(
                 self.sparse(),
@@ -1525,14 +1521,9 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         // Pattern IDs is a u32-length prefixed sequence of native endian
         // encoded 32-bit integers.
         let (pattern_ids, state) = if is_match {
-            let npats: usize = bytes::try_read_u32(state, "pattern ID count")?
-                .try_into()
-                .map_err(|_| {
-                    // If the number of patterns doesn't fit into usize, then
-                    // we have a problem because the slice will be too big.
-                    DeserializeError::invalid_usize("pattern ID count")
-                })?;
-            let state = &state[4..];
+            let (npats, nr) =
+                bytes::try_read_u32_as_usize(state, "pattern ID count")?;
+            let state = &state[nr..];
 
             let pattern_ids_len =
                 bytes::mul(npats, 4, "sparse pattern ID byte length")?;
@@ -1715,14 +1706,17 @@ impl<'a> StartTable<&'a [u8]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(StartTable<&'a [u8]>, usize), DeserializeError> {
-        let stride =
+        let slice_start = slice.as_ptr() as usize;
+
+        let (stride, nr) =
             bytes::try_read_u64_as_usize(slice, "sparse start table stride")?;
-        slice = &slice[8..];
-        let patterns = bytes::try_read_u64_as_usize(
+        slice = &slice[nr..];
+
+        let (patterns, nr) = bytes::try_read_u64_as_usize(
             slice,
             "sparse start table patterns",
         )?;
-        slice = &slice[8..];
+        slice = &slice[nr..];
 
         if stride != Start::count() {
             return Err(DeserializeError::generic(
@@ -1754,12 +1748,11 @@ impl<'a> StartTable<&'a [u8]> {
             table_bytes_len,
             "sparse start ID table",
         )?;
-        // Our slice is at least this long because of the pair of reads in
-        // the beginning, so this will never panic.
-        let nread = table_bytes_len.checked_add(8 + 8).unwrap();
-        let sl =
-            StartTable { table: &slice[..table_bytes_len], stride, patterns };
-        Ok((sl, nread))
+        let table_bytes = &slice[..table_bytes_len];
+        slice = &slice[table_bytes_len..];
+
+        let sl = StartTable { table: table_bytes, stride, patterns };
+        Ok((sl, slice.as_ptr() as usize - slice_start))
     }
 }
 

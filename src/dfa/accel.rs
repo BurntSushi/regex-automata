@@ -185,36 +185,40 @@ impl<'a> Accels<&'a [ACCEL_TY]> {
     /// valid. Thus, accessing one may panic, or not-safe code that relies on
     /// accelerators being correct my result in UB.
     pub unsafe fn from_bytes_unchecked(
-        slice: &'a [u8],
+        mut slice: &'a [u8],
     ) -> Result<(Accels<&'a [ACCEL_TY]>, usize), DeserializeError> {
-        let mut nr = 0;
+        let slice_start = slice.as_ptr() as usize;
 
-        let count = bytes::try_read_u32_as_usize(slice, "accelerators count")?;
-        nr += ACCEL_TY_SIZE;
+        let (count, nr) =
+            bytes::try_read_u32_as_usize(slice, "accelerators count")?;
+        // The accelerator count is part of the accel_tys slice that
+        // we deserialize. This is perhaps a bit idiosyncratic. It would
+        // probably be better to split out the count into a real field.
 
         let accel_tys_count = bytes::add(
             bytes::mul(count, 2, "total number of accelerator accel_tys")?,
             1,
             "total number of accel_tys",
         )?;
-        let accel_tys_bytes = bytes::mul(
+        let accel_tys_len = bytes::mul(
             ACCEL_TY_SIZE,
             accel_tys_count,
             "total number of bytes in accelerators",
         )?;
-        bytes::check_slice_len(slice, accel_tys_bytes, "accelerators")?;
+        bytes::check_slice_len(slice, accel_tys_len, "accelerators")?;
         bytes::check_alignment::<ACCEL_TY>(slice);
+        let accel_tys = &slice[..accel_tys_len];
+        slice = &slice[accel_tys_len..];
         // SAFETY: We've checked the length and alignment above, and since
         // slice is just bytes, we can safely cast to a slice of &[ACCEL_TY].
         #[allow(unused_unsafe)]
         let accels = unsafe {
             core::slice::from_raw_parts(
-                slice.as_ptr() as *const ACCEL_TY,
+                accel_tys.as_ptr() as *const ACCEL_TY,
                 accel_tys_count,
             )
         };
-        nr += accel_tys_bytes;
-        Ok((Accels { accels }, nr))
+        Ok((Accels { accels }, slice.as_ptr() as usize - slice_start))
     }
 }
 

@@ -428,11 +428,12 @@ pub fn write_label_len(label: &str) -> usize {
 ///
 /// Upon success, the total number of bytes read is returned.
 pub fn read_endianness_check(slice: &[u8]) -> Result<usize, DeserializeError> {
-    let n = try_read_u32(slice, "endianness check")?;
+    let (n, nr) = try_read_u32(slice, "endianness check")?;
+    assert_eq!(nr, write_endianness_check_len());
     if n != 0xFEFF {
         return Err(DeserializeError::endian_mismatch(0xFEFF, n));
     }
-    Ok(write_endianness_check_len())
+    Ok(nr)
 }
 
 /// Writes 0xFEFF as an integer using the given endianness.
@@ -471,11 +472,12 @@ pub fn read_version(
     slice: &[u8],
     expected_version: u32,
 ) -> Result<usize, DeserializeError> {
-    let n = try_read_u32(slice, "version")?;
+    let (n, nr) = try_read_u32(slice, "version")?;
+    assert_eq!(nr, write_version_len());
     if n != expected_version {
         return Err(DeserializeError::version_mismatch(expected_version, n));
     }
-    Ok(write_version_len())
+    Ok(nr)
 }
 
 /// Writes the given version number to the beginning of the given slice.
@@ -505,35 +507,44 @@ pub fn write_version_len() -> usize {
 /// Attempts to read a pattern ID from the given slice. If the slice has an
 /// insufficient number of bytes or if the pattern ID exceeds the limit for
 /// the current target, then this returns an error.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_pattern_id(
     slice: &[u8],
     what: &'static str,
-) -> Result<PatternID, DeserializeError> {
+) -> Result<(PatternID, usize), DeserializeError> {
     if slice.len() < PatternID::SIZE {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    PatternID::from_ne_bytes(slice[..PatternID::SIZE].try_into().unwrap())
-        .map_err(|err| DeserializeError::pattern_id_error(err, what))
+    read_pattern_id(slice, what)
 }
 
 /// Reads a pattern ID from the given slice. If the slice has insufficient
 /// length, then this panics. If the deserialized integer exceeds the pattern
 /// ID limit for the current target, then this returns an error.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn read_pattern_id(
     slice: &[u8],
     what: &'static str,
-) -> Result<PatternID, DeserializeError> {
-    PatternID::from_ne_bytes(slice[..PatternID::SIZE].try_into().unwrap())
-        .map_err(|err| DeserializeError::pattern_id_error(err, what))
+) -> Result<(PatternID, usize), DeserializeError> {
+    let bytes: [u8; PatternID::SIZE] =
+        slice[..PatternID::SIZE].try_into().unwrap();
+    let pid = PatternID::from_ne_bytes(bytes)
+        .map_err(|err| DeserializeError::pattern_id_error(err, what))?;
+    Ok((pid, PatternID::SIZE))
 }
 
 /// Reads a pattern ID from the given slice. If the slice has insufficient
 /// length, then this panics. Otherwise, the deserialized integer is assumed
 /// to be a valid pattern ID.
-pub fn read_pattern_id_unchecked(slice: &[u8]) -> PatternID {
-    PatternID::from_ne_bytes_unchecked(
+///
+/// This also returns the number of bytes read.
+pub fn read_pattern_id_unchecked(slice: &[u8]) -> (PatternID, usize) {
+    let pid = PatternID::from_ne_bytes_unchecked(
         slice[..PatternID::SIZE].try_into().unwrap(),
-    )
+    );
+    (pid, PatternID::SIZE)
 }
 
 /// Write the given pattern ID to the beginning of the given slice of bytes
@@ -548,35 +559,44 @@ pub fn write_pattern_id<E: Endian>(pid: PatternID, dst: &mut [u8]) -> usize {
 /// Attempts to read a state ID from the given slice. If the slice has an
 /// insufficient number of bytes or if the state ID exceeds the limit for
 /// the current target, then this returns an error.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_state_id(
     slice: &[u8],
     what: &'static str,
-) -> Result<StateID, DeserializeError> {
+) -> Result<(StateID, usize), DeserializeError> {
     if slice.len() < StateID::SIZE {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    StateID::from_ne_bytes(slice[..StateID::SIZE].try_into().unwrap())
-        .map_err(|err| DeserializeError::state_id_error(err, what))
+    read_state_id(slice, what)
 }
 
 /// Reads a state ID from the given slice. If the slice has insufficient
 /// length, then this panics. If the deserialized integer exceeds the state ID
 /// limit for the current target, then this returns an error.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn read_state_id(
     slice: &[u8],
     what: &'static str,
-) -> Result<StateID, DeserializeError> {
-    StateID::from_ne_bytes(slice[..StateID::SIZE].try_into().unwrap())
-        .map_err(|err| DeserializeError::state_id_error(err, what))
+) -> Result<(StateID, usize), DeserializeError> {
+    let bytes: [u8; StateID::SIZE] =
+        slice[..StateID::SIZE].try_into().unwrap();
+    let sid = StateID::from_ne_bytes(bytes)
+        .map_err(|err| DeserializeError::state_id_error(err, what))?;
+    Ok((sid, StateID::SIZE))
 }
 
 /// Reads a state ID from the given slice. If the slice has insufficient
 /// length, then this panics. Otherwise, the deserialized integer is assumed
 /// to be a valid state ID.
-pub fn read_state_id_unchecked(slice: &[u8]) -> StateID {
-    StateID::from_ne_bytes_unchecked(
+///
+/// This also returns the number of bytes read.
+pub fn read_state_id_unchecked(slice: &[u8]) -> (StateID, usize) {
+    let sid = StateID::from_ne_bytes_unchecked(
         slice[..StateID::SIZE].try_into().unwrap(),
-    )
+    );
+    (sid, StateID::SIZE)
 }
 
 /// Write the given state ID to the beginning of the given slice of bytes
@@ -594,12 +614,16 @@ pub fn write_state_id<E: Endian>(sid: StateID, dst: &mut [u8]) -> usize {
 /// error. The error message will include the `what` description of what is
 /// being deserialized, for better error messages. `what` should be a noun in
 /// singular form.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_u16_as_usize(
     slice: &[u8],
     what: &'static str,
-) -> Result<usize, DeserializeError> {
-    try_read_u16(slice, what).and_then(|n| {
-        usize::try_from(n).map_err(|_| DeserializeError::invalid_usize(what))
+) -> Result<(usize, usize), DeserializeError> {
+    try_read_u16(slice, what).and_then(|(n, nr)| {
+        usize::try_from(n)
+            .map(|n| (n, nr))
+            .map_err(|_| DeserializeError::invalid_usize(what))
     })
 }
 
@@ -609,12 +633,16 @@ pub fn try_read_u16_as_usize(
 /// error. The error message will include the `what` description of what is
 /// being deserialized, for better error messages. `what` should be a noun in
 /// singular form.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_u32_as_usize(
     slice: &[u8],
     what: &'static str,
-) -> Result<usize, DeserializeError> {
-    try_read_u32(slice, what).and_then(|n| {
-        usize::try_from(n).map_err(|_| DeserializeError::invalid_usize(what))
+) -> Result<(usize, usize), DeserializeError> {
+    try_read_u32(slice, what).and_then(|(n, nr)| {
+        usize::try_from(n)
+            .map(|n| (n, nr))
+            .map_err(|_| DeserializeError::invalid_usize(what))
     })
 }
 
@@ -624,12 +652,16 @@ pub fn try_read_u32_as_usize(
 /// error. The error message will include the `what` description of what is
 /// being deserialized, for better error messages. `what` should be a noun in
 /// singular form.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_u64_as_usize(
     slice: &[u8],
     what: &'static str,
-) -> Result<usize, DeserializeError> {
-    try_read_u64(slice, what).and_then(|n| {
-        usize::try_from(n).map_err(|_| DeserializeError::invalid_usize(what))
+) -> Result<(usize, usize), DeserializeError> {
+    try_read_u64(slice, what).and_then(|(n, nr)| {
+        usize::try_from(n)
+            .map(|n| (n, nr))
+            .map_err(|_| DeserializeError::invalid_usize(what))
     })
 }
 
@@ -638,14 +670,16 @@ pub fn try_read_u64_as_usize(
 /// The error message will include the `what` description of what is being
 /// deserialized, for better error messages. `what` should be a noun in
 /// singular form.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_u16(
     slice: &[u8],
     what: &'static str,
-) -> Result<u16, DeserializeError> {
+) -> Result<(u16, usize), DeserializeError> {
     if slice.len() < size_of::<u16>() {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    Ok(read_u16(slice))
+    Ok((read_u16(slice), size_of::<u16>()))
 }
 
 /// Try to read a u32 from the beginning of the given slice in native endian
@@ -653,14 +687,16 @@ pub fn try_read_u16(
 /// The error message will include the `what` description of what is being
 /// deserialized, for better error messages. `what` should be a noun in
 /// singular form.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_u32(
     slice: &[u8],
     what: &'static str,
-) -> Result<u32, DeserializeError> {
+) -> Result<(u32, usize), DeserializeError> {
     if slice.len() < size_of::<u32>() {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    Ok(read_u32(slice))
+    Ok((read_u32(slice), size_of::<u32>()))
 }
 
 /// Try to read a u64 from the beginning of the given slice in native endian
@@ -668,14 +704,16 @@ pub fn try_read_u32(
 /// The error message will include the `what` description of what is being
 /// deserialized, for better error messages. `what` should be a noun in
 /// singular form.
+///
+/// Upon success, this also returns the number of bytes read.
 pub fn try_read_u64(
     slice: &[u8],
     what: &'static str,
-) -> Result<u64, DeserializeError> {
+) -> Result<(u64, usize), DeserializeError> {
     if slice.len() < size_of::<u64>() {
         return Err(DeserializeError::buffer_too_small(what));
     }
-    Ok(read_u64(slice))
+    Ok((read_u64(slice), size_of::<u64>()))
 }
 
 /// Read a u16 from the beginning of the given slice in native endian format.

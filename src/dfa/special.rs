@@ -227,8 +227,10 @@ impl Special {
     ) -> Result<(Special, usize), DeserializeError> {
         bytes::check_slice_len(slice, 8 * StateID::SIZE, "special states")?;
 
+        let mut nread = 0;
         let mut read_id = |what| -> Result<StateID, DeserializeError> {
-            let id = bytes::try_read_state_id(slice, what)?;
+            let (id, nr) = bytes::try_read_state_id(slice, what)?;
+            nread += nr;
             slice = &slice[StateID::SIZE..];
             Ok(id)
         };
@@ -253,7 +255,8 @@ impl Special {
             max_start,
         };
         special.validate()?;
-        Ok((special, special.write_to_len()))
+        assert_eq!(nread, special.write_to_len());
+        Ok((special, nread))
     }
 
     /// Validate that the information describing special states satisfies
