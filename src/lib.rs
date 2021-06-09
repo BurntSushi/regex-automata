@@ -229,7 +229,7 @@ Here are some specific negative differences:
 * This crate does not support sub-match extraction, which can be achieved with
   the regex crate's "captures" API. This may be added in the future, but is
   unlikely.
-* While the regex crate doesn't necessarily sport fast compilation times, the
+* While the regex crate doesn't necessarily support fast compilation times, the
   regexes in this crate are almost universally slow to compile, especially when
   they contain large Unicode character classes. For example, on my system,
   compiling `\w{3}` with byte classes enabled takes just over 1 second and
