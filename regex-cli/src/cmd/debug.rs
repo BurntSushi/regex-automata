@@ -1,7 +1,5 @@
 use std::io::{stdout, Write};
 
-use automata::StateID;
-
 use crate::{
     app::{self, App, Args},
     config,
@@ -176,18 +174,15 @@ fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_dfa(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| {
-        let state_id = config::get_state_id_size(args)?;
-        match cmd {
-            "dense" => each_state_size!(state_id, run_dfa_dense, args),
-            "sparse" => each_state_size!(state_id, run_dfa_sparse, args),
-            "regex" => run_dfa_regex(args),
-            _ => Err(util::UnrecognizedCommandError.into()),
-        }
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "dense" => run_dfa_dense(args),
+        "sparse" => run_dfa_sparse(args),
+        "regex" => run_dfa_regex(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
 
-fn run_dfa_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -195,7 +190,7 @@ fn run_dfa_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let cdense = config::Dense::get(args)?;
     let patterns = config::Patterns::get(args)?;
 
-    let dfa = cdense.from_patterns_dense::<S>(
+    let dfa = cdense.from_patterns_dense(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;
@@ -205,7 +200,7 @@ fn run_dfa_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_dfa_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -213,7 +208,7 @@ fn run_dfa_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let cdense = config::Dense::get(args)?;
     let patterns = config::Patterns::get(args)?;
 
-    let dfa = cdense.from_patterns_sparse::<S>(
+    let dfa = cdense.from_patterns_sparse(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;
@@ -224,17 +219,14 @@ fn run_dfa_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_dfa_regex(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| {
-        let state_id = config::get_state_id_size(args)?;
-        match cmd {
-            "dense" => each_state_size!(state_id, run_dfa_regex_dense, args),
-            "sparse" => each_state_size!(state_id, run_dfa_regex_sparse, args),
-            _ => Err(util::UnrecognizedCommandError.into()),
-        }
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "dense" => run_dfa_regex_dense(args),
+        "sparse" => run_dfa_regex_sparse(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
 
-fn run_dfa_regex_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_regex_dense(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -243,7 +235,7 @@ fn run_dfa_regex_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let cregex = config::RegexDFA::get(args)?;
     let patterns = config::Patterns::get(args)?;
 
-    let re = cregex.from_patterns_dense::<S>(
+    let re = cregex.from_patterns_dense(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;
@@ -253,7 +245,7 @@ fn run_dfa_regex_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_dfa_regex_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -262,7 +254,7 @@ fn run_dfa_regex_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let cregex = config::RegexDFA::get(args)?;
     let patterns = config::Patterns::get(args)?;
 
-    let sre = cregex.from_patterns_sparse::<S>(
+    let sre = cregex.from_patterns_sparse(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;

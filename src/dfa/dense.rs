@@ -2622,7 +2622,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         self.st.start(index, pattern_id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn accelerator(&self, id: StateID) -> &[u8] {
         if !self.is_accel_state(id) {
             return &[];

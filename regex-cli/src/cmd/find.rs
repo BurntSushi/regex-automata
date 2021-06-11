@@ -8,10 +8,7 @@ use crate::{
 };
 
 use anyhow::Context;
-use automata::{
-    dfa::{self, Automaton, Regex},
-    StateID,
-};
+use automata::dfa::{self, Automaton, Regex};
 
 const ABOUT: &'static str = "\
 Finds all occurrences of a regex in a file.
@@ -86,18 +83,15 @@ fn define_dfa_regex() -> App {
 }
 
 fn run_dfa(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| {
-        let state_id = config::get_state_id_size(args)?;
-        match cmd {
-            "dense" => each_state_size!(state_id, run_dfa_dense, args),
-            "sparse" => each_state_size!(state_id, run_dfa_sparse, args),
-            "regex" => run_dfa_regex(args),
-            _ => Err(util::UnrecognizedCommandError.into()),
-        }
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "dense" => run_dfa_dense(args),
+        "sparse" => run_dfa_sparse(args),
+        "regex" => run_dfa_regex(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
 
-fn run_dfa_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -107,7 +101,7 @@ fn run_dfa_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let patterns = config::Patterns::get(args)?;
     let find = config::Find::get(args)?;
 
-    let dfa = cdense.from_patterns_dense::<S>(
+    let dfa = cdense.from_patterns_dense(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
 
@@ -124,7 +118,7 @@ fn run_dfa_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_dfa_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -134,7 +128,7 @@ fn run_dfa_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let patterns = config::Patterns::get(args)?;
     let find = config::Find::get(args)?;
 
-    let dfa = cdense.from_patterns_sparse::<S>(
+    let dfa = cdense.from_patterns_sparse(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
 
@@ -152,17 +146,14 @@ fn run_dfa_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_dfa_regex(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| {
-        let state_id = config::get_state_id_size(args)?;
-        match cmd {
-            "dense" => each_state_size!(state_id, run_dfa_regex_dense, args),
-            "sparse" => each_state_size!(state_id, run_dfa_regex_sparse, args),
-            _ => Err(util::UnrecognizedCommandError.into()),
-        }
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "dense" => run_dfa_regex_dense(args),
+        "sparse" => run_dfa_regex_sparse(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
 
-fn run_dfa_regex_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_regex_dense(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -173,7 +164,7 @@ fn run_dfa_regex_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let patterns = config::Patterns::get(args)?;
     let find = config::Find::get(args)?;
 
-    let re = cregex.from_patterns_dense::<S>(
+    let re = cregex.from_patterns_dense(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
 
@@ -190,7 +181,7 @@ fn run_dfa_regex_dense<S: StateID>(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_dfa_regex_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
+fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
@@ -201,7 +192,7 @@ fn run_dfa_regex_sparse<S: StateID>(args: &Args) -> anyhow::Result<()> {
     let patterns = config::Patterns::get(args)?;
     let find = config::Find::get(args)?;
 
-    let re = cregex.from_patterns_sparse::<S>(
+    let re = cregex.from_patterns_sparse(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
 
@@ -239,7 +230,7 @@ fn search_automaton<A: Automaton>(
                 };
                 // Always advance one byte, in the case of an zero-width match.
                 at = cmp::max(at + 1, at + end.offset());
-                counts[end.pattern() as usize] += 1;
+                counts[end.pattern()] += 1;
                 if find.matches() {
                     write_half_match(end, buf);
                 }
@@ -257,7 +248,7 @@ fn search_automaton<A: Automaton>(
                 };
                 // Always advance one byte, in the case of an zero-width match.
                 at = cmp::max(at + 1, at + end.offset());
-                counts[end.pattern() as usize] += 1;
+                counts[end.pattern()] += 1;
                 if find.matches() {
                     write_half_match(end, buf);
                 }
@@ -290,7 +281,7 @@ fn search_automaton<A: Automaton>(
                 // is always made. (The starting position of the search is
                 // incremented by 1 whenever a non-None state ID is given.)
                 at = end.offset();
-                counts[end.pattern() as usize] += 1;
+                counts[end.pattern()] += 1;
                 if find.matches() {
                     write_half_match(end, buf);
                 }
@@ -315,7 +306,7 @@ fn search_regex<A: Automaton>(
                     format!("search failure after {} matches", count)
                 })?;
                 count += 1;
-                counts[m.pattern() as usize] += 1;
+                counts[m.pattern()] += 1;
                 if find.matches() {
                     write_multi_match(m, buf);
                 }
@@ -327,7 +318,7 @@ fn search_regex<A: Automaton>(
                     format!("search failure after {} matches", count)
                 })?;
                 count += 1;
-                counts[m.pattern() as usize] += 1;
+                counts[m.pattern()] += 1;
                 if find.matches() {
                     write_multi_match(m, buf);
                 }
@@ -339,7 +330,7 @@ fn search_regex<A: Automaton>(
                     format!("search failure after {} matches", count)
                 })?;
                 count += 1;
-                counts[m.pattern() as usize] += 1;
+                counts[m.pattern()] += 1;
                 if find.matches() {
                     write_multi_match(m, buf);
                 }
@@ -352,11 +343,12 @@ fn search_regex<A: Automaton>(
 fn write_multi_match(m: automata::MultiMatch, buf: &mut String) {
     use std::fmt::Write;
 
-    writeln!(buf, "{}: [{}, {})", m.pattern(), m.start(), m.end()).unwrap();
+    writeln!(buf, "{:?}: [{:?}, {:?})", m.pattern(), m.start(), m.end())
+        .unwrap();
 }
 
 fn write_half_match(m: automata::dfa::HalfMatch, buf: &mut String) {
     use std::fmt::Write;
 
-    writeln!(buf, "{}: {}", m.pattern(), m.offset()).unwrap();
+    writeln!(buf, "{:?}: {:?}", m.pattern(), m.offset()).unwrap();
 }

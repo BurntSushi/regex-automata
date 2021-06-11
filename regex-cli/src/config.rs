@@ -6,7 +6,7 @@ use anyhow::Context;
 use automata::{
     dfa::{self, dense, sparse},
     nfa::thompson,
-    MatchKind, StateID,
+    MatchKind,
 };
 
 use crate::{
@@ -504,7 +504,6 @@ compile a DFA.
 #[derive(Debug)]
 pub struct Dense {
     config: dense::Config,
-    state_id_size: usize,
 }
 
 impl Dense {
@@ -686,31 +685,6 @@ Will cause the DFA to quit whenever it sees one of 'a', 'b' or 'c'.
 ";
             app = app.arg(switch("quit").help(SHORT).long_help(LONG));
         }
-        {
-            const SHORT: &str = "Choose the size of the state ID.";
-            const LONG: &str = "\
-Choose the size of the state ID.
-
-By default, the size of the state identifiers compiled into a DFA is the size
-of your target's pointer (i.e., a 'usize'). However, it can be advantageous to
-save space by changing the state ID representation to a smaller size. This can
-not only decrease space, but also make matching faster by virtue of better
-CPU cache utilization.
-
-There is generally no downside to using a smaller state ID representation
-other than smaller representations (especially 1 or 2 bytes) being unable to
-represent larger DFAs. In that case, an error will be returned.
-
-The only legal values are 1, 2, 4 or 8.
-";
-
-            app = app.arg(
-                flag("state-id")
-                    .help(SHORT)
-                    .long_help(LONG)
-                    .possible_values(&["1", "2", "4", "8"]),
-            );
-        }
         app
     }
 
@@ -741,27 +715,27 @@ The only legal values are 1, 2, 4 or 8.
                 c = c.quit(ch as u8, true);
             }
         }
-        Ok(Dense { config: c, state_id_size: get_state_id_size(args)? })
+        Ok(Dense { config: c })
     }
 
-    pub fn from_nfa<S: StateID>(
+    pub fn from_nfa(
         &self,
         nfa: &thompson::NFA,
-    ) -> anyhow::Result<dense::DFA<Vec<S>, Vec<u8>, S>> {
+    ) -> anyhow::Result<dense::DFA<Vec<u32>>> {
         dense::Builder::new()
             .configure(self.config)
-            .build_from_nfa_with_size(nfa)
+            .build_from_nfa(nfa)
             .context("failed to compile dense DFA")
     }
 
-    pub fn from_patterns_dense<S: StateID>(
+    pub fn from_patterns_dense(
         &self,
         table: &mut Table,
         syntax: &Syntax,
         thompson: &Thompson,
         dense: &Dense,
         patterns: &Patterns,
-    ) -> anyhow::Result<dense::DFA<Vec<S>, Vec<u8>, S>> {
+    ) -> anyhow::Result<dense::DFA<Vec<u32>>> {
         let patterns = patterns.as_strings();
 
         let (asts, time) = util::timeitr(|| syntax.asts(patterns))?;
@@ -770,7 +744,7 @@ The only legal values are 1, 2, 4 or 8.
         table.add("translate time", time);
         let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
         table.add("compile nfa time", time);
-        let (dfa, time) = util::timeitr(|| dense.from_nfa::<S>(&nfa))?;
+        let (dfa, time) = util::timeitr(|| dense.from_nfa(&nfa))?;
         table.add("compile dense dfa time", time);
         table.add("dense dfa memory", dfa.memory_usage());
         table.add("dense alphabet length", dfa.alphabet_len());
@@ -779,14 +753,14 @@ The only legal values are 1, 2, 4 or 8.
         Ok(dfa)
     }
 
-    pub fn from_patterns_sparse<S: StateID>(
+    pub fn from_patterns_sparse(
         &self,
         table: &mut Table,
         syntax: &Syntax,
         thompson: &Thompson,
         dense: &Dense,
         patterns: &Patterns,
-    ) -> anyhow::Result<sparse::DFA<Vec<u8>, S>> {
+    ) -> anyhow::Result<sparse::DFA<Vec<u8>>> {
         let dfa = self
             .from_patterns_dense(table, syntax, thompson, dense, patterns)?;
         let (sdfa, time) = util::timeitr(|| dfa.to_sparse())?;
@@ -849,18 +823,17 @@ This mode cannot be toggled inside the regex.
         builder
     }
 
-    pub fn from_patterns_dense<S: StateID>(
+    pub fn from_patterns_dense(
         &self,
         table: &mut Table,
         syntax: &Syntax,
         thompson: &Thompson,
         dense: &Dense,
         patterns: &Patterns,
-    ) -> anyhow::Result<dfa::Regex<dense::DFA<Vec<S>, Vec<u8>, S>>> {
+    ) -> anyhow::Result<dfa::Regex<dense::DFA<Vec<u32>>>> {
         let patterns = patterns.as_strings();
         let b = self.builder(syntax, thompson, dense);
-        let (re, time) =
-            util::timeitr(|| b.build_many_with_size::<S, _>(patterns))?;
+        let (re, time) = util::timeitr(|| b.build_many(patterns))?;
         let mem_fwd = re.forward().memory_usage();
         let mem_rev = re.forward().memory_usage();
         table.add("compile dense regex time", time);
@@ -870,14 +843,14 @@ This mode cannot be toggled inside the regex.
         Ok(re)
     }
 
-    pub fn from_patterns_sparse<S: StateID>(
+    pub fn from_patterns_sparse(
         &self,
         table: &mut Table,
         syntax: &Syntax,
         thompson: &Thompson,
         dense: &Dense,
         patterns: &Patterns,
-    ) -> anyhow::Result<dfa::Regex<sparse::DFA<Vec<u8>, S>>> {
+    ) -> anyhow::Result<dfa::Regex<sparse::DFA<Vec<u8>>>> {
         let re = self
             .from_patterns_dense(table, syntax, thompson, dense, patterns)?;
         let (sre, time) = util::timeitr(|| {
@@ -897,16 +870,4 @@ This mode cannot be toggled inside the regex.
         table.add("sparse regex memory", mem_fwd + mem_rev);
         Ok(sre)
     }
-}
-
-/// A convenience function for retrieving the state ID size.
-///
-/// It's convenient to sometime access the state ID size outside the context
-/// of the DFA configuration. There's a little redundancy since this is also
-/// parsed as part of the dense configuration, but oh well.
-pub fn get_state_id_size(args: &Args) -> anyhow::Result<usize> {
-    args.value_of_lossy("state-id")
-        .map(|v| v.parse())
-        .unwrap_or(Ok(std::mem::size_of::<usize>()))
-        .context("failed to parse --state-id integer")
 }

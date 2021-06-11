@@ -1,6 +1,3 @@
-#[macro_use]
-mod macros;
-
 mod app;
 mod cmd;
 mod config;

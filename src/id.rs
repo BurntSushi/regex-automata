@@ -64,6 +64,7 @@ impl PatternID {
     ///
     /// If the given identifier exceeds [`PatternID::MAX`], then this returns
     /// an error.
+    #[inline]
     pub fn new(id: usize) -> Result<PatternID, PatternIDError> {
         PatternID::try_from(id)
     }
@@ -73,21 +74,25 @@ impl PatternID {
     ///
     /// While this is unchecked, providing an incorrect value must never
     /// sacrifice memory safety, as documented above.
+    #[inline]
     pub fn new_unchecked(id: usize) -> PatternID {
         PatternID(id as u32)
     }
 
     /// Like [`PatternID::new`], but panics if the given ID is not valid.
+    #[inline]
     pub fn must(id: usize) -> PatternID {
         PatternID::new(id).unwrap()
     }
 
     /// Return this pattern ID as a `usize`.
+    #[inline]
     pub fn as_usize(&self) -> usize {
         self.0 as usize
     }
 
     /// Return the internal u32 of this pattern ID.
+    #[inline]
     pub fn as_u32(&self) -> u32 {
         self.0
     }
@@ -96,6 +101,7 @@ impl PatternID {
     ///
     /// Since a pattern ID has constrains on its maximum value, adding `1` to
     /// it will always fit in a `usize` (and a `u32`).
+    #[inline]
     pub fn one_more(&self) -> usize {
         self.as_usize().checked_add(1).unwrap()
     }
@@ -105,6 +111,7 @@ impl PatternID {
     ///
     /// If the decoded integer is not representable as a pattern ID for the
     /// current target, then this returns an error.
+    #[inline]
     pub fn from_ne_bytes(bytes: [u8; 4]) -> Result<PatternID, PatternIDError> {
         let id = u32::from_ne_bytes(bytes);
         if id > PatternID::MAX.as_u32() {
@@ -118,12 +125,14 @@ impl PatternID {
     ///
     /// This is analogous to [`PatternID::new_unchecked`] in that is does not
     /// check whether the decoded integer is representable as a pattern ID.
+    #[inline]
     pub fn from_ne_bytes_unchecked(bytes: [u8; 4]) -> PatternID {
         PatternID::new_unchecked(u32::from_ne_bytes(bytes) as usize)
     }
 
     /// Return the underlying pattern ID integer as raw bytes in native endian
     /// format.
+    #[inline]
     pub fn to_ne_bytes(&self) -> [u8; 4] {
         self.0.to_ne_bytes()
     }
@@ -224,6 +233,7 @@ impl StateID {
     ///
     /// If the given identifier exceeds [`StateID::MAX`], then this returns
     /// an error.
+    #[inline]
     pub fn new(id: usize) -> Result<StateID, StateIDError> {
         StateID::try_from(id)
     }
@@ -233,21 +243,25 @@ impl StateID {
     ///
     /// While this is unchecked, providing an incorrect value must never
     /// sacrifice memory safety, as documented above.
+    #[inline]
     pub fn new_unchecked(id: usize) -> StateID {
         StateID(id as u32)
     }
 
     /// Like [`StateID::new`], but panics if the given ID is not valid.
+    #[inline]
     pub fn must(id: usize) -> StateID {
         StateID::new(id).unwrap()
     }
 
     /// Return this pattern ID as a `usize`.
+    #[inline]
     pub fn as_usize(&self) -> usize {
         self.0 as usize
     }
 
     /// Return the internal u32 of this state ID.
+    #[inline]
     pub fn as_u32(&self) -> u32 {
         self.0
     }
@@ -256,6 +270,7 @@ impl StateID {
     ///
     /// Since a state ID has constrains on its maximum value, adding `1` to
     /// it will always fit in a `usize` (and a `u32`).
+    #[inline]
     pub fn one_more(&self) -> usize {
         self.as_usize().checked_add(1).unwrap()
     }
@@ -265,6 +280,7 @@ impl StateID {
     ///
     /// If the decoded integer is not representable as a state ID for the
     /// current target, then this returns an error.
+    #[inline]
     pub fn from_ne_bytes(bytes: [u8; 4]) -> Result<StateID, StateIDError> {
         let id = u32::from_ne_bytes(bytes);
         if id > StateID::MAX.as_u32() {
@@ -278,12 +294,14 @@ impl StateID {
     ///
     /// This is analogous to [`StateID::new_unchecked`] in that is does not
     /// check whether the decoded integer is representable as a state ID.
+    #[inline]
     pub fn from_ne_bytes_unchecked(bytes: [u8; 4]) -> StateID {
         StateID::new_unchecked(u32::from_ne_bytes(bytes) as usize)
     }
 
     /// Return the underlying state ID integer as raw bytes in native endian
     /// format.
+    #[inline]
     pub fn to_ne_bytes(&self) -> [u8; 4] {
         self.0.to_ne_bytes()
     }
@@ -292,6 +310,7 @@ impl StateID {
     /// the given length.
     ///
     /// If the given length exceeds [`StateID::LIMIT`], then this panics.
+    #[inline]
     pub(crate) fn iter(len: usize) -> StateIDIter {
         StateIDIter::new(len)
     }

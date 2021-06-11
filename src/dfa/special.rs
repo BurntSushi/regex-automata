@@ -402,36 +402,43 @@ impl Special {
     }
 
     /// Returns true if and only if the given state ID is a special state.
+    #[inline]
     pub fn is_special_state(&self, id: StateID) -> bool {
         id <= self.max
     }
 
     /// Returns true if and only if the given state ID is a dead state.
+    #[inline]
     pub fn is_dead_state(&self, id: StateID) -> bool {
         id == DEAD
     }
 
     /// Returns true if and only if the given state ID is a quit state.
+    #[inline]
     pub fn is_quit_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.quit_id == id
     }
 
     /// Returns true if and only if the given state ID is a match state.
+    #[inline]
     pub fn is_match_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.min_match <= id && id <= self.max_match
     }
 
     /// Returns true if and only if the given state ID is an accel state.
+    #[inline]
     pub fn is_accel_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.min_accel <= id && id <= self.max_accel
     }
 
     /// Returns true if and only if the given state ID is a start state.
+    #[inline]
     pub fn is_start_state(&self, id: StateID) -> bool {
         !self.is_dead_state(id) && self.min_start <= id && id <= self.max_start
     }
 
     /// Returns the total number of match states for a dense table based DFA.
+    #[inline]
     pub fn match_len(&self, stride: usize) -> usize {
         if self.matches() {
             (self.max_match.as_usize() - self.min_match.as_usize() + stride)
@@ -442,6 +449,7 @@ impl Special {
     }
 
     /// Returns true if and only if there is at least one match state.
+    #[inline]
     pub fn matches(&self) -> bool {
         self.min_match != DEAD
     }
@@ -458,11 +466,13 @@ impl Special {
     }
 
     /// Returns true if and only if there is at least one accel state.
+    #[inline]
     pub fn accels(&self) -> bool {
         self.min_accel != DEAD
     }
 
     /// Returns true if and only if there is at least one start state.
+    #[inline]
     pub fn starts(&self) -> bool {
         self.min_start != DEAD
     }
