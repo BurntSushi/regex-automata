@@ -120,7 +120,6 @@ enum DeserializeErrorKind {
     InvalidVarint { what: &'static str },
     VersionMismatch { expected: u32, found: u32 },
     EndianMismatch { expected: u32, found: u32 },
-    StateSizeMismatch { expected: u32, found: u32 },
     AlignmentMismatch { alignment: usize, address: usize },
     LabelMismatch { expected: &'static str },
     ArithmeticOverflow { what: &'static str },
@@ -154,13 +153,6 @@ impl DeserializeError {
 
     fn endian_mismatch(expected: u32, found: u32) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::EndianMismatch {
-            expected,
-            found,
-        })
-    }
-
-    fn state_size_mismatch(expected: u32, found: u32) -> DeserializeError {
-        DeserializeError(DeserializeErrorKind::StateSizeMismatch {
             expected,
             found,
         })
@@ -228,12 +220,6 @@ impl core::fmt::Display for DeserializeError {
                 "endianness mismatch: expected 0x{:X} but got 0x{:X}. \
                  (Are you trying to load an object serialized with a \
                  different endianness?)",
-                expected, found,
-            ),
-            StateSizeMismatch { expected, found } => write!(
-                f,
-                "state size mismatch: caller requested a state size of {}, \
-                 but serialized object has a state size of {}",
                 expected, found,
             ),
             AlignmentMismatch { alignment, address } => write!(
@@ -504,21 +490,6 @@ pub fn write_version_len() -> usize {
     size_of::<u32>()
 }
 
-/// Attempts to read a pattern ID from the given slice. If the slice has an
-/// insufficient number of bytes or if the pattern ID exceeds the limit for
-/// the current target, then this returns an error.
-///
-/// Upon success, this also returns the number of bytes read.
-pub fn try_read_pattern_id(
-    slice: &[u8],
-    what: &'static str,
-) -> Result<(PatternID, usize), DeserializeError> {
-    if slice.len() < PatternID::SIZE {
-        return Err(DeserializeError::buffer_too_small(what));
-    }
-    read_pattern_id(slice, what)
-}
-
 /// Reads a pattern ID from the given slice. If the slice has insufficient
 /// length, then this panics. If the deserialized integer exceeds the pattern
 /// ID limit for the current target, then this returns an error.
@@ -646,25 +617,6 @@ pub fn try_read_u32_as_usize(
     })
 }
 
-/// Try to read a u64 as a usize from the beginning of the given slice in
-/// native endian format. If the slice has fewer than 8 bytes or if the
-/// deserialized number cannot be represented by usize, then this returns an
-/// error. The error message will include the `what` description of what is
-/// being deserialized, for better error messages. `what` should be a noun in
-/// singular form.
-///
-/// Upon success, this also returns the number of bytes read.
-pub fn try_read_u64_as_usize(
-    slice: &[u8],
-    what: &'static str,
-) -> Result<(usize, usize), DeserializeError> {
-    try_read_u64(slice, what).and_then(|(n, nr)| {
-        usize::try_from(n)
-            .map(|n| (n, nr))
-            .map_err(|_| DeserializeError::invalid_usize(what))
-    })
-}
-
 /// Try to read a u16 from the beginning of the given slice in native endian
 /// format. If the slice has fewer than 2 bytes, then this returns an error.
 /// The error message will include the `what` description of what is being
@@ -699,23 +651,6 @@ pub fn try_read_u32(
     Ok((read_u32(slice), size_of::<u32>()))
 }
 
-/// Try to read a u64 from the beginning of the given slice in native endian
-/// format. If the slice has fewer than 8 bytes, then this returns an error.
-/// The error message will include the `what` description of what is being
-/// deserialized, for better error messages. `what` should be a noun in
-/// singular form.
-///
-/// Upon success, this also returns the number of bytes read.
-pub fn try_read_u64(
-    slice: &[u8],
-    what: &'static str,
-) -> Result<(u64, usize), DeserializeError> {
-    if slice.len() < size_of::<u64>() {
-        return Err(DeserializeError::buffer_too_small(what));
-    }
-    Ok((read_u64(slice), size_of::<u64>()))
-}
-
 /// Read a u16 from the beginning of the given slice in native endian format.
 /// If the slice has fewer than 2 bytes, then this panics.
 ///
@@ -736,17 +671,6 @@ pub fn read_u16(slice: &[u8]) -> u16 {
 pub fn read_u32(slice: &[u8]) -> u32 {
     let bytes: [u8; 4] = slice[..size_of::<u32>()].try_into().unwrap();
     u32::from_ne_bytes(bytes)
-}
-
-/// Read a u64 from the beginning of the given slice in native endian format.
-/// If the slice has fewer than 8 bytes, then this panics.
-///
-/// Marked as inline to speed up sparse searching which decodes integers from
-/// its automaton at search time.
-#[inline(always)]
-pub fn read_u64(slice: &[u8]) -> u64 {
-    let bytes: [u8; 8] = slice[..size_of::<u64>()].try_into().unwrap();
-    u64::from_ne_bytes(bytes)
 }
 
 /// Write a variable sized integer and return the total number of bytes

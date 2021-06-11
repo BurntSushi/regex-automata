@@ -9,13 +9,7 @@ This module also contains a [`dense::Builder`](Builder) and a
 
 #[cfg(feature = "alloc")]
 use core::cmp;
-use core::{
-    convert::{TryFrom, TryInto},
-    fmt, iter,
-    marker::PhantomData,
-    mem::size_of,
-    slice,
-};
+use core::{convert::TryFrom, fmt, iter, mem::size_of, slice};
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -33,7 +27,7 @@ use crate::{
         special::Special,
         DEAD,
     },
-    id::{self, PatternID, StateID},
+    id::{PatternID, StateID},
 };
 #[cfg(feature = "alloc")]
 use crate::{

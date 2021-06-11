@@ -46,16 +46,11 @@ use core::iter;
 use core::{
     convert::{TryFrom, TryInto},
     fmt,
-    marker::PhantomData,
     mem::size_of,
 };
 
 #[cfg(feature = "alloc")]
-use alloc::{
-    collections::{BTreeMap, BTreeSet},
-    vec,
-    vec::Vec,
-};
+use alloc::{collections::BTreeSet, vec, vec::Vec};
 
 #[cfg(feature = "alloc")]
 use crate::dfa::{dense, error::Error};
@@ -1851,11 +1846,9 @@ impl<T: AsRef<[u8]>> StartTable<T> {
             }
         };
         let start = index * StateID::SIZE;
-        let end = start + StateID::SIZE;
-        let bytes = self.table()[start..end].try_into().unwrap();
         // This OK since we're allowed to assume that the start table contains
         // valid StateIDs.
-        StateID::from_ne_bytes_unchecked(bytes)
+        bytes::read_state_id_unchecked(&self.table()[start..]).0
     }
 
     /// Return an iterator over all start IDs in this table.
@@ -2077,9 +2070,7 @@ impl<'a> State<'a> {
     /// is invalid, then this panics.
     fn pattern_id(&self, match_index: usize) -> PatternID {
         let start = match_index * PatternID::SIZE;
-        let end = start + PatternID::SIZE;
-        let bytes = self.pattern_ids[start..end].try_into().unwrap();
-        PatternID::from_ne_bytes_unchecked(bytes)
+        bytes::read_pattern_id_unchecked(&self.pattern_ids[start..]).0
     }
 
     /// Returns the total number of pattern IDs for this state. This is always

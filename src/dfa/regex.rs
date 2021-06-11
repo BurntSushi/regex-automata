@@ -9,7 +9,6 @@ use crate::{
 #[cfg(feature = "alloc")]
 use crate::{
     dfa::{dense, error::Error, sparse},
-    id::StateID,
     matching::MatchKind,
     nfa::thompson,
 };

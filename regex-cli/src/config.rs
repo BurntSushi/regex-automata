@@ -111,10 +111,10 @@ impl File {
     ///
     /// This is unsafe because creating memory maps is unsafe. In general,
     /// callers must assume that the underlying file is not mutated.
-    pub unsafe fn mmap(&self) -> anyhow::Result<memmap::Mmap> {
+    pub unsafe fn mmap(&self) -> anyhow::Result<memmap2::Mmap> {
         let file = fs::File::open(&self.0)
             .with_context(|| format!("failed to open {}", self.0.display()))?;
-        memmap::Mmap::map(&file)
+        memmap2::Mmap::map(&file)
             .with_context(|| format!("failed to mmap {}", self.0.display()))
     }
 }

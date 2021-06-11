@@ -1,5 +1,3 @@
-use core::convert::TryFrom;
-
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
@@ -239,7 +237,7 @@ impl<'a> Runner<'a> {
         // This permits a DFA's match loop to detect a match condition by
         // merely inspecting the current state's identifier, and avoids the
         // need for any additional auxiliary storage.
-        self.dfa.shuffle(matches);
+        self.dfa.shuffle(matches)?;
         Ok(())
     }
 

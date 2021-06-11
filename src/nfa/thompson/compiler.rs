@@ -864,8 +864,9 @@ impl Compiler {
                 let mut utf8_state = self.utf8_state.borrow_mut();
                 let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state)?;
                 trie.iter(|seq| {
-                    utf8c.add(&seq);
-                });
+                    utf8c.add(&seq)?;
+                    Ok(())
+                })?;
                 utf8c.finish()
             }
         } else {
@@ -877,7 +878,7 @@ impl Compiler {
             let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state)?;
             for rng in cls.iter() {
                 for seq in Utf8Sequences::new(rng.start(), rng.end()) {
-                    utf8c.add(seq.as_slice());
+                    utf8c.add(seq.as_slice())?;
                 }
             }
             utf8c.finish()
@@ -1132,7 +1133,7 @@ impl<'a> Utf8Compiler<'a> {
         Ok(ThompsonRef { start, end: self.target })
     }
 
-    fn add(&mut self, ranges: &[Utf8Range]) {
+    fn add(&mut self, ranges: &[Utf8Range]) -> Result<(), Error> {
         let prefix_len = ranges
             .iter()
             .zip(&self.state.uncompiled)
@@ -1143,8 +1144,9 @@ impl<'a> Utf8Compiler<'a> {
             })
             .count();
         assert!(prefix_len < ranges.len());
-        self.compile_from(prefix_len);
+        self.compile_from(prefix_len)?;
         self.add_suffix(&ranges[prefix_len..]);
+        Ok(())
     }
 
     fn compile_from(&mut self, from: usize) -> Result<(), Error> {

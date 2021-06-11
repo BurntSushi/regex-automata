@@ -64,12 +64,12 @@ use crate::bytes::{self, DeserializeError, Endian, SerializeError};
 /// fairly low-risk not-safe code, it lets us remove the need for a second type
 /// parameter in the definition of dense::DFA. (Which really wants everything
 /// to be a slice of u32.)
-type ACCEL_TY = u32;
+type AccelTy = u32;
 
 /// The size of the unit of representation for accelerators.
 ///
 /// ACCEL_CAP *must* be a multiple of this size.
-const ACCEL_TY_SIZE: usize = core::mem::size_of::<ACCEL_TY>();
+const ACCEL_TY_SIZE: usize = core::mem::size_of::<AccelTy>();
 
 /// The maximum length in bytes that a single Accel can be. This is distinct
 /// from the capacity of an accelerator in that the length represents only the
@@ -126,7 +126,7 @@ pub(crate) fn find_rev(
 /// Represents the accelerators for all accelerated states in a dense DFA.
 ///
 /// The `A` type parameter represents the type of the underlying bytes.
-/// Generally, this is either `&[ACCEL_TY]` or `Vec<ACCEL_TY>`.
+/// Generally, this is either `&[AccelTy]` or `Vec<AccelTy>`.
 #[derive(Clone)]
 pub(crate) struct Accels<A> {
     /// A length prefixed slice of contiguous accelerators. See the top comment
@@ -139,9 +139,9 @@ pub(crate) struct Accels<A> {
 }
 
 #[cfg(feature = "alloc")]
-impl Accels<Vec<ACCEL_TY>> {
+impl Accels<Vec<AccelTy>> {
     /// Create an empty sequence of accelerators for a DFA.
-    pub fn empty() -> Accels<Vec<ACCEL_TY>> {
+    pub fn empty() -> Accels<Vec<AccelTy>> {
         Accels { accels: vec![0] }
     }
 
@@ -150,7 +150,7 @@ impl Accels<Vec<ACCEL_TY>> {
     /// This adds to the accelerator to the end of the sequence and therefore
     /// should be done in correspondence with its state in the DFA.
     ///
-    /// This panics if this results in more accelerators than ACCEL_TY::MAX.
+    /// This panics if this results in more accelerators than AccelTy::MAX.
     pub fn add(&mut self, accel: Accel) {
         self.accels.extend_from_slice(&accel.as_accel_tys());
         let len = self.len();
@@ -162,36 +162,30 @@ impl Accels<Vec<ACCEL_TY>> {
     fn set_len(&mut self, new_len: usize) {
         // The only way an accelerator gets added is if a state exists for
         // it, and if a state exists, then its index is guaranteed to be
-        // representable by a ACCEL_TY by virtue of the guarantees provided by
+        // representable by a AccelTy by virtue of the guarantees provided by
         // StateID.
-        let new_len = ACCEL_TY::try_from(new_len).unwrap();
+        let new_len = AccelTy::try_from(new_len).unwrap();
         self.accels[0] = new_len;
     }
 }
 
-impl<'a> Accels<&'a [ACCEL_TY]> {
-    /// Deserialize a sequence of accelerators from the given bytes. Upon
-    /// success, the accelerators returned is guaranteed to be valid (although
-    /// not necessarily correct). If there was a problem deserializing, then
-    /// an error is returned.
-    pub fn from_bytes(
-        slice: &'a [u8],
-    ) -> Result<(Accels<&'a [ACCEL_TY]>, usize), DeserializeError> {
-        let (accels, nread) = unsafe { Accels::from_bytes_unchecked(slice)? };
-        accels.validate()?;
-        Ok((accels, nread))
-    }
-
-    /// Like from_bytes, but is guaranteed to run in constant time. This does
-    /// not guarantee that every accelerator in the returned collection is
-    /// valid. Thus, accessing one may panic, or not-safe code that relies on
-    /// accelerators being correct my result in UB.
+impl<'a> Accels<&'a [AccelTy]> {
+    /// Deserialize a sequence of accelerators from the given bytes. If there
+    /// was a problem deserializing, then an error is returned.
+    ///
+    /// This is guaranteed to run in constant time. This does not guarantee
+    /// that every accelerator in the returned collection is valid. Thus,
+    /// accessing one may panic, or not-safe code that relies on accelerators
+    /// being correct my result in UB.
+    ///
+    /// Callers may check the validity of every accelerator with the `validate`
+    /// method.
     pub unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
-    ) -> Result<(Accels<&'a [ACCEL_TY]>, usize), DeserializeError> {
+    ) -> Result<(Accels<&'a [AccelTy]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr() as usize;
 
-        let (count, nr) =
+        let (count, _) =
             bytes::try_read_u32_as_usize(slice, "accelerators count")?;
         // The accelerator count is part of the accel_tys slice that
         // we deserialize. This is perhaps a bit idiosyncratic. It would
@@ -208,15 +202,15 @@ impl<'a> Accels<&'a [ACCEL_TY]> {
             "total number of bytes in accelerators",
         )?;
         bytes::check_slice_len(slice, accel_tys_len, "accelerators")?;
-        bytes::check_alignment::<ACCEL_TY>(slice);
+        bytes::check_alignment::<AccelTy>(slice)?;
         let accel_tys = &slice[..accel_tys_len];
         slice = &slice[accel_tys_len..];
         // SAFETY: We've checked the length and alignment above, and since
-        // slice is just bytes, we can safely cast to a slice of &[ACCEL_TY].
+        // slice is just bytes, we can safely cast to a slice of &[AccelTy].
         #[allow(unused_unsafe)]
         let accels = unsafe {
             core::slice::from_raw_parts(
-                accel_tys.as_ptr() as *const ACCEL_TY,
+                accel_tys.as_ptr() as *const AccelTy,
                 accel_tys_count,
             )
         };
@@ -224,22 +218,22 @@ impl<'a> Accels<&'a [ACCEL_TY]> {
     }
 }
 
-impl<A: AsRef<[ACCEL_TY]>> Accels<A> {
+impl<A: AsRef<[AccelTy]>> Accels<A> {
     /// Return an owned version of the accelerators.
     #[cfg(feature = "alloc")]
-    pub fn to_owned(&self) -> Accels<Vec<ACCEL_TY>> {
+    pub fn to_owned(&self) -> Accels<Vec<AccelTy>> {
         Accels { accels: self.accels.as_ref().to_vec() }
     }
 
     /// Return a borrowed version of the accelerators.
-    pub fn as_ref(&self) -> Accels<&[ACCEL_TY]> {
+    pub fn as_ref(&self) -> Accels<&[AccelTy]> {
         Accels { accels: self.accels.as_ref() }
     }
 
     /// Return the bytes representing the serialization of the accelerators.
     pub fn as_bytes(&self) -> &[u8] {
         let accels = self.accels.as_ref();
-        // SAFETY: This is safe because accels is a just a slice of ACCEL_TY,
+        // SAFETY: This is safe because accels is a just a slice of AccelTy,
         // and u8 always has a smaller alignment.
         unsafe {
             core::slice::from_raw_parts(
@@ -323,8 +317,8 @@ impl<A: AsRef<[ACCEL_TY]>> Accels<A> {
             return Err(SerializeError::buffer_too_small("accelerators"));
         }
 
-        // The number of accelerators can never exceed ACCEL_TY::MAX.
-        E::write_u32(ACCEL_TY::try_from(self.len()).unwrap(), dst);
+        // The number of accelerators can never exceed AccelTy::MAX.
+        E::write_u32(AccelTy::try_from(self.len()).unwrap(), dst);
         // The actual accelerators are just raw bytes and thus their endianness
         // is irrelevant. So we can copy them as bytes.
         dst[ACCEL_TY_SIZE..nwrite]
@@ -347,7 +341,7 @@ impl<A: AsRef<[ACCEL_TY]>> Accels<A> {
     }
 }
 
-impl<A: AsRef<[ACCEL_TY]>> core::fmt::Debug for Accels<A> {
+impl<A: AsRef<[AccelTy]>> core::fmt::Debug for Accels<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "Accels(")?;
         let mut list = f.debug_list();
@@ -360,12 +354,12 @@ impl<A: AsRef<[ACCEL_TY]>> core::fmt::Debug for Accels<A> {
 }
 
 #[derive(Debug)]
-struct IterAccels<'a, A: AsRef<[ACCEL_TY]>> {
+struct IterAccels<'a, A: AsRef<[AccelTy]>> {
     accels: &'a Accels<A>,
     i: usize,
 }
 
-impl<'a, A: AsRef<[ACCEL_TY]>> Iterator for IterAccels<'a, A> {
+impl<'a, A: AsRef<[AccelTy]>> Iterator for IterAccels<'a, A> {
     type Item = Accel;
 
     fn next(&mut self) -> Option<Accel> {
@@ -487,14 +481,14 @@ impl Accel {
         self.needles().iter().position(|&b| b == byte).is_some()
     }
 
-    /// Returns the accelerator bytes as an array of ACCEL_TYs.
-    fn as_accel_tys(&self) -> [ACCEL_TY; 2] {
+    /// Returns the accelerator bytes as an array of AccelTys.
+    fn as_accel_tys(&self) -> [AccelTy; 2] {
         assert_eq!(ACCEL_CAP, 8);
         // These unwraps are OK since ACCEL_CAP is set to 8.
         let first =
-            ACCEL_TY::from_ne_bytes(self.bytes[0..4].try_into().unwrap());
+            AccelTy::from_ne_bytes(self.bytes[0..4].try_into().unwrap());
         let second =
-            ACCEL_TY::from_ne_bytes(self.bytes[4..8].try_into().unwrap());
+            AccelTy::from_ne_bytes(self.bytes[4..8].try_into().unwrap());
         [first, second]
     }
 }

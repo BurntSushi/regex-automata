@@ -1,7 +1,3 @@
-use core::mem::size_of;
-
-#[cfg(feature = "alloc")]
-use crate::dfa::Error;
 use crate::{
     bytes::{self, DeserializeError, Endian, SerializeError},
     dfa::DEAD,

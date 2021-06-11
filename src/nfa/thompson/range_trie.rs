@@ -248,7 +248,10 @@ impl RangeTrie {
     /// Iterate over all of the sequences of byte ranges in this trie, and
     /// call the provided function for each sequence. Iteration occurs in
     /// lexicographic order.
-    pub fn iter<F: FnMut(&[Utf8Range])>(&self, mut f: F) {
+    pub fn iter<E, F: FnMut(&[Utf8Range]) -> Result<(), E>>(
+        &self,
+        mut f: F,
+    ) -> Result<(), E> {
         let mut stack = self.iter_stack.borrow_mut();
         stack.clear();
         let mut ranges = self.iter_ranges.borrow_mut();
@@ -273,7 +276,7 @@ impl RangeTrie {
                 let t = &state.transitions[tidx];
                 ranges.push(t.range);
                 if t.next_id == FINAL {
-                    f(&ranges);
+                    f(&ranges)?;
                     ranges.pop();
                     tidx += 1;
                 } else {
@@ -287,6 +290,7 @@ impl RangeTrie {
                 }
             }
         }
+        Ok(())
     }
 
     /// Inserts a new sequence of ranges into this trie.

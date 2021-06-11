@@ -226,9 +226,6 @@ impl StateID {
     /// The number of bytes that a single `StateID` uses in memory.
     pub const SIZE: usize = core::mem::size_of::<StateID>();
 
-    /// A unique state ID that always corresponds to the dead state for DFAs.
-    pub(crate) const DEAD: StateID = StateID(0);
-
     /// Create a new state ID.
     ///
     /// If the given identifier exceeds [`StateID::MAX`], then this returns
