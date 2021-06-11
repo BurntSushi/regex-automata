@@ -972,11 +972,11 @@ mod tests {
     fn labels() {
         let mut buf = [0; 1024];
 
-        let nwrite = write_label("foo", &mut buf).unwrap();
+        let nwrite = write_label("fooba", &mut buf).unwrap();
         assert_eq!(nwrite, 8);
-        assert_eq!(&buf[..nwrite], b"foo\x00\x00\x00\x00\x00");
+        assert_eq!(&buf[..nwrite], b"fooba\x00\x00\x00");
 
-        let nread = read_label(&buf, "foo").unwrap();
+        let nread = read_label(&buf, "fooba").unwrap();
         assert_eq!(nread, 8);
     }
 
@@ -1003,10 +1003,10 @@ mod tests {
     #[test]
     fn padding() {
         assert_eq!(0, padding_len(8));
-        assert_eq!(7, padding_len(9));
-        assert_eq!(6, padding_len(10));
-        assert_eq!(5, padding_len(11));
-        assert_eq!(4, padding_len(12));
+        assert_eq!(3, padding_len(9));
+        assert_eq!(2, padding_len(10));
+        assert_eq!(1, padding_len(11));
+        assert_eq!(0, padding_len(12));
         assert_eq!(3, padding_len(13));
         assert_eq!(2, padding_len(14));
         assert_eq!(1, padding_len(15));

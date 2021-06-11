@@ -30,20 +30,25 @@ let mut state = OverlappingState::start();
 let end1 = sparse_re.find_overlapping_fwd_at(
     None, None, haystack, 0, haystack.len(), &mut state,
 )?;
-assert_eq!(end1, Some(HalfMatch::new(0, 3)));
+assert_eq!(end1, Some(HalfMatch::must(0, 3)));
 
 // And now 'Samwise' will match.
 let end2 = sparse_re.find_overlapping_fwd_at(
     None, None, haystack, 3, haystack.len(), &mut state,
 )?;
-assert_eq!(end2, Some(HalfMatch::new(0, 7)));
+assert_eq!(end2, Some(HalfMatch::must(0, 7)));
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 */
 
 #[cfg(feature = "alloc")]
 use core::iter;
-use core::{convert::TryInto, fmt, marker::PhantomData, mem::size_of};
+use core::{
+    convert::{TryFrom, TryInto},
+    fmt,
+    marker::PhantomData,
+    mem::size_of,
+};
 
 #[cfg(feature = "alloc")]
 use alloc::{
@@ -93,25 +98,10 @@ const VERSION: u32 = 2;
 /// probably always slower than dense DFAs, you may find that they are easily
 /// fast enough for your purposes!
 ///
-/// # Type parameters and state size
+/// # Type parameters
 ///
-/// A `DFA` has two type parameters, `T` and `S`:
-///
-/// * `T` is the type of the DFA's transitions. `T` is typically `Vec<S>` or
-///   `&[S]`.
-/// * `S` is the representation used for the DFA's state identifiers as
-///   described by the [`StateID`] trait. `S` must be one of `usize`, `u8`,
-///   `u16`, `u32` or `u64`. It defaults to `usize`. The primary reason for
-///   choosing a different state identifier representation than the default
-///   is to reduce the amount of memory used by a DFA. Note though, that if
-///   the chosen representation cannot accommodate the size of your DFA, then
-///   building the DFA will fail and return an error.
-///
-/// While the reduction in heap memory used by a DFA is one reason for
-/// choosing a smaller state identifier representation, another possible
-/// reason is for decreasing the serialization size of a DFA, as returned
-/// by [`DFA::to_bytes_little_endian`], [`DFA::to_bytes_big_endian`] or
-/// [`DFA::to_bytes_native_endian`].
+/// A `DFA` has one type parameter, `T`, which is used to represent the parts
+/// of a sparse DFA. `T` is typically a `Vec<u8>` or a `&[u8]`.
 ///
 /// # The `Automaton` trait
 ///
@@ -122,7 +112,7 @@ const VERSION: u32 = 2;
 /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
-/// let expected = HalfMatch::new(0, 8);
+/// let expected = HalfMatch::must(0, 8);
 /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -136,6 +126,9 @@ pub struct DFA<T> {
     // than just its transitions. Each state also includes an accelerator if
     // one exists, along with the matching pattern IDs if the state is a match
     // state.
+    //
+    // That is, a lot of the complexity is pushed down into how each state
+    // itself is represented.
     trans: Transitions<T>,
     starts: StartTable<T>,
     special: Special,
@@ -145,10 +138,6 @@ pub struct DFA<T> {
 impl DFA<Vec<u8>> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding sparse DFA.
-    ///
-    /// The default configuration uses `usize` for state IDs and reduces the
-    /// alphabet size by splitting bytes into equivalence classes. The
-    /// resulting DFA is *not* minimized.
     ///
     /// If you want a non-default configuration, then use
     /// the [`dense::Builder`](crate::dfa::dense::Builder)
@@ -163,7 +152,7 @@ impl DFA<Vec<u8>> {
     ///
     /// let dfa = sparse::DFA::new("foo[0-9]+bar")?;
     ///
-    /// let expected = HalfMatch::new(0, 11);
+    /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -175,9 +164,6 @@ impl DFA<Vec<u8>> {
 
     /// Parse the given regular expressions using a default configuration and
     /// return the corresponding multi-DFA.
-    ///
-    /// The default configuration uses `usize` for state IDs. The DFA is *not*
-    /// minimized.
     ///
     /// If you want a non-default configuration, then use
     /// the [`dense::Builder`](crate::dfa::dense::Builder)
@@ -191,7 +177,7 @@ impl DFA<Vec<u8>> {
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
     ///
     /// let dfa = sparse::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
-    /// let expected = HalfMatch::new(1, 3);
+    /// let expected = HalfMatch::must(1, 3);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -210,15 +196,12 @@ impl DFA<Vec<u8>> {
     ///
     /// # Example
     ///
-    /// In order to build a DFA that always matches, callers must provide a
-    /// type hint indicating their choice of state identifier representation.
-    ///
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
     ///
-    /// let dfa: sparse::DFA<Vec<u8>, usize> = sparse::DFA::always_match()?;
+    /// let dfa = sparse::DFA::always_match()?;
     ///
-    /// let expected = HalfMatch::new(0, 0);
+    /// let expected = HalfMatch::must(0, 0);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"")?);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -231,13 +214,10 @@ impl DFA<Vec<u8>> {
     ///
     /// # Example
     ///
-    /// In order to build a DFA that never matches, callers must provide a type
-    /// hint indicating their choice of state identifier representation.
-    ///
     /// ```
     /// use regex_automata::dfa::{Automaton, sparse};
     ///
-    /// let dfa: sparse::DFA<Vec<u8>, usize> = sparse::DFA::never_match()?;
+    /// let dfa = sparse::DFA::never_match()?;
     /// assert_eq!(None, dfa.find_leftmost_fwd(b"")?);
     /// assert_eq!(None, dfa.find_leftmost_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -267,7 +247,12 @@ impl DFA<Vec<u8>> {
         // In the second pass, we fill in the transitions based on the map
         // built in the first pass.
 
+        // The capacity given here reflects a minimum. (Well, the true minimum
+        // is likely even bigger, but hopefully this saves a few reallocs.)
         let mut sparse = Vec::with_capacity(StateID::SIZE * dfa.state_count());
+        // This maps state indices from the dense DFA to StateIDs in the sparse
+        // DFA. We build out this map on the first pass, and then use it in the
+        // second pass to back-fill our transitions.
         let mut remap: Vec<StateID> = vec![DEAD; dfa.state_count()];
         for state in dfa.states() {
             let pos = sparse.len();
@@ -299,9 +284,28 @@ impl DFA<Vec<u8>> {
             // of transitions is convenient. Otherwise, we'd need to track
             // a different number of transitions for the byte ranges as for
             // the 'next' states.
+            //
+            // N.B. The loop above is not guaranteed to yield the EOI
+            // transition, since it may point to a DEAD state. By putting
+            // it here, we always write the EOI transition, and thus
+            // guarantee that our transition count is >0. Why do we always
+            // need the EOI transition? Because in order to implement
+            // Automaton::next_eoi_state, this lets us just ask for the last
+            // transition. There are probably other/better ways to do this.
             transition_count += 1;
             sparse.push(0);
             sparse.push(0);
+
+            // Check some assumptions about transition count.
+            assert_ne!(
+                transition_count, 0,
+                "transition count should be non-zero",
+            );
+            assert!(
+                transition_count <= 257,
+                "expected transition count {} to be <= 257",
+                transition_count,
+            );
 
             // Fill in the transition count.
             // Since transition count is always <= 257, we use the most
@@ -314,8 +318,13 @@ impl DFA<Vec<u8>> {
             };
             bytes::NE::write_u16(ntrans, &mut sparse[pos..]);
 
-            // zero-fill the actual transitions
-            let zeros = transition_count as usize * StateID::SIZE;
+            // zero-fill the actual transitions.
+            // Unwraps are OK since transition_count <= 257 and our minimum
+            // support usize size is 16-bits.
+            let zeros = usize::try_from(transition_count)
+                .unwrap()
+                .checked_mul(StateID::SIZE)
+                .unwrap();
             sparse.extend(iter::repeat(0).take(zeros));
 
             // If this is a match state, write the pattern IDs matched by this
@@ -323,8 +332,19 @@ impl DFA<Vec<u8>> {
             if dfa.is_match_state(state.id()) {
                 let plen = dfa.match_pattern_len(state.id());
                 // Write the actual pattern IDs with a u32 length prefix.
+                // First, zero-fill space.
                 let mut pos = sparse.len();
-                sparse.extend(iter::repeat(0).take(4 + 4 * plen));
+                // Unwraps are OK since it's guaranteed that plen <=
+                // PatternID::LIMIT, which is in turn guaranteed to fit into a
+                // u32.
+                let zeros = size_of::<u32>()
+                    .checked_mul(plen)
+                    .unwrap()
+                    .checked_add(size_of::<u32>())
+                    .unwrap();
+                sparse.extend(iter::repeat(0).take(zeros));
+
+                // Now write the length prefix.
                 bytes::NE::write_u32(
                     // Will never fail since u32::MAX is invalid pattern ID.
                     // Thus, the number of pattern IDs is representable by a
@@ -332,7 +352,9 @@ impl DFA<Vec<u8>> {
                     plen.try_into().expect("pattern ID count fits in u32"),
                     &mut sparse[pos..],
                 );
-                pos += 4;
+                pos += size_of::<u32>();
+
+                // Now write the pattern IDs.
                 for &pid in dfa.pattern_id_slice(state.id()) {
                     pos += bytes::write_pattern_id::<bytes::NE>(
                         pid,
@@ -361,6 +383,9 @@ impl DFA<Vec<u8>> {
             starts: StartTable::from_dense_dfa(dfa, &remap)?,
             special: dfa.special().remap(|id| remap[dfa.to_index(id)]),
         };
+        // And here's our second pass. Iterate over all of the dense states
+        // again, and update the transitions in each of the states in the
+        // sparse DFA.
         for old_state in dfa.states() {
             let new_id = remap[dfa.to_index(old_state.id())];
             let mut new_state = new.trans.state_mut(new_id);
@@ -376,8 +401,7 @@ impl DFA<Vec<u8>> {
 
 impl<T: AsRef<[u8]>> DFA<T> {
     /// Cheaply return a borrowed version of this sparse DFA. Specifically, the
-    /// DFA returned always uses `&[u8]` for its transitions while keeping
-    /// the same state identifier representation.
+    /// DFA returned always uses `&[u8]` for its transitions.
     pub fn as_ref<'a>(&'a self) -> DFA<&'a [u8]> {
         DFA {
             trans: self.trans.as_ref(),
@@ -387,8 +411,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     }
 
     /// Return an owned version of this sparse DFA. Specifically, the DFA
-    /// returned always uses `Vec<u8>` for its transitions while keeping the
-    /// same state identifier representation.
+    /// returned always uses `Vec<u8>` for its transitions.
     ///
     /// Effectively, this returns a sparse DFA whose transitions live on the
     /// heap.
@@ -426,8 +449,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     }
 }
 
-/// Routines for converting a sparse DFA to other representations, such as
-/// smaller state identifiers or raw bytes suitable for persistent storage.
+/// Routines for converting a sparse DFA to other representations, such as raw
+/// bytes suitable for persistent storage.
 impl<T: AsRef<[u8]>> DFA<T> {
     /// Serialize this DFA as raw bytes to a `Vec<u8>` in little endian
     /// format.
@@ -452,18 +475,17 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // N.B. We use native endianness here to make the example work, but
     /// // using to_bytes_little_endian would work on a little endian target.
     /// let buf = original_dfa.to_bytes_native_endian();
     /// // Even if buf has initial padding, DFA::from_bytes will automatically
     /// // ignore it.
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf)?.0;
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -495,18 +517,17 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // N.B. We use native endianness here to make the example work, but
     /// // using to_bytes_big_endian would work on a big endian target.
     /// let buf = original_dfa.to_bytes_native_endian();
     /// // Even if buf has initial padding, DFA::from_bytes will automatically
     /// // ignore it.
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf)?.0;
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -547,16 +568,15 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// let buf = original_dfa.to_bytes_native_endian();
     /// // Even if buf has initial padding, DFA::from_bytes will automatically
     /// // ignore it.
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf)?.0;
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -603,18 +623,17 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // Create a 4KB buffer on the stack to store our serialized DFA.
     /// let mut buf = [0u8; 4 * (1<<10)];
     /// // N.B. We use native endianness here to make the example work, but
     /// // using write_to_little_endian would work on a little endian target.
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -651,18 +670,17 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // Create a 4KB buffer on the stack to store our serialized DFA.
     /// let mut buf = [0u8; 4 * (1<<10)];
     /// // N.B. We use native endianness here to make the example work, but
     /// // using write_to_big_endian would work on a big endian target.
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -708,16 +726,15 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // Create a 4KB buffer on the stack to store our serialized DFA.
     /// let mut buf = [0u8; 4 * (1<<10)];
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -740,8 +757,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
         nw += bytes::write_version::<E>(VERSION, &mut dst[nw..])?;
         nw += {
             // Currently unused, intended for future flexibility
-            E::write_u64(0, &mut dst[nw..]);
-            8
+            E::write_u32(0, &mut dst[nw..]);
+            size_of::<u32>()
         };
         nw += self.trans.write_to::<E>(&mut dst[nw..])?;
         nw += self.starts.write_to::<E>(&mut dst[nw..])?;
@@ -769,15 +786,14 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
-    /// // Compile our original DFA. We use 16-bit state identifiers to give
-    /// // our state IDs a small fixed size.
-    /// let original_dfa = DFA::new("foo[0-9]+")?.to_sized::<u16>()?;
+    /// // Compile our original DFA.
+    /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// let mut buf = vec![0; original_dfa.write_to_len()];
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&buf[..written])?.0;
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -785,7 +801,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
         bytes::write_label_len(LABEL)
         + bytes::write_endianness_check_len()
         + bytes::write_version_len()
-        + 8 // unused, intended for future flexibility
+        + size_of::<u32>() // unused, intended for future flexibility
         + self.trans.write_to_len()
         + self.starts.write_to_len()
         + self.special.write_to_len()
@@ -823,11 +839,6 @@ impl<'a> DFA<&'a [u8]> {
     /// idea to generate serialized DFAs for both forms of endianness and then
     /// load the correct one based on endianness.)
     ///
-    /// If the state identifier representation is `usize`, then deserialization
-    /// is dependent on the pointer size. For this reason, it is best to
-    /// serialize DFAs using a fixed size representation for your state
-    /// identifiers, such as `u8`, `u16`, `u32` or `u64`.
-    ///
     /// # Errors
     ///
     /// Generally speaking, it's easier to state the conditions in which an
@@ -835,9 +846,6 @@ impl<'a> DFA<&'a [u8]> {
     ///
     /// * The bytes given must be produced by one of the serialization APIs
     ///   on this DFA, as mentioned above.
-    /// * The state ID representation chosen by type inference (that's the `S`
-    ///   type parameter) must match the state ID representation in the given
-    ///   serialized DFA.
     /// * The endianness of the target platform matches the endianness used to
     ///   serialized the provided DFA.
     ///
@@ -854,20 +862,16 @@ impl<'a> DFA<&'a [u8]> {
     /// # Example
     ///
     /// This example shows how to serialize a DFA to raw bytes, deserialize it
-    /// and then use it for searching. Note that we first convert the DFA to
-    /// using `u16` for its state identifier representation before serializing
-    /// it. While this isn't strictly necessary, it's good practice in order to
-    /// decrease the size of the DFA and to avoid platform specific pitfalls
-    /// such as differing pointer sizes.
+    /// and then use it for searching.
     ///
     /// ```
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
-    /// let bytes = initial.to_sized::<u16>()?.to_bytes_native_endian();
-    /// let dfa: DFA<&[u8], u16> = DFA::from_bytes(&bytes)?.0;
+    /// let bytes = initial.to_bytes_native_endian();
+    /// let dfa: DFA<&[u8]> = DFA::from_bytes(&bytes)?.0;
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -889,11 +893,11 @@ impl<'a> DFA<&'a [u8]> {
     /// let dfa = DFA::new("foo[0-9]+")?;
     ///
     /// // Write a big endian serialized version of this DFA to a file.
-    /// let bytes = dfa.to_sized::<u16>()?.to_bytes_big_endian();
+    /// let bytes = dfa.to_bytes_big_endian();
     /// std::fs::write("foo.bigendian.dfa", &bytes)?;
     ///
     /// // Do it again, but this time for little endian.
-    /// let bytes = dfa.to_sized::<u16>()?.to_bytes_little_endian();
+    /// let bytes = dfa.to_bytes_little_endian();
     /// std::fs::write("foo.littleendian.dfa", &bytes)?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -907,8 +911,7 @@ impl<'a> DFA<&'a [u8]> {
     /// ```no_run
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
     ///
-    /// type S = u16;
-    /// type DFA = sparse::DFA<&'static [u8], S>;
+    /// type DFA = sparse::DFA<&'static [u8]>;
     ///
     /// fn get_foo() -> &'static DFA {
     ///     use std::cell::Cell;
@@ -948,7 +951,7 @@ impl<'a> DFA<&'a [u8]> {
     /// }
     ///
     /// let dfa = get_foo();
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Ok(Some(expected)), dfa.find_leftmost_fwd(b"foo12345"));
     /// ```
     ///
@@ -1000,14 +1003,12 @@ impl<'a> DFA<&'a [u8]> {
     /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
-    /// let bytes = initial.to_sized::<u16>()?.to_bytes_native_endian();
+    /// let bytes = initial.to_bytes_native_endian();
     /// // SAFETY: This is guaranteed to be safe since the bytes given come
     /// // directly from a compatible serialization routine.
-    /// let dfa: DFA<&[u8], u16> = unsafe {
-    ///     DFA::from_bytes_unchecked(&bytes)?.0
-    /// };
+    /// let dfa: DFA<&[u8]> = unsafe { DFA::from_bytes_unchecked(&bytes)?.0 };
     ///
-    /// let expected = HalfMatch::new(0, 8);
+    /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1020,8 +1021,8 @@ impl<'a> DFA<&'a [u8]> {
         nr += bytes::read_endianness_check(&slice[nr..])?;
         nr += bytes::read_version(&slice[nr..], VERSION)?;
 
-        let _unused = bytes::try_read_u64(&slice[nr..], "unused space")?;
-        nr += 8;
+        let _unused = bytes::try_read_u32(&slice[nr..], "unused space")?;
+        nr += size_of::<u32>();
 
         let (trans, nread) = Transitions::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
@@ -1029,8 +1030,7 @@ impl<'a> DFA<&'a [u8]> {
         let (starts, nread) = StartTable::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
-        let (special, nread): (Special, usize) =
-            Special::from_bytes(&slice[nr..])?;
+        let (special, nread) = Special::from_bytes(&slice[nr..])?;
         nr += nread;
         if special.max.as_usize() >= trans.sparse().len() {
             return Err(DeserializeError::generic(
@@ -1138,7 +1138,6 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
         // a bit of slicing/pointer-chasing. This optimization tends to only
         // matter when matches are frequent.
         if self.trans.patterns == 1 {
-            assert_eq!(match_index, 0);
             return PatternID::ZERO;
         }
         self.trans.state(id).pattern_id(match_index)
@@ -1246,18 +1245,18 @@ impl<'a> Transitions<&'a [u8]> {
         let slice_start = slice.as_ptr() as usize;
 
         let (state_count, nr) =
-            bytes::try_read_u64_as_usize(&slice, "state count")?;
+            bytes::try_read_u32_as_usize(&slice, "state count")?;
         slice = &slice[nr..];
 
         let (pattern_count, nr) =
-            bytes::try_read_u64_as_usize(&slice, "pattern count")?;
+            bytes::try_read_u32_as_usize(&slice, "pattern count")?;
         slice = &slice[nr..];
 
         let (classes, nr) = ByteClasses::from_bytes(&slice)?;
         slice = &slice[nr..];
 
         let (len, nr) =
-            bytes::try_read_u64_as_usize(&slice, "sparse transitions length")?;
+            bytes::try_read_u32_as_usize(&slice, "sparse transitions length")?;
         slice = &slice[nr..];
 
         bytes::check_slice_len(slice, len, "sparse states byte length")?;
@@ -1291,20 +1290,20 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         dst = &mut dst[..nwrite];
 
         // write state count
-        E::write_u64(self.count as u64, dst);
-        dst = &mut dst[8..];
+        E::write_u32(u32::try_from(self.count).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
 
         // write pattern count
-        E::write_u64(self.patterns as u64, dst);
-        dst = &mut dst[8..];
+        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
 
         // write byte class map
         let n = self.classes.write_to(dst)?;
         dst = &mut dst[n..];
 
         // write number of bytes in sparse transitions
-        E::write_u64(self.sparse().len() as u64, dst);
-        dst = &mut dst[8..];
+        E::write_u32(u32::try_from(self.sparse().len()).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
 
         // write actual transitions
         dst.copy_from_slice(self.sparse());
@@ -1314,10 +1313,10 @@ impl<T: AsRef<[u8]>> Transitions<T> {
     /// Returns the number of bytes the serialized form of this transition
     /// table will use.
     fn write_to_len(&self) -> usize {
-        8   // state count
-        + 8 // pattern count
+        size_of::<u32>()   // state count
+        + size_of::<u32>() // pattern count
         + self.classes.write_to_len()
-        + 8 // sparse transitions length
+        + size_of::<u32>() // sparse transitions length
         + self.sparse().len()
     }
 
@@ -1336,6 +1335,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         // available to us, so we skip this optimization. It's not clear
         // whether doing something more clever is worth it just yet. If you're
         // profiling this code and need it to run faster, please file an issue.
+        //
         // ---AG
         struct Seen {
             #[cfg(feature = "alloc")]
@@ -1477,7 +1477,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         // transitions in this state.
         let (mut ntrans, _) =
             bytes::try_read_u16_as_usize(state, "state transition count")?;
-        let is_match = (1 << 15) & ntrans != 0;
+        let is_match = ((1 << 15) & ntrans) != 0;
         ntrans &= !(1 << 15);
         state = &state[2..];
         if ntrans > 257 || ntrans == 0 {
@@ -1675,19 +1675,26 @@ struct StartTable<T> {
 impl StartTable<Vec<u8>> {
     fn new(patterns: usize) -> StartTable<Vec<u8>> {
         let stride = Start::count();
-        let start_count = stride + (stride * patterns);
-        let state_id_stride = StateID::SIZE;
-        StartTable {
-            table: vec![0; start_count * state_id_stride],
-            stride,
-            patterns,
-        }
+        // This is OK since the only way we're here is if a dense DFA could be
+        // constructed successfully, which uses the same space.
+        let len = stride
+            .checked_mul(patterns)
+            .unwrap()
+            .checked_add(stride)
+            .unwrap()
+            .checked_mul(StateID::SIZE)
+            .unwrap();
+        StartTable { table: vec![0; len], stride, patterns }
     }
 
     fn from_dense_dfa<T: AsRef<[u32]>>(
         dfa: &dense::DFA<T>,
         remap: &[StateID],
     ) -> Result<StartTable<Vec<u8>>, Error> {
+        // Unless the DFA has start states compiled for each pattern, then
+        // as far as the starting state table is concerned, there are zero
+        // patterns to account for. It will instead only store starting states
+        // for the entire DFA.
         let start_pattern_count = if dfa.has_starts_for_each_pattern() {
             dfa.pattern_count()
         } else {
@@ -1709,10 +1716,10 @@ impl<'a> StartTable<&'a [u8]> {
         let slice_start = slice.as_ptr() as usize;
 
         let (stride, nr) =
-            bytes::try_read_u64_as_usize(slice, "sparse start table stride")?;
+            bytes::try_read_u32_as_usize(slice, "sparse start table stride")?;
         slice = &slice[nr..];
 
-        let (patterns, nr) = bytes::try_read_u64_as_usize(
+        let (patterns, nr) = bytes::try_read_u32_as_usize(
             slice,
             "sparse start table patterns",
         )?;
@@ -1770,11 +1777,11 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         dst = &mut dst[..nwrite];
 
         // write stride
-        E::write_u64(self.stride as u64, dst);
-        dst = &mut dst[8..];
+        E::write_u32(u32::try_from(self.stride).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
         // write pattern count
-        E::write_u64(self.patterns as u64, dst);
-        dst = &mut dst[8..];
+        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        dst = &mut dst[size_of::<u32>()..];
         // write start IDs
         dst.copy_from_slice(self.table());
         Ok(nwrite)
@@ -1783,8 +1790,8 @@ impl<T: AsRef<[u8]>> StartTable<T> {
     /// Returns the number of bytes the serialized form of this transition
     /// table will use.
     fn write_to_len(&self) -> usize {
-        8 // stride
-        + 8 // # patterns
+        size_of::<u32>() // stride
+        + size_of::<u32>() // # patterns
         + self.table().len()
     }
 
@@ -1834,18 +1841,21 @@ impl<T: AsRef<[u8]>> StartTable<T> {
             Some(pid) => {
                 let pid = pid.as_usize();
                 assert!(pid < self.patterns, "invalid pattern ID {:?}", pid);
-                self.stride + (self.stride * pid) + start_index
+                self.stride
+                    .checked_mul(pid)
+                    .unwrap()
+                    .checked_add(self.stride)
+                    .unwrap()
+                    .checked_add(start_index)
+                    .unwrap()
             }
         };
-        let start = index * self.state_id_stride();
-        let end = start + self.state_id_stride();
+        let start = index * StateID::SIZE;
+        let end = start + StateID::SIZE;
         let bytes = self.table()[start..end].try_into().unwrap();
+        // This OK since we're allowed to assume that the start table contains
+        // valid StateIDs.
         StateID::from_ne_bytes_unchecked(bytes)
-    }
-
-    /// Return the total number of bytes that represents each state ID.
-    fn state_id_stride(&self) -> usize {
-        StateID::SIZE
     }
 
     /// Return an iterator over all start IDs in this table.
@@ -1855,7 +1865,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
 
     /// Returns the total number of start state IDs in this table.
     fn len(&self) -> usize {
-        self.table().len() / self.state_id_stride()
+        self.table().len() / StateID::SIZE
     }
 
     /// Returns the table as a raw slice of bytes.
@@ -1872,8 +1882,10 @@ impl<T: AsRef<[u8]>> StartTable<T> {
 }
 
 #[cfg(feature = "alloc")]
-impl<T: AsRef<[u8]> + AsMut<[u8]>> StartTable<T> {
+impl<T: AsMut<[u8]>> StartTable<T> {
     /// Set the start state for the given index and pattern.
+    ///
+    /// If the pattern ID or state ID are not valid, then this will panic.
     fn set_start(
         &mut self,
         index: Start,
@@ -1884,11 +1896,19 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> StartTable<T> {
         let index = match pattern_id {
             None => start_index,
             Some(pid) => {
-                self.stride + (self.stride * pid.as_usize()) + start_index
+                let pid = pid.as_usize();
+                assert!(pid < self.patterns, "invalid pattern ID {:?}", pid);
+                self.stride
+                    .checked_mul(pid)
+                    .unwrap()
+                    .checked_add(self.stride)
+                    .unwrap()
+                    .checked_add(start_index)
+                    .unwrap()
             }
         };
-        let start = index * self.state_id_stride();
-        let end = start + self.state_id_stride();
+        let start = index * StateID::SIZE;
+        let end = start + StateID::SIZE;
         bytes::write_state_id::<bytes::NE>(
             id,
             &mut self.table.as_mut()[start..end],
@@ -1916,15 +1936,23 @@ impl<'a, T: AsRef<[u8]>> Iterator for StartStateIter<'a, T> {
         // the number of start state types.
         let start_type = Start::from_usize(i % self.st.stride).unwrap();
         let pid = if i < self.st.stride {
+            // This means we don't have start states for each pattern.
             None
         } else {
-            Some(PatternID::new_unchecked(
-                (i - self.st.stride) / self.st.stride,
-            ))
+            // These unwraps are OK since we may assume our table and stride
+            // is correct.
+            let pid = i
+                .checked_sub(self.st.stride)
+                .unwrap()
+                .checked_div(self.st.stride)
+                .unwrap();
+            Some(PatternID::new(pid).unwrap())
         };
-        let start = i * self.st.state_id_stride();
-        let end = start + self.st.state_id_stride();
+        let start = i * StateID::SIZE;
+        let end = start + StateID::SIZE;
         let bytes = self.st.table()[start..end].try_into().unwrap();
+        // This is OK since we're allowed to assume that any IDs in this start
+        // table are correct and valid for this DFA.
         let id = StateID::from_ne_bytes_unchecked(bytes);
         Some((id, start_type, pid))
     }
@@ -2069,7 +2097,7 @@ impl<'a> State<'a> {
             + (self.ntrans * StateID::SIZE)
             + (1 + self.accel.len());
         if self.is_match {
-            len += 4 + self.pattern_ids.len();
+            len += size_of::<u32>() + self.pattern_ids.len();
         }
         len
     }

@@ -766,7 +766,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::dfa::{Automaton, dense::DFA};
     ///
-    /// let dfa: DFA<Vec<u32>, Vec<u8>> = DFA::never_match()?;
+    /// let dfa: DFA<Vec<u32>> = DFA::never_match()?;
     /// assert_eq!(dfa.pattern_count(), 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -776,7 +776,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::dfa::{Automaton, dense::DFA};
     ///
-    /// let dfa: DFA<Vec<u32>, Vec<u8>> = DFA::always_match()?;
+    /// let dfa: DFA<Vec<u32>> = DFA::always_match()?;
     /// assert_eq!(dfa.pattern_count(), 1);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1376,7 +1376,7 @@ pub unsafe trait Automaton {
     /// specific patterns.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{PatternID, dfa::{Automaton, HalfMatch, dense}};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().starts_for_each_pattern(true))
@@ -1402,7 +1402,7 @@ pub unsafe trait Automaton {
     /// let expected = Some(HalfMatch::must(1, 6));
     /// let got = dfa.find_earliest_fwd_at(
     ///     None,
-    ///     Some(1),
+    ///     Some(PatternID::must(1)),
     ///     haystack,
     ///     0,
     ///     haystack.len(),

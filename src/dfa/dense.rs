@@ -959,7 +959,7 @@ pub(crate) type OwnedDFA = DFA<Vec<u32>>;
 ///
 /// # Type parameters
 ///
-/// A `DFA` has one type parameters `T`, which is used to represent state IDs,
+/// A `DFA` has one type parameter, `T`, which is used to represent state IDs,
 /// pattern IDs and accelerators. `T` is typically a `Vec<u32>` or a `&[u32]`.
 ///
 /// # The `Automaton` trait
@@ -3467,6 +3467,8 @@ impl<T: AsRef<[u32]>> StartTable<T> {
 #[cfg(feature = "alloc")]
 impl<T: AsMut<[u32]>> StartTable<T> {
     /// Set the start state for the given index and pattern.
+    ///
+    /// If the pattern ID or state ID are not valid, then this will panic.
     fn set_start(
         &mut self,
         index: Start,
@@ -3476,9 +3478,14 @@ impl<T: AsMut<[u32]>> StartTable<T> {
         let start_index = index.as_usize();
         let index = match pattern_id {
             None => start_index,
-            Some(pid) => {
-                self.stride + (self.stride * pid.as_usize()) + start_index
-            }
+            Some(pid) => self
+                .stride
+                .checked_mul(pid.as_usize())
+                .unwrap()
+                .checked_add(self.stride)
+                .unwrap()
+                .checked_add(start_index)
+                .unwrap(),
         };
         self.table_mut()[index] = id;
     }
@@ -3826,13 +3833,12 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
         // first match state ID always corresponds to dfa.special.min_start.
         // From there, since we know the stride, we can compute the ID of any
         // match state given its index.
-        //
-        // TODO: justify unchecked
-        let id = StateID::new_unchecked(
-            dfa.special.min_match.as_usize() + (index << dfa.tt.stride2),
-        );
-        assert!(dfa.is_match_state(id));
-        id
+        let stride2 = u32::try_from(dfa.stride2()).unwrap();
+        let offset = index.checked_shl(stride2).unwrap();
+        let id = dfa.special.min_match.as_usize().checked_add(offset).unwrap();
+        let sid = StateID::new(id).unwrap();
+        assert!(dfa.is_match_state(sid));
+        sid
     }
 
     /// Returns the pattern ID at the given match index for the given match
@@ -4120,8 +4126,8 @@ impl<'a> Iterator for StateTransitionIterMut<'a> {
     }
 }
 
-/// An iterator over all transitions in a single DFA state using a sparse
-/// representation.
+/// An iterator over all non-DEAD transitions in a single DFA state using a
+/// sparse representation.
 ///
 /// Each transition is represented by a triple. The first two elements of the
 /// triple comprise an inclusive byte range while the last element corresponds
