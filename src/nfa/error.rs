@@ -7,9 +7,8 @@ pub struct Error {
 }
 
 /// The kind of error that occurred during the construction of an NFA.
-#[non_exhaustive]
 #[derive(Clone, Debug)]
-pub enum ErrorKind {
+enum ErrorKind {
     /// An error that occurred while parsing a regular expression. Note that
     /// this error may be printed over multiple lines, and is generally
     /// intended to be end user readable on its own.
@@ -33,8 +32,7 @@ pub enum ErrorKind {
 }
 
 impl Error {
-    /// Return the kind of this error.
-    pub fn kind(&self) -> &ErrorKind {
+    fn kind(&self) -> &ErrorKind {
         &self.kind
     }
 
