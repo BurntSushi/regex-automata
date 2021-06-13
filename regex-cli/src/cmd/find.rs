@@ -8,7 +8,7 @@ use crate::{
 };
 
 use anyhow::Context;
-use automata::dfa::{self, Automaton, Regex};
+use automata::dfa::{self, Automaton};
 
 const ABOUT: &'static str = "\
 Finds all occurrences of a regex in a file.
@@ -292,7 +292,7 @@ fn search_automaton<A: Automaton>(
 }
 
 fn search_regex<A: Automaton>(
-    re: &Regex<A>,
+    re: &dfa::regex::Regex<A>,
     find: &config::Find,
     haystack: &[u8],
     buf: &mut String,

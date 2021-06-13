@@ -5,6 +5,17 @@ use crate::{
 };
 
 /// An error that occurred during the construction of a DFA.
+///
+/// This error does not provide many introspection capabilities. There are
+/// generally only two things you can do with it:
+///
+/// * Obtain a human readable message via its `std::fmt::Display` impl.
+/// * Access an underlying [`nfa::Error`] type from its `source` method
+/// via the `std::error::Error` trait. This error only occurs when using
+/// convenience routines for building a DFA directly from a pattern string.
+///
+/// When the `std` feature is enabled, this implements the `std::error::Error`
+/// trait.
 #[derive(Clone, Debug)]
 pub struct Error {
     kind: ErrorKind,
@@ -14,9 +25,8 @@ pub struct Error {
 ///
 /// Note that this error is non-exhaustive. Adding new variants is not
 /// considered a breaking change.
-#[non_exhaustive]
 #[derive(Clone, Debug)]
-pub enum ErrorKind {
+enum ErrorKind {
     /// An error that occurred while constructing an NFA as a precursor step
     /// before a DFA is compiled.
     NFA(nfa::Error),
@@ -39,12 +49,14 @@ pub enum ErrorKind {
     /// start states enabled for each pattern and enough patterns to cause
     /// the table of start states to overflow `usize`.
     TooManyStartStates,
+    /// This is another oddball error that can occur if there are too many
+    /// patterns spread out across too many match states.
     TooManyMatchPatternIDs,
 }
 
 impl Error {
     /// Return the kind of this error.
-    pub fn kind(&self) -> &ErrorKind {
+    fn kind(&self) -> &ErrorKind {
         &self.kind
     }
 

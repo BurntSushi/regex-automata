@@ -258,10 +258,9 @@ impl State {
 /// A `Prefilter` implementation that reports a possible match at every
 /// position.
 ///
-/// This should generally not be used as an actual prefilter. It is only useful
-/// when one needs to represent the absence of a prefilter in a generic
-/// context. For example, a
-/// [`dfa::Regex`](../dfa/struct.Regex.html)
+/// This should generally not be used as an actual prefilter. It is only
+/// useful when one needs to represent the absence of a prefilter in a generic
+/// context. For example, a [`dfa::regex::Regex`](crate::dfa::regex::Regex)
 /// uses this prefilter by default to indicate that no prefilter should be
 /// used.
 ///

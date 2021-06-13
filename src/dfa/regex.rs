@@ -1,3 +1,20 @@
+/*!
+A DFA-backed `Regex`.
+
+This module provides [`Regex`], which is defined generically over the
+[`Automaton`] trait. A `Regex` implements convenience routines you might have
+come to expect, such as finding the start/end of a match and iterating over
+all non-overlapping matches. This `Regex` type is limited in its capabilities
+to what a DFA can provide. Therefore, APIs involving capturing groups, for
+example, are not provided.
+
+Internally, a `Regex` is composed of two DFAs. One is a "forward" DFA that
+finds the end offset of a match, where as the other is a "reverse" DFA that
+find the start offset of a match.
+
+See the [parent module](crate::dfa) for examples.
+*/
+
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
@@ -112,7 +129,7 @@ define_regex_type!(
     /// let haystack = "abc".as_bytes();
     ///
     /// // With leftmost-first semantics, we test "earliest" and "leftmost".
-    /// let re = dfa::RegexBuilder::new()
+    /// let re = dfa::regex::Builder::new()
     ///     .dense(dense::Config::new().match_kind(MatchKind::LeftmostFirst))
     ///     .build(pattern)?;
     ///
@@ -129,7 +146,7 @@ define_regex_type!(
     /// assert_eq!(None, it.next());
     ///
     /// // For overlapping, we want "all" match kind semantics.
-    /// let re = dfa::RegexBuilder::new()
+    /// let re = dfa::regex::Builder::new()
     ///     .dense(dense::Config::new().match_kind(MatchKind::All))
     ///     .build(pattern)?;
     ///
@@ -152,7 +169,7 @@ define_regex_type!(
     /// build a regex from them:
     ///
     /// ```
-    /// use regex_automata::dfa::{Regex, RegexBuilder};
+    /// use regex_automata::dfa::regex::Regex;
     ///
     /// // First, build a regex that uses dense DFAs.
     /// let dense_re = Regex::new("foo[0-9]+")?;
@@ -162,7 +179,7 @@ define_regex_type!(
     /// let rev = dense_re.reverse().to_sparse()?;
     ///
     /// // Third, build a new regex from the constituent sparse DFAs.
-    /// let sparse_re = RegexBuilder::new().build_from_dfas(fwd, rev);
+    /// let sparse_re = Regex::builder().build_from_dfas(fwd, rev);
     ///
     /// // A regex that uses sparse DFAs can be used just like with dense DFAs.
     /// assert_eq!(true, sparse_re.is_match(b"foo123"));
@@ -170,15 +187,15 @@ define_regex_type!(
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
-    /// Alternatively, one can use a [`RegexBuilder`] to construct a sparse DFA
+    /// Alternatively, one can use a [`Builder`] to construct a sparse DFA
     /// more succinctly. (Note though that dense DFAs are still constructed
     /// first internally, and then converted to sparse DFAs, as in the example
     /// above.)
     ///
     /// ```
-    /// use regex_automata::dfa::RegexBuilder;
+    /// use regex_automata::dfa::regex::Regex;
     ///
-    /// let sparse_re = RegexBuilder::new().build_sparse(r"foo[0-9]+")?;
+    /// let sparse_re = Regex::builder().build_sparse(r"foo[0-9]+")?;
     /// // A regex that uses sparse DFAs can be used just like with dense DFAs.
     /// assert!(sparse_re.is_match(b"foo123"));
     ///
@@ -208,9 +225,9 @@ define_regex_type!(
     /// across a line boundary.
     ///
     /// ```
-    /// use regex_automata::{dfa, MatchError};
+    /// use regex_automata::{dfa::{self, regex::Regex}, MatchError};
     ///
-    /// let re = dfa::RegexBuilder::new()
+    /// let re = Regex::builder()
     ///     .dense(dfa::dense::Config::new().quit(b'\n', true))
     ///     .build(r"foo\p{any}+bar")?;
     ///
@@ -232,13 +249,13 @@ impl Regex {
     /// Parse the given regular expression using the default configuration and
     /// return the corresponding regex.
     ///
-    /// If you want a non-default configuration, then use the [`RegexBuilder`]
-    /// to set your own configuration.
+    /// If you want a non-default configuration, then use the [`Builder`] to
+    /// set your own configuration.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// assert_eq!(
@@ -248,7 +265,7 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new(pattern: &str) -> Result<Regex, Error> {
-        RegexBuilder::new().build(pattern)
+        Builder::new().build(pattern)
     }
 
     /// Like `new`, but parses multiple patterns into a single "regex set."
@@ -257,7 +274,7 @@ impl Regex {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// let re = Regex::new_many(&["[a-z]+", "[0-9]+"])?;
     ///
@@ -272,7 +289,7 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<Regex, Error> {
-        RegexBuilder::new().build_many(patterns)
+        Builder::new().build_many(patterns)
     }
 }
 
@@ -281,13 +298,13 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     /// Parse the given regular expression using the default configuration,
     /// except using sparse DFAs, and return the corresponding regex.
     ///
-    /// If you want a non-default configuration, then use the [`RegexBuilder`]
-    /// to set your own configuration.
+    /// If you want a non-default configuration, then use the [`Builder`] to
+    /// set your own configuration.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// let re = Regex::new_sparse("foo[0-9]+bar")?;
     /// assert_eq!(
@@ -299,7 +316,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     pub fn new_sparse(
         pattern: &str,
     ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
-        RegexBuilder::new().build_sparse(pattern)
+        Builder::new().build_sparse(pattern)
     }
 
     /// Like `new`, but parses multiple patterns into a single "regex set"
@@ -309,7 +326,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// let re = Regex::new_many_sparse(&["[a-z]+", "[0-9]+"])?;
     ///
@@ -326,7 +343,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     pub fn new_many_sparse<P: AsRef<str>>(
         patterns: &[P],
     ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
-        RegexBuilder::new().build_many_sparse(patterns)
+        Builder::new().build_many_sparse(patterns)
     }
 }
 
@@ -335,8 +352,8 @@ impl Regex<sparse::DFA<Vec<u8>>> {
 impl Regex {
     /// Return a default configuration for a `Regex`.
     ///
-    /// This is a convenience routine to avoid needing to import the
-    /// `RegexConfig` type when customizing the construction of a regex.
+    /// This is a convenience routine to avoid needing to import the `Config`
+    /// type when customizing the construction of a regex.
     ///
     /// # Example
     ///
@@ -346,7 +363,7 @@ impl Regex {
     /// position of a UTF-8 encoded codepoint.
     ///
     /// ```
-    /// use regex_automata::{dfa::Regex, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
@@ -363,14 +380,14 @@ impl Regex {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn config() -> RegexConfig {
-        RegexConfig::new()
+    pub fn config() -> Config {
+        Config::new()
     }
 
     /// Return a builder for configuring the construction of a `Regex`.
     ///
     /// This is a convenience routine to avoid needing to import the
-    /// `RegexBuilder` type in common cases.
+    /// [`Builder`] type in common cases.
     ///
     /// # Example
     ///
@@ -379,7 +396,7 @@ impl Regex {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::Regex,
+    ///     dfa::regex::Regex,
     ///     nfa::thompson,
     ///     MultiMatch, SyntaxConfig,
     /// };
@@ -396,8 +413,8 @@ impl Regex {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn builder() -> RegexBuilder {
-        RegexBuilder::new()
+    pub fn builder() -> Builder {
+        Builder::new()
     }
 }
 
@@ -422,7 +439,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::Regex;
+    /// use regex_automata::dfa::regex::Regex;
     ///
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// assert_eq!(true, re.is_match(b"foo12345bar"));
@@ -452,7 +469,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// // Normally, the leftmost first match would greedily consume as many
     /// // decimal digits as it could. But a match is detected as soon as one
@@ -488,7 +505,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// // Greediness is applied appropriately when compared to find_earliest.
     /// let re = Regex::new("foo[0-9]+")?;
@@ -532,9 +549,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// regexes.
     ///
     /// ```
-    /// use regex_automata::{dfa, MatchKind, MultiMatch};
+    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, MultiMatch};
     ///
-    /// let re = dfa::RegexBuilder::new()
+    /// let re = Regex::builder()
     ///     .dense(dfa::dense::Config::new().match_kind(MatchKind::All))
     ///     .build_many(&[r"\w+$", r"\S+$"])?;
     /// let haystack = "@foo".as_bytes();
@@ -582,9 +599,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// This example shows how to run an "earliest" iterator.
     ///
     /// ```
-    /// use regex_automata::{dfa, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
     ///
-    /// let re = dfa::Regex::new("[0-9]+")?;
+    /// let re = Regex::new("[0-9]+")?;
     /// let haystack = "123".as_bytes();
     ///
     /// // Normally, a standard leftmost iterator would return a single
@@ -622,7 +639,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// let re = Regex::new("foo[0-9]+")?;
     /// let text = b"foo1 foo12 foo123";
@@ -663,9 +680,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// regexes.
     ///
     /// ```
-    /// use regex_automata::{dfa, MatchKind, MultiMatch};
+    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, MultiMatch};
     ///
-    /// let re = dfa::RegexBuilder::new()
+    /// let re = Regex::builder()
     ///     .dense(dfa::dense::Config::new().match_kind(MatchKind::All))
     ///     .build_many(&[r"\w+$", r"\S+$"])?;
     /// let haystack = "@foo".as_bytes();
@@ -963,9 +980,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// This example shows how to run an "earliest" iterator.
     ///
     /// ```
-    /// use regex_automata::{dfa, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
     ///
-    /// let re = dfa::Regex::new("[0-9]+")?;
+    /// let re = Regex::new("[0-9]+")?;
     /// let haystack = "123".as_bytes();
     ///
     /// // Normally, a standard leftmost iterator would return a single
@@ -1349,9 +1366,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Return the underlying DFA responsible for forward matching.
     ///
     /// This is useful for accessing the underlying DFA and converting it to
-    /// some other format or size. See the
-    /// [`RegexBuilder::build_from_dfas`]
-    /// docs for an example of where this might be useful.
+    /// some other format or size. See the [`Builder::build_from_dfas`] docs
+    /// for an example of where this might be useful.
     pub fn forward(&self) -> &A {
         &self.forward
     }
@@ -1359,9 +1375,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Return the underlying DFA responsible for reverse matching.
     ///
     /// This is useful for accessing the underlying DFA and converting it to
-    /// some other format or size. See the
-    /// [`RegexBuilder::build_from_dfas`]
-    /// docs for an example of where this might be useful.
+    /// some other format or size. See the [`Builder::build_from_dfas`] docs
+    /// for an example of where this might be useful.
     pub fn reverse(&self) -> &A {
         &self.reverse
     }
@@ -1371,7 +1386,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::Regex};
+    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
     /// assert_eq!(3, re.pattern_count());
@@ -1738,18 +1753,18 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// The configuration used for compiling a DFA-backed regex.
 ///
 /// A regex configuration is a simple data object that is typically used with
-/// [`RegexBuilder::configure`].
+/// [`Builder::configure`].
 #[cfg(feature = "alloc")]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct RegexConfig {
+pub struct Config {
     utf8: Option<bool>,
 }
 
 #[cfg(feature = "alloc")]
-impl RegexConfig {
+impl Config {
     /// Return a new default regex compiler configuration.
-    pub fn new() -> RegexConfig {
-        RegexConfig::default()
+    pub fn new() -> Config {
+        Config::default()
     }
 
     /// Whether to enable UTF-8 mode or not.
@@ -1777,7 +1792,7 @@ impl RegexConfig {
     /// In this first snippet, we show the results when UTF-8 mode is disabled.
     ///
     /// ```
-    /// use regex_automata::{dfa::Regex, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
@@ -1800,13 +1815,10 @@ impl RegexConfig {
     /// otherwise split the encoding of `☃` are not returned.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{RegexBuilder, RegexConfig},
-    ///     MultiMatch,
-    /// };
+    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
     ///
-    /// let re = RegexBuilder::new()
-    ///     .configure(RegexConfig::new().utf8(true))
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8(true))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
@@ -1818,7 +1830,7 @@ impl RegexConfig {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn utf8(mut self, yes: bool) -> RegexConfig {
+    pub fn utf8(mut self, yes: bool) -> Config {
         self.utf8 = Some(yes);
         self
     }
@@ -1837,8 +1849,8 @@ impl RegexConfig {
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
-    pub(crate) fn overwrite(self, o: RegexConfig) -> RegexConfig {
-        RegexConfig { utf8: o.utf8.or(self.utf8) }
+    pub(crate) fn overwrite(self, o: Config) -> Config {
+        Config { utf8: o.utf8.or(self.utf8) }
     }
 }
 
@@ -1857,9 +1869,9 @@ impl RegexConfig {
 /// * [`nfa::thompson::Config::utf8`](crate::nfa::thompson::Config::utf8)
 /// controls whether the implicit unanchored prefix added to the NFA can
 /// match through invalid UTF-8 or not.
-/// * [`RegexConfig::utf8`] controls how the regex iterators themselves
-/// advance the starting position of the next search when a match with zero
-/// length is found.
+/// * [`Config::utf8`] controls how the regex iterators themselves advance
+/// the starting position of the next search when a match with zero length is
+/// found.
 ///
 /// Generally speaking, callers will want to either enable all of theses or
 /// disable all of these.
@@ -1880,17 +1892,17 @@ impl RegexConfig {
 /// * Building a regex with dense or sparse DFAs.
 /// * Building a regex with DFAs that use a size for their state identifiers.
 ///
-/// The simplest "build" method is [`RegexBuilder::build`]. It accepts a single
+/// The simplest "build" method is [`Builder::build`]. It accepts a single
 /// pattern and builds a dense DFA using `usize` for the state identifier
 /// representation.
 ///
-/// The most general "build" method is [`RegexBuilder::build_many`],
-/// which permits building a regex that searches for multiple patterns
-/// simultaneously while using a specific state identifier representation.
+/// The most general "build" method is [`Builder::build_many`], which permits
+/// building a regex that searches for multiple patterns simultaneously while
+/// using a specific state identifier representation.
 ///
 /// The most flexible "build" method, but hardest to use, is
-/// [`RegexBuilder::build_from_dfas`]. This exposes the fact that a [`Regex`]
-/// is just a pair of DFAs, and this method allows you to specify those DFAs
+/// [`Builder::build_from_dfas`]. This exposes the fact that a [`Regex`] is
+/// just a pair of DFAs, and this method allows you to specify those DFAs
 /// exactly.
 ///
 /// # Example
@@ -1901,13 +1913,11 @@ impl RegexConfig {
 ///
 /// ```
 /// use regex_automata::{
-///     dfa::{RegexBuilder, RegexConfig},
-///     nfa::thompson,
-///     MultiMatch, SyntaxConfig,
+///     dfa::regex::Regex, nfa::thompson, MultiMatch, SyntaxConfig
 /// };
 ///
-/// let re = RegexBuilder::new()
-///     .configure(RegexConfig::new().utf8(false))
+/// let re = Regex::builder()
+///     .configure(Regex::config().utf8(false))
 ///     .syntax(SyntaxConfig::new().utf8(false))
 ///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
@@ -1922,7 +1932,7 @@ impl RegexConfig {
 /// // Disabling UTF-8 on the Thompson NFA permits this.
 /// //
 /// // N.B. This example does not show the impact of
-/// // disabling UTF-8 mode on RegexConfig, since that
+/// // disabling UTF-8 mode on Config, since that
 /// // only impacts regexes that can produce matches of
 /// // length 0.
 /// assert_eq!(b"foo\xFFarzz", &haystack[got.unwrap().range()]);
@@ -1931,19 +1941,16 @@ impl RegexConfig {
 /// ```
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
-pub struct RegexBuilder {
-    config: RegexConfig,
+pub struct Builder {
+    config: Config,
     dfa: dense::Builder,
 }
 
 #[cfg(feature = "alloc")]
-impl RegexBuilder {
+impl Builder {
     /// Create a new regex builder with the default configuration.
-    pub fn new() -> RegexBuilder {
-        RegexBuilder {
-            config: RegexConfig::default(),
-            dfa: dense::Builder::new(),
-        }
+    pub fn new() -> Builder {
+        Builder { config: Config::default(), dfa: dense::Builder::new() }
     }
 
     /// Build a regex from the given pattern.
@@ -2016,8 +2023,8 @@ impl RegexBuilder {
     /// unspecified.
     ///
     /// Note that when using this constructor, only the configuration from
-    /// `RegexConfig` is applied. The only configuration settings on this
-    /// builder only apply when the builder owns the construction of the DFAs
+    /// [`Config`] is applied. The only configuration settings on this builder
+    /// only apply when the builder owns the construction of the DFAs
     /// themselves.
     ///
     /// # Example
@@ -2028,14 +2035,13 @@ impl RegexBuilder {
     /// memory.
     ///
     /// ```
-    /// use regex_automata::dfa::{Regex, RegexBuilder};
+    /// use regex_automata::dfa::regex::Regex;
     ///
     /// let initial_re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(true, initial_re.is_match(b"foo123"));
     ///
     /// let (fwd, rev) = (initial_re.forward(), initial_re.reverse());
-    /// let re = RegexBuilder::new()
-    ///     .build_from_dfas(fwd, rev);
+    /// let re = Regex::builder().build_from_dfas(fwd, rev);
     /// assert_eq!(true, re.is_match(b"foo123"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -2045,15 +2051,14 @@ impl RegexBuilder {
     /// routines:
     ///
     /// ```
-    /// use regex_automata::dfa::{Regex, RegexBuilder};
+    /// use regex_automata::dfa::regex::Regex;
     ///
     /// let initial_re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(true, initial_re.is_match(b"foo123"));
     ///
     /// let fwd = initial_re.forward().to_sparse()?;
     /// let rev = initial_re.reverse().to_sparse()?;
-    /// let re = RegexBuilder::new()
-    ///     .build_from_dfas(fwd, rev);
+    /// let re = Regex::builder().build_from_dfas(fwd, rev);
     /// assert_eq!(true, re.is_match(b"foo123"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -2067,7 +2072,7 @@ impl RegexBuilder {
     }
 
     /// Apply the given regex configuration options to this builder.
-    pub fn configure(&mut self, config: RegexConfig) -> &mut RegexBuilder {
+    pub fn configure(&mut self, config: Config) -> &mut Builder {
         self.config = self.config.overwrite(config);
         self
     }
@@ -2077,10 +2082,7 @@ impl RegexBuilder {
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
-    pub fn syntax(
-        &mut self,
-        config: crate::SyntaxConfig,
-    ) -> &mut RegexBuilder {
+    pub fn syntax(&mut self, config: crate::SyntaxConfig) -> &mut Builder {
         self.dfa.syntax(config);
         self
     }
@@ -2090,7 +2092,7 @@ impl RegexBuilder {
     ///
     /// This permits setting things like whether additional time should be
     /// spent shrinking the size of the NFA.
-    pub fn thompson(&mut self, config: thompson::Config) -> &mut RegexBuilder {
+    pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.dfa.thompson(config);
         self
     }
@@ -2100,16 +2102,16 @@ impl RegexBuilder {
     ///
     /// This permits setting things like whether the underlying DFAs should
     /// be minimized.
-    pub fn dense(&mut self, config: dense::Config) -> &mut RegexBuilder {
+    pub fn dense(&mut self, config: dense::Config) -> &mut Builder {
         self.dfa.configure(config);
         self
     }
 }
 
 #[cfg(feature = "alloc")]
-impl Default for RegexBuilder {
-    fn default() -> RegexBuilder {
-        RegexBuilder::new()
+impl Default for Builder {
+    fn default() -> Builder {
+        Builder::new()
     }
 }
 

@@ -10,10 +10,10 @@ of automata for use in `no_std` environments.
 
 This section gives a brief overview of the primary types in this module:
 
-* A [`Regex`] provides a way to search for matches of a regular expression
-using DFAs. This includes iterating over matches with both the start and end
-positions of each match.
-* A [`RegexBuilder`] provides a way configure many compilation options for a
+* A [`regex::Regex`] provides a way to search for matches of a regular
+expression using DFAs. This includes iterating over matches with both the start
+and end positions of each match.
+* A [`regex::Builder`] provides a way configure many compilation options for a
 regex.
 * A [`dense::DFA`] provides low level access to a DFA that uses a dense
 representation (uses lots of space, but fast searching).
@@ -31,7 +31,7 @@ This example shows how to compile a regex using the default configuration
 and then use it to find matches in a byte string:
 
 ```
-use regex_automata::{MultiMatch, dfa::Regex};
+use regex_automata::{MultiMatch, dfa::regex::Regex};
 
 let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let text = b"2018-12-24 2016-10-08";
@@ -50,7 +50,7 @@ simultaneously. You can use this support with standard leftmost-first style
 searching to find non-overlapping matches:
 
 ```
-use regex_automata::{MultiMatch, dfa::Regex};
+use regex_automata::{MultiMatch, dfa::regex::Regex};
 
 let re = Regex::new_many(&[r"\w+", r"\S+"])?;
 let text = b"@foo bar";
@@ -65,7 +65,7 @@ assert_eq!(matches, vec![
 Or use overlapping style searches to find all possible occurrences:
 
 ```
-use regex_automata::{MatchKind, MultiMatch, dfa::{dense, Regex}};
+use regex_automata::{MatchKind, MultiMatch, dfa::{dense, regex::Regex}};
 
 // N.B. For overlapping searches, we need the underlying DFA to report all
 // possible matches.
@@ -95,7 +95,7 @@ Using sparse DFAs is as easy as using `Regex::new_sparse` instead of
 `Regex::new`:
 
 ```
-use regex_automata::{MultiMatch, dfa::Regex};
+use regex_automata::{MultiMatch, dfa::regex::Regex};
 
 let re = Regex::new_sparse(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 let text = b"2018-12-24 2016-10-08";
@@ -111,10 +111,10 @@ If you already have dense DFAs for some reason, they can be converted to sparse
 DFAs and used to build a new `Regex`. For example:
 
 ```
-use regex_automata::{MultiMatch, dfa::{Regex, RegexBuilder}};
+use regex_automata::{MultiMatch, dfa::regex::Regex};
 
 let dense_re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
-let sparse_re = RegexBuilder::new().build_from_dfas(
+let sparse_re = Regex::builder().build_from_dfas(
     dense_re.forward().to_sparse()?,
     dense_re.reverse().to_sparse()?,
 );
@@ -135,7 +135,7 @@ bit contrived, this same technique can be used in your program to
 deserialize a DFA at start up time or by memory mapping a file.
 
 ```
-use regex_automata::{MultiMatch, dfa::{dense, Regex, RegexBuilder}};
+use regex_automata::{MultiMatch, dfa::{dense, regex::Regex}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both the forward and reverse DFAs, see note below
@@ -145,7 +145,7 @@ let (rev_bytes, rev_pad) = re1.reverse().to_bytes_native_endian();
 let fwd: dense::DFA<&[u32]> = dense::DFA::from_bytes(&fwd_bytes[fwd_pad..])?.0;
 let rev: dense::DFA<&[u32]> = dense::DFA::from_bytes(&rev_bytes[rev_pad..])?.0;
 // finally, reconstruct our regex
-let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
+let re2 = Regex::builder().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
@@ -182,7 +182,7 @@ valid DFA.
 The same process can be achieved with sparse DFAs as well:
 
 ```
-use regex_automata::{MultiMatch, dfa::{sparse, Regex, RegexBuilder}};
+use regex_automata::{MultiMatch, dfa::{sparse, regex::Regex}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both
@@ -192,7 +192,7 @@ let rev_bytes = re1.reverse().to_sparse()?.to_bytes_native_endian();
 let fwd: sparse::DFA<&[u8]> = sparse::DFA::from_bytes(&fwd_bytes)?.0;
 let rev: sparse::DFA<&[u8]> = sparse::DFA::from_bytes(&rev_bytes)?.0;
 // finally, reconstruct our regex
-let re2 = RegexBuilder::new().build_from_dfas(fwd, rev);
+let re2 = Regex::builder().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
@@ -244,10 +244,10 @@ same parser. You can find an exhaustive list of supported syntax in the
 
 There are two things that are not supported by the DFAs in this module:
 
-* Capturing groups. The DFAs (and [`Regex`]es built on top of them) can only
-find the offsets of an entire match, but cannot resolve the offsets of each
-capturing group. This is because DFAs do not have the expressive power to
-provide this.
+* Capturing groups. The DFAs (and [`Regex`](regex::Regex)es built on top
+of them) can only find the offsets of an entire match, but cannot resolve
+the offsets of each capturing group. This is because DFAs do not have the
+expressive power to provide this.
 * Unicode word boundaries. These present particularly difficult challenges for
 DFA construction and would result in an explosion in the number of states.
 One can enable [`dense::Config::unicode_word_boundary`] though, which provides
@@ -300,7 +300,7 @@ although, it does provide more predictable and consistent performance.
 operate on `&[u8]`. By default, match indices are guaranteed to fall on UTF-8
 boundaries, unless any of [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8),
 [`nfa::thompson::Config::utf8`](crate::nfa::thompson::Config::utf8) or
-[`RegexConfig::utf8`] are disabled.
+[`regex::Config::utf8`] are disabled.
 
 With some of the downsides out of the way, here are some positive differences:
 
@@ -334,13 +334,7 @@ dramatically.
 
 pub use crate::dfa::automaton::{Automaton, HalfMatch, OverlappingState};
 #[cfg(feature = "alloc")]
-pub use crate::dfa::error::{Error, ErrorKind};
-pub use crate::dfa::regex::{
-    FindEarliestMatches, FindLeftmostMatches, FindOverlappingMatches, Regex,
-    TryFindEarliestMatches, TryFindLeftmostMatches, TryFindOverlappingMatches,
-};
-#[cfg(feature = "alloc")]
-pub use crate::dfa::regex::{RegexBuilder, RegexConfig};
+pub use crate::dfa::error::Error;
 
 /// This is an alias for a state ID of zero. It has special significance
 /// because it always corresponds to the first state in a DFA, and the first
@@ -359,7 +353,7 @@ mod determinize;
 pub(crate) mod error;
 #[cfg(feature = "alloc")]
 mod minimize;
-mod regex;
+pub mod regex;
 mod search;
 pub mod sparse;
 mod special;

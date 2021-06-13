@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use regex_automata::{
-    dfa::{dense, Automaton, HalfMatch, OverlappingState, Regex},
+    dfa::{dense, regex::Regex, Automaton, HalfMatch, OverlappingState},
     nfa::thompson,
     MatchError, MultiMatch,
 };

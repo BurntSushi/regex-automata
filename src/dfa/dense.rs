@@ -313,8 +313,8 @@ impl Config {
     /// corresponds to the leftmost starting position.
     ///
     /// Note that if you need the starting position then
-    /// [`dfa::Regex`](crate::dfa::Regex) will handle this for you, so it's
-    /// usually not necessary to do this yourself.
+    /// [`dfa::regex::Regex`](crate::dfa::regex::Regex) will handle this for
+    /// you, so it's usually not necessary to do this yourself.
     ///
     /// ```
     /// use regex_automata::{
@@ -372,8 +372,8 @@ impl Config {
     /// 1. When looking for the start of an overlapping match (using a
     /// reverse DFA), doing it correctly requires starting the reverse search
     /// using the starting state of the pattern that matched in the forward
-    /// direction. Indeed, when building a [`Regex`](crate::dfa::Regex), it
-    /// will automatically enable this option when building the reverse DFA
+    /// direction. Indeed, when building a [`Regex`](crate::dfa::regex::Regex),
+    /// it will automatically enable this option when building the reverse DFA
     /// internally.
     /// 2. When you want to use a DFA with multiple patterns to both search
     /// for matches of any pattern or to search for anchored matches of one
@@ -485,7 +485,7 @@ impl Config {
     ///
     /// When enabling this option, callers _must_ be prepared to handle
     /// a [`MatchError`](crate::MatchError) error during search.
-    /// When using a [`Regex`](crate::dfa::Regex), this corresponds
+    /// When using a [`Regex`](crate::dfa::regex::Regex), this corresponds
     /// to using the `try_` suite of methods. Alternatively, if
     /// callers can guarantee that their input is ASCII only, then a
     /// [`MatchError::Quit`](crate::MatchError::Quit) error will never be
@@ -563,8 +563,8 @@ impl Config {
     ///
     /// When enabling this option, callers _must_ be prepared to handle a
     /// [`MatchError`](crate::MatchError) error during search. When using a
-    /// [`Regex`](crate::dfa::Regex), this corresponds to using the `try_`
-    /// suite of methods.
+    /// [`Regex`](crate::dfa::regex::Regex), this corresponds to using the
+    /// `try_` suite of methods.
     ///
     /// By default, there are no quit bytes set.
     ///
@@ -713,11 +713,11 @@ impl Config {
 /// can only be used to construct regexes that either detect the presence
 /// of a match or find the end location of a match. A single DFA cannot
 /// produce both the start and end of a match. For that information, use a
-/// [`Regex`](crate::dfa::Regex), which can be similarly configured using
-/// [`RegexBuilder`](crate::dfa::RegexBuilder). The main reason to use a DFA
-/// directly is if the end location of a match is enough for your use case.
-/// Namely, a `Regex` will construct two DFAs instead of one, since a second
-/// reverse DFA is needed to find the start of a match.
+/// [`Regex`](crate::dfa::regex::Regex), which can be similarly configured
+/// using [`RegexBuilder`](crate::dfa::regex::Builder). The main reason to use
+/// a DFA directly is if the end location of a match is enough for your use
+/// case. Namely, a `Regex` will construct two DFAs instead of one, since a
+/// second reverse DFA is needed to find the start of a match.
 ///
 /// Note that if one wants to build a sparse DFA, you must first build a dense
 /// DFA and convert that to a sparse DFA. There is no way to build a sparse
@@ -949,7 +949,7 @@ pub(crate) type OwnedDFA = DFA<Vec<u32>>;
 /// A notable absence from the above list of capabilities is the location of
 /// the *start* of a match. In order to provide both the start and end of
 /// a match, *two* DFAs are required. This functionality is provided by a
-/// [`Regex`](crate::dfa::Regex).
+/// [`Regex`](crate::dfa::regex::Regex).
 ///
 /// # Type parameters
 ///

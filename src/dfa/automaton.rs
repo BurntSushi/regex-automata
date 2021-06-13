@@ -94,7 +94,7 @@ impl HalfMatch {
 /// dense DFAs and sparse DFAs. (Dense DFAs are fast but memory hungry, where
 /// as sparse DFAs are slower but come with a smaller memory footprint. But
 /// they otherwise provide exactly equivalent expressive power.) For example, a
-/// [`dfa::Regex`](crate::dfa::Regex) is generic over this trait.
+/// [`dfa::regex::Regex`](crate::dfa::regex::Regex) is generic over this trait.
 ///
 /// Normally, a DFA's execution model is very simple. You might have a single
 /// start state, zero or more final or "match" states and a function that

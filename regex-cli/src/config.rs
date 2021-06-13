@@ -773,7 +773,7 @@ Will cause the DFA to quit whenever it sees one of 'a', 'b' or 'c'.
 
 #[derive(Debug)]
 pub struct RegexDFA {
-    config: dfa::RegexConfig,
+    config: dfa::regex::Config,
 }
 
 impl RegexDFA {
@@ -804,7 +804,7 @@ This mode cannot be toggled inside the regex.
 
     pub fn get(args: &Args) -> anyhow::Result<RegexDFA> {
         let config =
-            dfa::RegexConfig::new().utf8(!args.is_present("no-utf8-regex"));
+            dfa::regex::Config::new().utf8(!args.is_present("no-utf8-regex"));
         Ok(RegexDFA { config })
     }
 
@@ -813,8 +813,8 @@ This mode cannot be toggled inside the regex.
         syntax: &Syntax,
         thompson: &Thompson,
         dense: &Dense,
-    ) -> dfa::RegexBuilder {
-        let mut builder = dfa::RegexBuilder::new();
+    ) -> dfa::regex::Builder {
+        let mut builder = dfa::regex::Builder::new();
         builder
             .configure(self.config)
             .syntax(syntax.0)
@@ -830,7 +830,7 @@ This mode cannot be toggled inside the regex.
         thompson: &Thompson,
         dense: &Dense,
         patterns: &Patterns,
-    ) -> anyhow::Result<dfa::Regex<dense::DFA<Vec<u32>>>> {
+    ) -> anyhow::Result<dfa::regex::Regex<dense::DFA<Vec<u32>>>> {
         let patterns = patterns.as_strings();
         let b = self.builder(syntax, thompson, dense);
         let (re, time) = util::timeitr(|| b.build_many(patterns))?;
@@ -850,7 +850,7 @@ This mode cannot be toggled inside the regex.
         thompson: &Thompson,
         dense: &Dense,
         patterns: &Patterns,
-    ) -> anyhow::Result<dfa::Regex<sparse::DFA<Vec<u8>>>> {
+    ) -> anyhow::Result<dfa::regex::Regex<sparse::DFA<Vec<u8>>>> {
         let re = self
             .from_patterns_dense(table, syntax, thompson, dense, patterns)?;
         let (sre, time) = util::timeitr(|| {

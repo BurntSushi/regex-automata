@@ -1,5 +1,5 @@
 use regex_automata::{
-    dfa::{dense, sparse, Automaton, Regex, RegexBuilder, RegexConfig},
+    dfa::{self, dense, regex::Regex, sparse, Automaton},
     nfa::thompson,
     MatchKind, SyntaxConfig,
 };
@@ -15,7 +15,7 @@ use crate::{suite, Result};
 
 #[test]
 fn unminimized_default() -> Result<()> {
-    let builder = RegexBuilder::new();
+    let builder = Regex::builder();
     TestRunner::new()?
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
@@ -24,7 +24,7 @@ fn unminimized_default() -> Result<()> {
 
 #[test]
 fn unminimized_no_byte_class() -> Result<()> {
-    let mut builder = RegexBuilder::new();
+    let mut builder = Regex::builder();
     builder.dense(dense::Config::new().byte_classes(false));
 
     TestRunner::new()?
@@ -35,7 +35,7 @@ fn unminimized_no_byte_class() -> Result<()> {
 
 #[test]
 fn unminimized_no_nfa_shrink_default() -> Result<()> {
-    let mut builder = RegexBuilder::new();
+    let mut builder = Regex::builder();
     builder.thompson(thompson::Config::new().shrink(false));
 
     TestRunner::new()?
@@ -46,7 +46,7 @@ fn unminimized_no_nfa_shrink_default() -> Result<()> {
 
 #[test]
 fn minimized_default() -> Result<()> {
-    let mut builder = RegexBuilder::new();
+    let mut builder = Regex::builder();
     builder.dense(dense::Config::new().minimize(true));
     TestRunner::new()?
         .blacklist("expensive")
@@ -57,7 +57,7 @@ fn minimized_default() -> Result<()> {
 
 #[test]
 fn minimized_no_byte_class() -> Result<()> {
-    let mut builder = RegexBuilder::new();
+    let mut builder = Regex::builder();
     builder.dense(dense::Config::new().minimize(true).byte_classes(false));
 
     TestRunner::new()?
@@ -69,7 +69,7 @@ fn minimized_no_byte_class() -> Result<()> {
 
 #[test]
 fn sparse_unminimized_default() -> Result<()> {
-    let builder = RegexBuilder::new();
+    let builder = Regex::builder();
     TestRunner::new()?
         .test_iter(suite()?.iter(), sparse_compiler(builder))
         .assert();
@@ -80,7 +80,7 @@ fn sparse_unminimized_default() -> Result<()> {
 // a regex, and that the resulting regex can be used for searching correctly.
 #[test]
 fn serialization_unminimized_default() -> Result<()> {
-    let builder = RegexBuilder::new();
+    let builder = Regex::builder();
     let my_compiler = |builder| {
         compiler(builder, |builder, re| {
             let builder = builder.clone();
@@ -108,7 +108,7 @@ fn serialization_unminimized_default() -> Result<()> {
 // searching correctly.
 #[test]
 fn sparse_serialization_unminimized_default() -> Result<()> {
-    let builder = RegexBuilder::new();
+    let builder = Regex::builder();
     let my_compiler = |builder| {
         compiler(builder, |builder, re| {
             let builder = builder.clone();
@@ -132,7 +132,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
 }
 
 fn dense_compiler(
-    builder: RegexBuilder,
+    builder: dfa::regex::Builder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
     compiler(builder, |_, re| {
         Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
@@ -142,7 +142,7 @@ fn dense_compiler(
 }
 
 fn sparse_compiler(
-    builder: RegexBuilder,
+    builder: dfa::regex::Builder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
     compiler(builder, |builder, re| {
         let fwd = re.forward().to_sparse()?;
@@ -155,8 +155,11 @@ fn sparse_compiler(
 }
 
 fn compiler(
-    mut builder: RegexBuilder,
-    mut create_matcher: impl FnMut(&RegexBuilder, Regex) -> Result<CompiledRegex>,
+    mut builder: dfa::regex::Builder,
+    mut create_matcher: impl FnMut(
+        &dfa::regex::Builder,
+        Regex,
+    ) -> Result<CompiledRegex>,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
     move |test, regexes| {
         let regexes = regexes
@@ -230,7 +233,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> Vec<TestResult> {
 
 fn configure_regex_builder(
     test: &RegexTest,
-    builder: &mut RegexBuilder,
+    builder: &mut dfa::regex::Builder,
 ) -> bool {
     let match_kind = match test.match_kind() {
         TestMatchKind::All => MatchKind::All,
@@ -246,7 +249,7 @@ fn configure_regex_builder(
         .anchored(test.anchored())
         .match_kind(match_kind)
         .unicode_word_boundary(true);
-    let regex_config = RegexConfig::new().utf8(test.utf8());
+    let regex_config = Regex::config().utf8(test.utf8());
 
     builder
         .configure(regex_config)
