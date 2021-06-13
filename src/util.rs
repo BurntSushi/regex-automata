@@ -2,7 +2,7 @@ use core::{ascii, fmt, str};
 
 /// A type that wraps a single byte with a convenient fmt::Debug impl that
 /// escapes the byte.
-pub struct DebugByte(pub u8);
+pub(crate) struct DebugByte(pub u8);
 
 impl fmt::Debug for DebugByte {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -30,7 +30,8 @@ impl fmt::Debug for DebugByte {
 /// Generally speaking, this should only be called on `text` when it is
 /// permitted to assume that it is valid UTF-8 and where either `i >=
 /// text.len()` or where `text[i]` is a leading byte of a UTF-8 sequence.
-pub fn next_utf8(text: &[u8], i: usize) -> usize {
+#[inline(always)]
+pub(crate) fn next_utf8(text: &[u8], i: usize) -> usize {
     let b = match text.get(i) {
         None => return i.checked_add(1).unwrap(),
         Some(&b) => b,
@@ -59,7 +60,7 @@ pub fn next_utf8(text: &[u8], i: usize) -> usize {
 /// definition is never going to change, so there's no maintenance/bit-rot
 /// hazard here.
 #[inline(always)]
-pub fn is_word_byte(b: u8) -> bool {
+pub(crate) fn is_word_byte(b: u8) -> bool {
     match b {
         b'_' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => true,
         _ => false,
