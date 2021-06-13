@@ -1336,7 +1336,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
             #[cfg(feature = "alloc")]
             set: BTreeSet<StateID>,
             #[cfg(not(feature = "alloc"))]
-            set: PhantomData<StateID>,
+            set: core::marker::PhantomData<StateID>,
         }
 
         #[cfg(feature = "alloc")]
@@ -1355,7 +1355,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         #[cfg(not(feature = "alloc"))]
         impl Seen {
             fn new() -> Seen {
-                Seen { set: PhantomData }
+                Seen { set: core::marker::PhantomData }
             }
             fn insert(&mut self, _id: StateID) {}
             fn contains(&self, _id: &StateID) -> bool {

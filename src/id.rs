@@ -3,6 +3,9 @@ use core::{
     mem, ops,
 };
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 /// An identifier for a regex pattern.
 ///
 /// The identifier for a pattern corresponds to its relative position among
@@ -141,6 +144,7 @@ impl PatternID {
     /// the given length.
     ///
     /// If the given length exceeds [`PatternID::LIMIT`], then this panics.
+    #[cfg(feature = "alloc")]
     pub(crate) fn iter(len: usize) -> PatternIDIter {
         PatternIDIter::new(len)
     }
@@ -307,7 +311,7 @@ impl StateID {
     /// the given length.
     ///
     /// If the given length exceeds [`StateID::LIMIT`], then this panics.
-    #[inline]
+    #[cfg(feature = "alloc")]
     pub(crate) fn iter(len: usize) -> StateIDIter {
         StateIDIter::new(len)
     }
@@ -353,6 +357,7 @@ macro_rules! impls {
         }
 
         impl $tyiter {
+            #[cfg(feature = "alloc")]
             fn new(len: usize) -> $tyiter {
                 assert!(
                     len <= $ty::LIMIT,
@@ -474,6 +479,7 @@ impls!(StateID, StateIDError, StateIDIter);
 /// to access indices as ID types. We require ExactSizeIterator so that
 /// iterator construction can do a single check to make sure the index of each
 /// element is representable by its ID type.
+#[cfg(feature = "alloc")]
 pub(crate) trait IteratorIDExt: Iterator {
     fn with_pattern_ids(self) -> WithPatternIDIter<Self>
     where
@@ -490,8 +496,10 @@ pub(crate) trait IteratorIDExt: Iterator {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<I: Iterator> IteratorIDExt for I {}
 
+#[cfg(feature = "alloc")]
 macro_rules! iditer {
     ($ty:ident, $iterty:ident, $withiterty:ident) => {
         /// An iterator adapter that is like std::iter::Enumerate, but attaches
@@ -525,5 +533,7 @@ macro_rules! iditer {
     };
 }
 
+#[cfg(feature = "alloc")]
 iditer!(PatternID, PatternIDIter, WithPatternIDIter);
+#[cfg(feature = "alloc")]
 iditer!(StateID, StateIDIter, WithStateIDIter);

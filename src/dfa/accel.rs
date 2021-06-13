@@ -482,6 +482,7 @@ impl Accel {
     }
 
     /// Returns the accelerator bytes as an array of AccelTys.
+    #[cfg(feature = "alloc")]
     fn as_accel_tys(&self) -> [AccelTy; 2] {
         assert_eq!(ACCEL_CAP, 8);
         // These unwraps are OK since ACCEL_CAP is set to 8.

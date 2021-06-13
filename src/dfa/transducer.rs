@@ -3,7 +3,7 @@ use crate::{
     id::StateID,
 };
 
-impl<T: AsRef<[u32]>, A: AsRef<[u8]>> fst::Automaton for dense::DFA<T, A> {
+impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {
     type State = StateID;
 
     #[inline]
@@ -17,7 +17,7 @@ impl<T: AsRef<[u32]>, A: AsRef<[u8]>> fst::Automaton for dense::DFA<T, A> {
     }
 
     #[inline]
-    fn accept(&self, state: &StateID, byte: u8) -> S {
+    fn accept(&self, state: &StateID, byte: u8) -> StateID {
         if fst::Automaton::is_match(self, state) {
             return *state;
         }

@@ -61,7 +61,6 @@ impl InputUnit {
         InputUnit::EOI(u16::try_from(num_byte_equiv_classes).unwrap())
     }
 
-    #[cfg(feature = "alloc")]
     pub fn as_u8(self) -> Option<u8> {
         match self {
             InputUnit::U8(b) => Some(b),

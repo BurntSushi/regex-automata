@@ -1884,7 +1884,7 @@ impl RegexConfig {
 /// pattern and builds a dense DFA using `usize` for the state identifier
 /// representation.
 ///
-/// The most general "build" method is [`RegexBuilder::build_many_with_size`],
+/// The most general "build" method is [`RegexBuilder::build_many`],
 /// which permits building a regex that searches for multiple patterns
 /// simultaneously while using a specific state identifier representation.
 ///
