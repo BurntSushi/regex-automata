@@ -283,9 +283,12 @@ impl<'a> Runner<'a> {
         // Put the NFA state IDs into a sparse set in case we need to
         // re-compute their epsilon closure.
         //
-        // TODO: Experiment with perf improvements from NOT doing this unless
-        // we actually need to re-compute the epsilon closure. The main problem
-        // is that it will make the code a bit awkward I think.
+        // Doing this state shuffling is technically not necessary unless some
+        // kind of look-around is used in the DFA. Some ad hoc experiments
+        // suggested that avoiding this didn't lead to much of an improvement,
+        // but perhaps more rigorous experimentation should be done. And in
+        // particular, avoiding this check requires some light refactoring of
+        // the code below.
         for i in 0..self.state(dfa_id).nfa_states.len() {
             let nfa_id = self.state(dfa_id).nfa_states[i];
             sparses.set1.insert(nfa_id);
@@ -586,7 +589,7 @@ impl<'a> Runner<'a> {
             // memory back into our scratch space, so that it can be reused.
             let _ = core::mem::replace(
                 &mut self.scratch_nfa_states,
-                state.nfa_states,
+                Vec::from(state.nfa_states),
             );
             return Ok((cached_id, false));
         }
@@ -634,32 +637,26 @@ impl<'a> Runner<'a> {
     /// identical to some previously existing state), then callers should
     /// put the 'nfa_states' allocation back into the determinizer field
     /// 'scratch_nfa_states'.
-    fn new_state(&mut self, set: &SparseSet, facts: Facts) -> State {
-        let mut state = State {
-            // We use this determinizer's scratch space to store the NFA state
-            // IDs because this state may not wind up being used if it's
-            // identical to some other existing state. When that happers,
-            // the caller should put the scratch allocation back into the
-            // determinizer.
-            nfa_states: core::mem::replace(
-                &mut self.scratch_nfa_states,
-                vec![],
-            ),
-            facts,
-        };
-        state.nfa_states.clear();
+    fn new_state(&mut self, set: &SparseSet, mut facts: Facts) -> State {
+        // We use this determinizer's scratch space to store the NFA state IDs
+        // because this state may not wind up being used if it's identical to
+        // some other existing state. When that happers, the caller should put
+        // the scratch allocation back into the determinizer.
+        let mut nfa_states =
+            core::mem::replace(&mut self.scratch_nfa_states, vec![]);
+        nfa_states.clear();
 
         for nfa_id in set {
             match *self.nfa.state(nfa_id) {
                 thompson::State::Range { .. } => {
-                    state.nfa_states.push(nfa_id);
+                    nfa_states.push(nfa_id);
                 }
                 thompson::State::Sparse { .. } => {
-                    state.nfa_states.push(nfa_id);
+                    nfa_states.push(nfa_id);
                 }
                 thompson::State::Look { look, .. } => {
-                    state.nfa_states.push(nfa_id);
-                    state.facts.look_need.insert(look);
+                    nfa_states.push(nfa_id);
+                    facts.look_need.insert(look);
                 }
                 thompson::State::Union { .. } => {
                     // Pure epsilon transitions don't need to be tracked
@@ -706,7 +703,7 @@ impl<'a> Runner<'a> {
                     // that transition from the one we're building here. And
                     // the way we detect those cases is by looking for an NFA
                     // match state. See 'next' for how this is handled.
-                    state.nfa_states.push(nfa_id);
+                    nfa_states.push(nfa_id);
                     if !self.continue_past_first_match() {
                         break;
                     }
@@ -716,10 +713,10 @@ impl<'a> Runner<'a> {
         // If we know this state contains no look-around assertions, then
         // there's no reason to track which look-around assertions were
         // satisfied when this state was created.
-        if state.facts.look_need.is_empty() {
-            state.facts.look_have = LookSet::empty();
+        if facts.look_need.is_empty() {
+            facts.look_have = LookSet::empty();
         }
-        state
+        State { nfa_states: nfa_states.into_boxed_slice(), facts }
     }
 
     /// Return a reference to this builder's representation of the state with
@@ -752,10 +749,7 @@ struct State {
     /// See the 'new_state' constructor above for what exactly goes in here.
     /// The short answer is every NFA state in the epsilon closure except for
     /// unconditional epsilon transitions.
-    ///
-    /// TODO: Use Box<[StateID]> for this? Seems like an obvious good idea,
-    /// but check out a before/after in regex-cli.
-    nfa_states: Vec<StateID>,
+    nfa_states: Box<[StateID]>,
     /// A collection of "facts" about this state that, in addition to the NFA
     /// state IDs above, contributes to this state's identity.
     facts: Facts,
@@ -768,7 +762,10 @@ impl State {
     /// except another dead state. (Which is always itself because there is
     /// only one dead state.)
     fn dead() -> State {
-        State { nfa_states: vec![], facts: Facts::default() }
+        State {
+            nfa_states: vec![].into_boxed_slice(),
+            facts: Facts::default(),
+        }
     }
 
     // If you're looking for the proper constructor of a state, it's

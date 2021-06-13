@@ -287,13 +287,18 @@ impl fmt::Debug for NFA {
             } else {
                 ' '
             };
-            writeln!(f, "{}{:06?}: {:?}", status, sid, state)?;
+            writeln!(f, "{}{:06?}: {:?}", status, sid.as_usize(), state)?;
         }
         if self.match_len() > 1 {
             writeln!(f, "")?;
             for pid in self.patterns() {
                 let sid = self.start_pattern(pid);
-                writeln!(f, "START({:06?}): {:?}", pid, sid)?;
+                writeln!(
+                    f,
+                    "START({:06?}): {:?}",
+                    pid.as_usize(),
+                    sid.as_usize()
+                )?;
             }
         }
         writeln!(f, "")?;
@@ -389,18 +394,18 @@ impl fmt::Debug for State {
                 write!(f, "sparse({})", rs)
             }
             State::Look { ref look, next } => {
-                write!(f, "{:?} => {:?}", look, next)
+                write!(f, "{:?} => {:?}", look, next.as_usize())
             }
             State::Union { ref alternates } => {
                 let alts = alternates
                     .iter()
-                    .map(|id| format!("{:?}", id))
+                    .map(|id| format!("{:?}", id.as_usize()))
                     .collect::<Vec<String>>()
                     .join(", ");
                 write!(f, "alt({})", alts)
             }
             State::Fail => write!(f, "FAIL"),
-            State::Match(id) => write!(f, "MATCH({:?})", id),
+            State::Match(id) => write!(f, "MATCH({:?})", id.as_usize()),
         }
     }
 }
@@ -420,14 +425,14 @@ impl fmt::Debug for Transition {
 
         let Transition { start, end, next } = *self;
         if self.start == self.end {
-            write!(f, "{:?} => {:?}", DebugByte(start), next)
+            write!(f, "{:?} => {:?}", DebugByte(start), next.as_usize())
         } else {
             write!(
                 f,
                 "{:?}-{:?} => {:?}",
                 DebugByte(start),
                 DebugByte(end),
-                next
+                next.as_usize(),
             )
         }
     }

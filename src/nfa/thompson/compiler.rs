@@ -819,7 +819,7 @@ impl Compiler {
     ) -> Result<ThompsonRef, Error> {
         // If all we have are ASCII ranges wrapped in a Unicode package, then
         // there is zero reason to bring out the big guns. We can fit all ASCII
-        // ranges within a single sparse transition.
+        // ranges within a single sparse state.
         if cls.is_all_ascii() {
             let end = self.add_empty()?;
             let mut trans = Vec::with_capacity(cls.ranges().len());
