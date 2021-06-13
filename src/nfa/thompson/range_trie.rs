@@ -436,8 +436,6 @@ impl RangeTrie {
             // ever used to compile a single sequence of Unicode scalar values.
             // If we ever got to this point, we would, at *minimum*, be using
             // 96GB in just the range trie alone.
-            //
-            // TODO: Turn this into an error.
             panic!("too many sequences added to range trie");
         }
         let id = self.states.len() as StateID;

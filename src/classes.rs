@@ -1,6 +1,9 @@
 use core::convert::TryFrom;
 
-use crate::bytes::{DeserializeError, SerializeError};
+use crate::{
+    bytes::{DeserializeError, SerializeError},
+    util::DebugByte,
+};
 
 /// InputUnit represents a single unit of input for DFA based regex engines.
 ///
@@ -99,7 +102,7 @@ impl InputUnit {
 impl core::fmt::Debug for InputUnit {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match *self {
-            InputUnit::U8(b) => crate::util::fmt_byte(f, b),
+            InputUnit::U8(b) => write!(f, "{:?}", DebugByte(b)),
             InputUnit::EOI(_) => write!(f, "EOI"),
         }
     }

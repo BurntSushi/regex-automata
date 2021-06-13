@@ -6,25 +6,19 @@ pub struct DebugByte(pub u8);
 
 impl fmt::Debug for DebugByte {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt_byte(f, self.0)
-    }
-}
-
-/// Write the byte in its escaped form (using ascii::escape_default) to the
-/// given formatter without allocating.
-pub fn fmt_byte(f: &mut fmt::Formatter, b: u8) -> fmt::Result {
-    // 10 bytes is enough to cover any output from ascii::escape_default.
-    let mut bytes = [0u8; 10];
-    let mut len = 0;
-    for (i, mut b) in ascii::escape_default(b).enumerate() {
-        // capitalize \xab to \xAB
-        if i >= 2 && b'a' <= b && b <= b'f' {
-            b -= 32;
+        // 10 bytes is enough to cover any output from ascii::escape_default.
+        let mut bytes = [0u8; 10];
+        let mut len = 0;
+        for (i, mut b) in ascii::escape_default(self.0).enumerate() {
+            // capitalize \xab to \xAB
+            if i >= 2 && b'a' <= b && b <= b'f' {
+                b -= 32;
+            }
+            bytes[len] = b;
+            len += 1;
         }
-        bytes[len] = b;
-        len += 1;
+        write!(f, "{}", str::from_utf8(&bytes[..len]).unwrap())
     }
-    write!(f, "{}", str::from_utf8(&bytes[..len]).unwrap())
 }
 
 /// Returns the smallest possible index of the next valid UTF-8 sequence
@@ -32,9 +26,11 @@ pub fn fmt_byte(f: &mut fmt::Formatter, b: u8) -> fmt::Result {
 ///
 /// For all inputs, including invalid UTF-8 and any value of `i`, the return
 /// value is guaranteed to be greater than `i`.
+///
+/// Generally speaking, this should only be called on `text` when it is
+/// permitted to assume that it is valid UTF-8 and where either `i >=
+/// text.len()` or where `text[i]` is a leading byte of a UTF-8 sequence.
 pub fn next_utf8(text: &[u8], i: usize) -> usize {
-    // TODO: Maybe this function should just take a `u8` to make it clearer?
-    // Instead of trying to read from the slice itself. Try it out.
     let b = match text.get(i) {
         None => return i.checked_add(1).unwrap(),
         Some(&b) => b,
@@ -45,8 +41,12 @@ pub fn next_utf8(text: &[u8], i: usize) -> usize {
         2
     } else if b <= 0b1110_1111 {
         3
-    } else {
+    } else if b <= 0b1111_0111 {
         4
+    } else {
+        // For cases where we see an invalid UTF-8 byte, there isn't much we
+        // can do other than just start at the next byte.
+        1
     };
     i.checked_add(inc).unwrap()
 }
@@ -55,7 +55,9 @@ pub fn next_utf8(text: &[u8], i: usize) -> usize {
 /// This only applies to ASCII.
 ///
 /// This was copied from regex-syntax so that we can use it to determine the
-/// starting DFA state while searching without depending on regex-syntax.
+/// starting DFA state while searching without depending on regex-syntax. The
+/// definition is never going to change, so there's no maintenance/bit-rot
+/// hazard here.
 #[inline(always)]
 pub fn is_word_byte(b: u8) -> bool {
     match b {
