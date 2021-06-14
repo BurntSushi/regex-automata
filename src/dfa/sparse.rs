@@ -55,13 +55,13 @@ use alloc::{collections::BTreeSet, vec, vec::Vec};
 #[cfg(feature = "alloc")]
 use crate::dfa::{dense, error::Error};
 use crate::{
-    classes::ByteClasses,
     dfa::{
         automaton::{fmt_state_indicator, Automaton, Start},
         special::Special,
         DEAD,
     },
     util::{
+        alphabet::ByteClasses,
         bytes::{self, DeserializeError, Endian, SerializeError},
         id::{PatternID, StateID},
         DebugByte,

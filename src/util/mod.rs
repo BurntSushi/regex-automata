@@ -4,6 +4,7 @@ TODO
 
 use core::{ascii, fmt, str};
 
+pub mod alphabet;
 pub(crate) mod bytes;
 pub mod id;
 pub(crate) mod matchtypes;

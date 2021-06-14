@@ -3,9 +3,11 @@ use core::fmt;
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
 use crate::{
-    classes::ByteClassSet,
     nfa::error::Error,
-    util::id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
+    util::{
+        alphabet::ByteClassSet,
+        id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
+    },
 };
 
 pub use self::compiler::{Builder, Config};

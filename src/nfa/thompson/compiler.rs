@@ -44,7 +44,6 @@ use regex_syntax::{
 };
 
 use crate::{
-    classes::ByteClassSet,
     nfa::{
         error::Error,
         thompson::{
@@ -53,7 +52,10 @@ use crate::{
             Look, State, Transition, NFA,
         },
     },
-    util::id::{IteratorIDExt, PatternID, StateID},
+    util::{
+        alphabet::ByteClassSet,
+        id::{IteratorIDExt, PatternID, StateID},
+    },
 };
 
 /// The configuration used for compiling a Thompson NFA from a regex pattern.

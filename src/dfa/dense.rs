@@ -20,15 +20,14 @@ use alloc::{
 
 #[cfg(feature = "alloc")]
 use crate::{
-    classes::ByteSet,
     dfa::{
         accel::Accel, determinize, error::Error, minimize::Minimizer, sparse,
     },
     nfa::thompson,
+    util::alphabet::ByteSet,
     MatchKind,
 };
 use crate::{
-    classes::{ByteClasses, InputUnit},
     dfa::{
         accel::Accels,
         automaton::{fmt_state_indicator, Automaton, Start},
@@ -36,6 +35,7 @@ use crate::{
         DEAD,
     },
     util::{
+        alphabet::{ByteClasses, InputUnit},
         bytes::{self, DeserializeError, Endian, SerializeError},
         id::{PatternID, StateID},
     },

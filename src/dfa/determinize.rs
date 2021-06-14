@@ -1,10 +1,10 @@
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
-    classes::{ByteSet, InputUnit},
     dfa::{automaton::Start, dense, Error, DEAD},
     nfa::thompson::{self, Look, LookSet},
     util::{
+        alphabet::{ByteSet, InputUnit},
         id::{PatternID, StateID},
         matchtypes::MatchKind,
         sparse_set::{SparseSet, SparseSets},

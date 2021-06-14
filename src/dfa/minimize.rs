@@ -3,9 +3,11 @@ use core::{cell::RefCell, fmt, mem};
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
-    classes::InputUnit,
     dfa::{automaton::Automaton, dense, DEAD},
-    util::id::{PatternID, StateID},
+    util::{
+        alphabet::InputUnit,
+        id::{PatternID, StateID},
+    },
 };
 
 /// An implementation of Hopcroft's algorithm for minimizing DFAs.
