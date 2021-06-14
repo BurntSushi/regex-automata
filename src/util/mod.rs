@@ -8,6 +8,8 @@ pub(crate) mod bytes;
 pub mod id;
 pub(crate) mod matchtypes;
 pub mod prefilter;
+#[cfg(feature = "alloc")]
+pub(crate) mod sparse_set;
 
 /// A type that wraps a single byte with a convenient fmt::Debug impl that
 /// escapes the byte.

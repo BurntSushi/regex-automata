@@ -41,5 +41,3 @@ pub mod util;
 mod config;
 #[cfg(feature = "alloc")]
 pub mod nfa;
-#[cfg(feature = "alloc")]
-mod sparse_set;

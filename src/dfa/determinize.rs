@@ -4,10 +4,10 @@ use crate::{
     classes::{ByteSet, InputUnit},
     dfa::{automaton::Start, dense, Error, DEAD},
     nfa::thompson::{self, Look, LookSet},
-    sparse_set::{SparseSet, SparseSets},
     util::{
         id::{PatternID, StateID},
         matchtypes::MatchKind,
+        sparse_set::{SparseSet, SparseSets},
     },
 };
 
