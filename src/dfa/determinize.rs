@@ -4,7 +4,7 @@ use crate::{
     dfa::{automaton::Start, dense, Error, DEAD},
     nfa::thompson::{self, Look, LookSet},
     util::{
-        alphabet::{ByteSet, InputUnit},
+        alphabet::{self, ByteSet},
         id::{PatternID, StateID},
         matchtypes::MatchKind,
         sparse_set::{SparseSet, SparseSets},
@@ -190,7 +190,7 @@ impl<'a> Runner<'a> {
         // state transitions. This allows us to avoid re-computing state
         // transitions for bytes that are guaranteed to produce identical
         // results.
-        let representative_bytes: Vec<InputUnit> =
+        let representative_bytes: Vec<alphabet::Unit> =
             self.dfa.byte_classes().representatives().collect();
         // A pair of sparse sets for tracking ordered sets of NFA state IDs.
         // These are reused throughout determinization. A bounded sparse set
@@ -259,7 +259,7 @@ impl<'a> Runner<'a> {
         &mut self,
         sparses: &mut SparseSets,
         dfa_id: StateID,
-        b: InputUnit,
+        b: alphabet::Unit,
     ) -> Result<(StateID, bool), Error> {
         sparses.clear();
         // Compute the set of all reachable NFA states, including epsilons.
@@ -278,7 +278,7 @@ impl<'a> Runner<'a> {
         &mut self,
         sparses: &mut SparseSets,
         dfa_id: StateID,
-        unit: InputUnit,
+        unit: alphabet::Unit,
     ) -> Facts {
         sparses.clear();
 
@@ -612,7 +612,7 @@ impl<'a> Runner<'a> {
             for b in self.config.quit.iter() {
                 self.dfa.add_transition(
                     id,
-                    InputUnit::u8(b),
+                    alphabet::Unit::u8(b),
                     self.dfa.quit_id(),
                 );
             }

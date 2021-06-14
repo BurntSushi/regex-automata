@@ -5,7 +5,7 @@ use crate::util::{
     DebugByte,
 };
 
-/// InputUnit represents a single unit of input for DFA based regex engines.
+/// Unit represents a single unit of input for DFA based regex engines.
 ///
 /// **NOTE:** It is not expected for consumers of this crate to need to use
 /// this type unless they are implementing their own DFA. And even then, it's
@@ -36,12 +36,12 @@ use crate::util::{
 /// Where EOI is the special sentinel value that is always in its own
 /// singleton equivalence class.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
-pub enum InputUnit {
+pub enum Unit {
     U8(u8),
     EOI(u16),
 }
 
-impl InputUnit {
+impl Unit {
     /// Create a new input unit from a byte value.
     ///
     /// All possible byte values are legal. However, when creating an input
@@ -51,44 +51,44 @@ impl InputUnit {
     /// of equivalence classes into a set of all possible byte values. If a
     /// DFA uses equivalence classes instead of byte values, then the byte
     /// given here should be the equivalence class.
-    pub fn u8(byte: u8) -> InputUnit {
-        InputUnit::U8(byte)
+    pub fn u8(byte: u8) -> Unit {
+        Unit::U8(byte)
     }
 
-    pub fn eoi(num_byte_equiv_classes: usize) -> InputUnit {
+    pub fn eoi(num_byte_equiv_classes: usize) -> Unit {
         assert!(
             num_byte_equiv_classes <= 256,
             "max number of byte-based equivalent classes is 256, but got {}",
             num_byte_equiv_classes,
         );
-        InputUnit::EOI(u16::try_from(num_byte_equiv_classes).unwrap())
+        Unit::EOI(u16::try_from(num_byte_equiv_classes).unwrap())
     }
 
     pub fn as_u8(self) -> Option<u8> {
         match self {
-            InputUnit::U8(b) => Some(b),
-            InputUnit::EOI(_) => None,
+            Unit::U8(b) => Some(b),
+            Unit::EOI(_) => None,
         }
     }
 
     #[cfg(feature = "alloc")]
     pub fn as_eoi(self) -> Option<usize> {
         match self {
-            InputUnit::U8(_) => None,
-            InputUnit::EOI(eoi) => Some(eoi as usize),
+            Unit::U8(_) => None,
+            Unit::EOI(eoi) => Some(eoi as usize),
         }
     }
 
     pub fn as_usize(self) -> usize {
         match self {
-            InputUnit::U8(b) => b as usize,
-            InputUnit::EOI(eoi) => eoi as usize,
+            Unit::U8(b) => b as usize,
+            Unit::EOI(eoi) => eoi as usize,
         }
     }
 
     pub fn is_eoi(&self) -> bool {
         match *self {
-            InputUnit::EOI(_) => true,
+            Unit::EOI(_) => true,
             _ => false,
         }
     }
@@ -99,11 +99,11 @@ impl InputUnit {
     }
 }
 
-impl core::fmt::Debug for InputUnit {
+impl core::fmt::Debug for Unit {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match *self {
-            InputUnit::U8(b) => write!(f, "{:?}", DebugByte(b)),
-            InputUnit::EOI(_) => write!(f, "EOI"),
+            Unit::U8(b) => write!(f, "{:?}", DebugByte(b)),
+            Unit::EOI(_) => write!(f, "EOI"),
         }
     }
 }
@@ -205,16 +205,16 @@ impl ByteClasses {
     /// Get the equivalence class for the given input unit and return the
     /// class as a `usize`.
     #[inline]
-    pub fn get_by_unit(&self, unit: InputUnit) -> usize {
+    pub fn get_by_unit(&self, unit: Unit) -> usize {
         match unit {
-            InputUnit::U8(b) => usize::try_from(self.get(b)).unwrap(),
-            InputUnit::EOI(b) => usize::try_from(b).unwrap(),
+            Unit::U8(b) => usize::try_from(self.get(b)).unwrap(),
+            Unit::EOI(b) => usize::try_from(b).unwrap(),
         }
     }
 
     #[inline]
-    pub fn eoi(&self) -> InputUnit {
-        InputUnit::eoi(self.alphabet_len().checked_sub(1).unwrap())
+    pub fn eoi(&self) -> Unit {
+        Unit::eoi(self.alphabet_len().checked_sub(1).unwrap())
     }
 
     /// Return the total number of elements in the alphabet represented by
@@ -268,7 +268,7 @@ impl ByteClasses {
     }
 
     /// Returns an iterator of the bytes in the given equivalence class.
-    pub fn elements(&self, class: InputUnit) -> ByteClassElements {
+    pub fn elements(&self, class: Unit) -> ByteClassElements {
         ByteClassElements { classes: self, class, byte: 0 }
     }
 
@@ -276,7 +276,7 @@ impl ByteClasses {
     ///
     /// That is, a sequence of contiguous ranges are returned. Typically, every
     /// class maps to a single contiguous range.
-    fn element_ranges(&self, class: InputUnit) -> ByteClassElementRanges {
+    fn element_ranges(&self, class: Unit) -> ByteClassElementRanges {
         ByteClassElementRanges { elements: self.elements(class), range: None }
     }
 }
@@ -314,16 +314,16 @@ pub struct ByteClassIter<'a> {
 }
 
 impl<'a> Iterator for ByteClassIter<'a> {
-    type Item = InputUnit;
+    type Item = Unit;
 
-    fn next(&mut self) -> Option<InputUnit> {
+    fn next(&mut self) -> Option<Unit> {
         if self.i + 1 == self.classes.alphabet_len() {
             self.i += 1;
             Some(self.classes.eoi())
         } else if self.i < self.classes.alphabet_len() {
             let class = self.i as u8;
             self.i += 1;
-            Some(InputUnit::u8(class))
+            Some(Unit::u8(class))
         } else {
             None
         }
@@ -341,9 +341,9 @@ pub struct ByteClassRepresentatives<'a> {
 
 #[cfg(feature = "alloc")]
 impl<'a> Iterator for ByteClassRepresentatives<'a> {
-    type Item = InputUnit;
+    type Item = Unit;
 
-    fn next(&mut self) -> Option<InputUnit> {
+    fn next(&mut self) -> Option<Unit> {
         while self.byte < 256 {
             let byte = self.byte as u8;
             let class = self.classes.get(byte);
@@ -351,7 +351,7 @@ impl<'a> Iterator for ByteClassRepresentatives<'a> {
 
             if self.last_class != Some(class) {
                 self.last_class = Some(class);
-                return Some(InputUnit::u8(byte));
+                return Some(Unit::u8(byte));
             }
         }
         if self.byte == 256 {
@@ -366,25 +366,25 @@ impl<'a> Iterator for ByteClassRepresentatives<'a> {
 #[derive(Debug)]
 pub struct ByteClassElements<'a> {
     classes: &'a ByteClasses,
-    class: InputUnit,
+    class: Unit,
     byte: usize,
 }
 
 impl<'a> Iterator for ByteClassElements<'a> {
-    type Item = InputUnit;
+    type Item = Unit;
 
-    fn next(&mut self) -> Option<InputUnit> {
+    fn next(&mut self) -> Option<Unit> {
         while self.byte < 256 {
             let byte = self.byte as u8;
             self.byte += 1;
             if self.class.as_u8() == Some(self.classes.get(byte)) {
-                return Some(InputUnit::u8(byte));
+                return Some(Unit::u8(byte));
             }
         }
         if self.byte < 257 {
             self.byte += 1;
             if self.class.is_eoi() {
-                return Some(InputUnit::eoi(256));
+                return Some(Unit::eoi(256));
             }
         }
         None
@@ -396,13 +396,13 @@ impl<'a> Iterator for ByteClassElements<'a> {
 #[derive(Debug)]
 pub struct ByteClassElementRanges<'a> {
     elements: ByteClassElements<'a>,
-    range: Option<(InputUnit, InputUnit)>,
+    range: Option<(Unit, Unit)>,
 }
 
 impl<'a> Iterator for ByteClassElementRanges<'a> {
-    type Item = (InputUnit, InputUnit);
+    type Item = (Unit, Unit);
 
-    fn next(&mut self) -> Option<(InputUnit, InputUnit)> {
+    fn next(&mut self) -> Option<(Unit, Unit)> {
         loop {
             let element = match self.elements.next() {
                 None => return self.range.take(),
@@ -721,53 +721,49 @@ mod tests {
         // class 7: EOI
         assert_eq!(classes.alphabet_len(), 8);
 
-        let elements = classes.elements(InputUnit::u8(0)).collect::<Vec<_>>();
+        let elements = classes.elements(Unit::u8(0)).collect::<Vec<_>>();
         assert_eq!(elements.len(), 98);
-        assert_eq!(elements[0], InputUnit::u8(b'\x00'));
-        assert_eq!(elements[97], InputUnit::u8(b'a'));
+        assert_eq!(elements[0], Unit::u8(b'\x00'));
+        assert_eq!(elements[97], Unit::u8(b'a'));
 
-        let elements = classes.elements(InputUnit::u8(1)).collect::<Vec<_>>();
+        let elements = classes.elements(Unit::u8(1)).collect::<Vec<_>>();
+        assert_eq!(
+            elements,
+            vec![Unit::u8(b'b'), Unit::u8(b'c'), Unit::u8(b'd')],
+        );
+
+        let elements = classes.elements(Unit::u8(2)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Unit::u8(b'e'), Unit::u8(b'f')],);
+
+        let elements = classes.elements(Unit::u8(3)).collect::<Vec<_>>();
         assert_eq!(
             elements,
             vec![
-                InputUnit::u8(b'b'),
-                InputUnit::u8(b'c'),
-                InputUnit::u8(b'd')
+                Unit::u8(b'g'),
+                Unit::u8(b'h'),
+                Unit::u8(b'i'),
+                Unit::u8(b'j'),
+                Unit::u8(b'k'),
+                Unit::u8(b'l'),
+                Unit::u8(b'm'),
             ],
         );
 
-        let elements = classes.elements(InputUnit::u8(2)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![InputUnit::u8(b'e'), InputUnit::u8(b'f')],);
-
-        let elements = classes.elements(InputUnit::u8(3)).collect::<Vec<_>>();
-        assert_eq!(
-            elements,
-            vec![
-                InputUnit::u8(b'g'),
-                InputUnit::u8(b'h'),
-                InputUnit::u8(b'i'),
-                InputUnit::u8(b'j'),
-                InputUnit::u8(b'k'),
-                InputUnit::u8(b'l'),
-                InputUnit::u8(b'm'),
-            ],
-        );
-
-        let elements = classes.elements(InputUnit::u8(4)).collect::<Vec<_>>();
+        let elements = classes.elements(Unit::u8(4)).collect::<Vec<_>>();
         assert_eq!(elements.len(), 12);
-        assert_eq!(elements[0], InputUnit::u8(b'n'));
-        assert_eq!(elements[11], InputUnit::u8(b'y'));
+        assert_eq!(elements[0], Unit::u8(b'n'));
+        assert_eq!(elements[11], Unit::u8(b'y'));
 
-        let elements = classes.elements(InputUnit::u8(5)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![InputUnit::u8(b'z')]);
+        let elements = classes.elements(Unit::u8(5)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Unit::u8(b'z')]);
 
-        let elements = classes.elements(InputUnit::u8(6)).collect::<Vec<_>>();
+        let elements = classes.elements(Unit::u8(6)).collect::<Vec<_>>();
         assert_eq!(elements.len(), 133);
-        assert_eq!(elements[0], InputUnit::u8(b'\x7B'));
-        assert_eq!(elements[132], InputUnit::u8(b'\xFF'));
+        assert_eq!(elements[0], Unit::u8(b'\x7B'));
+        assert_eq!(elements[132], Unit::u8(b'\xFF'));
 
-        let elements = classes.elements(InputUnit::eoi(7)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![InputUnit::eoi(256)]);
+        let elements = classes.elements(Unit::eoi(7)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Unit::eoi(256)]);
     }
 
     #[test]
@@ -775,12 +771,11 @@ mod tests {
         let classes = ByteClasses::singletons();
         assert_eq!(classes.alphabet_len(), 257);
 
-        let elements =
-            classes.elements(InputUnit::u8(b'a')).collect::<Vec<_>>();
-        assert_eq!(elements, vec![InputUnit::u8(b'a')]);
+        let elements = classes.elements(Unit::u8(b'a')).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Unit::u8(b'a')]);
 
-        let elements = classes.elements(InputUnit::eoi(5)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![InputUnit::eoi(256)]);
+        let elements = classes.elements(Unit::eoi(5)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Unit::eoi(256)]);
     }
 
     #[test]
@@ -788,12 +783,12 @@ mod tests {
         let classes = ByteClasses::empty();
         assert_eq!(classes.alphabet_len(), 2);
 
-        let elements = classes.elements(InputUnit::u8(0)).collect::<Vec<_>>();
+        let elements = classes.elements(Unit::u8(0)).collect::<Vec<_>>();
         assert_eq!(elements.len(), 256);
-        assert_eq!(elements[0], InputUnit::u8(b'\x00'));
-        assert_eq!(elements[255], InputUnit::u8(b'\xFF'));
+        assert_eq!(elements[0], Unit::u8(b'\x00'));
+        assert_eq!(elements[255], Unit::u8(b'\xFF'));
 
-        let elements = classes.elements(InputUnit::eoi(1)).collect::<Vec<_>>();
-        assert_eq!(elements, vec![InputUnit::eoi(256)]);
+        let elements = classes.elements(Unit::eoi(1)).collect::<Vec<_>>();
+        assert_eq!(elements, vec![Unit::eoi(256)]);
     }
 }

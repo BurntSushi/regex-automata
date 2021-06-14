@@ -28,7 +28,6 @@ pub use crate::util::{
 mod macros;
 
 pub mod dfa;
-pub mod util;
-
 #[cfg(feature = "alloc")]
 pub mod nfa;
+pub mod util;

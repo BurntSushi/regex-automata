@@ -35,7 +35,7 @@ use crate::{
         DEAD,
     },
     util::{
-        alphabet::{ByteClasses, InputUnit},
+        alphabet::{self, ByteClasses},
         bytes::{self, DeserializeError, Endian, SerializeError},
         id::{PatternID, StateID},
     },
@@ -1944,7 +1944,7 @@ impl OwnedDFA {
     pub(crate) fn add_transition(
         &mut self,
         from: StateID,
-        byte: InputUnit,
+        byte: alphabet::Unit,
         to: StateID,
     ) {
         self.tt.set(from, byte, to);
@@ -2801,7 +2801,7 @@ impl TransitionTable<Vec<u32>> {
     /// Set a transition in this table. Both the `from` and `to` states must
     /// already exist, otherwise this panics. `unit` should correspond to the
     /// transition out of `from` to set to `to`.
-    fn set(&mut self, from: StateID, unit: InputUnit, to: StateID) {
+    fn set(&mut self, from: StateID, unit: alphabet::Unit, to: StateID) {
         assert!(self.is_valid(from), "invalid 'from' state");
         assert!(self.is_valid(to), "invalid 'to' state");
         self.table[from.as_usize() + self.classes.get_by_unit(unit)] =
@@ -4079,16 +4079,16 @@ pub(crate) struct StateTransitionIter<'a> {
 }
 
 impl<'a> Iterator for StateTransitionIter<'a> {
-    type Item = (InputUnit, StateID);
+    type Item = (alphabet::Unit, StateID);
 
-    fn next(&mut self) -> Option<(InputUnit, StateID)> {
+    fn next(&mut self) -> Option<(alphabet::Unit, StateID)> {
         self.it.next().map(|(i, &id)| {
             let unit = if i + 1 == self.len {
-                InputUnit::eoi(i)
+                alphabet::Unit::eoi(i)
             } else {
                 let b = u8::try_from(i)
                     .expect("raw byte alphabet is never exceeded");
-                InputUnit::u8(b)
+                alphabet::Unit::u8(b)
             };
             (unit, id)
         })
@@ -4109,16 +4109,16 @@ pub(crate) struct StateTransitionIterMut<'a> {
 
 #[cfg(feature = "alloc")]
 impl<'a> Iterator for StateTransitionIterMut<'a> {
-    type Item = (InputUnit, &'a mut StateID);
+    type Item = (alphabet::Unit, &'a mut StateID);
 
-    fn next(&mut self) -> Option<(InputUnit, &'a mut StateID)> {
+    fn next(&mut self) -> Option<(alphabet::Unit, &'a mut StateID)> {
         self.it.next().map(|(i, id)| {
             let unit = if i + 1 == self.len {
-                InputUnit::eoi(i)
+                alphabet::Unit::eoi(i)
             } else {
                 let b = u8::try_from(i)
                     .expect("raw byte alphabet is never exceeded");
-                InputUnit::u8(b)
+                alphabet::Unit::u8(b)
             };
             (unit, id)
         })
@@ -4132,19 +4132,19 @@ impl<'a> Iterator for StateTransitionIterMut<'a> {
 /// triple comprise an inclusive byte range while the last element corresponds
 /// to the transition taken for all bytes in the range.
 ///
-/// As a convenience, this always returns `InputUnit` values of the same type.
-/// That is, you'll never get a (byte, EOI) or a (EOI, byte). Only (byte, byte)
-/// and (EOI, EOI) values are yielded.
+/// As a convenience, this always returns `alphabet::Unit` values of the same
+/// type. That is, you'll never get a (byte, EOI) or a (EOI, byte). Only (byte,
+/// byte) and (EOI, EOI) values are yielded.
 #[derive(Debug)]
 pub(crate) struct StateSparseTransitionIter<'a> {
     dense: StateTransitionIter<'a>,
-    cur: Option<(InputUnit, InputUnit, StateID)>,
+    cur: Option<(alphabet::Unit, alphabet::Unit, StateID)>,
 }
 
 impl<'a> Iterator for StateSparseTransitionIter<'a> {
-    type Item = (InputUnit, InputUnit, StateID);
+    type Item = (alphabet::Unit, alphabet::Unit, StateID);
 
-    fn next(&mut self) -> Option<(InputUnit, InputUnit, StateID)> {
+    fn next(&mut self) -> Option<(alphabet::Unit, alphabet::Unit, StateID)> {
         while let Some((unit, next)) = self.dense.next() {
             let (prev_start, prev_end, prev_next) = match self.cur {
                 Some(t) => t,

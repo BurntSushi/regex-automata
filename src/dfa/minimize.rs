@@ -5,7 +5,7 @@ use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 use crate::{
     dfa::{automaton::Automaton, dense, DEAD},
     util::{
-        alphabet::InputUnit,
+        alphabet,
         id::{PatternID, StateID},
     },
 };
@@ -280,7 +280,7 @@ impl<'a> Minimizer<'a> {
 
     fn find_incoming_to(
         &self,
-        b: InputUnit,
+        b: alphabet::Unit,
         set: &StateSet,
         incoming: &mut StateSet,
     ) {
