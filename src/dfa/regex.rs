@@ -2082,7 +2082,10 @@ impl Builder {
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
-    pub fn syntax(&mut self, config: crate::SyntaxConfig) -> &mut Builder {
+    pub fn syntax(
+        &mut self,
+        config: crate::util::syntax::SyntaxConfig,
+    ) -> &mut Builder {
         self.dfa.syntax(config);
         self
     }

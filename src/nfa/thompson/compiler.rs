@@ -281,7 +281,10 @@ impl Builder {
     /// This syntax configuration generally only applies when an NFA is built
     /// directly from a pattern string. If an NFA is built from an HIR, then
     /// all syntax settings are ignored.
-    pub fn syntax(&mut self, config: crate::SyntaxConfig) -> &mut Builder {
+    pub fn syntax(
+        &mut self,
+        config: crate::util::syntax::SyntaxConfig,
+    ) -> &mut Builder {
         config.apply(&mut self.parser);
         self
     }

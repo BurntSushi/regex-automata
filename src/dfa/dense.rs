@@ -881,7 +881,10 @@ impl Builder {
     ///
     /// These settings only apply when constructing a DFA directly from a
     /// pattern.
-    pub fn syntax(&mut self, config: crate::SyntaxConfig) -> &mut Builder {
+    pub fn syntax(
+        &mut self,
+        config: crate::util::syntax::SyntaxConfig,
+    ) -> &mut Builder {
         self.thompson.syntax(config);
         self
     }
