@@ -17,7 +17,9 @@ compile_error!("regex-automata currently not supported on non-{16,32,64}");
 extern crate alloc;
 
 #[cfg(feature = "alloc")]
-pub use crate::{classes::ByteClassRepresentatives, config::SyntaxConfig};
+pub use crate::{
+    classes::ByteClassRepresentatives, util::syntax::SyntaxConfig,
+};
 pub use crate::{
     classes::{
         ByteClassElementRanges, ByteClassElements, ByteClassIter,
@@ -37,7 +39,5 @@ mod classes;
 pub mod dfa;
 pub mod util;
 
-#[cfg(feature = "alloc")]
-mod config;
 #[cfg(feature = "alloc")]
 pub mod nfa;
