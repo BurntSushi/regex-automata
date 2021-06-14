@@ -26,7 +26,7 @@ use crate::{
 #[cfg(feature = "alloc")]
 use crate::{
     dfa::{dense, error::Error, sparse},
-    matching::MatchKind,
+    matchtypes::MatchKind,
     nfa::thompson,
 };
 

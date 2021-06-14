@@ -22,7 +22,7 @@ pub use crate::{
         ByteClassElementRanges, ByteClassElements, ByteClassIter,
         ByteClassSet, ByteClasses, InputUnit,
     },
-    matching::{Match, MatchError, MatchKind, MultiMatch},
+    matchtypes::{Match, MatchError, MatchKind, MultiMatch},
     util::id::PatternID,
 };
 #[cfg(feature = "alloc")]
@@ -34,7 +34,7 @@ mod macros;
 mod bytes;
 mod classes;
 pub mod dfa;
-mod matching;
+mod matchtypes;
 pub mod prefilter;
 pub mod util;
 

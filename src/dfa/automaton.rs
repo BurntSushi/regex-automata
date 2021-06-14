@@ -1,6 +1,6 @@
 use crate::{
     dfa::search,
-    matching::MatchError,
+    matchtypes::MatchError,
     prefilter,
     util::id::{PatternID, StateID},
     util::is_word_byte,

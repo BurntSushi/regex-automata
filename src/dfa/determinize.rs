@@ -3,7 +3,7 @@ use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 use crate::{
     classes::{ByteSet, InputUnit},
     dfa::{automaton::Start, dense, Error, DEAD},
-    matching::MatchKind,
+    matchtypes::MatchKind,
     nfa::thompson::{self, Look, LookSet},
     sparse_set::{SparseSet, SparseSets},
     util::id::{PatternID, StateID},
