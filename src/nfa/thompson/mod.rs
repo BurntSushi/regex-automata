@@ -4,8 +4,8 @@ use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
 use crate::{
     classes::ByteClassSet,
-    id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
     nfa::error::Error,
+    util::id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
 };
 
 pub use self::compiler::{Builder, Config};

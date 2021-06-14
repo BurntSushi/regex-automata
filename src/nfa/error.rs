@@ -1,4 +1,4 @@
-use crate::id::{PatternID, StateID};
+use crate::util::id::{PatternID, StateID};
 
 /// An error that can occured during the construction of an NFA.
 #[derive(Clone, Debug)]

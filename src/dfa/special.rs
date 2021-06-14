@@ -1,7 +1,7 @@
 use crate::{
     bytes::{self, DeserializeError, Endian, SerializeError},
     dfa::DEAD,
-    id::StateID,
+    util::id::StateID,
 };
 
 macro_rules! err {

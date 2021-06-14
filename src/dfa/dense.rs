@@ -27,7 +27,7 @@ use crate::{
         special::Special,
         DEAD,
     },
-    id::{PatternID, StateID},
+    util::id::{PatternID, StateID},
 };
 #[cfg(feature = "alloc")]
 use crate::{

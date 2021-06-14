@@ -35,7 +35,7 @@
 
 use alloc::{vec, vec::Vec};
 
-use crate::{nfa::thompson::Transition, StateID};
+use crate::{nfa::thompson::Transition, util::id::StateID};
 
 // Basic FNV-1a hash constants as described in:
 // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function

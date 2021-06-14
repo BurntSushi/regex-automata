@@ -5,8 +5,9 @@ use crate::{
             Automaton, HalfMatch, OverlappingState, StateMatch, MATCH_OFFSET,
         },
     },
-    id::{PatternID, StateID},
-    prefilter, MatchError,
+    prefilter,
+    util::id::{PatternID, StateID},
+    MatchError,
 };
 
 #[inline(never)]

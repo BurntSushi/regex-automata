@@ -1,4 +1,4 @@
-use crate::id::PatternID;
+use crate::util::id::PatternID;
 
 /// The kind of match semantics to use for a DFA.
 ///

@@ -1,8 +1,8 @@
 use crate::{
     dfa::search,
-    id::{PatternID, StateID},
     matching::MatchError,
     prefilter,
+    util::id::{PatternID, StateID},
     util::is_word_byte,
 };
 
@@ -904,7 +904,7 @@ pub unsafe trait Automaton {
     /// use regex_automata::{
     ///     nfa::thompson,
     ///     dfa::{Automaton, dense},
-    ///     StateID,
+    ///     util::id::StateID,
     ///     SyntaxConfig,
     /// };
     ///

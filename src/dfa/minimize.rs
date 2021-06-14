@@ -5,7 +5,7 @@ use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 use crate::{
     classes::InputUnit,
     dfa::{automaton::Automaton, dense, DEAD},
-    id::{PatternID, StateID},
+    util::id::{PatternID, StateID},
 };
 
 /// An implementation of Hopcroft's algorithm for minimizing DFAs.

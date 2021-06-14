@@ -43,7 +43,7 @@ use core::{
 #[cfg(feature = "alloc")]
 use alloc::{vec, vec::Vec};
 
-use crate::id::{PatternID, PatternIDError, StateID, StateIDError};
+use crate::util::id::{PatternID, PatternIDError, StateID, StateIDError};
 
 /// An error that occurs when serializing an object from this crate.
 ///

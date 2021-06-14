@@ -62,7 +62,7 @@ use crate::{
         special::Special,
         DEAD,
     },
-    id::{PatternID, StateID},
+    util::id::{PatternID, StateID},
     util::DebugByte,
 };
 

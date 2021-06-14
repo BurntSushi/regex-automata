@@ -1,6 +1,6 @@
 use crate::{
     dfa::{automaton::Automaton, dense, sparse},
-    id::StateID,
+    util::id::StateID,
 };
 
 impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {

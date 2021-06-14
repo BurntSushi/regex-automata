@@ -1,7 +1,7 @@
 use crate::{
     dfa::automaton::Start,
-    id::{PatternID, StateID},
     nfa,
+    util::id::{PatternID, StateID},
 };
 
 /// An error that occurred during the construction of a DFA.
