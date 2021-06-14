@@ -3,10 +3,12 @@ use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 use crate::{
     classes::{ByteSet, InputUnit},
     dfa::{automaton::Start, dense, Error, DEAD},
-    matchtypes::MatchKind,
     nfa::thompson::{self, Look, LookSet},
     sparse_set::{SparseSet, SparseSets},
-    util::id::{PatternID, StateID},
+    util::{
+        id::{PatternID, StateID},
+        matchtypes::MatchKind,
+    },
 };
 
 /// A builder for configuring and running a DFA determinizer.

@@ -26,8 +26,8 @@ use crate::{
 #[cfg(feature = "alloc")]
 use crate::{
     dfa::{dense, error::Error, sparse},
-    matchtypes::MatchKind,
     nfa::thompson,
+    util::matchtypes::MatchKind,
 };
 
 // When the alloc feature is enabled, the regex type sets its A type parameter

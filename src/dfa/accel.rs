@@ -54,7 +54,7 @@ use core::convert::{TryFrom, TryInto};
 #[cfg(feature = "alloc")]
 use alloc::{vec, vec::Vec};
 
-use crate::bytes::{self, DeserializeError, Endian, SerializeError};
+use crate::util::bytes::{self, DeserializeError, Endian, SerializeError};
 
 /// The base type used to represent a collection of accelerators.
 ///

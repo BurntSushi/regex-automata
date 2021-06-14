@@ -16,25 +16,25 @@ compile_error!("regex-automata currently not supported on non-{16,32,64}");
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[cfg(feature = "alloc")]
+pub use crate::{classes::ByteClassRepresentatives, config::SyntaxConfig};
 pub use crate::{
-    bytes::{DeserializeError, SerializeError},
     classes::{
         ByteClassElementRanges, ByteClassElements, ByteClassIter,
         ByteClassSet, ByteClasses, InputUnit,
     },
-    matchtypes::{Match, MatchError, MatchKind, MultiMatch},
-    util::id::PatternID,
+    util::{
+        bytes::{DeserializeError, SerializeError},
+        id::PatternID,
+        matchtypes::{Match, MatchError, MatchKind, MultiMatch},
+    },
 };
-#[cfg(feature = "alloc")]
-pub use crate::{classes::ByteClassRepresentatives, config::SyntaxConfig};
 
 #[macro_use]
 mod macros;
 
-mod bytes;
 mod classes;
 pub mod dfa;
-mod matchtypes;
 pub mod prefilter;
 pub mod util;
 

@@ -1,9 +1,11 @@
 use crate::{
     dfa::search,
-    matchtypes::MatchError,
     prefilter,
-    util::id::{PatternID, StateID},
-    util::is_word_byte,
+    util::{
+        id::{PatternID, StateID},
+        is_word_byte,
+        matchtypes::MatchError,
+    },
 };
 
 /// The offset, in bytes, that a match is delayed by in the DFAs generated

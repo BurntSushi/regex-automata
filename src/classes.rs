@@ -1,8 +1,8 @@
 use core::convert::TryFrom;
 
-use crate::{
+use crate::util::{
     bytes::{DeserializeError, SerializeError},
-    util::DebugByte,
+    DebugByte,
 };
 
 /// InputUnit represents a single unit of input for DFA based regex engines.

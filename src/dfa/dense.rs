@@ -18,17 +18,6 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::{
-    bytes::{self, DeserializeError, Endian, SerializeError},
-    classes::{ByteClasses, InputUnit},
-    dfa::{
-        accel::Accels,
-        automaton::{fmt_state_indicator, Automaton, Start},
-        special::Special,
-        DEAD,
-    },
-    util::id::{PatternID, StateID},
-};
 #[cfg(feature = "alloc")]
 use crate::{
     classes::ByteSet,
@@ -37,6 +26,19 @@ use crate::{
     },
     nfa::thompson,
     MatchKind,
+};
+use crate::{
+    classes::{ByteClasses, InputUnit},
+    dfa::{
+        accel::Accels,
+        automaton::{fmt_state_indicator, Automaton, Start},
+        special::Special,
+        DEAD,
+    },
+    util::{
+        bytes::{self, DeserializeError, Endian, SerializeError},
+        id::{PatternID, StateID},
+    },
 };
 
 /// The label that is pre-pended to a serialized DFA.

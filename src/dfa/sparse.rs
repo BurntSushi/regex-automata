@@ -55,15 +55,17 @@ use alloc::{collections::BTreeSet, vec, vec::Vec};
 #[cfg(feature = "alloc")]
 use crate::dfa::{dense, error::Error};
 use crate::{
-    bytes::{self, DeserializeError, Endian, SerializeError},
     classes::ByteClasses,
     dfa::{
         automaton::{fmt_state_indicator, Automaton, Start},
         special::Special,
         DEAD,
     },
-    util::id::{PatternID, StateID},
-    util::DebugByte,
+    util::{
+        bytes::{self, DeserializeError, Endian, SerializeError},
+        id::{PatternID, StateID},
+        DebugByte,
+    },
 };
 
 const LABEL: &str = "rust-regex-automata-dfa-sparse";

@@ -1,7 +1,9 @@
 use crate::{
-    bytes::{self, DeserializeError, Endian, SerializeError},
     dfa::DEAD,
-    util::id::StateID,
+    util::{
+        bytes::{self, DeserializeError, Endian, SerializeError},
+        id::StateID,
+    },
 };
 
 macro_rules! err {
@@ -352,7 +354,7 @@ impl Special {
         &self,
         dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
-        use crate::bytes::write_state_id as write;
+        use crate::util::bytes::write_state_id as write;
 
         if dst.len() < self.write_to_len() {
             return Err(SerializeError::buffer_too_small("special state ids"));
