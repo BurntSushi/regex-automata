@@ -293,9 +293,10 @@ e.g., `(?-u:\b)`. There is also an option to
 where the corresponding DFA will give up if any non-ASCII byte is seen.
 * As a lower level API, this module does not do literal optimizations
 automatically. Although it does provide hooks in its API to make use of the
-[`Prefilter`](crate::prefilter::Prefilter) trait. Missing literal optimizations
-means that searches may run much slower than what you're accustomed to,
-although, it does provide more predictable and consistent performance.
+[`Prefilter`](crate::util::prefilter::Prefilter) trait. Missing literal
+optimizations means that searches may run much slower than what you're
+accustomed to, although, it does provide more predictable and consistent
+performance.
 * There is no `&str` API like in the regex crate. In this module, all APIs
 operate on `&[u8]`. By default, match indices are guaranteed to fall on UTF-8
 boundaries, unless any of [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8),

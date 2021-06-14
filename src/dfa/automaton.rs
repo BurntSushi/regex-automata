@@ -1,10 +1,10 @@
 use crate::{
     dfa::search,
-    prefilter,
     util::{
         id::{PatternID, StateID},
         is_word_byte,
         matchtypes::MatchError,
+        prefilter,
     },
 };
 
@@ -614,11 +614,11 @@ pub unsafe trait Automaton {
     /// Note that you do not need to implement your own search routine to
     /// make use of prefilters like this. The search routines provided
     /// by this crate already implement prefilter support via the
-    /// [`Prefilter`](crate::prefilter::Prefilter) trait. The various
+    /// [`Prefilter`](crate::util::prefilter::Prefilter) trait. The various
     /// `find_*_at` routines on this trait support the `Prefilter` trait
-    /// through [`Scanner`](crate::prefilter::Scanner)s. This example is meant
-    /// to show how you might deal with prefilters in a simplified case if you
-    /// are implementing your own search routine.
+    /// through [`Scanner`](crate::util::prefilter::Scanner)s. This example is
+    /// meant to show how you might deal with prefilters in a simplified case
+    /// if you are implementing your own search routine.
     ///
     /// ```
     /// use regex_automata::{
@@ -1328,7 +1328,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, HalfMatch, dense},
-    ///     prefilter::{Candidate, Prefilter, Scanner, State},
+    ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
     /// };
     ///
     /// pub struct ZPrefilter;

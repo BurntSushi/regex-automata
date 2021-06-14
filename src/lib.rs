@@ -35,7 +35,6 @@ mod macros;
 
 mod classes;
 pub mod dfa;
-pub mod prefilter;
 pub mod util;
 
 #[cfg(feature = "alloc")]

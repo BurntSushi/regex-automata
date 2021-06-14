@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 
 use crate::{
     dfa::automaton::{Automaton, OverlappingState},
-    prefilter::{self, Prefilter},
+    util::prefilter::{self, Prefilter},
     MatchError, MultiMatch,
 };
 #[cfg(feature = "alloc")]
@@ -97,7 +97,7 @@ define_regex_type!(
     /// DFA for your regex, and you don't need things like capturing groups,
     /// then this is a good choice if you're looking to optimize for matching
     /// speed. Note however that its speed may be worse than a general purpose
-    /// regex engine if you don't select a good [prefilter](crate::prefilter).
+    /// regex engine if you don't select a good [prefilter].
     ///
     /// # Earliest vs Leftmost vs Overlapping
     ///

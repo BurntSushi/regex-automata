@@ -5,8 +5,10 @@ use crate::{
             Automaton, HalfMatch, OverlappingState, StateMatch, MATCH_OFFSET,
         },
     },
-    prefilter,
-    util::id::{PatternID, StateID},
+    util::{
+        id::{PatternID, StateID},
+        prefilter,
+    },
     MatchError,
 };
 

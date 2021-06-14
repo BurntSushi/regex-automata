@@ -1,4 +1,4 @@
-use regex_automata::prefilter::{self, Candidate, Prefilter};
+use regex_automata::util::prefilter::{self, Candidate, Prefilter};
 
 #[derive(Clone, Debug)]
 pub struct SubstringPrefilter(bstr::Finder<'static>);
