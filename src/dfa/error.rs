@@ -118,7 +118,7 @@ impl core::fmt::Display for Error {
                 // only way this error can occur). Thus, the total number of
                 // patterns that can fit in the table is `stride` less than
                 // what we can allocate.
-                let limit = ((isize::MAX as usize) - stride) / stride;
+                let limit = ((core::isize::MAX as usize) - stride) / stride;
                 write!(
                     f,
                     "compiling DFA with start states exceeds pattern \

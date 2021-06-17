@@ -47,18 +47,19 @@ pub struct PatternID(u32);
 impl PatternID {
     /// The maximum pattern ID value, represented as a `usize`.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-    pub const MAX: PatternID = PatternID(core::u32::MAX - 1);
+    pub const MAX: PatternID =
+        PatternID::new_unchecked(core::u32::MAX as usize - 1);
 
     /// The maximum pattern ID value, represented as a `usize`.
     #[cfg(target_pointer_width = "16")]
-    pub const MAX: PatternID = PatternID(core::usize::MAX as u32 - 1);
+    pub const MAX: PatternID = PatternID::new_unchecked(core::usize::MAX - 1);
 
     /// The total number of patterns that are allowed in any single regex
     /// engine.
-    pub const LIMIT: usize = PatternID::MAX.0 as usize + 1;
+    pub const LIMIT: usize = PatternID::MAX.as_usize() + 1;
 
     /// The zero pattern ID value.
-    pub const ZERO: PatternID = PatternID(0);
+    pub const ZERO: PatternID = PatternID::new_unchecked(0);
 
     /// The number of bytes that a single `PatternID` uses in memory.
     pub const SIZE: usize = core::mem::size_of::<PatternID>();
@@ -78,7 +79,7 @@ impl PatternID {
     /// While this is unchecked, providing an incorrect value must never
     /// sacrifice memory safety, as documented above.
     #[inline]
-    pub fn new_unchecked(id: usize) -> PatternID {
+    pub const fn new_unchecked(id: usize) -> PatternID {
         PatternID(id as u32)
     }
 
@@ -90,13 +91,13 @@ impl PatternID {
 
     /// Return this pattern ID as a `usize`.
     #[inline]
-    pub fn as_usize(&self) -> usize {
+    pub const fn as_usize(&self) -> usize {
         self.0 as usize
     }
 
     /// Return the internal u32 of this pattern ID.
     #[inline]
-    pub fn as_u32(&self) -> u32 {
+    pub const fn as_u32(&self) -> u32 {
         self.0
     }
 
@@ -214,18 +215,19 @@ pub struct StateID(u32);
 impl StateID {
     /// The maximum state ID value.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-    pub const MAX: StateID = StateID(core::u32::MAX - 1);
+    pub const MAX: StateID =
+        StateID::new_unchecked(core::u32::MAX as usize - 1);
 
     /// The maximum state ID value.
     #[cfg(target_pointer_width = "16")]
-    pub const MAX: StateID = StateID(core::usize::MAX as u32 - 1);
+    pub const MAX: StateID = StateID::new_unchecked(core::usize::MAX - 1);
 
     /// The total number of states that are allowed in any single regex
     /// engine, represented as a `usize`.
-    pub const LIMIT: usize = StateID::MAX.0 as usize + 1;
+    pub const LIMIT: usize = StateID::MAX.as_usize() + 1;
 
     /// The zero state ID value.
-    pub const ZERO: StateID = StateID(0);
+    pub const ZERO: StateID = StateID::new_unchecked(0);
 
     /// The number of bytes that a single `StateID` uses in memory.
     pub const SIZE: usize = core::mem::size_of::<StateID>();
@@ -245,7 +247,7 @@ impl StateID {
     /// While this is unchecked, providing an incorrect value must never
     /// sacrifice memory safety, as documented above.
     #[inline]
-    pub fn new_unchecked(id: usize) -> StateID {
+    pub const fn new_unchecked(id: usize) -> StateID {
         StateID(id as u32)
     }
 
@@ -257,13 +259,13 @@ impl StateID {
 
     /// Return this pattern ID as a `usize`.
     #[inline]
-    pub fn as_usize(&self) -> usize {
+    pub const fn as_usize(&self) -> usize {
         self.0 as usize
     }
 
     /// Return the internal u32 of this state ID.
     #[inline]
-    pub fn as_u32(&self) -> u32 {
+    pub const fn as_u32(&self) -> u32 {
         self.0
     }
 

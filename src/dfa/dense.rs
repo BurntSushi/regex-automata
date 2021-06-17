@@ -835,7 +835,14 @@ impl Builder {
                 quit.add(b);
             }
         }
-        let classes = if self.config.get_byte_classes() {
+        let classes = if !self.config.get_byte_classes() {
+            // DFAs will always use the equivalence class map, but enabling
+            // this option is useful for debugging. Namely, this will cause all
+            // transitions to be defined over their actual bytes instead of an
+            // opaque equivalence class identifier. The former is much easier
+            // to grok as a human.
+            ByteClasses::singletons()
+        } else {
             let mut set = nfa.byte_class_set().clone();
             // It is important to distinguish any "quit" bytes from all other
             // bytes. Otherwise, a non-quit byte may end up in the same class
@@ -844,8 +851,6 @@ impl Builder {
                 set.add_set(&quit);
             }
             set.byte_classes()
-        } else {
-            ByteClasses::singletons()
         };
 
         let mut dfa = DFA::initial(
@@ -3244,7 +3249,7 @@ impl StartTable<Vec<u32>> {
             Some(x) => x,
             None => return Err(Error::too_many_start_states()),
         };
-        if table_len > isize::MAX as usize {
+        if table_len > core::isize::MAX as usize {
             return Err(Error::too_many_start_states());
         }
         let table = vec![DEAD.as_u32(); table_len];

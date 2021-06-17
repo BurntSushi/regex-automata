@@ -20,8 +20,8 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    /// Create a new determinizer. The determinizer may be configured before
-    /// calling `run`.
+    /// Create a new default config for a determinizer. The determinizer may be
+    /// configured before calling `run`.
     pub fn new() -> Config {
         Config {
             anchored: false,

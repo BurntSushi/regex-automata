@@ -29,5 +29,7 @@ mod macros;
 
 pub mod dfa;
 #[cfg(feature = "alloc")]
+pub mod hybrid;
+#[cfg(feature = "alloc")]
 pub mod nfa;
 pub mod util;
