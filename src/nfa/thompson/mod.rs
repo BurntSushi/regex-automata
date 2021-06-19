@@ -565,6 +565,7 @@ impl Look {
 
 /// LookSet is a memory-efficient set of look-around assertions. Callers may
 /// idempotently insert or remove any look-around assertion from a set.
+#[repr(transparent)]
 #[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub(crate) struct LookSet {
     set: u8,
@@ -574,6 +575,18 @@ impl LookSet {
     /// Create an empty set of look-around assertions.
     pub(crate) fn empty() -> LookSet {
         LookSet::default()
+    }
+
+    /// Return a LookSet from its representation.
+    pub(crate) fn from_repr(repr: u8) -> LookSet {
+        LookSet { set: repr }
+    }
+
+    /// Return a mutable LookSet from a mutable pointer to its representation.
+    pub(crate) fn from_repr_mut(repr: &mut u8) -> &mut LookSet {
+        // SAFETY: This is safe since a LookSet is repr(transparent) where its
+        // repr is a u8.
+        unsafe { core::mem::transmute::<&mut u8, &mut LookSet>(repr) }
     }
 
     /// Return true if and only if this set is empty.

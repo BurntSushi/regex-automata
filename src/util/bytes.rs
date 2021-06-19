@@ -673,6 +673,17 @@ pub fn read_u32(slice: &[u8]) -> u32 {
     u32::from_ne_bytes(bytes)
 }
 
+/// Read a u64 from the beginning of the given slice in native endian format.
+/// If the slice has fewer than 8 bytes, then this panics.
+///
+/// Marked as inline to speed up sparse searching which decodes integers from
+/// its automaton at search time.
+#[inline(always)]
+pub fn read_u64(slice: &[u8]) -> u64 {
+    let bytes: [u8; 8] = slice[..size_of::<u64>()].try_into().unwrap();
+    u64::from_ne_bytes(bytes)
+}
+
 /// Write a variable sized integer and return the total number of bytes
 /// written. If the slice was not big enough to contain the bytes, then this
 /// returns an error including the "what" description in it. This does no

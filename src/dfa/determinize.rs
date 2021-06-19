@@ -1,7 +1,7 @@
 use alloc::{collections::BTreeMap, rc::Rc, vec, vec::Vec};
 
 use crate::{
-    dfa::{automaton::Start, dense, Error, DEAD},
+    dfa::{dense, Error, Start, DEAD},
     nfa::thompson::{self, Look, LookSet},
     util::{
         alphabet::{self, ByteSet},

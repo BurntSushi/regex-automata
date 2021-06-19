@@ -1,11 +1,14 @@
 use core::borrow::Borrow;
 
 use crate::{
-    hybrid::{error::Error, Config},
+    dfa::Start,
+    hybrid::{error::Error, state::State, Config},
     nfa::thompson,
     util::{
         alphabet::{ByteClasses, ByteSet},
+        id::{PatternID, StateID},
         matchtypes::MatchKind,
+        sparse_set::SparseSets,
     },
 };
 
@@ -63,5 +66,51 @@ impl<N: Borrow<thompson::NFA>> InertDFA<N> {
             match_kind: config.get_match_kind(),
             starts_for_each_pattern: config.get_starts_for_each_pattern(),
         })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Cache {
+    sparses: SparseSets,
+    fsm: CacheFSM,
+}
+
+#[derive(Clone, Debug)]
+struct CacheFSM {
+    trans: Vec<StateID>,
+    starts: Vec<StateID>,
+    states: Vec<State>,
+    states_to_id: StateMap,
+    stack: Vec<StateID>,
+    scratch_nfa_states: Vec<StateID>,
+}
+
+/// A map from states to state identifiers. When using std, we use a standard
+/// hashmap, since it's a bit faster for this use case. (Other maps, like
+/// one's based on FNV, have not yet been benchmarked.)
+///
+/// The main purpose of this map is to reuse states where possible. This won't
+/// fully minimize the DFA, but it works well in a lot of cases.
+#[cfg(feature = "std")]
+type StateMap = std::collections::HashMap<State, StateID>;
+#[cfg(not(feature = "std"))]
+type StateMap = BTreeMap<State, StateID>;
+
+#[derive(Debug)]
+pub struct DFA<'i, 'c, N> {
+    inert: &'i InertDFA<N>,
+    cache: &'c mut Cache,
+}
+
+impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
+    fn start_state_forward(
+        &mut self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> StateID {
+        let index = Start::from_position_fwd(bytes, start, end);
+        todo!()
     }
 }

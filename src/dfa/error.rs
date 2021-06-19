@@ -1,5 +1,5 @@
 use crate::{
-    dfa::automaton::Start,
+    dfa::Start,
     nfa,
     util::id::{PatternID, StateID},
 };

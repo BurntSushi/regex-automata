@@ -15,7 +15,7 @@ use crate::util::id::StateID;
 /// The members of this struct are exposed so that callers may borrow 'set1'
 /// and 'set2' individually without being force to borrow both at the same
 /// time.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct SparseSets {
     pub(crate) set1: SparseSet,
     pub(crate) set2: SparseSet,

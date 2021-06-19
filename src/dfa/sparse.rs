@@ -56,9 +56,9 @@ use alloc::{collections::BTreeSet, vec, vec::Vec};
 use crate::dfa::{dense, error::Error};
 use crate::{
     dfa::{
-        automaton::{fmt_state_indicator, Automaton, Start},
+        automaton::{fmt_state_indicator, Automaton},
         special::Special,
-        DEAD,
+        Start, DEAD,
     },
     util::{
         alphabet::ByteClasses,

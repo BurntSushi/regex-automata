@@ -30,9 +30,9 @@ use crate::{
 use crate::{
     dfa::{
         accel::Accels,
-        automaton::{fmt_state_indicator, Automaton, Start},
+        automaton::{fmt_state_indicator, Automaton},
         special::Special,
-        DEAD,
+        Start, DEAD,
     },
     util::{
         alphabet::{self, ByteClasses},
