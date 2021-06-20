@@ -27,10 +27,12 @@ bench = false
 default = ["std"]
 std = ["alloc", "memchr/std", "regex-syntax"]
 alloc = ["regex-syntax"]
+logging = ["log"]
 transducer = ["fst"]
 
 [dependencies]
 fst = { version = "0.4.5", optional = true }
+log = { version = "0.4.14", optional = true }
 memchr = { version = "2.4.0", default-features = false }
 regex-syntax = { version = "0.6.24", optional = true }
 

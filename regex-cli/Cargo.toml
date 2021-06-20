@@ -20,12 +20,18 @@ name = "regex-cli"
 
 [dependencies]
 anyhow = "1.0.28"
-automata = { package = "regex-automata", version = "*", path = ".." }
+clap = { version = "2.33.0", default-features = false }
 memmap2 = "0.3.0"
 syntax = { package = "regex-syntax", version = "0.6.17" }
 tabwriter = "1.2.1"
 unicode-width = "0.1.7"
 
-[dependencies.clap]
-version = "2.33.0"
+[dependencies.automata]
+package = "regex-automata"
+path = ".."
+features = ["logging"]
+
+[dependencies.env_logger]
+version = "0.8.4"
 default-features = false
+features = ["atty", "humantime", "termcolor"]

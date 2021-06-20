@@ -211,6 +211,7 @@ impl Builder {
                     .parse(p.as_ref())
                     .map_err(Error::syntax)?,
             );
+            log!(log::trace!("parsed: {:?}", p.as_ref()));
         }
         self.build_many_from_hir(&hirs)
     }

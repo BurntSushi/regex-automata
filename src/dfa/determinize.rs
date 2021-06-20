@@ -220,21 +220,37 @@ impl<'a> Runner<'a> {
             }
         }
 
+        trace!(
+            "determinization complete, memory usage: {}, dense DFA size: {}",
+            self.memory_usage(),
+            self.dfa.memory_usage(),
+        );
+
         // A map from DFA state ID to one or more NFA match IDs. Each NFA match
         // ID corresponds to a distinct regex pattern that matches in the state
         // corresponding to the key.
         let mut matches: BTreeMap<StateID, Vec<PatternID>> = BTreeMap::new();
         self.cache.clear();
+        let mut total_pat_count = 0;
         for (i, state) in self.builder_states.into_iter().enumerate() {
             // This unwrap is okay, because the only other reference to a state
             // is in this builder's cache, which we cleared above. This unwrap
             // avoids copying the state's Vec<PatternID>.
             let state = Rc::try_unwrap(state).unwrap();
-            if let Some(match_ids) = state.facts.into_match_pattern_ids() {
+            if let Some(pat_ids) = state.facts.into_match_pattern_ids() {
                 let id = self.dfa.from_index(i);
-                matches.insert(id, match_ids);
+                total_pat_count += pat_ids.len();
+                matches.insert(id, pat_ids);
             }
         }
+        log! {
+            use core::mem::size_of;
+            let per_elem = size_of::<StateID>() + size_of::<Vec<PatternID>>();
+            let pats = total_pat_count * size_of::<PatternID>();
+            let mem = (matches.len() * per_elem) + pats;
+            log::trace!("matches map built, memory usage: {}", mem);
+        }
+        let _ = total_pat_count;
         // At this point, we shuffle the "special" states in the final DFA.
         // This permits a DFA's match loop to detect a match condition by
         // merely inspecting the current state's identifier, and avoids the
@@ -735,6 +751,18 @@ impl<'a> Runner<'a> {
     /// match priority, like for leftmost-first.
     fn continue_past_first_match(&self) -> bool {
         self.config.match_kind.continue_past_first_match()
+    }
+
+    #[cfg(feature = "logging")]
+    fn memory_usage(&self) -> usize {
+        use core::mem::size_of;
+
+        let rc_state_size = size_of::<Rc<State>>() + size_of::<State>();
+        self.builder_states.len() * rc_state_size
+        // Maps likely use more memory than this, but it's probably close.
+        + self.cache.len() * (rc_state_size + size_of::<StateID>())
+        + self.stack.capacity() * size_of::<StateID>()
+        + self.scratch_nfa_states.capacity() * size_of::<StateID>()
     }
 }
 

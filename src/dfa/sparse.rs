@@ -392,6 +392,11 @@ impl DFA<Vec<u8>> {
                 new_state.set_next_at(i, next);
             }
         }
+        trace!(
+            "created sparse DFA, memory usage: {} (dense memory usage: {})",
+            new.memory_usage(),
+            dfa.memory_usage(),
+        );
         Ok(new)
     }
 }
