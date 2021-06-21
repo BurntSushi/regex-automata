@@ -3,7 +3,8 @@ use core::convert::TryFrom;
 use alloc::sync::Arc;
 
 use crate::{
-    nfa::thompson::LookSet,
+    dfa::Start,
+    nfa::thompson::{Look, LookSet},
     util::{
         bytes::{self, Endian},
         id::{PatternID, StateID},
@@ -25,6 +26,10 @@ impl core::borrow::Borrow<[u8]> for State {
 }
 
 impl State {
+    pub(crate) fn dead() -> State {
+        StateBuilderEmpty::new().into_matches().into_nfa().as_state()
+    }
+
     pub(crate) fn is_match(&self) -> bool {
         self.repr().is_match()
     }
@@ -39,6 +44,10 @@ impl State {
 
     pub(crate) fn look_need(&self) -> LookSet {
         self.repr().look_need()
+    }
+
+    pub(crate) fn match_pattern_ids(&self) -> Option<Vec<PatternID>> {
+        self.repr().match_pattern_ids()
     }
 
     pub(crate) fn iter_match_pattern_ids<F: FnMut(PatternID)>(
@@ -72,10 +81,6 @@ impl StateBuilderEmpty {
 
     pub(crate) fn clear(&mut self) {
         self.0.clear();
-    }
-
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        self.0.as_slice()
     }
 }
 
@@ -135,14 +140,30 @@ impl StateBuilderMatches {
 pub(crate) struct StateBuilderNFA(Vec<u8>);
 
 impl StateBuilderNFA {
-    pub(crate) fn into_state(self) -> State {
-        State(Arc::from(self.0))
+    pub(crate) fn as_state(&self) -> State {
+        State(Arc::from(&*self.0))
     }
 
     pub(crate) fn clear(self) -> StateBuilderEmpty {
         let mut builder = StateBuilderEmpty(self.0);
         builder.clear();
         builder
+    }
+
+    pub(crate) fn set_from_start(&mut self, start: Start) {
+        match start {
+            Start::NonWordByte => {}
+            Start::WordByte => {
+                self.set_is_from_word();
+            }
+            Start::Text => {
+                self.look_have().insert(Look::StartText);
+                self.look_have().insert(Look::StartLine);
+            }
+            Start::Line => {
+                self.look_have().insert(Look::StartLine);
+            }
+        }
     }
 
     pub(crate) fn is_match(&self) -> bool {
@@ -171,6 +192,10 @@ impl StateBuilderNFA {
 
     pub(crate) fn add_nfa_state_id(&mut self, sid: StateID) {
         self.repr_vec().add_nfa_state_id(sid)
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.0
     }
 
     fn repr(&self) -> Repr<'_> {
@@ -212,8 +237,24 @@ impl<'a> Repr<'a> {
         usize::try_from(off64).unwrap()
     }
 
+    fn match_pattern_ids(&self) -> Option<Vec<PatternID>> {
+        if !self.is_match() {
+            return None;
+        }
+        let mut pids = vec![];
+        self.iter_match_pattern_ids(|pid| pids.push(pid));
+        Some(pids)
+    }
+
     fn iter_match_pattern_ids<F: FnMut(PatternID)>(&self, mut f: F) {
-        let mut pids = &self.0[3..self.pattern_offset_end()];
+        if !self.is_match() {
+            return;
+        }
+        let mut pids = &self.0[11..self.pattern_offset_end()];
+        if pids.is_empty() {
+            f(PatternID::ZERO);
+            return;
+        }
         while !pids.is_empty() {
             let (pid, nr) = read_varu32(pids);
             pids = &pids[nr..];
@@ -330,4 +371,18 @@ fn read_varu32(data: &[u8]) -> (u32, usize) {
         shift += 7;
     }
     (0, 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scratch() {
+        let mut b = StateBuilderEmpty::new().into_matches();
+        b.set_is_match();
+        b.add_match_pattern_id(PatternID::must(0));
+        let s = b.into_nfa().as_state();
+        assert_eq!(Some(vec![PatternID::must(0)]), s.match_pattern_ids());
+    }
 }

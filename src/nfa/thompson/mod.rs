@@ -572,11 +572,6 @@ pub(crate) struct LookSet {
 }
 
 impl LookSet {
-    /// Create an empty set of look-around assertions.
-    pub(crate) fn empty() -> LookSet {
-        LookSet::default()
-    }
-
     /// Return a LookSet from its representation.
     pub(crate) fn from_repr(repr: u8) -> LookSet {
         LookSet { set: repr }
@@ -592,6 +587,11 @@ impl LookSet {
     /// Return true if and only if this set is empty.
     pub(crate) fn is_empty(&self) -> bool {
         self.set == 0
+    }
+
+    /// Clears this set such that it has no assertions in it.
+    pub(crate) fn clear(&mut self) {
+        self.set = 0;
     }
 
     /// Insert the given look-around assertion into this set. If the assertion
