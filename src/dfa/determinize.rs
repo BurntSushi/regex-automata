@@ -291,7 +291,10 @@ impl<'a> Runner<'a> {
         if sparses.set2.is_empty() && !builder.is_match() {
             // Since we aren't using the state builder returnd by 'next', we
             // can return the memory back to the runner.
-            self.put_state_builder(builder);
+            let _ = core::mem::replace(
+                &mut self.scratch_state_builder,
+                builder.clear(),
+            );
             return Ok((DEAD, false));
         }
         // Build a candidate state and check if it has already been built.
@@ -370,7 +373,11 @@ impl<'a> Runner<'a> {
 
         // Compute look-behind assertions that are true while entering the new
         // state we create below.
-        let mut builder = self.get_state_builder().into_matches();
+        let mut builder = core::mem::replace(
+            &mut self.scratch_state_builder,
+            StateBuilderEmpty::new(),
+        )
+        .into_matches();
         // We only set the word byte if there's a word boundary look-around
         // anywhere in this regex. Otherwise, there's no point in bloating
         // the number of states if we don't have one.
@@ -592,7 +599,12 @@ impl<'a> Runner<'a> {
         // configuration, and the determine the epsilon closure. While
         // computing the epsilon closure, we only follow condiional epsilon
         // transitions that satisfy the look-behind assertions in 'facts'.
-        let mut builder = self.get_state_builder().into_matches().into_nfa();
+        let mut builder = core::mem::replace(
+            &mut self.scratch_state_builder,
+            StateBuilderEmpty::new(),
+        )
+        .into_matches()
+        .into_nfa();
         builder.set_from_start(start);
         self.epsilon_closure(nfa_start, *builder.look_have(), sparse);
         let state = self.new_state(&sparse, builder);
@@ -617,7 +629,10 @@ impl<'a> Runner<'a> {
         if let Some(&cached_id) = self.cache.get(builder.as_bytes()) {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
-            self.put_state_builder(builder);
+            let _ = core::mem::replace(
+                &mut self.scratch_state_builder,
+                builder.clear(),
+            );
             return Ok((cached_id, false));
         }
         self.add_state(builder).map(|s| (s, true))
@@ -648,7 +663,10 @@ impl<'a> Runner<'a> {
         let state = builder.as_state();
         self.builder_states.push(state.clone());
         self.cache.insert(state, id);
-        self.put_state_builder(builder);
+        let _ = core::mem::replace(
+            &mut self.scratch_state_builder,
+            builder.clear(),
+        );
         Ok(id)
     }
 
@@ -764,20 +782,6 @@ impl<'a> Runner<'a> {
     /// match priority, like for leftmost-first.
     fn continue_past_first_match(&self) -> bool {
         self.config.match_kind.continue_past_first_match()
-    }
-
-    fn get_state_builder(&mut self) -> StateBuilderEmpty {
-        core::mem::replace(
-            &mut self.scratch_state_builder,
-            StateBuilderEmpty::new(),
-        )
-    }
-
-    fn put_state_builder(&mut self, builder: StateBuilderNFA) {
-        let _ = core::mem::replace(
-            &mut self.scratch_state_builder,
-            builder.clear(),
-        );
     }
 
     #[cfg(feature = "logging")]
