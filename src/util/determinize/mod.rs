@@ -1,3 +1,9 @@
+pub(crate) use self::state::{
+    State, StateBuilderEmpty, StateBuilderMatches, StateBuilderNFA,
+};
+
+mod state;
+
 /// Start represents the four possible starting configurations of a DFA based
 /// on the text being searched. Ultimately, this along with a pattern ID (if
 /// specified) is what selects the start state to use in a DFA.

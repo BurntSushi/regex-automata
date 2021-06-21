@@ -2,11 +2,10 @@ use alloc::{collections::BTreeMap, vec, vec::Vec};
 
 use crate::{
     dfa::{dense, Error, DEAD},
-    hybrid::state::{State, StateBuilderEmpty, StateBuilderNFA},
     nfa::thompson::{self, Look, LookSet},
     util::{
         alphabet::{self, ByteSet},
-        determinize::Start,
+        determinize::{Start, State, StateBuilderEmpty, StateBuilderNFA},
         id::{PatternID, StateID},
         matchtypes::MatchKind,
         sparse_set::{SparseSet, SparseSets},

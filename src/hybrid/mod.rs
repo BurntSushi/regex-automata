@@ -12,7 +12,6 @@ pub use self::lazy::InertDFA;
 
 mod error;
 mod lazy;
-pub(crate) mod state;
 
 /// Configuration for a lazy DFA.
 #[derive(Clone, Copy, Debug, Default)]
