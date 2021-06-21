@@ -6,6 +6,7 @@ use core::{ascii, fmt, str};
 
 pub mod alphabet;
 pub(crate) mod bytes;
+pub(crate) mod determinize;
 pub mod id;
 pub(crate) mod matchtypes;
 pub mod prefilter;

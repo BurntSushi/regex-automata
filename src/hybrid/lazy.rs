@@ -1,11 +1,11 @@
 use core::borrow::Borrow;
 
 use crate::{
-    dfa::Start,
     hybrid::{error::Error, state::State, Config},
     nfa::thompson,
     util::{
         alphabet::{ByteClasses, ByteSet},
+        determinize::Start,
         id::{PatternID, StateID},
         matchtypes::MatchKind,
         sparse_set::SparseSets,

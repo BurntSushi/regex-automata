@@ -1,7 +1,9 @@
 use crate::{
-    dfa::Start,
     nfa,
-    util::id::{PatternID, StateID},
+    util::{
+        determinize::Start,
+        id::{PatternID, StateID},
+    },
 };
 
 /// An error that occurred during the construction of a DFA.

@@ -912,7 +912,7 @@ impl Compiler {
                 let it = seq
                     .as_slice()
                     .iter()
-                    .map(|rng| Ok(self.c_range(rng.start, rng.end)));
+                    .map(|rng| self.c_range(rng.start, rng.end));
                 self.c_concat(it)
             });
         self.c_alternation(it);
@@ -1111,7 +1111,7 @@ struct Utf8LastTransition {
 
 impl Utf8State {
     fn new() -> Utf8State {
-        Utf8State { compiled: Utf8BoundedMap::new(5000), uncompiled: vec![] }
+        Utf8State { compiled: Utf8BoundedMap::new(5_000), uncompiled: vec![] }
     }
 
     fn clear(&mut self) {

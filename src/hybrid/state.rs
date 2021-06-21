@@ -3,10 +3,10 @@ use core::convert::TryFrom;
 use alloc::sync::Arc;
 
 use crate::{
-    dfa::Start,
     nfa::thompson::{Look, LookSet},
     util::{
         bytes::{self, Endian},
+        determinize::Start,
         id::{PatternID, StateID},
     },
 };

@@ -32,11 +32,12 @@ use crate::{
         accel::Accels,
         automaton::{fmt_state_indicator, Automaton},
         special::Special,
-        Start, DEAD,
+        DEAD,
     },
     util::{
         alphabet::{self, ByteClasses},
         bytes::{self, DeserializeError, Endian, SerializeError},
+        determinize::Start,
         id::{PatternID, StateID},
     },
 };
