@@ -55,6 +55,7 @@ impl Config {
             dfa,
             builder_states: vec![dead, quit],
             cache,
+            memory_usage_state: 0,
             stack: vec![],
             scratch_state_builder: StateBuilderEmpty::new(),
         }
@@ -152,6 +153,11 @@ struct Runner<'a> {
     /// See `builder_states` docs for why we store states in two different
     /// ways.
     cache: StateMap,
+    /// The memory usage, in bytes, used by builder_states and cache. We track
+    /// this as new states are added since states use a variable amount of
+    /// heap. Tracking this as we add states makes it possible to compute the
+    /// total amount of memory used by the determinizer in constant time.
+    memory_usage_state: usize,
     /// Scratch space for a stack of NFA states to visit, for depth first
     /// visiting without recursion.
     stack: Vec<StateID>,
@@ -646,6 +652,9 @@ impl<'a> Runner<'a> {
             }
         }
         let state = builder.as_state();
+        // States use reference counting internally, so we only need to count
+        // their memroy usage once.
+        self.memory_usage_state += state.memory_usage();
         self.builder_states.push(state.clone());
         self.cache.insert(state, id);
         self.put_state_builder(builder);
@@ -784,12 +793,12 @@ impl<'a> Runner<'a> {
     fn memory_usage(&self) -> usize {
         use core::mem::size_of;
 
-        let rc_state_size = size_of::<State>() + size_of::<State>();
-        self.builder_states.len() * rc_state_size
+        self.builder_states.len() * size_of::<State>()
         // Maps likely use more memory than this, but it's probably close.
-        + self.cache.len() * (rc_state_size + size_of::<StateID>())
+        + self.cache.len() * (size_of::<State>() + size_of::<StateID>())
+        + self.memory_usage_state
         + self.stack.capacity() * size_of::<StateID>()
-        // + self.scratch_nfa_states.capacity() * size_of::<StateID>()
+        + self.scratch_state_builder.capacity()
     }
 }
 

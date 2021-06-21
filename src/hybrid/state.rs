@@ -61,6 +61,10 @@ impl State {
         self.repr().iter_nfa_state_ids(f)
     }
 
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.0.len()
+    }
+
     fn repr(&self) -> Repr<'_> {
         Repr(&*self.0)
     }
@@ -81,6 +85,10 @@ impl StateBuilderEmpty {
 
     pub(crate) fn clear(&mut self) {
         self.0.clear();
+    }
+
+    pub(crate) fn capacity(&self) -> usize {
+        self.0.capacity()
     }
 }
 
