@@ -5,7 +5,9 @@ use crate::{
     nfa::thompson::{self, Look, LookSet},
     util::{
         alphabet::{self, ByteSet},
-        determinize::{Start, State, StateBuilderEmpty, StateBuilderNFA},
+        determinize::{
+            add_nfa_states, Start, State, StateBuilderEmpty, StateBuilderNFA,
+        },
         id::{PatternID, StateID},
         matchtypes::MatchKind,
         sparse_set::{SparseSet, SparseSets},
@@ -241,17 +243,6 @@ impl<'a> Runner<'a> {
         #[allow(unused_variables)]
         let mut total_pat_count = 0;
         for (i, state) in self.builder_states.into_iter().enumerate() {
-            /*
-            // This unwrap is okay, because the only other reference to a state
-            // is in this builder's cache, which we cleared above. This unwrap
-            // avoids copying the state's Vec<PatternID>.
-            let state = Rc::try_unwrap(state).unwrap();
-            if let Some(pat_ids) = state.facts.into_match_pattern_ids() {
-                let id = self.dfa.from_index(i);
-                total_pat_count += pat_ids.len();
-                matches.insert(id, pat_ids);
-            }
-            */
             if let Some(pat_ids) = state.match_pattern_ids() {
                 let id = self.dfa.from_index(i);
                 total_pat_count += pat_ids.len();
@@ -293,7 +284,7 @@ impl<'a> Runner<'a> {
     ) -> Result<(StateID, bool), Error> {
         sparses.clear();
         // Compute the set of all reachable NFA states, including epsilons.
-        let builder = self.next(sparses, dfa_id, b);
+        let mut builder = self.next(sparses, dfa_id, b);
         if sparses.set2.is_empty() && !builder.is_match() {
             // Since we aren't using the state builder returnd by 'next', we
             // can return the memory back to the runner.
@@ -301,8 +292,8 @@ impl<'a> Runner<'a> {
             return Ok((DEAD, false));
         }
         // Build a candidate state and check if it has already been built.
-        let state = self.new_state(&sparses.set2, builder);
-        self.maybe_add_state(state)
+        self.add_nfa_states(&sparses.set2, &mut builder);
+        self.maybe_add_state(builder)
     }
 
     /// Compute the set of all eachable NFA states, including the full epsilon
@@ -601,8 +592,8 @@ impl<'a> Runner<'a> {
         let mut builder = self.get_state_builder().into_matches().into_nfa();
         builder.set_from_start(start);
         self.epsilon_closure(nfa_start, *builder.look_have(), sparse);
-        let state = self.new_state(&sparse, builder);
-        self.maybe_add_state(state).map(|(state, _)| state)
+        self.add_nfa_states(&sparse, &mut builder);
+        self.maybe_add_state(builder).map(|(state, _)| state)
     }
 
     /// Adds the given state to the DFA being built depending on whether it
@@ -677,86 +668,12 @@ impl<'a> Runner<'a> {
     /// identical to some previously existing state), then callers should
     /// put the 'nfa_states' allocation back into the determinizer field
     /// 'scratch_nfa_states'.
-    fn new_state(
+    fn add_nfa_states(
         &mut self,
         set: &SparseSet,
-        mut builder: StateBuilderNFA,
-    ) -> StateBuilderNFA {
-        // We use this determinizer's scratch space to store the NFA state IDs
-        // because this state may not wind up being used if it's identical to
-        // some other existing state. When that happers, the caller should put
-        // the scratch allocation back into the determinizer.
-        for nfa_id in set {
-            match *self.nfa.state(nfa_id) {
-                thompson::State::Range { .. } => {
-                    builder.add_nfa_state_id(nfa_id);
-                }
-                thompson::State::Sparse { .. } => {
-                    builder.add_nfa_state_id(nfa_id);
-                }
-                thompson::State::Look { look, .. } => {
-                    builder.add_nfa_state_id(nfa_id);
-                    builder.look_need().insert(look);
-                }
-                thompson::State::Union { .. } => {
-                    // Pure epsilon transitions don't need to be tracked
-                    // as part of the DFA state. Tracking them is actually
-                    // superfluous; they won't cause any harm other than making
-                    // determinization slower.
-                    //
-                    // Why aren't these needed? Well, in an NFA, epsilon
-                    // transitions are really just jumping points to other
-                    // states. So once you hit an epsilon transition, the same
-                    // set of resulting states always appears. Therefore,
-                    // putting them in a DFA's set of ordered NFA states is
-                    // strictly redundant.
-                    //
-                    // Look-around states are also epsilon transitions, but
-                    // they are *conditinal*. So their presence could be
-                    // discriminatory, and thus, they are tracked above.
-                    //
-                    // But wait... why are epsilon states in our `set` in the
-                    // first place? Why not just leave them out? They're in
-                    // our `set` because it was generated by computing an
-                    // epsilon closure, and we want to keep track of all states
-                    // we visited to avoid re-visiting them. In exchange, we
-                    // have to do this second iteration over our collected
-                    // states to finalize our DFA state.
-                    //
-                    // Note that this optimization requires that we re-compute
-                    // the epsilon closure to account for look-ahead in 'next'
-                    // *only when necessary*. Namely, only when the set of
-                    // look-around assertions changes and only when those
-                    // changes are within the set of assertions that are
-                    // needed in order to step through the closure correctly.
-                    // Otherwise, if we re-do the epsilon closure needlessly,
-                    // it could change based on the fact that we are omitting
-                    // epsilon states here.
-                }
-                thompson::State::Fail => {
-                    break;
-                }
-                thompson::State::Match(_) => {
-                    // Normally, the NFA match state doesn't actually need to
-                    // be inside the DFA state. But since we delay matches by
-                    // one byte, the matching DFA state corresponds to states
-                    // that transition from the one we're building here. And
-                    // the way we detect those cases is by looking for an NFA
-                    // match state. See 'next' for how this is handled.
-                    builder.add_nfa_state_id(nfa_id);
-                    if !self.continue_past_first_match() {
-                        break;
-                    }
-                }
-            }
-        }
-        // If we know this state contains no look-around assertions, then
-        // there's no reason to track which look-around assertions were
-        // satisfied when this state was created.
-        if builder.look_need().is_empty() {
-            builder.look_have().clear();
-        }
-        builder
+        builder: &mut StateBuilderNFA,
+    ) {
+        add_nfa_states(&self.nfa, self.config.match_kind, set, builder);
     }
 
     /// Return a reference to this builder's representation of the state with
