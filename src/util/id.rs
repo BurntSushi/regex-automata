@@ -1,3 +1,7 @@
+/*!
+Type definitions for `PatternID` and `StateID`.
+*/
+
 use core::{
     convert::{Infallible, TryFrom},
     mem, ops,
@@ -21,6 +25,9 @@ use alloc::vec::Vec;
 /// that have been deserialized; a deserialization error will be returned if
 /// it contains pattern IDs that violate these requirements in your current
 /// environment.
+///
+/// For extra convenience in some cases, this type also guarantees that all
+/// IDs can fit into an `i32` and an `isize` without overflowing.
 ///
 /// # Representation
 ///
@@ -48,11 +55,11 @@ impl PatternID {
     /// The maximum pattern ID value, represented as a `usize`.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
     pub const MAX: PatternID =
-        PatternID::new_unchecked(core::u32::MAX as usize - 1);
+        PatternID::new_unchecked(core::i32::MAX as usize - 1);
 
     /// The maximum pattern ID value, represented as a `usize`.
     #[cfg(target_pointer_width = "16")]
-    pub const MAX: PatternID = PatternID::new_unchecked(core::usize::MAX - 1);
+    pub const MAX: PatternID = PatternID::new_unchecked(core::isize::MAX - 1);
 
     /// The total number of patterns that are allowed in any single regex
     /// engine.
@@ -99,6 +106,14 @@ impl PatternID {
     #[inline]
     pub const fn as_u32(&self) -> u32 {
         self.0
+    }
+
+    /// Return the internal u32 of this pattern ID represented as an i32.
+    ///
+    /// This is guaranteed to never overflow an `i32`.
+    #[inline]
+    pub const fn as_i32(&self) -> i32 {
+        self.0 as i32
     }
 
     /// Returns one more than this pattern ID as a usize.
@@ -190,6 +205,9 @@ impl core::fmt::Display for PatternIDError {
 /// been deserialized; a deserialization error will be returned if it contains
 /// state IDs that violate these requirements in your current environment.
 ///
+/// For extra convenience in some cases, this type also guarantees that all
+/// IDs can fit into an `i32` and an `isize` without overflowing.
+///
 /// # Representation
 ///
 /// This type is always represented internally by a `u32` and is marked as
@@ -216,11 +234,11 @@ impl StateID {
     /// The maximum state ID value.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
     pub const MAX: StateID =
-        StateID::new_unchecked(core::u32::MAX as usize - 1);
+        StateID::new_unchecked(core::i32::MAX as usize - 1);
 
     /// The maximum state ID value.
     #[cfg(target_pointer_width = "16")]
-    pub const MAX: StateID = StateID::new_unchecked(core::usize::MAX - 1);
+    pub const MAX: StateID = StateID::new_unchecked(core::isize::MAX - 1);
 
     /// The total number of states that are allowed in any single regex
     /// engine, represented as a `usize`.
@@ -269,9 +287,17 @@ impl StateID {
         self.0
     }
 
+    /// Return the internal u32 of this pattern ID represented as an i32.
+    ///
+    /// This is guaranteed to never overflow an `i32`.
+    #[inline]
+    pub const fn as_i32(&self) -> i32 {
+        self.0 as i32
+    }
+
     /// Returns one more than this state ID as a usize.
     ///
-    /// Since a state ID has constrains on its maximum value, adding `1` to
+    /// Since a state ID has constraints on its maximum value, adding `1` to
     /// it will always fit in a `usize` (and a `u32`).
     #[inline]
     pub fn one_more(&self) -> usize {

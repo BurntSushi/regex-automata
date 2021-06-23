@@ -27,7 +27,7 @@ impl core::borrow::Borrow<[u8]> for State {
 
 impl State {
     pub(crate) fn dead() -> State {
-        StateBuilderEmpty::new().into_matches().into_nfa().as_state()
+        StateBuilderEmpty::new().into_matches().into_nfa().to_state()
     }
 
     pub(crate) fn is_match(&self) -> bool {
@@ -148,7 +148,7 @@ impl StateBuilderMatches {
 pub(crate) struct StateBuilderNFA(Vec<u8>);
 
 impl StateBuilderNFA {
-    pub(crate) fn as_state(&self) -> State {
+    pub(crate) fn to_state(&self) -> State {
         State(Arc::from(&*self.0))
     }
 
@@ -182,8 +182,12 @@ impl StateBuilderNFA {
         LookSet::from_repr_mut(&mut self.0[2])
     }
 
-    pub(crate) fn add_nfa_state_id(&mut self, sid: StateID) {
-        self.repr_vec().add_nfa_state_id(sid)
+    pub(crate) fn add_nfa_state_id(
+        &mut self,
+        prev: &mut StateID,
+        sid: StateID,
+    ) {
+        self.repr_vec().add_nfa_state_id(prev, sid)
     }
 
     pub(crate) fn as_bytes(&self) -> &[u8] {
@@ -259,13 +263,16 @@ impl<'a> Repr<'a> {
 
     fn iter_nfa_state_ids<F: FnMut(StateID)>(&self, mut f: F) {
         let mut sids = &self.0[self.pattern_offset_end()..];
+        let mut prev = 0i32;
         while !sids.is_empty() {
-            let (sid, nr) = read_varu32(sids);
+            let (delta, nr) = read_vari32(sids);
             sids = &sids[nr..];
+            let sid = prev + delta;
+            prev = sid;
             // This is OK since we only ever serialize valid StateIDs to
-            // states. And since state IDs can never exceed a usize, the unwrap
-            // is OK.
-            f(StateID::new_unchecked(usize::try_from(sid).unwrap()));
+            // states. And since state IDs can never exceed an isize, they must
+            // always be able to fit into a usize, and thus cast is OK.
+            f(StateID::new_unchecked(sid as usize))
         }
     }
 }
@@ -314,8 +321,10 @@ impl<'a> ReprVec<'a> {
         bytes::NE::write_u64(nfa_state_id_start, &mut self.0[3..11]);
     }
 
-    fn add_nfa_state_id(&mut self, sid: StateID) {
-        write_varu32(self.0, sid.as_u32());
+    fn add_nfa_state_id(&mut self, prev: &mut StateID, sid: StateID) {
+        let delta = sid.as_i32() - prev.as_i32();
+        write_vari32(self.0, delta);
+        *prev = sid;
     }
 
     fn repr(&self) -> Repr<'_> {
@@ -374,7 +383,7 @@ mod tests {
         let mut b = StateBuilderEmpty::new().into_matches();
         b.set_is_match();
         b.add_match_pattern_id(PatternID::must(0));
-        let s = b.into_nfa().as_state();
+        let s = b.into_nfa().to_state();
         assert_eq!(Some(vec![PatternID::must(0)]), s.match_pattern_ids());
     }
 }

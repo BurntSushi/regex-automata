@@ -10,14 +10,16 @@ There are three broad things that our implementations of determinization have
 in common, as defined by this module:
 
 * The classification of start states. That is, whether we're dealing with
-word boundaries, line boundaries, etc., is all the same.
+word boundaries, line boundaries, etc., is all the same. This also includes
+the look-behind assertions that are satisfied by each starting state
+classification.
 
 * The representation of DFA states as sets of NFA states, including
 convenience types for building these DFA states that are amenable to reusing
 allocations.
 
 * Routines for the "classical" parts of determinization: computing the
-epsilon closure, tracking match states (and corresponding pattern IDs, since
+epsilon closure, tracking match states (with corresponding pattern IDs, since
 we support multi-pattern finite automata) and, of course, computing the
 transition function between states for units of input.
 
@@ -193,18 +195,23 @@ impl Start {
 /// appear after the first NFA match state will not be included in `out_set`
 /// since they are impossible to visit.
 ///
+/// `sparses` is used as scratch space for NFA traversal. Other than their
+/// capacity requirements (detailed above), there are no requirements on what's
+/// contained within them (if anything). Similarly, what's inside of them once
+/// this routine returns is unspecified.
+///
 /// `stack` must have length 0. It is used as scratch space for depth first
 /// traversal. After returning, it is guaranteed that `stack` will have length
 /// 0.
 ///
-/// `scratch_set` is used as scratch space for NFA state traversal.
-///
 /// `state` corresponds to the current DFA state on which one wants to compute
 /// the transition for the input `unit`.
 ///
-/// `out_set` is used to write the set of reachable NFA states. Generally,
-/// callers will want to pass this set (along with the state builder returned)
-/// to `add_nfa_states` to finish construction of the new DFA state.
+/// `empty_builder` corresponds to the builder allocation to use to produce a
+/// complete `StateBuilderNFA` state. If the state is not needed (or is already
+/// cached), then it can be cleared and reused without needing to create a new
+/// `State`. The `StateBuilderNFA` state returned is final and ready to be
+/// turned into a `State` if necessary.
 pub(crate) fn next(
     nfa: &thompson::NFA,
     match_kind: MatchKind,
@@ -471,16 +478,17 @@ pub(crate) fn add_nfa_states(
     set: &SparseSet,
     builder: &mut StateBuilderNFA,
 ) {
+    let mut prev = StateID::ZERO;
     for nfa_id in set {
         match *nfa.state(nfa_id) {
             thompson::State::Range { .. } => {
-                builder.add_nfa_state_id(nfa_id);
+                builder.add_nfa_state_id(&mut prev, nfa_id);
             }
             thompson::State::Sparse { .. } => {
-                builder.add_nfa_state_id(nfa_id);
+                builder.add_nfa_state_id(&mut prev, nfa_id);
             }
             thompson::State::Look { look, .. } => {
-                builder.add_nfa_state_id(nfa_id);
+                builder.add_nfa_state_id(&mut prev, nfa_id);
                 builder.look_need().insert(look);
             }
             thompson::State::Union { .. } => {
@@ -528,7 +536,7 @@ pub(crate) fn add_nfa_states(
                 // that transition from the one we're building here. And
                 // the way we detect those cases is by looking for an NFA
                 // match state. See 'next' for how this is handled.
-                builder.add_nfa_state_id(nfa_id);
+                builder.add_nfa_state_id(&mut prev, nfa_id);
             }
         }
     }
