@@ -1111,7 +1111,7 @@ struct Utf8LastTransition {
 
 impl Utf8State {
     fn new() -> Utf8State {
-        Utf8State { compiled: Utf8BoundedMap::new(5_000), uncompiled: vec![] }
+        Utf8State { compiled: Utf8BoundedMap::new(10_000), uncompiled: vec![] }
     }
 
     fn clear(&mut self) {

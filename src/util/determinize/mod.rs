@@ -3,8 +3,13 @@ pub(crate) use self::state::{
 };
 
 use crate::{
-    nfa::thompson,
-    util::{matchtypes::MatchKind, sparse_set::SparseSet},
+    nfa::thompson::{self, Look, LookSet},
+    util::{
+        alphabet,
+        id::StateID,
+        matchtypes::MatchKind,
+        sparse_set::{SparseSet, SparseSets},
+    },
 };
 
 mod state;
@@ -117,6 +122,234 @@ impl Start {
     }
 }
 
+/// Compute the set of all eachable NFA states, including the full epsilon
+/// closure, from a DFA state for a single byte of input.
+pub(crate) fn next(
+    nfa: &thompson::NFA,
+    match_kind: MatchKind,
+    stack: &mut Vec<StateID>,
+    state: &State,
+    unit: alphabet::Unit,
+    builder: &mut StateBuilderMatches,
+    sparses: &mut SparseSets,
+) {
+    sparses.clear();
+
+    // Put the NFA state IDs into a sparse set in case we need to
+    // re-compute their epsilon closure.
+    //
+    // Doing this state shuffling is technically not necessary unless some
+    // kind of look-around is used in the DFA. Some ad hoc experiments
+    // suggested that avoiding this didn't lead to much of an improvement,
+    // but perhaps more rigorous experimentation should be done. And in
+    // particular, avoiding this check requires some light refactoring of
+    // the code below.
+    state.iter_nfa_state_ids(|nfa_id| {
+        sparses.set1.insert(nfa_id);
+    });
+
+    // Compute look-ahead assertions originating from the current state.
+    // Based on the input unit we're transitioning over, some additional
+    // set of assertions may be true. Thus, we re-compute this state's
+    // epsilon closure (but only if necessary).
+    if !state.look_need().is_empty() {
+        // Add look-ahead assertions that are now true based on the current
+        // input unit.
+        let mut look_have = state.look_have().clone();
+        match unit.as_u8() {
+            Some(b'\n') => {
+                look_have.insert(Look::EndLine);
+            }
+            Some(_) => {}
+            None => {
+                look_have.insert(Look::EndText);
+                look_have.insert(Look::EndLine);
+            }
+        }
+        if state.is_from_word() == unit.is_word_byte() {
+            look_have.insert(Look::WordBoundaryUnicodeNegate);
+            look_have.insert(Look::WordBoundaryAsciiNegate);
+        } else {
+            look_have.insert(Look::WordBoundaryUnicode);
+            look_have.insert(Look::WordBoundaryAscii);
+        }
+        // If we have new assertions satisfied that are among the set of
+        // assertions that exist in this state (that is, just because
+        // we added an EndLine assertion above doesn't mean there is an
+        // EndLine conditional epsilon transition in this state), then we
+        // re-compute this state's epsilon closure using the updated set of
+        // assertions.
+        if !look_have
+            .subtract(state.look_have())
+            .intersect(state.look_need())
+            .is_empty()
+        {
+            for nfa_id in &sparses.set1 {
+                epsilon_closure(
+                    nfa,
+                    nfa_id,
+                    look_have,
+                    stack,
+                    &mut sparses.set2,
+                );
+            }
+            sparses.swap();
+            sparses.set2.clear();
+        }
+    }
+
+    // Compute look-behind assertions that are true while entering the new
+    // state we create below.
+
+    // We only set the word byte if there's a word boundary look-around
+    // anywhere in this regex. Otherwise, there's no point in bloating
+    // the number of states if we don't have one.
+    if nfa.has_word_boundary() && unit.is_word_byte() {
+        builder.set_is_from_word();
+    }
+    // Similarly for the start-line look-around.
+    if nfa.has_any_anchor() {
+        if unit.as_u8().map_or(false, |b| b == b'\n') {
+            // Why only handle StartLine here and not StartText? That's
+            // because StartText can only impact the starting state, which
+            // is speical cased in 'add_one_start'.
+            builder.look_have().insert(Look::StartLine);
+        }
+    }
+    for nfa_id in &sparses.set1 {
+        match *nfa.state(nfa_id) {
+            thompson::State::Union { .. }
+            | thompson::State::Fail
+            | thompson::State::Look { .. } => {}
+            thompson::State::Match(pid) => {
+                // Notice here that we are calling the NEW state a match
+                // state if the OLD state we are transitioning from
+                // contains an NFA match state. This is precisely how we
+                // delay all matches by one byte and also what therefore
+                // guarantees that starting states cannot be match states.
+                //
+                // If we didn't delay matches by one byte, then whether
+                // a DFA is a matching state or not would be determined
+                // by whether one of its own constituent NFA states
+                // was a match state. (And that would be done in
+                // 'add_nfa_states'.)
+                builder.set_is_match();
+                if nfa.match_len() > 1 {
+                    builder.add_match_pattern_id(pid);
+                }
+                if !match_kind.continue_past_first_match() {
+                    break;
+                }
+            }
+            thompson::State::Range { range: ref r } => {
+                if let Some(b) = unit.as_u8() {
+                    if r.start <= b && b <= r.end {
+                        epsilon_closure(
+                            nfa,
+                            r.next,
+                            *builder.look_have(),
+                            stack,
+                            &mut sparses.set2,
+                        );
+                    }
+                }
+            }
+            thompson::State::Sparse { ref ranges } => {
+                let b = match unit.as_u8() {
+                    None => continue,
+                    Some(b) => b,
+                };
+                for r in ranges.iter() {
+                    if r.start > b {
+                        break;
+                    } else if r.start <= b && b <= r.end {
+                        epsilon_closure(
+                            nfa,
+                            r.next,
+                            *builder.look_have(),
+                            stack,
+                            &mut sparses.set2,
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Compute the epsilon closure for the given NFA state. The epsilon
+/// closure consists of all NFA state IDs, including `start`, that can be
+/// reached from `start` without consuming any input. These state IDs are
+/// written to `set` in the order they are visited, but only if they are
+/// not already in `set`.
+///
+/// `look_have` consists of the satisfied assertions at the current
+/// position. For conditional look-around epsilon transitions, these are
+/// only followed if they are satisfied by `look_have`.
+pub(crate) fn epsilon_closure(
+    nfa: &thompson::NFA,
+    start_nfa_id: StateID,
+    look_have: LookSet,
+    stack: &mut Vec<StateID>,
+    set: &mut SparseSet,
+) {
+    debug_assert!(stack.is_empty());
+    if !nfa.state(start_nfa_id).is_epsilon() {
+        set.insert(start_nfa_id);
+        return;
+    }
+
+    stack.push(start_nfa_id);
+    while let Some(mut id) = stack.pop() {
+        loop {
+            if !set.insert(id) {
+                break;
+            }
+            match *nfa.state(id) {
+                thompson::State::Range { .. }
+                | thompson::State::Sparse { .. }
+                | thompson::State::Fail
+                | thompson::State::Match(_) => break,
+                thompson::State::Look { look, next } => {
+                    if !look_have.contains(look) {
+                        break;
+                    }
+                    id = next;
+                }
+                thompson::State::Union { ref alternates } => {
+                    id = match alternates.get(0) {
+                        None => break,
+                        Some(&id) => id,
+                    };
+                    stack.extend(alternates[1..].iter().rev());
+                }
+            }
+        }
+    }
+}
+
+/// Add the NFA state IDs in the given `set` to the given DFA builder state.
+/// The order in which states are added corresponds to the order in which they
+/// were added to `set`.
+///
+/// The DFA builder state given should already have its complete set of match
+/// pattern IDs added (if any) and any look-behind assertions (StartLine,
+/// StartText and whether this state is being generated for a transition over a
+/// word byte when applicable) that are true immediately prior to transitioning
+/// into this state (via `builder.look_have()`). The match pattern IDs should
+/// correspond to matches that occured on the previous transition, since all
+/// matches are delayed by one byte. The things that should _not_ be set are
+/// look-ahead assertions (EndLine, EndText and whether the next byte is a
+/// word byte or not). The builder state should also not have anything in
+/// `look_need` set, as this routine will compute that for you.
+///
+/// The given NFA should be able to resolve all identifiers in `set` to a
+/// particular NFA state. Also, the given match kind should correspond to
+/// the match semantics implemented by the DFA. Generally speaking, for
+/// leftmost-first match semantics, states that appear after the first match
+/// state in `set` will not be added to the given builder since they are
+/// impossible to visit.
 pub(crate) fn add_nfa_states(
     nfa: &thompson::NFA,
     match_kind: MatchKind,
