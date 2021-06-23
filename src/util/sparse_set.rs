@@ -153,6 +153,13 @@ impl SparseSet {
     pub(crate) fn clear(&mut self) {
         self.len = 0;
     }
+
+    /// Return an iterator over the elements in this set in order they were
+    /// inserted.
+    #[inline]
+    pub(crate) fn iter(&self) -> SparseSetIter<'_> {
+        self.into_iter()
+    }
 }
 
 impl core::fmt::Debug for SparseSet {

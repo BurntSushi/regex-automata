@@ -158,22 +158,6 @@ impl StateBuilderNFA {
         builder
     }
 
-    pub(crate) fn set_from_start(&mut self, start: Start) {
-        match start {
-            Start::NonWordByte => {}
-            Start::WordByte => {
-                self.set_is_from_word();
-            }
-            Start::Text => {
-                self.look_have().insert(Look::StartText);
-                self.look_have().insert(Look::StartLine);
-            }
-            Start::Line => {
-                self.look_have().insert(Look::StartLine);
-            }
-        }
-    }
-
     pub(crate) fn is_match(&self) -> bool {
         self.repr().is_match()
     }

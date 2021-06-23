@@ -126,6 +126,9 @@ fn find_fwd<A: Automaton + ?Sized>(
                 return Ok(last_match);
             } else {
                 debug_assert!(dfa.is_quit_state(state));
+                if last_match.is_some() {
+                    return Ok(last_match);
+                }
                 return Err(MatchError::Quit { byte, offset: at - 1 });
             }
         }
@@ -216,6 +219,9 @@ fn find_rev<A: Automaton + ?Sized>(
                 return Ok(last_match);
             } else {
                 debug_assert!(dfa.is_quit_state(state));
+                if last_match.is_some() {
+                    return Ok(last_match);
+                }
                 return Err(MatchError::Quit { byte, offset: at });
             }
         }

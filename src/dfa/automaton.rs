@@ -432,6 +432,12 @@ pub unsafe trait Automaton {
     ///             } else if dfa.is_dead_state(state) {
     ///                 return Ok(last_match);
     ///             } else if dfa.is_quit_state(state) {
+    ///                 // It is possible to enter into a quit state after
+    ///                 // observing a match has occurred. In that case, we
+    ///                 // should return the match instead of an error.
+    ///                 if last_match.is_some() {
+    ///                     return Ok(last_match);
+    ///                 }
     ///                 return Err(MatchError::Quit { byte: b, offset: i });
     ///             }
     ///             // Implementors may also want to check for start or accel
@@ -657,6 +663,12 @@ pub unsafe trait Automaton {
     ///             } else if dfa.is_dead_state(state) {
     ///                 return Ok(last_match);
     ///             } else if dfa.is_quit_state(state) {
+    ///                 // It is possible to enter into a quit state after
+    ///                 // observing a match has occurred. In that case, we
+    ///                 // should return the match instead of an error.
+    ///                 if last_match.is_some() {
+    ///                     return Ok(last_match);
+    ///                 }
     ///                 return Err(MatchError::Quit {
     ///                     byte: b, offset: pos - 1,
     ///                 });

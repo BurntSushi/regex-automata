@@ -514,21 +514,20 @@ impl Config {
     ///
     /// // The match occurs before the search ever observes the snowman
     /// // character, so no error occurs.
-    /// let haystack = "foo 123 x☃".as_bytes();
+    /// let haystack = "foo 123 ☃".as_bytes();
     /// let expected = Some(HalfMatch::must(0, 7));
     /// let got = dfa.find_leftmost_fwd(haystack)?;
     /// assert_eq!(expected, got);
     ///
     /// // Notice that this search fails, even though the snowman character
-    /// // occurs after the match. This is because search routines read one
-    /// // byte past the end of the search to account for look-around. In
-    /// // this case, the whitespace after '123' is when a match is known,
-    /// // but the first byte of the snowman is still read for the final EOI
-    /// // transition, which ends up triggering the quit state.
-    /// let haystack = "foo 123 ☃".as_bytes();
-    /// let expected = MatchError::Quit { byte: 0xE2, offset: 8 };
-    /// let got = dfa.find_leftmost_fwd(haystack).unwrap_err();
-    /// assert_eq!(expected, got);
+    /// // occurs after the ending match offset. This is because search
+    /// // routines read one byte past the end of the search to account for
+    /// // look-around, and indeed, this is required here to determine whether
+    /// // the trailing \b matches.
+    /// let haystack = "foo 123☃".as_bytes();
+    /// let expected = MatchError::Quit { byte: 0xE2, offset: 7 };
+    /// let got = dfa.find_leftmost_fwd(haystack);
+    /// assert_eq!(Err(expected), got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

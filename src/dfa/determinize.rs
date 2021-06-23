@@ -286,27 +286,15 @@ impl<'a> Runner<'a> {
     ) -> Result<(StateID, bool), Error> {
         sparses.clear();
         // Compute the set of all reachable NFA states, including epsilons.
-        let mut builder = self.get_state_builder().into_matches();
-        util::determinize::next(
+        let empty_builder = self.get_state_builder();
+        let builder = util::determinize::next(
             self.nfa,
             self.config.match_kind,
+            sparses,
             &mut self.stack,
             &self.builder_states[self.dfa.to_index(dfa_id)],
             unit,
-            &mut builder,
-            sparses,
-        );
-        let mut builder = builder.into_nfa();
-        if sparses.set2.is_empty() && !builder.is_match() {
-            self.put_state_builder(builder);
-            return Ok((DEAD, false));
-        }
-        // Build a candidate state and check if it has already been built.
-        util::determinize::add_nfa_states(
-            &self.nfa,
-            self.config.match_kind,
-            &sparses.set2,
-            &mut builder,
+            empty_builder,
         );
         self.maybe_add_state(builder)
     }
@@ -411,7 +399,7 @@ impl<'a> Runner<'a> {
         // computing the epsilon closure, we only follow condiional epsilon
         // transitions that satisfy the look-behind assertions in 'facts'.
         let mut builder = self.get_state_builder().into_matches().into_nfa();
-        builder.set_from_start(start);
+        start.set_state(&mut builder);
         util::determinize::epsilon_closure(
             self.nfa,
             nfa_start,
@@ -419,12 +407,7 @@ impl<'a> Runner<'a> {
             &mut self.stack,
             sparse,
         );
-        util::determinize::add_nfa_states(
-            &self.nfa,
-            self.config.match_kind,
-            &sparse,
-            &mut builder,
-        );
+        util::determinize::add_nfa_states(&self.nfa, &sparse, &mut builder);
         self.maybe_add_state(builder).map(|(state, _)| state)
     }
 

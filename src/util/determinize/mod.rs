@@ -1,3 +1,40 @@
+/*!
+This module contains types and routines for implementing determinization.
+
+In this crate, there are at least two places where we implement
+determinization: fully ahead-of-time compiled DFAs in the `dfa` module and
+lazily compiled DFAs in the `hybrid` module. The stuff in this module
+corresponds to the things that are in common between these implementations.
+
+There are three broad things that our implementations of determinization have
+in common, as defined by this module:
+
+* The classification of start states. That is, whether we're dealing with
+word boundaries, line boundaries, etc., is all the same.
+
+* The representation of DFA states as sets of NFA states, including
+convenience types for building these DFA states that are amenable to reusing
+allocations.
+
+* Routines for the "classical" parts of determinization: computing the
+epsilon closure, tracking match states (and corresponding pattern IDs, since
+we support multi-pattern finite automata) and, of course, computing the
+transition function between states for units of input.
+
+I did consider a couple of alternatives to this particular form of code reuse:
+
+1. Don't do any code reuse. The problem here is that we *really* want both
+forms of determinization to do exactly identical things when it comes to
+their handling of NFA states. While our tests generally ensure this, the code
+is tricky and large enough where not reusing code is a pretty big bummer.
+
+2. Implement all of determinization once and make it generic over fully
+compiled DFAs and lazily compiled DFAs. While I didn't actually try this
+approach, my instinct is that it would be more complex than is needed here.
+And the interface required would be pretty hairy. Instead, I think splitting
+it into logical sub-components works better.
+*/
+
 pub(crate) use self::state::{
     State, StateBuilderEmpty, StateBuilderMatches, StateBuilderNFA,
 };
@@ -120,19 +157,63 @@ impl Start {
     pub(crate) fn as_usize(&self) -> usize {
         *self as usize
     }
+
+    /// Sets the appropriate look-behind assertions on the given state based on
+    /// this starting configuration.
+    pub(crate) fn set_state(&self, builder: &mut StateBuilderNFA) {
+        match *self {
+            Start::NonWordByte => {}
+            Start::WordByte => {
+                builder.set_is_from_word();
+            }
+            Start::Text => {
+                builder.look_have().insert(Look::StartText);
+                builder.look_have().insert(Look::StartLine);
+            }
+            Start::Line => {
+                builder.look_have().insert(Look::StartLine);
+            }
+        }
+    }
 }
 
 /// Compute the set of all eachable NFA states, including the full epsilon
-/// closure, from a DFA state for a single byte of input.
+/// closure, from a DFA state for a single unit of input. The set of reachable
+/// states is written to `out_set`. The `StateBuilderMatches` returned includes
+/// any look-behind assertions satisfied by `unit`, in addition to whether
+/// it is a match state. For multi-pattern DFAs, the builder will also include
+/// the pattern IDs that match (in the order seen).
+///
+/// `nfa` must be able to resolve any NFA state in `state` and any NFA state
+/// reachable via the epsilon closure of any NFA state in `state`. Both
+/// `scratch_set` and `out_set` must have capacity equivalent to `nfa.len()`.
+///
+/// `match_kind` should correspond to the match semantics implemented by the
+/// DFA. Generally speaking, for leftmost-first match semantics, states that
+/// appear after the first NFA match state will not be included in `out_set`
+/// since they are impossible to visit.
+///
+/// `stack` must have length 0. It is used as scratch space for depth first
+/// traversal. After returning, it is guaranteed that `stack` will have length
+/// 0.
+///
+/// `scratch_set` is used as scratch space for NFA state traversal.
+///
+/// `state` corresponds to the current DFA state on which one wants to compute
+/// the transition for the input `unit`.
+///
+/// `out_set` is used to write the set of reachable NFA states. Generally,
+/// callers will want to pass this set (along with the state builder returned)
+/// to `add_nfa_states` to finish construction of the new DFA state.
 pub(crate) fn next(
     nfa: &thompson::NFA,
     match_kind: MatchKind,
+    sparses: &mut SparseSets,
     stack: &mut Vec<StateID>,
     state: &State,
     unit: alphabet::Unit,
-    builder: &mut StateBuilderMatches,
-    sparses: &mut SparseSets,
-) {
+    empty_builder: StateBuilderEmpty,
+) -> StateBuilderNFA {
     sparses.clear();
 
     // Put the NFA state IDs into a sparse set in case we need to
@@ -198,16 +279,12 @@ pub(crate) fn next(
         }
     }
 
-    // Compute look-behind assertions that are true while entering the new
-    // state we create below.
-
-    // We only set the word byte if there's a word boundary look-around
-    // anywhere in this regex. Otherwise, there's no point in bloating
-    // the number of states if we don't have one.
-    if nfa.has_word_boundary() && unit.is_word_byte() {
-        builder.set_is_from_word();
-    }
-    // Similarly for the start-line look-around.
+    // Convert our empty builder into one that can record assertions and match
+    // pattern IDs.
+    let mut builder = empty_builder.into_matches();
+    // Set whether the StartLine look-behind assertion is true for this
+    // transition or not. The look-behind assertion for ASCII word boundaries
+    // is handled below.
     if nfa.has_any_anchor() {
         if unit.as_u8().map_or(false, |b| b == b'\n') {
             // Why only handle StartLine here and not StartText? That's
@@ -276,17 +353,48 @@ pub(crate) fn next(
             }
         }
     }
+    // We only set the word byte if there's a word boundary look-around
+    // anywhere in this regex. Otherwise, there's no point in bloating the
+    // number of states if we don't have one.
+    //
+    // We also only set it when the state has a non-zero number of NFA states.
+    // Otherwise, we could wind up with states that *should* be DEAD states
+    // but are otherwise distinct from DEAD states because of this look-behind
+    // assertion being set. While this can't technically impact correctness *in
+    // theory*, it can create pathological DFAs that consume input until EOI or
+    // a quit byte is seen. Consuming until EOI isn't a correctness problem,
+    // but a (serious) perf problem. Hitting a quit byte, however, could be a
+    // correctness problem since it could cause search routines to report an
+    // error instead of a detected match once the quit state is entered. (The
+    // search routine could be made to be a bit smarter by reporting a match
+    // if one was detected once it enters a quit state (and indeed, the search
+    // routines in this crate do just that), but it seems better to prevent
+    // these things by construction if possible.)
+    if nfa.has_word_boundary()
+        && unit.is_word_byte()
+        && !sparses.set2.is_empty()
+    {
+        builder.set_is_from_word();
+    }
+    let mut builder_nfa = builder.into_nfa();
+    add_nfa_states(nfa, &sparses.set2, &mut builder_nfa);
+    builder_nfa
 }
 
-/// Compute the epsilon closure for the given NFA state. The epsilon
-/// closure consists of all NFA state IDs, including `start`, that can be
-/// reached from `start` without consuming any input. These state IDs are
-/// written to `set` in the order they are visited, but only if they are
-/// not already in `set`.
+/// Compute the epsilon closure for the given NFA state. The epsilon closure
+/// consists of all NFA state IDs, including `start_nfa_id`, that can be
+/// reached from `start_nfa_id` without consuming any input. These state IDs
+/// are written to `set` in the order they are visited, but only if they are
+/// not already in `set`. `start_nfa_id` must be a valid state ID for the NFA
+/// given.
 ///
 /// `look_have` consists of the satisfied assertions at the current
 /// position. For conditional look-around epsilon transitions, these are
 /// only followed if they are satisfied by `look_have`.
+///
+/// `stack` must have length 0. It is used as scratch space for depth first
+/// traversal. After returning, it is guaranteed that `stack` will have length
+/// 0.
 pub(crate) fn epsilon_closure(
     nfa: &thompson::NFA,
     start_nfa_id: StateID,
@@ -294,7 +402,9 @@ pub(crate) fn epsilon_closure(
     stack: &mut Vec<StateID>,
     set: &mut SparseSet,
 ) {
-    debug_assert!(stack.is_empty());
+    assert!(stack.is_empty());
+    // If this isn't an epsilon state, then the epsilon closure is always just
+    // itself, so there's no need to spin up the machinery below to handle it.
     if !nfa.state(start_nfa_id).is_epsilon() {
         set.insert(start_nfa_id);
         return;
@@ -302,7 +412,13 @@ pub(crate) fn epsilon_closure(
 
     stack.push(start_nfa_id);
     while let Some(mut id) = stack.pop() {
+        // In many cases, we can avoid stack operations when an NFA state only
+        // adds one new state to visit. In that case, we just set our ID to
+        // that state and mush on. We only use the stack when an NFA state
+        // introduces multiple new states to visit.
         loop {
+            // Insert this NFA state, and if it's already in the set and thus
+            // already visited, then we can move on to the next one.
             if !set.insert(id) {
                 break;
             }
@@ -322,6 +438,9 @@ pub(crate) fn epsilon_closure(
                         None => break,
                         Some(&id) => id,
                     };
+                    // We need to process our alternates in order to preserve
+                    // match preferences, so put the earliest alternates closer
+                    // to the top of the stack.
                     stack.extend(alternates[1..].iter().rev());
                 }
             }
@@ -345,21 +464,13 @@ pub(crate) fn epsilon_closure(
 /// `look_need` set, as this routine will compute that for you.
 ///
 /// The given NFA should be able to resolve all identifiers in `set` to a
-/// particular NFA state. Also, the given match kind should correspond to
-/// the match semantics implemented by the DFA. Generally speaking, for
-/// leftmost-first match semantics, states that appear after the first match
-/// state in `set` will not be added to the given builder since they are
-/// impossible to visit.
+/// particular NFA state. Additionally, `set` must have capacity equivalent
+/// to `nfa.len()`.
 pub(crate) fn add_nfa_states(
     nfa: &thompson::NFA,
-    match_kind: MatchKind,
     set: &SparseSet,
     builder: &mut StateBuilderNFA,
 ) {
-    // We use this determinizer's scratch space to store the NFA state IDs
-    // because this state may not wind up being used if it's identical to
-    // some other existing state. When that happers, the caller should put
-    // the scratch allocation back into the determinizer.
     for nfa_id in set {
         match *nfa.state(nfa_id) {
             thompson::State::Range { .. } => {
@@ -418,9 +529,6 @@ pub(crate) fn add_nfa_states(
                 // the way we detect those cases is by looking for an NFA
                 // match state. See 'next' for how this is handled.
                 builder.add_nfa_state_id(nfa_id);
-                if !match_kind.continue_past_first_match() {
-                    break;
-                }
             }
         }
     }

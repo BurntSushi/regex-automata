@@ -680,7 +680,7 @@ matches = []
 unicode = false
 utf8 = false
 
-# Weird special case to ensure that ASCII \b treats each individual code unit
+# Weird special case to ensure that ASCII \B treats each individual code unit
 # as a non-word byte. (The specific codepoint is irrelevant. It's an arbitrary
 # codepoint that uses 4 bytes in its UTF-8 encoding and is not a member of the
 # \w character class.)
@@ -697,3 +697,22 @@ input = "0\U0007EF5E"
 matches = [[2, 2], [3, 3], [4, 4], [5, 5]]
 unicode = false
 utf8 = false
+
+# Some tests of no particular significance.
+[[tests]]
+name = "unicode6"
+regex = '\b[0-9]+\b'
+input = "foo 123 bar 456 quux 789"
+matches = [[4, 7], [12, 15], [21, 24]]
+
+[[tests]]
+name = "unicode7"
+regex = '\b[0-9]+\b'
+input = "foo 123 bar a456 quux 789"
+matches = [[4, 7], [22, 25]]
+
+[[tests]]
+name = "unicode8"
+regex = '\b[0-9]+\b'
+input = "foo 123 bar 456a quux 789"
+matches = [[4, 7], [22, 25]]
