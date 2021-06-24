@@ -681,49 +681,63 @@ mod tests {
         assert_eq!(Some(vec![PatternID::must(0)]), s.match_pattern_ids());
     }
 
-    #[test]
-    #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
-    fn prop_state_read_write_nfa_state_ids() {
-        fn p(sids: Vec<i32>) -> bool {
-            let mut expected = vec![];
+    quickcheck! {
+        fn prop_state_read_write_nfa_state_ids(sids: Vec<StateID>) -> bool {
             let mut b = StateBuilderEmpty::new().into_matches().into_nfa();
             for &sid in &sids {
-                let sid = if sid == i32::MIN {
-                    i32::MAX - 1
-                } else {
-                    core::cmp::min(i32::MAX - 1, sid.abs())
-                };
-                expected.push(sid);
-                let sid = usize::try_from(sid).unwrap();
-                b.add_nfa_state_id(StateID::new(sid).unwrap());
+                b.add_nfa_state_id(sid);
             }
             let s = b.to_state();
             let mut got = vec![];
-            s.iter_nfa_state_ids(|sid| got.push(sid.as_i32()));
-            expected == got
+            s.iter_nfa_state_ids(|sid| got.push(sid));
+            got == sids
         }
-        quickcheck(p as fn(Vec<i32>) -> bool);
-    }
 
-    #[test]
-    fn prop_read_write_varu32() {
-        fn p(n: u32) -> bool {
+        fn prop_state_read_write_pattern_ids(pids: Vec<PatternID>) -> bool {
+            let mut b = StateBuilderEmpty::new().into_matches();
+            for &pid in &pids {
+                b.add_match_pattern_id(pid);
+            }
+            let s = b.into_nfa().to_state();
+            let mut got = vec![];
+            s.iter_match_pattern_ids(|pid| got.push(pid));
+            got == pids
+        }
+
+        fn prop_state_read_write_nfa_state_and_pattern_ids(
+            sids: Vec<StateID>,
+            pids: Vec<PatternID>
+        ) -> bool {
+            let mut b = StateBuilderEmpty::new().into_matches();
+            for &pid in &pids {
+                b.add_match_pattern_id(pid);
+            }
+
+            let mut b = b.into_nfa();
+            for &sid in &sids {
+                b.add_nfa_state_id(sid);
+            }
+
+            let s = b.to_state();
+            let mut got_pids = vec![];
+            s.iter_match_pattern_ids(|pid| got_pids.push(pid));
+            let mut got_sids = vec![];
+            s.iter_nfa_state_ids(|sid| got_sids.push(sid));
+            got_pids == pids && got_sids == sids
+        }
+
+        fn prop_read_write_varu32(n: u32) -> bool {
             let mut buf = vec![];
             write_varu32(&mut buf, n);
             let (got, nread) = read_varu32(&buf);
             nread == buf.len() && got == n
         }
-        quickcheck(p as fn(u32) -> bool);
-    }
 
-    #[test]
-    fn prop_read_write_vari32() {
-        fn p(n: i32) -> bool {
+        fn prop_read_write_vari32(n: i32) -> bool {
             let mut buf = vec![];
             write_vari32(&mut buf, n);
             let (got, nread) = read_vari32(&buf);
             nread == buf.len() && got == n
         }
-        quickcheck(p as fn(i32) -> bool);
     }
 }

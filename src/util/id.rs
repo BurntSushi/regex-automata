@@ -522,6 +522,18 @@ macro_rules! impls {
                 Ok($ty::new_unchecked(id as usize))
             }
         }
+
+        #[cfg(test)]
+        impl quickcheck::Arbitrary for $ty {
+            fn arbitrary(gen: &mut quickcheck::Gen) -> $ty {
+                let id = u32::arbitrary(gen);
+                if id > $ty::MAX.as_u32() {
+                    $ty::MAX
+                } else {
+                    $ty::new(usize::try_from(id).unwrap()).unwrap()
+                }
+            }
+        }
     };
 }
 
