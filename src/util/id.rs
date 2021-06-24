@@ -1,6 +1,31 @@
 /*!
 Type definitions for `PatternID` and `StateID`.
+
+A `StateID` represents the possible set of identifiers used in regex engine
+implementations in this crate. For example, they are used to identify both NFA
+and DFA states.
+
+A `PatternID` represents the possible set of identifiers for patterns. All
+regex engine implementations in this crate support searching for multiple
+patterns simultaneously. A `PatternID` is how each pattern is uniquely
+identified for a particular instance of a regex engine. Namely, a pattern is
+assigned an auto-incrementing integer, starting at `0`, based on the order of
+patterns supplied during the construction of the regex engine.
+
+These identifier types represent a way for this crate to make correctness
+guarantees around the possible set of values that a `StateID` or a `PatternID`
+might represent. Similarly, they also provide a way of constraining the size of
+these identifiers to reduce space usage while still guaranteeing that all such
+identifiers are repsentable by a `usize` for the current target.
+
+Users of these types may not rely on identifier invariants for the purpose of
+memory safety. Users may, however, rely on these invariants to avoid panics or
+other types of logic bugs.
 */
+
+// An example of a way in which we use the guarantees on these types is delta
+// encoding. Namely, we require that IDs can be at most 2^31 - 2, which means
+// the difference between any two IDs is always representable as an i32.
 
 use core::{
     convert::{Infallible, TryFrom},

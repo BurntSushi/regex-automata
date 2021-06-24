@@ -3,10 +3,9 @@ use core::convert::TryFrom;
 use alloc::sync::Arc;
 
 use crate::{
-    nfa::thompson::{Look, LookSet},
+    nfa::thompson::LookSet,
     util::{
         bytes::{self, Endian},
-        determinize::Start,
         id::{PatternID, StateID},
     },
 };
@@ -50,14 +49,11 @@ impl State {
         self.repr().match_pattern_ids()
     }
 
-    pub(crate) fn iter_match_pattern_ids<F: FnMut(PatternID)>(
-        &self,
-        mut f: F,
-    ) {
+    pub(crate) fn iter_match_pattern_ids<F: FnMut(PatternID)>(&self, f: F) {
         self.repr().iter_match_pattern_ids(f)
     }
 
-    pub(crate) fn iter_nfa_state_ids<F: FnMut(StateID)>(&self, mut f: F) {
+    pub(crate) fn iter_nfa_state_ids<F: FnMut(StateID)>(&self, f: F) {
         self.repr().iter_nfa_state_ids(f)
     }
 
@@ -98,7 +94,7 @@ pub(crate) struct StateBuilderMatches(Vec<u8>);
 impl StateBuilderMatches {
     pub(crate) fn into_nfa(mut self) -> StateBuilderNFA {
         self.repr_vec().close_match_pattern_ids();
-        StateBuilderNFA(self.0)
+        StateBuilderNFA { repr: self.0, prev_nfa_state_id: StateID::ZERO }
     }
 
     pub(crate) fn clear(self) -> StateBuilderEmpty {
@@ -145,15 +141,18 @@ impl StateBuilderMatches {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct StateBuilderNFA(Vec<u8>);
+pub(crate) struct StateBuilderNFA {
+    repr: Vec<u8>,
+    prev_nfa_state_id: StateID,
+}
 
 impl StateBuilderNFA {
     pub(crate) fn to_state(&self) -> State {
-        State(Arc::from(&*self.0))
+        State(Arc::from(&*self.repr))
     }
 
     pub(crate) fn clear(self) -> StateBuilderEmpty {
-        let mut builder = StateBuilderEmpty(self.0);
+        let mut builder = StateBuilderEmpty(self.repr);
         builder.clear();
         builder
     }
@@ -175,31 +174,28 @@ impl StateBuilderNFA {
     }
 
     pub(crate) fn look_have(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.0[1])
+        LookSet::from_repr_mut(&mut self.repr[1])
     }
 
     pub(crate) fn look_need(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.0[2])
+        LookSet::from_repr_mut(&mut self.repr[2])
     }
 
-    pub(crate) fn add_nfa_state_id(
-        &mut self,
-        prev: &mut StateID,
-        sid: StateID,
-    ) {
-        self.repr_vec().add_nfa_state_id(prev, sid)
+    pub(crate) fn add_nfa_state_id(&mut self, sid: StateID) {
+        ReprVec(&mut self.repr)
+            .add_nfa_state_id(&mut self.prev_nfa_state_id, sid)
     }
 
     pub(crate) fn as_bytes(&self) -> &[u8] {
-        &self.0
+        &self.repr
     }
 
     fn repr(&self) -> Repr<'_> {
-        Repr(&self.0)
+        Repr(&self.repr)
     }
 
     fn repr_vec(&mut self) -> ReprVec<'_> {
-        ReprVec(&mut self.0)
+        ReprVec(&mut self.repr)
     }
 }
 
@@ -287,11 +283,11 @@ impl<'a> ReprVec<'a> {
         if self.0.len() <= 3 {
             self.0.extend(core::iter::repeat(0).take(8));
         }
-        self.0[0] |= (1 << 0);
+        self.0[0] |= 1 << 0;
     }
 
     fn set_is_from_word(&mut self) {
-        self.0[0] |= (1 << 1);
+        self.0[0] |= 1 << 1;
     }
 
     fn look_have_mut(&mut self) -> &mut LookSet {

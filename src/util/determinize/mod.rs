@@ -37,9 +37,7 @@ And the interface required would be pretty hairy. Instead, I think splitting
 it into logical sub-components works better.
 */
 
-pub(crate) use self::state::{
-    State, StateBuilderEmpty, StateBuilderMatches, StateBuilderNFA,
-};
+pub(crate) use self::state::{State, StateBuilderEmpty, StateBuilderNFA};
 
 use crate::{
     nfa::thompson::{self, Look, LookSet},
@@ -478,17 +476,16 @@ pub(crate) fn add_nfa_states(
     set: &SparseSet,
     builder: &mut StateBuilderNFA,
 ) {
-    let mut prev = StateID::ZERO;
     for nfa_id in set {
         match *nfa.state(nfa_id) {
             thompson::State::Range { .. } => {
-                builder.add_nfa_state_id(&mut prev, nfa_id);
+                builder.add_nfa_state_id(nfa_id);
             }
             thompson::State::Sparse { .. } => {
-                builder.add_nfa_state_id(&mut prev, nfa_id);
+                builder.add_nfa_state_id(nfa_id);
             }
             thompson::State::Look { look, .. } => {
-                builder.add_nfa_state_id(&mut prev, nfa_id);
+                builder.add_nfa_state_id(nfa_id);
                 builder.look_need().insert(look);
             }
             thompson::State::Union { .. } => {
@@ -536,7 +533,7 @@ pub(crate) fn add_nfa_states(
                 // that transition from the one we're building here. And
                 // the way we detect those cases is by looking for an NFA
                 // match state. See 'next' for how this is handled.
-                builder.add_nfa_state_id(&mut prev, nfa_id);
+                builder.add_nfa_state_id(nfa_id);
             }
         }
     }

@@ -1,5 +1,3 @@
-#![allow(warnings)]
-
 use core::borrow::Borrow;
 
 use crate::{
