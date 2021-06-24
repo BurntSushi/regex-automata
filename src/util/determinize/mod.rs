@@ -37,7 +37,9 @@ And the interface required would be pretty hairy. Instead, I think splitting
 it into logical sub-components works better.
 */
 
-pub(crate) use self::state::{State, StateBuilderEmpty, StateBuilderNFA};
+pub(crate) use self::state::{
+    State, StateBuilderEmpty, StateBuilderMatches, StateBuilderNFA,
+};
 
 use crate::{
     nfa::thompson::{self, Look, LookSet},
@@ -160,7 +162,7 @@ impl Start {
 
     /// Sets the appropriate look-behind assertions on the given state based on
     /// this starting configuration.
-    pub(crate) fn set_state(&self, builder: &mut StateBuilderNFA) {
+    pub(crate) fn set_state(&self, builder: &mut StateBuilderMatches) {
         match *self {
             Start::NonWordByte => {}
             Start::WordByte => {
@@ -315,10 +317,7 @@ pub(crate) fn next(
                 // by whether one of its own constituent NFA states
                 // was a match state. (And that would be done in
                 // 'add_nfa_states'.)
-                builder.set_is_match();
-                if nfa.match_len() > 1 {
-                    builder.add_match_pattern_id(pid);
-                }
+                builder.add_match_pattern_id(pid);
                 if !match_kind.continue_past_first_match() {
                     break;
                 }

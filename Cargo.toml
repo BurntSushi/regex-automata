@@ -38,6 +38,7 @@ regex-syntax = { version = "0.6.24", optional = true }
 
 [dev-dependencies]
 bstr = "0.2.16"
+quickcheck = { version = "1.0.3", default-features = false }
 regex-syntax = "0.6.16"
 regex-test = { version = "*", path = "regex-test" }
 
