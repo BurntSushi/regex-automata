@@ -538,7 +538,9 @@ impl<'a> ReprVec<'a> {
     /// Add a pattern ID to this state. All match states must have at least
     /// one pattern ID associated with it.
     ///
-    /// The order in which patterns are added also corresponds to the order
+    /// Callers must never add duplicative pattern IDs.
+    ///
+    /// The order in which patterns are added must correspond to the order
     /// in which patterns are reported as matches.
     fn add_match_pattern_id(&mut self, pid: PatternID) {
         // As a (somewhat small) space saving optimization, in the case where
@@ -656,6 +658,9 @@ fn write_varu32(data: &mut Vec<u8>, mut n: u32) {
 ///
 /// https://developers.google.com/protocol-buffers/docs/encoding#varints
 fn read_varu32(data: &[u8]) -> (u32, usize) {
+    // N.B. We can assume correctness here since we know that all varuints are
+    // written with write_varu32. Hence, the 'as' uses and unchecked arithmetic
+    // is all okay.
     let mut n: u32 = 0;
     let mut shift: u32 = 0;
     for (i, &b) in data.iter().enumerate() {
@@ -673,16 +678,11 @@ mod tests {
     use super::*;
     use quickcheck::quickcheck;
 
-    #[test]
-    fn scratch() {
-        let mut b = StateBuilderEmpty::new().into_matches();
-        b.add_match_pattern_id(PatternID::must(0));
-        let s = b.into_nfa().to_state();
-        assert_eq!(Some(vec![PatternID::must(0)]), s.match_pattern_ids());
-    }
-
     quickcheck! {
         fn prop_state_read_write_nfa_state_ids(sids: Vec<StateID>) -> bool {
+            // Builders states do not permit duplicate IDs.
+            let sids = dedup_state_ids(sids);
+
             let mut b = StateBuilderEmpty::new().into_matches().into_nfa();
             for &sid in &sids {
                 b.add_nfa_state_id(sid);
@@ -694,6 +694,9 @@ mod tests {
         }
 
         fn prop_state_read_write_pattern_ids(pids: Vec<PatternID>) -> bool {
+            // Builders states do not permit duplicate IDs.
+            let pids = dedup_pattern_ids(pids);
+
             let mut b = StateBuilderEmpty::new().into_matches();
             for &pid in &pids {
                 b.add_match_pattern_id(pid);
@@ -701,13 +704,17 @@ mod tests {
             let s = b.into_nfa().to_state();
             let mut got = vec![];
             s.iter_match_pattern_ids(|pid| got.push(pid));
-            got == pids
+            dbg!(got) == dbg!(pids)
         }
 
         fn prop_state_read_write_nfa_state_and_pattern_ids(
             sids: Vec<StateID>,
             pids: Vec<PatternID>
         ) -> bool {
+            // Builders states do not permit duplicate IDs.
+            let sids = dedup_state_ids(sids);
+            let pids = dedup_pattern_ids(pids);
+
             let mut b = StateBuilderEmpty::new().into_matches();
             for &pid in &pids {
                 b.add_match_pattern_id(pid);
@@ -739,5 +746,31 @@ mod tests {
             let (got, nread) = read_vari32(&buf);
             nread == buf.len() && got == n
         }
+    }
+
+    fn dedup_state_ids(sids: Vec<StateID>) -> Vec<StateID> {
+        let mut set = alloc::collections::BTreeSet::new();
+        let mut deduped = vec![];
+        for sid in sids {
+            if set.contains(&sid) {
+                continue;
+            }
+            set.insert(sid);
+            deduped.push(sid);
+        }
+        deduped
+    }
+
+    fn dedup_pattern_ids(pids: Vec<PatternID>) -> Vec<PatternID> {
+        let mut set = alloc::collections::BTreeSet::new();
+        let mut deduped = vec![];
+        for pid in pids {
+            if set.contains(&pid) {
+                continue;
+            }
+            set.insert(pid);
+            deduped.push(pid);
+        }
+        deduped
     }
 }

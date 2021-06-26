@@ -5,7 +5,7 @@ use crate::{
     nfa::thompson,
     util::{
         alphabet::{ByteClasses, ByteSet},
-        determinize::{Start, State},
+        determinize::{Start, State, StateBuilderEmpty},
         id::{PatternID, StateID},
         matchtypes::MatchKind,
         sparse_set::SparseSets,
@@ -82,7 +82,7 @@ struct CacheFSM {
     states: Vec<State>,
     states_to_id: StateMap,
     stack: Vec<StateID>,
-    scratch_nfa_states: Vec<StateID>,
+    scratch_state_builder: StateBuilderEmpty,
 }
 
 /// A map from states to state identifiers. When using std, we use a standard

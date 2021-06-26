@@ -526,8 +526,10 @@ macro_rules! impls {
         #[cfg(test)]
         impl quickcheck::Arbitrary for $ty {
             fn arbitrary(gen: &mut quickcheck::Gen) -> $ty {
-                let id = u32::arbitrary(gen);
-                if id > $ty::MAX.as_u32() {
+                use core::cmp::max;
+
+                let id = max(i32::MIN + 1, i32::arbitrary(gen)).abs();
+                if id > $ty::MAX.as_i32() {
                     $ty::MAX
                 } else {
                     $ty::new(usize::try_from(id).unwrap()).unwrap()

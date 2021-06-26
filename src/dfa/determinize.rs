@@ -1,4 +1,7 @@
-use alloc::{collections::BTreeMap, vec, vec::Vec};
+use alloc::{
+    collections::BTreeMap,
+    vec::{self, Vec},
+};
 
 use crate::{
     dfa::{dense, Error, DEAD},
