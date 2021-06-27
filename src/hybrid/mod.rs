@@ -9,6 +9,7 @@ use crate::{
 pub use self::lazy::InertDFA;
 
 mod error;
+mod id;
 mod lazy;
 
 /// Configuration for a lazy DFA.

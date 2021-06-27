@@ -409,7 +409,7 @@ impl<'a> Runner<'a> {
         );
         let mut builder = builder_matches.into_nfa();
         util::determinize::add_nfa_states(&self.nfa, &sparse, &mut builder);
-        self.maybe_add_state(builder).map(|(state, _)| state)
+        self.maybe_add_state(builder).map(|(sid, _)| sid)
     }
 
     /// Adds the given state to the DFA being built depending on whether it
@@ -433,7 +433,7 @@ impl<'a> Runner<'a> {
             self.put_state_builder(builder);
             return Ok((cached_id, false));
         }
-        self.add_state(builder).map(|s| (s, true))
+        self.add_state(builder).map(|sid| (sid, true))
     }
 
     /// Add the given state to the DFA and make it available in the cache.

@@ -284,8 +284,8 @@ impl StateID {
         StateID::try_from(id)
     }
 
-    /// Create a new pattern ID without checking whether the given value
-    /// exceeds [`PatternID::MAX`].
+    /// Create a new state ID without checking whether the given value
+    /// exceeds [`StateID::MAX`].
     ///
     /// While this is unchecked, providing an incorrect value must never
     /// sacrifice memory safety, as documented above.
@@ -300,7 +300,7 @@ impl StateID {
         StateID::new(id).unwrap()
     }
 
-    /// Return this pattern ID as a `usize`.
+    /// Return this state ID as a `usize`.
     #[inline]
     pub const fn as_usize(&self) -> usize {
         self.0 as usize
