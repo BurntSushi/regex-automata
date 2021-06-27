@@ -51,19 +51,26 @@ impl Config {
         // identical to the quit state. And we never want anything pointing
         // to the quit state other than specific transitions derived from the
         // determinizer's configured "quit" bytes.
+        //
+        // We do put the quit state into 'builder_states' below. This ensures
+        // that a proper DFA state ID is allocated for it, and that no other
+        // DFA state uses the "location after the DEAD state." That is, it
+        // is assumed that the quit state is always the state immediately
+        // following the DEAD state.
         cache.insert(dead.clone(), DEAD);
 
-        Runner {
+        let runner = Runner {
             config: self.clone(),
             nfa,
             dfa,
             builder_states: vec![dead, quit],
             cache,
             memory_usage_state: 0,
+            sparses: SparseSets::new(nfa.len()),
             stack: vec![],
             scratch_state_builder: StateBuilderEmpty::new(),
-        }
-        .run()
+        };
+        runner.run()
     }
 
     /// Whether to build an anchored DFA or not. When disabled (the default),
@@ -162,6 +169,10 @@ struct Runner<'a> {
     /// heap. Tracking this as we add states makes it possible to compute the
     /// total amount of memory used by the determinizer in constant time.
     memory_usage_state: usize,
+    /// A pair of sparse sets for tracking ordered sets of NFA state IDs.
+    /// These are reused throughout determinization. A bounded sparse set
+    /// gives us constant time insertion, membership testing and clearing.
+    sparses: SparseSets,
     /// Scratch space for a stack of NFA states to visit, for depth first
     /// visiting without recursion.
     stack: Vec<StateID>,
@@ -201,28 +212,24 @@ impl<'a> Runner<'a> {
         // state transitions. This allows us to avoid re-computing state
         // transitions for bytes that are guaranteed to produce identical
         // results.
-        let representative_bytes: Vec<alphabet::Unit> =
+        let representatives: Vec<alphabet::Unit> =
             self.dfa.byte_classes().representatives().collect();
-        // A pair of sparse sets for tracking ordered sets of NFA state IDs.
-        // These are reused throughout determinization. A bounded sparse set
-        // gives us constant time insertion, membership testing and clearing.
-        let mut sparses = SparseSets::new(self.nfa.len());
         // The set of all DFA state IDs that still need to have their
-        // transitions set. We start by seeding this will all starting states.
+        // transitions set. We start by seeding this with all starting states.
         let mut uncompiled = vec![];
-        self.add_all_starts(&mut sparses.set1, &mut uncompiled)?;
+        self.add_all_starts(&mut uncompiled)?;
         while let Some(dfa_id) = uncompiled.pop() {
-            for &b in &representative_bytes {
-                if b.as_u8().map_or(false, |b| self.config.quit.contains(b)) {
+            for &unit in &representatives {
+                if unit.as_u8().map_or(false, |b| self.config.quit.contains(b))
+                {
                     continue;
                 }
-                // In many cases, the state we transition too has already been
+                // In many cases, the state we transition to has already been
                 // computed. 'cached_state' will do the minimal amount of work
                 // to check this, and if it exists, immediately return an
                 // already existing state ID.
-                let (next_dfa_id, is_new) =
-                    self.cached_state(&mut sparses, dfa_id, b)?;
-                self.dfa.add_transition(dfa_id, b, next_dfa_id);
+                let (next_dfa_id, is_new) = self.cached_state(dfa_id, unit)?;
+                self.dfa.set_transition(dfa_id, unit, next_dfa_id);
                 // If the state ID we got back is newly created, then we need
                 // to compile it, so add it to our uncompiled frontier.
                 if is_new {
@@ -230,7 +237,6 @@ impl<'a> Runner<'a> {
                 }
             }
         }
-
         trace!(
             "determinization complete, memory usage: {}, dense DFA size: {}",
             self.memory_usage(),
@@ -259,9 +265,9 @@ impl<'a> Runner<'a> {
             log::trace!("matches map built, memory usage: {}", mem);
         }
         // At this point, we shuffle the "special" states in the final DFA.
-        // This permits a DFA's match loop to detect a match condition by
-        // merely inspecting the current state's identifier, and avoids the
-        // need for any additional auxiliary storage.
+        // This permits a DFA's match loop to detect a match condition (among
+        // other things) by merely inspecting the current state's identifier,
+        // and avoids the need for any additional auxiliary storage.
         self.dfa.shuffle(matches)?;
         Ok(())
     }
@@ -271,26 +277,20 @@ impl<'a> Runner<'a> {
     /// return its identifier from the cache. Otherwise, build the state, cache
     /// it and return its identifier.
     ///
-    /// The given sparse set is used for scratch space. It must have a capacity
-    /// equivalent to the total number of NFA states, but its contents are
-    /// otherwise unspecified.
-    ///
     /// This routine returns a boolean indicating whether a new state was
     /// built. If a new state is built, then the caller needs to add it to its
     /// frontier of uncompiled DFA states to compute transitions for.
     fn cached_state(
         &mut self,
-        sparses: &mut SparseSets,
         dfa_id: StateID,
         unit: alphabet::Unit,
     ) -> Result<(StateID, bool), Error> {
-        sparses.clear();
         // Compute the set of all reachable NFA states, including epsilons.
         let empty_builder = self.get_state_builder();
         let builder = util::determinize::next(
             self.nfa,
             self.config.match_kind,
-            sparses,
+            &mut self.sparses,
             &mut self.stack,
             &self.builder_states[self.dfa.to_index(dfa_id)],
             unit,
@@ -301,23 +301,18 @@ impl<'a> Runner<'a> {
 
     /// Compute the set of DFA start states and add their identifiers in
     /// 'dfa_state_ids' (no duplicates are added).
-    ///
-    /// The sparse set given is used for scratch space, and must have capacity
-    /// equal to the total number of NFA states. Its value given does not
-    /// matter and its value when this function returns is unspecified.
     fn add_all_starts(
         &mut self,
-        sparse: &mut SparseSet,
         dfa_state_ids: &mut Vec<StateID>,
     ) -> Result<(), Error> {
         // Always add the (possibly unanchored) start states for matching any
         // of the patterns in this DFA.
-        self.add_start_group(sparse, None, dfa_state_ids)?;
+        self.add_start_group(None, dfa_state_ids)?;
         // We only need to compute anchored start states for each pattern if it
         // was requested to do so.
         if self.dfa.has_starts_for_each_pattern() {
             for pid in PatternID::iter(self.dfa.pattern_count()) {
-                self.add_start_group(sparse, Some(pid), dfa_state_ids)?;
+                self.add_start_group(Some(pid), dfa_state_ids)?;
             }
         }
         Ok(())
@@ -325,8 +320,7 @@ impl<'a> Runner<'a> {
 
     /// Add a group of start states for the given match pattern ID. Any new
     /// DFA states added are pushed on to 'dfa_state_ids'. (No duplicates are
-    /// pushed.) Also, 'sparse' is used as scratch space; its value given does
-    /// not matter and its value when this function returns is unspecified.
+    /// pushed.)
     ///
     /// When pattern_id is None, then this will compile a group of unanchored
     /// start states (if the DFA is unanchored). When the pattern_id is
@@ -334,7 +328,6 @@ impl<'a> Runner<'a> {
     /// only match the given pattern.
     fn add_start_group(
         &mut self,
-        sparse: &mut SparseSet,
         pattern_id: Option<PatternID>,
         dfa_state_ids: &mut Vec<StateID>,
     ) -> Result<(), Error> {
@@ -351,28 +344,38 @@ impl<'a> Runner<'a> {
         // Instead, the 'WordByte' starting configuration can just point
         // directly to the start state for the 'NonWordByte' config.
 
-        let id = self.add_one_start(sparse, nfa_start, Start::NonWordByte)?;
+        let (id, is_new) =
+            self.add_one_start(nfa_start, Start::NonWordByte)?;
         self.dfa.set_start_state(Start::NonWordByte, pattern_id, id);
-        dfa_state_ids.push(id);
+        if is_new {
+            dfa_state_ids.push(id);
+        }
 
         if !self.nfa.has_word_boundary() {
             self.dfa.set_start_state(Start::WordByte, pattern_id, id);
         } else {
-            let id = self.add_one_start(sparse, nfa_start, Start::WordByte)?;
+            let (id, is_new) =
+                self.add_one_start(nfa_start, Start::WordByte)?;
             self.dfa.set_start_state(Start::WordByte, pattern_id, id);
-            dfa_state_ids.push(id);
+            if is_new {
+                dfa_state_ids.push(id);
+            }
         }
         if !self.nfa.has_any_anchor() {
             self.dfa.set_start_state(Start::Text, pattern_id, id);
             self.dfa.set_start_state(Start::Line, pattern_id, id);
         } else {
-            let id = self.add_one_start(sparse, nfa_start, Start::Text)?;
+            let (id, is_new) = self.add_one_start(nfa_start, Start::Text)?;
             self.dfa.set_start_state(Start::Text, pattern_id, id);
-            dfa_state_ids.push(id);
+            if is_new {
+                dfa_state_ids.push(id);
+            }
 
-            let id = self.add_one_start(sparse, nfa_start, Start::Line)?;
+            let (id, is_new) = self.add_one_start(nfa_start, Start::Line)?;
             self.dfa.set_start_state(Start::Line, pattern_id, id);
-            dfa_state_ids.push(id);
+            if is_new {
+                dfa_state_ids.push(id);
+            }
         }
 
         Ok(())
@@ -383,33 +386,34 @@ impl<'a> Runner<'a> {
     /// configuration essentially tells us which look-behind assertions are
     /// true for this particular state.)
     ///
-    /// The 'sparse' set given can have unspecified contents. It is used as
-    /// scratch space to store the epislon closure of NFA states (beginning at
-    /// the given NFA start state).
+    /// The boolean returned indicates whether the state ID returned is a newly
+    /// created state, or a previously cached state.
     fn add_one_start(
         &mut self,
-        sparse: &mut SparseSet,
         nfa_start: StateID,
         start: Start,
-    ) -> Result<StateID, Error> {
-        sparse.clear();
-
+    ) -> Result<(StateID, bool), Error> {
         // Compute the look-behind assertions that are true in this starting
         // configuration, and the determine the epsilon closure. While
         // computing the epsilon closure, we only follow condiional epsilon
         // transitions that satisfy the look-behind assertions in 'facts'.
         let mut builder_matches = self.get_state_builder().into_matches();
         start.set_state(&mut builder_matches);
+        self.sparses.set1.clear();
         util::determinize::epsilon_closure(
             self.nfa,
             nfa_start,
             *builder_matches.look_have(),
             &mut self.stack,
-            sparse,
+            &mut self.sparses.set1,
         );
         let mut builder = builder_matches.into_nfa();
-        util::determinize::add_nfa_states(&self.nfa, &sparse, &mut builder);
-        self.maybe_add_state(builder).map(|(sid, _)| sid)
+        util::determinize::add_nfa_states(
+            &self.nfa,
+            &self.sparses.set1,
+            &mut builder,
+        );
+        self.maybe_add_state(builder)
     }
 
     /// Adds the given state to the DFA being built depending on whether it
@@ -451,7 +455,7 @@ impl<'a> Runner<'a> {
         let id = self.dfa.add_empty_state()?;
         if !self.config.quit.is_empty() {
             for b in self.config.quit.iter() {
-                self.dfa.add_transition(
+                self.dfa.set_transition(
                     id,
                     alphabet::Unit::u8(b),
                     self.dfa.quit_id(),

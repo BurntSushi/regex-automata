@@ -1944,9 +1944,9 @@ impl OwnedDFA {
         self.st.set_start(index, pattern_id, id);
     }
 
-    /// Add the given transition to this DFA. Both the `from` and `to` states
+    /// Set the given transition to this DFA. Both the `from` and `to` states
     /// must already exist.
-    pub(crate) fn add_transition(
+    pub(crate) fn set_transition(
         &mut self,
         from: StateID,
         byte: alphabet::Unit,
