@@ -1,51 +1,92 @@
 use crate::nfa;
 
 #[derive(Clone, Debug)]
-pub struct Error {
-    kind: ErrorKind,
+pub struct BuildError {
+    kind: BuildErrorKind,
 }
 
 #[derive(Clone, Debug)]
-enum ErrorKind {
+enum BuildErrorKind {
     NFA(nfa::Error),
+    InsufficientCacheCapacity { minimum: usize, given: usize },
     Unsupported(&'static str),
 }
 
-impl Error {
-    fn kind(&self) -> &ErrorKind {
+impl BuildError {
+    fn kind(&self) -> &BuildErrorKind {
         &self.kind
     }
 
-    pub(crate) fn nfa(err: nfa::Error) -> Error {
-        Error { kind: ErrorKind::NFA(err) }
+    pub(crate) fn nfa(err: nfa::Error) -> BuildError {
+        BuildError { kind: BuildErrorKind::NFA(err) }
     }
 
-    pub(crate) fn unsupported_dfa_word_boundary_unicode() -> Error {
+    pub(crate) fn insufficient_cache_capacity(
+        minimum: usize,
+        given: usize,
+    ) -> BuildError {
+        BuildError {
+            kind: BuildErrorKind::InsufficientCacheCapacity { minimum, given },
+        }
+    }
+
+    pub(crate) fn unsupported_dfa_word_boundary_unicode() -> BuildError {
         let msg = "cannot build lazy DFAs for regexes with Unicode word \
                    boundaries; switch to ASCII word boundaries, or \
                    heuristically enable Unicode word boundaries or use a \
                    different regex engine";
-        Error { kind: ErrorKind::Unsupported(msg) }
+        BuildError { kind: BuildErrorKind::Unsupported(msg) }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for Error {
+impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind() {
-            ErrorKind::NFA(ref err) => Some(err),
-            ErrorKind::Unsupported(_) => None,
+            BuildErrorKind::NFA(ref err) => Some(err),
+            BuildErrorKind::InsufficientCacheCapacity { .. } => None,
+            BuildErrorKind::Unsupported(_) => None,
         }
     }
 }
 
-impl core::fmt::Display for Error {
+impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind() {
-            ErrorKind::NFA(_) => write!(f, "error building NFA"),
-            ErrorKind::Unsupported(ref msg) => {
+            BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
+            BuildErrorKind::InsufficientCacheCapacity { minimum, given } => {
+                write!(
+                    f,
+                    "given cache capacity ({}) is smaller than \
+                     minimum required ({})",
+                    given, minimum,
+                )
+            }
+            BuildErrorKind::Unsupported(ref msg) => {
                 write!(f, "unsupported regex feature for DFAs: {}", msg)
             }
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CacheError(());
+
+impl CacheError {
+    pub(crate) fn too_many_cache_resets() -> CacheError {
+        CacheError(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for CacheError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
+impl core::fmt::Display for CacheError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "lazy DFA cache has been reset too many times")
     }
 }

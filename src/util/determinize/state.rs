@@ -84,7 +84,7 @@ serialized anywhere. So any kind of change can be made with reckless abandon,
 as long as everything in this module agrees.
 */
 
-use core::convert::TryFrom;
+use core::{convert::TryFrom, mem};
 
 use alloc::sync::Arc;
 
@@ -138,6 +138,14 @@ impl State {
 
     pub(crate) fn look_need(&self) -> LookSet {
         self.repr().look_need()
+    }
+
+    pub(crate) fn match_count(&self) -> usize {
+        self.repr().match_count()
+    }
+
+    pub(crate) fn match_pattern(&self, index: usize) -> PatternID {
+        self.repr().match_pattern(index)
     }
 
     pub(crate) fn match_pattern_ids(&self) -> Option<Vec<PatternID>> {
@@ -339,17 +347,15 @@ impl StateBuilderNFA {
 /// function, we should only re-compute the epsilon closure if those new
 /// assertions are relevant to this particular state.
 ///
-/// Bytes 3..11 correspond to a 64-bit native-endian encoded integer
-/// corresponding to the byte offset at which the encoded NFA state IDs begin.
-/// (Or, equivalently, the byte offset at which the encoded pattern IDs end.)
-/// If the state is not a match state (byte 0 bit 0 is 0) or if it's only
-/// pattern ID is PatternID::ZERO, then no integer is encoded at this position.
-/// Instead, byte offset 3 is the position at which the first NFA state ID is
-/// encoded.
+/// Bytes 3..7 correspond to a 32-bit native-endian encoded integer
+/// corresponding to the number of patterns encoded in this state. If the state
+/// is not a match state (byte 0 bit 0 is 0) or if it's only pattern ID is
+/// PatternID::ZERO, then no integer is encoded at this position. Instead, byte
+/// offset 3 is the position at which the first NFA state ID is encoded.
 ///
 /// For a match state with at least one non-ZERO pattern ID, the next bytes
-/// correspond to a sequence of varuints[1] that represent each pattern ID, in
-/// order, that this match state represents.
+/// correspond to a sequence of 32-bit native endian encoded integers that
+/// represent each pattern ID, in order, that this match state represents.
 ///
 /// After the pattern IDs (if any), NFA state IDs are delta encoded as
 /// varints.[1] The first NFA state ID is encoded as itself, and each
@@ -423,16 +429,32 @@ impl<'a> Repr<'a> {
         LookSet::from_repr(self.0[2])
     }
 
-    /// Returns the offset into this state's representation where the pattern
-    /// IDs end and the NFA state IDs begin.
-    fn pattern_offset_end(&self) -> usize {
-        if !self.has_pattern_ids() {
-            return 3;
+    /// Returns the total number of match pattern IDs in this state.
+    ///
+    /// If this state is not a match state, then this always returns 0.
+    fn match_count(&self) -> usize {
+        if !self.is_match() {
+            return 0;
+        } else if !self.has_pattern_ids() {
+            1
+        } else {
+            self.encoded_pattern_count()
         }
-        let off64 = bytes::read_u64(&self.0[3..11]);
-        // This is OK since we only ever serialize usize values, so
-        // deserializing as a usize must always succeed.
-        usize::try_from(off64).unwrap()
+    }
+
+    /// Returns the pattern ID for this match state at the given index.
+    ///
+    /// If the given index is greater than or equal to `match_count()` for this
+    /// state, then this could panic or return incorrect results.
+    fn match_pattern(&self, index: usize) -> PatternID {
+        if !self.has_pattern_ids() {
+            PatternID::ZERO
+        } else {
+            let offset = 7 + index * PatternID::SIZE;
+            // This is OK since we only ever serialize valid PatternIDs to
+            // states.
+            bytes::read_pattern_id_unchecked(&self.0[offset..]).0
+        }
     }
 
     /// Returns a copy of all match pattern IDs in this state. If this state
@@ -459,10 +481,10 @@ impl<'a> Repr<'a> {
             f(PatternID::ZERO);
             return;
         }
-        let mut pids = &self.0[11..self.pattern_offset_end()];
+        let mut pids = &self.0[7..self.pattern_offset_end()];
         while !pids.is_empty() {
-            let (pid, nr) = read_varu32(pids);
-            pids = &pids[nr..];
+            let pid = bytes::read_u32(pids);
+            pids = &pids[PatternID::SIZE..];
             // This is OK since we only ever serialize valid PatternIDs to
             // states. And since pattern IDs can never exceed a usize, the
             // unwrap is OK.
@@ -484,6 +506,32 @@ impl<'a> Repr<'a> {
             // always be able to fit into a usize, and thus cast is OK.
             f(StateID::new_unchecked(sid as usize))
         }
+    }
+
+    /// Returns the offset into this state's representation where the pattern
+    /// IDs end and the NFA state IDs begin.
+    fn pattern_offset_end(&self) -> usize {
+        let encoded = self.encoded_pattern_count();
+        if encoded == 0 {
+            return 3;
+        }
+        // This arithmetic is OK since we were able to address this many bytes
+        // when writing to the state, thus, it must fit into a usize.
+        encoded.checked_mul(4).unwrap().checked_add(3).unwrap()
+    }
+
+    /// Returns the total number of *encoded* pattern IDs in this state.
+    ///
+    /// This may return 0 even when this is a match state, since the pattern
+    /// ID `PatternID::ZERO` is not encoded when it's the only pattern ID in
+    /// the match state (the overwhelming common case).
+    fn encoded_pattern_count(&self) -> usize {
+        if !self.has_pattern_ids() {
+            return 0;
+        }
+        // This unwrap is OK since the total number of patterns is always
+        // guaranteed to fit into a usize.
+        usize::try_from(bytes::read_u32(&self.0[3..7])).unwrap()
     }
 }
 
@@ -545,10 +593,10 @@ impl<'a> ReprVec<'a> {
     fn add_match_pattern_id(&mut self, pid: PatternID) {
         // As a (somewhat small) space saving optimization, in the case where
         // a matching state has exactly one pattern ID, PatternID::ZERO, we do
-        // not write either the pattern ID or the offset indicating where
-        // pattern IDs end. Instead, all we do is set the 'is_match' bit on
-        // this state. Overall, this saves 9 bytes per match state for the
-        // overwhelming majority of match states.
+        // not write either the pattern ID or the number of patterns encoded.
+        // Instead, all we do is set the 'is_match' bit on this state. Overall,
+        // this saves 8 bytes per match state for the overwhelming majority of
+        // match states.
         //
         // In order to know whether pattern IDs need to be explicitly read or
         // not, we use another internal-only bit, 'has_pattern_ids', to
@@ -558,9 +606,9 @@ impl<'a> ReprVec<'a> {
                 self.set_is_match();
                 return;
             }
-            // Make room for 'close_match_pattern_ids' to write the offset
-            // at which pattern IDs end (and NFA state IDs begin).
-            self.0.extend(core::iter::repeat(0).take(8));
+            // Make room for 'close_match_pattern_ids' to write the total
+            // number of pattern IDs written.
+            self.0.extend(core::iter::repeat(0).take(PatternID::SIZE));
             self.set_has_pattern_ids();
             // If this was already a match state, then the only way that's
             // possible when the state doesn't have pattern IDs is if
@@ -569,13 +617,13 @@ impl<'a> ReprVec<'a> {
             // which case, we want to make sure to represent ZERO explicitly
             // now.
             if self.repr().is_match() {
-                write_varu32(self.0, 0);
+                write_u32(self.0, 0)
             } else {
                 // Otherwise, just make sure the 'is_match' bit is set.
                 self.set_is_match();
             }
         }
-        write_varu32(self.0, pid.as_u32());
+        write_u32(self.0, pid.as_u32());
     }
 
     /// Indicate that no more pattern IDs will be added to this state.
@@ -591,13 +639,15 @@ impl<'a> ReprVec<'a> {
         if !self.repr().has_pattern_ids() {
             return;
         }
-        // This unwrap is OK since the number of patterns is guaranteed to be
-        // representable by a u32. Conservatively, if we use 4 bytes for each
-        // pattern and the maximum number of patterns were encoded, then
-        // this offset would be 3 + (4 * PatternID::LIMIT) = ~(2^34 + 3), which
-        // of course fits into a u64.
-        let nfa_state_id_start = u64::try_from(self.0.len()).unwrap();
-        bytes::NE::write_u64(nfa_state_id_start, &mut self.0[3..11]);
+        let patsize = PatternID::SIZE;
+        let pattern_bytes = self.0.len() - 3;
+        // Every pattern ID uses 4 bytes, so number of bytes should be
+        // divisible by 4.
+        assert_eq!(pattern_bytes % patsize, 0);
+        // This unwrap is OK since we are guaranteed that the maximum number
+        // of possible patterns fits into a u32.
+        let count32 = u32::try_from(pattern_bytes / patsize).unwrap();
+        bytes::NE::write_u32(count32, &mut self.0[3..7]);
     }
 
     /// Add an NFA state ID to this state. The order in which NFA states are
@@ -671,6 +721,15 @@ fn read_varu32(data: &[u8]) -> (u32, usize) {
         shift += 7;
     }
     (0, 0)
+}
+
+/// Push a native-endian encoded `n` on to `dst`.
+fn write_u32(dst: &mut Vec<u8>, n: u32) {
+    use crate::util::bytes::{Endian, NE};
+
+    let start = dst.len();
+    dst.extend(core::iter::repeat(0).take(mem::size_of::<u32>()));
+    NE::write_u32(n, &mut dst[start..]);
 }
 
 #[cfg(test)]

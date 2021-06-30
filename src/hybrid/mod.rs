@@ -1,7 +1,7 @@
 use core::borrow::Borrow;
 
 use crate::{
-    hybrid::error::Error,
+    hybrid::error::{BuildError, CacheError},
     nfa::thompson,
     util::{alphabet::ByteSet, matchtypes::MatchKind},
 };
@@ -28,6 +28,9 @@ pub struct Config {
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
     quit: Option<ByteSet>,
+    cache_capacity: Option<usize>,
+    minimum_cache_flush_count: Option<Option<usize>>,
+    bytes_per_state: Option<usize>,
 }
 
 impl Config {
@@ -82,6 +85,21 @@ impl Config {
         self
     }
 
+    pub fn cache_capacity(mut self, bytes: usize) -> Config {
+        self.cache_capacity = Some(bytes);
+        self
+    }
+
+    pub fn minimum_cache_flush_count(mut self, min: Option<usize>) -> Config {
+        self.minimum_cache_flush_count = Some(min);
+        self
+    }
+
+    pub fn bytes_per_state(mut self, amount: usize) -> Config {
+        self.bytes_per_state = Some(amount);
+        self
+    }
+
     /// Returns whether this configuration has enabled anchored searches.
     pub fn get_anchored(&self) -> bool {
         self.anchored.unwrap_or(false)
@@ -120,6 +138,18 @@ impl Config {
         self.quit.map_or(false, |q| q.contains(byte))
     }
 
+    pub fn get_cache_capacity(&self) -> usize {
+        self.cache_capacity.unwrap_or(2 * (1 << 20))
+    }
+
+    pub fn get_minimum_cache_flush_count(&self) -> Option<usize> {
+        self.minimum_cache_flush_count.unwrap_or(None)
+    }
+
+    pub fn get_bytes_per_state(&self) -> usize {
+        self.bytes_per_state.unwrap_or(10)
+    }
+
     /// Overwrite the default configuration such that the options in `o` are
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
@@ -136,6 +166,11 @@ impl Config {
                 .unicode_word_boundary
                 .or(self.unicode_word_boundary),
             quit: o.quit.or(self.quit),
+            cache_capacity: o.cache_capacity.or(self.cache_capacity),
+            minimum_cache_flush_count: o
+                .minimum_cache_flush_count
+                .or(self.minimum_cache_flush_count),
+            bytes_per_state: o.bytes_per_state.or(self.bytes_per_state),
         }
     }
 }
@@ -158,22 +193,23 @@ impl Builder {
     pub fn build(
         &self,
         pattern: &str,
-    ) -> Result<InertDFA<thompson::NFA>, Error> {
+    ) -> Result<InertDFA<thompson::NFA>, BuildError> {
         self.build_many(&[pattern])
     }
 
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<InertDFA<thompson::NFA>, Error> {
-        let nfa = self.thompson.build_many(patterns).map_err(Error::nfa)?;
+    ) -> Result<InertDFA<thompson::NFA>, BuildError> {
+        let nfa =
+            self.thompson.build_many(patterns).map_err(BuildError::nfa)?;
         self.build_from_nfa(nfa)
     }
 
     pub fn build_from_nfa<N: Borrow<thompson::NFA>>(
         &self,
         nfa: N,
-    ) -> Result<InertDFA<N>, Error> {
+    ) -> Result<InertDFA<N>, BuildError> {
         InertDFA::new(&self.config, nfa)
     }
 

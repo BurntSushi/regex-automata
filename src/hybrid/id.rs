@@ -79,7 +79,7 @@ impl LazyStateID {
     /// Return this lazy state ID as its raw internal `usize` value, which may
     /// be masked (and thus greater than LazyStateID::MAX).
     #[inline]
-    const fn as_usize_unchecked(&self) -> usize {
+    pub(crate) const fn as_usize_unchecked(&self) -> usize {
         self.0 as usize
     }
 
