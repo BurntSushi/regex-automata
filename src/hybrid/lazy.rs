@@ -133,7 +133,7 @@ impl Cache {
             sparses: SparseSets::new(dfa.nfa.borrow().len()),
             fsm: CacheFSM {
                 trans: vec![],
-                starts: vec![LazyStateID::SENTINEL_UNKNOWN; starts_len],
+                starts: vec![LazyStateID::unknown(); starts_len],
                 states: vec![],
                 states_to_id: StateMap::new(),
                 stack: vec![],
@@ -167,7 +167,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
         input: u8,
     ) -> Result<LazyStateID, CacheError> {
         let input = self.inert.classes.get(input);
-        let offset = current.as_usize_unchecked() + usize::from(input);
+        let offset = current.as_usize_unmasked() + usize::from(input);
         let sid = self.cache.fsm.trans[offset];
         if !sid.is_unknown() {
             return Ok(sid);
@@ -261,7 +261,9 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             unit,
             empty_builder,
         );
-        self.maybe_add_state(builder).map(|(sid, _)| sid)
+        let next = self.maybe_add_state(builder, false).map(|(sid, _)| sid)?;
+        self.set_transition(current, unit, next);
+        Ok(next)
     }
 
     fn get_cached_start(
@@ -327,12 +329,13 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             &self.cache.sparses.set1,
             &mut builder,
         );
-        self.maybe_add_state(builder).map(|(sid, _)| sid.as_start())
+        self.maybe_add_state(builder, true).map(|(sid, _)| sid)
     }
 
     fn maybe_add_state(
         &mut self,
         builder: StateBuilderNFA,
+        tag_as_start: bool,
     ) -> Result<(LazyStateID, bool), CacheError> {
         if let Some(&cached_id) =
             self.cache.fsm.states_to_id.get(builder.as_bytes())
@@ -340,22 +343,33 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
             self.put_state_builder(builder);
+            // If we requested that the state be tagged as a start state,
+            // then the cached state we get back better be tagged as such.
+            // Otherwise, there's a bug somewhere in how we're caching states.
+            assert_eq!(cached_id.is_start(), tag_as_start);
             return Ok((cached_id, false));
         }
-        self.add_state(builder).map(|sid| (sid, true))
+        self.add_state(builder, tag_as_start).map(|sid| (sid, true))
     }
 
     fn add_state(
         &mut self,
         builder: StateBuilderNFA,
+        tag_as_start: bool,
     ) -> Result<LazyStateID, CacheError> {
-        let id = self.add_empty_state()?;
+        let mut id = self.add_empty_state()?;
+        if tag_as_start {
+            id = id.to_start();
+        }
+        if builder.is_match() {
+            id = id.to_match();
+        }
         if !self.inert.quit.is_empty() {
             for b in self.inert.quit.iter() {
                 self.set_transition(
                     id,
                     alphabet::Unit::u8(b),
-                    LazyStateID::SENTINEL_QUIT,
+                    LazyStateID::quit(),
                 );
             }
         }
@@ -371,9 +385,10 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
         // TODO: Attempt a cache reset here if allocating a new ID fails.
         let sid = LazyStateID::new(next)
             .map_err(|_| CacheError::too_many_cache_resets())?;
-        self.cache.fsm.trans.extend(
-            iter::repeat(LazyStateID::SENTINEL_UNKNOWN).take(self.stride()),
-        );
+        self.cache
+            .fsm
+            .trans
+            .extend(iter::repeat(LazyStateID::unknown()).take(self.stride()));
         Ok(sid)
     }
 

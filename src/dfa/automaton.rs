@@ -26,6 +26,8 @@ use crate::{
 /// tricky.)
 pub(crate) const MATCH_OFFSET: usize = 1;
 
+// TODO: Move HalfMatch to util::matchtypes module.
+
 /// A representation of a match reported by a DFA.
 ///
 /// This is called a "half" match because it only includes the end location
