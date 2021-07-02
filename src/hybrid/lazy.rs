@@ -124,13 +124,13 @@ struct CacheFSM {
 }
 
 impl Cache {
-    pub fn new<N: Borrow<thompson::NFA>>(dfa: &InertDFA<N>) -> Cache {
+    pub fn new<N: Borrow<thompson::NFA>>(inert: &InertDFA<N>) -> Cache {
         let mut starts_len = Start::count();
-        if dfa.starts_for_each_pattern {
-            starts_len += Start::count() * dfa.pattern_count();
+        if inert.starts_for_each_pattern {
+            starts_len += Start::count() * inert.pattern_count();
         }
-        Cache {
-            sparses: SparseSets::new(dfa.nfa.borrow().len()),
+        let mut cache = Cache {
+            sparses: SparseSets::new(inert.nfa.borrow().len()),
             fsm: CacheFSM {
                 trans: vec![],
                 starts: vec![LazyStateID::unknown(); starts_len],
@@ -139,7 +139,44 @@ impl Cache {
                 stack: vec![],
                 scratch_state_builder: StateBuilderEmpty::new(),
             },
-        }
+        };
+        let mut dfa = DFA { inert, cache: &mut cache };
+        // This sets up some states that we use as sentinels that are present
+        // in every DFA. While it would be technically possible to implement
+        // this DFA without explicitly putting these states in the transition
+        // table, this is convenient to do to make `next_state` correct for all
+        // valid state IDs without needing explicit conditionals to special
+        // case these sentinel states.
+        //
+        // All three of these states are "dead" states. That is, all of
+        // them transition only to themselves. So once you enter one of
+        // these states, it's impossible to leave them. Thus, any correct
+        // search routine must explicitly check for these state types. (Sans
+        // `unknown`, since that is only used internally to represent missing
+        // states.)
+        let unknown = dfa.add_empty_state().unwrap().to_unknown();
+        let dead = dfa.add_empty_state().unwrap().to_dead();
+        let quit = dfa.add_empty_state().unwrap().to_quit();
+        dfa.set_all_transitions(unknown, unknown);
+        dfa.set_all_transitions(dead, dead);
+        dfa.set_all_transitions(quit, quit);
+        // We make room for all three of these states so that we maintain the
+        // relationship between the index into 'states' and the premultiplied
+        // state identifier that points into the transition table.
+        dfa.cache.fsm.states.push(State::dead());
+        dfa.cache.fsm.states.push(State::dead());
+        dfa.cache.fsm.states.push(State::dead());
+        // All of these states are equivalent, so putting all three of them in
+        // the cache isn't possible. Moreover, we wouldn't want to do that.
+        // Unknown and quit states are special in that they are artificial
+        // constructions this implementation. But dead states are a natural
+        // part of determinization. When you reach a point in the NFA where you
+        // cannot go anywhere else, a dead state will naturally arise and we
+        // MUST reuse the canonical dead state that we've created here. Why?
+        // Because it is the state ID that tells the search routine whether a
+        // state is dead or not, and thus, whether to stop the search.
+        dfa.cache.fsm.states_to_id.insert(State::dead(), dead);
+        cache
     }
 }
 
@@ -261,7 +298,8 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             unit,
             empty_builder,
         );
-        let next = self.maybe_add_state(builder, false).map(|(sid, _)| sid)?;
+        let next =
+            self.maybe_add_state(builder, |sid| sid).map(|(sid, _)| sid)?;
         self.set_transition(current, unit, next);
         Ok(next)
     }
@@ -329,13 +367,13 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             &self.cache.sparses.set1,
             &mut builder,
         );
-        self.maybe_add_state(builder, true).map(|(sid, _)| sid)
+        self.maybe_add_state(builder, |id| id.to_start()).map(|(sid, _)| sid)
     }
 
     fn maybe_add_state(
         &mut self,
         builder: StateBuilderNFA,
-        tag_as_start: bool,
+        idmap: impl Fn(LazyStateID) -> LazyStateID,
     ) -> Result<(LazyStateID, bool), CacheError> {
         if let Some(&cached_id) =
             self.cache.fsm.states_to_id.get(builder.as_bytes())
@@ -343,24 +381,17 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
             self.put_state_builder(builder);
-            // If we requested that the state be tagged as a start state,
-            // then the cached state we get back better be tagged as such.
-            // Otherwise, there's a bug somewhere in how we're caching states.
-            assert_eq!(cached_id.is_start(), tag_as_start);
             return Ok((cached_id, false));
         }
-        self.add_state(builder, tag_as_start).map(|sid| (sid, true))
+        self.add_state(builder, idmap).map(|sid| (sid, true))
     }
 
     fn add_state(
         &mut self,
         builder: StateBuilderNFA,
-        tag_as_start: bool,
+        idmap: impl Fn(LazyStateID) -> LazyStateID,
     ) -> Result<LazyStateID, CacheError> {
-        let mut id = self.add_empty_state()?;
-        if tag_as_start {
-            id = id.to_start();
-        }
+        let mut id = idmap(self.add_empty_state()?);
         if builder.is_match() {
             id = id.to_match();
         }
@@ -392,13 +423,18 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
         Ok(sid)
     }
 
+    fn set_all_transitions(&mut self, from: LazyStateID, to: LazyStateID) {
+        for unit in self.inert.classes.representatives() {
+            self.set_transition(from, unit, to);
+        }
+    }
+
     fn set_transition(
         &mut self,
         from: LazyStateID,
         unit: alphabet::Unit,
         to: LazyStateID,
     ) {
-        assert!(!from.is_unknown() && !from.is_dead() && !from.is_quit());
         assert!(self.is_valid(from));
         assert!(self.is_valid(to));
         let offset =
