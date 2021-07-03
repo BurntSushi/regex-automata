@@ -109,16 +109,11 @@ impl<N: Borrow<thompson::NFA>> InertDFA<N> {
 
 #[derive(Clone, Debug)]
 pub struct Cache {
-    sparses: SparseSets,
-    fsm: CacheFSM,
-}
-
-#[derive(Clone, Debug)]
-struct CacheFSM {
     trans: Vec<LazyStateID>,
     starts: Vec<LazyStateID>,
     states: Vec<State>,
     states_to_id: StateMap,
+    sparses: SparseSets,
     stack: Vec<NFAStateID>,
     scratch_state_builder: StateBuilderEmpty,
 }
@@ -130,17 +125,18 @@ impl Cache {
             starts_len += Start::count() * inert.pattern_count();
         }
         let mut cache = Cache {
+            trans: vec![],
+            starts: vec![],
+            states: vec![],
+            states_to_id: StateMap::new(),
             sparses: SparseSets::new(inert.nfa.borrow().len()),
-            fsm: CacheFSM {
-                trans: vec![],
-                starts: vec![LazyStateID::unknown(); starts_len],
-                states: vec![],
-                states_to_id: StateMap::new(),
-                stack: vec![],
-                scratch_state_builder: StateBuilderEmpty::new(),
-            },
+            stack: vec![],
+            scratch_state_builder: StateBuilderEmpty::new(),
         };
         let mut dfa = DFA { inert, cache: &mut cache };
+        dfa.cache
+            .starts
+            .extend(iter::repeat(dfa.unknown_id()).take(starts_len));
         // This sets up some states that we use as sentinels that are present
         // in every DFA. While it would be technically possible to implement
         // this DFA without explicitly putting these states in the transition
@@ -157,15 +153,23 @@ impl Cache {
         let unknown = dfa.add_empty_state().unwrap().to_unknown();
         let dead = dfa.add_empty_state().unwrap().to_dead();
         let quit = dfa.add_empty_state().unwrap().to_quit();
-        dfa.set_all_transitions(unknown, unknown);
+        assert_eq!(unknown, dfa.unknown_id());
+        assert_eq!(dead, dfa.dead_id());
+        assert_eq!(quit, dfa.quit_id());
+        // We transition "unknown" states to dead states to uphold the property
+        // that `next_state` should never return an "unknown" state ID. This is
+        // somewhat of a pathological case, since it implies the caller has
+        // probably gone out of their way to pass an unknown state ID to
+        // `next_state`.
+        dfa.set_all_transitions(unknown, dead);
         dfa.set_all_transitions(dead, dead);
         dfa.set_all_transitions(quit, quit);
         // We make room for all three of these states so that we maintain the
         // relationship between the index into 'states' and the premultiplied
         // state identifier that points into the transition table.
-        dfa.cache.fsm.states.push(State::dead());
-        dfa.cache.fsm.states.push(State::dead());
-        dfa.cache.fsm.states.push(State::dead());
+        dfa.cache.states.push(State::dead());
+        dfa.cache.states.push(State::dead());
+        dfa.cache.states.push(State::dead());
         // All of these states are equivalent, so putting all three of them in
         // the cache isn't possible. Moreover, we wouldn't want to do that.
         // Unknown and quit states are special in that they are artificial
@@ -175,7 +179,7 @@ impl Cache {
         // MUST reuse the canonical dead state that we've created here. Why?
         // Because it is the state ID that tells the search routine whether a
         // state is dead or not, and thus, whether to stop the search.
-        dfa.cache.fsm.states_to_id.insert(State::dead(), dead);
+        dfa.cache.states_to_id.insert(State::dead(), dead);
         cache
     }
 }
@@ -205,7 +209,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
     ) -> Result<LazyStateID, CacheError> {
         let input = self.inert.classes.get(input);
         let offset = current.as_usize_unmasked() + usize::from(input);
-        let sid = self.cache.fsm.trans[offset];
+        let sid = self.cache.trans[offset];
         if !sid.is_unknown() {
             return Ok(sid);
         }
@@ -218,7 +222,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
     ) -> Result<LazyStateID, CacheError> {
         let eoi = self.inert.classes.eoi().as_usize();
         let offset = current.as_usize_unchecked() + eoi;
-        let sid = self.cache.fsm.trans[offset];
+        let sid = self.cache.trans[offset];
         if !sid.is_unknown() {
             return Ok(sid);
         }
@@ -293,13 +297,16 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             self.inert.nfa.borrow(),
             self.inert.match_kind,
             &mut self.cache.sparses,
-            &mut self.cache.fsm.stack,
-            &self.cache.fsm.states[current.as_usize_unmasked() >> stride2],
+            &mut self.cache.stack,
+            &self.cache.states[current.as_usize_unmasked() >> stride2],
             unit,
             empty_builder,
         );
         let next =
             self.maybe_add_state(builder, |sid| sid).map(|(sid, _)| sid)?;
+        // This is the payoff. The next time 'next_state' is called with this
+        // state and alphabet unit, it will find this transition and avoid
+        // having to re-determinize this transition.
         self.set_transition(current, unit, next);
         Ok(next)
     }
@@ -322,12 +329,12 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
                 Start::count() + (Start::count() * pid) + start_index
             }
         };
-        self.cache.fsm.starts[index]
+        self.cache.starts[index]
     }
 
     fn get_cached_state(&self, sid: LazyStateID) -> &State {
         let index = sid.as_usize_unmasked() >> self.stride2();
-        &self.cache.fsm.states[index]
+        &self.cache.states[index]
     }
 
     fn cache_start_group(
@@ -358,7 +365,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             self.inert.nfa.borrow(),
             nfa_start_id,
             *builder_matches.look_have(),
-            &mut self.cache.fsm.stack,
+            &mut self.cache.stack,
             &mut self.cache.sparses.set1,
         );
         let mut builder = builder_matches.into_nfa();
@@ -376,7 +383,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
         idmap: impl Fn(LazyStateID) -> LazyStateID,
     ) -> Result<(LazyStateID, bool), CacheError> {
         if let Some(&cached_id) =
-            self.cache.fsm.states_to_id.get(builder.as_bytes())
+            self.cache.states_to_id.get(builder.as_bytes())
         {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
@@ -396,30 +403,26 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
             id = id.to_match();
         }
         if !self.inert.quit.is_empty() {
+            let quit_id = self.quit_id();
             for b in self.inert.quit.iter() {
-                self.set_transition(
-                    id,
-                    alphabet::Unit::u8(b),
-                    LazyStateID::quit(),
-                );
+                self.set_transition(id, alphabet::Unit::u8(b), quit_id);
             }
         }
         let state = builder.to_state();
-        self.cache.fsm.states.push(state.clone());
-        self.cache.fsm.states_to_id.insert(state, id);
+        self.cache.states.push(state.clone());
+        self.cache.states_to_id.insert(state, id);
         self.put_state_builder(builder);
         Ok(id)
     }
 
     fn add_empty_state(&mut self) -> Result<LazyStateID, CacheError> {
-        let next = self.cache.fsm.trans.len();
+        let next = self.cache.trans.len();
         // TODO: Attempt a cache reset here if allocating a new ID fails.
         let sid = LazyStateID::new(next)
             .map_err(|_| CacheError::too_many_cache_resets())?;
         self.cache
-            .fsm
             .trans
-            .extend(iter::repeat(LazyStateID::unknown()).take(self.stride()));
+            .extend(iter::repeat(self.unknown_id()).take(self.stride()));
         Ok(sid)
     }
 
@@ -439,7 +442,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
         assert!(self.is_valid(to));
         let offset =
             from.as_usize_unmasked() + self.inert.classes.get_by_unit(unit);
-        self.cache.fsm.trans[offset] = to;
+        self.cache.trans[offset] = to;
     }
 
     fn set_start_state(
@@ -457,12 +460,33 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
                 Start::count() + (Start::count() * pid) + start_index
             }
         };
-        self.cache.fsm.starts[index] = id;
+        self.cache.starts[index] = id;
+    }
+
+    fn unknown_id(&self) -> LazyStateID {
+        // This unwrap is OK since 0 is always a valid state ID.
+        LazyStateID::new(0).unwrap()
+    }
+
+    fn dead_id(&self) -> LazyStateID {
+        // This unwrap is OK since the maximum value here is 1 * 512 = 512,
+        // which is <= 2047 (the maximum state ID on 16-bit systems). Where
+        // 512 is the worst case for our equivalence classes (every byte is a
+        // distinct class).
+        LazyStateID::new(1 << self.stride2()).unwrap()
+    }
+
+    fn quit_id(&self) -> LazyStateID {
+        // This unwrap is OK since the maximum value here is 2 * 512 = 1024,
+        // which is <= 2047 (the maximum state ID on 16-bit systems). Where
+        // 512 is the worst case for our equivalence classes (every byte is a
+        // distinct class).
+        LazyStateID::new(2 << self.stride2()).unwrap()
     }
 
     fn is_valid(&self, id: LazyStateID) -> bool {
         let id = id.as_usize_unmasked();
-        id < self.cache.fsm.trans.len() && id % self.stride() == 0
+        id < self.cache.trans.len() && id % self.stride() == 0
     }
 
     /// Returns the stride, as a base-2 exponent, required for these
@@ -491,7 +515,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
     /// otherwise the allocation reuse won't work.
     fn get_state_builder(&mut self) -> StateBuilderEmpty {
         core::mem::replace(
-            &mut self.cache.fsm.scratch_state_builder,
+            &mut self.cache.scratch_state_builder,
             StateBuilderEmpty::new(),
         )
     }
@@ -502,7 +526,7 @@ impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
     /// so callers should always put the builder back.
     fn put_state_builder(&mut self, builder: StateBuilderNFA) {
         let _ = core::mem::replace(
-            &mut self.cache.fsm.scratch_state_builder,
+            &mut self.cache.scratch_state_builder,
             builder.clear(),
         );
     }
@@ -514,7 +538,7 @@ fn minimum_cache_capacity(
     starts_for_each_pattern: bool,
 ) -> usize {
     const ID_SIZE: usize = size_of::<LazyStateID>();
-    const MIN_STATES: usize = 3;
+    const MIN_STATES: usize = 5;
     let stride = 1 << classes.stride2();
 
     let sparses = 2 * nfa.len() * NFAStateID::SIZE;
@@ -525,12 +549,13 @@ fn minimum_cache_capacity(
         starts += (Start::count() * nfa.match_len()) * ID_SIZE;
     }
 
-    // Every `State` has three bytes for flags, followed by varint encodings
-    // of patterns and then NFA state IDs. We use the worst case (which isn't
-    // technically possible) of 5 bytes for each pattern ID/state ID.
-    let max_state_size = 3 + (nfa.match_len() * 5) + (nfa.len() * 5);
+    // Every `State` has three bytes for flags, 4 bytes for the number of
+    // patterns, followed by 32-bit encodings of patterns and then varint
+    // encodings of NFA state IDs. We use the worst case (which isn't
+    // technically possible) of 5 bytes for each NFA state ID.
+    let max_state_size = 3 + 4 + (nfa.match_len() * 4) + (nfa.len() * 5);
     let states = MIN_STATES * (size_of::<State>() + max_state_size);
-    let states_to_sid = states + (3 * ID_SIZE);
+    let states_to_sid = states + (MIN_STATES * ID_SIZE);
     let stack = nfa.len() * NFAStateID::SIZE;
     let scratch_state_builder = max_state_size;
 

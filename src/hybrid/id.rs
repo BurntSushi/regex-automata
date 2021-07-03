@@ -19,17 +19,6 @@ impl LazyStateID {
     #[cfg(target_pointer_width = "16")]
     const MAX_BIT: usize = 15;
 
-    const SENTINEL_UNKNOWN: LazyStateID =
-        LazyStateID::new_unchecked(1 << LazyStateID::MAX_BIT);
-
-    const SENTINEL_DEAD: LazyStateID = LazyStateID::new_unchecked(
-        LazyStateID::SENTINEL_UNKNOWN.as_usize_unchecked() + 1,
-    );
-
-    const SENTINEL_QUIT: LazyStateID = LazyStateID::new_unchecked(
-        LazyStateID::SENTINEL_DEAD.as_usize_unchecked() + 1,
-    );
-
     const MASK_UNKNOWN: usize = 1 << (LazyStateID::MAX_BIT);
     const MASK_DEAD: usize = 1 << (LazyStateID::MAX_BIT - 1);
     const MASK_QUIT: usize = 1 << (LazyStateID::MAX_BIT - 2);
@@ -47,26 +36,6 @@ impl LazyStateID {
             return Err(LazyStateIDError { attempted: id as u64 });
         }
         Ok(LazyStateID::new_unchecked(id))
-    }
-
-    /// Create a new lazy state ID that always represents an "unknown" state.
-    ///
-    /// An unknown state is a placeholder for a DFA state that has not yet
-    /// been computed. Like a dead state, all transitions on the "unknown"
-    /// state lead right back to itself.
-    #[inline]
-    pub(crate) const fn unknown() -> LazyStateID {
-        LazyStateID::SENTINEL_UNKNOWN
-    }
-
-    #[inline]
-    pub(crate) const fn dead() -> LazyStateID {
-        LazyStateID::SENTINEL_DEAD
-    }
-
-    #[inline]
-    pub(crate) const fn quit() -> LazyStateID {
-        LazyStateID::SENTINEL_QUIT
     }
 
     /// Create a new lazy state ID without checking whether the given value
