@@ -11,6 +11,7 @@ pub use self::lazy::InertDFA;
 mod error;
 mod id;
 mod lazy;
+mod regex;
 mod search;
 
 /// Configuration for a lazy DFA.

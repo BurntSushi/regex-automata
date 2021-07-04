@@ -226,7 +226,7 @@ fn find_rev<A: Automaton + ?Sized>(
             }
         }
     }
-    Ok(eoi_rev(dfa, state, bytes, start)?.or(last_match))
+    Ok(eoi_rev(dfa, bytes, start, state)?.or(last_match))
 }
 
 #[inline(never)]
@@ -446,9 +446,9 @@ fn eoi_fwd<A: Automaton + ?Sized>(
 
 fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    state: StateID,
     bytes: &[u8],
     start: usize,
+    state: StateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if start > 0 {
         let state = dfa.next_state(state, bytes[start - 1]);

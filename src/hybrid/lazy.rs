@@ -1,10 +1,11 @@
 use core::{borrow::Borrow, iter, mem::size_of};
 
 use crate::{
+    dfa::HalfMatch,
     hybrid::{
         error::{BuildError, CacheError},
         id::LazyStateID,
-        Config,
+        search, Config,
     },
     nfa::thompson,
     util::{
@@ -105,6 +106,21 @@ impl<N: Borrow<thompson::NFA>> InertDFA<N> {
     pub fn pattern_count(&self) -> usize {
         self.nfa.borrow().match_len()
     }
+
+    pub fn as_ref(&self) -> InertDFA<&thompson::NFA> {
+        InertDFA {
+            nfa: self.nfa.borrow(),
+            stride2: self.stride2,
+            classes: self.classes.clone(),
+            quit: self.quit.clone(),
+            anchored: self.anchored,
+            match_kind: self.match_kind,
+            starts_for_each_pattern: self.starts_for_each_pattern,
+            cache_capacity: self.cache_capacity,
+            minimum_cache_flush_count: self.minimum_cache_flush_count,
+            bytes_per_state: self.bytes_per_state,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -119,7 +135,7 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn new<N: Borrow<thompson::NFA>>(inert: &InertDFA<N>) -> Cache {
+    pub fn new(inert: &InertDFA<&thompson::NFA>) -> Cache {
         let mut starts_len = Start::count();
         if inert.starts_for_each_pattern {
             starts_len += Start::count() * inert.pattern_count();
@@ -196,12 +212,55 @@ type StateMap = std::collections::HashMap<State, LazyStateID>;
 type StateMap = BTreeMap<State, LazyStateID>;
 
 #[derive(Debug)]
-pub struct DFA<'i, 'c, N> {
-    inert: &'i InertDFA<N>,
+pub struct DFA<'i, 'c> {
+    inert: &'i InertDFA<&'i thompson::NFA>,
     cache: &'c mut Cache,
 }
 
-impl<'i, 'c, N: Borrow<thompson::NFA>> DFA<'i, 'c, N> {
+impl<'i, 'c> DFA<'i, 'c> {
+    pub fn new(
+        inert: &'i InertDFA<&'i thompson::NFA>,
+        cache: &'c mut Cache,
+    ) -> DFA<'i, 'c> {
+        DFA { inert, cache }
+    }
+
+    pub fn find_leftmost_fwd(
+        &mut self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_leftmost_fwd_at(pattern_id, bytes, 0, bytes.len())
+    }
+
+    pub fn find_leftmost_rev(
+        &mut self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_leftmost_rev_at(pattern_id, bytes, 0, bytes.len())
+    }
+
+    pub fn find_leftmost_fwd_at(
+        &mut self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_fwd(false, self, pattern_id, bytes, start, end)
+    }
+
+    pub fn find_leftmost_rev_at(
+        &mut self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_rev(false, self, pattern_id, bytes, start, end)
+    }
+
     pub fn next_state(
         &mut self,
         current: LazyStateID,
