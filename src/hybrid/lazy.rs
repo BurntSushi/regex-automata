@@ -1,11 +1,13 @@
 use core::{borrow::Borrow, iter, mem::size_of};
 
+use alloc::sync::Arc;
+
 use crate::{
     dfa::HalfMatch,
     hybrid::{
         error::{BuildError, CacheError},
         id::LazyStateID,
-        search, Config,
+        search,
     },
     nfa::thompson,
     util::{
@@ -20,8 +22,8 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct InertDFA<N> {
-    nfa: N,
+pub struct InertDFA {
+    nfa: Arc<thompson::NFA>,
     stride2: usize,
     classes: ByteClasses,
     quit: ByteSet,
@@ -33,13 +35,13 @@ pub struct InertDFA<N> {
     bytes_per_state: usize,
 }
 
-impl<N: Borrow<thompson::NFA>> InertDFA<N> {
+impl InertDFA {
     pub(crate) fn new(
         config: &Config,
-        nfa: N,
-    ) -> Result<InertDFA<N>, BuildError> {
+        nfa: Arc<thompson::NFA>,
+    ) -> Result<InertDFA, BuildError> {
         let mut quit = config.quit.unwrap_or(ByteSet::empty());
-        if nfa.borrow().has_word_boundary_unicode() {
+        if nfa.has_word_boundary_unicode() {
             if config.get_unicode_word_boundary() {
                 for b in 0x80..=0xFF {
                     quit.add(b);
@@ -65,7 +67,7 @@ impl<N: Borrow<thompson::NFA>> InertDFA<N> {
             // much easier to grok as a human.
             ByteClasses::singletons()
         } else {
-            let mut set = nfa.borrow().byte_class_set().clone();
+            let mut set = nfa.byte_class_set().clone();
             // It is important to distinguish any "quit" bytes from all other
             // bytes. Otherwise, a non-quit byte may end up in the same class
             // as a quit byte, and thus cause the DFA stop when it shouldn't.
@@ -75,7 +77,7 @@ impl<N: Borrow<thompson::NFA>> InertDFA<N> {
             set.byte_classes()
         };
         let min_cache = minimum_cache_capacity(
-            nfa.borrow(),
+            &nfa,
             &classes,
             config.get_starts_for_each_pattern(),
         );
@@ -104,22 +106,29 @@ impl<N: Borrow<thompson::NFA>> InertDFA<N> {
     /// Returns the number of patterns in this DFA. (It is possible for this
     /// to be zero, for a DFA that never matches anything.)
     pub fn pattern_count(&self) -> usize {
-        self.nfa.borrow().match_len()
+        self.nfa.match_len()
     }
 
-    pub fn as_ref(&self) -> InertDFA<&thompson::NFA> {
-        InertDFA {
-            nfa: self.nfa.borrow(),
-            stride2: self.stride2,
-            classes: self.classes.clone(),
-            quit: self.quit.clone(),
-            anchored: self.anchored,
-            match_kind: self.match_kind,
-            starts_for_each_pattern: self.starts_for_each_pattern,
-            cache_capacity: self.cache_capacity,
-            minimum_cache_flush_count: self.minimum_cache_flush_count,
-            bytes_per_state: self.bytes_per_state,
-        }
+    /// Returns the stride, as a base-2 exponent, required for these
+    /// equivalence classes.
+    ///
+    /// The stride is always the smallest power of 2 that is greater than or
+    /// equal to the alphabet length. This is done so that converting between
+    /// state IDs and indices can be done with shifts alone, which is much
+    /// faster than integer division.
+    pub fn stride2(&self) -> usize {
+        self.stride2
+    }
+
+    /// Returns the total stride for every state in this lazy DFA. This
+    /// corresponds to the total number of transitions used by each state in
+    /// this DFA's transition table.
+    pub fn stride(&self) -> usize {
+        1 << self.stride2()
+    }
+
+    pub fn alphabet_len(&self) -> usize {
+        self.classes.alphabet_len()
     }
 }
 
@@ -135,7 +144,7 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn new(inert: &InertDFA<&thompson::NFA>) -> Cache {
+    pub fn new(inert: &InertDFA) -> Cache {
         let mut starts_len = Start::count();
         if inert.starts_for_each_pattern {
             starts_len += Start::count() * inert.pattern_count();
@@ -145,7 +154,7 @@ impl Cache {
             starts: vec![],
             states: vec![],
             states_to_id: StateMap::new(),
-            sparses: SparseSets::new(inert.nfa.borrow().len()),
+            sparses: SparseSets::new(inert.nfa.len()),
             stack: vec![],
             scratch_state_builder: StateBuilderEmpty::new(),
         };
@@ -213,16 +222,21 @@ type StateMap = BTreeMap<State, LazyStateID>;
 
 #[derive(Debug)]
 pub struct DFA<'i, 'c> {
-    inert: &'i InertDFA<&'i thompson::NFA>,
+    inert: &'i InertDFA,
     cache: &'c mut Cache,
 }
 
 impl<'i, 'c> DFA<'i, 'c> {
-    pub fn new(
-        inert: &'i InertDFA<&'i thompson::NFA>,
-        cache: &'c mut Cache,
-    ) -> DFA<'i, 'c> {
+    pub fn new(inert: &'i InertDFA, cache: &'c mut Cache) -> DFA<'i, 'c> {
         DFA { inert, cache }
+    }
+
+    pub fn inert(&self) -> &InertDFA {
+        self.inert
+    }
+
+    pub fn cache(&mut self) -> &mut Cache {
+        self.cache
     }
 
     pub fn find_leftmost_fwd(
@@ -266,8 +280,8 @@ impl<'i, 'c> DFA<'i, 'c> {
         current: LazyStateID,
         input: u8,
     ) -> Result<LazyStateID, CacheError> {
-        let input = self.inert.classes.get(input);
-        let offset = current.as_usize_unmasked() + usize::from(input);
+        let class = self.inert.classes.get(input);
+        let offset = current.as_usize_unmasked() + usize::from(class);
         let sid = self.cache.trans[offset];
         if !sid.is_unknown() {
             return Ok(sid);
@@ -280,7 +294,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         current: LazyStateID,
     ) -> Result<LazyStateID, CacheError> {
         let eoi = self.inert.classes.eoi().as_usize();
-        let offset = current.as_usize_unchecked() + eoi;
+        let offset = current.as_usize_unmasked() + eoi;
         let sid = self.cache.trans[offset];
         if !sid.is_unknown() {
             return Ok(sid);
@@ -353,7 +367,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         let stride2 = self.stride2();
         let empty_builder = self.get_state_builder();
         let builder = determinize::next(
-            self.inert.nfa.borrow(),
+            &self.inert.nfa,
             self.inert.match_kind,
             &mut self.cache.sparses,
             &mut self.cache.stack,
@@ -401,11 +415,10 @@ impl<'i, 'c> DFA<'i, 'c> {
         pattern_id: Option<PatternID>,
         start: Start,
     ) -> Result<LazyStateID, CacheError> {
-        let nfa = self.inert.nfa.borrow();
         let nfa_start_id = match pattern_id {
-            Some(pid) => nfa.start_pattern(pid),
-            None if self.inert.anchored => nfa.start_anchored(),
-            None => nfa.start_unanchored(),
+            Some(pid) => self.inert.nfa.start_pattern(pid),
+            None if self.inert.anchored => self.inert.nfa.start_anchored(),
+            None => self.inert.nfa.start_unanchored(),
         };
 
         let id = self.cache_start_one(nfa_start_id, start)?;
@@ -524,7 +537,7 @@ impl<'i, 'c> DFA<'i, 'c> {
 
     fn unknown_id(&self) -> LazyStateID {
         // This unwrap is OK since 0 is always a valid state ID.
-        LazyStateID::new(0).unwrap()
+        LazyStateID::new(0).unwrap().to_unknown()
     }
 
     fn dead_id(&self) -> LazyStateID {
@@ -532,7 +545,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         // which is <= 2047 (the maximum state ID on 16-bit systems). Where
         // 512 is the worst case for our equivalence classes (every byte is a
         // distinct class).
-        LazyStateID::new(1 << self.stride2()).unwrap()
+        LazyStateID::new(1 << self.stride2()).unwrap().to_dead()
     }
 
     fn quit_id(&self) -> LazyStateID {
@@ -540,7 +553,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         // which is <= 2047 (the maximum state ID on 16-bit systems). Where
         // 512 is the worst case for our equivalence classes (every byte is a
         // distinct class).
-        LazyStateID::new(2 << self.stride2()).unwrap()
+        LazyStateID::new(2 << self.stride2()).unwrap().to_quit()
     }
 
     fn is_valid(&self, id: LazyStateID) -> bool {
@@ -555,15 +568,19 @@ impl<'i, 'c> DFA<'i, 'c> {
     /// equal to the alphabet length. This is done so that converting between
     /// state IDs and indices can be done with shifts alone, which is much
     /// faster than integer division.
-    fn stride2(&self) -> usize {
-        self.inert.stride2
+    pub fn stride2(&self) -> usize {
+        self.inert.stride2()
     }
 
     /// Returns the total stride for every state in this lazy DFA. This
     /// corresponds to the total number of transitions used by each state in
     /// this DFA's transition table.
-    fn stride(&self) -> usize {
-        1 << self.stride2()
+    pub fn stride(&self) -> usize {
+        self.inert.stride()
+    }
+
+    pub fn alphabet_len(&self) -> usize {
+        self.inert.alphabet_len()
     }
 
     /// Returns a state builder from this DFA that might have existing
@@ -588,6 +605,223 @@ impl<'i, 'c> DFA<'i, 'c> {
             &mut self.cache.scratch_state_builder,
             builder.clear(),
         );
+    }
+}
+
+/// Configuration for a lazy DFA.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Config {
+    // As with other configuration types in this crate, we put all our knobs
+    // in options so that we can distinguish between "default" and "not set."
+    // This makes it possible to easily combine multiple configurations
+    // without default values overwriting explicitly specified values. See the
+    // 'overwrite' method.
+    //
+    // For docs on the fields below, see the corresponding method setters.
+    anchored: Option<bool>,
+    match_kind: Option<MatchKind>,
+    starts_for_each_pattern: Option<bool>,
+    byte_classes: Option<bool>,
+    unicode_word_boundary: Option<bool>,
+    quit: Option<ByteSet>,
+    cache_capacity: Option<usize>,
+    minimum_cache_flush_count: Option<Option<usize>>,
+    bytes_per_state: Option<usize>,
+}
+
+impl Config {
+    pub fn new() -> Config {
+        Config::default()
+    }
+
+    pub fn anchored(mut self, yes: bool) -> Config {
+        self.anchored = Some(yes);
+        self
+    }
+
+    pub fn match_kind(mut self, kind: MatchKind) -> Config {
+        self.match_kind = Some(kind);
+        self
+    }
+
+    pub fn byte_classes(mut self, yes: bool) -> Config {
+        self.byte_classes = Some(yes);
+        self
+    }
+
+    pub fn starts_for_each_pattern(mut self, yes: bool) -> Config {
+        self.starts_for_each_pattern = Some(yes);
+        self
+    }
+
+    pub fn unicode_word_boundary(mut self, yes: bool) -> Config {
+        // We have a separate option for this instead of just setting the
+        // appropriate quit bytes here because we don't want to set quit bytes
+        // for every regex. We only want to set them when the regex contains a
+        // Unicode word boundary.
+        self.unicode_word_boundary = Some(yes);
+        self
+    }
+
+    pub fn quit(mut self, byte: u8, yes: bool) -> Config {
+        if self.get_unicode_word_boundary() && !byte.is_ascii() && !yes {
+            panic!(
+                "cannot set non-ASCII byte to be non-quit when \
+                 Unicode word boundaries are enabled"
+            );
+        }
+        if self.quit.is_none() {
+            self.quit = Some(ByteSet::empty());
+        }
+        if yes {
+            self.quit.as_mut().unwrap().add(byte);
+        } else {
+            self.quit.as_mut().unwrap().remove(byte);
+        }
+        self
+    }
+
+    pub fn cache_capacity(mut self, bytes: usize) -> Config {
+        self.cache_capacity = Some(bytes);
+        self
+    }
+
+    pub fn minimum_cache_flush_count(mut self, min: Option<usize>) -> Config {
+        self.minimum_cache_flush_count = Some(min);
+        self
+    }
+
+    pub fn bytes_per_state(mut self, amount: usize) -> Config {
+        self.bytes_per_state = Some(amount);
+        self
+    }
+
+    /// Returns whether this configuration has enabled anchored searches.
+    pub fn get_anchored(&self) -> bool {
+        self.anchored.unwrap_or(false)
+    }
+
+    /// Returns the match semantics set in this configuration.
+    pub fn get_match_kind(&self) -> MatchKind {
+        self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
+    }
+
+    /// Returns whether this configuration has enabled anchored starting states
+    /// for every pattern in the DFA.
+    pub fn get_starts_for_each_pattern(&self) -> bool {
+        self.starts_for_each_pattern.unwrap_or(false)
+    }
+
+    /// Returns whether this configuration has enabled byte classes or not.
+    /// This is typically a debugging oriented option, as disabling it confers
+    /// no speed benefit.
+    pub fn get_byte_classes(&self) -> bool {
+        self.byte_classes.unwrap_or(true)
+    }
+
+    /// Returns whether this configuration has enabled heuristic Unicode word
+    /// boundary support. When enabled, it is possible for a search to return
+    /// an error.
+    pub fn get_unicode_word_boundary(&self) -> bool {
+        self.unicode_word_boundary.unwrap_or(false)
+    }
+
+    /// Returns whether this configuration will instruct the DFA to enter a
+    /// quit state whenever the given byte is seen during a search. When at
+    /// least one byte has this enabled, it is possible for a search to return
+    /// an error.
+    pub fn get_quit(&self, byte: u8) -> bool {
+        self.quit.map_or(false, |q| q.contains(byte))
+    }
+
+    pub fn get_cache_capacity(&self) -> usize {
+        self.cache_capacity.unwrap_or(2 * (1 << 20))
+    }
+
+    pub fn get_minimum_cache_flush_count(&self) -> Option<usize> {
+        self.minimum_cache_flush_count.unwrap_or(None)
+    }
+
+    pub fn get_bytes_per_state(&self) -> usize {
+        self.bytes_per_state.unwrap_or(10)
+    }
+
+    /// Overwrite the default configuration such that the options in `o` are
+    /// always used. If an option in `o` is not set, then the corresponding
+    /// option in `self` is used. If it's not set in `self` either, then it
+    /// remains not set.
+    fn overwrite(self, o: Config) -> Config {
+        Config {
+            anchored: o.anchored.or(self.anchored),
+            match_kind: o.match_kind.or(self.match_kind),
+            starts_for_each_pattern: o
+                .starts_for_each_pattern
+                .or(self.starts_for_each_pattern),
+            byte_classes: o.byte_classes.or(self.byte_classes),
+            unicode_word_boundary: o
+                .unicode_word_boundary
+                .or(self.unicode_word_boundary),
+            quit: o.quit.or(self.quit),
+            cache_capacity: o.cache_capacity.or(self.cache_capacity),
+            minimum_cache_flush_count: o
+                .minimum_cache_flush_count
+                .or(self.minimum_cache_flush_count),
+            bytes_per_state: o.bytes_per_state.or(self.bytes_per_state),
+        }
+    }
+}
+
+/// A builder for constructing a lazy DFA.
+#[derive(Clone, Debug)]
+pub struct Builder {
+    config: Config,
+    thompson: thompson::Builder,
+}
+
+impl Builder {
+    pub fn new() -> Builder {
+        Builder {
+            config: Config::default(),
+            thompson: thompson::Builder::new(),
+        }
+    }
+
+    pub fn build(&self, pattern: &str) -> Result<InertDFA, BuildError> {
+        self.build_many(&[pattern])
+    }
+
+    pub fn build_many<P: AsRef<str>>(
+        &self,
+        patterns: &[P],
+    ) -> Result<InertDFA, BuildError> {
+        let nfa =
+            self.thompson.build_many(patterns).map_err(BuildError::nfa)?;
+        self.build_from_nfa(Arc::new(nfa))
+    }
+
+    pub fn build_from_nfa(
+        &self,
+        nfa: Arc<thompson::NFA>,
+    ) -> Result<InertDFA, BuildError> {
+        InertDFA::new(&self.config, nfa)
+    }
+
+    pub fn configure(&mut self, config: Config) -> &mut Builder {
+        self.config = self.config.overwrite(config);
+        self
+    }
+
+    pub fn syntax(
+        &mut self,
+        config: crate::util::syntax::SyntaxConfig,
+    ) -> &mut Builder {
+        self.thompson.syntax(config);
+        self
+    }
+
+    pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
+        self.thompson.configure(config);
+        self
     }
 }
 

@@ -3,6 +3,7 @@
 use regex_test::RegexTests;
 
 mod dfa;
+mod hybrid;
 mod regression;
 mod util;
 

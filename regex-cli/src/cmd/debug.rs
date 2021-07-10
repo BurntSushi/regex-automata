@@ -32,6 +32,7 @@ pub fn define() -> App {
         .subcommand(hir)
         .subcommand(define_nfa())
         .subcommand(define_dfa())
+        .subcommand(define_hybrid())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
@@ -40,6 +41,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         "hir" => run_hir(args),
         "nfa" => run_nfa(args),
         "dfa" => run_dfa(args),
+        "hybrid" => run_hybrid(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
@@ -99,6 +101,30 @@ fn define_dfa_regex() -> App {
         .about("Print a debug representation of a Regex DFA object.")
         .subcommand(dense)
         .subcommand(sparse)
+}
+
+fn define_hybrid() -> App {
+    let mut dfa = app::leaf("dfa")
+        .about("Print a debug representation of a lazy DFA object.");
+    dfa = config::Input::define(dfa);
+    dfa = config::Patterns::define(dfa);
+    dfa = config::Syntax::define(dfa);
+    dfa = config::Thompson::define(dfa);
+    dfa = config::Hybrid::define(dfa);
+
+    let mut regex = app::leaf("regex")
+        .about("Print a debug representation of a lazy regex object.");
+    regex = config::Input::define(regex);
+    regex = config::Patterns::define(regex);
+    regex = config::Syntax::define(regex);
+    regex = config::Thompson::define(regex);
+    regex = config::Hybrid::define(regex);
+    regex = config::RegexHybrid::define(regex);
+
+    app::command("hybrid")
+        .about("Print a debug representation of a hybrid NFA/DFA object.")
+        .subcommand(dfa)
+        .subcommand(regex)
 }
 
 fn run_ast(args: &Args) -> anyhow::Result<()> {
@@ -260,6 +286,57 @@ fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
     table.print(stdout())?;
     if !args.is_present("quiet") {
         writeln!(stdout(), "\n{:?}", sre)?;
+    }
+    Ok(())
+}
+
+fn run_hybrid(args: &Args) -> anyhow::Result<()> {
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "dfa" => run_hybrid_dfa(args),
+        "regex" => run_hybrid_regex(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
+    })
+}
+
+fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
+    use automata::hybrid::{Cache, DFA};
+
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cdfa = config::Hybrid::get(args)?;
+    let input = config::Input::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+
+    let haystack = input.bytes()?;
+    let idfa =
+        cdfa.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+    table.print(stdout())?;
+    if !args.is_present("quiet") {
+        let mut cache = Cache::new(&idfa);
+        let mut dfa = DFA::new(&idfa, &mut cache);
+        let result = dfa.find_leftmost_fwd(None, &haystack);
+        writeln!(stdout(), "\n{:?}", dfa.cache())?;
+        writeln!(stdout(), "\nmatch? {:?}", result)?;
+    }
+    Ok(())
+}
+
+fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cdfa = config::Hybrid::get(args)?;
+    let cregex = config::RegexHybrid::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+
+    let re = cregex
+        .from_patterns(&mut table, &csyntax, &cthompson, &cdfa, &patterns)?;
+    table.print(stdout())?;
+    if !args.is_present("quiet") {
+        writeln!(stdout(), "\n{:?}", re)?;
     }
     Ok(())
 }

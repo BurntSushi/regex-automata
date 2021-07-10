@@ -5,8 +5,8 @@ use regex_automata::{
 };
 use regex_syntax as syntax;
 
-use regex_test::bstr::{BString, ByteSlice};
 use regex_test::{
+    bstr::{BString, ByteSlice},
     CompiledRegex, Match, MatchKind as TestMatchKind, RegexTest, RegexTests,
     SearchKind as TestSearchKind, TestResult, TestRunner,
 };

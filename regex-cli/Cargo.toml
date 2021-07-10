@@ -20,6 +20,7 @@ name = "regex-cli"
 
 [dependencies]
 anyhow = "1.0.28"
+bstr = { version = "0.2.16", default-features = false, features = ["std"] }
 clap = { version = "2.33.0", default-features = false }
 memmap2 = "0.3.0"
 syntax = { package = "regex-syntax", version = "0.6.17" }

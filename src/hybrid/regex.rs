@@ -1,32 +1,102 @@
 use core::borrow::Borrow;
 
 use crate::{
-    hybrid::lazy,
+    hybrid::{error::BuildError, lazy},
     nfa::thompson,
-    util::matchtypes::{MatchError, MultiMatch},
+    util::matchtypes::{MatchError, MatchKind, MultiMatch},
 };
 
 #[derive(Debug, Clone)]
-pub struct Regex<N> {
-    forward: lazy::InertDFA<N>,
-    reverse: lazy::InertDFA<N>,
+pub struct Regex {
+    forward: lazy::InertDFA,
+    reverse: lazy::InertDFA,
+    utf8: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct RegexCache {
+pub struct Cache {
     forward: lazy::Cache,
     reverse: lazy::Cache,
 }
 
-impl<N: Borrow<thompson::NFA>> Regex<N> {
-    fn try_find_leftmost_at_imp(
+impl Regex {
+    pub fn config() -> Config {
+        Config::new()
+    }
+
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+
+    pub fn new_cache(&self) -> Cache {
+        let forward = lazy::Cache::new(self.forward());
+        let reverse = lazy::Cache::new(self.reverse());
+        Cache { forward, reverse }
+    }
+
+    pub fn is_match(&self, cache: &mut Cache, haystack: &[u8]) -> bool {
+        self.is_match_at(cache, haystack, 0, haystack.len())
+    }
+
+    pub fn is_match_at(
         &self,
-        cache: &mut RegexCache,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> bool {
+        self.try_is_match_at(cache, haystack, start, end).unwrap()
+    }
+
+    pub fn try_is_match_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<bool, MatchError> {
+        let ifwd = self.forward();
+        let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
+        fwd.find_leftmost_fwd_at(None, haystack, start, end)
+            .map(|x| x.is_some())
+    }
+
+    pub fn find_leftmost(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+    ) -> Option<MultiMatch> {
+        self.find_leftmost_at(cache, haystack, 0, haystack.len())
+    }
+
+    pub fn find_leftmost_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Option<MultiMatch> {
+        self.try_find_leftmost_at(cache, haystack, start, end).unwrap()
+    }
+
+    pub fn try_find_leftmost_at(
+        &self,
+        cache: &mut Cache,
         haystack: &[u8],
         start: usize,
         end: usize,
     ) -> Result<Option<MultiMatch>, MatchError> {
-        let (ifwd, irev) = (self.forward().as_ref(), self.reverse().as_ref());
+        self.try_find_leftmost_at_imp(cache, haystack, start, end)
+    }
+
+    fn try_find_leftmost_at_imp(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<MultiMatch>, MatchError> {
+        let (ifwd, irev) = (self.forward(), self.reverse());
         let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
         let mut rev = lazy::DFA::new(&irev, &mut cache.reverse);
         let end = match fwd.find_leftmost_fwd_at(None, haystack, start, end)? {
@@ -52,11 +122,243 @@ impl<N: Borrow<thompson::NFA>> Regex<N> {
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
     }
 
-    fn forward(&self) -> &lazy::InertDFA<N> {
+    pub fn find_leftmost_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> FindLeftmostMatches<'r, 'c, 't> {
+        FindLeftmostMatches::new(self, cache, haystack)
+    }
+
+    pub fn try_find_leftmost_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> TryFindLeftmostMatches<'r, 'c, 't> {
+        TryFindLeftmostMatches::new(self, cache, haystack)
+    }
+
+    fn forward(&self) -> &lazy::InertDFA {
         &self.forward
     }
 
-    fn reverse(&self) -> &lazy::InertDFA<N> {
+    fn reverse(&self) -> &lazy::InertDFA {
         &self.reverse
+    }
+}
+
+/// An iterator over all non-overlapping leftmost matches for a particular
+/// infallible search.
+///
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found. If the underlying search returns an error, then this panics.
+///
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
+///
+/// * `'r` is the lifetime of the regular expression itself.
+/// * `'t` is the lifetime of the text being searched.
+#[derive(Debug)]
+pub struct FindLeftmostMatches<'r, 'c, 't>(TryFindLeftmostMatches<'r, 'c, 't>);
+
+impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
+    fn new(
+        re: &'r Regex,
+        cache: &'c mut Cache,
+        text: &'t [u8],
+    ) -> FindLeftmostMatches<'r, 'c, 't> {
+        FindLeftmostMatches(TryFindLeftmostMatches::new(re, cache, text))
+    }
+}
+
+impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
+    type Item = MultiMatch;
+
+    fn next(&mut self) -> Option<MultiMatch> {
+        next_unwrap(self.0.next())
+    }
+}
+
+/// An iterator over all non-overlapping leftmost matches for a particular
+/// fallible search.
+///
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found.
+///
+/// `A` is the type used to represent the underlying DFAs used by the regex,
+/// while `P` is the type of prefilter used, if any. The lifetime variables are
+/// as follows:
+///
+/// * `'r` is the lifetime of the regular expression itself.
+/// * `'t` is the lifetime of the text being searched.
+#[derive(Debug)]
+pub struct TryFindLeftmostMatches<'r, 'c, 't> {
+    re: &'r Regex,
+    cache: &'c mut Cache,
+    text: &'t [u8],
+    last_end: usize,
+    last_match: Option<usize>,
+}
+
+impl<'r, 'c, 't> TryFindLeftmostMatches<'r, 'c, 't> {
+    fn new(
+        re: &'r Regex,
+        cache: &'c mut Cache,
+        text: &'t [u8],
+    ) -> TryFindLeftmostMatches<'r, 'c, 't> {
+        TryFindLeftmostMatches {
+            re,
+            cache,
+            text,
+            last_end: 0,
+            last_match: None,
+        }
+    }
+}
+
+impl<'r, 'c, 't> Iterator for TryFindLeftmostMatches<'r, 'c, 't> {
+    type Item = Result<MultiMatch, MatchError>;
+
+    fn next(&mut self) -> Option<Result<MultiMatch, MatchError>> {
+        if self.last_end > self.text.len() {
+            return None;
+        }
+        let result = self.re.try_find_leftmost_at_imp(
+            self.cache,
+            self.text,
+            self.last_end,
+            self.text.len(),
+        );
+        let m = match result {
+            Err(err) => return Some(Err(err)),
+            Ok(None) => return None,
+            Ok(Some(m)) => m,
+        };
+        if m.is_empty() {
+            // This is an empty match. To ensure we make progress, start
+            // the next search at the smallest possible starting position
+            // of the next match following this one.
+            self.last_end = if self.re.utf8 {
+                crate::util::next_utf8(self.text, m.end())
+            } else {
+                m.end() + 1
+            };
+            // Don't accept empty matches immediately following a match.
+            // Just move on to the next match.
+            if Some(m.end()) == self.last_match {
+                return self.next();
+            }
+        } else {
+            self.last_end = m.end();
+        }
+        self.last_match = Some(m.end());
+        Some(Ok(m))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Config {
+    utf8: Option<bool>,
+}
+
+impl Config {
+    /// Return a new default regex compiler configuration.
+    pub fn new() -> Config {
+        Config::default()
+    }
+
+    pub fn utf8(mut self, yes: bool) -> Config {
+        self.utf8 = Some(yes);
+        self
+    }
+
+    pub fn get_utf8(&self) -> bool {
+        self.utf8.unwrap_or(true)
+    }
+
+    pub(crate) fn overwrite(self, o: Config) -> Config {
+        Config { utf8: o.utf8.or(self.utf8) }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Builder {
+    config: Config,
+    lazy: super::Builder,
+}
+
+impl Builder {
+    pub fn new() -> Builder {
+        Builder { config: Config::default(), lazy: super::Builder::new() }
+    }
+
+    pub fn build(&self, pattern: &str) -> Result<Regex, BuildError> {
+        self.build_many(&[pattern])
+    }
+
+    pub fn build_many<P: AsRef<str>>(
+        &self,
+        patterns: &[P],
+    ) -> Result<Regex, BuildError> {
+        let forward = self.lazy.build_many(patterns)?;
+        let reverse = self
+            .lazy
+            .clone()
+            .configure(
+                lazy::Config::new()
+                    .anchored(true)
+                    .match_kind(MatchKind::All)
+                    .starts_for_each_pattern(true),
+            )
+            .thompson(thompson::Config::new().reverse(true))
+            .build_many(patterns)?;
+        let utf8 = self.config.get_utf8();
+        Ok(Regex { forward, reverse, utf8 })
+    }
+
+    pub fn configure(&mut self, config: Config) -> &mut Builder {
+        self.config = self.config.overwrite(config);
+        self
+    }
+
+    pub fn syntax(
+        &mut self,
+        config: crate::util::syntax::SyntaxConfig,
+    ) -> &mut Builder {
+        self.lazy.syntax(config);
+        self
+    }
+
+    pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
+        self.lazy.thompson(config);
+        self
+    }
+
+    pub fn lazy(&mut self, config: lazy::Config) -> &mut Builder {
+        self.lazy.configure(config);
+        self
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl Default for Builder {
+    fn default() -> Builder {
+        Builder::new()
+    }
+}
+
+#[inline(always)]
+fn next_unwrap(
+    item: Option<Result<MultiMatch, MatchError>>,
+) -> Option<MultiMatch> {
+    match item {
+        None => None,
+        Some(Ok(m)) => Some(m),
+        Some(Err(err)) => panic!(
+            "unexpected regex search error: {}\n\
+             to handle search errors, use try_ methods",
+            err,
+        ),
     }
 }

@@ -1,16 +1,17 @@
-use std::borrow::Borrow;
-use std::fs;
-use std::path::PathBuf;
+use std::{borrow::Borrow, fs, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use automata::{
     dfa::{self, dense, sparse},
+    hybrid,
     nfa::thompson,
     MatchKind,
 };
+use bstr::BString;
 
 use crate::{
     app::{self, flag, switch, App, Args},
+    escape,
     util::{self, Table},
 };
 
@@ -116,6 +117,57 @@ impl File {
             .with_context(|| format!("failed to open {}", self.0.display()))?;
         memmap2::Mmap::map(&file)
             .with_context(|| format!("failed to mmap {}", self.0.display()))
+    }
+}
+
+#[derive(Debug)]
+pub struct Input(InputKind);
+
+#[derive(Debug)]
+enum InputKind {
+    Literal(BString),
+    Path(PathBuf),
+}
+
+impl Input {
+    /// Defines a single required positional parameter that accepts input from
+    /// an escaped string or a file. An escaped string is the
+    /// default, where hex escape sequences like '\x7F' are recognized as their
+    /// corresponding byte value.
+    ///
+    /// If the parameter starts with a '@', then the rest of the value is
+    /// interpreted as a file path. The leading '@' cannot be escaped. To match
+    /// a literal '@' in the leading position, use '\x40'.
+    pub fn define(app: App) -> App {
+        const SHORT: &str = "An inline string or a @-prefixed file path.";
+        app.arg(app::arg("input").help(SHORT).required(true))
+    }
+
+    /// Reads the input given on the command line from the given arguments.
+    pub fn get(args: &Args) -> anyhow::Result<Input> {
+        let input = args
+            .value_of_os("input")
+            .expect("expected non-None value for required 'input' argument")
+            // Converting this to a string technically makes it impossible
+            // to provide a file path that contains invalid UTF-8, but
+            // supporting that is a pain because of the lack of string-like
+            // APIs on OsStr.
+            .to_string_lossy();
+        Ok(Input(if input.as_bytes().get(0) == Some(&b'@') {
+            InputKind::Path(PathBuf::from(&input[1..]))
+        } else {
+            InputKind::Literal(BString::from(escape::unescape(&input)))
+        }))
+    }
+
+    /// Read the input as a sequence of bytes, regardless of its source.
+    pub fn bytes(&self) -> anyhow::Result<BString> {
+        match self.0 {
+            InputKind::Literal(ref lit) => Ok(lit.clone()),
+            InputKind::Path(ref p) => fs::read(p)
+                .map(BString::from)
+                .with_context(|| format!("failed to read {}", p.display())),
+        }
     }
 }
 
@@ -617,9 +669,7 @@ default):
 
 1. When looking for the start of an overlapping match (using a reverse DFA),
 doing it correctly requires starting the reverse search using the starting
-state of the pattern that matched in the forward direction. Indeed, when
-building a [`Regex`](../struct.Regex.html), it will automatically enable this
-option when building the reverse DFA.
+state of the pattern that matched in the forward direction.
 
 2. When you want to use a DFA with multiple patterns to both search for matches
 of any pattern or to search for matches of one particular pattern while
@@ -628,9 +678,7 @@ pattern.)
 
 3. Since the start states added for each pattern are anchored, if you compile
 an unanchored DFA with one pattern while also enabling this option, then you
-can use the same DFA to perform anchored or unanchored searches. The latter you
-get with the standard search APIs. The former you get from the various `_at`
-search methods that allow you specify a pattern ID to search for.
+can use the same DFA to perform anchored or unanchored searches.
 
 By default this is disabled.
 ";
@@ -869,5 +917,291 @@ This mode cannot be toggled inside the regex.
         table.add("sparse regex (reverse DFA) memory", mem_rev);
         table.add("sparse regex memory", mem_fwd + mem_rev);
         Ok(sre)
+    }
+}
+
+#[derive(Debug)]
+pub struct Hybrid {
+    config: hybrid::Config,
+}
+
+impl Hybrid {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Build an anchored lazy DFA.";
+            const LONG: &str = "\
+Build an anchored lazy DFA.
+
+When enabled, the lazy DFA is anchored. This means that the DFA can only find
+matches that begin where the search starts. When disabled (the default), the
+DFA will have an \"unanchored\" prefix that permits it to match anywhere.
+";
+            app = app.arg(
+                switch("anchored").short("a").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Disable the use of equivalence classes.";
+            const LONG: &str = "\
+Disable the use of equivalence classes.
+
+When disabled, every state in the lazy DFA will always have 257 transitions
+(256 for each possible byte and 1 more for the special end-of-input
+transition). When enabled (the default), transitions are grouped into
+equivalence classes where every byte in the same class cannot possible
+differentiate between a match and a non-match.
+
+Enabling byte classes is always a good idea, since it both decreases the
+amount of space required and also the amount of time it takes to build the DFA
+(since there are fewer transitions to create). The only reason to disable byte
+classes is for debugging the representation of a DFA, since equivalence class
+identifiers will be used for the transitions instead of the actual bytes.
+";
+            app = app.arg(
+                switch("no-byte-classes")
+                    .short("C")
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Choose the match kind.";
+            const LONG: &str = "\
+Choose the match kind.
+
+This permits setting the match kind to either 'leftmost-first' (the default)
+or 'all'. The former will attempt to find the longest match starting at the
+leftmost position, but prioritizing alternations in the regex that appear
+first. For example, with leftmost-first enabled, 'Sam|Samwise' will match 'Sam'
+in 'Samwise' while 'Samwise|Sam' would match 'Samwise'.
+
+'all' match semantics will include all possible matches, including the longest
+possible match. 'all' is most commonly used when compiling a reverse lazy DFA
+to determine the starting position of a match. Note that when 'all' is used,
+there is no distinction between greedy and non-greedy regexes. Everything is
+greedy all the time.
+";
+            app = app.arg(
+                flag("match-kind").short("k").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Add start states for each pattern.";
+            const LONG: &str = "\
+Whether to compile a separate start state for each pattern in the automaton.
+
+When enabled, a separate anchored start state is added for each pattern in the
+lazy DFA. When this start state is used, then the lazy DFA will only search for
+matches for the pattern, even if there are other patterns in the lazy DFA.
+
+The main downside of this option is that it can potentially increase the size
+of the lazy DFA.
+
+There are a few reasons one might want to enable this (it's disabled by
+default):
+
+1. When looking for the start of an overlapping match (using a reverse lazy
+DFA), doing it correctly requires starting the reverse search using the
+starting state of the pattern that matched in the forward direction.
+
+2. When you want to use a lazy DFA with multiple patterns to both search for
+matches of any pattern or to search for matches of one particular pattern while
+using the same lazy DFA. (Otherwise, you would need to build a new lazy DFA
+for each pattern.)
+
+3. Since the start states added for each pattern are anchored, if you build an
+unanchored lazy DFA with one pattern while also enabling this option, then you
+can use the same lazy DFA to perform anchored or unanchored searches.
+
+By default this is disabled.
+";
+            app = app.arg(
+                switch("starts-for-each-pattern").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str =
+                "Heuristically enable Unicode word boundaries.";
+            const LONG: &str = "\
+Heuristically enable Unicode word boundaries.
+
+When enabled, the lazy DFA will attempt to match Unicode word boundaries by
+assuming they are ASCII word boundaries. To ensure that incorrect or missing
+matches are avoid, the lazy DFA will be configured to automatically quit
+whenever it sees a non-ASCII byte. (In which case, the user must return an
+error or try a different regex engine that supports Unicode word boundaries.)
+
+Since enabling this may cause the lazy DFA to give up on a search without
+reporting either a match or a non-match, callers using this must be prepared to
+handle an error at search time.
+
+This is disabled by default.
+";
+            app = app.arg(
+                switch("unicode-word-boundary")
+                    .short("w")
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Set the quit bytes for this lazy DFA.";
+            const LONG: &str = "\
+Set the quit bytes for this lazy DFA.
+
+This enables one to explicitly set the bytes which should trigger a lazy DFA
+to quit during searching without reporting either a match or a non-match. This
+is the same mechanism by which the --unicode-word-boundaries flag works, but
+provides a way for callers to explicitly control which bytes cause a lazy DFA
+to quit for their own application. For example, this can be useful to set if
+one wants to report matches on a line-by-line basis without first splitting the
+haystack into lines.
+
+Currently, all bytes specified must be in ASCII, but this restriction may be
+lifted in the future. Bytes can be specified using a single value. e.g.,
+
+    --quit abc
+
+Will cause the lazy DFA to quit whenever it sees one of 'a', 'b' or 'c'.
+";
+            app = app.arg(switch("quit").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<Hybrid> {
+        let kind = match args.value_of_lossy("match-kind") {
+            None => MatchKind::LeftmostFirst,
+            Some(value) => match &*value {
+                "all" => MatchKind::All,
+                "leftmost-first" => MatchKind::LeftmostFirst,
+                unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
+            },
+        };
+        let mut c = hybrid::Config::new()
+            .anchored(args.is_present("anchored"))
+            .byte_classes(!args.is_present("no-byte-classes"))
+            .match_kind(kind)
+            .starts_for_each_pattern(
+                args.is_present("starts-for-each-pattern"),
+            )
+            .unicode_word_boundary(args.is_present("unicode-word-boundary"));
+        if let Some(quits) = args.value_of_lossy("quit") {
+            for ch in quits.chars() {
+                if !ch.is_ascii() {
+                    anyhow::bail!("quit bytes must be ASCII");
+                }
+                c = c.quit(ch as u8, true);
+            }
+        }
+        Ok(Hybrid { config: c })
+    }
+
+    pub fn from_nfa(
+        &self,
+        nfa: Arc<thompson::NFA>,
+    ) -> anyhow::Result<hybrid::InertDFA> {
+        hybrid::Builder::new()
+            .configure(self.config)
+            .build_from_nfa(nfa)
+            .context("failed to build lazy DFA")
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        thompson: &Thompson,
+        patterns: &Patterns,
+    ) -> anyhow::Result<hybrid::InertDFA> {
+        let patterns = patterns.as_strings();
+
+        let (asts, time) = util::timeitr(|| syntax.asts(patterns))?;
+        table.add("parse time", time);
+        let (hirs, time) = util::timeitr(|| syntax.hirs(patterns, &asts))?;
+        table.add("translate time", time);
+        let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
+        table.add("compile nfa time", time);
+        let nfa = Arc::new(nfa);
+        let (inert_dfa, time) = util::timeitr(|| self.from_nfa(nfa))?;
+        table.add("build inert dfa time", time);
+        // table.add("inert dfa memory", dfa.memory_usage());
+        table.add("inert dfa alphabet length", inert_dfa.alphabet_len());
+        table.add("dense dfa stride", 1 << inert_dfa.stride2());
+
+        Ok(inert_dfa)
+    }
+}
+
+#[derive(Debug)]
+pub struct RegexHybrid {
+    config: hybrid::regex::Config,
+}
+
+impl RegexHybrid {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str =
+                "Allow unachored searches through invalid UTF-8.";
+            const LONG: &str = "\
+Disable UTF-8 handling for regex iterators when an empty match is seen.
+
+When UTF-8 mode is enabled for regexes (the default) and an empty match is
+seen, the iterators will always start the next search at the next UTF-8 encoded
+codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
+searches are started at the next byte offset.
+
+Generally speaking, UTF-8 mode for regexes should only be used when you know
+you are searching valid UTF-8. Typically, this should only be disabled in
+precisely the cases where the regex itself is permitted to match invalid UTF-8.
+This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
+'--no-utf8-regex' together.
+
+This mode cannot be toggled inside the regex.
+";
+            app = app.arg(switch("no-utf8-regex").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<RegexHybrid> {
+        let config = hybrid::regex::Config::new()
+            .utf8(!args.is_present("no-utf8-regex"));
+        Ok(RegexHybrid { config })
+    }
+
+    pub fn builder(
+        &self,
+        syntax: &Syntax,
+        thompson: &Thompson,
+        hybrid: &Hybrid,
+    ) -> hybrid::regex::Builder {
+        let mut builder = hybrid::regex::Builder::new();
+        builder
+            .configure(self.config)
+            .syntax(syntax.0)
+            .thompson(thompson.0)
+            .lazy(hybrid.config);
+        builder
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        thompson: &Thompson,
+        hybrid: &Hybrid,
+        patterns: &Patterns,
+    ) -> anyhow::Result<hybrid::regex::Regex> {
+        let patterns = patterns.as_strings();
+        let b = self.builder(syntax, thompson, hybrid);
+        let (re, time) = util::timeitr(|| b.build_many(patterns))?;
+        // let mem_fwd = re.forward().memory_usage();
+        // let mem_rev = re.forward().memory_usage();
+        table.add("build hybrid regex time", time);
+        // table.add("dense regex (forward DFA) memory", mem_fwd);
+        // table.add("dense regex (reverse DFA) memory", mem_rev);
+        // table.add("hybrid regex memory", mem_fwd + mem_rev);
+        Ok(re)
     }
 }

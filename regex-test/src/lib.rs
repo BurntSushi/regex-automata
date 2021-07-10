@@ -214,10 +214,10 @@ impl Captures {
 }
 
 impl RegexTest {
-    fn test(&self, regex: &CompiledRegex) -> Vec<TestResult> {
+    fn test(&self, regex: &mut CompiledRegex) -> Vec<TestResult> {
         match regex.match_regex {
             None => vec![TestResult::skip()],
-            Some(ref match_regex) => match_regex(self),
+            Some(ref mut match_regex) => match_regex(self),
         }
     }
 
@@ -431,7 +431,7 @@ impl RegexTest {
 /// the act of compiling a regex. A `CompiledRegex` represents a regex that has
 /// been compiled and is ready to be used for matching.
 pub struct CompiledRegex {
-    match_regex: Option<Box<dyn Fn(&RegexTest) -> Vec<TestResult>>>,
+    match_regex: Option<Box<dyn FnMut(&RegexTest) -> Vec<TestResult>>>,
 }
 
 impl CompiledRegex {
@@ -439,7 +439,7 @@ impl CompiledRegex {
     /// regex match on any `RegexTest`. The `RegexTest` given to the closure
     /// provided is the exact same `RegexTest` that is used to compile this
     /// regex.
-    pub fn compiled<F: Fn(&RegexTest) -> Vec<TestResult> + 'static>(
+    pub fn compiled<F: FnMut(&RegexTest) -> Vec<TestResult> + 'static>(
         match_regex: F,
     ) -> CompiledRegex {
         CompiledRegex { match_regex: Some(Box::new(match_regex)) }
@@ -720,7 +720,7 @@ impl TestRunner {
             Box<dyn std::error::Error>,
         >,
     ) -> &mut TestRunner {
-        let compiled = match safe(|| compile(test.regexes())) {
+        let mut compiled = match safe(|| compile(test.regexes())) {
             Err(msg) => {
                 self.results.fail(
                     test,
@@ -751,7 +751,7 @@ impl TestRunner {
             );
             return self;
         }
-        let results = match safe(|| test.test(&compiled)) {
+        let results = match safe(|| test.test(&mut compiled)) {
             Ok(results) => results,
             Err(msg) => {
                 self.results.fail(
