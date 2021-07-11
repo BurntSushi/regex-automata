@@ -196,3 +196,75 @@ impl core::fmt::Display for LazyStateIDError {
         )
     }
 }
+
+/// Represents the current state of an overlapping search.
+///
+/// This is used for overlapping searches since they need to know something
+/// about the previous search. For example, when multiple patterns match at the
+/// same position, this state tracks the last reported pattern so that the next
+/// search knows whether to report another matching pattern or continue with
+/// the search at the next position. Additionally, it also tracks which state
+/// the last search call terminated in.
+///
+/// This type provides no introspection capabilities. The only thing a caller
+/// can do is construct it and pass it around to permit search routines to use
+/// it to track state.
+///
+/// Callers should always provide a fresh state constructed via
+/// [`OverlappingState::start`] when starting a new search. Reusing state from
+/// a previous search may result in incorrect results.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OverlappingState {
+    /// The state ID of the state at which the search was in when the call
+    /// terminated. When this is a match state, `last_match` must be set to a
+    /// non-None value.
+    ///
+    /// A `None` value indicates the start state of the corresponding
+    /// automaton. We cannot use the actual ID, since any one automaton may
+    /// have many start states, and which one is in use depends on several
+    /// search-time factors.
+    id: Option<LazyStateID>,
+    /// Information associated with a match when `id` corresponds to a match
+    /// state.
+    last_match: Option<StateMatch>,
+}
+
+/// Internal state about the last match that occurred. This records both the
+/// offset of the match and the match index.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct StateMatch {
+    /// The index into the matching patterns for the current match state.
+    pub(crate) match_index: usize,
+    /// The offset in the haystack at which the match occurred. This is used
+    /// when reporting multiple matches at the same offset. That is, when
+    /// an overlapping search runs, the first thing it checks is whether it's
+    /// already in a match state, and if so, whether there are more patterns
+    /// to report as matches in that state. If so, it increments `match_index`
+    /// and returns the pattern and this offset. Once `match_index` exceeds the
+    /// number of matching patterns in the current state, the search continues.
+    pub(crate) offset: usize,
+}
+
+impl OverlappingState {
+    /// Create a new overlapping state that begins at the start state of any
+    /// automaton.
+    pub fn start() -> OverlappingState {
+        OverlappingState { id: None, last_match: None }
+    }
+
+    pub(crate) fn id(&self) -> Option<LazyStateID> {
+        self.id
+    }
+
+    pub(crate) fn set_id(&mut self, id: LazyStateID) {
+        self.id = Some(id);
+    }
+
+    pub(crate) fn last_match(&mut self) -> Option<&mut StateMatch> {
+        self.last_match.as_mut()
+    }
+
+    pub(crate) fn set_last_match(&mut self, last_match: StateMatch) {
+        self.last_match = Some(last_match);
+    }
+}

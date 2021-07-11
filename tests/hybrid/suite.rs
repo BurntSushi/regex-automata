@@ -80,16 +80,15 @@ fn run_test(
 
     let find_matches = match test.search_kind() {
         TestSearchKind::Earliest => {
-            todo!()
-            // let it = re
-            // .find_earliest_iter(test.input())
-            // .take(test.match_limit().unwrap_or(std::usize::MAX))
-            // .map(|m| Match {
-            // id: m.pattern().as_usize(),
-            // start: m.start(),
-            // end: m.end(),
-            // });
-            // TestResult::matches(it).name("find_earliest_iter")
+            let it = re
+                .find_earliest_iter(cache, test.input())
+                .take(test.match_limit().unwrap_or(std::usize::MAX))
+                .map(|m| Match {
+                    id: m.pattern().as_usize(),
+                    start: m.start(),
+                    end: m.end(),
+                });
+            TestResult::matches(it).name("find_earliest_iter")
         }
         TestSearchKind::Leftmost => {
             let it = re
@@ -103,16 +102,15 @@ fn run_test(
             TestResult::matches(it).name("find_leftmost_iter")
         }
         TestSearchKind::Overlapping => {
-            todo!()
-            // let it = re
-            // .find_overlapping_iter(test.input())
-            // .take(test.match_limit().unwrap_or(std::usize::MAX))
-            // .map(|m| Match {
-            // id: m.pattern().as_usize(),
-            // start: m.start(),
-            // end: m.end(),
-            // });
-            // TestResult::matches(it).name("find_overlapping_iter")
+            let it = re
+                .find_overlapping_iter(cache, test.input())
+                .take(test.match_limit().unwrap_or(std::usize::MAX))
+                .map(|m| Match {
+                    id: m.pattern().as_usize(),
+                    start: m.start(),
+                    end: m.end(),
+                });
+            TestResult::matches(it).name("find_overlapping_iter")
         }
     };
 

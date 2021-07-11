@@ -10,7 +10,7 @@ match_kind = "all"
 search_kind = "overlapping"
 
 [[tests]]
-name = "basic10-lefmost-first"
+name = "basic10-leftmost-first"
 regexes = ["a", "a"]
 input = "a"
 matches = [

@@ -8,7 +8,10 @@ use crate::{
     util::{alphabet::ByteSet, matchtypes::MatchKind},
 };
 
-pub use self::lazy::{Builder, Cache, Config, InertDFA, DFA};
+pub use self::{
+    id::{LazyStateID, OverlappingState},
+    lazy::{Builder, Cache, Config, InertDFA, DFA},
+};
 
 mod error;
 mod id;

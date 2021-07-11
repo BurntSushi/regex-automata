@@ -104,7 +104,7 @@ use crate::{
 ///
 /// It may be cheaply cloned and accessed safely from mulitple threads
 /// simultaneously.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub(crate) struct State(Arc<[u8]>);
 
 /// This Borrow impl permits us to lookup any state in a map by its byte
@@ -115,6 +115,12 @@ pub(crate) struct State(Arc<[u8]>);
 impl core::borrow::Borrow<[u8]> for State {
     fn borrow(&self) -> &[u8] {
         &*self.0
+    }
+}
+
+impl core::fmt::Debug for State {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_tuple("State").field(&self.repr()).finish()
     }
 }
 
@@ -202,8 +208,14 @@ impl StateBuilderEmpty {
 ///
 /// When collecting pattern IDs is finished, this can be converted into a
 /// builder that collects NFA state IDs.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct StateBuilderMatches(Vec<u8>);
+
+impl core::fmt::Debug for StateBuilderMatches {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_tuple("StateBuilderMatches").field(&self.repr()).finish()
+    }
+}
 
 /// For docs on these routines, see the internal Repr and ReprVec types below.
 impl StateBuilderMatches {
@@ -259,10 +271,16 @@ impl StateBuilderMatches {
 /// When dont with building a state (regardless of whether it got kept or not),
 /// it's usually a good idea to call `clear` to get an empty builder back so
 /// that it can be reused to build the next state.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct StateBuilderNFA {
     repr: Vec<u8>,
     prev_nfa_state_id: StateID,
+}
+
+impl core::fmt::Debug for StateBuilderNFA {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_tuple("StateBuilderNFA").field(&self.repr()).finish()
+    }
 }
 
 /// For docs on these routines, see the internal Repr and ReprVec types below.
@@ -363,7 +381,6 @@ impl StateBuilderNFA {
 /// previous NFA state ID.
 ///
 /// [1] - https://developers.google.com/protocol-buffers/docs/encoding#varints
-#[derive(Debug)]
 struct Repr<'a>(&'a [u8]);
 
 impl<'a> Repr<'a> {
@@ -517,7 +534,7 @@ impl<'a> Repr<'a> {
         }
         // This arithmetic is OK since we were able to address this many bytes
         // when writing to the state, thus, it must fit into a usize.
-        encoded.checked_mul(4).unwrap().checked_add(3).unwrap()
+        encoded.checked_mul(4).unwrap().checked_add(7).unwrap()
     }
 
     /// Returns the total number of *encoded* pattern IDs in this state.
@@ -535,6 +552,21 @@ impl<'a> Repr<'a> {
     }
 }
 
+impl<'a> core::fmt::Debug for Repr<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let mut nfa_ids = vec![];
+        self.iter_nfa_state_ids(|sid| nfa_ids.push(sid));
+        f.debug_struct("Repr")
+            .field("is_match", &self.is_match())
+            .field("is_from_word", &self.is_from_word())
+            .field("look_have", &self.look_have())
+            .field("look_need", &self.look_need())
+            .field("match_pattern_ids", &self.match_pattern_ids())
+            .field("nfa_state_ids", &nfa_ids)
+            .finish()
+    }
+}
+
 /// ReprVec is a write-only view into the representation of a DFA state.
 ///
 /// See Repr for more details on the purpose of this type and also the format.
@@ -542,7 +574,6 @@ impl<'a> Repr<'a> {
 /// Note that not all possible combinations of methods may be called. This is
 /// precisely what the various StateBuilder types encapsulate: they only
 /// permit valid combinations via Rust's linear typing.
-#[derive(Debug)]
 struct ReprVec<'a>(&'a mut Vec<u8>);
 
 impl<'a> ReprVec<'a> {
@@ -640,7 +671,7 @@ impl<'a> ReprVec<'a> {
             return;
         }
         let patsize = PatternID::SIZE;
-        let pattern_bytes = self.0.len() - 3;
+        let pattern_bytes = self.0.len() - 7;
         // Every pattern ID uses 4 bytes, so number of bytes should be
         // divisible by 4.
         assert_eq!(pattern_bytes % patsize, 0);
@@ -763,7 +794,7 @@ mod tests {
             let s = b.into_nfa().to_state();
             let mut got = vec![];
             s.iter_match_pattern_ids(|pid| got.push(pid));
-            dbg!(got) == dbg!(pids)
+            got == pids
         }
 
         fn prop_state_read_write_nfa_state_and_pattern_ids(

@@ -299,7 +299,7 @@ fn run_hybrid(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
-    use automata::hybrid::{Cache, DFA};
+    use automata::hybrid::{Cache, OverlappingState, DFA};
 
     let mut table = Table::empty();
 
@@ -313,12 +313,52 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     let idfa =
         cdfa.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
     table.print(stdout())?;
+    // TODO: This whole thing seems like a mess. What happens if someone wants
+    // to customize how this works? Maybe "viewing the state of the cache"
+    // should be an option for the 'find' sub-command? Ick.
     if !args.is_present("quiet") {
+        writeln!(stdout(), "{:?}", idfa.nfa())?;
+        writeln!(stdout(), "")?;
         let mut cache = Cache::new(&idfa);
         let mut dfa = DFA::new(&idfa, &mut cache);
-        let result = dfa.find_leftmost_fwd(None, &haystack);
-        writeln!(stdout(), "\n{:?}", dfa.cache())?;
-        writeln!(stdout(), "\nmatch? {:?}", result)?;
+        let mut start = 0;
+        let mut state = OverlappingState::start();
+        while start <= haystack.len() {
+            let result = dfa.find_overlapping_fwd_at(
+                None,
+                &haystack,
+                start,
+                haystack.len(),
+                &mut state,
+            );
+            writeln!(stdout(), "match? {:?}", result)?;
+            start = match result {
+                Err(_) | Ok(None) => break,
+                Ok(Some(m)) => m.offset(),
+            };
+        }
+        /*
+        while start <= haystack.len() {
+            let result = dfa.find_leftmost_fwd_at(
+                None,
+                &haystack,
+                start,
+                haystack.len(),
+            );
+            writeln!(stdout(), "match? {:?}", result)?;
+            start = match result {
+                Err(_) | Ok(None) => break,
+                Ok(Some(m)) => {
+                    if m.offset() == start {
+                        start + 1
+                    } else {
+                        m.offset()
+                    }
+                }
+            };
+        }
+        */
+        // writeln!(stdout(), "\n{:?}", dfa.cache())?;
     }
     Ok(())
 }
