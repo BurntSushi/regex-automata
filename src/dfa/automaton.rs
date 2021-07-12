@@ -7,27 +7,6 @@ use crate::{
     },
 };
 
-/// The offset, in bytes, that a match is delayed by in the DFAs generated
-/// by this crate.
-///
-/// The purpose of this delay is to support look-around such as \b
-/// (ASCII-only) and $. In particular, both of these operators may require the
-/// identification of the end of input in order to confirm a match. Not only
-/// does this mean that all matches must therefore be delayed by a single byte,
-/// but that a special EOI value is added to the alphabet of all DFAs. (Which
-/// means that even though the alphabet of a DFA is typically all byte values,
-/// the actual maximum alphabet size is 257 due to the extra EOI value.)
-///
-/// Since we delay matches by only 1 byte, this can't fully support a
-/// Unicode-aware \b operator, which require multi-byte look-around. Indeed,
-/// DFAs in this crate do not support it. (It's not as simple as just
-/// increasing the match offset to do it---otherwise we would---but building
-/// the full Unicode-aware word boundary detection into an automaton is quite
-/// tricky.)
-pub(crate) const MATCH_OFFSET: usize = 1;
-
-// TODO: Move HalfMatch to util::matchtypes module.
-
 /// A representation of a match reported by a DFA.
 ///
 /// This is called a "half" match because it only includes the end location

@@ -71,12 +71,12 @@ fn run_test(
     cache: &mut regex::Cache,
     test: &RegexTest,
 ) -> Vec<TestResult> {
-    // let is_match = if re.is_match(cache, test.input()) {
-    // TestResult::matched()
-    // } else {
-    // TestResult::no_match()
-    // };
-    // let is_match = is_match.name("is_match");
+    let is_match = if re.is_match(cache, test.input()) {
+        TestResult::matched()
+    } else {
+        TestResult::no_match()
+    };
+    let is_match = is_match.name("is_match");
 
     let find_matches = match test.search_kind() {
         TestSearchKind::Earliest => {
@@ -113,9 +113,7 @@ fn run_test(
             TestResult::matches(it).name("find_overlapping_iter")
         }
     };
-
-    // vec![is_match, find_matches]
-    vec![find_matches]
+    vec![is_match, find_matches]
 }
 
 fn configure_regex_builder(

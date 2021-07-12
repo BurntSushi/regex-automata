@@ -5,11 +5,8 @@ use crate::{
         lazy::DFA,
     },
     nfa::thompson,
-    util::{id::PatternID, matchtypes::MatchError},
+    util::{id::PatternID, matchtypes::MatchError, MATCH_OFFSET},
 };
-
-// TODO: Unify this with same constant in crate::dfa::automaton.
-const MATCH_OFFSET: usize = 1;
 
 #[inline(never)]
 pub(crate) fn find_earliest_fwd<'i, 'c>(

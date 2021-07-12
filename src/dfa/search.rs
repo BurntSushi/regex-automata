@@ -1,13 +1,11 @@
 use crate::{
     dfa::{
         accel,
-        automaton::{
-            Automaton, HalfMatch, OverlappingState, StateMatch, MATCH_OFFSET,
-        },
+        automaton::{Automaton, HalfMatch, OverlappingState, StateMatch},
     },
     util::{
         id::{PatternID, StateID},
-        prefilter,
+        prefilter, MATCH_OFFSET,
     },
     MatchError,
 };
