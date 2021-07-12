@@ -102,6 +102,67 @@ impl Match {
     }
 }
 
+/// A representation of a match reported by a DFA.
+///
+/// This is called a "half" match because it only includes the end location
+/// (or start location for a reverse match) of a match. This corresponds to the
+/// information that a single DFA scan can report. Getting the other half of
+/// the match requires a second scan with a reversed DFA.
+///
+/// A half match also includes the pattern that matched. The pattern is
+/// identified by an ID, which corresponds to its position (starting from `0`)
+/// relative to other patterns used to construct the corresponding DFA. If only
+/// a single pattern is provided to the DFA, then all matches are guaranteed to
+/// have a pattern ID of `0`.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct HalfMatch {
+    /// The pattern ID.
+    pub(crate) pattern: PatternID,
+    /// The offset of the match.
+    ///
+    /// For forward searches, the offset is exclusive. For reverse searches,
+    /// the offset is inclusive.
+    pub(crate) offset: usize,
+}
+
+impl HalfMatch {
+    /// Create a new half match from a pattern ID and a byte offset.
+    #[inline]
+    pub fn new(pattern: PatternID, offset: usize) -> HalfMatch {
+        HalfMatch { pattern, offset }
+    }
+
+    /// Create a new half match from a pattern ID and a byte offset.
+    ///
+    /// This is like [`HalfMatch::new`], but accepts a `usize` instead of a
+    /// [`PatternID`]. This panics if the given `usize` is not representable
+    /// as a `PatternID`.
+    #[inline]
+    pub fn must(pattern: usize, offset: usize) -> HalfMatch {
+        HalfMatch::new(PatternID::new(pattern).unwrap(), offset)
+    }
+
+    /// Returns the ID of the pattern that matched.
+    ///
+    /// The ID of a pattern is derived from the position in which it was
+    /// originally inserted into the corresponding DFA. The first pattern has
+    /// identifier `0`, and each subsequent pattern is `1`, `2` and so on.
+    #[inline]
+    pub fn pattern(&self) -> PatternID {
+        self.pattern
+    }
+
+    /// The position of the match.
+    ///
+    /// If this match was produced by a forward search, then the offset is
+    /// exclusive. If this match was produced by a reverse search, then the
+    /// offset is inclusive.
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+}
+
 /// A representation of a multi match reported by a regex engine.
 ///
 /// A multi match has two essential pieces of information: the identifier of

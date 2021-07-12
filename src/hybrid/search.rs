@@ -1,11 +1,14 @@
 use crate::{
-    dfa::HalfMatch,
     hybrid::{
         id::{LazyStateID, OverlappingState, StateMatch},
         lazy::DFA,
     },
     nfa::thompson,
-    util::{id::PatternID, matchtypes::MatchError, MATCH_OFFSET},
+    util::{
+        id::PatternID,
+        matchtypes::{HalfMatch, MatchError},
+        MATCH_OFFSET,
+    },
 };
 
 #[inline(never)]

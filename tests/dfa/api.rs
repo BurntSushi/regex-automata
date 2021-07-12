@@ -1,9 +1,9 @@
 use std::error::Error;
 
 use regex_automata::{
-    dfa::{dense, regex::Regex, Automaton, HalfMatch, OverlappingState},
+    dfa::{dense, regex::Regex, Automaton, OverlappingState},
     nfa::thompson,
-    MatchError, MultiMatch,
+    HalfMatch, MatchError, MultiMatch,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};

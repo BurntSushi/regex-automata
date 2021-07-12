@@ -2,71 +2,10 @@ use crate::{
     dfa::search,
     util::{
         id::{PatternID, StateID},
-        matchtypes::MatchError,
+        matchtypes::{HalfMatch, MatchError},
         prefilter,
     },
 };
-
-/// A representation of a match reported by a DFA.
-///
-/// This is called a "half" match because it only includes the end location
-/// (or start location for a reverse match) of a match. This corresponds to the
-/// information that a single DFA scan can report. Getting the other half of
-/// the match requires a second scan with a reversed DFA.
-///
-/// A half match also includes the pattern that matched. The pattern is
-/// identified by an ID, which corresponds to its position (starting from `0`)
-/// relative to other patterns used to construct the corresponding DFA. If only
-/// a single pattern is provided to the DFA, then all matches are guaranteed to
-/// have a pattern ID of `0`.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct HalfMatch {
-    /// The pattern ID.
-    pub(crate) pattern: PatternID,
-    /// The offset of the match.
-    ///
-    /// For forward searches, the offset is exclusive. For reverse searches,
-    /// the offset is inclusive.
-    pub(crate) offset: usize,
-}
-
-impl HalfMatch {
-    /// Create a new half match from a pattern ID and a byte offset.
-    #[inline]
-    pub fn new(pattern: PatternID, offset: usize) -> HalfMatch {
-        HalfMatch { pattern, offset }
-    }
-
-    /// Create a new half match from a pattern ID and a byte offset.
-    ///
-    /// This is like [`HalfMatch::new`], but accepts a `usize` instead of a
-    /// [`PatternID`]. This panics if the given `usize` is not representable
-    /// as a `PatternID`.
-    #[inline]
-    pub fn must(pattern: usize, offset: usize) -> HalfMatch {
-        HalfMatch::new(PatternID::new(pattern).unwrap(), offset)
-    }
-
-    /// Returns the ID of the pattern that matched.
-    ///
-    /// The ID of a pattern is derived from the position in which it was
-    /// originally inserted into the corresponding DFA. The first pattern has
-    /// identifier `0`, and each subsequent pattern is `1`, `2` and so on.
-    #[inline]
-    pub fn pattern(&self) -> PatternID {
-        self.pattern
-    }
-
-    /// The position of the match.
-    ///
-    /// If this match was produced by a forward search, then the offset is
-    /// exclusive. If this match was produced by a reverse search, then the
-    /// offset is inclusive.
-    #[inline]
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-}
 
 /// A trait describing the interface of a deterministic finite automaton (DFA).
 ///
@@ -383,7 +322,8 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     MatchError, PatternID,
-    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
     /// };
     ///
     /// fn find_leftmost_first<A: Automaton>(
@@ -609,7 +549,8 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     MatchError, PatternID,
-    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
     /// };
     ///
     /// fn find_byte(slice: &[u8], at: usize, byte: u8) -> Option<usize> {
@@ -963,7 +904,10 @@ pub unsafe trait Automaton {
     /// executing a traditional leftmost search.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
+    /// };
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+")?;
     /// // Normally, the end of the leftmost first match here would be 8,
@@ -1023,7 +967,8 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson,
-    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1101,7 +1046,10 @@ pub unsafe trait Automaton {
     /// leftmost longest semantics.)
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
+    /// };
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+")?;
     /// let expected = HalfMatch::must(0, 8);
@@ -1167,7 +1115,8 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson,
-    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1232,7 +1181,8 @@ pub unsafe trait Automaton {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, HalfMatch, OverlappingState, dense},
+    ///     dfa::{Automaton, OverlappingState, dense},
+    ///     HalfMatch,
     ///     MatchKind,
     /// };
     ///
@@ -1319,8 +1269,9 @@ pub unsafe trait Automaton {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     dfa::{Automaton, dense},
     ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
+    ///     HalfMatch,
     /// };
     ///
     /// pub struct ZPrefilter;
@@ -1370,7 +1321,11 @@ pub unsafe trait Automaton {
     /// specific patterns.
     ///
     /// ```
-    /// use regex_automata::{PatternID, dfa::{Automaton, HalfMatch, dense}};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
+    ///     PatternID,
+    /// };
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().starts_for_each_pattern(true))
@@ -1412,7 +1367,10 @@ pub unsafe trait Automaton {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch,
+    /// };
     ///
     /// // N.B. We disable Unicode here so that we use a simple ASCII word
     /// // boundary. Alternatively, we could enable heuristic support for

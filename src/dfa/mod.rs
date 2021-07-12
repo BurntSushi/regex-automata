@@ -333,7 +333,7 @@ via [`dense::Config::minimize`], but it can increase compilation times
 dramatically.
 */
 
-pub use crate::dfa::automaton::{Automaton, HalfMatch, OverlappingState};
+pub use crate::dfa::automaton::{Automaton, OverlappingState};
 #[cfg(feature = "alloc")]
 pub use crate::dfa::error::Error;
 

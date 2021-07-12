@@ -138,7 +138,7 @@ impl Config {
     /// message).
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
     ///
     /// let haystack = "aba".as_bytes();
     ///
@@ -282,8 +282,8 @@ impl Config {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, HalfMatch, OverlappingState, dense},
-    ///     MatchKind,
+    ///     dfa::{Automaton, OverlappingState, dense},
+    ///     HalfMatch, MatchKind,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -321,8 +321,8 @@ impl Config {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, HalfMatch, OverlappingState, dense},
-    ///     MatchKind,
+    ///     dfa::{Automaton, OverlappingState, dense},
+    ///     HalfMatch, MatchKind,
     /// };
     ///
     /// let haystack = "123foobar456".as_bytes();
@@ -397,7 +397,10 @@ impl Config {
     /// run both anchored and unanchored searches for a single pattern.
     ///
     /// ```
-    /// use regex_automata::{PatternID, dfa::{Automaton, HalfMatch, dense}};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch, PatternID,
+    /// };
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().starts_for_each_pattern(true))
@@ -504,8 +507,8 @@ impl Config {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, HalfMatch, dense},
-    ///     MatchError, MatchKind,
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch, MatchError, MatchKind,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -586,8 +589,8 @@ impl Config {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, HalfMatch, dense},
-    ///     MatchError,
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch, MatchError,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -742,9 +745,9 @@ impl Config {
 ///
 /// ```
 /// use regex_automata::{
-///     dfa::{Automaton, HalfMatch, dense},
+///     dfa::{Automaton, dense},
 ///     nfa::thompson,
-///     SyntaxConfig,
+///     HalfMatch, SyntaxConfig,
 /// };
 ///
 /// let dfa = dense::Builder::new()
@@ -806,8 +809,9 @@ impl Builder {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, HalfMatch, dense},
+    ///     dfa::{Automaton, dense},
     ///     nfa::thompson,
+    ///     HalfMatch,
     /// };
     ///
     /// let haystack = "foo123bar".as_bytes();
@@ -972,7 +976,7 @@ pub(crate) type OwnedDFA = DFA<Vec<u32>>;
 /// for searching. For example:
 ///
 /// ```
-/// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+/// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 /// let expected = HalfMatch::must(0, 8);
@@ -1028,7 +1032,7 @@ impl OwnedDFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+bar")?;
     /// let expected = HalfMatch::must(0, 11);
@@ -1048,7 +1052,7 @@ impl OwnedDFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
     ///
     /// let dfa = dense::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let expected = HalfMatch::must(1, 3);
@@ -1067,7 +1071,7 @@ impl OwnedDFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
     ///
     /// let dfa = dense::DFA::always_match()?;
     ///
@@ -1251,7 +1255,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
     ///
     /// let dense = dense::DFA::new("foo[0-9]+")?;
     /// let sparse = dense.to_sparse()?;
@@ -1287,7 +1291,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1330,7 +1334,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1382,7 +1386,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1441,7 +1445,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1491,7 +1495,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1550,7 +1554,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1590,7 +1594,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// a DFA.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1677,7 +1681,7 @@ impl<'a> DFA<&'a [u32]> {
     /// and then use it for searching.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let (bytes, _) = initial.to_bytes_native_endian();
@@ -1699,7 +1703,7 @@ impl<'a> DFA<&'a [u32]> {
     /// alternative way to write the above example:
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// // Serialization returns the number of leading padding bytes added to
@@ -1746,7 +1750,7 @@ impl<'a> DFA<&'a [u32]> {
     /// compilation to choose the correct endianness.
     ///
     /// ```no_run
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
     ///
     /// type S = u32;
     /// type DFA = dense::DFA<&'static [S]>;
@@ -1849,7 +1853,7 @@ impl<'a> DFA<&'a [u32]> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, dense::DFA};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let (bytes, _) = initial.to_bytes_native_endian();
@@ -4290,7 +4294,7 @@ mod tests {
 
     #[test]
     fn roundtrip_always_match() {
-        use crate::dfa::HalfMatch;
+        use crate::HalfMatch;
 
         let dfa = DFA::always_match().unwrap();
         let (buf, _) = dfa.to_bytes_native_endian();

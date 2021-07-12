@@ -13,8 +13,8 @@ example, this configures a sparse DFA to do an overlapping search:
 
 ```
 use regex_automata::{
-    dfa::{Automaton, HalfMatch, OverlappingState, dense},
-    MatchKind,
+    dfa::{Automaton, OverlappingState, dense},
+    HalfMatch, MatchKind,
 };
 
 let dense_re = dense::Builder::new()
@@ -107,7 +107,10 @@ const VERSION: u32 = 2;
 /// for searching. For example:
 ///
 /// ```
-/// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+/// use regex_automata::{
+///     dfa::{Automaton, sparse::DFA},
+///     HalfMatch,
+/// };
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 /// let expected = HalfMatch::must(0, 8);
@@ -146,7 +149,10 @@ impl DFA<Vec<u8>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse},
+    ///     HalfMatch,
+    /// };
     ///
     /// let dfa = sparse::DFA::new("foo[0-9]+bar")?;
     ///
@@ -172,7 +178,10 @@ impl DFA<Vec<u8>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse},
+    ///     HalfMatch,
+    /// };
     ///
     /// let dfa = sparse::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let expected = HalfMatch::must(1, 3);
@@ -195,7 +204,10 @@ impl DFA<Vec<u8>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse},
+    ///     HalfMatch,
+    /// };
     ///
     /// let dfa = sparse::DFA::always_match()?;
     ///
@@ -476,7 +488,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -518,7 +533,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -569,7 +587,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -624,7 +645,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -671,7 +695,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -727,7 +754,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -787,7 +817,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// a sparse DFA.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -868,7 +901,10 @@ impl<'a> DFA<&'a [u8]> {
     /// and then use it for searching.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_bytes_native_endian();
@@ -912,7 +948,10 @@ impl<'a> DFA<&'a [u8]> {
     /// since a sparse DFA has no alignment requirements.
     ///
     /// ```no_run
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse},
+    ///     HalfMatch,
+    /// };
     ///
     /// type DFA = sparse::DFA<&'static [u8]>;
     ///
@@ -1003,7 +1042,10 @@ impl<'a> DFA<&'a [u8]> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, HalfMatch, sparse::DFA};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     HalfMatch,
+    /// };
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_bytes_native_endian();

@@ -347,7 +347,7 @@ fn write_multi_match(m: automata::MultiMatch, buf: &mut String) {
         .unwrap();
 }
 
-fn write_half_match(m: automata::dfa::HalfMatch, buf: &mut String) {
+fn write_half_match(m: automata::HalfMatch, buf: &mut String) {
     use std::fmt::Write;
 
     writeln!(buf, "{:?}: {:?}", m.pattern(), m.offset()).unwrap();

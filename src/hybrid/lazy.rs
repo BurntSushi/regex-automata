@@ -3,7 +3,6 @@ use core::{borrow::Borrow, iter, mem::size_of};
 use alloc::sync::Arc;
 
 use crate::{
-    dfa::HalfMatch,
     hybrid::{
         error::{BuildError, CacheError},
         id::{LazyStateID, OverlappingState},
@@ -16,7 +15,7 @@ use crate::{
             self, Start, State, StateBuilderEmpty, StateBuilderNFA,
         },
         id::{PatternID, StateID as NFAStateID},
-        matchtypes::{MatchError, MatchKind},
+        matchtypes::{HalfMatch, MatchError, MatchKind},
         sparse_set::SparseSets,
     },
 };
