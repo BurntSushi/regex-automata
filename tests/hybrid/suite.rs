@@ -61,7 +61,7 @@ fn compiler(
             return Ok(CompiledRegex::skip());
         }
         let re = builder.build_many(&regexes)?;
-        let cache = re.new_cache();
+        let cache = re.create_cache();
         create_matcher(&builder, re, cache)
     }
 }

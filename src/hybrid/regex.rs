@@ -19,7 +19,18 @@ pub struct Cache {
     reverse: lazy::Cache,
 }
 
+/// Convenience routines for regex and cache construction.
 impl Regex {
+    pub fn new(pattern: &str) -> Result<Regex, BuildError> {
+        Builder::new().build(pattern)
+    }
+
+    pub fn new_many<P: AsRef<str>>(
+        patterns: &[P],
+    ) -> Result<Regex, BuildError> {
+        Builder::new().build_many(patterns)
+    }
+
     pub fn config() -> Config {
         Config::new()
     }
@@ -28,16 +39,75 @@ impl Regex {
         Builder::new()
     }
 
-    pub fn new_cache(&self) -> Cache {
+    pub fn create_cache(&self) -> Cache {
         let forward = lazy::Cache::new(self.forward());
         let reverse = lazy::Cache::new(self.reverse());
         Cache { forward, reverse }
     }
+}
 
+/// Standard infallible search routines for finding and iterating over matches.
+impl Regex {
     pub fn is_match(&self, cache: &mut Cache, haystack: &[u8]) -> bool {
-        self.is_match_at(cache, haystack, 0, haystack.len())
+        self.try_is_match(cache, haystack).unwrap()
     }
 
+    pub fn find_earliest(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+    ) -> Option<MultiMatch> {
+        self.try_find_earliest(cache, haystack).unwrap()
+    }
+
+    pub fn find_leftmost(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+    ) -> Option<MultiMatch> {
+        self.try_find_leftmost(cache, haystack).unwrap()
+    }
+
+    pub fn find_overlapping(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        state: &mut OverlappingState,
+    ) -> Option<MultiMatch> {
+        self.try_find_overlapping(cache, haystack, state).unwrap()
+    }
+
+    pub fn find_earliest_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> FindEarliestMatches<'r, 'c, 't> {
+        FindEarliestMatches::new(self, cache, haystack)
+    }
+
+    pub fn find_leftmost_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> FindLeftmostMatches<'r, 'c, 't> {
+        FindLeftmostMatches::new(self, cache, haystack)
+    }
+
+    pub fn find_overlapping_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> FindOverlappingMatches<'r, 'c, 't> {
+        FindOverlappingMatches::new(self, cache, haystack)
+    }
+}
+
+/// Lower level infallible search routines that permit controlling where
+/// the search starts and ends in a particular sequence. This is useful for
+/// executing searches that need to take surrounding context into account. This
+/// is required for correctly implementing iteration because of look-around
+/// operators (`^`, `$`, `\b`).
+impl Regex {
     pub fn is_match_at(
         &self,
         cache: &mut Cache,
@@ -48,6 +118,111 @@ impl Regex {
         self.try_is_match_at(cache, haystack, start, end).unwrap()
     }
 
+    pub fn find_earliest_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Option<MultiMatch> {
+        self.try_find_earliest_at(cache, haystack, start, end).unwrap()
+    }
+
+    pub fn find_leftmost_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Option<MultiMatch> {
+        self.try_find_leftmost_at(cache, haystack, start, end).unwrap()
+    }
+
+    pub fn find_overlapping_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+        state: &mut OverlappingState,
+    ) -> Option<MultiMatch> {
+        self.try_find_overlapping_at(cache, haystack, start, end, state)
+            .unwrap()
+    }
+}
+
+/// Fallible search routines. These may return an error when the underlying
+/// lazy DFAs have been configured in a way that permits them to fail during a
+/// search.
+///
+/// Errors during search only occur when the lazy DFA has been explicitly
+/// configured to do so, usually by specifying one or more "quit" bytes or by
+/// heuristically enabling Unicode word boundaries.
+///
+/// Errors will never be returned using the default configuration. So these
+/// fallible routines are only needed for particular configurations.
+impl Regex {
+    pub fn try_is_match(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+    ) -> Result<bool, MatchError> {
+        self.try_is_match_at(cache, haystack, 0, haystack.len())
+    }
+
+    pub fn try_find_earliest(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+    ) -> Result<Option<MultiMatch>, MatchError> {
+        self.try_find_earliest_at(cache, haystack, 0, haystack.len())
+    }
+
+    pub fn try_find_leftmost(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+    ) -> Result<Option<MultiMatch>, MatchError> {
+        self.try_find_leftmost_at_imp(cache, haystack, 0, haystack.len())
+    }
+
+    pub fn try_find_overlapping(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        state: &mut OverlappingState,
+    ) -> Result<Option<MultiMatch>, MatchError> {
+        self.try_find_overlapping_at(cache, haystack, 0, haystack.len(), state)
+    }
+
+    pub fn try_find_earliest_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> TryFindEarliestMatches<'r, 'c, 't> {
+        TryFindEarliestMatches::new(self, cache, haystack)
+    }
+
+    pub fn try_find_leftmost_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> TryFindLeftmostMatches<'r, 'c, 't> {
+        TryFindLeftmostMatches::new(self, cache, haystack)
+    }
+
+    pub fn try_find_overlapping_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> TryFindOverlappingMatches<'r, 'c, 't> {
+        TryFindOverlappingMatches::new(self, cache, haystack)
+    }
+}
+
+/// Lower level fallible search routines that permit controlling where the
+/// search starts and ends in a particular sequence.
+impl Regex {
     pub fn try_is_match_at(
         &self,
         cache: &mut Cache,
@@ -61,24 +236,6 @@ impl Regex {
             .map(|x| x.is_some())
     }
 
-    pub fn find_earliest(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-    ) -> Option<MultiMatch> {
-        self.find_earliest_at(cache, haystack, 0, haystack.len())
-    }
-
-    pub fn find_earliest_at(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Option<MultiMatch> {
-        self.try_find_earliest_at(cache, haystack, start, end).unwrap()
-    }
-
     pub fn try_find_earliest_at(
         &self,
         cache: &mut Cache,
@@ -89,6 +246,29 @@ impl Regex {
         self.try_find_earliest_at_imp(cache, haystack, start, end)
     }
 
+    pub fn try_find_leftmost_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<MultiMatch>, MatchError> {
+        self.try_find_leftmost_at_imp(cache, haystack, start, end)
+    }
+
+    pub fn try_find_overlapping_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+        state: &mut OverlappingState,
+    ) -> Result<Option<MultiMatch>, MatchError> {
+        self.try_find_overlapping_at_imp(cache, haystack, start, end, state)
+    }
+}
+
+impl Regex {
     fn try_find_earliest_at_imp(
         &self,
         cache: &mut Cache,
@@ -122,50 +302,6 @@ impl Regex {
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
     }
 
-    pub fn find_earliest_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindEarliestMatches<'r, 'c, 't> {
-        FindEarliestMatches::new(self, cache, haystack)
-    }
-
-    pub fn try_find_earliest_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> TryFindEarliestMatches<'r, 'c, 't> {
-        TryFindEarliestMatches::new(self, cache, haystack)
-    }
-
-    pub fn find_leftmost(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-    ) -> Option<MultiMatch> {
-        self.find_leftmost_at(cache, haystack, 0, haystack.len())
-    }
-
-    pub fn find_leftmost_at(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Option<MultiMatch> {
-        self.try_find_leftmost_at(cache, haystack, start, end).unwrap()
-    }
-
-    pub fn try_find_leftmost_at(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<MultiMatch>, MatchError> {
-        self.try_find_leftmost_at_imp(cache, haystack, start, end)
-    }
-
     fn try_find_leftmost_at_imp(
         &self,
         cache: &mut Cache,
@@ -197,54 +333,6 @@ impl Regex {
         );
         assert!(start.offset() <= end.offset());
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
-    }
-
-    pub fn find_leftmost_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindLeftmostMatches<'r, 'c, 't> {
-        FindLeftmostMatches::new(self, cache, haystack)
-    }
-
-    pub fn try_find_leftmost_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> TryFindLeftmostMatches<'r, 'c, 't> {
-        TryFindLeftmostMatches::new(self, cache, haystack)
-    }
-
-    pub fn find_overlapping(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-        state: &mut OverlappingState,
-    ) -> Option<MultiMatch> {
-        self.find_overlapping_at(cache, haystack, 0, haystack.len(), state)
-    }
-
-    pub fn find_overlapping_at(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
-        state: &mut OverlappingState,
-    ) -> Option<MultiMatch> {
-        self.try_find_overlapping_at(cache, haystack, start, end, state)
-            .unwrap()
-    }
-
-    pub fn try_find_overlapping_at(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
-        state: &mut OverlappingState,
-    ) -> Result<Option<MultiMatch>, MatchError> {
-        self.try_find_overlapping_at_imp(cache, haystack, start, end, state)
     }
 
     fn try_find_overlapping_at_imp(
@@ -285,29 +373,25 @@ impl Regex {
         assert!(start.offset() <= end.offset());
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
     }
+}
 
-    pub fn find_overlapping_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindOverlappingMatches<'r, 'c, 't> {
-        FindOverlappingMatches::new(self, cache, haystack)
-    }
-
-    pub fn try_find_overlapping_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> TryFindOverlappingMatches<'r, 'c, 't> {
-        TryFindOverlappingMatches::new(self, cache, haystack)
-    }
-
-    fn forward(&self) -> &lazy::InertDFA {
+/// Non-search APIs for queryig information about the regex and setting a
+/// prefilter.
+impl Regex {
+    pub fn forward(&self) -> &lazy::InertDFA {
         &self.forward
     }
 
-    fn reverse(&self) -> &lazy::InertDFA {
+    pub fn reverse(&self) -> &lazy::InertDFA {
         &self.reverse
+    }
+
+    pub fn pattern_count(&self) -> usize {
+        assert_eq!(
+            self.forward().pattern_count(),
+            self.reverse().pattern_count()
+        );
+        self.forward().pattern_count()
     }
 }
 

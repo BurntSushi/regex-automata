@@ -80,11 +80,10 @@ define_regex_type!(
     /// more slowly.
     ///
     /// By default, a regex's automaton type parameter is set to
-    /// `dense::DFA<Vec<usize>, Vec<u8>, usize>` when the `alloc` feature is
-    /// enabled. For most in-memory work
-    /// loads, this is the most convenient type that gives the best search
-    /// performance. When the `alloc` feature is disabled, no default type is
-    /// used.
+    /// `dense::DFA<Vec<u32>>` when the `alloc` feature is enabled. For most
+    /// in-memory work loads, this is the most convenient type that gives the
+    /// best search performance. When the `alloc` feature is disabled, no
+    /// default type is used.
     ///
     /// A `Regex` also has a `P` type parameter, which is used to select the
     /// prefilter used during search. By default, no prefilter is enabled by
@@ -108,7 +107,7 @@ define_regex_type!(
     /// * "leftmost" means to continue matching until the underlying
     ///   automaton cannot advance. This reflects "standard" searching you
     ///   might be used to in other regex engines. e.g., This permits
-    ///   greedy searching to work.
+    ///   non-greedy and greedy searching to work as you would expect.
     /// * "overlapping" means to find all possible matches, even if they
     ///   overlap.
     ///
@@ -347,7 +346,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     }
 }
 
-/// Conveniece routines for regex construction.
+/// Convenience routines for regex construction.
 #[cfg(feature = "alloc")]
 impl Regex {
     /// Return a default configuration for a `Regex`.

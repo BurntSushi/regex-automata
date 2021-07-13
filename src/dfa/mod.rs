@@ -13,14 +13,12 @@ This section gives a brief overview of the primary types in this module:
 * A [`regex::Regex`] provides a way to search for matches of a regular
 expression using DFAs. This includes iterating over matches with both the start
 and end positions of each match.
-* A [`regex::Builder`] provides a way configure many compilation options for a
-regex.
 * A [`dense::DFA`] provides low level access to a DFA that uses a dense
 representation (uses lots of space, but fast searching).
 * A [`sparse::DFA`] provides the same API as a `dense::DFA`, but uses a sparse
-representation (uses less space, but slower matching).
-* An [`Automaton`] trait that defines an interface that all DFAs must
-implement.
+representation (uses less space, but slower searching).
+* An [`Automaton`] trait that defines an interface that both dense and sparse
+DFAs implement. (A `regex::Regex` is generic over this trait.)
 * Both dense DFAs and sparse DFAs support serialization to raw bytes (e.g.,
 [`dense::DFA::to_bytes_little_endian`]) and cheap deserialization (e.g.,
 [`dense::DFA::from_bytes`]).
@@ -205,8 +203,8 @@ assert_eq!(matches, vec![
 ```
 
 Note that unlike dense DFAs, sparse DFAs have no alignment requirements.
-Conversely, dense DFAs must be be aligned to the same alignment as their
-state identifier representation.
+Conversely, dense DFAs must be be aligned to the same alignment as a
+[`StateID`](crate::util::id::StateID).
 
 # Support for `no_std` and `alloc`-only
 
@@ -222,10 +220,8 @@ facilities necessary for deserializing and searching with DFAs.
 The intended workflow for `no_std` environments is thus as follows:
 
 * Write a program with the `alloc` or `std` features that compiles and
-serializes a regular expression. Serialization should only happen after first
-converting the DFAs to use a fixed size state identifier instead of the default
-`usize`. You may also need to serialize both little and big endian versions of
-each DFA. (So that's 4 DFAs in total for each regex.)
+serializes a regular expression. You may need to serialize both little and big
+endian versions of each DFA. (So that's 4 DFAs in total for each regex.)
 * In your `no_std` environment, follow the examples above for deserializing
 your previously serialized DFAs into regexes. You can then search with them as
 you would any regex.
@@ -240,14 +236,14 @@ for deserializing DFAs.
 
 This module supports the same syntax as the `regex` crate, since they share the
 same parser. You can find an exhaustive list of supported syntax in the
-[documentation for the `regex` crate](https://docs.rs/regex/1.4/regex/#syntax).
+[documentation for the `regex` crate](https://docs.rs/regex/1/regex/#syntax).
 
 There are two things that are not supported by the DFAs in this module:
 
 * Capturing groups. The DFAs (and [`Regex`](regex::Regex)es built on top
 of them) can only find the offsets of an entire match, but cannot resolve
 the offsets of each capturing group. This is because DFAs do not have the
-expressive power to provide this.
+expressive power necessary.
 * Unicode word boundaries. These present particularly difficult challenges for
 DFA construction and would result in an explosion in the number of states.
 One can enable [`dense::Config::unicode_word_boundary`] though, which provides
