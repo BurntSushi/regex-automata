@@ -3,11 +3,15 @@ use core::borrow::Borrow;
 use crate::{
     hybrid::{error::BuildError, lazy, OverlappingState},
     nfa::thompson,
-    util::matchtypes::{MatchError, MatchKind, MultiMatch},
+    util::{
+        matchtypes::{MatchError, MatchKind, MultiMatch},
+        prefilter::{self, Prefilter},
+    },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Regex {
+    pre: Option<Box<dyn Prefilter>>,
     forward: lazy::InertDFA,
     reverse: lazy::InertDFA,
     utf8: bool,
@@ -183,7 +187,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: &[u8],
     ) -> Result<Option<MultiMatch>, MatchError> {
-        self.try_find_leftmost_at_imp(cache, haystack, 0, haystack.len())
+        self.try_find_leftmost_at(cache, haystack, 0, haystack.len())
     }
 
     pub fn try_find_overlapping(
@@ -232,8 +236,14 @@ impl Regex {
     ) -> Result<bool, MatchError> {
         let ifwd = self.forward();
         let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
-        fwd.find_leftmost_fwd_at(None, haystack, start, end)
-            .map(|x| x.is_some())
+        fwd.find_leftmost_fwd_at(
+            self.scanner().as_mut(),
+            None,
+            haystack,
+            start,
+            end,
+        )
+        .map(|x| x.is_some())
     }
 
     pub fn try_find_earliest_at(
@@ -243,7 +253,13 @@ impl Regex {
         start: usize,
         end: usize,
     ) -> Result<Option<MultiMatch>, MatchError> {
-        self.try_find_earliest_at_imp(cache, haystack, start, end)
+        self.try_find_earliest_at_imp(
+            self.scanner().as_mut(),
+            cache,
+            haystack,
+            start,
+            end,
+        )
     }
 
     pub fn try_find_leftmost_at(
@@ -253,7 +269,13 @@ impl Regex {
         start: usize,
         end: usize,
     ) -> Result<Option<MultiMatch>, MatchError> {
-        self.try_find_leftmost_at_imp(cache, haystack, start, end)
+        self.try_find_leftmost_at_imp(
+            self.scanner().as_mut(),
+            cache,
+            haystack,
+            start,
+            end,
+        )
     }
 
     pub fn try_find_overlapping_at(
@@ -264,13 +286,21 @@ impl Regex {
         end: usize,
         state: &mut OverlappingState,
     ) -> Result<Option<MultiMatch>, MatchError> {
-        self.try_find_overlapping_at_imp(cache, haystack, start, end, state)
+        self.try_find_overlapping_at_imp(
+            self.scanner().as_mut(),
+            cache,
+            haystack,
+            start,
+            end,
+            state,
+        )
     }
 }
 
 impl Regex {
     fn try_find_earliest_at_imp(
         &self,
+        pre: Option<&mut prefilter::Scanner>,
         cache: &mut Cache,
         haystack: &[u8],
         start: usize,
@@ -279,10 +309,11 @@ impl Regex {
         let (ifwd, irev) = (self.forward(), self.reverse());
         let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
         let mut rev = lazy::DFA::new(&irev, &mut cache.reverse);
-        let end = match fwd.find_earliest_fwd_at(None, haystack, start, end)? {
-            None => return Ok(None),
-            Some(end) => end,
-        };
+        let end =
+            match fwd.find_earliest_fwd_at(pre, None, haystack, start, end)? {
+                None => return Ok(None),
+                Some(end) => end,
+            };
         // N.B. The only time we need to tell the reverse searcher the pattern
         // to match is in the overlapping case, since it's ambiguous. In the
         // earliest case, I have tentatively convinced myself that it isn't
@@ -304,6 +335,7 @@ impl Regex {
 
     fn try_find_leftmost_at_imp(
         &self,
+        pre: Option<&mut prefilter::Scanner>,
         cache: &mut Cache,
         haystack: &[u8],
         start: usize,
@@ -312,10 +344,11 @@ impl Regex {
         let (ifwd, irev) = (self.forward(), self.reverse());
         let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
         let mut rev = lazy::DFA::new(&irev, &mut cache.reverse);
-        let end = match fwd.find_leftmost_fwd_at(None, haystack, start, end)? {
-            None => return Ok(None),
-            Some(end) => end,
-        };
+        let end =
+            match fwd.find_leftmost_fwd_at(pre, None, haystack, start, end)? {
+                None => return Ok(None),
+                Some(end) => end,
+            };
         // N.B. The only time we need to tell the reverse searcher the pattern
         // to match is in the overlapping case, since it's ambiguous. In the
         // leftmost case, I have tentatively convinced myself that it isn't
@@ -337,6 +370,7 @@ impl Regex {
 
     fn try_find_overlapping_at_imp(
         &self,
+        pre: Option<&mut prefilter::Scanner>,
         cache: &mut Cache,
         haystack: &[u8],
         start: usize,
@@ -347,7 +381,7 @@ impl Regex {
         let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
         let mut rev = lazy::DFA::new(&irev, &mut cache.reverse);
         let end = match fwd
-            .find_overlapping_fwd_at(None, haystack, start, end, state)?
+            .find_overlapping_fwd_at(pre, None, haystack, start, end, state)?
         {
             None => return Ok(None),
             Some(end) => end,
@@ -392,6 +426,18 @@ impl Regex {
             self.reverse().pattern_count()
         );
         self.forward().pattern_count()
+    }
+
+    pub fn prefilter(&self) -> Option<&dyn Prefilter> {
+        self.pre.as_ref().map(|x| &**x)
+    }
+
+    pub fn set_prefilter(&mut self, pre: Option<Box<dyn Prefilter>>) {
+        self.pre = pre;
+    }
+
+    fn scanner(&self) -> Option<prefilter::Scanner> {
+        self.prefilter().map(prefilter::Scanner::new)
     }
 }
 
@@ -512,6 +558,7 @@ impl<'r, 'c, 't> Iterator for FindOverlappingMatches<'r, 'c, 't> {
 pub struct TryFindEarliestMatches<'r, 'c, 't> {
     re: &'r Regex,
     cache: &'c mut Cache,
+    scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
     last_match: Option<usize>,
@@ -523,9 +570,11 @@ impl<'r, 'c, 't> TryFindEarliestMatches<'r, 'c, 't> {
         cache: &'c mut Cache,
         text: &'t [u8],
     ) -> TryFindEarliestMatches<'r, 'c, 't> {
+        let scanner = re.scanner();
         TryFindEarliestMatches {
             re,
             cache,
+            scanner,
             text,
             last_end: 0,
             last_match: None,
@@ -541,6 +590,7 @@ impl<'r, 'c, 't> Iterator for TryFindEarliestMatches<'r, 'c, 't> {
             return None;
         }
         let result = self.re.try_find_earliest_at_imp(
+            self.scanner.as_mut(),
             self.cache,
             self.text,
             self.last_end,
@@ -589,6 +639,7 @@ impl<'r, 'c, 't> Iterator for TryFindEarliestMatches<'r, 'c, 't> {
 pub struct TryFindLeftmostMatches<'r, 'c, 't> {
     re: &'r Regex,
     cache: &'c mut Cache,
+    scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
     last_match: Option<usize>,
@@ -600,9 +651,11 @@ impl<'r, 'c, 't> TryFindLeftmostMatches<'r, 'c, 't> {
         cache: &'c mut Cache,
         text: &'t [u8],
     ) -> TryFindLeftmostMatches<'r, 'c, 't> {
+        let scanner = re.scanner();
         TryFindLeftmostMatches {
             re,
             cache,
+            scanner,
             text,
             last_end: 0,
             last_match: None,
@@ -618,6 +671,7 @@ impl<'r, 'c, 't> Iterator for TryFindLeftmostMatches<'r, 'c, 't> {
             return None;
         }
         let result = self.re.try_find_leftmost_at_imp(
+            self.scanner.as_mut(),
             self.cache,
             self.text,
             self.last_end,
@@ -665,6 +719,7 @@ impl<'r, 'c, 't> Iterator for TryFindLeftmostMatches<'r, 'c, 't> {
 pub struct TryFindOverlappingMatches<'r, 'c, 't> {
     re: &'r Regex,
     cache: &'c mut Cache,
+    scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
     state: OverlappingState,
@@ -676,9 +731,11 @@ impl<'r, 'c, 't> TryFindOverlappingMatches<'r, 'c, 't> {
         cache: &'c mut Cache,
         text: &'t [u8],
     ) -> TryFindOverlappingMatches<'r, 'c, 't> {
+        let scanner = re.scanner();
         TryFindOverlappingMatches {
             re,
             cache,
+            scanner,
             text,
             last_end: 0,
             state: OverlappingState::start(),
@@ -694,6 +751,7 @@ impl<'r, 'c, 't> Iterator for TryFindOverlappingMatches<'r, 'c, 't> {
             return None;
         }
         let result = self.re.try_find_overlapping_at_imp(
+            self.scanner.as_mut(),
             self.cache,
             self.text,
             self.last_end,
@@ -770,7 +828,7 @@ impl Builder {
             .thompson(thompson::Config::new().reverse(true))
             .build_many(patterns)?;
         let utf8 = self.config.get_utf8();
-        Ok(Regex { forward, reverse, utf8 })
+        Ok(Regex { pre: None, forward, reverse, utf8 })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {

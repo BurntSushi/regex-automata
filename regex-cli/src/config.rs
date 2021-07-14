@@ -7,7 +7,7 @@ use automata::{
     nfa::thompson,
     MatchKind,
 };
-use bstr::BString;
+use bstr::{BStr, BString, ByteSlice};
 
 use crate::{
     app::{self, flag, switch, App, Args},
@@ -89,6 +89,7 @@ impl IntoIterator for Patterns {
     }
 }
 
+/*
 #[derive(Debug)]
 pub struct File(PathBuf);
 
@@ -119,6 +120,7 @@ impl File {
             .with_context(|| format!("failed to mmap {}", self.0.display()))
     }
 }
+*/
 
 #[derive(Debug)]
 pub struct Input(InputKind);
@@ -160,6 +162,7 @@ impl Input {
         }))
     }
 
+    /*
     /// Read the input as a sequence of bytes, regardless of its source.
     pub fn bytes(&self) -> anyhow::Result<BString> {
         match self.0 {
@@ -167,6 +170,32 @@ impl Input {
             InputKind::Path(ref p) => fs::read(p)
                 .map(BString::from)
                 .with_context(|| format!("failed to read {}", p.display())),
+        }
+    }
+    */
+
+    /// If the input is a file, then memory map and pass the contents of the
+    /// file to the given closure. Otherwise, if it's an inline literal, then
+    /// pass it to the closure.
+    pub fn with_mmap<T>(
+        &self,
+        mut f: impl FnMut(&BStr) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        match self.0 {
+            InputKind::Literal(ref lit) => f(lit.as_bstr()),
+            InputKind::Path(ref p) => {
+                let file = fs::File::open(p).with_context(|| {
+                    format!("failed to open {}", p.display())
+                })?;
+                // SAFETY: We assume this is OK to do since we assume that our
+                // search input is immutable.
+                let mmap = unsafe {
+                    memmap2::Mmap::map(&file).with_context(|| {
+                        format!("failed to mmap {}", p.display())
+                    })?
+                };
+                f(<&BStr>::from(&*mmap))
+            }
         }
     }
 }

@@ -1274,6 +1274,7 @@ pub unsafe trait Automaton {
     ///     HalfMatch,
     /// };
     ///
+    /// #[derive(Debug)]
     /// pub struct ZPrefilter;
     ///
     /// impl Prefilter for ZPrefilter {

@@ -106,7 +106,6 @@ fn define_dfa_regex() -> App {
 fn define_hybrid() -> App {
     let mut dfa = app::leaf("dfa")
         .about("Print a debug representation of a lazy DFA object.");
-    dfa = config::Input::define(dfa);
     dfa = config::Patterns::define(dfa);
     dfa = config::Syntax::define(dfa);
     dfa = config::Thompson::define(dfa);
@@ -114,7 +113,6 @@ fn define_hybrid() -> App {
 
     let mut regex = app::leaf("regex")
         .about("Print a debug representation of a lazy regex object.");
-    regex = config::Input::define(regex);
     regex = config::Patterns::define(regex);
     regex = config::Syntax::define(regex);
     regex = config::Thompson::define(regex);
@@ -299,17 +297,13 @@ fn run_hybrid(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
-    use automata::hybrid::{Cache, OverlappingState, DFA};
-
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cdfa = config::Hybrid::get(args)?;
-    let input = config::Input::get(args)?;
     let patterns = config::Patterns::get(args)?;
 
-    let haystack = input.bytes()?;
     let idfa =
         cdfa.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
     table.print(stdout())?;
@@ -317,48 +311,7 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     // to customize how this works? Maybe "viewing the state of the cache"
     // should be an option for the 'find' sub-command? Ick.
     if !args.is_present("quiet") {
-        writeln!(stdout(), "{:?}", idfa.nfa())?;
-        writeln!(stdout(), "")?;
-        let mut cache = Cache::new(&idfa);
-        let mut dfa = DFA::new(&idfa, &mut cache);
-        let mut start = 0;
-        let mut state = OverlappingState::start();
-        while start <= haystack.len() {
-            let result = dfa.find_overlapping_fwd_at(
-                None,
-                &haystack,
-                start,
-                haystack.len(),
-                &mut state,
-            );
-            writeln!(stdout(), "match? {:?}", result)?;
-            start = match result {
-                Err(_) | Ok(None) => break,
-                Ok(Some(m)) => m.offset(),
-            };
-        }
-        /*
-        while start <= haystack.len() {
-            let result = dfa.find_leftmost_fwd_at(
-                None,
-                &haystack,
-                start,
-                haystack.len(),
-            );
-            writeln!(stdout(), "match? {:?}", result)?;
-            start = match result {
-                Err(_) | Ok(None) => break,
-                Ok(Some(m)) => {
-                    if m.offset() == start {
-                        start + 1
-                    } else {
-                        m.offset()
-                    }
-                }
-            };
-        }
-        */
-        // writeln!(stdout(), "\n{:?}", dfa.cache())?;
+        writeln!(stdout(), "\n{:?}", idfa)?;
     }
     Ok(())
 }

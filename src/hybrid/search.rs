@@ -7,34 +7,49 @@ use crate::{
     util::{
         id::PatternID,
         matchtypes::{HalfMatch, MatchError},
-        MATCH_OFFSET,
+        prefilter, MATCH_OFFSET,
     },
 };
 
 #[inline(never)]
 pub(crate) fn find_earliest_fwd<'i, 'c>(
+    pre: Option<&mut prefilter::Scanner>,
     dfa: &mut DFA<'i, 'c>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_fwd(true, dfa, pattern_id, bytes, start, end)
+    // Searching with a pattern ID is always anchored, so we should never use
+    // a prefilter.
+    if pre.is_some() && pattern_id.is_none() {
+        find_fwd(pre, true, dfa, pattern_id, bytes, start, end)
+    } else {
+        find_fwd(None, true, dfa, pattern_id, bytes, start, end)
+    }
 }
 
 #[inline(never)]
 pub(crate) fn find_leftmost_fwd<'i, 'c>(
+    pre: Option<&mut prefilter::Scanner>,
     dfa: &mut DFA<'i, 'c>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_fwd(false, dfa, pattern_id, bytes, start, end)
+    // Searching with a pattern ID is always anchored, so we should never use
+    // a prefilter.
+    if pre.is_some() && pattern_id.is_none() {
+        find_fwd(pre, false, dfa, pattern_id, bytes, start, end)
+    } else {
+        find_fwd(None, false, dfa, pattern_id, bytes, start, end)
+    }
 }
 
 #[inline(always)]
 fn find_fwd<'i, 'c>(
+    mut pre: Option<&mut prefilter::Scanner>,
     earliest: bool,
     dfa: &mut DFA<'i, 'c>,
     pattern_id: Option<PatternID>,
@@ -55,7 +70,16 @@ fn find_fwd<'i, 'c>(
         at += 1;
         if !sid.is_unmasked() {
             if sid.is_start() {
-                continue;
+                if let Some(ref mut pre) = pre {
+                    if pre.is_effective(at) {
+                        match pre.next_candidate(bytes, at).into_option() {
+                            None => return Ok(None),
+                            Some(i) => {
+                                at = i;
+                            }
+                        }
+                    }
+                }
             } else if sid.is_match() {
                 last_match = Some(HalfMatch {
                     pattern: dfa.match_pattern(sid, 0),
@@ -147,6 +171,7 @@ fn find_rev<'i, 'c>(
 
 #[inline(never)]
 pub(crate) fn find_overlapping_fwd<'i, 'c>(
+    pre: Option<&mut prefilter::Scanner>,
     dfa: &mut DFA<'i, 'c>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
@@ -154,11 +179,34 @@ pub(crate) fn find_overlapping_fwd<'i, 'c>(
     end: usize,
     caller_state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_overlapping_fwd_imp(dfa, pattern_id, bytes, start, end, caller_state)
+    // Searching with a pattern ID is always anchored, so we should only ever
+    // use a prefilter when no pattern ID is given.
+    if pre.is_some() && pattern_id.is_none() {
+        find_overlapping_fwd_imp(
+            pre,
+            dfa,
+            pattern_id,
+            bytes,
+            start,
+            end,
+            caller_state,
+        )
+    } else {
+        find_overlapping_fwd_imp(
+            None,
+            dfa,
+            pattern_id,
+            bytes,
+            start,
+            end,
+            caller_state,
+        )
+    }
 }
 
 #[inline(always)]
 fn find_overlapping_fwd_imp<'i, 'c>(
+    mut pre: Option<&mut prefilter::Scanner>,
     dfa: &mut DFA<'i, 'c>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
@@ -227,7 +275,16 @@ fn find_overlapping_fwd_imp<'i, 'c>(
         if !sid.is_unmasked() {
             caller_state.set_id(sid);
             if sid.is_start() {
-                continue;
+                if let Some(ref mut pre) = pre {
+                    if pre.is_effective(at) {
+                        match pre.next_candidate(bytes, at).into_option() {
+                            None => return Ok(None),
+                            Some(i) => {
+                                at = i;
+                            }
+                        }
+                    }
+                }
             } else if sid.is_match() {
                 let offset = at - MATCH_OFFSET;
                 caller_state
