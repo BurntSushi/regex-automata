@@ -1,3 +1,10 @@
+// BREADCRUMBS: Unexport DFA, rename DFA to ???, and rename InertDFA to DFA.
+// Then move the 'find' routines to DFA (previously InertDFA), and accept a
+// 'Cache' as a parameter, just like the Regex API.
+//
+// I think we still want a type that combines a DFA and a Cache though. Maybe
+// a 'Searcher'? Or a 'LazySearcher'? Or a 'LazyDFA'? Not sure.
+
 use core::{borrow::Borrow, iter, mem::size_of};
 
 use alloc::sync::Arc;
