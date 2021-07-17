@@ -12,9 +12,9 @@ use crate::{
 };
 
 #[inline(never)]
-pub(crate) fn find_earliest_fwd<'i, 'c>(
+pub(crate) fn find_earliest_fwd(
     pre: Option<&mut prefilter::Scanner>,
-    dfa: &mut DFA<'i, 'c>,
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -30,9 +30,9 @@ pub(crate) fn find_earliest_fwd<'i, 'c>(
 }
 
 #[inline(never)]
-pub(crate) fn find_leftmost_fwd<'i, 'c>(
+pub(crate) fn find_leftmost_fwd(
     pre: Option<&mut prefilter::Scanner>,
-    dfa: &mut DFA<'i, 'c>,
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -48,10 +48,10 @@ pub(crate) fn find_leftmost_fwd<'i, 'c>(
 }
 
 #[inline(always)]
-fn find_fwd<'i, 'c>(
+fn find_fwd(
     mut pre: Option<&mut prefilter::Scanner>,
     earliest: bool,
-    dfa: &mut DFA<'i, 'c>,
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -61,7 +61,7 @@ fn find_fwd<'i, 'c>(
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
 
-    let mut sid = init_fwd(dfa, pattern_id, bytes, start, end)?;
+    let mut sid = init_fwd(dfa.as_ref_mut(), pattern_id, bytes, start, end)?;
     let mut last_match = None;
     let mut at = start;
     while at < end {
@@ -103,8 +103,8 @@ fn find_fwd<'i, 'c>(
 }
 
 #[inline(never)]
-pub(crate) fn find_earliest_rev<'i, 'c>(
-    dfa: &mut DFA<'i, 'c>,
+pub(crate) fn find_earliest_rev(
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -114,8 +114,8 @@ pub(crate) fn find_earliest_rev<'i, 'c>(
 }
 
 #[inline(never)]
-pub(crate) fn find_leftmost_rev<'i, 'c>(
-    dfa: &mut DFA<'i, 'c>,
+pub(crate) fn find_leftmost_rev(
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -125,9 +125,9 @@ pub(crate) fn find_leftmost_rev<'i, 'c>(
 }
 
 #[inline(always)]
-fn find_rev<'i, 'c>(
+fn find_rev(
     earliest: bool,
-    dfa: &mut DFA<'i, 'c>,
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -137,7 +137,7 @@ fn find_rev<'i, 'c>(
     assert!(start <= bytes.len());
     assert!(end <= bytes.len());
 
-    let mut sid = init_rev(dfa, pattern_id, bytes, start, end)?;
+    let mut sid = init_rev(dfa.as_ref_mut(), pattern_id, bytes, start, end)?;
     let mut last_match = None;
     let mut at = end;
     while at > start {
@@ -170,9 +170,9 @@ fn find_rev<'i, 'c>(
 }
 
 #[inline(never)]
-pub(crate) fn find_overlapping_fwd<'i, 'c>(
+pub(crate) fn find_overlapping_fwd(
     pre: Option<&mut prefilter::Scanner>,
-    dfa: &mut DFA<'i, 'c>,
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -205,9 +205,9 @@ pub(crate) fn find_overlapping_fwd<'i, 'c>(
 }
 
 #[inline(always)]
-fn find_overlapping_fwd_imp<'i, 'c>(
+fn find_overlapping_fwd_imp(
     mut pre: Option<&mut prefilter::Scanner>,
-    dfa: &mut DFA<'i, 'c>,
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     mut start: usize,
@@ -219,7 +219,7 @@ fn find_overlapping_fwd_imp<'i, 'c>(
     assert!(end <= bytes.len());
 
     let mut sid = match caller_state.id() {
-        None => init_fwd(dfa, pattern_id, bytes, start, end)?,
+        None => init_fwd(dfa.as_ref_mut(), pattern_id, bytes, start, end)?,
         Some(sid) => {
             if let Some(last) = caller_state.last_match() {
                 let match_count = dfa.match_count(sid);
@@ -317,8 +317,8 @@ fn find_overlapping_fwd_imp<'i, 'c>(
     result
 }
 
-fn init_fwd<'i, 'c>(
-    dfa: &mut DFA<'i, 'c>,
+fn init_fwd(
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -333,8 +333,8 @@ fn init_fwd<'i, 'c>(
     Ok(sid)
 }
 
-fn init_rev<'i, 'c>(
-    dfa: &mut DFA<'i, 'c>,
+fn init_rev(
+    mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -349,8 +349,8 @@ fn init_rev<'i, 'c>(
     Ok(sid)
 }
 
-fn eoi_fwd<'i, 'c>(
-    dfa: &mut DFA<'i, 'c>,
+fn eoi_fwd(
+    mut dfa: DFA<'_, '_>,
     bytes: &[u8],
     end: usize,
     sid: &mut LazyStateID,
@@ -382,8 +382,8 @@ fn eoi_fwd<'i, 'c>(
     }
 }
 
-fn eoi_rev<'i, 'c>(
-    dfa: &mut DFA<'i, 'c>,
+fn eoi_rev(
+    mut dfa: DFA<'_, '_>,
     bytes: &[u8],
     start: usize,
     state: LazyStateID,

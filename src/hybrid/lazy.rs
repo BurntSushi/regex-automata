@@ -258,96 +258,17 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache
     }
 
-    pub fn find_earliest_fwd(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_earliest_fwd_at(None, None, bytes, 0, bytes.len())
+    pub fn as_parts(&mut self) -> (&InertDFA, &mut Cache) {
+        (self.inert, self.cache)
     }
 
-    pub fn find_earliest_rev(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_earliest_rev_at(None, bytes, 0, bytes.len())
+    pub fn into_parts(self) -> (&'i InertDFA, &'c mut Cache) {
+        (self.inert, self.cache)
     }
 
-    pub fn find_leftmost_fwd(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_leftmost_fwd_at(None, None, bytes, 0, bytes.len())
-    }
-
-    pub fn find_leftmost_rev(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_leftmost_rev_at(None, bytes, 0, bytes.len())
-    }
-
-    pub fn find_overlapping_fwd(
-        &mut self,
-        bytes: &[u8],
-        state: &mut OverlappingState,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_overlapping_fwd_at(None, None, bytes, 0, bytes.len(), state)
-    }
-
-    pub fn find_earliest_fwd_at(
-        &mut self,
-        pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_earliest_fwd(pre, self, pattern_id, bytes, start, end)
-    }
-
-    pub fn find_earliest_rev_at(
-        &mut self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_earliest_rev(self, pattern_id, bytes, start, end)
-    }
-
-    pub fn find_leftmost_fwd_at(
-        &mut self,
-        pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_leftmost_fwd(pre, self, pattern_id, bytes, start, end)
-    }
-
-    pub fn find_leftmost_rev_at(
-        &mut self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_leftmost_rev(self, pattern_id, bytes, start, end)
-    }
-
-    pub fn find_overlapping_fwd_at(
-        &mut self,
-        pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-        state: &mut OverlappingState,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_fwd(
-            pre, self, pattern_id, bytes, start, end, state,
-        )
+    pub fn as_ref_mut<'a>(&'a mut self) -> DFA<'a, 'a> {
+        let (inert, cache) = self.as_parts();
+        DFA::new(inert, cache)
     }
 
     pub fn next_state(
@@ -407,12 +328,6 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache_start_group(pattern_id, start_type)
     }
 
-    /// Returns the number of patterns in this DFA. (It is possible for this
-    /// to be zero, for a DFA that never matches anything.)
-    pub fn pattern_count(&self) -> usize {
-        self.inert.pattern_count()
-    }
-
     pub fn match_count(&self, id: LazyStateID) -> usize {
         assert!(id.is_match());
         self.get_cached_state(id).match_count()
@@ -428,7 +343,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         // that finds the pattern ID from the corresponding `State`, which
         // requires a bit of slicing/pointer-chasing. This optimization tends
         // to only matter when matches are frequent.
-        if self.pattern_count() == 1 {
+        if self.inert.pattern_count() == 1 {
             return PatternID::ZERO;
         }
         self.get_cached_state(id).match_pattern(match_index)
@@ -439,7 +354,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         current: LazyStateID,
         unit: alphabet::Unit,
     ) -> Result<LazyStateID, CacheError> {
-        let stride2 = self.stride2();
+        let stride2 = self.inert.stride2();
         let empty_builder = self.get_state_builder();
         let builder = determinize::next(
             &self.inert.nfa,
@@ -470,7 +385,7 @@ impl<'i, 'c> DFA<'i, 'c> {
             Some(pid) => {
                 let pid = pid.as_usize();
                 assert!(
-                    pid < self.pattern_count(),
+                    pid < self.inert.pattern_count(),
                     "invalid pattern ID: {:?}",
                     pid
                 );
@@ -481,7 +396,7 @@ impl<'i, 'c> DFA<'i, 'c> {
     }
 
     fn get_cached_state(&self, sid: LazyStateID) -> &State {
-        let index = sid.as_usize_unmasked() >> self.stride2();
+        let index = sid.as_usize_unmasked() >> self.inert.stride2();
         &self.cache.states[index]
     }
 
@@ -570,7 +485,7 @@ impl<'i, 'c> DFA<'i, 'c> {
             .map_err(|_| CacheError::too_many_cache_resets())?;
         self.cache
             .trans
-            .extend(iter::repeat(self.unknown_id()).take(self.stride()));
+            .extend(iter::repeat(self.unknown_id()).take(self.inert.stride()));
         Ok(sid)
     }
 
@@ -621,7 +536,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         // which is <= 2047 (the maximum state ID on 16-bit systems). Where
         // 512 is the worst case for our equivalence classes (every byte is a
         // distinct class).
-        LazyStateID::new(1 << self.stride2()).unwrap().to_dead()
+        LazyStateID::new(1 << self.inert.stride2()).unwrap().to_dead()
     }
 
     fn quit_id(&self) -> LazyStateID {
@@ -629,34 +544,12 @@ impl<'i, 'c> DFA<'i, 'c> {
         // which is <= 2047 (the maximum state ID on 16-bit systems). Where
         // 512 is the worst case for our equivalence classes (every byte is a
         // distinct class).
-        LazyStateID::new(2 << self.stride2()).unwrap().to_quit()
+        LazyStateID::new(2 << self.inert.stride2()).unwrap().to_quit()
     }
 
     fn is_valid(&self, id: LazyStateID) -> bool {
         let id = id.as_usize_unmasked();
-        id < self.cache.trans.len() && id % self.stride() == 0
-    }
-
-    /// Returns the stride, as a base-2 exponent, required for these
-    /// equivalence classes.
-    ///
-    /// The stride is always the smallest power of 2 that is greater than or
-    /// equal to the alphabet length. This is done so that converting between
-    /// state IDs and indices can be done with shifts alone, which is much
-    /// faster than integer division.
-    pub fn stride2(&self) -> usize {
-        self.inert.stride2()
-    }
-
-    /// Returns the total stride for every state in this lazy DFA. This
-    /// corresponds to the total number of transitions used by each state in
-    /// this DFA's transition table.
-    pub fn stride(&self) -> usize {
-        self.inert.stride()
-    }
-
-    pub fn alphabet_len(&self) -> usize {
-        self.inert.alphabet_len()
+        id < self.cache.trans.len() && id % self.inert.stride() == 0
     }
 
     /// Returns a state builder from this DFA that might have existing
@@ -681,6 +574,132 @@ impl<'i, 'c> DFA<'i, 'c> {
             &mut self.cache.scratch_state_builder,
             builder.clear(),
         );
+    }
+}
+
+impl<'i, 'c> DFA<'i, 'c> {
+    pub fn find_earliest_fwd(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_earliest_fwd_at(None, None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_earliest_rev(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_earliest_rev_at(None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_leftmost_fwd(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_leftmost_fwd_at(None, None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_leftmost_rev(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_leftmost_rev_at(None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_overlapping_fwd(
+        &mut self,
+        bytes: &[u8],
+        state: &mut OverlappingState,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_overlapping_fwd_at(None, None, bytes, 0, bytes.len(), state)
+    }
+
+    pub fn find_earliest_fwd_at(
+        &mut self,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_earliest_fwd(
+            pre,
+            self.as_ref_mut(),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_earliest_rev_at(
+        &mut self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_earliest_rev(
+            self.as_ref_mut(),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_leftmost_fwd_at(
+        &mut self,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_leftmost_fwd(
+            pre,
+            self.as_ref_mut(),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_leftmost_rev_at(
+        &mut self,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_leftmost_rev(
+            self.as_ref_mut(),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_overlapping_fwd_at(
+        &mut self,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+        state: &mut OverlappingState,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_overlapping_fwd(
+            pre,
+            self.as_ref_mut(),
+            pattern_id,
+            bytes,
+            start,
+            end,
+            state,
+        )
     }
 }
 
