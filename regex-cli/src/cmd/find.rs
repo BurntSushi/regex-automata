@@ -456,7 +456,7 @@ fn search_hybrid_dfa<'i, 'c>(
     haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
-    let mut counts = vec![0u64; dfa.pattern_count()];
+    let mut counts = vec![0u64; dfa.inert().pattern_count()];
     let mut at = 0;
     match find.kind() {
         config::FindKind::Earliest => {
@@ -500,6 +500,7 @@ fn search_hybrid_dfa<'i, 'c>(
             while at < haystack.len() {
                 let result = dfa
                     .find_overlapping_fwd_at(
+                        None,
                         None,
                         haystack,
                         at,

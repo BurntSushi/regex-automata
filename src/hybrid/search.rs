@@ -64,10 +64,30 @@ fn find_fwd(
     let mut sid = init_fwd(dfa.as_ref_mut(), pattern_id, bytes, start, end)?;
     let mut last_match = None;
     let mut at = start;
-    while at < end {
-        let byte = bytes[at];
-        sid = dfa.next_state(sid, byte).map_err(|_| gave_up(at))?;
-        at += 1;
+    'LOOP: while at < end {
+        let mut byte = bytes[at];
+        if sid.is_unmasked() {
+            while at < end {
+                byte = bytes[at];
+                at += 1;
+
+                let next_sid = dfa.next_state_unmasked(sid, byte);
+                if !next_sid.is_unmasked() {
+                    if next_sid.is_unknown() {
+                        sid = dfa
+                            .next_state(sid, byte)
+                            .map_err(|_| gave_up(at))?;
+                    } else {
+                        sid = next_sid;
+                    }
+                    break;
+                }
+                sid = next_sid;
+            }
+        } else {
+            sid = dfa.next_state(sid, byte).map_err(|_| gave_up(at))?;
+            at += 1;
+        }
         if !sid.is_unmasked() {
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
@@ -90,12 +110,14 @@ fn find_fwd(
                 }
             } else if sid.is_dead() {
                 return Ok(last_match);
-            } else {
-                debug_assert!(sid.is_quit());
+            } else if sid.is_quit() {
                 if last_match.is_some() {
                     return Ok(last_match);
                 }
                 return Err(MatchError::Quit { byte, offset: at - 1 });
+            } else {
+                debug_assert!(sid.is_unknown());
+                unreachable!("sid being unknown is a bug");
             }
         }
     }

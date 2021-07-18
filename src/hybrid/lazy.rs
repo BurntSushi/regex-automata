@@ -270,7 +270,9 @@ impl<'i, 'c> DFA<'i, 'c> {
         let (inert, cache) = self.as_parts();
         DFA::new(inert, cache)
     }
+}
 
+impl<'i, 'c> DFA<'i, 'c> {
     pub fn next_state(
         &mut self,
         current: LazyStateID,
@@ -283,6 +285,17 @@ impl<'i, 'c> DFA<'i, 'c> {
             return Ok(sid);
         }
         self.cache_next_state(current, alphabet::Unit::u8(input))
+    }
+
+    pub fn next_state_unmasked(
+        &mut self,
+        current: LazyStateID,
+        input: u8,
+    ) -> LazyStateID {
+        debug_assert!(current.is_unmasked());
+        let class = usize::from(self.inert.classes.get(input));
+        let offset = current.as_usize_unchecked() + class;
+        self.cache.trans[offset]
     }
 
     pub fn next_eoi_state(
