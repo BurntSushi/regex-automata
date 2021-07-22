@@ -200,12 +200,9 @@ impl Cache {
         assert_eq!(unknown, dfa.unknown_id());
         assert_eq!(dead, dfa.dead_id());
         assert_eq!(quit, dfa.quit_id());
-        // We transition "unknown" states to dead states to uphold the property
-        // that `next_state` should never return an "unknown" state ID. This is
-        // somewhat of a pathological case, since it implies the caller has
-        // probably gone out of their way to pass an unknown state ID to
-        // `next_state`.
-        dfa.set_all_transitions(unknown, dead);
+        // The idea here is that if you start in an unknown/dead/quit state and
+        // try to transition on them, then you should end up where you started.
+        dfa.set_all_transitions(unknown, unknown);
         dfa.set_all_transitions(dead, dead);
         dfa.set_all_transitions(quit, quit);
         // We make room for all three of these states so that we maintain the
@@ -279,7 +276,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         input: u8,
     ) -> Result<LazyStateID, CacheError> {
         let class = usize::from(self.inert.classes.get(input));
-        let offset = current.as_usize_unmasked() + class;
+        let offset = current.as_usize_untagged() + class;
         let sid = self.cache.trans[offset];
         if !sid.is_unknown() {
             return Ok(sid);
@@ -287,12 +284,12 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache_next_state(current, alphabet::Unit::u8(input))
     }
 
-    pub fn next_state_unmasked(
-        &mut self,
+    pub fn next_state_untagged(
+        &self,
         current: LazyStateID,
         input: u8,
     ) -> LazyStateID {
-        debug_assert!(current.is_unmasked());
+        debug_assert!(!current.is_tagged());
         let class = usize::from(self.inert.classes.get(input));
         let offset = current.as_usize_unchecked() + class;
         self.cache.trans[offset]
@@ -303,7 +300,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         current: LazyStateID,
     ) -> Result<LazyStateID, CacheError> {
         let eoi = self.inert.classes.eoi().as_usize();
-        let offset = current.as_usize_unmasked() + eoi;
+        let offset = current.as_usize_untagged() + eoi;
         let sid = self.cache.trans[offset];
         if !sid.is_unknown() {
             return Ok(sid);
@@ -374,7 +371,7 @@ impl<'i, 'c> DFA<'i, 'c> {
             self.inert.match_kind,
             &mut self.cache.sparses,
             &mut self.cache.stack,
-            &self.cache.states[current.as_usize_unmasked() >> stride2],
+            &self.cache.states[current.as_usize_untagged() >> stride2],
             unit,
             empty_builder,
         );
@@ -409,7 +406,7 @@ impl<'i, 'c> DFA<'i, 'c> {
     }
 
     fn get_cached_state(&self, sid: LazyStateID) -> &State {
-        let index = sid.as_usize_unmasked() >> self.inert.stride2();
+        let index = sid.as_usize_untagged() >> self.inert.stride2();
         &self.cache.states[index]
     }
 
@@ -517,7 +514,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         assert!(self.is_valid(from));
         assert!(self.is_valid(to));
         let offset =
-            from.as_usize_unmasked() + self.inert.classes.get_by_unit(unit);
+            from.as_usize_untagged() + self.inert.classes.get_by_unit(unit);
         self.cache.trans[offset] = to;
     }
 
@@ -561,7 +558,7 @@ impl<'i, 'c> DFA<'i, 'c> {
     }
 
     fn is_valid(&self, id: LazyStateID) -> bool {
-        let id = id.as_usize_unmasked();
+        let id = id.as_usize_untagged();
         id < self.cache.trans.len() && id % self.inert.stride() == 0
     }
 

@@ -1234,3 +1234,90 @@ This mode cannot be toggled inside the regex.
         Ok(re)
     }
 }
+
+#[derive(Debug)]
+pub struct RegexAPI {
+    size_limit: Option<usize>,
+    dfa_size_limit: Option<usize>,
+}
+
+impl RegexAPI {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str =
+                "Set the approximate size limit for a compiled regex.";
+            const LONG: &str = "\
+Set the approximate size limit for a compiled regex.
+";
+            app = app.arg(switch("size-limit").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str =
+                "Set the approximate size of the cache used by the DFA.";
+            const LONG: &str = "\
+Set the approximate size of the cache used by the DFA.
+";
+            app =
+                app.arg(switch("dfa-size-limit").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<RegexAPI> {
+        let config = hybrid::regex::Config::new()
+            .utf8(!args.is_present("no-utf8-regex"));
+        let mut config = RegexAPI { size_limit: None, dfa_size_limit: None };
+        if let Some(x) = args.value_of_lossy("size-limit") {
+            let limit = x.parse().context("failed to parse --size-limit")?;
+            config.size_limit = Some(limit);
+        }
+        if let Some(x) = args.value_of_lossy("dfa-size-limit") {
+            let limit =
+                x.parse().context("failed to parse --dfa-size-limit")?;
+            config.dfa_size_limit = Some(limit);
+        }
+        Ok(config)
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        api: &RegexAPI,
+        patterns: &Patterns,
+    ) -> anyhow::Result<regex::bytes::Regex> {
+        if syntax.0.get_utf8() {
+            anyhow::bail!(
+                "API-level regex requires that UTF-8 syntax mode be disabled",
+            );
+        }
+        let patterns = patterns.as_strings();
+        if patterns.len() != 1 {
+            anyhow::bail!(
+                "API-level regex requires exactly one pattern, \
+                 but {} were given",
+                patterns.len(),
+            );
+        }
+        let (re, time) = util::timeitr(|| {
+            let mut b = regex::bytes::RegexBuilder::new(&patterns[0]);
+            b.case_insensitive(syntax.0.get_case_insensitive());
+            b.multi_line(syntax.0.get_multi_line());
+            b.dot_matches_new_line(syntax.0.get_dot_matches_new_line());
+            b.swap_greed(syntax.0.get_swap_greed());
+            b.ignore_whitespace(syntax.0.get_ignore_whitespace());
+            b.unicode(syntax.0.get_unicode());
+            b.octal(syntax.0.get_octal());
+            b.nest_limit(syntax.0.get_nest_limit());
+            if let Some(limit) = api.size_limit {
+                b.size_limit(limit);
+            }
+            if let Some(limit) = api.dfa_size_limit {
+                b.dfa_size_limit(limit);
+            }
+            b.build().map_err(anyhow::Error::from)
+        })?;
+        table.add("build API regex time", time);
+        Ok(re)
+    }
+}

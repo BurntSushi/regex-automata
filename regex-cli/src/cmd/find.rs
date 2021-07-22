@@ -26,16 +26,31 @@ pub fn define() -> App {
     app::command("find")
         .about("Find the number of occurrences of a regex in a file.")
         .before_help(ABOUT)
+        .subcommand(define_api())
         .subcommand(define_dfa())
         .subcommand(define_hybrid())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
+        "api" => run_api(args),
         "dfa" => run_dfa(args),
         "hybrid" => run_hybrid(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
+}
+
+fn define_api() -> App {
+    let mut regex = app::leaf("regex").about("Search using a 'Regex'.");
+    regex = config::Input::define(regex);
+    regex = config::Patterns::define(regex);
+    regex = config::Syntax::define(regex);
+    regex = config::RegexAPI::define(regex);
+    regex = config::Find::define(regex);
+
+    app::command("api")
+        .about("Search using a top-level 'regex' crate API.")
+        .subcommand(regex)
 }
 
 fn define_dfa() -> App {
@@ -110,6 +125,39 @@ fn define_hybrid() -> App {
         .about("Search using a hybrid NFA/DFA object.")
         .subcommand(dfa)
         .subcommand(regex)
+}
+
+fn run_api(args: &Args) -> anyhow::Result<()> {
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "regex" => run_api_regex(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
+    })
+}
+
+fn run_api_regex(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cregex = config::RegexAPI::get(args)?;
+    let input = config::Input::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+    let find = config::Find::get(args)?;
+
+    let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
+    input.with_mmap(|haystack| {
+        let mut buf = String::new();
+        let (count, time) = util::timeitr(|| {
+            search_api_regex(&re, &find, &*haystack, &mut buf)
+        })?;
+        table.add("search time", time);
+        table.add("count", count);
+        table.print(stdout())?;
+        if !buf.is_empty() {
+            write!(stdout(), "\n{}", buf)?;
+        }
+        Ok(())
+    })
 }
 
 fn run_dfa(args: &Args) -> anyhow::Result<()> {
@@ -317,6 +365,32 @@ fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
         }
         Ok(())
     })
+}
+
+fn search_api_regex(
+    re: &regex::bytes::Regex,
+    find: &config::Find,
+    haystack: &[u8],
+    buf: &mut String,
+) -> anyhow::Result<u64> {
+    let mut count = 0;
+    match find.kind() {
+        config::FindKind::Earliest => {
+            anyhow::bail!("API 'Regex' only supports leftmost searching");
+        }
+        config::FindKind::Leftmost => {
+            for m in re.find_iter(haystack) {
+                count += 1;
+                if find.matches() {
+                    write_api_match(m, buf);
+                }
+            }
+        }
+        config::FindKind::Overlapping => {
+            anyhow::bail!("API 'Regex' only supports leftmost searching");
+        }
+    }
+    Ok(count)
 }
 
 fn search_dfa_automaton<A: Automaton>(
@@ -580,6 +654,12 @@ fn search_hybrid_regex(
         }
     }
     Ok(counts)
+}
+
+fn write_api_match(m: regex::bytes::Match, buf: &mut String) {
+    use std::fmt::Write;
+
+    writeln!(buf, "[{:?}, {:?})", m.start(), m.end()).unwrap();
 }
 
 fn write_multi_match(m: automata::MultiMatch, buf: &mut String) {

@@ -53,42 +53,43 @@ fn find_fwd(
     earliest: bool,
     mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
-    assert!(start <= bytes.len());
-    assert!(end <= bytes.len());
+    assert!(start <= haystack.len());
+    assert!(end <= haystack.len());
 
-    let mut sid = init_fwd(dfa.as_ref_mut(), pattern_id, bytes, start, end)?;
+    // Why do this? This lets 'scoped_bytes[at]' work without bounds checks
+    // below. It seems the assert on 'end <= haystack.len()' above is otherwise
+    // not enough. Why not just make 'bytes' scoped this way anyway? Well,
+    // 'eoi_fwd' (below) might actually want to try to access the byte at 'end'
+    // for resolving look-ahead.
+    let bytes = &haystack[..end];
+
+    let mut sid =
+        init_fwd(dfa.as_ref_mut(), pattern_id, haystack, start, end)?;
     let mut last_match = None;
     let mut at = start;
-    'LOOP: while at < end {
-        let mut byte = bytes[at];
-        if sid.is_unmasked() {
-            while at < end {
-                byte = bytes[at];
+    while at < end {
+        if !sid.is_tagged() {
+            let mut prev_sid = sid;
+            while at < end && !sid.is_tagged() {
+                prev_sid = sid;
+                sid = dfa.next_state_untagged(sid, bytes[at]);
                 at += 1;
-
-                let next_sid = dfa.next_state_unmasked(sid, byte);
-                if !next_sid.is_unmasked() {
-                    if next_sid.is_unknown() {
-                        sid = dfa
-                            .next_state(sid, byte)
-                            .map_err(|_| gave_up(at))?;
-                    } else {
-                        sid = next_sid;
-                    }
-                    break;
-                }
-                sid = next_sid;
+            }
+            if sid.is_unknown() {
+                sid = dfa
+                    .next_state(prev_sid, bytes[at - 1])
+                    .map_err(|_| gave_up(at - 1))?;
             }
         } else {
-            sid = dfa.next_state(sid, byte).map_err(|_| gave_up(at))?;
+            sid = dfa.next_state(sid, bytes[at]).map_err(|_| gave_up(at))?;
             at += 1;
         }
-        if !sid.is_unmasked() {
+        if sid.is_tagged() {
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
@@ -114,14 +115,17 @@ fn find_fwd(
                 if last_match.is_some() {
                     return Ok(last_match);
                 }
-                return Err(MatchError::Quit { byte, offset: at - 1 });
+                let offset = at - 1;
+                return Err(MatchError::Quit { byte: bytes[offset], offset });
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");
             }
         }
     }
-    Ok(eoi_fwd(dfa, bytes, end, &mut sid)?.or(last_match))
+    // We are careful to use 'haystack' here, which contains the full context
+    // that we might want to inspect.
+    Ok(eoi_fwd(dfa, haystack, end, &mut sid)?.or(last_match))
 }
 
 #[inline(never)]
@@ -166,7 +170,7 @@ fn find_rev(
         at -= 1;
         let byte = bytes[at];
         sid = dfa.next_state(sid, byte).map_err(|_| gave_up(at))?;
-        if !sid.is_unmasked() {
+        if sid.is_tagged() {
             if sid.is_start() {
                 continue;
             } else if sid.is_match() {
@@ -294,7 +298,7 @@ fn find_overlapping_fwd_imp(
         let byte = bytes[at];
         sid = dfa.next_state(sid, byte).map_err(|_| gave_up(at))?;
         at += 1;
-        if !sid.is_unmasked() {
+        if sid.is_tagged() {
             caller_state.set_id(sid);
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {

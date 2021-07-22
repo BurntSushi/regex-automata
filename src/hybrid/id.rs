@@ -48,26 +48,29 @@ impl LazyStateID {
         LazyStateID(id as u32)
     }
 
-    /// Return this lazy state ID as its raw value if and only if it is
-    /// unmasked. When the lazy state ID is unknown, dead, quit or tagged as
-    /// a start or a match state, then it is masked and thus this returns None.
+    /// Return this lazy state ID as its raw value if and only if it is not
+    /// tagged (and thus not an unknown, dead, quit, start or match state ID).
     #[inline]
     pub(crate) fn as_usize(&self) -> Option<usize> {
-        if self.is_unmasked() {
-            Some(self.as_usize_unchecked())
-        } else {
+        if self.is_tagged() {
             None
+        } else {
+            Some(self.as_usize_unchecked())
         }
     }
 
-    /// Return this lazy state ID as an unmasked `usize`.
+    /// Return this lazy state ID as an untagged `usize`.
+    ///
+    /// If this lazy state ID is tagged, then the usize returned is the state
+    /// ID without the tag. If the ID was not tagged, then the usize returned
+    /// is equivalent to the state ID.
     #[inline]
-    pub(crate) fn as_usize_unmasked(&self) -> usize {
+    pub(crate) fn as_usize_untagged(&self) -> usize {
         self.as_usize_unchecked() & LazyStateID::MAX
     }
 
     /// Return this lazy state ID as its raw internal `usize` value, which may
-    /// be masked (and thus greater than LazyStateID::MAX).
+    /// be tagged (and thus greater than LazyStateID::MAX).
     #[inline]
     pub(crate) const fn as_usize_unchecked(&self) -> usize {
         self.0 as usize
@@ -112,13 +115,13 @@ impl LazyStateID {
         )
     }
 
-    /// Return true if and only if this lazy state ID is completely unmasked.
+    /// Return true if and only if this lazy state ID is tagged.
     ///
-    /// When a lazy state ID is unmasked, then one can conclude that it is NOT
-    /// a match, state, dead, quit or unknown state.
+    /// When a lazy state ID is tagged, then one can conclude that it is one
+    /// of a match, start, dead, quit or unknown state.
     #[inline]
-    pub(crate) fn is_unmasked(&self) -> bool {
-        self.as_usize_unchecked() <= LazyStateID::MAX
+    pub(crate) fn is_tagged(&self) -> bool {
+        self.as_usize_unchecked() > LazyStateID::MAX
     }
 
     /// Return true if and only if this represents a lazy state ID that is

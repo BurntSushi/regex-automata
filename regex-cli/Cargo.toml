@@ -23,6 +23,7 @@ anyhow = "1.0.28"
 bstr = { version = "0.2.16", default-features = false, features = ["std"] }
 clap = { version = "2.33.0", default-features = false }
 memmap2 = "0.3.0"
+regex = "1.5.4"
 syntax = { package = "regex-syntax", version = "0.6.17" }
 tabwriter = "1.2.1"
 unicode-width = "0.1.7"
