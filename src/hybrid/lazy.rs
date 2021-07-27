@@ -270,6 +270,7 @@ impl<'i, 'c> DFA<'i, 'c> {
 }
 
 impl<'i, 'c> DFA<'i, 'c> {
+    #[inline]
     pub fn next_state(
         &mut self,
         current: LazyStateID,
@@ -284,6 +285,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache_next_state(current, alphabet::Unit::u8(input))
     }
 
+    #[inline]
     pub fn next_state_untagged(
         &self,
         current: LazyStateID,
@@ -295,6 +297,19 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache.trans[offset]
     }
 
+    #[inline]
+    pub unsafe fn next_state_untagged_unchecked(
+        &self,
+        current: LazyStateID,
+        input: u8,
+    ) -> LazyStateID {
+        debug_assert!(!current.is_tagged());
+        let class = usize::from(self.inert.classes.get(input));
+        let offset = current.as_usize_unchecked() + class;
+        *self.cache.trans.get_unchecked(offset)
+    }
+
+    #[inline]
     pub fn next_eoi_state(
         &mut self,
         current: LazyStateID,
@@ -308,6 +323,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache_next_state(current, self.inert.classes.eoi())
     }
 
+    #[inline]
     pub fn start_state_forward(
         &mut self,
         pattern_id: Option<PatternID>,
@@ -323,6 +339,7 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache_start_group(pattern_id, start_type)
     }
 
+    #[inline]
     pub fn start_state_reverse(
         &mut self,
         pattern_id: Option<PatternID>,
@@ -338,11 +355,13 @@ impl<'i, 'c> DFA<'i, 'c> {
         self.cache_start_group(pattern_id, start_type)
     }
 
+    #[inline]
     pub fn match_count(&self, id: LazyStateID) -> usize {
         assert!(id.is_match());
         self.get_cached_state(id).match_count()
     }
 
+    #[inline]
     pub fn match_pattern(
         &self,
         id: LazyStateID,

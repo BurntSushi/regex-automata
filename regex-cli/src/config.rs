@@ -856,8 +856,7 @@ pub struct RegexDFA {
 impl RegexDFA {
     pub fn define(mut app: App) -> App {
         {
-            const SHORT: &str =
-                "Allow unachored searches through invalid UTF-8.";
+            const SHORT: &str = "Disable UTF-8 handling for regex iterators.";
             const LONG: &str = "\
 Disable UTF-8 handling for regex iterators when an empty match is seen.
 

@@ -61,8 +61,8 @@ fn find_fwd(
     assert!(start <= haystack.len());
     assert!(end <= haystack.len());
 
-    // Why do this? This lets 'scoped_bytes[at]' work without bounds checks
-    // below. It seems the assert on 'end <= haystack.len()' above is otherwise
+    // Why do this? This lets 'bytes[at]' work without bounds checks below.
+    // It seems the assert on 'end <= haystack.len()' above is otherwise
     // not enough. Why not just make 'bytes' scoped this way anyway? Well,
     // 'eoi_fwd' (below) might actually want to try to access the byte at 'end'
     // for resolving look-ahead.
@@ -74,11 +74,100 @@ fn find_fwd(
     let mut at = start;
     while at < end {
         if !sid.is_tagged() {
+            // SAFETY: There are two safety invariants we need to uphold here
+            // in the loop below: that 'sid' is a valid state ID for this DFA,
+            // and that 'at' is a valid index into 'bytes'. For the former, we
+            // rely on the invariant that next_state* and start_state_forward
+            // always returns a valid state ID, and that we are only at this
+            // place in the code if 'sid' is untagged. Moreover, every call to
+            // next_state_untagged_unchecked below is guarded by a check that
+            // sid is untagged. For the latter safety invariant, we always
+            // guard unchecked access with a check that 'at' is less than
+            // 'end', where 'end == bytes.len()'.
+            //
+            // For justification, this gives us a ~10% bump in search time.
+            // This was used for a benchmark:
+            //
+            //     regex-cli find hybrid regex @/some/big/file '(?m)^.+$' -UBb
+            //
+            // With bounds checked: ~881.4ms. Without: ~775ms. For input, I
+            // used OpenSubtitles2018.raw.sample.medium.en.
             let mut prev_sid = sid;
-            while at < end && !sid.is_tagged() {
+            while at < end {
                 prev_sid = sid;
-                sid = dfa.next_state_untagged(sid, bytes[at]);
+                sid = unsafe {
+                    dfa.next_state_untagged_unchecked(
+                        sid,
+                        *bytes.get_unchecked(at),
+                    )
+                };
                 at += 1;
+                if sid.is_tagged() {
+                    break;
+                }
+                // SAFETY: we make four unguarded accesses to 'bytes[at]'
+                // below, and each are safe because we know that 'at + 4' is
+                // in bounds. Moreover, while we don't check whether 'sid' is
+                // untagged directly, we know it is because fo the check above.
+                // And the unrolled loop below quits when the next state is not
+                // equal to the previous state.
+                //
+                // PERF: For justification for eliminating bounds checks,
+                // see above. For justification for the unrolling, we use
+                // two tests. The one above with regex '(?m)^.+$', and also
+                // '(?m)^.{40}$'. The former is kinda the best case for
+                // unrolling, and gives a 1.67 boost primarily because the DFA
+                // spends most of its time munching through the input in the
+                // same state. But the latter pattern rarely spends time in the
+                // same state through subsequent transitions, so unrolling is
+                // pretty much always ineffective in that it craps out on the
+                // first 'sid != next' check below. However, without unrolling,
+                // search is only 1.03 times faster than with unrolling on the
+                // latter pattern, which we deem to be an acceptable loss in
+                // favor of optimizing the more common case of having a "hot"
+                // state somewhere in the DFA.
+                while at + 4 < end {
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at += 1;
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at += 1;
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at += 1;
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at += 1;
+                }
             }
             if sid.is_unknown() {
                 sid = dfa
@@ -155,28 +244,100 @@ fn find_rev(
     earliest: bool,
     mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
-    assert!(start <= bytes.len());
-    assert!(end <= bytes.len());
+    assert!(start <= haystack.len());
+    assert!(end <= haystack.len());
 
-    let mut sid = init_rev(dfa.as_ref_mut(), pattern_id, bytes, start, end)?;
+    // Why do this? This lets 'bytes[at]' work without bounds checks below.
+    // It seems the assert on 'end <= haystack.len()' above is otherwise
+    // not enough. Why not just make 'bytes' scoped this way anyway? Well,
+    // 'eoi_fwd' (below) might actually want to try to access the byte at 'end'
+    // for resolving look-ahead.
+    let bytes = &haystack[start..];
+
+    let mut sid =
+        init_rev(dfa.as_ref_mut(), pattern_id, haystack, start, end)?;
     let mut last_match = None;
-    let mut at = end;
-    while at > start {
-        at -= 1;
-        let byte = bytes[at];
-        sid = dfa.next_state(sid, byte).map_err(|_| gave_up(at))?;
+    let mut at = end - start;
+    while at > 0 {
+        if !sid.is_tagged() {
+            // SAFETY: See comments in 'find_fwd' for both a safety argument
+            // and a justification from a performance perspective as to 1) why
+            // we elide bounds checks and 2) why we do a specialized version of
+            // unrolling below.
+            let mut prev_sid = sid;
+            while at > 0 && !sid.is_tagged() {
+                prev_sid = sid;
+                at -= 1;
+                while at > 3 {
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at -= 1;
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at -= 1;
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at -= 1;
+                    let next = unsafe {
+                        dfa.next_state_untagged_unchecked(
+                            sid,
+                            *bytes.get_unchecked(at),
+                        )
+                    };
+                    if sid != next {
+                        break;
+                    }
+                    at -= 1;
+                }
+                sid = unsafe {
+                    dfa.next_state_untagged_unchecked(
+                        sid,
+                        *bytes.get_unchecked(at),
+                    )
+                };
+            }
+            if sid.is_unknown() {
+                sid = dfa
+                    .next_state(prev_sid, bytes[at])
+                    .map_err(|_| gave_up(at))?;
+            }
+        } else {
+            at -= 1;
+            sid = dfa.next_state(sid, bytes[at]).map_err(|_| gave_up(at))?;
+        }
         if sid.is_tagged() {
             if sid.is_start() {
                 continue;
             } else if sid.is_match() {
                 last_match = Some(HalfMatch {
                     pattern: dfa.match_pattern(sid, 0),
-                    offset: at + MATCH_OFFSET,
+                    offset: start + at + MATCH_OFFSET,
                 });
                 if earliest {
                     return Ok(last_match);
@@ -188,11 +349,11 @@ fn find_rev(
                 if last_match.is_some() {
                     return Ok(last_match);
                 }
-                return Err(MatchError::Quit { byte, offset: at });
+                return Err(MatchError::Quit { byte: bytes[at], offset: at });
             }
         }
     }
-    Ok(eoi_rev(dfa, bytes, start, sid)?.or(last_match))
+    Ok(eoi_rev(dfa, haystack, start, sid)?.or(last_match))
 }
 
 #[inline(never)]
@@ -343,6 +504,7 @@ fn find_overlapping_fwd_imp(
     result
 }
 
+#[inline(always)]
 fn init_fwd(
     mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
@@ -359,6 +521,7 @@ fn init_fwd(
     Ok(sid)
 }
 
+#[inline(always)]
 fn init_rev(
     mut dfa: DFA<'_, '_>,
     pattern_id: Option<PatternID>,
@@ -375,6 +538,7 @@ fn init_rev(
     Ok(sid)
 }
 
+#[inline(always)]
 fn eoi_fwd(
     mut dfa: DFA<'_, '_>,
     bytes: &[u8],
@@ -408,6 +572,7 @@ fn eoi_fwd(
     }
 }
 
+#[inline(always)]
 fn eoi_rev(
     mut dfa: DFA<'_, '_>,
     bytes: &[u8],
@@ -440,6 +605,7 @@ fn eoi_rev(
 }
 
 /// A convenience routine for constructing a "gave up" match error.
+#[inline(always)]
 fn gave_up(offset: usize) -> MatchError {
     MatchError::GaveUp { offset }
 }

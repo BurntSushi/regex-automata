@@ -57,15 +57,22 @@ fn find_fwd<A: Automaton + ?Sized>(
     earliest: bool,
     dfa: &A,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
-    assert!(start <= bytes.len());
-    assert!(end <= bytes.len());
+    assert!(start <= haystack.len());
+    assert!(end <= haystack.len());
 
-    let mut state = init_fwd(dfa, pattern_id, bytes, start, end)?;
+    // Why do this? This lets 'bytes[at]' work without bounds checks below.
+    // It seems the assert on 'end <= haystack.len()' above is otherwise
+    // not enough. Why not just make 'bytes' scoped this way anyway? Well,
+    // 'eoi_fwd' (below) might actually want to try to access the byte at 'end'
+    // for resolving look-ahead.
+    let bytes = &haystack[..end];
+
+    let mut state = init_fwd(dfa, pattern_id, haystack, start, end)?;
     let mut last_match = None;
     let mut at = start;
     if let Some(ref mut pre) = pre {
@@ -135,7 +142,7 @@ fn find_fwd<A: Automaton + ?Sized>(
             at += 1;
         }
     }
-    Ok(eoi_fwd(dfa, bytes, end, &mut state)?.or(last_match))
+    Ok(eoi_fwd(dfa, haystack, end, &mut state)?.or(last_match))
 }
 
 #[inline(never)]

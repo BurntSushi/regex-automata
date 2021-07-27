@@ -333,6 +333,7 @@ impl Regex {
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
     }
 
+    #[inline(always)]
     fn try_find_leftmost_at_imp(
         &self,
         pre: Option<&mut prefilter::Scanner>,
