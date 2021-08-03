@@ -76,12 +76,14 @@ fn find_fwd<A: Automaton + ?Sized>(
     let mut last_match = None;
     let mut at = start;
     if let Some(ref mut pre) = pre {
-        if !pre.reports_false_positives() {
+        // If a prefilter doesn't report false positives, then we don't need to
+        // touch the DFA at all. However, since all matches include the pattern
+        // ID, and the prefilter infrastructure doesn't report pattern IDs, we
+        // limit this optimization to cases where there is exactly one pattern.
+        // In that case, any match must be the 0th pattern.
+        if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
             return Ok(pre.next_candidate(bytes, at).into_option().map(
-                |offset| HalfMatch {
-                    pattern: dfa.match_pattern(state, 0),
-                    offset,
-                },
+                |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
         } else if pre.is_effective(at) {
             match pre.next_candidate(bytes, at).into_option() {

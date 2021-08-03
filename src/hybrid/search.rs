@@ -72,6 +72,25 @@ fn find_fwd(
         init_fwd(dfa.as_ref_mut(), pattern_id, haystack, start, end)?;
     let mut last_match = None;
     let mut at = start;
+    if let Some(ref mut pre) = pre {
+        // If a prefilter doesn't report false positives, then we don't need to
+        // touch the DFA at all. However, since all matches include the pattern
+        // ID, and the prefilter infrastructure doesn't report pattern IDs, we
+        // limit this optimization to cases where there is exactly one pattern.
+        // In that case, any match must be the 0th pattern.
+        if dfa.inert().pattern_count() == 1 && !pre.reports_false_positives() {
+            return Ok(pre.next_candidate(bytes, at).into_option().map(
+                |offset| HalfMatch { pattern: PatternID::ZERO, offset },
+            ));
+        } else if pre.is_effective(at) {
+            match pre.next_candidate(bytes, at).into_option() {
+                None => return Ok(None),
+                Some(i) => {
+                    at = i;
+                }
+            }
+        }
+    }
     while at < end {
         if !sid.is_tagged() {
             // SAFETY: There are two safety invariants we need to uphold here
