@@ -181,19 +181,19 @@ impl Start {
 
 /// Compute the set of all eachable NFA states, including the full epsilon
 /// closure, from a DFA state for a single unit of input. The set of reachable
-/// states is written to `out_set`. The `StateBuilderMatches` returned includes
-/// any look-behind assertions satisfied by `unit`, in addition to whether
-/// it is a match state. For multi-pattern DFAs, the builder will also include
-/// the pattern IDs that match (in the order seen).
+/// states is returned as a `StateBuilderNFA`. The `StateBuilderNFA` returned
+/// also includes any look-behind assertions satisfied by `unit`, in addition
+/// to whether it is a match state. For multi-pattern DFAs, the builder will
+/// also include the pattern IDs that match (in the order seen).
 ///
 /// `nfa` must be able to resolve any NFA state in `state` and any NFA state
-/// reachable via the epsilon closure of any NFA state in `state`. Both
-/// `scratch_set` and `out_set` must have capacity equivalent to `nfa.len()`.
+/// reachable via the epsilon closure of any NFA state in `state`. `sparses`
+/// must have capacity equivalent to `nfa.len()`.
 ///
 /// `match_kind` should correspond to the match semantics implemented by the
-/// DFA. Generally speaking, for leftmost-first match semantics, states that
-/// appear after the first NFA match state will not be included in `out_set`
-/// since they are impossible to visit.
+/// DFA being built. Generally speaking, for leftmost-first match semantics,
+/// states that appear after the first NFA match state will not be included in
+/// the `StateBuilderNFA` returned since they are impossible to visit.
 ///
 /// `sparses` is used as scratch space for NFA traversal. Other than their
 /// capacity requirements (detailed above), there are no requirements on what's
@@ -296,7 +296,7 @@ pub(crate) fn next(
         if unit.as_u8().map_or(false, |b| b == b'\n') {
             // Why only handle StartLine here and not StartText? That's
             // because StartText can only impact the starting state, which
-            // is speical cased in 'add_one_start'.
+            // is speical cased in 'Start::set_state'.
             builder.look_have().insert(Look::StartLine);
         }
     }
@@ -510,7 +510,7 @@ pub(crate) fn add_nfa_states(
                 // strictly redundant.
                 //
                 // Look-around states are also epsilon transitions, but
-                // they are *conditinal*. So their presence could be
+                // they are *conditional*. So their presence could be
                 // discriminatory, and thus, they are tracked above.
                 //
                 // But wait... why are epsilon states in our `set` in the

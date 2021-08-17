@@ -181,7 +181,7 @@ pub(crate) struct LazyStateIDError {
 
 impl LazyStateIDError {
     /// Returns the value that failed to constructed a lazy state ID.
-    pub fn attempted(&self) -> u64 {
+    pub(crate) fn attempted(&self) -> u64 {
         self.attempted
     }
 }

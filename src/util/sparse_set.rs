@@ -40,6 +40,11 @@ impl SparseSets {
     pub(crate) fn swap(&mut self) {
         core::mem::swap(&mut self.set1, &mut self.set2);
     }
+
+    /// Returns the memory usage, in bytes, used by this pair of sparse sets.
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.set1.memory_usage() + self.set2.memory_usage()
+    }
 }
 
 /// A sparse set used for representing ordered NFA states.
@@ -152,6 +157,12 @@ impl SparseSet {
     #[inline]
     pub(crate) fn clear(&mut self) {
         self.len = 0;
+    }
+
+    /// Returns the heap memory usage, in bytes, used by this sparse set.
+    #[inline]
+    pub(crate) fn memory_usage(&self) -> usize {
+        2 * self.dense.len() * StateID::SIZE
     }
 }
 

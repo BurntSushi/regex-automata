@@ -1094,6 +1094,43 @@ Will cause the lazy DFA to quit whenever it sees one of 'a', 'b' or 'c'.
 ";
             app = app.arg(switch("quit").help(SHORT).long_help(LONG));
         }
+        {
+            const SHORT: &str = "Set the DFA cache capacity, in bytes.";
+            const LONG: &str = "\
+Set the DFA cache capacity, in bytes.
+
+A hybrid NFA/DFA uses a fixed size cache that contains, among other things,
+the DFA transition table. This flag controls how big that cache is. If the
+cache is filled during search, then it is cleared. Any previously generated
+transitions (for example) will need to be re-computed if they are visited
+again. Depending on other settings (minimum cache clear count and minimum bytes
+seen per generated state), the search may eventually quit.
+";
+            app = app.arg(flag("cache-capacity").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str = "Set the minimum cache clear count.";
+            const LONG: &str = "\
+Set the minimum cache clear count before giving up on the search.
+
+A hybrid NFA/DFA uses a fixed size cache that contains, among other things,
+the DFA transition table. When the cache fills up, it is cleared, such that
+more transitions may be generated at the cost of potentially re-generating
+transitions that were previously in the cache. If the cache is cleared more
+than the number of times set by this flag, then the search will stop with an
+error.
+
+The default for this flag is 'none', which sets no minimum. This implies that
+the search will never give up and will instead continually clear the cache.
+
+The main reason for stopping the search is that refilling the cache repeatedly
+can wind up being quite costly. Costly enough where an alternative search
+technique would likely be superior.
+";
+            app = app.arg(
+                flag("min-cache-clear-count").help(SHORT).long_help(LONG),
+            );
+        }
         app
     }
 
@@ -1120,6 +1157,21 @@ Will cause the lazy DFA to quit whenever it sees one of 'a', 'b' or 'c'.
                     anyhow::bail!("quit bytes must be ASCII");
                 }
                 c = c.quit(ch as u8, true);
+            }
+        }
+        if let Some(n) = args.value_of_lossy("cache-capacity") {
+            let limit =
+                n.parse().context("failed to parse --cache-capacity")?;
+            c = c.cache_capacity(limit);
+        }
+        if let Some(n) = args.value_of_lossy("min-cache-clear-count") {
+            if n.to_lowercase() == "none" {
+                c = c.minimum_cache_clear_count(None);
+            } else {
+                let limit = n
+                    .parse()
+                    .context("failed to parse --min-cache-clear-count")?;
+                c = c.minimum_cache_clear_count(Some(limit));
             }
         }
         Ok(Hybrid { config: c })
@@ -1248,7 +1300,7 @@ impl RegexAPI {
             const LONG: &str = "\
 Set the approximate size limit for a compiled regex.
 ";
-            app = app.arg(switch("size-limit").help(SHORT).long_help(LONG));
+            app = app.arg(flag("size-limit").help(SHORT).long_help(LONG));
         }
         {
             const SHORT: &str =
@@ -1256,8 +1308,7 @@ Set the approximate size limit for a compiled regex.
             const LONG: &str = "\
 Set the approximate size of the cache used by the DFA.
 ";
-            app =
-                app.arg(switch("dfa-size-limit").help(SHORT).long_help(LONG));
+            app = app.arg(flag("dfa-size-limit").help(SHORT).long_help(LONG));
         }
         app
     }

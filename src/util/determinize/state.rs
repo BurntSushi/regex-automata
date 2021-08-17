@@ -316,6 +316,10 @@ impl StateBuilderNFA {
             .add_nfa_state_id(&mut self.prev_nfa_state_id, sid)
     }
 
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.repr.len()
+    }
+
     pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.repr
     }
