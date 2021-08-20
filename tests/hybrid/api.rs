@@ -1,7 +1,11 @@
 use std::error::Error;
 
 use regex_automata::{
-    hybrid::{self, regex::Regex},
+    hybrid::{
+        dfa::{self, DFA},
+        regex::Regex,
+        OverlappingState,
+    },
     nfa::thompson,
     HalfMatch, MatchError, MultiMatch,
 };
@@ -20,47 +24,47 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // created since a 'β' is encoded with multiple bytes. Since there's no
     // room for this state, the search should quit at the very first position.
     let pattern = r"[aβ]{100}";
-    let idfa = hybrid::dfa::Builder::new()
+    let dfa = DFA::builder()
         .configure(
             // Configure it so that we have the minimum cache capacity
             // possible. And that if any resets occur, the search quits.
-            hybrid::dfa::Config::new()
+            DFA::config()
                 .skip_cache_capacity_check(true)
                 .cache_capacity(0)
                 .minimum_cache_clear_count(Some(0)),
         )
         .build(pattern)?;
-    let mut cache = idfa.create_cache();
-    let mut dfa = idfa.dfa(&mut cache);
+    let mut cache = dfa.create_cache();
 
-    let haystack = "a".repeat(101);
+    let haystack = "a".repeat(101).into_bytes();
     let err = MatchError::GaveUp { offset: 55 };
-    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err.clone()));
-    assert_eq!(dfa.find_leftmost_fwd(haystack.as_bytes()), Err(err.clone()));
+    assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err.clone()));
+    assert_eq!(dfa.find_leftmost_fwd(&mut cache, &haystack), Err(err.clone()));
     assert_eq!(
         dfa.find_overlapping_fwd(
-            haystack.as_bytes(),
-            &mut hybrid::OverlappingState::start()
+            &mut cache,
+            &haystack,
+            &mut OverlappingState::start()
         ),
         Err(err.clone())
     );
 
-    let haystack = "β".repeat(101);
+    let haystack = "β".repeat(101).into_bytes();
     let err = MatchError::GaveUp { offset: 0 };
-    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err));
+    assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
     // no need to test that other find routines quit, since we did that above
 
     // OK, if we reset the cache, then we should be able to create more states
     // and make more progress with searching for betas.
-    dfa.reset_cache();
+    dfa.reset_cache(&mut cache);
     let err = MatchError::GaveUp { offset: 59 };
-    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err));
+    assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
 
     // ... switching back to ASCII still makes progress since it just needs to
     // set transitions on existing states!
-    let haystack = "a".repeat(101);
+    let haystack = "a".repeat(101).into_bytes();
     let err = MatchError::GaveUp { offset: 29 };
-    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err));
+    assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
 
     Ok(())
 }
@@ -68,24 +72,24 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
 // Tests that quit bytes in the forward direction work correctly.
 #[test]
 fn quit_fwd() -> Result<(), Box<dyn Error>> {
-    let idfa = hybrid::dfa::Builder::new()
-        .configure(hybrid::dfa::Config::new().quit(b'x', true))
+    let dfa = DFA::builder()
+        .configure(DFA::config().quit(b'x', true))
         .build("[[:word:]]+$")?;
-    let mut cache = idfa.create_cache();
-    let mut dfa = idfa.dfa(&mut cache);
+    let mut cache = dfa.create_cache();
 
     assert_eq!(
-        dfa.find_earliest_fwd(b"abcxyz"),
+        dfa.find_earliest_fwd(&mut cache, b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
-        dfa.find_leftmost_fwd(b"abcxyz"),
+        dfa.find_leftmost_fwd(&mut cache, b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
         dfa.find_overlapping_fwd(
+            &mut cache,
             b"abcxyz",
-            &mut hybrid::OverlappingState::start()
+            &mut OverlappingState::start()
         ),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
@@ -96,19 +100,18 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
 // Tests that quit bytes in the reverse direction work correctly.
 #[test]
 fn quit_rev() -> Result<(), Box<dyn Error>> {
-    let idfa = hybrid::dfa::Builder::new()
-        .configure(hybrid::dfa::Config::new().quit(b'x', true))
+    let dfa = DFA::builder()
+        .configure(DFA::config().quit(b'x', true))
         .thompson(thompson::Config::new().reverse(true))
         .build("^[[:word:]]+")?;
-    let mut cache = idfa.create_cache();
-    let mut dfa = idfa.dfa(&mut cache);
+    let mut cache = dfa.create_cache();
 
     assert_eq!(
-        dfa.find_earliest_rev(b"abcxyz"),
+        dfa.find_earliest_rev(&mut cache, b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
-        dfa.find_leftmost_rev(b"abcxyz"),
+        dfa.find_leftmost_rev(&mut cache, b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
 
@@ -121,9 +124,7 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
 #[test]
 #[should_panic]
 fn quit_panics() {
-    hybrid::dfa::Config::new()
-        .unicode_word_boundary(true)
-        .quit(b'\xFF', false);
+    DFA::config().unicode_word_boundary(true).quit(b'\xFF', false);
 }
 
 // This tests an intesting case where even if the Unicode word boundary option
@@ -131,15 +132,14 @@ fn quit_panics() {
 // word boundaries to be enabled.
 #[test]
 fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
-    let mut config = hybrid::dfa::Config::new();
+    let mut config = DFA::config();
     for b in 0x80..=0xFF {
         config = config.quit(b, true);
     }
-    let idfa = hybrid::dfa::Builder::new().configure(config).build(r"\b")?;
-    let mut cache = idfa.create_cache();
-    let mut dfa = idfa.dfa(&mut cache);
+    let dfa = DFA::builder().configure(config).build(r"\b")?;
+    let mut cache = dfa.create_cache();
     let expected = HalfMatch::must(0, 1);
-    assert_eq!(dfa.find_leftmost_fwd(b" a"), Ok(Some(expected)));
+    assert_eq!(dfa.find_leftmost_fwd(&mut cache, b" a"), Ok(Some(expected)));
     Ok(())
 }
 

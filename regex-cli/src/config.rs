@@ -1207,7 +1207,7 @@ technique would likely be superior.
     pub fn from_nfa(
         &self,
         nfa: Arc<thompson::NFA>,
-    ) -> anyhow::Result<hybrid::dfa::InertDFA> {
+    ) -> anyhow::Result<hybrid::dfa::DFA> {
         hybrid::dfa::Builder::new()
             .configure(self.config)
             .build_from_nfa(nfa)
@@ -1220,7 +1220,7 @@ technique would likely be superior.
         syntax: &Syntax,
         thompson: &Thompson,
         patterns: &Patterns,
-    ) -> anyhow::Result<hybrid::dfa::InertDFA> {
+    ) -> anyhow::Result<hybrid::dfa::DFA> {
         let patterns = patterns.as_strings();
 
         let (asts, time) = util::timeitr(|| syntax.asts(patterns))?;
@@ -1231,7 +1231,7 @@ technique would likely be superior.
         table.add("compile nfa time", time);
         let nfa = Arc::new(nfa);
         let (inert_dfa, time) = util::timeitr(|| self.from_nfa(nfa))?;
-        table.add("build inert dfa time", time);
+        table.add("build hybrid dfa time", time);
         // table.add("inert dfa memory", dfa.memory_usage());
         table.add("inert dfa alphabet length", inert_dfa.alphabet_len());
         table.add("dense dfa stride", 1 << inert_dfa.stride2());

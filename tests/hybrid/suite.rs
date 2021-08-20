@@ -1,6 +1,6 @@
 use regex_automata::{
     hybrid::{
-        self,
+        dfa::DFA,
         regex::{self, Regex},
     },
     nfa::thompson,
@@ -48,7 +48,7 @@ fn no_nfa_shrink() -> Result<()> {
 #[test]
 fn starts_for_each_pattern() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.dense(hybrid::dfa::Config::new().starts_for_each_pattern(true));
+    builder.dense(DFA::config().starts_for_each_pattern(true));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -61,7 +61,7 @@ fn starts_for_each_pattern() -> Result<()> {
 #[test]
 fn no_byte_classes() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.dense(hybrid::dfa::Config::new().byte_classes(false));
+    builder.dense(DFA::config().byte_classes(false));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -75,8 +75,7 @@ fn no_byte_classes() -> Result<()> {
 #[test]
 fn no_cache_clearing() -> Result<()> {
     let mut builder = Regex::builder();
-    builder
-        .dense(hybrid::dfa::Config::new().minimum_cache_clear_count(Some(0)));
+    builder.dense(DFA::config().minimum_cache_clear_count(Some(0)));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -86,16 +85,14 @@ fn no_cache_clearing() -> Result<()> {
 fn min_cache_capacity() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dense(
-        hybrid::dfa::Config::new()
-            .cache_capacity(0)
-            .skip_cache_capacity_check(true),
+        DFA::config().cache_capacity(0).skip_cache_capacity_check(true),
     );
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
 
 fn compiler(
-    mut builder: hybrid::regex::Builder,
+    mut builder: regex::Builder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
     move |test, regexes| {
         let regexes = regexes
@@ -181,7 +178,7 @@ fn run_test(
 /// false (implying the test should be skipped).
 fn configure_regex_builder(
     test: &RegexTest,
-    builder: &mut hybrid::regex::Builder,
+    builder: &mut regex::Builder,
 ) -> bool {
     let match_kind = match test.match_kind() {
         TestMatchKind::All => MatchKind::All,
@@ -193,7 +190,7 @@ fn configure_regex_builder(
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
         .utf8(test.utf8());
-    let dense_config = hybrid::dfa::Config::new()
+    let dense_config = DFA::config()
         .anchored(test.anchored())
         .match_kind(match_kind)
         .unicode_word_boundary(true);

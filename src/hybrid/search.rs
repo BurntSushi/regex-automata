@@ -1,6 +1,6 @@
 use crate::{
     hybrid::{
-        dfa::DFA,
+        dfa::{Cache, DFA},
         id::{LazyStateID, OverlappingState, StateMatch},
     },
     nfa::thompson,
@@ -14,7 +14,8 @@ use crate::{
 #[inline(never)]
 pub(crate) fn find_earliest_fwd(
     pre: Option<&mut prefilter::Scanner>,
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -23,16 +24,17 @@ pub(crate) fn find_earliest_fwd(
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
     if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, true, dfa, pattern_id, bytes, start, end)
+        find_fwd(pre, true, dfa, cache, pattern_id, bytes, start, end)
     } else {
-        find_fwd(None, true, dfa, pattern_id, bytes, start, end)
+        find_fwd(None, true, dfa, cache, pattern_id, bytes, start, end)
     }
 }
 
 #[inline(never)]
 pub(crate) fn find_leftmost_fwd(
     pre: Option<&mut prefilter::Scanner>,
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -41,9 +43,9 @@ pub(crate) fn find_leftmost_fwd(
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
     if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, false, dfa, pattern_id, bytes, start, end)
+        find_fwd(pre, false, dfa, cache, pattern_id, bytes, start, end)
     } else {
-        find_fwd(None, false, dfa, pattern_id, bytes, start, end)
+        find_fwd(None, false, dfa, cache, pattern_id, bytes, start, end)
     }
 }
 
@@ -51,7 +53,8 @@ pub(crate) fn find_leftmost_fwd(
 fn find_fwd(
     mut pre: Option<&mut prefilter::Scanner>,
     earliest: bool,
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     haystack: &[u8],
     start: usize,
@@ -68,8 +71,7 @@ fn find_fwd(
     // for resolving look-ahead.
     let bytes = &haystack[..end];
 
-    let mut sid =
-        init_fwd(dfa.as_ref_mut(), pattern_id, haystack, start, end)?;
+    let mut sid = init_fwd(dfa, cache, pattern_id, haystack, start, end)?;
     let mut last_match = None;
     let mut at = start;
     if let Some(ref mut pre) = pre {
@@ -78,7 +80,7 @@ fn find_fwd(
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
-        if dfa.inert().pattern_count() == 1 && !pre.reports_false_positives() {
+        if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
             return Ok(pre.next_candidate(bytes, at).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
@@ -116,6 +118,7 @@ fn find_fwd(
                 prev_sid = sid;
                 sid = unsafe {
                     dfa.next_state_untagged_unchecked(
+                        cache,
                         sid,
                         *bytes.get_unchecked(at),
                     )
@@ -148,6 +151,7 @@ fn find_fwd(
                 while at + 4 < end {
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -158,6 +162,7 @@ fn find_fwd(
                     at += 1;
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -168,6 +173,7 @@ fn find_fwd(
                     at += 1;
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -178,6 +184,7 @@ fn find_fwd(
                     at += 1;
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -190,11 +197,13 @@ fn find_fwd(
             }
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(prev_sid, bytes[at - 1])
+                    .next_state(cache, prev_sid, bytes[at - 1])
                     .map_err(|_| gave_up(at - 1))?;
             }
         } else {
-            sid = dfa.next_state(sid, bytes[at]).map_err(|_| gave_up(at))?;
+            sid = dfa
+                .next_state(cache, sid, bytes[at])
+                .map_err(|_| gave_up(at))?;
             at += 1;
         }
         if sid.is_tagged() {
@@ -211,7 +220,7 @@ fn find_fwd(
                 }
             } else if sid.is_match() {
                 last_match = Some(HalfMatch {
-                    pattern: dfa.match_pattern(sid, 0),
+                    pattern: dfa.match_pattern(cache, sid, 0),
                     offset: at - MATCH_OFFSET,
                 });
                 if earliest {
@@ -233,35 +242,38 @@ fn find_fwd(
     }
     // We are careful to use 'haystack' here, which contains the full context
     // that we might want to inspect.
-    Ok(eoi_fwd(dfa, haystack, end, &mut sid)?.or(last_match))
+    Ok(eoi_fwd(dfa, cache, haystack, end, &mut sid)?.or(last_match))
 }
 
 #[inline(never)]
 pub(crate) fn find_earliest_rev(
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(true, dfa, pattern_id, bytes, start, end)
+    find_rev(true, dfa, cache, pattern_id, bytes, start, end)
 }
 
 #[inline(never)]
 pub(crate) fn find_leftmost_rev(
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(false, dfa, pattern_id, bytes, start, end)
+    find_rev(false, dfa, cache, pattern_id, bytes, start, end)
 }
 
 #[inline(always)]
 fn find_rev(
     earliest: bool,
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     haystack: &[u8],
     start: usize,
@@ -278,8 +290,7 @@ fn find_rev(
     // for resolving look-ahead.
     let bytes = &haystack[start..];
 
-    let mut sid =
-        init_rev(dfa.as_ref_mut(), pattern_id, haystack, start, end)?;
+    let mut sid = init_rev(dfa, cache, pattern_id, haystack, start, end)?;
     let mut last_match = None;
     let mut at = end - start;
     while at > 0 {
@@ -295,6 +306,7 @@ fn find_rev(
                 while at > 3 {
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -305,6 +317,7 @@ fn find_rev(
                     at -= 1;
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -315,6 +328,7 @@ fn find_rev(
                     at -= 1;
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -325,6 +339,7 @@ fn find_rev(
                     at -= 1;
                     let next = unsafe {
                         dfa.next_state_untagged_unchecked(
+                            cache,
                             sid,
                             *bytes.get_unchecked(at),
                         )
@@ -336,6 +351,7 @@ fn find_rev(
                 }
                 sid = unsafe {
                     dfa.next_state_untagged_unchecked(
+                        cache,
                         sid,
                         *bytes.get_unchecked(at),
                     )
@@ -343,19 +359,21 @@ fn find_rev(
             }
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(prev_sid, bytes[at])
+                    .next_state(cache, prev_sid, bytes[at])
                     .map_err(|_| gave_up(at))?;
             }
         } else {
             at -= 1;
-            sid = dfa.next_state(sid, bytes[at]).map_err(|_| gave_up(at))?;
+            sid = dfa
+                .next_state(cache, sid, bytes[at])
+                .map_err(|_| gave_up(at))?;
         }
         if sid.is_tagged() {
             if sid.is_start() {
                 continue;
             } else if sid.is_match() {
                 last_match = Some(HalfMatch {
-                    pattern: dfa.match_pattern(sid, 0),
+                    pattern: dfa.match_pattern(cache, sid, 0),
                     offset: start + at + MATCH_OFFSET,
                 });
                 if earliest {
@@ -372,13 +390,14 @@ fn find_rev(
             }
         }
     }
-    Ok(eoi_rev(dfa, haystack, start, sid)?.or(last_match))
+    Ok(eoi_rev(dfa, cache, haystack, start, sid)?.or(last_match))
 }
 
 #[inline(never)]
 pub(crate) fn find_overlapping_fwd(
     pre: Option<&mut prefilter::Scanner>,
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
@@ -391,6 +410,7 @@ pub(crate) fn find_overlapping_fwd(
         find_overlapping_fwd_imp(
             pre,
             dfa,
+            cache,
             pattern_id,
             bytes,
             start,
@@ -401,6 +421,7 @@ pub(crate) fn find_overlapping_fwd(
         find_overlapping_fwd_imp(
             None,
             dfa,
+            cache,
             pattern_id,
             bytes,
             start,
@@ -413,7 +434,8 @@ pub(crate) fn find_overlapping_fwd(
 #[inline(always)]
 fn find_overlapping_fwd_imp(
     mut pre: Option<&mut prefilter::Scanner>,
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     mut start: usize,
@@ -425,13 +447,17 @@ fn find_overlapping_fwd_imp(
     assert!(end <= bytes.len());
 
     let mut sid = match caller_state.id() {
-        None => init_fwd(dfa.as_ref_mut(), pattern_id, bytes, start, end)?,
+        None => init_fwd(dfa, cache, pattern_id, bytes, start, end)?,
         Some(sid) => {
             if let Some(last) = caller_state.last_match() {
-                let match_count = dfa.match_count(sid);
+                let match_count = dfa.match_count(cache, sid);
                 if last.match_index < match_count {
                     let m = HalfMatch {
-                        pattern: dfa.match_pattern(sid, last.match_index),
+                        pattern: dfa.match_pattern(
+                            cache,
+                            sid,
+                            last.match_index,
+                        ),
                         offset: last.offset,
                     };
                     last.match_index += 1;
@@ -476,7 +502,7 @@ fn find_overlapping_fwd_imp(
     let mut at = start;
     while at < end {
         let byte = bytes[at];
-        sid = dfa.next_state(sid, byte).map_err(|_| gave_up(at))?;
+        sid = dfa.next_state(cache, sid, byte).map_err(|_| gave_up(at))?;
         at += 1;
         if sid.is_tagged() {
             caller_state.set_id(sid);
@@ -496,7 +522,7 @@ fn find_overlapping_fwd_imp(
                 caller_state
                     .set_last_match(StateMatch { match_index: 1, offset });
                 return Ok(Some(HalfMatch {
-                    pattern: dfa.match_pattern(sid, 0),
+                    pattern: dfa.match_pattern(cache, sid, 0),
                     offset,
                 }));
             } else if sid.is_dead() {
@@ -508,7 +534,7 @@ fn find_overlapping_fwd_imp(
         }
     }
 
-    let result = eoi_fwd(dfa, bytes, end, &mut sid);
+    let result = eoi_fwd(dfa, cache, bytes, end, &mut sid);
     caller_state.set_id(sid);
     if let Ok(Some(ref last_match)) = result {
         caller_state.set_last_match(StateMatch {
@@ -525,14 +551,15 @@ fn find_overlapping_fwd_imp(
 
 #[inline(always)]
 fn init_fwd(
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
-        .start_state_forward(pattern_id, bytes, start, end)
+        .start_state_forward(cache, pattern_id, bytes, start, end)
         .map_err(|_| gave_up(start))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
@@ -542,14 +569,15 @@ fn init_fwd(
 
 #[inline(always)]
 fn init_rev(
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     pattern_id: Option<PatternID>,
     bytes: &[u8],
     start: usize,
     end: usize,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
-        .start_state_reverse(pattern_id, bytes, start, end)
+        .start_state_reverse(cache, pattern_id, bytes, start, end)
         .map_err(|_| gave_up(end))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
@@ -559,17 +587,18 @@ fn init_rev(
 
 #[inline(always)]
 fn eoi_fwd(
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     bytes: &[u8],
     end: usize,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     match bytes.get(end) {
         Some(&b) => {
-            *sid = dfa.next_state(*sid, b).map_err(|_| gave_up(end))?;
+            *sid = dfa.next_state(cache, *sid, b).map_err(|_| gave_up(end))?;
             if sid.is_match() {
                 Ok(Some(HalfMatch {
-                    pattern: dfa.match_pattern(*sid, 0),
+                    pattern: dfa.match_pattern(cache, *sid, 0),
                     offset: end,
                 }))
             } else {
@@ -577,11 +606,12 @@ fn eoi_fwd(
             }
         }
         None => {
-            *sid =
-                dfa.next_eoi_state(*sid).map_err(|_| gave_up(bytes.len()))?;
+            *sid = dfa
+                .next_eoi_state(cache, *sid)
+                .map_err(|_| gave_up(bytes.len()))?;
             if sid.is_match() {
                 Ok(Some(HalfMatch {
-                    pattern: dfa.match_pattern(*sid, 0),
+                    pattern: dfa.match_pattern(cache, *sid, 0),
                     offset: bytes.len(),
                 }))
             } else {
@@ -593,28 +623,30 @@ fn eoi_fwd(
 
 #[inline(always)]
 fn eoi_rev(
-    mut dfa: DFA<'_, '_>,
+    dfa: &DFA,
+    cache: &mut Cache,
     bytes: &[u8],
     start: usize,
     state: LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if start > 0 {
         let sid = dfa
-            .next_state(state, bytes[start - 1])
+            .next_state(cache, state, bytes[start - 1])
             .map_err(|_| gave_up(start))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(sid, 0),
+                pattern: dfa.match_pattern(cache, sid, 0),
                 offset: start,
             }))
         } else {
             Ok(None)
         }
     } else {
-        let sid = dfa.next_eoi_state(state).map_err(|_| gave_up(start))?;
+        let sid =
+            dfa.next_eoi_state(cache, state).map_err(|_| gave_up(start))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(sid, 0),
+                pattern: dfa.match_pattern(cache, sid, 0),
                 offset: 0,
             }))
         } else {

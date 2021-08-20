@@ -56,6 +56,14 @@ pub struct NFA {
 }
 
 impl NFA {
+    pub fn config() -> Config {
+        Config::new()
+    }
+
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+
     /// Returns an NFA with a single regex that always matches at every
     /// position.
     #[inline]

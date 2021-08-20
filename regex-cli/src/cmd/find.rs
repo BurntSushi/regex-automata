@@ -312,18 +312,16 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     let patterns = config::Patterns::get(args)?;
     let find = config::Find::get(args)?;
 
-    let idfa =
+    let dfa =
         cdfa.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
 
-    let (mut cache, time) = util::timeit(|| idfa.create_cache());
+    let (mut cache, time) = util::timeit(|| dfa.create_cache());
     table.add("create cache time", time);
-    let (mut dfa, time) = util::timeit(|| idfa.dfa(&mut cache));
-    table.add("create dfa time", time);
 
     input.with_mmap(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_hybrid_dfa(&mut dfa, &find, &*haystack, &mut buf)
+            search_hybrid_dfa(&dfa, &mut cache, &find, &*haystack, &mut buf)
         })?;
         table.add("search time", time);
         table.add("counts", counts);
@@ -525,20 +523,22 @@ fn search_dfa_regex<A: Automaton>(
 }
 
 fn search_hybrid_dfa<'i, 'c>(
-    dfa: &mut hybrid::dfa::DFA<'i, 'c>,
+    dfa: &hybrid::dfa::DFA,
+    cache: &mut hybrid::dfa::Cache,
     find: &config::Find,
     haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
-    let mut counts = vec![0u64; dfa.inert().pattern_count()];
+    let mut counts = vec![0u64; dfa.pattern_count()];
     let mut at = 0;
     match find.kind() {
         config::FindKind::Earliest => {
             while at < haystack.len() {
-                let result =
-                    dfa.find_earliest_fwd(&haystack[at..]).with_context(
-                        || format!("failed to find match at {}", at),
-                    )?;
+                let result = dfa
+                    .find_earliest_fwd(cache, &haystack[at..])
+                    .with_context(|| {
+                        format!("failed to find match at {}", at)
+                    })?;
                 let end = match result {
                     None => break,
                     Some(end) => end,
@@ -553,10 +553,11 @@ fn search_hybrid_dfa<'i, 'c>(
         }
         config::FindKind::Leftmost => {
             while at < haystack.len() {
-                let result =
-                    dfa.find_leftmost_fwd(&haystack[at..]).with_context(
-                        || format!("failed to find match at {}", at),
-                    )?;
+                let result = dfa
+                    .find_leftmost_fwd(cache, &haystack[at..])
+                    .with_context(|| {
+                        format!("failed to find match at {}", at)
+                    })?;
                 let end = match result {
                     None => break,
                     Some(end) => end,
@@ -574,6 +575,7 @@ fn search_hybrid_dfa<'i, 'c>(
             while at < haystack.len() {
                 let result = dfa
                     .find_overlapping_fwd_at(
+                        cache,
                         None,
                         None,
                         haystack,

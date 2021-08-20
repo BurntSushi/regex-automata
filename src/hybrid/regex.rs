@@ -2,7 +2,7 @@ use core::borrow::Borrow;
 
 use crate::{
     hybrid::{
-        dfa::{self, InertDFA, DFA},
+        dfa::{self, DFA},
         error::BuildError,
         OverlappingState,
     },
@@ -16,8 +16,8 @@ use crate::{
 #[derive(Debug)]
 pub struct Regex {
     pre: Option<Box<dyn Prefilter>>,
-    forward: InertDFA,
-    reverse: InertDFA,
+    forward: DFA,
+    reverse: DFA,
     utf8: bool,
 }
 
@@ -30,13 +30,13 @@ pub struct Cache {
 /// Convenience routines for regex and cache construction.
 impl Regex {
     pub fn new(pattern: &str) -> Result<Regex, BuildError> {
-        Builder::new().build(pattern)
+        Regex::builder().build(pattern)
     }
 
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
     ) -> Result<Regex, BuildError> {
-        Builder::new().build_many(patterns)
+        Regex::builder().build_many(patterns)
     }
 
     pub fn config() -> Config {
@@ -238,16 +238,16 @@ impl Regex {
         start: usize,
         end: usize,
     ) -> Result<bool, MatchError> {
-        let ifwd = self.forward();
-        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
-        fwd.find_leftmost_fwd_at(
-            self.scanner().as_mut(),
-            None,
-            haystack,
-            start,
-            end,
-        )
-        .map(|x| x.is_some())
+        self.forward()
+            .find_leftmost_fwd_at(
+                &mut cache.forward,
+                self.scanner().as_mut(),
+                None,
+                haystack,
+                start,
+                end,
+            )
+            .map(|x| x.is_some())
     }
 
     pub fn try_find_earliest_at(
@@ -310,14 +310,14 @@ impl Regex {
         start: usize,
         end: usize,
     ) -> Result<Option<MultiMatch>, MatchError> {
-        let (ifwd, irev) = (self.forward(), self.reverse());
-        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
-        let mut rev = DFA::new(&irev, &mut cache.reverse);
-        let end =
-            match fwd.find_earliest_fwd_at(pre, None, haystack, start, end)? {
-                None => return Ok(None),
-                Some(end) => end,
-            };
+        let (fdfa, rdfa) = (self.forward(), self.reverse());
+        let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
+        let end = match fdfa
+            .find_earliest_fwd_at(fcache, pre, None, haystack, start, end)?
+        {
+            None => return Ok(None),
+            Some(end) => end,
+        };
         // N.B. The only time we need to tell the reverse searcher the pattern
         // to match is in the overlapping case, since it's ambiguous. In the
         // earliest case, I have tentatively convinced myself that it isn't
@@ -325,8 +325,8 @@ impl Regex {
         // to match as the forward search. But I lack a rigorous proof. Why not
         // just provide the pattern anyway? Well, if it is needed, then leaving
         // it out gives us a chance to find a witness.
-        let start = rev
-            .find_earliest_rev_at(None, haystack, start, end.offset())?
+        let start = rdfa
+            .find_earliest_rev_at(rcache, None, haystack, start, end.offset())?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
@@ -346,14 +346,14 @@ impl Regex {
         start: usize,
         end: usize,
     ) -> Result<Option<MultiMatch>, MatchError> {
-        let (ifwd, irev) = (self.forward(), self.reverse());
-        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
-        let mut rev = DFA::new(&irev, &mut cache.reverse);
-        let end =
-            match fwd.find_leftmost_fwd_at(pre, None, haystack, start, end)? {
-                None => return Ok(None),
-                Some(end) => end,
-            };
+        let (fdfa, rdfa) = (self.forward(), self.reverse());
+        let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
+        let end = match fdfa
+            .find_leftmost_fwd_at(fcache, pre, None, haystack, start, end)?
+        {
+            None => return Ok(None),
+            Some(end) => end,
+        };
         // N.B. The only time we need to tell the reverse searcher the pattern
         // to match is in the overlapping case, since it's ambiguous. In the
         // leftmost case, I have tentatively convinced myself that it isn't
@@ -361,8 +361,8 @@ impl Regex {
         // to match as the forward search. But I lack a rigorous proof. Why not
         // just provide the pattern anyway? Well, if it is needed, then leaving
         // it out gives us a chance to find a witness.
-        let start = rev
-            .find_leftmost_rev_at(None, haystack, start, end.offset())?
+        let start = rdfa
+            .find_leftmost_rev_at(rcache, None, haystack, start, end.offset())?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
@@ -382,12 +382,11 @@ impl Regex {
         end: usize,
         state: &mut OverlappingState,
     ) -> Result<Option<MultiMatch>, MatchError> {
-        let (ifwd, irev) = (self.forward(), self.reverse());
-        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
-        let mut rev = DFA::new(&irev, &mut cache.reverse);
-        let end = match fwd
-            .find_overlapping_fwd_at(pre, None, haystack, start, end, state)?
-        {
+        let (fdfa, rdfa) = (self.forward(), self.reverse());
+        let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
+        let end = match fdfa.find_overlapping_fwd_at(
+            fcache, pre, None, haystack, start, end, state,
+        )? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -396,8 +395,9 @@ impl Regex {
         // using `None` instead of `Some(end.pattern())` below. Thus, we must
         // run our reverse search using the pattern that matched in the forward
         // direction.
-        let start = rev
+        let start = rdfa
             .find_leftmost_rev_at(
+                rcache,
                 Some(end.pattern()),
                 haystack,
                 0,
@@ -417,11 +417,11 @@ impl Regex {
 /// Non-search APIs for queryig information about the regex and setting a
 /// prefilter.
 impl Regex {
-    pub fn forward(&self) -> &InertDFA {
+    pub fn forward(&self) -> &DFA {
         &self.forward
     }
 
-    pub fn reverse(&self) -> &InertDFA {
+    pub fn reverse(&self) -> &DFA {
         &self.reverse
     }
 
@@ -809,7 +809,7 @@ pub struct Builder {
 
 impl Builder {
     pub fn new() -> Builder {
-        Builder { config: Config::default(), dense: dfa::Builder::new() }
+        Builder { config: Config::default(), dense: DFA::builder() }
     }
 
     pub fn build(&self, pattern: &str) -> Result<Regex, BuildError> {
@@ -825,7 +825,7 @@ impl Builder {
             .dense
             .clone()
             .configure(
-                dfa::Config::new()
+                DFA::config()
                     .anchored(true)
                     .match_kind(MatchKind::All)
                     .starts_for_each_pattern(true),
