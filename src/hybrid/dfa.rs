@@ -10,6 +10,8 @@
 // congruent to the regex API... I think we still want something that combines
 // an InertDFA and a Cache together, since there's a bunch of internal helper
 // methods we want to define. But I believe that type can just be un-exported.
+//
+// Hmmm, yes, I think I'm liking this idea. Scrub that third type!
 
 use core::{borrow::Borrow, iter, mem::size_of};
 
