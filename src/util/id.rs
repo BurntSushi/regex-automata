@@ -45,11 +45,10 @@ use alloc::vec::Vec;
 /// report matches of that pattern in various APIs.
 ///
 /// A pattern ID is guaranteed to be representable by a `usize`. Similarly,
-/// the number of patterns in any regex engine in this crate is similarly
-/// guaranteed to be representable by a `usize`. This applies to regex engines
-/// that have been deserialized; a deserialization error will be returned if
-/// it contains pattern IDs that violate these requirements in your current
-/// environment.
+/// the number of patterns in any regex engine in this crate is guaranteed to
+/// be representable by a `usize`. This applies to regex engines that have
+/// been deserialized; a deserialization error will be returned if it contains
+/// pattern IDs that violate these requirements in your current environment.
 ///
 /// For extra convenience in some cases, this type also guarantees that all
 /// IDs can fit into an `i32` and an `isize` without overflowing.
@@ -143,7 +142,7 @@ impl PatternID {
 
     /// Returns one more than this pattern ID as a usize.
     ///
-    /// Since a pattern ID has constrains on its maximum value, adding `1` to
+    /// Since a pattern ID has constraints on its maximum value, adding `1` to
     /// it will always fit in a `usize` (and a `u32`).
     #[inline]
     pub fn one_more(&self) -> usize {
@@ -225,10 +224,10 @@ impl core::fmt::Display for PatternIDError {
 /// An identifier for a state in a regex engine.
 ///
 /// A state ID is guaranteed to be representable by a `usize`. Similarly, the
-/// number of states in any regex engine in this crate is similarly guaranteed
-/// to be representable by a `usize`. This applies to regex engines that have
-/// been deserialized; a deserialization error will be returned if it contains
-/// state IDs that violate these requirements in your current environment.
+/// number of states in any regex engine in this crate is guaranteed to be
+/// representable by a `usize`. This applies to regex engines that have been
+/// deserialized; a deserialization error will be returned if it contains state
+/// IDs that violate these requirements in your current environment.
 ///
 /// For extra convenience in some cases, this type also guarantees that all
 /// IDs can fit into an `i32` and an `isize` without overflowing.

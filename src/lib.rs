@@ -17,11 +17,12 @@ compile_error!("regex-automata currently not supported on non-{16,32,64}");
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[doc(inline)]
+pub use crate::util::id::PatternID;
 #[cfg(feature = "alloc")]
 pub use crate::util::syntax::SyntaxConfig;
 pub use crate::util::{
     bytes::{DeserializeError, SerializeError},
-    id::PatternID,
     matchtypes::{HalfMatch, Match, MatchError, MatchKind, MultiMatch},
 };
 

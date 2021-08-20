@@ -13,6 +13,7 @@ use regex_test::{
 
 use crate::{suite, Result};
 
+/// Runs the test suite with the default configuration.
 #[test]
 fn unminimized_default() -> Result<()> {
     let builder = Regex::builder();
@@ -22,6 +23,7 @@ fn unminimized_default() -> Result<()> {
     Ok(())
 }
 
+/// Runs the test suite with byte classes disabled.
 #[test]
 fn unminimized_no_byte_class() -> Result<()> {
     let mut builder = Regex::builder();
@@ -33,8 +35,9 @@ fn unminimized_no_byte_class() -> Result<()> {
     Ok(())
 }
 
+/// Runs the test suite with NFA shrinking disabled.
 #[test]
-fn unminimized_no_nfa_shrink_default() -> Result<()> {
+fn unminimized_no_nfa_shrink() -> Result<()> {
     let mut builder = Regex::builder();
     builder.thompson(thompson::Config::new().shrink(false));
 
@@ -44,29 +47,35 @@ fn unminimized_no_nfa_shrink_default() -> Result<()> {
     Ok(())
 }
 
+/// Runs the test suite on a minimized DFA with an otherwise default
+/// configuration.
 #[test]
 fn minimized_default() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dense(dense::Config::new().minimize(true));
     TestRunner::new()?
+        // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
 }
 
+/// Runs the test suite on a minimized DFA with byte classes disabled.
 #[test]
 fn minimized_no_byte_class() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dense(dense::Config::new().minimize(true).byte_classes(false));
 
     TestRunner::new()?
+        // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
 }
 
+/// Runs the test suite on a sparse unminimized DFA.
 #[test]
 fn sparse_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
@@ -76,8 +85,8 @@ fn sparse_unminimized_default() -> Result<()> {
     Ok(())
 }
 
-// Another basic sanity test that checks we can serialize and then deserialize
-// a regex, and that the resulting regex can be used for searching correctly.
+/// Another basic sanity test that checks we can serialize and then deserialize
+/// a regex, and that the resulting regex can be used for searching correctly.
 #[test]
 fn serialization_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
@@ -103,9 +112,9 @@ fn serialization_unminimized_default() -> Result<()> {
     Ok(())
 }
 
-// A basic sanity test that checks we can serialize and then deserialize a
-// regex using sparse DFAs, and that the resulting regex can be used for
-// searching correctly.
+/// A basic sanity test that checks we can serialize and then deserialize a
+/// regex using sparse DFAs, and that the resulting regex can be used for
+/// searching correctly.
 #[test]
 fn sparse_serialization_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
@@ -120,7 +129,6 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
                 let rev: sparse::DFA<&[u8]> =
                     sparse::DFA::from_bytes(&rev_bytes).unwrap().0;
                 let re = builder.build_from_dfas(fwd, rev);
-
                 run_test(&re, test)
             }))
         })
@@ -231,6 +239,11 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> Vec<TestResult> {
     vec![is_match, find_matches]
 }
 
+/// Configures the given regex builder with all relevant settings on the given
+/// regex test.
+///
+/// If the regex test has a setting that is unsupported, then this returns
+/// false (implying the test should be skipped).
 fn configure_regex_builder(
     test: &RegexTest,
     builder: &mut dfa::regex::Builder,
@@ -259,6 +272,7 @@ fn configure_regex_builder(
     true
 }
 
+/// Configuration of a Thompson NFA compiler from a regex test.
 fn config_thompson(test: &RegexTest) -> thompson::Config {
     thompson::Config::new().utf8(test.utf8())
 }

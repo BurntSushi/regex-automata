@@ -1109,6 +1109,30 @@ seen per generated state), the search may eventually quit.
             app = app.arg(flag("cache-capacity").help(SHORT).long_help(LONG));
         }
         {
+            const SHORT: &str = "Skip DFA cache capacity check.";
+            const LONG: &str = "\
+Skip DFA cache capacity check.
+
+When enabled, creating a lazy DFA will not quite a minimum cache capacity.
+Instead, if the provided cache capacity is insufficient, it will automatically
+set the cache capacity to the minimum allowed.
+
+This is typically only useful for debugging. For example, this is useful in
+conjunction with setting the cache capacity to zero, which means that the cache
+capacity will always be set to its minimum amount. This permits testing extreme
+cases where the cache is frequently reset.
+
+It is generally not a good idea to set this in general, since setting the cache
+capacity to its minimum will likely result in lots of cache clearing and thus,
+ineffective use of the DFA.
+";
+            app = app.arg(
+                switch("skip-cache-capacity-check")
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
+        }
+        {
             const SHORT: &str = "Set the minimum cache clear count.";
             const LONG: &str = "\
 Set the minimum cache clear count before giving up on the search.
@@ -1150,7 +1174,10 @@ technique would likely be superior.
             .starts_for_each_pattern(
                 args.is_present("starts-for-each-pattern"),
             )
-            .unicode_word_boundary(args.is_present("unicode-word-boundary"));
+            .unicode_word_boundary(args.is_present("unicode-word-boundary"))
+            .skip_cache_capacity_check(
+                args.is_present("skip-cache-capacity-check"),
+            );
         if let Some(quits) = args.value_of_lossy("quit") {
             for ch in quits.chars() {
                 if !ch.is_ascii() {

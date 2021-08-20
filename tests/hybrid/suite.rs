@@ -16,30 +16,85 @@ use regex_test::{
 
 use crate::{suite, Result};
 
+/// Tests the default configuration of the hybrid NFA/DFA.
 #[test]
 fn default() -> Result<()> {
     let builder = Regex::builder();
-    TestRunner::new()?.test_iter(suite()?.iter(), compiler2(builder)).assert();
+    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
 
-fn compiler2(
-    builder: hybrid::regex::Builder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |_, re, mut cache| {
-        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
-            run_test(&re, &mut cache, test)
-        }))
-    })
+/// Tests the hybrid NFA/DFA with NFA shrinking disabled.
+///
+/// This is actually the typical configuration one wants for a lazy DFA. NFA
+/// shrinking is mostly only advantageous when building a full DFA since it
+/// can sharply decrease the amount of time determinization takes. But NFA
+/// shrinking is itself otherwise fairly expensive. Since a lazy DFA has
+/// no compilation time (other than for building the NFA of course) before
+/// executing a search, it's usually worth it to forgo NFA shrinking.
+#[test]
+fn no_nfa_shrink() -> Result<()> {
+    let mut builder = Regex::builder();
+    builder.thompson(thompson::Config::new().shrink(false));
+    TestRunner::new()?
+        // Without NFA shrinking, this test blows the default cache capacity.
+        .blacklist("expensive/regression-many-repeat-no-stack-overflow")
+        .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
+    Ok(())
+}
+
+/// Tests the hybrid NFA/DFA when 'starts_for_each_pattern' is enabled.
+#[test]
+fn starts_for_each_pattern() -> Result<()> {
+    let mut builder = Regex::builder();
+    builder.lazy(hybrid::Config::new().starts_for_each_pattern(true));
+    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    Ok(())
+}
+
+/// Tests the hybrid NFA/DFA when byte classes are disabled.
+///
+/// N.B. Disabling byte classes doesn't avoid any indirection at search time.
+/// All it does is cause every byte value to be its own distinct equivalence
+/// class.
+#[test]
+fn no_byte_classes() -> Result<()> {
+    let mut builder = Regex::builder();
+    builder.lazy(hybrid::Config::new().byte_classes(false));
+    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    Ok(())
+}
+
+/// Tests that hybrid NFA/DFA never clears its cache for any test with the
+/// default capacity.
+///
+/// N.B. If a regex suite test is added that causes the cache to be cleared,
+/// then this should just skip that test. (Which can be done by calling the
+/// 'blacklist' method on 'TestRunner'.)
+#[test]
+fn no_cache_clearing() -> Result<()> {
+    let mut builder = Regex::builder();
+    builder.lazy(hybrid::Config::new().minimum_cache_clear_count(Some(0)));
+    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    Ok(())
+}
+
+/// Tests the hybrid NFA/DFA when the minimum cache capacity is set.
+#[test]
+fn min_cache_capacity() -> Result<()> {
+    let mut builder = Regex::builder();
+    builder.lazy(
+        hybrid::Config::new()
+            .cache_capacity(0)
+            .skip_cache_capacity_check(true),
+    );
+    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    Ok(())
 }
 
 fn compiler(
     mut builder: hybrid::regex::Builder,
-    mut create_matcher: impl FnMut(
-        &hybrid::regex::Builder,
-        Regex,
-        regex::Cache,
-    ) -> Result<CompiledRegex>,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
     move |test, regexes| {
         let regexes = regexes
@@ -61,8 +116,10 @@ fn compiler(
             return Ok(CompiledRegex::skip());
         }
         let re = builder.build_many(&regexes)?;
-        let cache = re.create_cache();
-        create_matcher(&builder, re, cache)
+        let mut cache = re.create_cache();
+        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
+            run_test(&re, &mut cache, test)
+        }))
     }
 }
 
@@ -116,6 +173,11 @@ fn run_test(
     vec![is_match, find_matches]
 }
 
+/// Configures the given regex builder with all relevant settings on the given
+/// regex test.
+///
+/// If the regex test has a setting that is unsupported, then this returns
+/// false (implying the test should be skipped).
 fn configure_regex_builder(
     test: &RegexTest,
     builder: &mut hybrid::regex::Builder,
@@ -133,7 +195,6 @@ fn configure_regex_builder(
     let lazy_config = hybrid::Config::new()
         .anchored(test.anchored())
         .match_kind(match_kind)
-        .byte_classes(false)
         .unicode_word_boundary(true);
     let regex_config = Regex::config().utf8(test.utf8());
 
@@ -145,6 +206,7 @@ fn configure_regex_builder(
     true
 }
 
+/// Configuration of a Thompson NFA compiler from a regex test.
 fn config_thompson(test: &RegexTest) -> thompson::Config {
     thompson::Config::new().utf8(test.utf8())
 }

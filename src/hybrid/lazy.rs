@@ -42,7 +42,7 @@ pub struct InertDFA {
     nfa: Arc<thompson::NFA>,
     stride2: usize,
     classes: ByteClasses,
-    quit: ByteSet,
+    quitset: ByteSet,
     anchored: bool,
     match_kind: MatchKind,
     starts_for_each_pattern: bool,
@@ -55,42 +55,8 @@ impl InertDFA {
         config: &Config,
         nfa: Arc<thompson::NFA>,
     ) -> Result<InertDFA, BuildError> {
-        let mut quit = config.quit.unwrap_or(ByteSet::empty());
-        if nfa.has_word_boundary_unicode() {
-            if config.get_unicode_word_boundary() {
-                for b in 0x80..=0xFF {
-                    quit.add(b);
-                }
-            } else {
-                // If heuristic support for Unicode word boundaries wasn't
-                // enabled, then we can still check if our quit set is correct.
-                // If the caller set their quit bytes in a way that causes the
-                // DFA to quit on at least all non-ASCII bytes, then that's all
-                // we need for heuristic support to work.
-                if !quit.contains_range(0x80, 0xFF) {
-                    return Err(
-                        BuildError::unsupported_dfa_word_boundary_unicode(),
-                    );
-                }
-            }
-        }
-        let classes = if !config.get_byte_classes() {
-            // The lazy DFA will always use the equivalence class map, but
-            // enabling this option is useful for debugging. Namely, this will
-            // cause all transitions to be defined over their actual bytes
-            // instead of an opaque equivalence class identifier. The former is
-            // much easier to grok as a human.
-            ByteClasses::singletons()
-        } else {
-            let mut set = nfa.byte_class_set().clone();
-            // It is important to distinguish any "quit" bytes from all other
-            // bytes. Otherwise, a non-quit byte may end up in the same class
-            // as a quit byte, and thus cause the DFA stop when it shouldn't.
-            if !quit.is_empty() {
-                set.add_set(&quit);
-            }
-            set.byte_classes()
-        };
+        let quitset = config.quit_set_from_nfa(&nfa)?;
+        let classes = config.byte_classes_from_nfa(&nfa, &quitset);
         // Check that we can fit at least a few states into our cache,
         // otherwise it's pretty senseless to use the lazy DFA. This does have
         // a possible failure mode though. This assumes the maximum size of a
@@ -106,11 +72,26 @@ impl InertDFA {
             &classes,
             config.get_starts_for_each_pattern(),
         );
-        if config.get_cache_capacity() < min_cache {
-            return Err(BuildError::insufficient_cache_capacity(
-                min_cache,
-                config.get_cache_capacity(),
-            ));
+        let mut cache_capacity = config.get_cache_capacity();
+        if cache_capacity < min_cache {
+            // When the caller has asked us to skip the cache capacity check,
+            // then we simply force the cache capacity to its minimum amount
+            // and mush on.
+            if config.get_skip_cache_capacity_check() {
+                trace!(
+                    "given capacity ({}) is too small, \
+                     since skip_cache_capacity_check is enabled, \
+                     setting cache capacity to minimum ({})",
+                    cache_capacity,
+                    min_cache,
+                );
+                cache_capacity = min_cache;
+            } else {
+                return Err(BuildError::insufficient_cache_capacity(
+                    min_cache,
+                    cache_capacity,
+                ));
+            }
         }
         // We also need to check that we can fit at least some small number
         // of states in our state ID space. This is unlikely to trigger in
@@ -124,11 +105,11 @@ impl InertDFA {
             nfa,
             stride2,
             classes,
-            quit,
+            quitset,
             anchored: config.get_anchored(),
             match_kind: config.get_match_kind(),
             starts_for_each_pattern: config.get_starts_for_each_pattern(),
-            cache_capacity: config.get_cache_capacity(),
+            cache_capacity,
             minimum_cache_clear_count: config.get_minimum_cache_clear_count(),
         };
         Ok(inert)
@@ -546,9 +527,9 @@ impl<'i, 'c> DFA<'i, 'c> {
         // this will try to call 'set_transition' on a state ID that doesn't
         // actually exist yet, which isn't allowed. So we just skip doing so
         // entirely.
-        if !self.inert.quit.is_empty() && !self.is_sentinel(id) {
+        if !self.inert.quitset.is_empty() && !self.is_sentinel(id) {
             let quit_id = self.quit_id();
-            for b in self.inert.quit.iter() {
+            for b in self.inert.quitset.iter() {
                 self.set_transition(id, alphabet::Unit::u8(b), quit_id);
             }
         }
@@ -593,12 +574,23 @@ impl<'i, 'c> DFA<'i, 'c> {
         Ok(())
     }
 
+    pub fn reset_cache(&mut self) {
+        self.cache.state_saver = StateSaver::none();
+        self.clear_cache();
+        self.cache.clear_count = 0;
+    }
+
     fn clear_cache(&mut self) {
         self.cache.trans.clear();
         self.cache.starts.clear();
         self.cache.states.clear();
         self.cache.states_to_id.clear();
         self.cache.memory_usage_state = 0;
+        self.cache.clear_count += 1;
+        trace!(
+            "lazy DFA cache has been cleared (count: {})",
+            self.cache.clear_count
+        );
         self.init_cache();
         // If the state we want to save is one of the sentinel
         // (unknown/dead/quit) states, then 'init_cache' adds those back, and
@@ -627,11 +619,6 @@ impl<'i, 'c> DFA<'i, 'c> {
                 .expect("adding one state after cache reset must work");
             self.cache.state_saver = StateSaver::Saved(new_id);
         }
-        self.cache.clear_count += 1;
-        trace!(
-            "lazy DFA cache has been cleared (count: {})",
-            self.cache.clear_count
-        );
     }
 
     fn init_cache(&mut self) {
@@ -1003,8 +990,9 @@ pub struct Config {
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
-    quit: Option<ByteSet>,
+    quitset: Option<ByteSet>,
     cache_capacity: Option<usize>,
+    skip_cache_capacity_check: Option<bool>,
     minimum_cache_clear_count: Option<Option<usize>>,
 }
 
@@ -1049,19 +1037,24 @@ impl Config {
                  Unicode word boundaries are enabled"
             );
         }
-        if self.quit.is_none() {
-            self.quit = Some(ByteSet::empty());
+        if self.quitset.is_none() {
+            self.quitset = Some(ByteSet::empty());
         }
         if yes {
-            self.quit.as_mut().unwrap().add(byte);
+            self.quitset.as_mut().unwrap().add(byte);
         } else {
-            self.quit.as_mut().unwrap().remove(byte);
+            self.quitset.as_mut().unwrap().remove(byte);
         }
         self
     }
 
     pub fn cache_capacity(mut self, bytes: usize) -> Config {
         self.cache_capacity = Some(bytes);
+        self
+    }
+
+    pub fn skip_cache_capacity_check(mut self, yes: bool) -> Config {
+        self.skip_cache_capacity_check = Some(yes);
         self
     }
 
@@ -1105,15 +1098,80 @@ impl Config {
     /// least one byte has this enabled, it is possible for a search to return
     /// an error.
     pub fn get_quit(&self, byte: u8) -> bool {
-        self.quit.map_or(false, |q| q.contains(byte))
+        self.quitset.map_or(false, |q| q.contains(byte))
     }
 
     pub fn get_cache_capacity(&self) -> usize {
         self.cache_capacity.unwrap_or(2 * (1 << 20))
     }
 
+    #[doc(hidden)]
+    pub fn get_skip_cache_capacity_check(&self) -> bool {
+        self.skip_cache_capacity_check.unwrap_or(false)
+    }
+
     pub fn get_minimum_cache_clear_count(&self) -> Option<usize> {
         self.minimum_cache_clear_count.unwrap_or(None)
+    }
+
+    pub fn minimum_cache_capacity(
+        &self,
+        nfa: &thompson::NFA,
+    ) -> Result<usize, BuildError> {
+        let quitset = self.quit_set_from_nfa(nfa)?;
+        let classes = self.byte_classes_from_nfa(nfa, &quitset);
+        let starts = self.get_starts_for_each_pattern();
+        Ok(minimum_cache_capacity(nfa, &classes, starts))
+    }
+
+    fn byte_classes_from_nfa(
+        &self,
+        nfa: &thompson::NFA,
+        quit: &ByteSet,
+    ) -> ByteClasses {
+        if !self.get_byte_classes() {
+            // The lazy DFA will always use the equivalence class map, but
+            // enabling this option is useful for debugging. Namely, this will
+            // cause all transitions to be defined over their actual bytes
+            // instead of an opaque equivalence class identifier. The former is
+            // much easier to grok as a human.
+            ByteClasses::singletons()
+        } else {
+            let mut set = nfa.byte_class_set().clone();
+            // It is important to distinguish any "quit" bytes from all other
+            // bytes. Otherwise, a non-quit byte may end up in the same class
+            // as a quit byte, and thus cause the DFA stop when it shouldn't.
+            if !quit.is_empty() {
+                set.add_set(&quit);
+            }
+            set.byte_classes()
+        }
+    }
+
+    fn quit_set_from_nfa(
+        &self,
+        nfa: &thompson::NFA,
+    ) -> Result<ByteSet, BuildError> {
+        let mut quit = self.quitset.unwrap_or(ByteSet::empty());
+        if nfa.has_word_boundary_unicode() {
+            if self.get_unicode_word_boundary() {
+                for b in 0x80..=0xFF {
+                    quit.add(b);
+                }
+            } else {
+                // If heuristic support for Unicode word boundaries wasn't
+                // enabled, then we can still check if our quit set is correct.
+                // If the caller set their quit bytes in a way that causes the
+                // DFA to quit on at least all non-ASCII bytes, then that's all
+                // we need for heuristic support to work.
+                if !quit.contains_range(0x80, 0xFF) {
+                    return Err(
+                        BuildError::unsupported_dfa_word_boundary_unicode(),
+                    );
+                }
+            }
+        }
+        Ok(quit)
     }
 
     /// Overwrite the default configuration such that the options in `o` are
@@ -1131,8 +1189,11 @@ impl Config {
             unicode_word_boundary: o
                 .unicode_word_boundary
                 .or(self.unicode_word_boundary),
-            quit: o.quit.or(self.quit),
+            quitset: o.quitset.or(self.quitset),
             cache_capacity: o.cache_capacity.or(self.cache_capacity),
+            skip_cache_capacity_check: o
+                .skip_cache_capacity_check
+                .or(self.skip_cache_capacity_check),
             minimum_cache_clear_count: o
                 .minimum_cache_clear_count
                 .or(self.minimum_cache_clear_count),

@@ -8,6 +8,63 @@ use regex_automata::{
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
 
+// Tests that too many cache resets cause the lazy DFA to quit.
+#[test]
+fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
+    // This is a carefully chosen regex. The idea is to pick one that requires
+    // some decent number of states (hence the bounded repetition). But we
+    // specifically choose to create a class with an ASCII letter and a
+    // non-ASCII letter so that we can check that no new states are created
+    // once the cache is full. Namely, if we fill up the cache on a haystack
+    // of 'a's, then in order to match one 'β', a new state will need to be
+    // created since a 'β' is encoded with multiple bytes. Since there's no
+    // room for this state, the search should quit at the very first position.
+    let pattern = r"[aβ]{100}";
+    let idfa = hybrid::Builder::new()
+        .configure(
+            // Configure it so that we have the minimum cache capacity
+            // possible. And that if any resets occur, the search quits.
+            hybrid::Config::new()
+                .skip_cache_capacity_check(true)
+                .cache_capacity(0)
+                .minimum_cache_clear_count(Some(0)),
+        )
+        .build(pattern)?;
+    let mut cache = idfa.create_cache();
+    let mut dfa = idfa.dfa(&mut cache);
+
+    let haystack = "a".repeat(101);
+    let err = MatchError::GaveUp { offset: 55 };
+    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err.clone()));
+    assert_eq!(dfa.find_leftmost_fwd(haystack.as_bytes()), Err(err.clone()));
+    assert_eq!(
+        dfa.find_overlapping_fwd(
+            haystack.as_bytes(),
+            &mut hybrid::OverlappingState::start()
+        ),
+        Err(err.clone())
+    );
+
+    let haystack = "β".repeat(101);
+    let err = MatchError::GaveUp { offset: 0 };
+    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err));
+    // no need to test that other find routines quit, since we did that above
+
+    // OK, if we reset the cache, then we should be able to create more states
+    // and make more progress with searching for betas.
+    dfa.reset_cache();
+    let err = MatchError::GaveUp { offset: 59 };
+    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err));
+
+    // ... switching back to ASCII still makes progress since it just needs to
+    // set transitions on existing states!
+    let haystack = "a".repeat(101);
+    let err = MatchError::GaveUp { offset: 29 };
+    assert_eq!(dfa.find_earliest_fwd(haystack.as_bytes()), Err(err));
+
+    Ok(())
+}
+
 // Tests that quit bytes in the forward direction work correctly.
 #[test]
 fn quit_fwd() -> Result<(), Box<dyn Error>> {

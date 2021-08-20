@@ -693,7 +693,7 @@ impl TestRunner {
         for test in it {
             let test = test.borrow();
             if self.should_skip(test) {
-                self.results.skip(test, &TestResult::none());
+                self.results.skip(test, &TestResult::skip());
                 continue;
             }
             self.test(test, |regexes| compile(test, regexes));
@@ -722,9 +722,10 @@ impl TestRunner {
     ) -> &mut TestRunner {
         let mut compiled = match safe(|| compile(test.regexes())) {
             Err(msg) => {
+                // Regex tests should never panic. It's auto-fail if they do.
                 self.results.fail(
                     test,
-                    &TestResult::skip(),
+                    &TestResult::none(),
                     RegexTestFailureKind::UnexpectedPanicCompile(msg),
                 );
                 return self;
@@ -736,7 +737,7 @@ impl TestRunner {
                 } else {
                     self.results.fail(
                         test,
-                        &TestResult::skip(),
+                        &TestResult::none(),
                         RegexTestFailureKind::CompileError { err },
                     );
                 }
@@ -746,7 +747,7 @@ impl TestRunner {
         if !test.compiles() {
             self.results.fail(
                 test,
-                &TestResult::skip(),
+                &TestResult::none(),
                 RegexTestFailureKind::NoCompileError,
             );
             return self;
@@ -756,7 +757,7 @@ impl TestRunner {
             Err(msg) => {
                 self.results.fail(
                     test,
-                    &TestResult::skip(),
+                    &TestResult::none(),
                     RegexTestFailureKind::UnexpectedPanicSearch(msg),
                 );
                 return self;
@@ -1037,7 +1038,7 @@ impl std::fmt::Display for RegexTestFailure {
             self.test.input(),
         )?;
         if !self.result.name.is_empty() {
-            write!(f, "\ntest result: {:?}", self.result.name,)?;
+            write!(f, "\ntest result: {:?}", self.result.name)?;
         }
         Ok(())
     }
@@ -1182,6 +1183,12 @@ fn read_env(var: &str) -> Result<String> {
     Ok(val)
 }
 
+/// Runs the given closure such that any panics are caught and converted into
+/// errors. If the panic'd value could not be converted to a known error type,
+/// then a generic string error message is used.
+///
+/// This is useful for use inside the test runner such that bugs for certain
+/// tests don't prevent other tests from running.
 fn safe<T, F>(fun: F) -> Result<T, String>
 where
     F: FnOnce() -> T,
