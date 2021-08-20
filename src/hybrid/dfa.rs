@@ -4,6 +4,12 @@
 //
 // I think we still want a type that combines a DFA and a Cache though. Maybe
 // a 'Searcher'? Or a 'LazySearcher'? Or a 'LazyDFA'? Not sure.
+//
+// Another idea is to really get rid of 'DFA' altogether, and just make every
+// public API on 'InertDFA -> DFA' accept a 'cache'. This would make it
+// congruent to the regex API... I think we still want something that combines
+// an InertDFA and a Cache together, since there's a bunch of internal helper
+// methods we want to define. But I believe that type can just be un-exported.
 
 use core::{borrow::Borrow, iter, mem::size_of};
 
