@@ -127,10 +127,242 @@ impl InertDFA {
         Cache::new(self)
     }
 
+    pub fn reset_cache(&self, cache: &mut Cache) {
+        DFA::new(self, cache).reset_cache()
+    }
+
     pub fn dfa<'i, 'c>(&'i self, cache: &'c mut Cache) -> DFA<'i, 'c> {
         DFA::new(self, cache)
     }
+}
 
+impl InertDFA {
+    pub fn find_earliest_fwd(
+        &mut self,
+        cache: &mut Cache,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_earliest_fwd_at(cache, None, None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_earliest_rev(
+        &mut self,
+        cache: &mut Cache,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_earliest_rev_at(cache, None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_leftmost_fwd(
+        &mut self,
+        cache: &mut Cache,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_leftmost_fwd_at(cache, None, None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_leftmost_rev(
+        &mut self,
+        cache: &mut Cache,
+        bytes: &[u8],
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_leftmost_rev_at(cache, None, bytes, 0, bytes.len())
+    }
+
+    pub fn find_overlapping_fwd(
+        &mut self,
+        cache: &mut Cache,
+        bytes: &[u8],
+        state: &mut OverlappingState,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.find_overlapping_fwd_at(
+            cache,
+            None,
+            None,
+            bytes,
+            0,
+            bytes.len(),
+            state,
+        )
+    }
+
+    pub fn find_earliest_fwd_at(
+        &mut self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_earliest_fwd(
+            pre,
+            DFA::new(self, cache),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_earliest_rev_at(
+        &mut self,
+        cache: &mut Cache,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_earliest_rev(
+            DFA::new(self, cache),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_leftmost_fwd_at(
+        &mut self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_leftmost_fwd(
+            pre,
+            DFA::new(self, cache),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_leftmost_rev_at(
+        &mut self,
+        cache: &mut Cache,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_leftmost_rev(
+            DFA::new(self, cache),
+            pattern_id,
+            bytes,
+            start,
+            end,
+        )
+    }
+
+    pub fn find_overlapping_fwd_at(
+        &self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+        state: &mut OverlappingState,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_overlapping_fwd(
+            pre,
+            DFA::new(self, cache),
+            pattern_id,
+            bytes,
+            start,
+            end,
+            state,
+        )
+    }
+}
+
+impl InertDFA {
+    #[inline]
+    pub fn next_state(
+        &self,
+        cache: &mut Cache,
+        current: LazyStateID,
+        input: u8,
+    ) -> Result<LazyStateID, CacheError> {
+        DFA::new(self, cache).next_state(current, input)
+    }
+
+    #[inline]
+    pub fn next_state_untagged(
+        &self,
+        cache: &mut Cache,
+        current: LazyStateID,
+        input: u8,
+    ) -> LazyStateID {
+        DFA::new(self, cache).next_state_untagged(current, input)
+    }
+
+    #[inline]
+    pub unsafe fn next_state_untagged_unchecked(
+        &self,
+        cache: &mut Cache,
+        current: LazyStateID,
+        input: u8,
+    ) -> LazyStateID {
+        DFA::new(self, cache).next_state_untagged_unchecked(current, input)
+    }
+
+    #[inline]
+    pub fn next_eoi_state(
+        &self,
+        cache: &mut Cache,
+        current: LazyStateID,
+    ) -> Result<LazyStateID, CacheError> {
+        DFA::new(self, cache).next_eoi_state(current)
+    }
+
+    #[inline]
+    pub fn start_state_forward(
+        &self,
+        cache: &mut Cache,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<LazyStateID, CacheError> {
+        DFA::new(self, cache)
+            .start_state_forward(pattern_id, bytes, start, end)
+    }
+
+    #[inline]
+    pub fn start_state_reverse(
+        &self,
+        cache: &mut Cache,
+        pattern_id: Option<PatternID>,
+        bytes: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Result<LazyStateID, CacheError> {
+        DFA::new(self, cache)
+            .start_state_reverse(pattern_id, bytes, start, end)
+    }
+
+    #[inline]
+    pub fn match_count(&self, cache: &mut Cache, id: LazyStateID) -> usize {
+        DFA::new(self, cache).match_count(id)
+    }
+
+    #[inline]
+    pub fn match_pattern(
+        &self,
+        cache: &mut Cache,
+        id: LazyStateID,
+        match_index: usize,
+    ) -> PatternID {
+        DFA::new(self, cache).match_pattern(id, match_index)
+    }
+}
+
+impl InertDFA {
     pub fn nfa(&self) -> &Arc<thompson::NFA> {
         &self.nfa
     }
@@ -163,22 +395,6 @@ impl InertDFA {
         self.classes.alphabet_len()
     }
 }
-
-// BREADCRUMBS: I'm still not that happy with this API, where DFA has two
-// fixed lifetime parameters. It seems like the only real way around this is
-// to use interior mutability somehow. I do not want something as pervasively
-// unsafe as an UnsafeCell, but if we use RefCell, then how can we do something
-// like DFA<Borrow<InertDFA>, BorrowMut<Cache>>? Maybe it's...
-//
-//   struct DFA<I: Borrow<InertDFA>, C: BorrowMut<Cache>> {
-//     inert: I,
-//     cache: RefCell<C>,
-//   }
-//
-// And then I think we only need to use cache.as_ptr() (for speed) in
-// next_state_untagged_unchecked. ... I hope. We should be able to use it
-// safely anywhere, since we never lend anything from the cache out to the
-// caller, so it should never be possible to have something aliasing.
 
 #[derive(Clone, Debug)]
 pub struct Cache {
