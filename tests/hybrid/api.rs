@@ -20,11 +20,11 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // created since a 'β' is encoded with multiple bytes. Since there's no
     // room for this state, the search should quit at the very first position.
     let pattern = r"[aβ]{100}";
-    let idfa = hybrid::Builder::new()
+    let idfa = hybrid::dfa::Builder::new()
         .configure(
             // Configure it so that we have the minimum cache capacity
             // possible. And that if any resets occur, the search quits.
-            hybrid::Config::new()
+            hybrid::dfa::Config::new()
                 .skip_cache_capacity_check(true)
                 .cache_capacity(0)
                 .minimum_cache_clear_count(Some(0)),
@@ -68,8 +68,8 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
 // Tests that quit bytes in the forward direction work correctly.
 #[test]
 fn quit_fwd() -> Result<(), Box<dyn Error>> {
-    let idfa = hybrid::Builder::new()
-        .configure(hybrid::Config::new().quit(b'x', true))
+    let idfa = hybrid::dfa::Builder::new()
+        .configure(hybrid::dfa::Config::new().quit(b'x', true))
         .build("[[:word:]]+$")?;
     let mut cache = idfa.create_cache();
     let mut dfa = idfa.dfa(&mut cache);
@@ -96,8 +96,8 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
 // Tests that quit bytes in the reverse direction work correctly.
 #[test]
 fn quit_rev() -> Result<(), Box<dyn Error>> {
-    let idfa = hybrid::Builder::new()
-        .configure(hybrid::Config::new().quit(b'x', true))
+    let idfa = hybrid::dfa::Builder::new()
+        .configure(hybrid::dfa::Config::new().quit(b'x', true))
         .thompson(thompson::Config::new().reverse(true))
         .build("^[[:word:]]+")?;
     let mut cache = idfa.create_cache();
@@ -121,7 +121,9 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
 #[test]
 #[should_panic]
 fn quit_panics() {
-    hybrid::Config::new().unicode_word_boundary(true).quit(b'\xFF', false);
+    hybrid::dfa::Config::new()
+        .unicode_word_boundary(true)
+        .quit(b'\xFF', false);
 }
 
 // This tests an intesting case where even if the Unicode word boundary option
@@ -129,11 +131,11 @@ fn quit_panics() {
 // word boundaries to be enabled.
 #[test]
 fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
-    let mut config = hybrid::Config::new();
+    let mut config = hybrid::dfa::Config::new();
     for b in 0x80..=0xFF {
         config = config.quit(b, true);
     }
-    let idfa = hybrid::Builder::new().configure(config).build(r"\b")?;
+    let idfa = hybrid::dfa::Builder::new().configure(config).build(r"\b")?;
     let mut cache = idfa.create_cache();
     let mut dfa = idfa.dfa(&mut cache);
     let expected = HalfMatch::must(0, 1);

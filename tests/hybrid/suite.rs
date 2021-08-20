@@ -48,7 +48,7 @@ fn no_nfa_shrink() -> Result<()> {
 #[test]
 fn starts_for_each_pattern() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.lazy(hybrid::Config::new().starts_for_each_pattern(true));
+    builder.dense(hybrid::dfa::Config::new().starts_for_each_pattern(true));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -61,7 +61,7 @@ fn starts_for_each_pattern() -> Result<()> {
 #[test]
 fn no_byte_classes() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.lazy(hybrid::Config::new().byte_classes(false));
+    builder.dense(hybrid::dfa::Config::new().byte_classes(false));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -75,7 +75,8 @@ fn no_byte_classes() -> Result<()> {
 #[test]
 fn no_cache_clearing() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.lazy(hybrid::Config::new().minimum_cache_clear_count(Some(0)));
+    builder
+        .dense(hybrid::dfa::Config::new().minimum_cache_clear_count(Some(0)));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -84,8 +85,8 @@ fn no_cache_clearing() -> Result<()> {
 #[test]
 fn min_cache_capacity() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.lazy(
-        hybrid::Config::new()
+    builder.dense(
+        hybrid::dfa::Config::new()
             .cache_capacity(0)
             .skip_cache_capacity_check(true),
     );
@@ -192,7 +193,7 @@ fn configure_regex_builder(
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
         .utf8(test.utf8());
-    let lazy_config = hybrid::Config::new()
+    let dense_config = hybrid::dfa::Config::new()
         .anchored(test.anchored())
         .match_kind(match_kind)
         .unicode_word_boundary(true);
@@ -202,7 +203,7 @@ fn configure_regex_builder(
         .configure(regex_config)
         .syntax(syntax_config)
         .thompson(config_thompson(test))
-        .lazy(lazy_config);
+        .dense(dense_config);
     true
 }
 

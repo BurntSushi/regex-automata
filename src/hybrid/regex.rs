@@ -1,7 +1,11 @@
 use core::borrow::Borrow;
 
 use crate::{
-    hybrid::{error::BuildError, lazy, OverlappingState},
+    hybrid::{
+        dfa::{self, InertDFA, DFA},
+        error::BuildError,
+        OverlappingState,
+    },
     nfa::thompson,
     util::{
         matchtypes::{MatchError, MatchKind, MultiMatch},
@@ -12,15 +16,15 @@ use crate::{
 #[derive(Debug)]
 pub struct Regex {
     pre: Option<Box<dyn Prefilter>>,
-    forward: lazy::InertDFA,
-    reverse: lazy::InertDFA,
+    forward: InertDFA,
+    reverse: InertDFA,
     utf8: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct Cache {
-    forward: lazy::Cache,
-    reverse: lazy::Cache,
+    forward: dfa::Cache,
+    reverse: dfa::Cache,
 }
 
 /// Convenience routines for regex and cache construction.
@@ -44,8 +48,8 @@ impl Regex {
     }
 
     pub fn create_cache(&self) -> Cache {
-        let forward = lazy::Cache::new(self.forward());
-        let reverse = lazy::Cache::new(self.reverse());
+        let forward = dfa::Cache::new(self.forward());
+        let reverse = dfa::Cache::new(self.reverse());
         Cache { forward, reverse }
     }
 }
@@ -235,7 +239,7 @@ impl Regex {
         end: usize,
     ) -> Result<bool, MatchError> {
         let ifwd = self.forward();
-        let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
+        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
         fwd.find_leftmost_fwd_at(
             self.scanner().as_mut(),
             None,
@@ -307,8 +311,8 @@ impl Regex {
         end: usize,
     ) -> Result<Option<MultiMatch>, MatchError> {
         let (ifwd, irev) = (self.forward(), self.reverse());
-        let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
-        let mut rev = lazy::DFA::new(&irev, &mut cache.reverse);
+        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
+        let mut rev = DFA::new(&irev, &mut cache.reverse);
         let end =
             match fwd.find_earliest_fwd_at(pre, None, haystack, start, end)? {
                 None => return Ok(None),
@@ -343,8 +347,8 @@ impl Regex {
         end: usize,
     ) -> Result<Option<MultiMatch>, MatchError> {
         let (ifwd, irev) = (self.forward(), self.reverse());
-        let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
-        let mut rev = lazy::DFA::new(&irev, &mut cache.reverse);
+        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
+        let mut rev = DFA::new(&irev, &mut cache.reverse);
         let end =
             match fwd.find_leftmost_fwd_at(pre, None, haystack, start, end)? {
                 None => return Ok(None),
@@ -379,8 +383,8 @@ impl Regex {
         state: &mut OverlappingState,
     ) -> Result<Option<MultiMatch>, MatchError> {
         let (ifwd, irev) = (self.forward(), self.reverse());
-        let mut fwd = lazy::DFA::new(&ifwd, &mut cache.forward);
-        let mut rev = lazy::DFA::new(&irev, &mut cache.reverse);
+        let mut fwd = DFA::new(&ifwd, &mut cache.forward);
+        let mut rev = DFA::new(&irev, &mut cache.reverse);
         let end = match fwd
             .find_overlapping_fwd_at(pre, None, haystack, start, end, state)?
         {
@@ -413,11 +417,11 @@ impl Regex {
 /// Non-search APIs for queryig information about the regex and setting a
 /// prefilter.
 impl Regex {
-    pub fn forward(&self) -> &lazy::InertDFA {
+    pub fn forward(&self) -> &InertDFA {
         &self.forward
     }
 
-    pub fn reverse(&self) -> &lazy::InertDFA {
+    pub fn reverse(&self) -> &InertDFA {
         &self.reverse
     }
 
@@ -800,12 +804,12 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
-    lazy: super::Builder,
+    dense: dfa::Builder,
 }
 
 impl Builder {
     pub fn new() -> Builder {
-        Builder { config: Config::default(), lazy: super::Builder::new() }
+        Builder { config: Config::default(), dense: dfa::Builder::new() }
     }
 
     pub fn build(&self, pattern: &str) -> Result<Regex, BuildError> {
@@ -816,12 +820,12 @@ impl Builder {
         &self,
         patterns: &[P],
     ) -> Result<Regex, BuildError> {
-        let forward = self.lazy.build_many(patterns)?;
+        let forward = self.dense.build_many(patterns)?;
         let reverse = self
-            .lazy
+            .dense
             .clone()
             .configure(
-                lazy::Config::new()
+                dfa::Config::new()
                     .anchored(true)
                     .match_kind(MatchKind::All)
                     .starts_for_each_pattern(true),
@@ -841,17 +845,17 @@ impl Builder {
         &mut self,
         config: crate::util::syntax::SyntaxConfig,
     ) -> &mut Builder {
-        self.lazy.syntax(config);
+        self.dense.syntax(config);
         self
     }
 
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
-        self.lazy.thompson(config);
+        self.dense.thompson(config);
         self
     }
 
-    pub fn lazy(&mut self, config: lazy::Config) -> &mut Builder {
-        self.lazy.configure(config);
+    pub fn dense(&mut self, config: dfa::Config) -> &mut Builder {
+        self.dense.configure(config);
         self
     }
 }

@@ -950,7 +950,7 @@ This mode cannot be toggled inside the regex.
 
 #[derive(Debug)]
 pub struct Hybrid {
-    config: hybrid::Config,
+    config: hybrid::dfa::Config,
 }
 
 impl Hybrid {
@@ -1167,7 +1167,7 @@ technique would likely be superior.
                 unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
             },
         };
-        let mut c = hybrid::Config::new()
+        let mut c = hybrid::dfa::Config::new()
             .anchored(args.is_present("anchored"))
             .byte_classes(!args.is_present("no-byte-classes"))
             .match_kind(kind)
@@ -1207,8 +1207,8 @@ technique would likely be superior.
     pub fn from_nfa(
         &self,
         nfa: Arc<thompson::NFA>,
-    ) -> anyhow::Result<hybrid::InertDFA> {
-        hybrid::Builder::new()
+    ) -> anyhow::Result<hybrid::dfa::InertDFA> {
+        hybrid::dfa::Builder::new()
             .configure(self.config)
             .build_from_nfa(nfa)
             .context("failed to build lazy DFA")
@@ -1220,7 +1220,7 @@ technique would likely be superior.
         syntax: &Syntax,
         thompson: &Thompson,
         patterns: &Patterns,
-    ) -> anyhow::Result<hybrid::InertDFA> {
+    ) -> anyhow::Result<hybrid::dfa::InertDFA> {
         let patterns = patterns.as_strings();
 
         let (asts, time) = util::timeitr(|| syntax.asts(patterns))?;
@@ -1288,7 +1288,7 @@ This mode cannot be toggled inside the regex.
             .configure(self.config)
             .syntax(syntax.0)
             .thompson(thompson.0)
-            .lazy(hybrid.config);
+            .dense(hybrid.config);
         builder
     }
 

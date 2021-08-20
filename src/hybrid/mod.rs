@@ -1,11 +1,10 @@
 pub use self::{
     error::{BuildError, CacheError},
     id::{LazyStateID, OverlappingState},
-    lazy::{Builder, Cache, Config, InertDFA, DFA},
 };
 
+pub mod dfa;
 mod error;
 mod id;
-mod lazy;
 pub mod regex;
 mod search;

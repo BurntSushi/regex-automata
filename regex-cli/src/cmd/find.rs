@@ -525,7 +525,7 @@ fn search_dfa_regex<A: Automaton>(
 }
 
 fn search_hybrid_dfa<'i, 'c>(
-    dfa: &mut hybrid::DFA<'i, 'c>,
+    dfa: &mut hybrid::dfa::DFA<'i, 'c>,
     find: &config::Find,
     haystack: &[u8],
     buf: &mut String,

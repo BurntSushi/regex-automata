@@ -104,8 +104,8 @@ fn define_dfa_regex() -> App {
 }
 
 fn define_hybrid() -> App {
-    let mut dfa = app::leaf("dfa")
-        .about("Print a debug representation of a lazy DFA object.");
+    let mut dfa = app::leaf("dense")
+        .about("Print a debug representation of a lazy dense DFA object.");
     dfa = config::Patterns::define(dfa);
     dfa = config::Syntax::define(dfa);
     dfa = config::Thompson::define(dfa);
@@ -290,13 +290,13 @@ fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
 
 fn run_hybrid(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
-        "dfa" => run_hybrid_dfa(args),
+        "dense" => run_hybrid_dense(args),
         "regex" => run_hybrid_regex(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
 
-fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
+fn run_hybrid_dense(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;

@@ -1,7 +1,7 @@
 use crate::{
     hybrid::{
+        dfa::DFA,
         id::{LazyStateID, OverlappingState, StateMatch},
-        lazy::DFA,
     },
     nfa::thompson,
     util::{
