@@ -48,7 +48,7 @@ fn no_nfa_shrink() -> Result<()> {
 #[test]
 fn starts_for_each_pattern() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.dense(DFA::config().starts_for_each_pattern(true));
+    builder.dfa(DFA::config().starts_for_each_pattern(true));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -61,7 +61,7 @@ fn starts_for_each_pattern() -> Result<()> {
 #[test]
 fn no_byte_classes() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.dense(DFA::config().byte_classes(false));
+    builder.dfa(DFA::config().byte_classes(false));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -75,7 +75,7 @@ fn no_byte_classes() -> Result<()> {
 #[test]
 fn no_cache_clearing() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.dense(DFA::config().minimum_cache_clear_count(Some(0)));
+    builder.dfa(DFA::config().minimum_cache_clear_count(Some(0)));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -84,9 +84,8 @@ fn no_cache_clearing() -> Result<()> {
 #[test]
 fn min_cache_capacity() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.dense(
-        DFA::config().cache_capacity(0).skip_cache_capacity_check(true),
-    );
+    builder
+        .dfa(DFA::config().cache_capacity(0).skip_cache_capacity_check(true));
     TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
@@ -200,7 +199,7 @@ fn configure_regex_builder(
         .configure(regex_config)
         .syntax(syntax_config)
         .thompson(config_thompson(test))
-        .dense(dense_config);
+        .dfa(dense_config);
     true
 }
 

@@ -1288,7 +1288,7 @@ This mode cannot be toggled inside the regex.
             .configure(self.config)
             .syntax(syntax.0)
             .thompson(thompson.0)
-            .dense(hybrid.config);
+            .dfa(hybrid.config);
         builder
     }
 

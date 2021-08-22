@@ -1769,9 +1769,9 @@ impl Config {
     /// Whether to enable UTF-8 mode or not.
     ///
     /// When UTF-8 mode is enabled (the default) and an empty match is seen,
-    /// the iterators on `Regex` will always start the next search at the next
-    /// UTF-8 encoded codepoint when searching valid UTF-8. When UTF-8 mode is
-    /// disabled, such searches are begun at the next byte offset.
+    /// the iterators on [`Regex`] will always start the next search at the
+    /// next UTF-8 encoded codepoint when searching valid UTF-8. When UTF-8
+    /// mode is disabled, such searches are begun at the next byte offset.
     ///
     /// If this mode is enabled and invalid UTF-8 is given to search, then
     /// behavior is unspecified.
@@ -1837,9 +1837,9 @@ impl Config {
     /// Returns true if and only if this configuration has UTF-8 mode enabled.
     ///
     /// When UTF-8 mode is enabled and an empty match is seen, the iterators on
-    /// `Regex` will always start the next search at the next UTF-8 encoded
-    /// codepoint. When UTF-8 mode is disabled, such searches are begun at
-    /// the next byte offset.
+    /// [`Regex`] will always start the next search at the next UTF-8 encoded
+    /// codepoint. When UTF-8 mode is disabled, such searches are begun at the
+    /// next byte offset.
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
     }
@@ -1872,7 +1872,7 @@ impl Config {
 /// the starting position of the next search when a match with zero length is
 /// found.
 ///
-/// Generally speaking, callers will want to either enable all of theses or
+/// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.
 ///
 /// Internally, building a regex requires building two DFAs, where one is
@@ -1884,12 +1884,11 @@ impl Config {
 ///
 /// # Build methods
 ///
-/// This builder has a lot of "build" methods. In general, it's a combinatorial
-/// explosion of the following parameters:
+/// This builder has a few "build" methods. In general, it's the result of
+/// combining the following parameters:
 ///
 /// * Building one or many regexes.
 /// * Building a regex with dense or sparse DFAs.
-/// * Building a regex with DFAs that use a size for their state identifiers.
 ///
 /// The simplest "build" method is [`Builder::build`]. It accepts a single
 /// pattern and builds a dense DFA using `usize` for the state identifier
