@@ -120,7 +120,7 @@ impl LazyStateID {
     /// When a lazy state ID is tagged, then one can conclude that it is one
     /// of a match, start, dead, quit or unknown state.
     #[inline]
-    pub(crate) fn is_tagged(&self) -> bool {
+    pub const fn is_tagged(&self) -> bool {
         self.as_usize_unchecked() > LazyStateID::MAX
     }
 
@@ -129,7 +129,7 @@ impl LazyStateID {
     /// sees this state ID, it generally means that a state has to be computed
     /// in order to proceed.
     #[inline]
-    pub(crate) fn is_unknown(&self) -> bool {
+    pub const fn is_unknown(&self) -> bool {
         self.as_usize_unchecked() & LazyStateID::MASK_UNKNOWN > 0
     }
 
@@ -138,7 +138,7 @@ impl LazyStateID {
     /// dead state. When a dead state is seen, it generally indicates that a
     /// search should stop.
     #[inline]
-    pub(crate) fn is_dead(&self) -> bool {
+    pub const fn is_dead(&self) -> bool {
         self.as_usize_unchecked() & LazyStateID::MASK_DEAD > 0
     }
 
@@ -149,21 +149,21 @@ impl LazyStateID {
     /// indicates an error during search and the caller must either pass this
     /// error up or use a different search technique.
     #[inline]
-    pub(crate) fn is_quit(&self) -> bool {
+    pub const fn is_quit(&self) -> bool {
         self.as_usize_unchecked() & LazyStateID::MASK_QUIT > 0
     }
 
     /// Return true if and only if this lazy state ID has been tagged as a
     /// start state.
     #[inline]
-    pub(crate) fn is_start(&self) -> bool {
+    pub const fn is_start(&self) -> bool {
         self.as_usize_unchecked() & LazyStateID::MASK_START > 0
     }
 
     /// Return true if and only if this lazy state ID has been tagged as a
     /// match state.
     #[inline]
-    pub(crate) const fn is_match(&self) -> bool {
+    pub const fn is_match(&self) -> bool {
         self.as_usize_unchecked() & LazyStateID::MASK_MATCH > 0
     }
 }

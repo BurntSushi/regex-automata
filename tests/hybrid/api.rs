@@ -56,7 +56,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
 
     // OK, if we reset the cache, then we should be able to create more states
     // and make more progress with searching for betas.
-    dfa.reset_cache(&mut cache);
+    cache.reset(&dfa);
     let err = MatchError::GaveUp { offset: 59 };
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
 

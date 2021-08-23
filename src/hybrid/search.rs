@@ -95,11 +95,12 @@ fn find_fwd(
     }
     while at < end {
         if !sid.is_tagged() {
-            // SAFETY: There are two safety invariants we need to uphold here
-            // in the loop below: that 'sid' is a valid state ID for this DFA,
-            // and that 'at' is a valid index into 'bytes'. For the former, we
-            // rely on the invariant that next_state* and start_state_forward
-            // always returns a valid state ID, and that we are only at this
+            // SAFETY: There are two safety invariants we need to uphold
+            // here in the loop below: that 'sid' is a valid state ID for
+            // this DFA, and that 'at' is a valid index into 'bytes'. For
+            // the former, we rely on the invariant that next_state* and
+            // start_state_forward always returns a valid state ID (given a
+            // valid state ID in the former case), and that we are only at this
             // place in the code if 'sid' is untagged. Moreover, every call to
             // next_state_untagged_unchecked below is guarded by a check that
             // sid is untagged. For the latter safety invariant, we always
@@ -130,7 +131,7 @@ fn find_fwd(
                 // SAFETY: we make four unguarded accesses to 'bytes[at]'
                 // below, and each are safe because we know that 'at + 4' is
                 // in bounds. Moreover, while we don't check whether 'sid' is
-                // untagged directly, we know it is because fo the check above.
+                // untagged directly, we know it is because of the check above.
                 // And the unrolled loop below quits when the next state is not
                 // equal to the previous state.
                 //

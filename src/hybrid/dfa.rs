@@ -186,6 +186,68 @@ impl DFA {
 }
 
 impl DFA {
+    /// Transitions from the current state to the next state, given the next
+    /// byte of input.
+    ///
+    /// The given cache is used to either reuse pre-computed state
+    /// transitions, or to store this newly computed transition for future
+    /// reuse.
+    ///
+    /// # State identifier validity
+    ///
+    /// The only valid value for `current` is the lazy state ID returned
+    /// by the most recent call to `next_state`, `next_state_untagged`,
+    /// `next_state_untagged_unchecked`, `start_state_forward` or
+    /// `state_state_reverse` for the given `cache`. Any state ID returned from
+    /// prior calls to these routines (with the same `cache`) is considered
+    /// invalid (even if it gives an appearance of working). State IDs returned
+    /// from _any_ prior call for different `cache` values are also always
+    /// invalid.
+    ///
+    /// The returned ID is always a valid ID when `current` refers to a valid
+    /// ID. Moreover, this routine is defined for all possible values of
+    /// `input`.
+    ///
+    /// These validity rules are not checked, even in debug mode. Callers are
+    /// required to uphold these rules themselves.
+    ///
+    /// Violating these state ID validity rules will not not sacrifice memory
+    /// safety, but _may_ produce an incorrect result or a panic.
+    ///
+    /// # Panics
+    ///
+    /// If the given ID does not refer to a valid state, then this routine
+    /// may panic but it also may not panic and instead return an invalid or
+    /// incorrect ID.
+    ///
+    /// # Example
+    ///
+    /// This shows a simplistic example for walking a lazy DFA for a given
+    /// haystack by using the `next_state` method.
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::new(r"[a-z]+r")?;
+    /// let mut cache = dfa.create_cache();
+    /// let haystack = "bar".as_bytes();
+    ///
+    /// // The start state is determined by inspecting the position and the
+    /// // initial bytes of the haystack.
+    /// let mut sid = dfa.start_state_forward(
+    ///     &mut cache, None, haystack, 0, haystack.len(),
+    /// )?;
+    /// // Walk all the bytes in the haystack.
+    /// for &b in haystack {
+    ///     sid = dfa.next_state(&mut cache, sid, b)?;
+    /// }
+    /// // Matches are always delayed by 1 byte, so we must explicitly walk the
+    /// // special "EOI" transition at the end of the search.
+    /// sid = dfa.next_eoi_state(&mut cache, sid)?;
+    /// assert!(sid.is_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn next_state(
         &self,
@@ -193,27 +255,212 @@ impl DFA {
         current: LazyStateID,
         input: u8,
     ) -> Result<LazyStateID, CacheError> {
-        Lazy::new(self, cache).next_state(current, input)
+        let class = usize::from(self.classes.get(input));
+        let offset = current.as_usize_untagged() + class;
+        let sid = cache.trans[offset];
+        if !sid.is_unknown() {
+            return Ok(sid);
+        }
+        Lazy::new(self, cache)
+            .cache_next_state(current, alphabet::Unit::u8(input))
     }
 
+    /// Transitions from the current state to the next state, given the next
+    /// byte of input and a state ID that is not tagged.
+    ///
+    /// The given cache is used to either reuse pre-computed state transitions,
+    /// or to store this newly computed transition for future reuse.
+    ///
+    /// The only reason to use this routine is performance. In particular, the
+    /// `next_state` method needs to do some additional checks, among them is
+    /// to account for identifiers to states that are not yet computed. In
+    /// such a case, the transition is computed on the fly. However, if it is
+    /// known that the `current` state ID is untagged, then these checks can be
+    /// omitted.
+    ///
+    /// Since this routine does not compute states on the fly, it does not
+    /// modify the cache and thus cannot return an error. Consequently, `cache`
+    /// does not need to be mutable and it is possible for this routine to
+    /// return a state ID corresponding to the special "unknown" state. In
+    /// this case, it is the caller's responsibility to use the prior state
+    /// ID and `input` with `next_state` in order to force the computation of
+    /// the unknown transition. Otherwise, trying to use the "unknown" state
+    /// ID will just result in transitioning back to itself, and thus never
+    /// terminating. (This is technically a special exemption to the state ID
+    /// validity rules, but is permissible since this routine is guarateed to
+    /// never mutate the given `cache`, and thus the identifier is guaranteed
+    /// to remain valid.)
+    ///
+    /// See [`LazyStateID`] for more details on what it means for a state ID
+    /// to be tagged. Also, see
+    /// [`next_state_untagged_unchecked`](DFA::next_state_untagged_unchecked)
+    /// for this same idea, but with bounds checks forcefully elided.
+    ///
+    /// # State identifier validity
+    ///
+    /// The only valid value for `current` is an **untagged** lazy
+    /// state ID returned by the most recent call to `next_state`,
+    /// `next_state_untagged`, `next_state_untagged_unchecked`,
+    /// `start_state_forward` or `state_state_reverse` for the given `cache`.
+    /// Any state ID returned from prior calls to these routines (with the
+    /// same `cache`) is considered invalid (even if it gives an appearance
+    /// of working). State IDs returned from _any_ prior call for different
+    /// `cache` values are also always invalid.
+    ///
+    /// The returned ID is always a valid ID when `current` refers to a valid
+    /// ID. Moreover, this routine is defined for all possible values of
+    /// `input`. Note that the returned ID may be tagged!
+    ///
+    /// Not all validity rules are checked, even in debug mode. Callers are
+    /// required to uphold these rules themselves.
+    ///
+    /// Violating these state ID validity rules will not not sacrifice memory
+    /// safety, but _may_ produce an incorrect result or a panic.
+    ///
+    /// # Panics
+    ///
+    /// If the given ID does not refer to a valid state, then this routine
+    /// may panic but it also may not panic and instead return an invalid or
+    /// incorrect ID.
+    ///
+    /// # Example
+    ///
+    /// This shows a simplistic example for walking a lazy DFA for a given
+    /// haystack by using the `next_state_untagged` method where possible.
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::new(r"[a-z]+r")?;
+    /// let mut cache = dfa.create_cache();
+    /// let haystack = "bar".as_bytes();
+    ///
+    /// // The start state is determined by inspecting the position and the
+    /// // initial bytes of the haystack.
+    /// let mut sid = dfa.start_state_forward(
+    ///     &mut cache, None, haystack, 0, haystack.len(),
+    /// )?;
+    /// // Walk all the bytes in the haystack.
+    /// let mut at = 0;
+    /// while at < haystack.len() {
+    ///     if sid.is_tagged() {
+    ///         sid = dfa.next_state(&mut cache, sid, haystack[at])?;
+    ///     } else {
+    ///         let mut prev_sid = sid;
+    ///         while at < haystack.len() {
+    ///             prev_sid = sid;
+    ///             sid = dfa.next_state_untagged(
+    ///                 &mut cache, sid, haystack[at],
+    ///             );
+    ///             at += 1;
+    ///             if sid.is_tagged() {
+    ///                 break;
+    ///             }
+    ///         }
+    ///         // We must ensure that we never proceed to the next iteration
+    ///         // with an unknown state ID. If we don't account for this
+    ///         // case, then search isn't guaranteed to terminate since all
+    ///         // transitions on unknown states loop back to itself.
+    ///         if sid.is_unknown() {
+    ///             sid = dfa.next_state(
+    ///                 &mut cache, prev_sid, haystack[at - 1],
+    ///             )?;
+    ///         }
+    ///     }
+    /// }
+    /// // Matches are always delayed by 1 byte, so we must explicitly walk the
+    /// // special "EOI" transition at the end of the search.
+    /// sid = dfa.next_eoi_state(&mut cache, sid)?;
+    /// assert!(sid.is_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn next_state_untagged(
         &self,
-        cache: &mut Cache,
+        cache: &Cache,
         current: LazyStateID,
         input: u8,
     ) -> LazyStateID {
-        Lazy::new(self, cache).next_state_untagged(current, input)
+        debug_assert!(!current.is_tagged());
+        let class = usize::from(self.classes.get(input));
+        let offset = current.as_usize_unchecked() + class;
+        cache.trans[offset]
     }
 
+    /// Transitions from the current state to the next state, eliding bounds
+    /// checks, given the next byte of input and a state ID that is not tagged.
+    ///
+    /// The given cache is used to either reuse pre-computed state transitions,
+    /// or to store this newly computed transition for future reuse.
+    ///
+    /// The only reason to use this routine is performance. In particular, the
+    /// `next_state` method needs to do some additional checks, among them is
+    /// to account for identifiers to states that are not yet computed. In
+    /// such a case, the transition is computed on the fly. However, if it is
+    /// known that the `current` state ID is untagged, then these checks can be
+    /// omitted.
+    ///
+    /// Since this routine does not compute states on the fly, it does not
+    /// modify the cache and thus cannot return an error. Consequently, `cache`
+    /// does not need to be mutable and it is possible for this routine to
+    /// return a state ID corresponding to the special "unknown" state. In
+    /// this case, it is the caller's responsibility to use the prior state
+    /// ID and `input` with `next_state` in order to force the computation of
+    /// the unknown transition. Otherwise, trying to use the "unknown" state
+    /// ID will just result in transitioning back to itself, and thus never
+    /// terminating. (This is technically a special exemption to the state ID
+    /// validity rules, but is permissible since this routine is guarateed to
+    /// never mutate the given `cache`, and thus the identifier is guaranteed
+    /// to remain valid.)
+    ///
+    /// See [`LazyStateID`] for more details on what it means for a state ID
+    /// to be tagged. Also, see
+    /// [`next_state_untagged`](DFA::next_state_untagged)
+    /// for this same idea, but with memory safety guaranteed by retaining
+    /// bounds checks.
+    ///
+    /// # State identifier validity
+    ///
+    /// The only valid value for `current` is an **untagged** lazy
+    /// state ID returned by the most recent call to `next_state`,
+    /// `next_state_untagged`, `next_state_untagged_unchecked`,
+    /// `start_state_forward` or `state_state_reverse` for the given `cache`.
+    /// Any state ID returned from prior calls to these routines (with the
+    /// same `cache`) is considered invalid (even if it gives an appearance
+    /// of working). State IDs returned from _any_ prior call for different
+    /// `cache` values are also always invalid.
+    ///
+    /// The returned ID is always a valid ID when `current` refers to a valid
+    /// ID. Moreover, this routine is defined for all possible values of
+    /// `input`. Note that the returned ID may be tagged!
+    ///
+    /// Not all validity rules are checked, even in debug mode. Callers are
+    /// required to uphold these rules themselves.
+    ///
+    /// Violating these state ID validity rules will not not sacrifice memory
+    /// safety, but _may_ produce an incorrect result or a panic.
+    ///
+    /// # Safety
+    ///
+    /// Callers of this method must guarantee that `current` refers to a valid
+    /// state ID according to the rules described above. If `current` is not a
+    /// valid state ID for this automaton, then calling this routine may result
+    /// in undefined behavior.
+    ///
+    /// If `current` is valid, then the ID returned is valid for all possible
+    /// values of `input`.
     #[inline]
     pub unsafe fn next_state_untagged_unchecked(
         &self,
-        cache: &mut Cache,
+        cache: &Cache,
         current: LazyStateID,
         input: u8,
     ) -> LazyStateID {
-        Lazy::new(self, cache).next_state_untagged_unchecked(current, input)
+        debug_assert!(!current.is_tagged());
+        let class = usize::from(self.classes.get(input));
+        let offset = current.as_usize_unchecked() + class;
+        *cache.trans.get_unchecked(offset)
     }
 
     #[inline]
@@ -222,7 +469,13 @@ impl DFA {
         cache: &mut Cache,
         current: LazyStateID,
     ) -> Result<LazyStateID, CacheError> {
-        Lazy::new(self, cache).next_eoi_state(current)
+        let eoi = self.classes.eoi().as_usize();
+        let offset = current.as_usize_untagged() + eoi;
+        let sid = cache.trans[offset];
+        if !sid.is_unknown() {
+            return Ok(sid);
+        }
+        Lazy::new(self, cache).cache_next_state(current, self.classes.eoi())
     }
 
     #[inline]
@@ -234,8 +487,13 @@ impl DFA {
         start: usize,
         end: usize,
     ) -> Result<LazyStateID, CacheError> {
-        Lazy::new(self, cache)
-            .start_state_forward(pattern_id, bytes, start, end)
+        let mut lazy = Lazy::new(self, cache);
+        let start_type = Start::from_position_fwd(bytes, start, end);
+        let sid = lazy.get_cached_start(pattern_id, start_type);
+        if !sid.is_unknown() {
+            return Ok(sid);
+        }
+        lazy.cache_start_group(pattern_id, start_type)
     }
 
     #[inline]
@@ -247,13 +505,19 @@ impl DFA {
         start: usize,
         end: usize,
     ) -> Result<LazyStateID, CacheError> {
-        Lazy::new(self, cache)
-            .start_state_reverse(pattern_id, bytes, start, end)
+        let mut lazy = Lazy::new(self, cache);
+        let start_type = Start::from_position_rev(bytes, start, end);
+        let sid = lazy.get_cached_start(pattern_id, start_type);
+        if !sid.is_unknown() {
+            return Ok(sid);
+        }
+        lazy.cache_start_group(pattern_id, start_type)
     }
 
     #[inline]
     pub fn match_count(&self, cache: &mut Cache, id: LazyStateID) -> usize {
-        Lazy::new(self, cache).match_count(id)
+        assert!(id.is_match());
+        Lazy::new(self, cache).get_cached_state(id).match_count()
     }
 
     #[inline]
@@ -263,7 +527,15 @@ impl DFA {
         id: LazyStateID,
         match_index: usize,
     ) -> PatternID {
-        Lazy::new(self, cache).match_pattern(id, match_index)
+        // This is an optimization for the very common case of a DFA with a
+        // single pattern. This conditional avoids a somewhat more costly path
+        // that finds the pattern ID from the corresponding `State`, which
+        // requires a bit of slicing/pointer-chasing. This optimization tends
+        // to only matter when matches are frequent.
+        if self.pattern_count() == 1 {
+            return PatternID::ZERO;
+        }
+        Lazy::new(self, cache).get_cached_state(id).match_pattern(match_index)
     }
 }
 
@@ -340,6 +612,10 @@ impl Cache {
         cache
     }
 
+    pub fn reset(&mut self, dfa: &DFA) {
+        Lazy::new(dfa, self).reset_cache()
+    }
+
     pub fn memory_usage(&self) -> usize {
         const ID_SIZE: usize = size_of::<LazyStateID>();
         const STATE_SIZE: usize = size_of::<State>();
@@ -402,114 +678,6 @@ impl<'i, 'c> Lazy<'i, 'c> {
 }
 
 impl<'i, 'c> Lazy<'i, 'c> {
-    #[inline]
-    pub fn next_state(
-        &mut self,
-        current: LazyStateID,
-        input: u8,
-    ) -> Result<LazyStateID, CacheError> {
-        let class = usize::from(self.inert.classes.get(input));
-        let offset = current.as_usize_untagged() + class;
-        let sid = self.cache.trans[offset];
-        if !sid.is_unknown() {
-            return Ok(sid);
-        }
-        self.cache_next_state(current, alphabet::Unit::u8(input))
-    }
-
-    #[inline]
-    pub fn next_state_untagged(
-        &self,
-        current: LazyStateID,
-        input: u8,
-    ) -> LazyStateID {
-        debug_assert!(!current.is_tagged());
-        let class = usize::from(self.inert.classes.get(input));
-        let offset = current.as_usize_unchecked() + class;
-        self.cache.trans[offset]
-    }
-
-    #[inline]
-    pub unsafe fn next_state_untagged_unchecked(
-        &self,
-        current: LazyStateID,
-        input: u8,
-    ) -> LazyStateID {
-        debug_assert!(!current.is_tagged());
-        let class = usize::from(self.inert.classes.get(input));
-        let offset = current.as_usize_unchecked() + class;
-        *self.cache.trans.get_unchecked(offset)
-    }
-
-    #[inline]
-    pub fn next_eoi_state(
-        &mut self,
-        current: LazyStateID,
-    ) -> Result<LazyStateID, CacheError> {
-        let eoi = self.inert.classes.eoi().as_usize();
-        let offset = current.as_usize_untagged() + eoi;
-        let sid = self.cache.trans[offset];
-        if !sid.is_unknown() {
-            return Ok(sid);
-        }
-        self.cache_next_state(current, self.inert.classes.eoi())
-    }
-
-    #[inline]
-    pub fn start_state_forward(
-        &mut self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<LazyStateID, CacheError> {
-        let start_type = Start::from_position_fwd(bytes, start, end);
-        let sid = self.get_cached_start(pattern_id, start_type);
-        if !sid.is_unknown() {
-            return Ok(sid);
-        }
-        self.cache_start_group(pattern_id, start_type)
-    }
-
-    #[inline]
-    pub fn start_state_reverse(
-        &mut self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<LazyStateID, CacheError> {
-        let start_type = Start::from_position_rev(bytes, start, end);
-        let sid = self.get_cached_start(pattern_id, start_type);
-        if !sid.is_unknown() {
-            return Ok(sid);
-        }
-        self.cache_start_group(pattern_id, start_type)
-    }
-
-    #[inline]
-    pub fn match_count(&self, id: LazyStateID) -> usize {
-        assert!(id.is_match());
-        self.get_cached_state(id).match_count()
-    }
-
-    #[inline]
-    pub fn match_pattern(
-        &self,
-        id: LazyStateID,
-        match_index: usize,
-    ) -> PatternID {
-        // This is an optimization for the very common case of a DFA with a
-        // single pattern. This conditional avoids a somewhat more costly path
-        // that finds the pattern ID from the corresponding `State`, which
-        // requires a bit of slicing/pointer-chasing. This optimization tends
-        // to only matter when matches are frequent.
-        if self.inert.pattern_count() == 1 {
-            return PatternID::ZERO;
-        }
-        self.get_cached_state(id).match_pattern(match_index)
-    }
-
     #[inline(never)]
     fn cache_next_state(
         &mut self,
@@ -703,7 +871,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         Ok(())
     }
 
-    pub fn reset_cache(&mut self) {
+    fn reset_cache(&mut self) {
         self.cache.state_saver = StateSaver::none();
         self.clear_cache();
         self.cache.clear_count = 0;

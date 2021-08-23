@@ -719,7 +719,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Being an "at" search routine, this permits callers to search a
     /// substring of `haystack` by specifying a range in `haystack`.
     /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
+    /// `&input[start..end]`? The reason is that regex matching often wants
     /// to take the surrounding context into account in order to handle
     /// look-around (`^`, `$` and `\b`).
     ///
@@ -730,7 +730,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Unicode word boundaries are heuristically enabled.
     ///
     /// The fallible version of this routine is
-    /// [`try_is_match`](Regex::try_is_match).
+    /// [`try_is_match_at`](Regex::try_is_match_at).
     pub fn is_match_at(
         &self,
         haystack: &[u8],
@@ -752,7 +752,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Being an "at" search routine, this permits callers to search a
     /// substring of `haystack` by specifying a range in `haystack`.
     /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
+    /// `&input[start..end]`? The reason is that regex matching often wants
     /// to take the surrounding context into account in order to handle
     /// look-around (`^`, `$` and `\b`).
     ///
@@ -777,12 +777,34 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         self.try_find_earliest_at(haystack, start, end).unwrap()
     }
 
-    /// Returns the same as `find`, but starts the search at the given
+    /// Returns the same as `find_leftmost`, but starts the search at the given
     /// offset.
     ///
     /// The significance of the starting point is that it takes the surrounding
     /// context into consideration. For example, if the DFA is anchored, then
     /// a match can only occur when `start == 0`.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// This is useful when implementing an iterator over matches within the
+    /// same haystack, which cannot be done correctly by simply providing a
+    /// subslice of `haystack`.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying DFAs return an error, then this routine panics. This
+    /// only occurs in non-default configurations where quit bytes are used or
+    /// Unicode word boundaries are heuristically enabled.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_leftmost_at`](Regex::try_find_leftmost_at).
     pub fn find_leftmost_at(
         &self,
         haystack: &[u8],
@@ -806,7 +828,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Being an "at" search routine, this permits callers to search a
     /// substring of `haystack` by specifying a range in `haystack`.
     /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
+    /// `&input[start..end]`? The reason is that regex matching often wants
     /// to take the surrounding context into account in order to handle
     /// look-around (`^`, `$` and `\b`).
     ///
@@ -873,19 +895,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// as `is_match`. The key difference is that this routine returns the
     /// position at which it stopped scanning input if and only if a match
     /// was found. If no match is found, then `None` is returned.
-    ///
-    /// # Searching a substring of the haystack
-    ///
-    /// Being an "at" search routine, this permits callers to search a
-    /// substring of `haystack` by specifying a range in `haystack`.
-    /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
-    /// to take the surrounding context into account in order to handle
-    /// look-around (`^`, `$` and `\b`).
-    ///
-    /// This is useful when implementing an iterator over matches
-    /// within the same haystack, which cannot be done correctly by simply
-    /// providing a subslice of `haystack`.
     ///
     /// # Errors
     ///
@@ -973,28 +982,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     ///
     /// The infallible (panics on error) version of this routine is
     /// [`find_earliest_iter`](Regex::find_earliest_iter).
-    ///
-    /// # Example
-    ///
-    /// This example shows how to run an "earliest" iterator.
-    ///
-    /// ```
-    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
-    ///
-    /// let re = Regex::new("[0-9]+")?;
-    /// let haystack = "123".as_bytes();
-    ///
-    /// // Normally, a standard leftmost iterator would return a single
-    /// // match, but since "earliest" detects matches earlier, we get
-    /// // three matches.
-    /// let mut it = re.find_earliest_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 1, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 2, 3)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
     pub fn try_find_earliest_iter<'r, 't>(
         &'r self,
         haystack: &'t [u8],
@@ -1068,18 +1055,23 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Being an "at" search routine, this permits callers to search a
     /// substring of `haystack` by specifying a range in `haystack`.
     /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
+    /// `&input[start..end]`? The reason is that regex matching often wants
     /// to take the surrounding context into account in order to handle
     /// look-around (`^`, `$` and `\b`).
     ///
-    /// # Searching a substring of the haystack
+    /// # Errors
     ///
-    /// Being an "at" search routine, this permits callers to search a
-    /// substring of `haystack` by specifying a range in `haystack`.
-    /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
-    /// to take the surrounding context into account in order to handle
-    /// look-around (`^`, `$` and `\b`).
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`is_match_at`](Regex::is_match_at).
     pub fn try_is_match_at(
         &self,
         haystack: &[u8],
@@ -1109,7 +1101,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Being an "at" search routine, this permits callers to search a
     /// substring of `haystack` by specifying a range in `haystack`.
     /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
+    /// `&input[start..end]`? The reason is that regex matching often wants
     /// to take the surrounding context into account in order to handle
     /// look-around (`^`, `$` and `\b`).
     ///
@@ -1188,13 +1180,26 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Being an "at" search routine, this permits callers to search a
     /// substring of `haystack` by specifying a range in `haystack`.
     /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
+    /// `&input[start..end]`? The reason is that regex matching often wants
     /// to take the surrounding context into account in order to handle
     /// look-around (`^`, `$` and `\b`).
     ///
     /// This is useful when implementing an iterator over matches
     /// within the same haystack, which cannot be done correctly by simply
     /// providing a subslice of `haystack`.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used or Unicode word boundaries are heuristically
+    /// enabled.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_leftmost_at`](Regex::find_leftmost_at).
     pub fn try_find_leftmost_at(
         &self,
         haystack: &[u8],
@@ -1262,7 +1267,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Being an "at" search routine, this permits callers to search a
     /// substring of `haystack` by specifying a range in `haystack`.
     /// Why expose this as an API instead of just asking callers to use
-    /// `&inpu[start..end]`? The reason is that regex matching often wants
+    /// `&input[start..end]`? The reason is that regex matching often wants
     /// to take the surrounding context into account in order to handle
     /// look-around (`^`, `$` and `\b`).
     ///
@@ -1339,7 +1344,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 }
 
-/// Non-search APIs for queryig information about the regex and setting a
+/// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Attach the given prefilter to this regex.

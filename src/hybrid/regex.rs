@@ -28,49 +28,6 @@ use crate::{
 /// [`set_prefilter`](Regex::set_prefilter) method. By default, no prefilter is
 /// enabled.
 ///
-/// # When should I use this?
-///
-/// Generally speaking, if you can abide the use of mutable state during
-/// search, and you don't need things like capturing groups or Unicode word
-/// boundaries support in non-ASCII text, then lazy DFA is likely a robust
-/// choice with respect to both search speed and memory usage. Note however
-/// that its speed may be worse than a general purpose regex engine if you
-/// don't select a good [prefilter].
-///
-/// If you know ahead of time that your pattern would result in a very large
-/// DFA if it was fully compiled, it may be better to use an NFA simulation
-/// instead of a lazy DFA. Either that, or increase the cache capacity of your
-/// lazy DFA to something that is big enough to hold the state machine (likely
-/// through experimentation). The issue here is that if the cache is too small,
-/// then it could wind up being reset too frequently and this might decrease
-/// searching speed significantly.
-///
-/// # Differences with fully compiled DFAs
-///
-/// A [`hybrid::regex::Regex`](crate::hybrid::regex::Regex) and a
-/// [`dfa::regex::Regex`](crate::dfa::regex::Regex) both have the same
-/// capabilities, but they achieve them through different means. The main
-/// difference is that a hybrid or "lazy" regex builds its DFA lazily during
-/// search, where as a fully compiled regex will build its DFA at construction
-/// time. While building a DFA at search time might sound like it's slow, it
-/// tends to work out where most bytes seen reuse pre-built parts of the DFA
-/// and thus can be almost as fast as a fully compiled DFA. The main downside
-/// is that searching requires mutable space to store the DFA, and, in the
-/// worst case, a search can result in a new state being created for each byte
-/// seen, which would make searching quite a bit slower.
-///
-/// A fully compiled DFA never has to worry about searches being slower once
-/// it's built. (Aside from, say, the transition table being so large that it
-/// is subject to harsh CPU cache effects.) However, of course, building a full
-/// DFA can be quite time consuming and memory hungry. Particularly when it's
-/// so easy to build large DFAs when Unicode mode is enabled.
-///
-/// A lazy DFA strikes a nice balance _in practice_, particularly in the
-/// presence of Unicode mode, by only building what is needed. It avoids the
-/// worst exponential time complexity of DFA compilation by guaranteeing that
-/// it will only build at most one state per byte searched. While the worst
-/// case here can lead to a very high constant, it will never be exponential.
-///
 /// # Earliest vs Leftmost vs Overlapping
 ///
 /// The search routines exposed on a `Regex` reflect three different ways
@@ -178,51 +135,235 @@ use crate::{
 /// ```
 #[derive(Debug)]
 pub struct Regex {
+    /// An optional prefilter that is passed down to the lazy DFA search
+    /// routines when present. By default, no prefilter is set.
     pre: Option<Box<dyn Prefilter>>,
+    /// The forward lazy DFA. This can only find the end of a match.
     forward: DFA,
+    /// The reverse lazy DFA. This can only find the start of a match.
+    ///
+    /// This is built with 'all' match semantics (instead of leftmost-first)
+    /// so that it always finds the longest possible match (which corresponds
+    /// to the leftmost starting position). It is also compiled as an anchored
+    /// matcher and has 'starts_for_each_pattern' enabled. Including starting
+    /// states for each pattern is necessary to ensure that we only look for
+    /// matches of a pattern that matched in the forward direction. Otherwise,
+    /// we might wind up finding the "leftmost" starting position of a totally
+    /// different pattern!
     reverse: DFA,
+    /// Whether iterators on this type should advance by one codepoint or one
+    /// byte when an empty match is seen.
     utf8: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct Cache {
-    forward: dfa::Cache,
-    reverse: dfa::Cache,
 }
 
 /// Convenience routines for regex and cache construction.
 impl Regex {
+    /// Parse the given regular expression using the default configuration and
+    /// return the corresponding regex.
+    ///
+    /// If you want a non-default configuration, then use the [`Builder`] to
+    /// set your own configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{MultiMatch, hybrid::regex::Regex};
+    ///
+    /// let re = Regex::new("foo[0-9]+bar")?;
+    /// let mut cache = re.create_cache();
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 3, 14)),
+    ///     re.find_leftmost(&mut cache, b"zzzfoo12345barzzz"),
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(pattern: &str) -> Result<Regex, BuildError> {
         Regex::builder().build(pattern)
     }
 
+    /// Like `new`, but parses multiple patterns into a single "regex set."
+    /// This similarly uses the default regex configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{MultiMatch, hybrid::regex::Regex};
+    ///
+    /// let re = Regex::new_many(&["[a-z]+", "[0-9]+"])?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let mut it = re.find_leftmost_iter(
+    ///     &mut cache,
+    ///     b"abc 1 foo 4567 0 quux",
+    /// );
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 4, 5)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 6, 9)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 10, 14)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(1, 15, 16)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 17, 21)), it.next());
+    /// assert_eq!(None, it.next());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
     ) -> Result<Regex, BuildError> {
         Regex::builder().build_many(patterns)
     }
 
+    /// Return a default configuration for a `Regex`.
+    ///
+    /// This is a convenience routine to avoid needing to import the `Config`
+    /// type when customizing the construction of a regex.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to disable UTF-8 mode for `Regex` iteration.
+    /// When UTF-8 mode is disabled, the position immediately following an
+    /// empty match is where the next search begins, instead of the next
+    /// position of a UTF-8 encoded codepoint.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::regex::Regex, MultiMatch};
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8(false))
+    ///     .build(r"")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let haystack = "a☃z".as_bytes();
+    /// let mut it = re.find_leftmost_iter(&mut cache, haystack);
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 0)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 2, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 3, 3)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 4, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 5, 5)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn config() -> Config {
         Config::new()
     }
 
+    /// Return a builder for configuring the construction of a `Regex`.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// [`Builder`] type in common cases.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use the builder to disable UTF-8 mode
+    /// everywhere.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::regex::Regex,
+    ///     nfa::thompson,
+    ///     MultiMatch, SyntaxConfig,
+    /// };
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8(false))
+    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .thompson(thompson::Config::new().utf8(false))
+    ///     .build(r"foo(?-u:[^b])ar.*")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
+    /// let expected = Some(MultiMatch::must(0, 1, 9));
+    /// let got = re.find_leftmost(&mut cache, haystack);
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn builder() -> Builder {
         Builder::new()
     }
 
     pub fn create_cache(&self) -> Cache {
-        let forward = dfa::Cache::new(self.forward());
-        let reverse = dfa::Cache::new(self.reverse());
-        Cache { forward, reverse }
+        Cache::new(self)
     }
 }
 
 /// Standard infallible search routines for finding and iterating over matches.
 impl Regex {
+    /// Returns true if and only if this regex matches the given haystack.
+    ///
+    /// This routine may short circuit if it knows that scanning future input
+    /// will never lead to a different result. In particular, if the underlying
+    /// DFA enters a match state or a dead state, then this routine will return
+    /// `true` or `false`, respectively, without inspecting any future input.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_is_match`](Regex::try_is_match).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::hybrid::regex::Regex;
+    ///
+    /// let re = Regex::new("foo[0-9]+bar")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// assert_eq!(true, re.is_match(&mut cache, b"foo12345bar"));
+    /// assert_eq!(false, re.is_match(&mut cache, b"foobar"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn is_match(&self, cache: &mut Cache, haystack: &[u8]) -> bool {
         self.try_is_match(cache, haystack).unwrap()
     }
 
+    /// Returns the first position at which a match is found.
+    ///
+    /// This routine stops scanning input in precisely the same circumstances
+    /// as `is_match`. The key difference is that this routine returns the
+    /// position at which it stopped scanning input if and only if a match
+    /// was found. If no match is found, then `None` is returned.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_earliest`](Regex::try_find_earliest).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{MultiMatch, hybrid::regex::Regex};
+    ///
+    /// // Normally, the leftmost first match would greedily consume as many
+    /// // decimal digits as it could. But a match is detected as soon as one
+    /// // digit is seen.
+    /// let re = Regex::new("foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 0, 4)),
+    ///     re.find_earliest(&mut cache, b"foo12345"),
+    /// );
+    ///
+    /// // Normally, the end of the leftmost first match here would be 3,
+    /// // but the "earliest" match semantics detect a match earlier.
+    /// let re = Regex::new("abc|a")?;
+    /// let mut cache = re.create_cache();
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 0, 1)),
+    ///     re.find_earliest(&mut cache, b"abc"),
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn find_earliest(
         &self,
         cache: &mut Cache,
@@ -231,6 +372,44 @@ impl Regex {
         self.try_find_earliest(cache, haystack).unwrap()
     }
 
+    /// Returns the start and end offset of the leftmost match. If no match
+    /// exists, then `None` is returned.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_leftmost`](Regex::try_find_leftmost).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{MultiMatch, hybrid::regex::Regex};
+    ///
+    /// // Greediness is applied appropriately when compared to find_earliest.
+    /// let re = Regex::new("foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 3, 11)),
+    ///     re.find_leftmost(&mut cache, b"zzzfoo12345zzz"),
+    /// );
+    ///
+    /// // Even though a match is found after reading the first byte (`a`),
+    /// // the default leftmost-first match semantics demand that we find the
+    /// // earliest match that prefers earlier parts of the pattern over latter
+    /// // parts.
+    /// let re = Regex::new("abc|a")?;
+    /// let mut cache = re.create_cache();
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 0, 3)),
+    ///     re.find_leftmost(&mut cache, b"abc"),
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn find_leftmost(
         &self,
         cache: &mut Cache,
@@ -239,6 +418,59 @@ impl Regex {
         self.try_find_leftmost(cache, haystack).unwrap()
     }
 
+    /// Search for the first overlapping match in `haystack`.
+    ///
+    /// This routine is principally useful when searching for multiple patterns
+    /// on inputs where multiple patterns may match the same regions of text.
+    /// In particular, callers must preserve the automaton's search state from
+    /// prior calls so that the implementation knows where the last match
+    /// occurred and which pattern was reported.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_overlapping`](Regex::try_find_overlapping).
+    ///
+    /// # Example
+    ///
+    /// This example shows how to run an overlapping search with multiple
+    /// regexes.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::{dfa::DFA, regex::Regex, OverlappingState},
+    ///     MatchKind,
+    ///     MultiMatch,
+    /// };
+    ///
+    /// let re = Regex::builder()
+    ///     .dfa(DFA::config().match_kind(MatchKind::All))
+    ///     .build_many(&[r"\w+$", r"\S+$"])?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let haystack = "@foo".as_bytes();
+    /// let mut state = OverlappingState::start();
+    ///
+    /// let expected = Some(MultiMatch::must(1, 0, 4));
+    /// let got = re.find_overlapping(&mut cache, haystack, &mut state);
+    /// assert_eq!(expected, got);
+    ///
+    /// // The first pattern also matches at the same position, so re-running
+    /// // the search will yield another match. Notice also that the first
+    /// // pattern is returned after the second. This is because the second
+    /// // pattern begins its match before the first, is therefore an earlier
+    /// // match and is thus reported first.
+    /// let expected = Some(MultiMatch::must(0, 1, 4));
+    /// let got = re.find_overlapping(&mut cache, haystack, &mut state);
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn find_overlapping(
         &self,
         cache: &mut Cache,
@@ -248,6 +480,43 @@ impl Regex {
         self.try_find_overlapping(cache, haystack, state).unwrap()
     }
 
+    /// Returns an iterator over all non-overlapping "earliest" matches.
+    ///
+    /// Match positions are reported as soon as a match is known to occur, even
+    /// if the standard leftmost match would be longer.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_earliest_iter`](Regex::try_find_earliest_iter).
+    ///
+    /// # Example
+    ///
+    /// This example shows how to run an "earliest" iterator.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::regex::Regex, MultiMatch};
+    ///
+    /// let re = Regex::new("[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    /// let haystack = "123".as_bytes();
+    ///
+    /// // Normally, a standard leftmost iterator would return a single
+    /// // match, but since "earliest" detects matches earlier, we get
+    /// // three matches.
+    /// let mut it = re.find_earliest_iter(&mut cache, haystack);
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 2)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 2, 3)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn find_earliest_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
@@ -256,6 +525,40 @@ impl Regex {
         FindEarliestMatches::new(self, cache, haystack)
     }
 
+    /// Returns an iterator over all non-overlapping leftmost matches in the
+    /// given bytes. If no match exists, then the iterator yields no elements.
+    ///
+    /// This corresponds to the "standard" regex search iterator.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_leftmost_iter`](Regex::try_find_leftmost_iter).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{MultiMatch, hybrid::regex::Regex};
+    ///
+    /// let re = Regex::new("foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let text = b"foo1 foo12 foo123";
+    /// let matches: Vec<MultiMatch> = re
+    ///     .find_leftmost_iter(&mut cache, text)
+    ///     .collect();
+    /// assert_eq!(matches, vec![
+    ///     MultiMatch::must(0, 0, 4),
+    ///     MultiMatch::must(0, 5, 10),
+    ///     MultiMatch::must(0, 11, 17),
+    /// ]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn find_leftmost_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
@@ -264,6 +567,48 @@ impl Regex {
         FindLeftmostMatches::new(self, cache, haystack)
     }
 
+    /// Returns an iterator over all overlapping matches in the given haystack.
+    ///
+    /// This routine is principally useful when searching for multiple patterns
+    /// on inputs where multiple patterns may match the same regions of text.
+    /// The iterator takes care of handling the overlapping state that must be
+    /// threaded through every search.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_overlapping_iter`](Regex::try_find_overlapping_iter).
+    ///
+    /// # Example
+    ///
+    /// This example shows how to run an overlapping search with multiple
+    /// regexes.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::{dfa::DFA, regex::Regex},
+    ///     MatchKind,
+    ///     MultiMatch,
+    /// };
+    ///
+    /// let re = Regex::builder()
+    ///     .dfa(DFA::config().match_kind(MatchKind::All))
+    ///     .build_many(&[r"\w+$", r"\S+$"])?;
+    /// let mut cache = re.create_cache();
+    /// let haystack = "@foo".as_bytes();
+    ///
+    /// let mut it = re.find_overlapping_iter(&mut cache, haystack);
+    /// assert_eq!(Some(MultiMatch::must(1, 0, 4)), it.next());
+    /// assert_eq!(Some(MultiMatch::must(0, 1, 4)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn find_overlapping_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
@@ -279,6 +624,31 @@ impl Regex {
 /// is required for correctly implementing iteration because of look-around
 /// operators (`^`, `$`, `\b`).
 impl Regex {
+    /// Returns true if and only if this regex matches the given haystack.
+    ///
+    /// This routine may short circuit if it knows that scanning future input
+    /// will never lead to a different result. In particular, if the underlying
+    /// DFA enters a match state or a dead state, then this routine will return
+    /// `true` or `false`, respectively, without inspecting any future input.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_is_match_at`](Regex::try_is_match_at).
     pub fn is_match_at(
         &self,
         cache: &mut Cache,
@@ -289,6 +659,35 @@ impl Regex {
         self.try_is_match_at(cache, haystack, start, end).unwrap()
     }
 
+    /// Returns the first position at which a match is found.
+    ///
+    /// This routine stops scanning input in precisely the same circumstances
+    /// as `is_match`. The key difference is that this routine returns the
+    /// position at which it stopped scanning input if and only if a match
+    /// was found. If no match is found, then `None` is returned.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// This is useful when implementing an iterator over matches
+    /// within the same haystack, which cannot be done correctly by simply
+    /// providing a subslice of `haystack`.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_earliest_at`](Regex::try_find_earliest_at).
     pub fn find_earliest_at(
         &self,
         cache: &mut Cache,
@@ -299,6 +698,31 @@ impl Regex {
         self.try_find_earliest_at(cache, haystack, start, end).unwrap()
     }
 
+    /// Returns the same as `find_leftmost`, but starts the search at the given
+    /// offset.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// This is useful when implementing an iterator over matches within the
+    /// same haystack, which cannot be done correctly by simply providing a
+    /// subslice of `haystack`.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_leftmost_at`](Regex::try_find_leftmost_at).
     pub fn find_leftmost_at(
         &self,
         cache: &mut Cache,
@@ -309,6 +733,37 @@ impl Regex {
         self.try_find_leftmost_at(cache, haystack, start, end).unwrap()
     }
 
+    /// Search for the first overlapping match within a given range of
+    /// `haystack`.
+    ///
+    /// This routine is principally useful when searching for multiple patterns
+    /// on inputs where multiple patterns may match the same regions of text.
+    /// In particular, callers must preserve the automaton's search state from
+    /// prior calls so that the implementation knows where the last match
+    /// occurred and which pattern was reported.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// This is useful when implementing an iterator over matches
+    /// within the same haystack, which cannot be done correctly by simply
+    /// providing a subslice of `haystack`.
+    ///
+    /// # Panics
+    ///
+    /// If the underlying lazy DFAs return an error, then this routine panics.
+    /// This only occurs in non-default configurations where quit bytes are
+    /// used, Unicode word boundaries are heuristically enabled or limits are
+    /// set on the number of times the lazy DFA's cache may be cleared.
+    ///
+    /// The fallible version of this routine is
+    /// [`try_find_overlapping_at`](Regex::try_find_overlapping_at).
     pub fn find_overlapping_at(
         &self,
         cache: &mut Cache,
@@ -333,6 +788,26 @@ impl Regex {
 /// Errors will never be returned using the default configuration. So these
 /// fallible routines are only needed for particular configurations.
 impl Regex {
+    /// Returns true if and only if this regex matches the given haystack.
+    ///
+    /// This routine may short circuit if it knows that scanning future input
+    /// will never lead to a different result. In particular, if the underlying
+    /// DFA enters a match state or a dead state, then this routine will return
+    /// `true` or `false`, respectively, without inspecting any future input.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`is_match`](Regex::is_match).
     pub fn try_is_match(
         &self,
         cache: &mut Cache,
@@ -341,6 +816,26 @@ impl Regex {
         self.try_is_match_at(cache, haystack, 0, haystack.len())
     }
 
+    /// Returns the first position at which a match is found.
+    ///
+    /// This routine stops scanning input in precisely the same circumstances
+    /// as `is_match`. The key difference is that this routine returns the
+    /// position at which it stopped scanning input if and only if a match
+    /// was found. If no match is found, then `None` is returned.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_earliest`](Regex::find_earliest).
     pub fn try_find_earliest(
         &self,
         cache: &mut Cache,
@@ -349,6 +844,22 @@ impl Regex {
         self.try_find_earliest_at(cache, haystack, 0, haystack.len())
     }
 
+    /// Returns the start and end offset of the leftmost match. If no match
+    /// exists, then `None` is returned.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_leftmost`](Regex::find_leftmost).
     pub fn try_find_leftmost(
         &self,
         cache: &mut Cache,
@@ -357,6 +868,27 @@ impl Regex {
         self.try_find_leftmost_at(cache, haystack, 0, haystack.len())
     }
 
+    /// Search for the first overlapping match in `haystack`.
+    ///
+    /// This routine is principally useful when searching for multiple patterns
+    /// on inputs where multiple patterns may match the same regions of text.
+    /// In particular, callers must preserve the automaton's search state from
+    /// prior calls so that the implementation knows where the last match
+    /// occurred and which pattern was reported.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_overlapping`](Regex::find_overlapping).
     pub fn try_find_overlapping(
         &self,
         cache: &mut Cache,
@@ -366,6 +898,24 @@ impl Regex {
         self.try_find_overlapping_at(cache, haystack, 0, haystack.len(), state)
     }
 
+    /// Returns an iterator over all non-overlapping "earliest" matches.
+    ///
+    /// Match positions are reported as soon as a match is known to occur, even
+    /// if the standard leftmost match would be longer.
+    ///
+    /// # Errors
+    ///
+    /// This iterator only yields errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_earliest_iter`](Regex::find_earliest_iter).
     pub fn try_find_earliest_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
@@ -374,6 +924,24 @@ impl Regex {
         TryFindEarliestMatches::new(self, cache, haystack)
     }
 
+    /// Returns an iterator over all non-overlapping leftmost matches in the
+    /// given bytes. If no match exists, then the iterator yields no elements.
+    ///
+    /// This corresponds to the "standard" regex search iterator.
+    ///
+    /// # Errors
+    ///
+    /// This iterator only yields errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_leftmost_iter`](Regex::find_leftmost_iter).
     pub fn try_find_leftmost_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
@@ -382,6 +950,26 @@ impl Regex {
         TryFindLeftmostMatches::new(self, cache, haystack)
     }
 
+    /// Returns an iterator over all overlapping matches in the given haystack.
+    ///
+    /// This routine is principally useful when searching for multiple patterns
+    /// on inputs where multiple patterns may match the same regions of text.
+    /// The iterator takes care of handling the overlapping state that must be
+    /// threaded through every search.
+    ///
+    /// # Errors
+    ///
+    /// This iterator only yields errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_overlapping_iter`](Regex::find_overlapping_iter).
     pub fn try_find_overlapping_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
@@ -394,6 +982,35 @@ impl Regex {
 /// Lower level fallible search routines that permit controlling where the
 /// search starts and ends in a particular sequence.
 impl Regex {
+    /// Returns true if and only if this regex matches the given haystack.
+    ///
+    /// This routine may short circuit if it knows that scanning future input
+    /// will never lead to a different result. In particular, if the underlying
+    /// DFA enters a match state or a dead state, then this routine will return
+    /// `true` or `false`, respectively, without inspecting any future input.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`is_match_at`](Regex::is_match_at).
     pub fn try_is_match_at(
         &self,
         cache: &mut Cache,
@@ -413,6 +1030,39 @@ impl Regex {
             .map(|x| x.is_some())
     }
 
+    /// Returns the first position at which a match is found.
+    ///
+    /// This routine stops scanning input in precisely the same circumstances
+    /// as `is_match`. The key difference is that this routine returns the
+    /// position at which it stopped scanning input if and only if a match
+    /// was found. If no match is found, then `None` is returned.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// This is useful when implementing an iterator over matches
+    /// within the same haystack, which cannot be done correctly by simply
+    /// providing a subslice of `haystack`.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_earliest_at`](Regex::find_earliest_at).
     pub fn try_find_earliest_at(
         &self,
         cache: &mut Cache,
@@ -429,6 +1079,35 @@ impl Regex {
         )
     }
 
+    /// Returns the start and end offset of the leftmost match. If no match
+    /// exists, then `None` is returned.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// This is useful when implementing an iterator over matches
+    /// within the same haystack, which cannot be done correctly by simply
+    /// providing a subslice of `haystack`.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_leftmost_at`](Regex::find_leftmost_at).
     pub fn try_find_leftmost_at(
         &self,
         cache: &mut Cache,
@@ -445,6 +1124,41 @@ impl Regex {
         )
     }
 
+    /// Search for the first overlapping match within a given range of
+    /// `haystack`.
+    ///
+    /// This routine is principally useful when searching for multiple patterns
+    /// on inputs where multiple patterns may match the same regions of text.
+    /// In particular, callers must preserve the automaton's search state from
+    /// prior calls so that the implementation knows where the last match
+    /// occurred and which pattern was reported.
+    ///
+    /// # Searching a substring of the haystack
+    ///
+    /// Being an "at" search routine, this permits callers to search a
+    /// substring of `haystack` by specifying a range in `haystack`.
+    /// Why expose this as an API instead of just asking callers to use
+    /// `&input[start..end]`? The reason is that regex matching often wants
+    /// to take the surrounding context into account in order to handle
+    /// look-around (`^`, `$` and `\b`).
+    ///
+    /// This is useful when implementing an iterator over matches
+    /// within the same haystack, which cannot be done correctly by simply
+    /// providing a subslice of `haystack`.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// DFA-based regexes, this only occurs in a non-default configuration
+    /// where quit bytes are used, Unicode word boundaries are heuristically
+    /// enabled or limits are set on the number of times the lazy DFA's cache
+    /// may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// The infallible (panics on error) version of this routine is
+    /// [`find_overlapping_at`](Regex::find_overlapping_at).
     pub fn try_find_overlapping_at(
         &self,
         cache: &mut Cache,
@@ -465,6 +1179,7 @@ impl Regex {
 }
 
 impl Regex {
+    #[inline(always)]
     fn try_find_earliest_at_imp(
         &self,
         pre: Option<&mut prefilter::Scanner>,
@@ -536,6 +1251,7 @@ impl Regex {
         Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
     }
 
+    #[inline(always)]
     fn try_find_overlapping_at_imp(
         &self,
         pre: Option<&mut prefilter::Scanner>,
@@ -577,17 +1293,36 @@ impl Regex {
     }
 }
 
-/// Non-search APIs for queryig information about the regex and setting a
+/// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl Regex {
+    /// Return the underlying lazy DFA responsible for forward matching.
+    ///
+    /// This is useful for accessing the underlying lazy DFA and using it
+    /// directly if the situation calls for it.
     pub fn forward(&self) -> &DFA {
         &self.forward
     }
 
+    /// Return the underlying lazy DFA responsible for reverse matching.
+    ///
+    /// This is useful for accessing the underlying lazy DFA and using it
+    /// directly if the situation calls for it.
     pub fn reverse(&self) -> &DFA {
         &self.reverse
     }
 
+    /// Returns the total number of patterns matched by this regex.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{MultiMatch, hybrid::regex::Regex};
+    ///
+    /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
+    /// assert_eq!(3, re.pattern_count());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn pattern_count(&self) -> usize {
         assert_eq!(
             self.forward().pattern_count(),
@@ -596,14 +1331,20 @@ impl Regex {
         self.forward().pattern_count()
     }
 
+    /// Convenience function for returning this regex's prefilter as a trait
+    /// object.
+    ///
+    /// If this regex doesn't have a prefilter, then `None` is returned.
     pub fn prefilter(&self) -> Option<&dyn Prefilter> {
         self.pre.as_ref().map(|x| &**x)
     }
 
+    /// Attach the given prefilter to this regex.
     pub fn set_prefilter(&mut self, pre: Option<Box<dyn Prefilter>>) {
         self.pre = pre;
     }
 
+    /// Convenience function for returning a prefilter scanner.
     fn scanner(&self) -> Option<prefilter::Scanner> {
         self.prefilter().map(prefilter::Scanner::new)
     }
@@ -930,6 +1671,29 @@ impl<'r, 'c, 't> Iterator for TryFindOverlappingMatches<'r, 'c, 't> {
         // responsible for ensuring that progress is always made.
         self.last_end = m.end();
         Some(Ok(m))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Cache {
+    forward: dfa::Cache,
+    reverse: dfa::Cache,
+}
+
+impl Cache {
+    pub fn new(re: &Regex) -> Cache {
+        let forward = dfa::Cache::new(re.forward());
+        let reverse = dfa::Cache::new(re.reverse());
+        Cache { forward, reverse }
+    }
+
+    pub fn reset(&mut self, re: &Regex) {
+        self.forward.reset(re.forward());
+        self.reverse.reset(re.reverse());
+    }
+
+    pub fn memory_usage(&self) -> usize {
+        self.forward.memory_usage() + self.reverse.memory_usage()
     }
 }
 
