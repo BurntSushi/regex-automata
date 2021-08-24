@@ -757,6 +757,25 @@ impl DFA {
         Lazy::new(self, cache).get_cached_state(id).match_count()
     }
 
+    /// Returns the pattern ID corresponding to the given match index in the
+    /// given state.
+    ///
+    /// See [`DFA::match_count`] for an example of how to use this method
+    /// correctly. Note that if you know your lazy DFA is configured with a
+    /// single pattern, then this routine is never necessary since it will
+    /// always return a pattern ID of `0` for an index of `0` when `id`
+    /// corresponds to a match state.
+    ///
+    /// Typically, this routine is used when implementing an overlapping
+    /// search, as the example for `DFA::match_count` does.
+    ///
+    /// # Panics
+    ///
+    /// If the state ID is not a match state or if the match index is out
+    /// of bounds for the given state, then this routine may either panic
+    /// or produce an incorrect result. If the state ID is correct and the
+    /// match index is correct, then this routine must always produce a valid
+    /// `PatternID`.
     #[inline]
     pub fn match_pattern(
         &self,
