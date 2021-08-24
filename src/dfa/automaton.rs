@@ -729,7 +729,8 @@ pub unsafe trait Automaton {
 
     /// Returns the total number of patterns that match in this state.
     ///
-    /// If the given state is not a match state, then this always returns zero.
+    /// If the given state is not a match state, then implementations may
+    /// panic.
     ///
     /// If the DFA was compiled with one pattern, then this must necessarily
     /// always return `1` for all match states.
@@ -737,6 +738,11 @@ pub unsafe trait Automaton {
     /// Implementations must guarantee that [`Automaton::match_pattern`] can
     /// be called with indices up to (but not including) the count returned by
     /// this routine without panicking.
+    ///
+    /// # Panics
+    ///
+    /// Implementations are permitted to panic if the provided state ID does
+    /// not correspond to a match state.
     ///
     /// # Example
     ///
@@ -799,12 +805,6 @@ pub unsafe trait Automaton {
     /// Returns the pattern ID corresponding to the given match index in the
     /// given state.
     ///
-    /// If the state ID is not a match state or if the match index is out
-    /// of bounds for the given state, then this routine may either panic
-    /// or produce an incorrect result. If the state ID is correct and the
-    /// match index is correct, then this routine must always produce a valid
-    /// `PatternID`.
-    ///
     /// See [`Automaton::match_count`] for an example of how to use this
     /// method correctly. Note that if you know your DFA is compiled with a
     /// single pattern, then this routine is never necessary since it will
@@ -813,6 +813,14 @@ pub unsafe trait Automaton {
     ///
     /// Typically, this routine is used when implementing an overlapping
     /// search, as the example for `Automaton::match_count` does.
+    ///
+    /// # Panics
+    ///
+    /// If the state ID is not a match state or if the match index is out
+    /// of bounds for the given state, then this routine may either panic
+    /// or produce an incorrect result. If the state ID is correct and the
+    /// match index is correct, then this routine must always produce a valid
+    /// `PatternID`.
     fn match_pattern(&self, id: StateID, index: usize) -> PatternID;
 
     /// Return a slice of bytes to accelerate for the given state, if possible.

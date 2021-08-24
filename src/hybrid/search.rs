@@ -94,7 +94,12 @@ fn find_fwd(
         }
     }
     while at < end {
-        if !sid.is_tagged() {
+        if sid.is_tagged() {
+            sid = dfa
+                .next_state(cache, sid, bytes[at])
+                .map_err(|_| gave_up(at))?;
+            at += 1;
+        } else {
             // SAFETY: There are two safety invariants we need to uphold
             // here in the loop below: that 'sid' is a valid state ID for
             // this DFA, and that 'at' is a valid index into 'bytes'. For
@@ -201,11 +206,6 @@ fn find_fwd(
                     .next_state(cache, prev_sid, bytes[at - 1])
                     .map_err(|_| gave_up(at - 1))?;
             }
-        } else {
-            sid = dfa
-                .next_state(cache, sid, bytes[at])
-                .map_err(|_| gave_up(at))?;
-            at += 1;
         }
         if sid.is_tagged() {
             if sid.is_start() {
@@ -295,7 +295,12 @@ fn find_rev(
     let mut last_match = None;
     let mut at = end - start;
     while at > 0 {
-        if !sid.is_tagged() {
+        if sid.is_tagged() {
+            at -= 1;
+            sid = dfa
+                .next_state(cache, sid, bytes[at])
+                .map_err(|_| gave_up(at))?;
+        } else {
             // SAFETY: See comments in 'find_fwd' for both a safety argument
             // and a justification from a performance perspective as to 1) why
             // we elide bounds checks and 2) why we do a specialized version of
@@ -363,11 +368,6 @@ fn find_rev(
                     .next_state(cache, prev_sid, bytes[at])
                     .map_err(|_| gave_up(at))?;
             }
-        } else {
-            at -= 1;
-            sid = dfa
-                .next_state(cache, sid, bytes[at])
-                .map_err(|_| gave_up(at))?;
         }
         if sid.is_tagged() {
             if sid.is_start() {

@@ -52,6 +52,45 @@ impl DFA {
         DFA::builder().build_many(patterns)
     }
 
+    /// Create a new lazy DFA that matches every input.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    ///
+    /// let dfa = DFA::always_match()?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let expected = HalfMatch::must(0, 0);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(&mut cache, b"")?);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(&mut cache, b"foo")?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn always_match() -> Result<DFA, BuildError> {
+        let nfa = thompson::NFA::always_match();
+        Builder::new().build_from_nfa(Arc::new(nfa))
+    }
+
+    /// Create a new lazy DFA that never matches any input.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::never_match()?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// assert_eq!(None, dfa.find_leftmost_fwd(&mut cache, b"")?);
+    /// assert_eq!(None, dfa.find_leftmost_fwd(&mut cache, b"foo")?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn never_match() -> Result<DFA, BuildError> {
+        let nfa = thompson::NFA::never_match();
+        Builder::new().build_from_nfa(Arc::new(nfa))
+    }
+
     pub fn config() -> Config {
         Config::new()
     }
@@ -191,7 +230,8 @@ impl DFA {
     ///
     /// The given cache is used to either reuse pre-computed state
     /// transitions, or to store this newly computed transition for future
-    /// reuse.
+    /// reuse. Thus, this routine guarantees that it will never return a state
+    /// ID that has an "unknown" tag.
     ///
     /// # State identifier validity
     ///
@@ -211,7 +251,7 @@ impl DFA {
     /// These validity rules are not checked, even in debug mode. Callers are
     /// required to uphold these rules themselves.
     ///
-    /// Violating these state ID validity rules will not not sacrifice memory
+    /// Violating these state ID validity rules will not sacrifice memory
     /// safety, but _may_ produce an incorrect result or a panic.
     ///
     /// # Panics
@@ -268,9 +308,6 @@ impl DFA {
     /// Transitions from the current state to the next state, given the next
     /// byte of input and a state ID that is not tagged.
     ///
-    /// The given cache is used to either reuse pre-computed state transitions,
-    /// or to store this newly computed transition for future reuse.
-    ///
     /// The only reason to use this routine is performance. In particular, the
     /// `next_state` method needs to do some additional checks, among them is
     /// to account for identifiers to states that are not yet computed. In
@@ -308,13 +345,13 @@ impl DFA {
     /// `cache` values are also always invalid.
     ///
     /// The returned ID is always a valid ID when `current` refers to a valid
-    /// ID. Moreover, this routine is defined for all possible values of
-    /// `input`. Note that the returned ID may be tagged!
+    /// ID, although it may be tagged. Moreover, this routine is defined for
+    /// all possible values of `input`.
     ///
     /// Not all validity rules are checked, even in debug mode. Callers are
     /// required to uphold these rules themselves.
     ///
-    /// Violating these state ID validity rules will not not sacrifice memory
+    /// Violating these state ID validity rules will not sacrifice memory
     /// safety, but _may_ produce an incorrect result or a panic.
     ///
     /// # Panics
@@ -347,6 +384,10 @@ impl DFA {
     ///         sid = dfa.next_state(&mut cache, sid, haystack[at])?;
     ///     } else {
     ///         let mut prev_sid = sid;
+    ///         // We attempt to chew through as much as we can while moving
+    ///         // through untagged state IDs. Thus, the transition function
+    ///         // does less work on average per byte. (Unrolling this loop
+    ///         // may help even more.)
     ///         while at < haystack.len() {
     ///             prev_sid = sid;
     ///             sid = dfa.next_state_untagged(
@@ -391,9 +432,6 @@ impl DFA {
     /// Transitions from the current state to the next state, eliding bounds
     /// checks, given the next byte of input and a state ID that is not tagged.
     ///
-    /// The given cache is used to either reuse pre-computed state transitions,
-    /// or to store this newly computed transition for future reuse.
-    ///
     /// The only reason to use this routine is performance. In particular, the
     /// `next_state` method needs to do some additional checks, among them is
     /// to account for identifiers to states that are not yet computed. In
@@ -432,13 +470,13 @@ impl DFA {
     /// `cache` values are also always invalid.
     ///
     /// The returned ID is always a valid ID when `current` refers to a valid
-    /// ID. Moreover, this routine is defined for all possible values of
-    /// `input`. Note that the returned ID may be tagged!
+    /// ID, although it may be tagged. Moreover, this routine is defined for
+    /// all possible values of `input`.
     ///
     /// Not all validity rules are checked, even in debug mode. Callers are
     /// required to uphold these rules themselves.
     ///
-    /// Violating these state ID validity rules will not not sacrifice memory
+    /// Violating these state ID validity rules will not sacrifice memory
     /// safety, but _may_ produce an incorrect result or a panic.
     ///
     /// # Safety
@@ -463,6 +501,84 @@ impl DFA {
         *cache.trans.get_unchecked(offset)
     }
 
+    /// Transitions from the current state to the next state for the special
+    /// EOI symbol.
+    ///
+    /// The given cache is used to either reuse pre-computed state
+    /// transitions, or to store this newly computed transition for future
+    /// reuse. Thus, this routine guarantees that it will never return a state
+    /// ID that has an "unknown" tag.
+    ///
+    /// This routine must be called at the end of every search in a correct
+    /// implementation of search. Namely, lazy DFAs in this crate delay matches
+    /// by one byte in order to support look-around operators. Thus, after
+    /// reaching the end of a haystack, a search implementation must follow one
+    /// last EOI transition.
+    ///
+    /// It is best to think of EOI as an additional symbol in the alphabet of a
+    /// DFA that is distinct from every other symbol. That is, the alphabet of
+    /// lazy DFAs in this crate has a logical size of 257 instead of 256, where
+    /// 256 corresponds to every possible inhabitant of `u8`. (In practice, the
+    /// physical alphabet size may be smaller because of alphabet compression
+    /// via equivalence classes, but EOI is always represented somehow in the
+    /// alphabet.)
+    ///
+    /// # State identifier validity
+    ///
+    /// The only valid value for `current` is the lazy state ID returned
+    /// by the most recent call to `next_state`, `next_state_untagged`,
+    /// `next_state_untagged_unchecked`, `start_state_forward` or
+    /// `state_state_reverse` for the given `cache`. Any state ID returned from
+    /// prior calls to these routines (with the same `cache`) is considered
+    /// invalid (even if it gives an appearance of working). State IDs returned
+    /// from _any_ prior call for different `cache` values are also always
+    /// invalid.
+    ///
+    /// The returned ID is always a valid ID when `current` refers to a valid
+    /// ID.
+    ///
+    /// These validity rules are not checked, even in debug mode. Callers are
+    /// required to uphold these rules themselves.
+    ///
+    /// Violating these state ID validity rules will not sacrifice memory
+    /// safety, but _may_ produce an incorrect result or a panic.
+    ///
+    /// # Panics
+    ///
+    /// If the given ID does not refer to a valid state, then this routine
+    /// may panic but it also may not panic and instead return an invalid or
+    /// incorrect ID.
+    ///
+    /// # Example
+    ///
+    /// This shows a simplistic example for walking a DFA for a given haystack,
+    /// and then finishing the search with the final EOI transition.
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::new(r"[a-z]+r")?;
+    /// let mut cache = dfa.create_cache();
+    /// let haystack = "bar".as_bytes();
+    ///
+    /// // The start state is determined by inspecting the position and the
+    /// // initial bytes of the haystack.
+    /// let mut sid = dfa.start_state_forward(
+    ///     &mut cache, None, haystack, 0, haystack.len(),
+    /// )?;
+    /// // Walk all the bytes in the haystack.
+    /// for &b in haystack {
+    ///     sid = dfa.next_state(&mut cache, sid, b)?;
+    /// }
+    /// // Matches are always delayed by 1 byte, so we must explicitly walk
+    /// // the special "EOI" transition at the end of the search. Without this
+    /// // final transition, the assert below will fail since the DFA will not
+    /// // have entered a match state yet!
+    /// sid = dfa.next_eoi_state(&mut cache, sid)?;
+    /// assert!(sid.is_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn next_eoi_state(
         &self,
@@ -478,6 +594,34 @@ impl DFA {
         Lazy::new(self, cache).cache_next_state(current, self.classes.eoi())
     }
 
+    /// Return the ID of the start state for this lazy DFA when executing a
+    /// forward search.
+    ///
+    /// Unlike typical DFA implementations, the start state for DFAs in this
+    /// crate is dependent on a few different factors:
+    ///
+    /// * The pattern ID, if present. When the underlying DFA has been
+    /// configured with multiple patterns _and_ the DFA has been configured to
+    /// build an anchored start state for each pattern, then a pattern ID may
+    /// be specified to execute an anchored search for that specific pattern.
+    /// If `pattern_id` is invalid or if the DFA isn't configured to build
+    /// start states for each pattern, then implementations must panic. DFAs in
+    /// this crate can be configured to build start states for each pattern via
+    /// [`Config::starts_for_each_pattern`].
+    /// * When `start > 0`, the byte at index `start - 1` may influence the
+    /// start state if the regex uses `^` or `\b`.
+    /// * Similarly, when `start == 0`, it may influence the start state when
+    /// the regex uses `^` or `\A`.
+    /// * Currently, `end` is unused.
+    /// * Whether the search is a forward or reverse search. This routine can
+    /// only be used for forward searches.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `start..end` is not a valid sub-slice of `bytes`. This
+    /// also panics if `pattern_id` is non-None and does not refer to a valid
+    /// pattern, or if the DFA was not configured to build anchored start
+    /// states for each pattern.
     #[inline]
     pub fn start_state_forward(
         &self,
@@ -496,6 +640,34 @@ impl DFA {
         lazy.cache_start_group(pattern_id, start_type)
     }
 
+    /// Return the ID of the start state for this lazy DFA when executing a
+    /// reverse search.
+    ///
+    /// Unlike typical DFA implementations, the start state for DFAs in this
+    /// crate is dependent on a few different factors:
+    ///
+    /// * The pattern ID, if present. When the underlying DFA has been
+    /// configured with multiple patterns _and_ the DFA has been configured to
+    /// build an anchored start state for each pattern, then a pattern ID may
+    /// be specified to execute an anchored search for that specific pattern.
+    /// If `pattern_id` is invalid or if the DFA isn't configured to build
+    /// start states for each pattern, then implementations must panic. DFAs in
+    /// this crate can be configured to build start states for each pattern via
+    /// [`Config::starts_for_each_pattern`].
+    /// * When `end < bytes.len()`, the byte at index `end` may influence the
+    /// start state if the regex uses `$` or `\b`.
+    /// * Similarly, when `end == bytes.len()`, it may influence the start
+    /// state when the regex uses `$` or `\z`.
+    /// * Currently, `start` is unused.
+    /// * Whether the search is a forward or reverse search. This routine can
+    /// only be used for reverse searches.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `start..end` is not a valid sub-slice of `bytes`. This
+    /// also panics if `pattern_id` is non-None and does not refer to a valid
+    /// pattern, or if the DFA was not configured to build anchored start
+    /// states for each pattern.
     #[inline]
     pub fn start_state_reverse(
         &self,
@@ -514,6 +686,71 @@ impl DFA {
         lazy.cache_start_group(pattern_id, start_type)
     }
 
+    /// Returns the total number of patterns that match in this state.
+    ///
+    /// If the given state is not a match state, then this may panic.
+    ///
+    /// If the lazy DFA was compiled with one pattern, then this must
+    /// necessarily always return `1` for all match states.
+    ///
+    /// A lazy DFA guarantees that [`DFA::match_pattern`] can be called with
+    /// indices up to (but not including) the count returned by this routine
+    /// without panicking.
+    ///
+    /// # Example
+    ///
+    /// This example shows a simple instance of implementing overlapping
+    /// matches. In particular, it shows not only how to determine how many
+    /// patterns have matched in a particular state, but also how to access
+    /// which specific patterns have matched.
+    ///
+    /// Notice that we must use [`MatchKind::All`](crate::MatchKind::All)
+    /// when building the DFA. If we used
+    /// [`MatchKind::LeftmostFirst`](crate::MatchKind::LeftmostFirst)
+    /// instead, then the DFA would not be constructed in a way that supports
+    /// overlapping matches. (It would only report a single pattern that
+    /// matches at any particular point in time.)
+    ///
+    /// Another thing to take note of is the patterns used and the order in
+    /// which the pattern IDs are reported. In the example below, pattern `3`
+    /// is yielded first. Why? Because it corresponds to the match that
+    /// appears first. Namely, the `@` symbol is part of `\S+` but not part
+    /// of any of the other patterns. Since the `\S+` pattern has a match that
+    /// starts to the left of any other pattern, its ID is returned before any
+    /// other.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, MatchKind};
+    ///
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().match_kind(MatchKind::All))
+    ///     .build_many(&[
+    ///         r"\w+", r"[a-z]+", r"[A-Z]+", r"\S+",
+    ///     ])?;
+    /// let mut cache = dfa.create_cache();
+    /// let haystack = "@bar".as_bytes();
+    ///
+    /// // The start state is determined by inspecting the position and the
+    /// // initial bytes of the haystack.
+    /// let mut sid = dfa.start_state_forward(
+    ///     &mut cache, None, haystack, 0, haystack.len(),
+    /// )?;
+    /// // Walk all the bytes in the haystack.
+    /// for &b in haystack {
+    ///     sid = dfa.next_state(&mut cache, sid, b)?;
+    /// }
+    /// sid = dfa.next_eoi_state(&mut cache, sid)?;
+    ///
+    /// assert!(sid.is_match());
+    /// assert_eq!(dfa.match_count(&mut cache, sid), 3);
+    /// // The following calls are guaranteed to not panic since `match_count`
+    /// // returned `3` above.
+    /// assert_eq!(dfa.match_pattern(&mut cache, sid, 0).as_usize(), 3);
+    /// assert_eq!(dfa.match_pattern(&mut cache, sid, 1).as_usize(), 0);
+    /// assert_eq!(dfa.match_pattern(&mut cache, sid, 2).as_usize(), 1);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn match_count(&self, cache: &mut Cache, id: LazyStateID) -> usize {
         assert!(id.is_match());
@@ -544,8 +781,41 @@ impl DFA {
         &self.nfa
     }
 
-    /// Returns the number of patterns in this DFA. (It is possible for this
-    /// to be zero, for a DFA that never matches anything.)
+    /// Returns the total number of patterns compiled into this lazy DFA.
+    ///
+    /// In the case of a DFA that contains no patterns, this returns `0`.
+    ///
+    /// # Example
+    ///
+    /// This example shows the pattern count for a DFA that never matches:
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::never_match()?;
+    /// assert_eq!(dfa.pattern_count(), 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And another example for a DFA that matches at every position:
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::always_match()?;
+    /// assert_eq!(dfa.pattern_count(), 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And finally, a DFA that was constructed from multiple patterns:
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
+    /// assert_eq!(dfa.pattern_count(), 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn pattern_count(&self) -> usize {
         self.nfa.match_len()
     }
