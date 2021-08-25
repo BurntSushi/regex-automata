@@ -91,10 +91,72 @@ impl DFA {
         Builder::new().build_from_nfa(Arc::new(nfa))
     }
 
+    /// Return a default configuration for a `DFA`.
+    ///
+    /// This is a convenience routine to avoid needing to import the `Config`
+    /// type when customizing the construction of a lazy DFA.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build a lazy DFA that only executes searches
+    /// in anchored mode.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    ///
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().anchored(true))
+    ///     .build(r"[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let haystack = "abc123xyz".as_bytes();
+    /// assert_eq!(None, re.find_leftmost_fwd(&mut cache, haystack)?);
+    /// assert_eq!(
+    ///     Some(HalfMatch::must(0, 3)),
+    ///     re.find_leftmost_fwd(&mut cache, &haystack[3..6])?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn config() -> Config {
         Config::new()
     }
 
+    /// Return a builder for configuring the construction of a `Regex`.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// [`Builder`] type in common cases.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use the builder to disable UTF-8 mode
+    /// everywhere for lazy DFAs. This includes disabling it for both the
+    /// concrete syntax (e.g., `.` matches any byte and Unicode character
+    /// classes like `\p{Letter}` are not allowed) and for the unanchored
+    /// search prefix. The latter enables the regex to match anywhere in a
+    /// sequence of arbitrary bytes. (Typically, the unanchored search prefix
+    /// will only permit matching valid UTF-8.)
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     nfa::thompson,
+    ///     HalfMatch, SyntaxConfig,
+    /// };
+    ///
+    /// let re = DFA::builder()
+    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .thompson(thompson::Config::new().utf8(false))
+    ///     .build(r"foo(?-u:[^b])ar.*")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
+    /// let expected = Some(HalfMatch::must(0, 9));
+    /// let got = re.find_leftmost_fwd(&mut cache, haystack)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn builder() -> Builder {
         Builder::new()
     }
@@ -106,9 +168,132 @@ impl DFA {
     pub fn reset_cache(&self, cache: &mut Cache) {
         Lazy::new(self, cache).reset_cache()
     }
+
+    /// Returns the total number of patterns compiled into this lazy DFA.
+    ///
+    /// In the case of a DFA that contains no patterns, this returns `0`.
+    ///
+    /// # Example
+    ///
+    /// This example shows the pattern count for a DFA that never matches:
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::never_match()?;
+    /// assert_eq!(dfa.pattern_count(), 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And another example for a DFA that matches at every position:
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::always_match()?;
+    /// assert_eq!(dfa.pattern_count(), 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And finally, a DFA that was constructed from multiple patterns:
+    ///
+    /// ```
+    /// use regex_automata::hybrid::dfa::DFA;
+    ///
+    /// let dfa = DFA::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
+    /// assert_eq!(dfa.pattern_count(), 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn pattern_count(&self) -> usize {
+        self.nfa.match_len()
+    }
+
+    /// Returns a reference to the underlying NFA.
+    pub fn nfa(&self) -> &Arc<thompson::NFA> {
+        &self.nfa
+    }
+
+    /// Returns the stride, as a base-2 exponent, required for these
+    /// equivalence classes.
+    ///
+    /// The stride is always the smallest power of 2 that is greater than or
+    /// equal to the alphabet length. This is done so that converting between
+    /// state IDs and indices can be done with shifts alone, which is much
+    /// faster than integer division.
+    fn stride2(&self) -> usize {
+        self.stride2
+    }
+
+    /// Returns the total stride for every state in this lazy DFA. This
+    /// corresponds to the total number of transitions used by each state in
+    /// this DFA's transition table.
+    fn stride(&self) -> usize {
+        1 << self.stride2()
+    }
+
+    /// Returns the total number of elements in the alphabet for this
+    /// transition table. This is always less than or equal to `self.stride()`.
+    /// It is only equal when the alphabet length is a power of 2. Otherwise,
+    /// it is always strictly less.
+    fn alphabet_len(&self) -> usize {
+        self.classes.alphabet_len()
+    }
 }
 
 impl DFA {
+    /// Executes a forward search and returns the end position of the first
+    /// match that is found as early as possible. If no match exists, then
+    /// `None` is returned.
+    ///
+    /// This routine stops scanning input as soon as the search observes a
+    /// match state. This is useful for implementing boolean `is_match`-like
+    /// routines, where as little work is done as possible.
+    ///
+    /// See [`DFA::find_earliest_fwd_at`] for additional functionality, such as
+    /// providing a prefilter, a specific pattern to match and the bounds of
+    /// the search within the haystack. This routine is meant as a convenience
+    /// for common cases where the additional functionality is not needed.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// lazy DFAs generated by this crate, this only occurs in non-default
+    /// configurations where quit bytes are used, Unicode word boundaries are
+    /// heuristically enabled or limits are set on the number of times the lazy
+    /// DFA's cache may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates how the position returned might differ from
+    /// what one might expect when executing a traditional leftmost search.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    ///
+    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// let mut cache = dfa.create_cache();
+    /// // Normally, the end of the leftmost first match here would be 8,
+    /// // corresponding to the end of the input. But the "earliest" semantics
+    /// // this routine cause it to stop as soon as a match is known, which
+    /// // occurs once 'foo[0-9]' has matched.
+    /// let expected = HalfMatch::must(0, 4);
+    /// assert_eq!(
+    ///     Some(expected),
+    ///     dfa.find_earliest_fwd(&mut cache, b"foo12345")?,
+    /// );
+    ///
+    /// let dfa = DFA::new("abc|a")?;
+    /// let mut cache = dfa.create_cache();
+    /// // Normally, the end of the leftmost first match here would be 3,
+    /// // but the shortest match semantics detect a match earlier.
+    /// let expected = HalfMatch::must(0, 1);
+    /// assert_eq!(Some(expected), dfa.find_earliest_fwd(&mut cache, b"abc")?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
     pub fn find_earliest_fwd(
         &self,
         cache: &mut Cache,
@@ -117,6 +302,66 @@ impl DFA {
         self.find_earliest_fwd_at(cache, None, None, bytes, 0, bytes.len())
     }
 
+    /// Executes a reverse search and returns the start position of the first
+    /// match that is found as early as possible. If no match exists, then
+    /// `None` is returned.
+    ///
+    /// This routine stops scanning input as soon as the search observes a
+    /// match state.
+    ///
+    /// Note that while it is not technically necessary to build a reverse
+    /// automaton to use a reverse search, it is likely that you'll want to do
+    /// so. Namely, the typical use of a reverse search is to find the starting
+    /// location of a match once its end is discovered from a forward search. A
+    /// reverse DFA automaton can be built by configuring the intermediate NFA
+    /// to be reversed via
+    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse).
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// lazy DFAs generated by this crate, this only occurs in non-default
+    /// configurations where quit bytes are used, Unicode word boundaries are
+    /// heuristically enabled or limits are set on the number of times the lazy
+    /// DFA's cache may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates how the position returned might differ from
+    /// what one might expect when executing a traditional leftmost reverse
+    /// search.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, nfa::thompson, HalfMatch};
+    ///
+    /// let dfa = DFA::builder()
+    ///     .thompson(thompson::Config::new().reverse(true))
+    ///     .build("[a-z]+[0-9]+")?;
+    /// let mut cache = dfa.create_cache();
+    /// // Normally, the end of the leftmost first match here would be 0,
+    /// // corresponding to the beginning of the input. But the "earliest"
+    /// // semantics of this routine cause it to stop as soon as a match is
+    /// // known, which occurs once '[a-z][0-9]+' has matched.
+    /// let expected = HalfMatch::must(0, 2);
+    /// assert_eq!(
+    ///     Some(expected),
+    ///     dfa.find_earliest_rev(&mut cache, b"foo12345")?,
+    /// );
+    ///
+    /// let dfa = DFA::builder()
+    ///     .thompson(thompson::Config::new().reverse(true))
+    ///     .build("abc|c")?;
+    /// let mut cache = dfa.create_cache();
+    /// // Normally, the end of the leftmost first match here would be 0,
+    /// // but the shortest match semantics detect a match earlier.
+    /// let expected = HalfMatch::must(0, 2);
+    /// assert_eq!(Some(expected), dfa.find_earliest_rev(&mut cache, b"abc")?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
     pub fn find_earliest_rev(
         &self,
         cache: &mut Cache,
@@ -125,6 +370,63 @@ impl DFA {
         self.find_earliest_rev_at(cache, None, bytes, 0, bytes.len())
     }
 
+    /// Executes a forward search and returns the end position of the leftmost
+    /// match that is found. If no match exists, then `None` is returned.
+    ///
+    /// In particular, this method continues searching even after it enters
+    /// a match state. The search only terminates once it has reached the
+    /// end of the input or when it has entered a dead or quit state. Upon
+    /// termination, the position of the last byte seen while still in a match
+    /// state is returned.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// lazy DFAs generated by this crate, this only occurs in non-default
+    /// configurations where quit bytes are used, Unicode word boundaries are
+    /// heuristically enabled or limits are set on the number of times the lazy
+    /// DFA's cache may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// Leftmost first match semantics corresponds to the match with the
+    /// smallest starting offset, but where the end offset is determined by
+    /// preferring earlier branches in the original regular expression. For
+    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
+    /// will match `Samwise` in `Samwise`.
+    ///
+    /// Generally speaking, the "leftmost first" match is how most backtracking
+    /// regular expressions tend to work. This is in contrast to POSIX-style
+    /// regular expressions that yield "leftmost longest" matches. Namely,
+    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
+    /// leftmost longest semantics. (This crate does not currently support
+    /// leftmost longest semantics.)
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    ///
+    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 8);
+    /// assert_eq!(
+    ///     Some(expected),
+    ///     dfa.find_leftmost_fwd(&mut cache, b"foo12345")?,
+    /// );
+    ///
+    /// // Even though a match is found after reading the first byte (`a`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over latter parts.
+    /// let dfa = DFA::new("abc|a")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 3);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(&mut cache, b"abc")?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
     pub fn find_leftmost_fwd(
         &self,
         cache: &mut Cache,
@@ -133,6 +435,63 @@ impl DFA {
         self.find_leftmost_fwd_at(cache, None, None, bytes, 0, bytes.len())
     }
 
+    /// Executes a reverse search and returns the start of the position of the
+    /// leftmost match that is found. If no match exists, then `None` is
+    /// returned.
+    ///
+    /// In particular, this method continues searching even after it enters
+    /// a match state. The search only terminates once it has reached the
+    /// end of the input or when it has entered a dead or quit state. Upon
+    /// termination, the position of the last byte seen while still in a match
+    /// state is returned.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// lazy DFAs generated by this crate, this only occurs in non-default
+    /// configurations where quit bytes are used, Unicode word boundaries are
+    /// heuristically enabled or limits are set on the number of times the lazy
+    /// DFA's cache may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// In particular, this routine is principally
+    /// useful when used in conjunction with the
+    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::revers
+    /// e) configuration. In general, it's unlikely to be correct to use both
+    /// `find_leftmost_fwd` and `find_leftmost_rev` with the same DFA since
+    /// any particular DFA will only support searching in one direction with
+    /// respect to the pattern.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson, hybrid::dfa::DFA, HalfMatch};
+    ///
+    /// let dfa = DFA::builder()
+    ///     .thompson(thompson::Config::new().reverse(true))
+    ///     .build("foo[0-9]+")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 0);
+    /// assert_eq!(
+    ///     Some(expected),
+    ///     dfa.find_leftmost_rev(&mut cache, b"foo12345")?,
+    /// );
+    ///
+    /// // Even though a match is found after reading the last byte (`c`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over latter parts.
+    /// let dfa = DFA::builder()
+    ///     .thompson(thompson::Config::new().reverse(true))
+    ///     .build("abc|c")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 0);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_rev(&mut cache, b"abc")?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
     pub fn find_leftmost_rev(
         &self,
         cache: &mut Cache,
@@ -141,6 +500,72 @@ impl DFA {
         self.find_leftmost_rev_at(cache, None, bytes, 0, bytes.len())
     }
 
+    /// Executes an overlapping forward search and returns the end position of
+    /// matches as they are found. If no match exists, then `None` is returned.
+    ///
+    /// This routine is principally only useful when searching for multiple
+    /// patterns on inputs where multiple patterns may match the same regions
+    /// of text. In particular, callers must preserve the automaton's search
+    /// state from prior calls so that the implementation knows where the last
+    /// match occurred.
+    ///
+    /// # Errors
+    ///
+    /// This routine only errors if the search could not complete. For
+    /// lazy DFAs generated by this crate, this only occurs in non-default
+    /// configurations where quit bytes are used, Unicode word boundaries are
+    /// heuristically enabled or limits are set on the number of times the lazy
+    /// DFA's cache may be cleared.
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to run a basic overlapping search. Notice
+    /// that we build the automaton with a `MatchKind::All` configuration.
+    /// Overlapping searches are unlikely to work as one would expect when
+    /// using the default `MatchKind::LeftmostFirst` match semantics, since
+    /// leftmost-first matching is fundamentally incompatible with overlapping
+    /// searches. Namely, overlapping searches need to report matches as they
+    /// are seen, where as leftmost-first searches will continue searching even
+    /// after a match has been observed in order to find the conventional end
+    /// position of the match. More concretely, leftmost-first searches use
+    /// dead states to terminate a search after a specific match can no longer
+    /// be extended. Overlapping searches instead do the opposite by continuing
+    /// the search to find totally new matches (potentially of other patterns).
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::{dfa::DFA, OverlappingState},
+    ///     HalfMatch,
+    ///     MatchKind,
+    /// };
+    ///
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().match_kind(MatchKind::All))
+    ///     .build_many(&[r"\w+$", r"\S+$"])?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let haystack = "@foo".as_bytes();
+    /// let mut state = OverlappingState::start();
+    ///
+    /// let expected = Some(HalfMatch::must(1, 4));
+    /// let got = dfa.find_overlapping_fwd(&mut cache, haystack, &mut state)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// // The first pattern also matches at the same position, so re-running
+    /// // the search will yield another match. Notice also that the first
+    /// // pattern is returned after the second. This is because the second
+    /// // pattern begins its match before the first, is therefore an earlier
+    /// // match and is thus reported first.
+    /// let expected = Some(HalfMatch::must(0, 4));
+    /// let got = dfa.find_overlapping_fwd(&mut cache, haystack, &mut state)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
     pub fn find_overlapping_fwd(
         &self,
         cache: &mut Cache,
@@ -158,6 +583,7 @@ impl DFA {
         )
     }
 
+    #[inline]
     pub fn find_earliest_fwd_at(
         &self,
         cache: &mut Cache,
@@ -172,6 +598,7 @@ impl DFA {
         )
     }
 
+    #[inline]
     pub fn find_earliest_rev_at(
         &self,
         cache: &mut Cache,
@@ -183,6 +610,7 @@ impl DFA {
         search::find_earliest_rev(self, cache, pattern_id, bytes, start, end)
     }
 
+    #[inline]
     pub fn find_leftmost_fwd_at(
         &self,
         cache: &mut Cache,
@@ -197,6 +625,7 @@ impl DFA {
         )
     }
 
+    #[inline]
     pub fn find_leftmost_rev_at(
         &self,
         cache: &mut Cache,
@@ -208,6 +637,7 @@ impl DFA {
         search::find_leftmost_rev(self, cache, pattern_id, bytes, start, end)
     }
 
+    #[inline]
     pub fn find_overlapping_fwd_at(
         &self,
         cache: &mut Cache,
@@ -792,73 +1222,6 @@ impl DFA {
             return PatternID::ZERO;
         }
         Lazy::new(self, cache).get_cached_state(id).match_pattern(match_index)
-    }
-}
-
-impl DFA {
-    pub fn nfa(&self) -> &Arc<thompson::NFA> {
-        &self.nfa
-    }
-
-    /// Returns the total number of patterns compiled into this lazy DFA.
-    ///
-    /// In the case of a DFA that contains no patterns, this returns `0`.
-    ///
-    /// # Example
-    ///
-    /// This example shows the pattern count for a DFA that never matches:
-    ///
-    /// ```
-    /// use regex_automata::hybrid::dfa::DFA;
-    ///
-    /// let dfa = DFA::never_match()?;
-    /// assert_eq!(dfa.pattern_count(), 0);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// And another example for a DFA that matches at every position:
-    ///
-    /// ```
-    /// use regex_automata::hybrid::dfa::DFA;
-    ///
-    /// let dfa = DFA::always_match()?;
-    /// assert_eq!(dfa.pattern_count(), 1);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// And finally, a DFA that was constructed from multiple patterns:
-    ///
-    /// ```
-    /// use regex_automata::hybrid::dfa::DFA;
-    ///
-    /// let dfa = DFA::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
-    /// assert_eq!(dfa.pattern_count(), 3);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn pattern_count(&self) -> usize {
-        self.nfa.match_len()
-    }
-
-    /// Returns the stride, as a base-2 exponent, required for these
-    /// equivalence classes.
-    ///
-    /// The stride is always the smallest power of 2 that is greater than or
-    /// equal to the alphabet length. This is done so that converting between
-    /// state IDs and indices can be done with shifts alone, which is much
-    /// faster than integer division.
-    pub fn stride2(&self) -> usize {
-        self.stride2
-    }
-
-    /// Returns the total stride for every state in this lazy DFA. This
-    /// corresponds to the total number of transitions used by each state in
-    /// this DFA's transition table.
-    pub fn stride(&self) -> usize {
-        1 << self.stride2()
-    }
-
-    pub fn alphabet_len(&self) -> usize {
-        self.classes.alphabet_len()
     }
 }
 

@@ -285,6 +285,11 @@ impl Regex {
     pub fn create_cache(&self) -> Cache {
         Cache::new(self)
     }
+
+    pub fn reset_cache(&self, cache: &mut Cache) {
+        self.forward().reset_cache(&mut cache.forward);
+        self.reverse().reset_cache(&mut cache.reverse);
+    }
 }
 
 /// Standard infallible search routines for finding and iterating over matches.
