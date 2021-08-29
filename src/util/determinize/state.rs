@@ -86,7 +86,7 @@ as long as everything in this module agrees.
 
 use core::{convert::TryFrom, mem};
 
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
     nfa::thompson::LookSet,
@@ -187,7 +187,7 @@ pub(crate) struct StateBuilderEmpty(Vec<u8>);
 /// For docs on these routines, see the internal Repr and ReprVec types below.
 impl StateBuilderEmpty {
     pub(crate) fn new() -> StateBuilderEmpty {
-        StateBuilderEmpty(vec![])
+        StateBuilderEmpty(alloc::vec![])
     }
 
     pub(crate) fn into_matches(mut self) -> StateBuilderMatches {
@@ -484,7 +484,7 @@ impl<'a> Repr<'a> {
         if !self.is_match() {
             return None;
         }
-        let mut pids = vec![];
+        let mut pids = alloc::vec![];
         self.iter_match_pattern_ids(|pid| pids.push(pid));
         Some(pids)
     }
@@ -558,7 +558,7 @@ impl<'a> Repr<'a> {
 
 impl<'a> core::fmt::Debug for Repr<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let mut nfa_ids = vec![];
+        let mut nfa_ids = alloc::vec![];
         self.iter_nfa_state_ids(|sid| nfa_ids.push(sid));
         f.debug_struct("Repr")
             .field("is_match", &self.is_match())

@@ -1,8 +1,8 @@
 use crate::{
     nfa,
     util::{
-        determinize::Start,
         id::{PatternID, StateID},
+        start::Start,
     },
 };
 

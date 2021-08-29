@@ -1230,13 +1230,11 @@ technique would likely be superior.
         let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
         table.add("compile nfa time", time);
         let nfa = Arc::new(nfa);
-        let (inert_dfa, time) = util::timeitr(|| self.from_nfa(nfa))?;
+        let (dfa, time) = util::timeitr(|| self.from_nfa(nfa))?;
         table.add("build hybrid dfa time", time);
-        // table.add("inert dfa memory", dfa.memory_usage());
-        table.add("inert dfa alphabet length", inert_dfa.alphabet_len());
-        table.add("dense dfa stride", 1 << inert_dfa.stride2());
+        table.add("hybrid dfa memory", dfa.memory_usage());
 
-        Ok(inert_dfa)
+        Ok(dfa)
     }
 }
 

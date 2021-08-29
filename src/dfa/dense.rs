@@ -37,8 +37,8 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses},
         bytes::{self, DeserializeError, Endian, SerializeError},
-        determinize::Start,
         id::{PatternID, StateID},
+        start::Start,
     },
 };
 
@@ -105,7 +105,7 @@ impl Config {
     ///
     /// **WARNING:** this is subtly different than using a `^` at the start of
     /// your regex. A `^` forces a regex to match exclusively at the start of
-    /// input, regardless of where you start your search. In contrast, enabling
+    /// input, regardless of where you begin your search. In contrast, enabling
     /// this option will allow your regex to match anywhere in your input,
     /// but the match must start at the beginning of a search. (Most of the
     /// higher level convenience search routines make "start of input" and
@@ -320,10 +320,7 @@ impl Config {
     /// you, so it's usually not necessary to do this yourself.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, OverlappingState, dense},
-    ///     HalfMatch, MatchKind,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, MatchKind};
     ///
     /// let haystack = "123foobar456".as_bytes();
     /// let pattern = r"[a-z]+";
@@ -702,8 +699,8 @@ impl Config {
 ///
 /// This builder provides two main things:
 ///
-/// 1. It provides a number of different `build` routines for actually
-/// constructing a DFA from different kinds of inputs. The most convenient is
+/// 1. It provides a few different `build` routines for actually constructing
+/// a DFA from different kinds of inputs. The most convenient is
 /// [`Builder::build`], which builds a DFA directly from a pattern string. The
 /// most flexible is [`Builder::build_from_nfa`], which builds a DFA straight
 /// from an NFA.
@@ -719,8 +716,8 @@ impl Config {
 /// of a match or find the end location of a match. A single DFA cannot
 /// produce both the start and end of a match. For that information, use a
 /// [`Regex`](crate::dfa::regex::Regex), which can be similarly configured
-/// using [`RegexBuilder`](crate::dfa::regex::Builder). The main reason to use
-/// a DFA directly is if the end location of a match is enough for your use
+/// using [`regex::Builder`](crate::dfa::regex::Builder). The main reason to
+/// use a DFA directly is if the end location of a match is enough for your use
 /// case. Namely, a `Regex` will construct two DFAs instead of one, since a
 /// second reverse DFA is needed to find the start of a match.
 ///

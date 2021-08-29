@@ -9,10 +9,11 @@ use crate::{
     util::{
         self,
         alphabet::{self, ByteSet},
-        determinize::{Start, State, StateBuilderEmpty, StateBuilderNFA},
+        determinize::{State, StateBuilderEmpty, StateBuilderNFA},
         id::{PatternID, StateID},
         matchtypes::MatchKind,
         sparse_set::{SparseSet, SparseSets},
+        start::Start,
     },
 };
 
@@ -63,11 +64,11 @@ impl Config {
             config: self.clone(),
             nfa,
             dfa,
-            builder_states: vec![dead, quit],
+            builder_states: alloc::vec![dead, quit],
             cache,
             memory_usage_state: 0,
             sparses: SparseSets::new(nfa.len()),
-            stack: vec![],
+            stack: alloc::vec![],
             scratch_state_builder: StateBuilderEmpty::new(),
         };
         runner.run()
@@ -216,7 +217,7 @@ impl<'a> Runner<'a> {
             self.dfa.byte_classes().representatives().collect();
         // The set of all DFA state IDs that still need to have their
         // transitions set. We start by seeding this with all starting states.
-        let mut uncompiled = vec![];
+        let mut uncompiled = alloc::vec![];
         self.add_all_starts(&mut uncompiled)?;
         while let Some(dfa_id) = uncompiled.pop() {
             for &unit in &representatives {
@@ -398,7 +399,10 @@ impl<'a> Runner<'a> {
         // computing the epsilon closure, we only follow condiional epsilon
         // transitions that satisfy the look-behind assertions in 'facts'.
         let mut builder_matches = self.get_state_builder().into_matches();
-        start.set_state(&mut builder_matches);
+        util::determinize::set_lookbehind_from_start(
+            &start,
+            &mut builder_matches,
+        );
         self.sparses.set1.clear();
         util::determinize::epsilon_closure(
             self.nfa,

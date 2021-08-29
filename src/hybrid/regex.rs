@@ -1,5 +1,7 @@
 use core::borrow::Borrow;
 
+use alloc::boxed::Box;
+
 use crate::{
     hybrid::{
         dfa::{self, DFA},

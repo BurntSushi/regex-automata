@@ -284,6 +284,17 @@ impl NFA {
     pub fn has_word_boundary_ascii(&self) -> bool {
         self.facts.has_word_boundary_ascii()
     }
+
+    /// Returns the memory usage, in bytes, of this lazy DFA.
+    ///
+    /// This does **not** include the stack size used up by this lazy DFA. To
+    /// compute that, use `std::mem::size_of::<DFA>()`. This also does
+    /// not include the size of the `Cache` used.
+    #[inline]
+    pub fn memory_usage(&self) -> usize {
+        // TODO: Fix this.
+        0
+    }
 }
 
 impl fmt::Debug for NFA {

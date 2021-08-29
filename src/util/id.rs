@@ -1,11 +1,11 @@
 /*!
-Type definitions for `PatternID` and `StateID`.
+Type definitions for identifier types.
 
-A `StateID` represents the possible set of identifiers used in regex engine
+A [`StateID`] represents the possible set of identifiers used in regex engine
 implementations in this crate. For example, they are used to identify both NFA
 and DFA states.
 
-A `PatternID` represents the possible set of identifiers for patterns. All
+A [`PatternID`] represents the possible set of identifiers for patterns. All
 regex engine implementations in this crate support searching for multiple
 patterns simultaneously. A `PatternID` is how each pattern is uniquely
 identified for a particular instance of a regex engine. Namely, a pattern is
@@ -18,14 +18,17 @@ might represent. Similarly, they also provide a way of constraining the size of
 these identifiers to reduce space usage while still guaranteeing that all such
 identifiers are repsentable by a `usize` for the current target.
 
-Users of these types may not rely on identifier invariants for the purpose of
-memory safety. Users may, however, rely on these invariants to avoid panics or
-other types of logic bugs.
+Moreover, the identifier types clamp the range of permissible values to a range
+that is typically smaller than its internal representation. (With the maximum
+value being, e.g., `StateID::MAX`.) Users of these types may not rely this
+clamping for the purpose of memory safety. Users may, however, rely on these
+invariants to avoid panics or other types of logic bugs.
 */
 
-// An example of a way in which we use the guarantees on these types is delta
-// encoding. Namely, we require that IDs can be at most 2^31 - 2, which means
-// the difference between any two IDs is always representable as an i32.
+// Continuing from the above comment about correctness guarantees, an example
+// of a way in which we use the guarantees on these types is delta encoding.
+// Namely, we require that IDs can be at most 2^31 - 2, which means the
+// difference between any two IDs is always representable as an i32.
 
 use core::{
     convert::{Infallible, TryFrom},

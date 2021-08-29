@@ -6,12 +6,14 @@ use core::{ascii, fmt, str};
 
 pub mod alphabet;
 pub(crate) mod bytes;
+#[cfg(feature = "alloc")]
 pub(crate) mod determinize;
 pub mod id;
 pub(crate) mod matchtypes;
 pub mod prefilter;
 #[cfg(feature = "alloc")]
 pub(crate) mod sparse_set;
+pub(crate) mod start;
 #[cfg(feature = "alloc")]
 pub(crate) mod syntax;
 
