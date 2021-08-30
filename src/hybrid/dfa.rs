@@ -1595,17 +1595,88 @@ impl DFA {
         }
         Lazy::new(self, cache).get_cached_state(id).match_pattern(match_index)
     }
+
+    // BREADCRUMBS: Some of the methods above don't and will never need a
+    // mutable Cache. So re-factor the code internally to make that work.
 }
 
+/// A cache represents a partially computed DFA.
+///
+/// A cache is the key component that differentiates a classical DFA and a
+/// hybrid NFA/DFA (also called a "lazy DFA"). Where a classical DFA builds a
+/// complete transition table that can handle all possible inputs, a hybrid
+/// NFA/DFA starts with an empty transition table and builds only the parts
+/// required during search. The parts that are built are stored in a cache. For
+/// this reason, a cache is a required parameter for nearly every operation on
+/// a [`DFA`].
+///
+/// Caches can be created from their corresponding DFA via
+/// [`DFA::create_cache`]. A cache can only be used with either the DFA that
+/// created it, or the DFA that was most recently used to reset it with
+/// [`Cache::reset`]. Using a cache with any other DFA may result in panics
+/// or incorrect results.
 #[derive(Clone, Debug)]
 pub struct Cache {
+    // N.B. If you're looking to understand how determinization works, it
+    // is probably simpler to first grok src/dfa/determinize.rs, since that
+    // doesn't have the "laziness" component.
+    /// The transition table.
+    ///
+    /// Given a `current` LazyStateID and an `input` byte, the next state can
+    /// be computed via `trans[untagged(current) + equiv_class(input)]`. Notice
+    /// that no multiplication is used. That's because state identifiers are
+    /// "premultiplied."
+    ///
+    /// Note that the next state may be the "unknown" state. In this case, the
+    /// next state is not known and determinization for `current` on `input`
+    /// must be performed.
     trans: Vec<LazyStateID>,
+    /// The starting states for this DFA.
+    ///
+    /// These are computed lazily. Initially, these are all set to "unknown"
+    /// lazy state IDs.
+    ///
+    /// When 'starts_for_each_pattern' is disabled (the default), then the size
+    /// of this is constrained to the possible starting configurations based
+    /// on the search parameters. (At time of writing, that's 4.) However,
+    /// when starting states for each pattern is enabled, then there are N
+    /// additional groups of starting states, where each group reflects the
+    /// different possible configurations and N is the number of patterns.
     starts: Vec<LazyStateID>,
+    /// A sequence of NFA/DFA powerset states that have been computed for this
+    /// lazy DFA. This sequence is indexable by untagged LazyStateIDs. (Every
+    /// tagged LazyStateID can be used to index this sequence by converting it
+    /// to its untagged form.)
     states: Vec<State>,
+    /// A map from states to their corresponding IDs. This map may be accessed
+    /// via the raw byte representation of a state, which means that a `State`
+    /// does not need to be allocated to determine whether it already exists
+    /// in this map. Indeed, the existence of such a state is what determines
+    /// whether we allocate a new `State` or not.
+    ///
+    /// The higher level idea here is that we do just enough determinization
+    /// for a state to check whether we've already computed it. If we have,
+    /// then we can save a little (albeit not much) work. The real savings is
+    /// in memory usage. If we never checked for trivially duplicate states,
+    /// then our memory usage would explode to unreasonable levels.
     states_to_id: StateMap,
+    /// Sparse sets used to track which NFA states have been visited during
+    /// various traversals.
     sparses: SparseSets,
+    /// Scratch space for traversing the NFA graph. (We use space on the heap
+    /// instead of the call stack.)
     stack: Vec<NFAStateID>,
+    /// Scratch space for building a NFA/DFA powerset state. This is used to
+    /// help amortize allocation since not every powerset state generated is
+    /// added to the cache. In particular, if it already exists in the cache,
+    /// then there is no need to allocate a new `State` for it.
     scratch_state_builder: StateBuilderEmpty,
+    /// A simple abstraction for handling the saving of at most a single state
+    /// across a cache clearing. This is required for correctness. Namely, if
+    /// adding a new state after clearing the cache fails, then the caller
+    /// must retain the ability to continue using the state ID given. The
+    /// state corresponding to the state ID is what we preserve across cache
+    /// clearings.
     state_saver: StateSaver,
     /// The memory usage, in bytes, used by 'states' and 'states_to_id'. We
     /// track this as new states are added since states use a variable amount
@@ -1619,6 +1690,11 @@ pub struct Cache {
 }
 
 impl Cache {
+    /// Create a new cache for the given lazy DFA.
+    ///
+    /// The cache returned should only be used for searches for the given DFA.
+    /// If you want to reuse the cache for another DFA, then you must call
+    /// [`Cache::reset`] with that DFA.
     pub fn new(dfa: &DFA) -> Cache {
         let mut cache = Cache {
             trans: alloc::vec![],
@@ -1636,10 +1712,54 @@ impl Cache {
         cache
     }
 
+    /// Reset this cache such that it can be used for searching with the given
+    /// lazy DFA (and only that DFA).
+    ///
+    /// A cache reset permits reusing memory already allocated in this cache
+    /// with a different lazy DFA.
+    ///
+    /// Resetting a cache sets its "clear count" to 0. This is relevant if the
+    /// lazy DFA has been configured to "give up" after it has cleared the
+    /// cache a certain number of times.
+    ///
+    /// # Example
+    ///
+    /// This shows how to re-purpose a cache for use with a different DFA.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    ///
+    /// let dfa1 = DFA::new(r"\w")?;
+    /// let dfa2 = DFA::new(r"\W")?;
+    ///
+    /// let mut cache = dfa1.create_cache();
+    /// assert_eq!(
+    ///     Some(HalfMatch::must(0, 2)),
+    ///     dfa1.find_leftmost_fwd(&mut cache, "Δ".as_bytes())?,
+    /// );
+    ///
+    /// // Using 'cache' with dfa2 is not allowed. It may result in panics or
+    /// // incorrect results. In order to re-purpose the cache, we must reset
+    /// // it with the DFA we'd like to use it with.
+    /// //
+    /// // Similarly, after this reset, using the cache with 'dfa1' is also not
+    /// // allowed.
+    /// cache.reset(&dfa2);
+    /// assert_eq!(
+    ///     Some(HalfMatch::must(0, 3)),
+    ///     dfa2.find_leftmost_fwd(&mut cache, "☃".as_bytes())?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn reset(&mut self, dfa: &DFA) {
         Lazy::new(dfa, self).reset_cache()
     }
 
+    /// Returns the heap memory usage, in bytes, of this cache.
+    ///
+    /// This does **not** include the stack size used up by this cache. To
+    /// compute that, use `std::mem::size_of::<Cache>()`.
     pub fn memory_usage(&self) -> usize {
         const ID_SIZE: usize = size_of::<LazyStateID>();
         const STATE_SIZE: usize = size_of::<State>();
@@ -1868,7 +1988,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         // routines.)
         if let Some(min_count) = self.dfa.minimum_cache_clear_count {
             if self.cache.clear_count >= min_count {
-                return Err(CacheError::too_many_cache_resets());
+                return Err(CacheError::too_many_cache_clears());
             }
         }
         self.clear_cache();
@@ -1878,6 +1998,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
     fn reset_cache(&mut self) {
         self.cache.state_saver = StateSaver::none();
         self.clear_cache();
+        self.cache.sparses.resize(self.dfa.nfa.len());
         self.cache.clear_count = 0;
     }
 
@@ -1917,7 +2038,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
                 // The unwrap here is OK because lazy DFA creation ensures that
                 // we have room in the cache to add MIN_STATES states. Since
                 // 'init_cache' above adds 3, this adds a 4th.
-                .expect("adding one state after cache reset must work");
+                .expect("adding one state after cache clear must work");
             self.cache.state_saver = StateSaver::Saved(new_id);
         }
     }
@@ -2408,16 +2529,192 @@ impl Config {
         self
     }
 
-    pub fn byte_classes(mut self, yes: bool) -> Config {
-        self.byte_classes = Some(yes);
-        self
-    }
-
+    /// Whether to compile a separate start state for each pattern in the
+    /// lazy DFA.
+    ///
+    /// When enabled, a separate **anchored** start state is added for each
+    /// pattern in the lazy DFA. When this start state is used, then the DFA
+    /// will only search for matches for the pattern specified, even if there
+    /// are other patterns in the DFA.
+    ///
+    /// The main downside of this option is that it can potentially increase
+    /// the size of the DFA and/or increase the time it takes to build the
+    /// DFA at search time. However, since this is configuration for a lazy
+    /// DFA, these states aren't actually built unless they're used. Enabling
+    /// this isn't necessarily free, however, as it may result in higher cache
+    /// usage.
+    ///
+    /// There are a few reasons one might want to enable this (it's disabled
+    /// by default):
+    ///
+    /// 1. When looking for the start of an overlapping match (using a reverse
+    /// DFA), doing it correctly requires starting the reverse search using the
+    /// starting state of the pattern that matched in the forward direction.
+    /// Indeed, when building a [`Regex`](crate::hybrid::regex::Regex), it
+    /// will automatically enable this option when building the reverse DFA
+    /// internally.
+    /// 2. When you want to use a DFA with multiple patterns to both search
+    /// for matches of any pattern or to search for anchored matches of one
+    /// particular pattern while using the same DFA. (Otherwise, you would need
+    /// to compile a new DFA for each pattern.)
+    /// 3. Since the start states added for each pattern are anchored, if you
+    /// compile an unanchored DFA with one pattern while also enabling this
+    /// option, then you can use the same DFA to perform anchored or unanchored
+    /// searches. The latter you get with the standard search APIs. The former
+    /// you get from the various `_at` search methods that allow you specify a
+    /// pattern ID to search for.
+    ///
+    /// By default this is disabled.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use this option to permit the same lazy DFA
+    /// to run both anchored and unanchored searches for a single pattern.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, PatternID};
+    ///
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().starts_for_each_pattern(true))
+    ///     .build(r"foo[0-9]+")?;
+    /// let mut cache = dfa.create_cache();
+    /// let haystack = b"quux foo123";
+    ///
+    /// // Here's a normal unanchored search. Notice that we use 'None' for the
+    /// // pattern ID. Since the DFA was built as an unanchored machine, it
+    /// // uses its default unanchored starting state.
+    /// let expected = HalfMatch::must(0, 11);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
+    ///     &mut cache, None, None, haystack, 0, haystack.len(),
+    /// )?);
+    /// // But now if we explicitly specify the pattern to search ('0' being
+    /// // the only pattern in the DFA), then it will use the starting state
+    /// // for that specific pattern which is always anchored. Since the
+    /// // pattern doesn't have a match at the beginning of the haystack, we
+    /// // find nothing.
+    /// assert_eq!(None, dfa.find_leftmost_fwd_at(
+    ///     &mut cache, None, Some(PatternID::must(0)), haystack, 0, haystack.len(),
+    /// )?);
+    /// // And finally, an anchored search is not the same as putting a '^' at
+    /// // beginning of the pattern. An anchored search can only match at the
+    /// // beginning of the *search*, which we can change:
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
+    ///     &mut cache, None, Some(PatternID::must(0)), haystack, 5, haystack.len(),
+    /// )?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn starts_for_each_pattern(mut self, yes: bool) -> Config {
         self.starts_for_each_pattern = Some(yes);
         self
     }
 
+    /// Whether to attempt to shrink the size of the lazy DFA's alphabet or
+    /// not.
+    ///
+    /// This option is enabled by default and should never be disabled unless
+    /// one is debugging the lazy DFA.
+    ///
+    /// When enabled, the lazy DFA will use a map from all possible bytes
+    /// to their corresponding equivalence class. Each equivalence class
+    /// represents a set of bytes that does not discriminate between a match
+    /// and a non-match in the DFA. For example, the pattern `[ab]+` has at
+    /// least two equivalence classes: a set containing `a` and `b` and a set
+    /// containing every byte except for `a` and `b`. `a` and `b` are in the
+    /// same equivalence classes because they never discriminate between a
+    /// match and a non-match.
+    ///
+    /// The advantage of this map is that the size of the transition table
+    /// can be reduced drastically from `#states * 256 * sizeof(LazyStateID)`
+    /// to `#states * k * sizeof(LazyStateID)` where `k` is the number of
+    /// equivalence classes (rounded up to the nearest power of 2). As a
+    /// result, total space usage can decrease substantially. Moreover, since a
+    /// smaller alphabet is used, DFA compilation during search becomes faster
+    /// as well since it will potentially be able to reuse a single transition
+    /// for multiple bytes.
+    ///
+    /// **WARNING:** This is only useful for debugging lazy DFAs. Disabling
+    /// this does not yield any speed advantages. Namely, even when this is
+    /// disabled, a byte class map is still used while searching. The only
+    /// difference is that every byte will be forced into its own distinct
+    /// equivalence class. This is useful for debugging the actual generated
+    /// transitions because it lets one see the transitions defined on actual
+    /// bytes instead of the equivalence classes.
+    pub fn byte_classes(mut self, yes: bool) -> Config {
+        self.byte_classes = Some(yes);
+        self
+    }
+
+    /// Heuristically enable Unicode word boundaries.
+    ///
+    /// When set, this will attempt to implement Unicode word boundaries as if
+    /// they were ASCII word boundaries. This only works when the search input
+    /// is ASCII only. If a non-ASCII byte is observed while searching, then a
+    /// [`MatchError::Quit`](crate::MatchError::Quit) error is returned.
+    ///
+    /// A possible alternative to enabling this option is to simply use an
+    /// ASCII word boundary, e.g., via `(?-u:\b)`. The main reason to use this
+    /// option is if you absolutely need Unicode support. This option lets one
+    /// use a fast search implementation (a DFA) for some potentially very
+    /// common cases, while providing the option to fall back to some other
+    /// regex engine to handle the general case when an error is returned.
+    ///
+    /// If the pattern provided has no Unicode word boundary in it, then this
+    /// option has no effect. (That is, quitting on a non-ASCII byte only
+    /// occurs when this option is enabled _and_ a Unicode word boundary is
+    /// present in the pattern.)
+    ///
+    /// This is almost equivalent to setting all non-ASCII bytes to be quit
+    /// bytes. The only difference is that this will cause non-ASCII bytes to
+    /// be quit bytes _only_ when a Unicode word boundary is present in the
+    /// pattern.
+    ///
+    /// When enabling this option, callers _must_ be prepared to handle
+    /// a [`MatchError`](crate::MatchError) error during search.
+    /// When using a [`Regex`](crate::hybrid::regex::Regex), this
+    /// corresponds to using the `try_` suite of methods. Alternatively,
+    /// if callers can guarantee that their input is ASCII only, then a
+    /// [`MatchError::Quit`](crate::MatchError::Quit) error will never be
+    /// returned while searching.
+    ///
+    /// This is disabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to heuristically enable Unicode word boundaries
+    /// in a pattern. It also shows what happens when a search comes across a
+    /// non-ASCII byte.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     HalfMatch, MatchError, MatchKind,
+    /// };
+    ///
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().unicode_word_boundary(true))
+    ///     .build(r"\b[0-9]+\b")?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// // The match occurs before the search ever observes the snowman
+    /// // character, so no error occurs.
+    /// let haystack = "foo 123 ☃".as_bytes();
+    /// let expected = Some(HalfMatch::must(0, 7));
+    /// let got = dfa.find_leftmost_fwd(&mut cache, haystack)?;
+    /// assert_eq!(expected, got);
+    ///
+    /// // Notice that this search fails, even though the snowman character
+    /// // occurs after the ending match offset. This is because search
+    /// // routines read one byte past the end of the search to account for
+    /// // look-around, and indeed, this is required here to determine whether
+    /// // the trailing \b matches.
+    /// let haystack = "foo 123☃".as_bytes();
+    /// let expected = MatchError::Quit { byte: 0xE2, offset: 7 };
+    /// let got = dfa.find_leftmost_fwd(&mut cache, haystack);
+    /// assert_eq!(Err(expected), got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn unicode_word_boundary(mut self, yes: bool) -> Config {
         // We have a separate option for this instead of just setting the
         // appropriate quit bytes here because we don't want to set quit bytes
@@ -2427,6 +2724,68 @@ impl Config {
         self
     }
 
+    /// Add a "quit" byte to the lazy DFA.
+    ///
+    /// When a quit byte is seen during search time, then search will return
+    /// a [`MatchError::Quit`](crate::MatchError::Quit) error indicating the
+    /// offset at which the search stopped.
+    ///
+    /// A quit byte will always overrule any other aspects of a regex. For
+    /// example, if the `x` byte is added as a quit byte and the regex `\w` is
+    /// used, then observing `x` will cause the search to quit immediately
+    /// despite the fact that `x` is in the `\w` class.
+    ///
+    /// This mechanism is primarily useful for heuristically enabling certain
+    /// features like Unicode word boundaries in a DFA. Namely, if the input
+    /// to search is ASCII, then a Unicode word boundary can be implemented
+    /// via an ASCII word boundary with no change in semantics. Thus, a DFA
+    /// can attempt to match a Unicode word boundary but give up as soon as it
+    /// observes a non-ASCII byte. Indeed, if callers set all non-ASCII bytes
+    /// to be quit bytes, then Unicode word boundaries will be permitted when
+    /// building lazy DFAs. Of course, callers should enable
+    /// [`Config::unicode_word_boundary`] if they want this behavior instead.
+    /// (The advantage being that non-ASCII quit bytes will only be added if a
+    /// Unicode word boundary is in the pattern.)
+    ///
+    /// When enabling this option, callers _must_ be prepared to handle a
+    /// [`MatchError`](crate::MatchError) error during search. When using a
+    /// [`Regex`](crate::hybrid::regex::Regex), this corresponds to using the
+    /// `try_` suite of methods.
+    ///
+    /// By default, there are no quit bytes set.
+    ///
+    /// # Panics
+    ///
+    /// This panics if heuristic Unicode word boundaries are enabled and any
+    /// non-ASCII byte is removed from the set of quit bytes. Namely, enabling
+    /// Unicode word boundaries requires setting every non-ASCII byte to a quit
+    /// byte. So if the caller attempts to undo any of that, then this will
+    /// panic.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to cause a search to terminate if it sees a
+    /// `\n` byte. This could be useful if, for example, you wanted to prevent
+    /// a user supplied pattern from matching across a line boundary.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    ///
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().quit(b'\n', true))
+    ///     .build(r"foo\p{any}+bar")?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let haystack = "foo\nbar".as_bytes();
+    /// // Normally this would produce a match, since \p{any} contains '\n'.
+    /// // But since we instructed the automaton to enter a quit state if a
+    /// // '\n' is observed, this produces a match error instead.
+    /// let expected = MatchError::Quit { byte: 0x0A, offset: 3 };
+    /// let got = dfa.find_leftmost_fwd(&mut cache, haystack).unwrap_err();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn quit(mut self, byte: u8, yes: bool) -> Config {
         if self.get_unicode_word_boundary() && !byte.is_ascii() && !yes {
             panic!(
@@ -2445,16 +2804,205 @@ impl Config {
         self
     }
 
+    /// Sets the maximum amount of heap memory, in bytes, to allocate to the
+    /// cache for use during a lazy DFA search. If the lazy DFA would otherwise
+    /// use more heap memory, then, depending on other configuration knobs,
+    /// either stop the search and return an error or clear the cache and
+    /// continue the search.
+    ///
+    /// The default cache capacity is some "reasonable" number that will
+    /// accommodate most regular expressions. You may find that if you need
+    /// to build a large DFA then it may be necessary to increase the cache
+    /// capacity.
+    ///
+    /// Note that while building a lazy DFA will do a "minimum" check to ensure
+    /// the capacity is big enough, this is more or less about correctness.
+    /// If the cache is bigger than the minimum but still too small, then the
+    /// lazy DFA could wind up spending a lot of time clearing the cache and
+    /// recomputing transitions, thus negating the performance benefits of a
+    /// lazy DFA. Thus, setting the cache capacity is mostly an experimental
+    /// endeavor. For most common patterns, however, the default should be
+    /// sufficient.
+    ///
+    /// For more details on how the lazy DFA's cache is used, see the
+    /// documentation for [`Cache`].
+    ///
+    /// # Example
+    ///
+    /// This example shows what happens if the configured cache capacity is
+    /// too small. In such cases, one can override the cache capacity to make
+    /// it bigger. Alternatively, one might want to use less memory by setting
+    /// a smaller cache capacity.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    ///
+    /// let pattern = r"\p{L}{1000}";
+    ///
+    /// // The default cache capacity is likely too small to deal with regexes
+    /// // that are very large. Large repetitions of large Unicode character
+    /// // classes are a common way to make very large regexes.
+    /// let _ = DFA::new(pattern).unwrap_err();
+    /// // Bump up the capacity to something bigger.
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().cache_capacity(100 * (1<<20))) // 100 MB
+    ///     .build(pattern)?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let haystack = "ͰͲͶͿΆΈΉΊΌΎΏΑΒΓΔΕΖΗΘΙ".repeat(50);
+    /// let expected = Some(HalfMatch::must(0, 2000));
+    /// let got = dfa.find_leftmost_fwd(&mut cache, haystack.as_bytes())?;
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn cache_capacity(mut self, bytes: usize) -> Config {
         self.cache_capacity = Some(bytes);
         self
     }
 
+    /// Configures construction of a lazy DFA to use the minimum cache capacity
+    /// if the configured capacity is otherwise too small for the provided NFA.
+    ///
+    /// This is useful if you never want lazy DFA construction to fail because
+    /// of a capacity that is too small.
+    ///
+    /// In general, this option is typically not a good idea. In particular,
+    /// while a minimum cache capacity does permit the lazy DFA to function
+    /// where it otherwise couldn't, it's plausible that it may not function
+    /// well if it's constantly running out of room. In that case, the speed
+    /// advantages of the lazy DFA may be negated.
+    ///
+    /// This is disabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows what happens if the configured cache capacity is
+    /// too small. In such cases, one could override the capacity explicitly.
+    /// An alternative, demonstrated here, let's us force construction to use
+    /// the minimum cache capacity if the configured capacity is otherwise
+    /// too small.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    ///
+    /// let pattern = r"\p{L}{1000}";
+    ///
+    /// // The default cache capacity is likely too small to deal with regexes
+    /// // that are very large. Large repetitions of large Unicode character
+    /// // classes are a common way to make very large regexes.
+    /// let _ = DFA::new(pattern).unwrap_err();
+    /// // Configure construction such it automatically selects the minimum
+    /// // cache capacity if it would otherwise be too small.
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().skip_cache_capacity_check(true))
+    ///     .build(pattern)?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let haystack = "ͰͲͶͿΆΈΉΊΌΎΏΑΒΓΔΕΖΗΘΙ".repeat(50);
+    /// let expected = Some(HalfMatch::must(0, 2000));
+    /// let got = dfa.find_leftmost_fwd(&mut cache, haystack.as_bytes())?;
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn skip_cache_capacity_check(mut self, yes: bool) -> Config {
         self.skip_cache_capacity_check = Some(yes);
         self
     }
 
+    /// Configure a lazy DFA search to quit after a certain number of cache
+    /// clearings.
+    ///
+    /// When a minimum is set, then a lazy DFA search will "give up" after
+    /// the minimum number of cache clearings has occurred. This is typically
+    /// useful in scenarios where callers want to detect whether the lazy DFA
+    /// search is "efficient" or not. If the cache is cleared too many times,
+    /// this is a good indicator that it is not efficient, and thus, the caller
+    /// may wish to use some other regex engine.
+    ///
+    /// Note that the number of times a cache is cleared is a property of
+    /// the cache itself. Thus, if a cache is used in a subsequent search
+    /// with a similarly configured lazy DFA, then it would cause the
+    /// search to "give up" if the cache needed to be cleared. The cache
+    /// clear count can only be reset to `0` via [`DFA::reset_cache`] (or
+    /// [`Regex::reset_cache`](crate::hybrid::regex::Regex::reset_cache) if
+    /// you're using the `Regex` API).
+    ///
+    /// By default, no minimum is configured. Thus, a lazy DFA search will
+    /// never give up due to cache clearings.
+    ///
+    /// # Example
+    ///
+    /// This example uses a somewhat pathological configuration to demonstrate
+    /// the _possible_ behavior of cache clearing and how it might result
+    /// in a search that returns an error.
+    ///
+    /// It is important to note that the precise mechanics of how and when
+    /// a cache gets cleared is an implementation detail. Thus, the asserts
+    /// in the tests below with respect to the particular offsets at which a
+    /// search gave up should be viewed strictly as a demonstration. They are
+    /// not part of any API guarantees offered by this crate.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, MatchError};
+    ///
+    /// // This is a carefully chosen regex. The idea is to pick one
+    /// // that requires some decent number of states (hence the bounded
+    /// // repetition). But we specifically choose to create a class with an
+    /// // ASCII letter and a non-ASCII letter so that we can check that no new
+    /// // states are created once the cache is full. Namely, if we fill up the
+    /// // cache on a haystack of 'a's, then in order to match one 'β', a new
+    /// // state will need to be created since a 'β' is encoded with multiple
+    /// // bytes. Since there's no room for this state, the search should quit
+    /// // at the very first position.
+    /// let pattern = r"[aβ]{100}";
+    /// let dfa = DFA::builder()
+    ///     .configure(
+    ///         // Configure it so that we have the minimum cache capacity
+    ///         // possible. And that if any clearings occur, the search quits.
+    ///         DFA::config()
+    ///             .skip_cache_capacity_check(true)
+    ///             .cache_capacity(0)
+    ///             .minimum_cache_clear_count(Some(0)),
+    ///     )
+    ///     .build(pattern)?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let haystack = "a".repeat(101).into_bytes();
+    /// assert_eq!(
+    ///     dfa.find_leftmost_fwd(&mut cache, &haystack),
+    ///     Err(MatchError::GaveUp { offset: 25 }),
+    /// );
+    ///
+    /// // Now that we know the cache is full, if we search a haystack that we
+    /// // know will require creating at least one new state, it should not
+    /// // be able to make any progress.
+    /// let haystack = "β".repeat(101).into_bytes();
+    /// assert_eq!(
+    ///     dfa.find_leftmost_fwd(&mut cache, &haystack),
+    ///     Err(MatchError::GaveUp { offset: 0 }),
+    /// );
+    ///
+    /// // If we reset the cache, then we should be able to create more states
+    /// // and make more progress with searching for betas.
+    /// cache.reset(&dfa);
+    /// let haystack = "β".repeat(101).into_bytes();
+    /// assert_eq!(
+    ///     dfa.find_earliest_fwd(&mut cache, &haystack),
+    ///     Err(MatchError::GaveUp { offset: 26 }),
+    /// );
+    ///
+    /// // ... switching back to ASCII still makes progress since it just needs
+    /// // to set transitions on existing states!
+    /// let haystack = "a".repeat(101).into_bytes();
+    /// assert_eq!(
+    ///     dfa.find_earliest_fwd(&mut cache, &haystack),
+    ///     Err(MatchError::GaveUp { offset: 13 }),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn minimum_cache_clear_count(mut self, min: Option<usize>) -> Config {
         self.minimum_cache_clear_count = Some(min);
         self
@@ -2498,19 +3046,39 @@ impl Config {
         self.quitset.map_or(false, |q| q.contains(byte))
     }
 
+    /// Returns the cache capacity set on this configuration.
     pub fn get_cache_capacity(&self) -> usize {
         self.cache_capacity.unwrap_or(2 * (1 << 20))
     }
 
+    /// Returns whether the cache capacity check should be skipped.
     pub fn get_skip_cache_capacity_check(&self) -> bool {
         self.skip_cache_capacity_check.unwrap_or(false)
     }
 
+    /// Returns, if set, the minimum number of times the cache must be cleared
+    /// before a lazy DFA search can give up. When no minimum is set, then a
+    /// search will never quit and will always clear the cache whenever it
+    /// fills up.
     pub fn get_minimum_cache_clear_count(&self) -> Option<usize> {
         self.minimum_cache_clear_count.unwrap_or(None)
     }
 
-    pub fn minimum_cache_capacity(
+    /// Returns the minimum lazy DFA cache capacity required for the given NFA.
+    ///
+    /// The cache capacity required for a particular NFA may change without
+    /// notice. Callers should not rely on it being stable.
+    ///
+    /// This is useful for informational purposes, but can also be useful for
+    /// other reasons. For example, if one wants to check the minimum cache
+    /// capacity themselves or if one wants to set the capacity based on the
+    /// minimum.
+    ///
+    /// This may return an error if this configuration does not support all of
+    /// the instructions used in the given NFA. For example, if the NFA has a
+    /// Unicode word boundary but this configuration does not enable heuristic
+    /// support for Unicode word boundaries.
+    pub fn get_minimum_cache_capacity(
         &self,
         nfa: &thompson::NFA,
     ) -> Result<usize, BuildError> {
@@ -2520,6 +3088,10 @@ impl Config {
         Ok(minimum_cache_capacity(nfa, &classes, starts))
     }
 
+    /// Returns the byte class map used during search from the given NFA.
+    ///
+    /// If byte classes are disabled on this configuration, then a map is
+    /// returned that puts each byte in its own equivalent class.
     fn byte_classes_from_nfa(
         &self,
         nfa: &thompson::NFA,
@@ -2544,6 +3116,11 @@ impl Config {
         }
     }
 
+    /// Return the quit set for this configuration and the given NFA.
+    ///
+    /// This may return an error if the NFA is incompatible with this
+    /// configuration's quit set. For example, if the NFA has a Unicode word
+    /// boundary and the quit set doesn't include non-ASCII bytes.
     fn quit_set_from_nfa(
         &self,
         nfa: &thompson::NFA,
@@ -2877,8 +3454,15 @@ fn minimum_cache_capacity(
     // of patterns, followed by 32-bit encodings of patterns and then delta
     // varint encodings of NFA state IDs. We use the worst case (which isn't
     // technically possible) of 5 bytes for each NFA state ID.
+    //
+    // HOWEVER, three of the states needed by a lazy DFA are just the sentinel
+    // unknown, dead and quit states. Those states have a known size and it is
+    // small.
+    assert!(MIN_STATES >= 3, "minimum number of states has to be at least 3");
+    let dead_state_size = State::dead().memory_usage();
     let max_state_size = 3 + 4 + (nfa.match_len() * 4) + (nfa.len() * 5);
-    let states = MIN_STATES * (size_of::<State>() + max_state_size);
+    let states = (3 * (size_of::<State>() + dead_state_size))
+        + ((MIN_STATES - 3) * (size_of::<State>() + max_state_size));
     let states_to_sid = states + (MIN_STATES * ID_SIZE);
     let stack = nfa.len() * NFAStateID::SIZE;
     let scratch_state_builder = max_state_size;

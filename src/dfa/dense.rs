@@ -358,10 +358,10 @@ impl Config {
     /// Whether to compile a separate start state for each pattern in the
     /// automaton.
     ///
-    /// When enabled, a separate anchored start state is added for each pattern
-    /// in the DFA. When this start state is used, then the DFA will only
-    /// search for matches for the pattern specified, even if there are other
-    /// patterns in the DFA.
+    /// When enabled, a separate **anchored** start state is added for each
+    /// pattern in the DFA. When this start state is used, then the DFA will
+    /// only search for matches for the pattern specified, even if there are
+    /// other patterns in the DFA.
     ///
     /// The main downside of this option is that it can potentially increase
     /// the size of the DFA and/or increase the time it takes to build the DFA.
@@ -438,7 +438,7 @@ impl Config {
     /// This option is enabled by default and should never be disabled unless
     /// one is debugging a generated DFA.
     ///
-    /// When enabled, each DFA will use a map from all possible bytes to their
+    /// When enabled, the DFA will use a map from all possible bytes to their
     /// corresponding equivalence class. Each equivalence class represents a
     /// set of bytes that does not discriminate between a match and a non-match
     /// in the DFA. For example, the pattern `[ab]+` has at least two
@@ -474,7 +474,11 @@ impl Config {
     /// [`MatchError::Quit`](crate::MatchError::Quit) error is returned.
     ///
     /// A possible alternative to enabling this option is to simply use an
-    /// ASCII word boundary, e.g., via `(?-u:\b)`.
+    /// ASCII word boundary, e.g., via `(?-u:\b)`. The main reason to use this
+    /// option is if you absolutely need Unicode support. This option lets one
+    /// use a fast search implementation (a DFA) for some potentially very
+    /// common cases, while providing the option to fall back to some other
+    /// regex engine to handle the general case when an error is returned.
     ///
     /// If the pattern provided has no Unicode word boundary in it, then this
     /// option has no effect. (That is, quitting on a non-ASCII byte only

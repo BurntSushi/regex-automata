@@ -37,7 +37,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     let mut cache = dfa.create_cache();
 
     let haystack = "a".repeat(101).into_bytes();
-    let err = MatchError::GaveUp { offset: 55 };
+    let err = MatchError::GaveUp { offset: 25 };
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err.clone()));
     assert_eq!(dfa.find_leftmost_fwd(&mut cache, &haystack), Err(err.clone()));
     assert_eq!(
@@ -57,13 +57,13 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // OK, if we reset the cache, then we should be able to create more states
     // and make more progress with searching for betas.
     cache.reset(&dfa);
-    let err = MatchError::GaveUp { offset: 59 };
+    let err = MatchError::GaveUp { offset: 26 };
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
 
     // ... switching back to ASCII still makes progress since it just needs to
     // set transitions on existing states!
     let haystack = "a".repeat(101).into_bytes();
-    let err = MatchError::GaveUp { offset: 29 };
+    let err = MatchError::GaveUp { offset: 13 };
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
 
     Ok(())

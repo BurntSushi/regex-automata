@@ -23,11 +23,24 @@ pub(crate) struct SparseSets {
 
 impl SparseSets {
     /// Create a new pair of sparse sets where each set has the given capacity.
+    ///
+    /// This panics if the capacity given is bigger than `StateID::LIMIT`.
     pub(crate) fn new(capacity: usize) -> SparseSets {
         SparseSets {
             set1: SparseSet::new(capacity),
             set2: SparseSet::new(capacity),
         }
+    }
+
+    /// Resizes these sparse sets to have the new capacity given.
+    ///
+    /// The sets are automatically cleared.
+    ///
+    /// This panics if the capacity given is bigger than `StateID::LIMIT`.
+    #[inline]
+    pub(crate) fn resize(&mut self, new_capacity: usize) {
+        self.set1.resize(new_capacity);
+        self.set2.resize(new_capacity);
     }
 
     /// Clear both sparse sets.
@@ -62,12 +75,12 @@ pub(crate) struct SparseSet {
     /// The number of elements currently in this set.
     len: usize,
     /// Dense contains the ids in the order in which they were inserted.
-    dense: Box<[StateID]>,
+    dense: Vec<StateID>,
     /// Sparse maps ids to their location in dense.
     ///
     /// A state ID is in the set if and only if
     /// sparse[id] < dense.len() && id == dense[sparse[id]].
-    sparse: Box<[StateID]>,
+    sparse: Vec<StateID>,
 }
 
 impl SparseSet {
@@ -80,16 +93,26 @@ impl SparseSet {
     /// This panics if the capacity given is bigger than `StateID::LIMIT`.
     #[inline]
     pub(crate) fn new(capacity: usize) -> SparseSet {
+        let mut set = SparseSet { len: 0, dense: vec![], sparse: vec![] };
+        set.resize(capacity);
+        set
+    }
+
+    /// Resizes this sparse set to have the new capacity given.
+    ///
+    /// This set is automatically cleared.
+    ///
+    /// This panics if the capacity given is bigger than `StateID::LIMIT`.
+    #[inline]
+    pub(crate) fn resize(&mut self, new_capacity: usize) {
         assert!(
-            capacity <= StateID::LIMIT,
+            new_capacity <= StateID::LIMIT,
             "sparse set capacity cannot excced {:?}",
             StateID::LIMIT
         );
-        SparseSet {
-            len: 0,
-            dense: vec![StateID::ZERO; capacity].into_boxed_slice(),
-            sparse: vec![StateID::ZERO; capacity].into_boxed_slice(),
-        }
+        self.clear();
+        self.dense.resize(new_capacity, StateID::ZERO);
+        self.sparse.resize(new_capacity, StateID::ZERO);
     }
 
     /// Returns the capacity of this set.

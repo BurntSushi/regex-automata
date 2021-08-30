@@ -321,9 +321,8 @@ pub unsafe trait Automaton {
     ///
     /// ```
     /// use regex_automata::{
-    ///     MatchError, PatternID,
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch,
+    ///     HalfMatch, MatchError, PatternID,
     /// };
     ///
     /// fn find_leftmost_first<A: Automaton>(

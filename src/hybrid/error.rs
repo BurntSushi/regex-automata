@@ -87,7 +87,7 @@ impl core::fmt::Display for BuildError {
 pub struct CacheError(());
 
 impl CacheError {
-    pub(crate) fn too_many_cache_resets() -> CacheError {
+    pub(crate) fn too_many_cache_clears() -> CacheError {
         CacheError(())
     }
 }
