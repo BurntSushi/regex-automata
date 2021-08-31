@@ -6,6 +6,9 @@ support. DFAs also have extensive options for configuring the best space vs
 time trade off for your use case and provides support for cheap deserialization
 of automata for use in `no_std` environments.
 
+If you're looking for lazy DFAs that build themselves incrementally during
+search, then please see the top-level [`hybrid` module](crate::hybrid).
+
 # Overview
 
 This section gives a brief overview of the primary types in this module:
@@ -252,6 +255,8 @@ Otherwise, one can use `(?-u:\b)` for an ASCII word boundary, which will work
 on any input.
 
 There are no plans to lift either of these limitations.
+
+Note that these restrictions are identical to the restrictions on lazy DFAs.
 
 # Differences with general purpose regexes
 

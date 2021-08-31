@@ -1,3 +1,19 @@
+/*!
+A lazy DFA backed `Regex`.
+
+This module provides [`Regex`] using lazy DFA. A `Regex` implements convenience
+routines you might have come to expect, such as finding a match and iterating
+over all non-overlapping matches. This `Regex` type is limited in its
+capabilities to what a lazy DFA can provide. Therefore, APIs involving
+capturing groups, for example, are not provided.
+
+Internally, a `Regex` is composed of two DFAs. One is a "forward" DFA that
+finds the end offset of a match, where as the other is a "reverse" DFA that
+find the start offset of a match.
+
+See the [parent module](crate::hybrid) for examples.
+*/
+
 use core::borrow::Borrow;
 
 use alloc::boxed::Box;
@@ -16,7 +32,7 @@ use crate::{
 };
 
 /// A regular expression that uses hybrid NFA/DFAs (also called "lazy DFAs")
-/// for fast searching.
+/// for searching.
 ///
 /// A regular expression is comprised of two lazy DFAs, a "forward" DFA and a
 /// "reverse" DFA. The forward DFA is responsible for detecting the end of
@@ -284,10 +300,56 @@ impl Regex {
         Builder::new()
     }
 
+    /// Create a new cache for this `Regex`.
+    ///
+    /// The cache returned should only be used for searches for this
+    /// `Regex`. If you want to reuse the cache for another `Regex`, then
+    /// you must call [`Cache::reset`] with that `Regex` (or, equivalently,
+    /// [`Regex::reset_cache`]).
     pub fn create_cache(&self) -> Cache {
         Cache::new(self)
     }
 
+    /// Reset the given cache such that it can be used for searching with the
+    /// this `Regex` (and only this `Regex`).
+    ///
+    /// A cache reset permits reusing memory already allocated in this cache
+    /// with a different `Regex`.
+    ///
+    /// Resetting a cache sets its "clear count" to 0. This is relevant if the
+    /// `Regex` has been configured to "give up" after it has cleared the cache
+    /// a certain number of times.
+    ///
+    /// # Example
+    ///
+    /// This shows how to re-purpose a cache for use with a different `Regex`.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::regex::Regex, MultiMatch};
+    ///
+    /// let re1 = Regex::new(r"\w")?;
+    /// let re2 = Regex::new(r"\W")?;
+    ///
+    /// let mut cache = re1.create_cache();
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 0, 2)),
+    ///     re1.find_leftmost(&mut cache, "Δ".as_bytes()),
+    /// );
+    ///
+    /// // Using 'cache' with re2 is not allowed. It may result in panics or
+    /// // incorrect results. In order to re-purpose the cache, we must reset
+    /// // it with the Regex we'd like to use it with.
+    /// //
+    /// // Similarly, after this reset, using the cache with 're1' is also not
+    /// // allowed.
+    /// re2.reset_cache(&mut cache);
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 0, 3)),
+    ///     re2.find_leftmost(&mut cache, "☃".as_bytes()),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn reset_cache(&self, cache: &mut Cache) {
         self.forward().reset_cache(&mut cache.forward);
         self.reverse().reset_cache(&mut cache.reverse);
@@ -1681,6 +1743,21 @@ impl<'r, 'c, 't> Iterator for TryFindOverlappingMatches<'r, 'c, 't> {
     }
 }
 
+/// A cache represents a partially computed forward and reverse DFA.
+///
+/// A cache is the key component that differentiates a classical DFA and a
+/// hybrid NFA/DFA (also called a "lazy DFA"). Where a classical DFA builds a
+/// complete transition table that can handle all possible inputs, a hybrid
+/// NFA/DFA starts with an empty transition table and builds only the parts
+/// required during search. The parts that are built are stored in a cache. For
+/// this reason, a cache is a required parameter for nearly every operation on
+/// a [`Regex`].
+///
+/// Caches can be created from their corresponding `Regex` via
+/// [`Regex::create_cache`]. A cache can only be used with either the `Regex`
+/// that created it, or the `Regex` that was most recently used to reset it
+/// with [`Cache::reset`]. Using a cache with any other `Regex` may result in
+/// panics or incorrect results.
 #[derive(Debug, Clone)]
 pub struct Cache {
     forward: dfa::Cache,
@@ -1688,19 +1765,80 @@ pub struct Cache {
 }
 
 impl Cache {
+    /// Create a new cache for the given `Regex`.
+    ///
+    /// The cache returned should only be used for searches for the given
+    /// `Regex`. If you want to reuse the cache for another `Regex`, then you
+    /// must call [`Cache::reset`] with that `Regex`.
     pub fn new(re: &Regex) -> Cache {
         let forward = dfa::Cache::new(re.forward());
         let reverse = dfa::Cache::new(re.reverse());
         Cache { forward, reverse }
     }
 
+    /// Reset this cache such that it can be used for searching with the given
+    /// `Regex` (and only that `Regex`).
+    ///
+    /// A cache reset permits reusing memory already allocated in this cache
+    /// with a different `Regex`.
+    ///
+    /// Resetting a cache sets its "clear count" to 0. This is relevant if the
+    /// `Regex` has been configured to "give up" after it has cleared the cache
+    /// a certain number of times.
+    ///
+    /// # Example
+    ///
+    /// This shows how to re-purpose a cache for use with a different `Regex`.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::regex::Regex, MultiMatch};
+    ///
+    /// let re1 = Regex::new(r"\w")?;
+    /// let re2 = Regex::new(r"\W")?;
+    ///
+    /// let mut cache = re1.create_cache();
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 0, 2)),
+    ///     re1.find_leftmost(&mut cache, "Δ".as_bytes()),
+    /// );
+    ///
+    /// // Using 'cache' with re2 is not allowed. It may result in panics or
+    /// // incorrect results. In order to re-purpose the cache, we must reset
+    /// // it with the Regex we'd like to use it with.
+    /// //
+    /// // Similarly, after this reset, using the cache with 're1' is also not
+    /// // allowed.
+    /// cache.reset(&re2);
+    /// assert_eq!(
+    ///     Some(MultiMatch::must(0, 0, 3)),
+    ///     re2.find_leftmost(&mut cache, "☃".as_bytes()),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn reset(&mut self, re: &Regex) {
         self.forward.reset(re.forward());
         self.reverse.reset(re.reverse());
     }
 
+    /// Returns the heap memory usage, in bytes, as a sum of the forward and
+    /// reverse lazy DFA caches.
+    ///
+    /// This does **not** include the stack size used up by this cache. To
+    /// compute that, use `std::mem::size_of::<Cache>()`.
     pub fn memory_usage(&self) -> usize {
         self.forward.memory_usage() + self.reverse.memory_usage()
+    }
+
+    /// Return references to the forward and reverse caches, respectively.
+    pub fn as_parts(&self) -> (&dfa::Cache, &dfa::Cache) {
+        (&self.forward, &self.reverse)
+    }
+
+    /// Return mutable references to the forward and reverse caches,
+    /// respectively.
+    pub fn as_parts_mut(&mut self) -> (&mut dfa::Cache, &mut dfa::Cache) {
+        (&mut self.forward, &mut self.reverse)
     }
 }
 

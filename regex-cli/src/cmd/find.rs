@@ -324,6 +324,7 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
             search_hybrid_dfa(&dfa, &mut cache, &find, &*haystack, &mut buf)
         })?;
         table.add("search time", time);
+        table.add("cache clear count", cache.clear_count());
         table.add("counts", counts);
         table.print(stdout())?;
         if !buf.is_empty() {
@@ -356,6 +357,9 @@ fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
             search_hybrid_regex(&re, &mut cache, &find, &*haystack, &mut buf)
         })?;
         table.add("search time", time);
+        let (cache_fwd, cache_rev) = cache.as_parts();
+        table.add("cache clear count (forward)", cache_fwd.clear_count());
+        table.add("cache clear count (reverse)", cache_rev.clear_count());
         table.add("counts", counts);
         table.print(stdout())?;
         if !buf.is_empty() {

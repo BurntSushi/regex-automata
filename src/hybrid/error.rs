@@ -1,5 +1,14 @@
 use crate::{hybrid::id::LazyStateIDError, nfa};
 
+/// An error that occurs when initial construction of a lazy DFA fails.
+///
+/// A build error can occur when insufficient cache capacity is configured or
+/// if something about the NFA is unsupported. (For example, if one attempts
+/// to build a lazy DFA without heuristic Unicode support but with an NFA that
+/// contains a Unicode word boundary.)
+///
+/// When the `std` feature is enabled, this implements the `std::error::Error`
+/// trait.
 #[derive(Clone, Debug)]
 pub struct BuildError {
     kind: BuildErrorKind,
@@ -83,6 +92,21 @@ impl core::fmt::Display for BuildError {
     }
 }
 
+/// An error that occurs when cache usage has become inefficient.
+///
+/// One of the weaknesses of a lazy DFA is that it may need to clear its
+/// cache repeatedly if it's not big enough. If this happens too much, then it
+/// can slow searching down significantly. A mitigation to this is to use
+/// heuristics to detect whether the cache is being used efficiently or not.
+/// If not, then a lazy DFA can return a `CacheError`.
+///
+/// The default configuration of a lazy DFA in this crate is
+/// set such that a `CacheError` will never occur. Instead,
+/// callers must opt into this behavior with settings like
+/// [`dfa::Config::minimum_cache_clear_count`](crate::hybrid::dfa::Config::minimum_cache_clear_count).
+///
+/// When the `std` feature is enabled, this implements the `std::error::Error`
+/// trait.
 #[derive(Clone, Debug)]
 pub struct CacheError(());
 
