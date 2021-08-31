@@ -3,7 +3,7 @@ use std::error::Error;
 use regex_automata::{
     dfa::{dense, regex::Regex, Automaton, OverlappingState},
     nfa::thompson,
-    HalfMatch, MatchError, MultiMatch,
+    HalfMatch, MatchError, MatchKind, MultiMatch,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -58,6 +58,28 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
 #[should_panic]
 fn quit_panics() {
     dense::Config::new().unicode_word_boundary(true).quit(b'\xFF', false);
+}
+
+// Tests that if we attempt an overlapping search using a regex without a
+// reverse DFA compiled with 'starts_for_each_pattern', then we get a panic.
+#[test]
+#[should_panic]
+fn incorrect_config_overlapping_search_panics() {
+    let forward = dense::DFA::new(r"abca").unwrap();
+    let reverse = dense::Builder::new()
+        .configure(
+            dense::Config::new()
+                .anchored(true)
+                .match_kind(MatchKind::All)
+                .starts_for_each_pattern(false),
+        )
+        .thompson(thompson::Config::new().reverse(true))
+        .build(r"abca")
+        .unwrap();
+
+    let re = Regex::builder().build_from_dfas(forward, reverse);
+    let haystack = "bar abcabcabca abca foo".as_bytes();
+    re.find_overlapping(haystack, &mut OverlappingState::start());
 }
 
 // This tests an intesting case where even if the Unicode word boundary option

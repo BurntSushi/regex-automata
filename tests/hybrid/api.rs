@@ -7,7 +7,7 @@ use regex_automata::{
         OverlappingState,
     },
     nfa::thompson,
-    HalfMatch, MatchError, MultiMatch,
+    HalfMatch, MatchError, MatchKind, MultiMatch,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};

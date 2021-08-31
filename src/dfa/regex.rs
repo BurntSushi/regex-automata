@@ -1319,6 +1319,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // Since this is the usual way that automata are used, this helps
         // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
+        // TODO: Decide whether it's worth making this assert work. It doesn't
+        // work currently because 'has_starts_for_each_pattern' isn't on the
+        // Automaton trait. Without this assert, we still get a panic, but it's
+        // a bit more inscrutable.
+        // assert!(
+        // rev.has_starts_for_each_pattern(),
+        // "overlapping searches require that the reverse DFA is \
+        // compiled with the 'starts_for_each_pattern' option",
+        // );
         let end = match (&fwd).find_overlapping_fwd_at(
             scanner, None, haystack, start, end, state,
         )? {

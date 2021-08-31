@@ -51,7 +51,7 @@ searching to find non-overlapping matches:
 use regex_automata::{hybrid::regex::Regex, MultiMatch};
 
 let re = Regex::new_many(&[r"\w+", r"\S+"])?;
-let mut cache = dfa.create_cache();
+let mut cache = re.create_cache();
 
 let text = b"@foo bar";
 let matches: Vec<MultiMatch> =
@@ -73,7 +73,7 @@ use regex_automata::{hybrid::{dfa, regex::Regex}, MatchKind, MultiMatch};
 let re = Regex::builder()
     .dfa(dfa::Config::new().match_kind(MatchKind::All))
     .build_many(&[r"\w{3}", r"\S{3}"])?;
-let mut cache = dfa.create_cache();
+let mut cache = re.create_cache();
 
 let text = b"@foo bar";
 let matches: Vec<MultiMatch> =
