@@ -80,6 +80,8 @@ pub struct Config {
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
     quit: Option<ByteSet>,
+    dfa_size_limit: Option<Option<usize>>,
+    determinize_size_limit: Option<Option<usize>>,
 }
 
 #[cfg(feature = "alloc")]
@@ -626,6 +628,114 @@ impl Config {
         self
     }
 
+    /// Set a size limit on the total heap used by a DFA.
+    ///
+    /// This size limit is expressed in bytes and is applied during
+    /// determinization of an NFA into a DFA. If the DFA's heap usage, and only
+    /// the DFA, exceeds this configured limit, then determinization is stopped
+    /// and an error is returned.
+    ///
+    /// This limit does not apply to auxiliary storage used during
+    /// determinization that isn't part of the generated DFA.
+    ///
+    /// This limit is only applied during determinization. Currently, there is
+    /// no way to post-pone this check to after minimization if minimization
+    /// was enabled.
+    ///
+    /// The total limit on heap used during determinization is the sum of the
+    /// DFA and determinization size limits.
+    ///
+    /// The default is no limit.
+    ///
+    /// # Example
+    ///
+    /// This example shows a DFA that fails to build because of a configured
+    /// size limit. This particular example also serves as a cautionary tale
+    /// demonstrating just how big DFAs with large Unicode character classes
+    /// can get.
+    ///
+    /// ```
+    /// use regex_automata::dfa::{dense, Automaton};
+    ///
+    /// // 3MB isn't enough!
+    /// dense::Builder::new()
+    ///     .configure(dense::Config::new().dfa_size_limit(Some(3_000_000)))
+    ///     .build(r"\w{20}")
+    ///     .unwrap_err();
+    ///
+    /// // ... but 4MB probably is!
+    /// // (Note that DFA sizes aren't necessarily stable between releases.)
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new().dfa_size_limit(Some(4_000_000)))
+    ///     .build(r"\w{20}")?;
+    /// let haystack = "A".repeat(20).into_bytes();
+    /// assert!(dfa.find_leftmost_fwd(&haystack)?.is_some());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// While one needs a little more than 3MB to represent `\w{20}`, it
+    /// turns out that you only need a little more than 4KB to represent
+    /// `(?-u:\w{20})`. So only use Unicode if you need it!
+    pub fn dfa_size_limit(mut self, bytes: Option<usize>) -> Config {
+        self.dfa_size_limit = Some(bytes);
+        self
+    }
+
+    /// Set a size limit on the total heap used by determinization.
+    ///
+    /// This size limit is expressed in bytes and is applied during
+    /// determinization of an NFA into a DFA. If the heap used for auxiliary
+    /// storage during determinization (memory that is not in the DFA but
+    /// necessary for building the DFA) exceeds this configured limit, then
+    /// determinization is stopped and an error is returned.
+    ///
+    /// This limit does not apply to heap used by the DFA itself.
+    ///
+    /// The total limit on heap used during determinization is the sum of the
+    /// DFA and determinization size limits.
+    ///
+    /// The default is no limit.
+    ///
+    /// # Example
+    ///
+    /// This example shows a DFA that fails to build because of a
+    /// configured size limit on the amount of heap space used by
+    /// determinization. This particular example complements the example for
+    /// [`Config::dfa_size_limit`] by demonstrating that not only does Unicode
+    /// potentially make DFAs themselves big, but it also results in more
+    /// auxiliary storage during determinization. (Although, auxiliary storage
+    /// is still not as much as the DFA itself.)
+    ///
+    /// ```
+    /// use regex_automata::dfa::{dense, Automaton};
+    ///
+    /// // 300KB isn't enough!
+    /// dense::Builder::new()
+    ///     .configure(dense::Config::new()
+    ///         .determinize_size_limit(Some(300_000))
+    ///     )
+    ///     .build(r"\w{20}")
+    ///     .unwrap_err();
+    ///
+    /// // ... but 400KB probably is!
+    /// // (Note that auxiliary storage sizes aren't necessarily stable between
+    /// // releases.)
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new()
+    ///         .determinize_size_limit(Some(400_000))
+    ///     )
+    ///     .build(r"\w{20}")?;
+    /// let haystack = "A".repeat(20).into_bytes();
+    /// assert!(dfa.find_leftmost_fwd(&haystack)?.is_some());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn determinize_size_limit(mut self, bytes: Option<usize>) -> Config {
+        self.determinize_size_limit = Some(bytes);
+        self
+    }
+
     /// Returns whether this configuration has enabled anchored searches.
     pub fn get_anchored(&self) -> bool {
         self.anchored.unwrap_or(false)
@@ -676,6 +786,30 @@ impl Config {
         self.quit.map_or(false, |q| q.contains(byte))
     }
 
+    /// Returns the DFA size limit of this configuration if one was set.
+    /// The size limit is total number of bytes on the heap that a DFA is
+    /// permitted to use. If the DFA exceeds this limit during construction,
+    /// then construction is stopped and an error is returned.
+    pub fn get_dfa_size_limit(&self) -> Option<usize> {
+        self.dfa_size_limit.unwrap_or(None)
+    }
+
+    /// Returns the determinization size limit of this configuration if one
+    /// was set. The size limit is total number of bytes on the heap that
+    /// determinization is permitted to use. If determinization exceeds this
+    /// limit during construction, then construction is stopped and an error is
+    /// returned.
+    ///
+    /// This is different from the DFA size limit in that this only applies to
+    /// the auxiliary storage used during determinization. Once determinization
+    /// is complete, this memory is freed.
+    ///
+    /// The limit on the total heap memory used is the sum of the DFA and
+    /// determinization size limits.
+    pub fn get_determinize_size_limit(&self) -> Option<usize> {
+        self.determinize_size_limit.unwrap_or(None)
+    }
+
     /// Overwrite the default configuration such that the options in `o` are
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
@@ -694,6 +828,10 @@ impl Config {
                 .unicode_word_boundary
                 .or(self.unicode_word_boundary),
             quit: o.quit.or(self.quit),
+            dfa_size_limit: o.dfa_size_limit.or(self.dfa_size_limit),
+            determinize_size_limit: o
+                .determinize_size_limit
+                .or(self.determinize_size_limit),
         }
     }
 }
@@ -867,6 +1005,8 @@ impl Builder {
             .anchored(self.config.get_anchored())
             .match_kind(self.config.get_match_kind())
             .quit(quit)
+            .dfa_size_limit(self.config.get_dfa_size_limit())
+            .determinize_size_limit(self.config.get_determinize_size_limit())
             .run(nfa, &mut dfa)?;
         if self.config.get_minimize() {
             dfa.minimize();

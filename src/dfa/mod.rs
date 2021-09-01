@@ -1,8 +1,8 @@
 /*!
 A module for building and searching with determinstic finite automata (DFAs).
 
-Like other modules in this crate, DFAs support a rich syntax with Unicode
-support. DFAs also have extensive options for configuring the best space vs
+Like other modules in this crate, DFAs support a rich regex syntax with Unicode
+features. DFAs also have extensive options for configuring the best space vs
 time trade off for your use case and provides support for cheap deserialization
 of automata for use in `no_std` environments.
 

@@ -33,7 +33,11 @@ borrow `self` mutably both inside and outside the closure at the same
 time.
 */
 
-use core::{borrow::Borrow, cell::RefCell, mem};
+use core::{
+    borrow::Borrow,
+    cell::{Cell, RefCell},
+    mem,
+};
 
 use alloc::{vec, vec::Vec};
 
@@ -63,6 +67,7 @@ use crate::{
 pub struct Config {
     reverse: Option<bool>,
     utf8: Option<bool>,
+    size_limit: Option<Option<usize>>,
     shrink: Option<bool>,
     #[cfg(test)]
     unanchored_prefix: Option<bool>,
@@ -113,6 +118,19 @@ impl Config {
         self
     }
 
+    /// Sets an approximate size limit on the total heap used during NFA
+    /// compilation.
+    ///
+    /// This permits imposing constraints on the size of a compiled NFA. This
+    /// may be useful in contexts where the regex pattern is untrusted and
+    /// one wants to avoid using too much memory.
+    ///
+    /// There is no size limit by default.
+    pub fn size_limit(mut self, bytes: Option<usize>) -> Config {
+        self.size_limit = Some(bytes);
+        self
+    }
+
     /// Apply best effort heuristics to shrink the NFA at the expense of more
     /// time/memory.
     ///
@@ -149,6 +167,10 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
+    pub fn get_size_limit(&self) -> Option<usize> {
+        self.size_limit.unwrap_or(None)
+    }
+
     pub fn get_shrink(&self) -> bool {
         self.shrink.unwrap_or(true)
     }
@@ -168,6 +190,7 @@ impl Config {
         Config {
             reverse: o.reverse.or(self.reverse),
             utf8: o.utf8.or(self.utf8),
+            size_limit: o.size_limit.or(self.size_limit),
             shrink: o.shrink.or(self.shrink),
             #[cfg(test)]
             unanchored_prefix: o.unanchored_prefix.or(self.unanchored_prefix),
@@ -322,6 +345,10 @@ pub struct Compiler {
     /// transforming the compiler's internal NFA representation to the external
     /// form.
     empties: RefCell<Vec<(StateID, StateID)>>,
+    /// The total memory used by each of the 'CState's in 'states'. This only
+    /// includes heap usage by each state, and not the size of the state
+    /// itself.
+    memory_cstates: Cell<usize>,
 }
 
 /// A compiler intermediate state representation for an NFA that is only used
@@ -399,6 +426,7 @@ impl Compiler {
             utf8_suffix: RefCell::new(Utf8SuffixMap::new(1000)),
             remap: RefCell::new(vec![]),
             empties: RefCell::new(vec![]),
+            memory_cstates: Cell::new(0),
         }
     }
 
@@ -410,6 +438,7 @@ impl Compiler {
     fn configure(&mut self, config: Config) {
         self.config = config;
         self.states.borrow_mut().clear();
+        self.memory_cstates.set(0);
         // We don't need to clear anything else since they are cleared on
         // their own and only when they are used.
     }
@@ -915,7 +944,7 @@ impl Compiler {
                     .map(|rng| self.c_range(rng.start, rng.end));
                 self.c_concat(it)
             });
-        self.c_alternation(it);
+        self.c_alternation(it)
         */
     }
 
@@ -1027,9 +1056,15 @@ impl Compiler {
             }
             CState::Union { ref mut alternates } => {
                 alternates.push(to);
+                self.memory_cstates.set(
+                    self.memory_cstates.get() + mem::size_of::<StateID>(),
+                );
             }
             CState::UnionReverse { ref mut alternates } => {
                 alternates.push(to);
+                self.memory_cstates.set(
+                    self.memory_cstates.get() + mem::size_of::<StateID>(),
+                );
             }
             CState::Match(_) => {}
         }
@@ -1075,12 +1110,44 @@ impl Compiler {
         let mut states = self.states.borrow_mut();
         let id = StateID::new(states.len())
             .map_err(|_| Error::too_many_states(states.len()))?;
+        self.memory_cstates
+            .set(self.memory_cstates.get() + state.memory_usage());
         states.push(state);
         Ok(id)
     }
 
     fn is_reverse(&self) -> bool {
         self.config.get_reverse()
+    }
+
+    fn memory_usage(&self) -> usize {
+        self.states.borrow().len() * mem::size_of::<CState>()
+        // TODO: Implement these methods. It's going to be brutal.
+        // + self.utf8_state.memory_usage()
+        // + self.trie_state.memory_usage()
+        // + self.utf8_suffix.memory_usage()
+        + self.remap.borrow().len() * mem::size_of::<StateID>()
+        + self.empties.borrow().len() * mem::size_of::<(StateID, StateID)>()
+    }
+}
+
+impl CState {
+    fn memory_usage(&self) -> usize {
+        match *self {
+            CState::Empty { .. }
+            | CState::Range { .. }
+            | CState::Look { .. }
+            | CState::Match(_) => 0,
+            CState::Sparse { ref ranges } => {
+                ranges.len() * mem::size_of::<Transition>()
+            }
+            CState::Union { ref alternates } => {
+                alternates.len() * mem::size_of::<StateID>()
+            }
+            CState::UnionReverse { ref alternates } => {
+                alternates.len() * mem::size_of::<StateID>()
+            }
+        }
     }
 }
 

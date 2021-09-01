@@ -54,6 +54,11 @@ enum ErrorKind {
     /// This is another oddball error that can occur if there are too many
     /// patterns spread out across too many match states.
     TooManyMatchPatternIDs,
+    /// An error that occurs if the DFA got too big during determinization.
+    DFAExceededSizeLimit { limit: usize },
+    /// An error that occurs if auxiliary storage (not the DFA) used during
+    /// determinization got too big.
+    DeterminizeExceededSizeLimit { limit: usize },
 }
 
 impl Error {
@@ -85,6 +90,14 @@ impl Error {
     pub(crate) fn too_many_match_pattern_ids() -> Error {
         Error { kind: ErrorKind::TooManyMatchPatternIDs }
     }
+
+    pub(crate) fn dfa_exceeded_size_limit(limit: usize) -> Error {
+        Error { kind: ErrorKind::DFAExceededSizeLimit { limit } }
+    }
+
+    pub(crate) fn determinize_exceeded_size_limit(limit: usize) -> Error {
+        Error { kind: ErrorKind::DeterminizeExceededSizeLimit { limit } }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -96,6 +109,8 @@ impl std::error::Error for Error {
             ErrorKind::TooManyStates => None,
             ErrorKind::TooManyStartStates => None,
             ErrorKind::TooManyMatchPatternIDs => None,
+            ErrorKind::DFAExceededSizeLimit { .. } => None,
+            ErrorKind::DeterminizeExceededSizeLimit { .. } => None,
         }
     }
 }
@@ -134,6 +149,14 @@ impl core::fmt::Display for Error {
                  exceeds limit of {}",
                 PatternID::LIMIT,
             ),
+            ErrorKind::DFAExceededSizeLimit { limit } => write!(
+                f,
+                "DFA exceeded size limit of {:?} during determinization",
+                limit,
+            ),
+            ErrorKind::DeterminizeExceededSizeLimit { limit } => {
+                write!(f, "determinization exceeded size limit of {:?}", limit)
+            }
         }
     }
 }

@@ -23,6 +23,8 @@ pub(crate) struct Config {
     anchored: bool,
     match_kind: MatchKind,
     quit: ByteSet,
+    dfa_size_limit: Option<usize>,
+    determinize_size_limit: Option<usize>,
 }
 
 impl Config {
@@ -33,6 +35,8 @@ impl Config {
             anchored: false,
             match_kind: MatchKind::LeftmostFirst,
             quit: ByteSet::empty(),
+            dfa_size_limit: None,
+            determinize_size_limit: None,
         }
     }
 
@@ -101,6 +105,23 @@ impl Config {
     /// stop searching and return an error. By default, this is empty.
     pub fn quit(&mut self, set: ByteSet) -> &mut Config {
         self.quit = set;
+        self
+    }
+
+    /// The limit, in bytes of the heap, that the DFA is permitted to use. This
+    /// does not include the auxiliary heap storage used by determinization.
+    pub fn dfa_size_limit(&mut self, bytes: Option<usize>) -> &mut Config {
+        self.dfa_size_limit = bytes;
+        self
+    }
+
+    /// The limit, in bytes of the heap, that determinization itself is allowed
+    /// to use. This does not include the size of the DFA being built.
+    pub fn determinize_size_limit(
+        &mut self,
+        bytes: Option<usize>,
+    ) -> &mut Config {
+        self.determinize_size_limit = bytes;
         self
     }
 }
@@ -473,6 +494,16 @@ impl<'a> Runner<'a> {
         self.builder_states.push(state.clone());
         self.cache.insert(state, id);
         self.put_state_builder(builder);
+        if let Some(limit) = self.config.dfa_size_limit {
+            if self.dfa.memory_usage() > limit {
+                return Err(Error::dfa_exceeded_size_limit(limit));
+            }
+        }
+        if let Some(limit) = self.config.determinize_size_limit {
+            if self.memory_usage() > limit {
+                return Err(Error::determinize_exceeded_size_limit(limit));
+            }
+        }
         Ok(id)
     }
 
@@ -503,7 +534,6 @@ impl<'a> Runner<'a> {
     /// Return the memory usage, in bytes, of this determinizer at the current
     /// point in time. This does not include memory used by the NFA or the
     /// dense DFA itself.
-    #[cfg(feature = "logging")]
     fn memory_usage(&self) -> usize {
         use core::mem::size_of;
 

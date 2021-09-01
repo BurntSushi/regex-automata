@@ -2,11 +2,11 @@
 A module for building and searching with lazy determinstic finite automata
 (DFAs).
 
-Like other modules in this crate, lazy DFAs support a rich syntax with Unicode
-support. The key feature of a lazy DFA is that it builds itself incrementally
-during search, and never uses more than a configured capacity of memory. Thus,
-when searching with a lazy DFA, one must supply a mutable "cache" in which the
-actual DFA's transition table is stored.
+Like other modules in this crate, lazy DFAs support a rich regex syntax with
+Unicode features. The key feature of a lazy DFA is that it builds itself
+incrementally during search, and never uses more than a configured capacity of
+memory. Thus, when searching with a lazy DFA, one must supply a mutable "cache"
+in which the actual DFA's transition table is stored.
 
 If you're looking for fully compiled DFAs, then please see the top-level
 [`dfa` module](crate::dfa).
@@ -145,7 +145,7 @@ the offsets of each capturing group. This is because DFAs do not have the
 expressive power necessary.
 * Unicode word boundaries. These present particularly difficult challenges for
 DFA construction and would result in an explosion in the number of states.
-One can enable [`dense::Config::unicode_word_boundary`] though, which provides
+One can enable [`dfa::Config::unicode_word_boundary`] though, which provides
 heuristic support for Unicode word boundaries that only works on ASCII text.
 Otherwise, one can use `(?-u:\b)` for an ASCII word boundary, which will work
 on any input.
@@ -158,9 +158,10 @@ compiled DFAs.
 # Support for `alloc`-only
 
 This crate comes with `alloc` and `std` features that are enabled by default.
-One can disable the `std` feature and still use the fully API of a lazy DFA.
+One can disable the `std` feature and still use the full API of a lazy DFA.
 (You should use `std` when possible, since it permits providing implementations
-of the `std::error::Error` trait, and does enable some minor optimizations.)
+of the `std::error::Error` trait, and does enable some minor internal
+optimizations.)
 
 This module does require at least the `alloc` feature though. It is not
 available in any capacity without `alloc`.

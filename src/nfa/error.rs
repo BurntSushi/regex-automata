@@ -29,6 +29,12 @@ enum ErrorKind {
         /// The limit on the number of states.
         limit: usize,
     },
+    /// An error that occurs when NFA compilation exceeds a configured heap
+    /// limit.
+    ExceededSizeLimit {
+        /// The configured limit, in bytes.
+        limit: usize,
+    },
 }
 
 impl Error {
@@ -49,6 +55,10 @@ impl Error {
         let limit = StateID::LIMIT;
         Error { kind: ErrorKind::TooManyStates { given, limit } }
     }
+
+    pub(crate) fn exceeded_size_limit(limit: usize) -> Error {
+        Error { kind: ErrorKind::ExceededSizeLimit { limit } }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -58,6 +68,7 @@ impl std::error::Error for Error {
             ErrorKind::Syntax(ref err) => Some(err),
             ErrorKind::TooManyPatterns { .. } => None,
             ErrorKind::TooManyStates { .. } => None,
+            ErrorKind::ExceededSizeLimit { .. } => None,
         }
     }
 }
@@ -77,6 +88,11 @@ impl core::fmt::Display for Error {
                 "attemped to compile {} NFA states, \
                  which exceeds the limit of {}",
                 given, limit,
+            ),
+            ErrorKind::ExceededSizeLimit { limit } => write!(
+                f,
+                "heap usage during NFA compilation exceeded limit of {:?}",
+                limit,
             ),
         }
     }
