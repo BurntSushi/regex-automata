@@ -67,7 +67,7 @@ use crate::{
 pub struct Config {
     reverse: Option<bool>,
     utf8: Option<bool>,
-    size_limit: Option<Option<usize>>,
+    nfa_size_limit: Option<Option<usize>>,
     shrink: Option<bool>,
     #[cfg(test)]
     unanchored_prefix: Option<bool>,
@@ -118,16 +118,51 @@ impl Config {
         self
     }
 
-    /// Sets an approximate size limit on the total heap used during NFA
-    /// compilation.
+    /// Sets an approximate size limit on the total heap used by the NFA being
+    /// compiled.
     ///
     /// This permits imposing constraints on the size of a compiled NFA. This
-    /// may be useful in contexts where the regex pattern is untrusted and
-    /// one wants to avoid using too much memory.
+    /// may be useful in contexts where the regex pattern is untrusted and one
+    /// wants to avoid using too much memory.
+    ///
+    /// This size limit does not apply to auxiliary heap used during
+    /// compilation that is not part of the built NFA.
+    ///
+    /// Note that this size limit is applied during compilation in order for
+    /// the limit to prevent too much heap from being used. However, the
+    /// implementation may use an intermediate NFA representation that is
+    /// otherwise slightly bigger than the final public form. Since the size
+    /// limit may be applied to an intermediate representation, there is not
+    /// necessarily a precise correspondence between the configured size limit
+    /// and the heap usage of the final NFA.
     ///
     /// There is no size limit by default.
-    pub fn size_limit(mut self, bytes: Option<usize>) -> Config {
-        self.size_limit = Some(bytes);
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates how Unicode mode can greatly increase the
+    /// size of the NFA.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // 300KB isn't enough!
+    /// NFA::builder()
+    ///     .configure(NFA::config().nfa_size_limit(Some(300_000)))
+    ///     .build(r"\w{20}")
+    ///     .unwrap_err();
+    ///
+    /// // ... but 400KB probably is.
+    /// let nfa = NFA::builder()
+    ///     .configure(NFA::config().nfa_size_limit(Some(400_000)))
+    ///     .build(r"\w{20}")?;
+    ///
+    /// assert_eq!(nfa.match_len(), 1);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn nfa_size_limit(mut self, bytes: Option<usize>) -> Config {
+        self.nfa_size_limit = Some(bytes);
         self
     }
 
@@ -135,13 +170,14 @@ impl Config {
     /// time/memory.
     ///
     /// This is enabled by default. Generally speaking, if one is using an NFA
-    /// to compile DFA, then the extra time used to shrink the NFA will be
+    /// to compile a DFA, then the extra time used to shrink the NFA will be
     /// more than made up for during DFA construction (potentially by a lot).
     /// In other words, enabling this can substantially decrease the overall
     /// amount of time it takes to build a DFA.
     ///
     /// The only reason to disable this if you want to compile an NFA and start
-    /// using it as quickly as possible without needing to build a DFA.
+    /// using it as quickly as possible without needing to build a DFA. e.g.,
+    /// for an NFA simulation or for a lazy DFA.
     ///
     /// This is enabled by default.
     pub fn shrink(mut self, yes: bool) -> Config {
@@ -167,8 +203,8 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
-    pub fn get_size_limit(&self) -> Option<usize> {
-        self.size_limit.unwrap_or(None)
+    pub fn get_nfa_size_limit(&self) -> Option<usize> {
+        self.nfa_size_limit.unwrap_or(None)
     }
 
     pub fn get_shrink(&self) -> bool {
@@ -190,7 +226,7 @@ impl Config {
         Config {
             reverse: o.reverse.or(self.reverse),
             utf8: o.utf8.or(self.utf8),
-            size_limit: o.size_limit.or(self.size_limit),
+            nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
             shrink: o.shrink.or(self.shrink),
             #[cfg(test)]
             unanchored_prefix: o.unanchored_prefix.or(self.unanchored_prefix),
@@ -321,12 +357,15 @@ impl Builder {
 /// states.
 #[derive(Clone, Debug)]
 pub struct Compiler {
+    /// The configuration from the builder.
+    config: Config,
     /// The set of compiled NFA states. Once a state is compiled, it is
     /// assigned a state ID equivalent to its index in this list. Subsequent
     /// compilation can modify previous states by adding new transitions.
     states: RefCell<Vec<CState>>,
-    /// The configuration from the builder.
-    config: Config,
+    /// Identifiers that point into 'states' that correspond to the anchored
+    /// starting states for each pattern compiled into this NFA.
+    start_pattern: RefCell<Vec<StateID>>,
     /// State used for compiling character classes to UTF-8 byte automata.
     /// State is not retained between character class compilations. This just
     /// serves to amortize allocation to the extent possible.
@@ -419,8 +458,9 @@ impl Compiler {
     /// Create a new compiler.
     pub fn new() -> Compiler {
         Compiler {
-            states: RefCell::new(vec![]),
             config: Config::default(),
+            states: RefCell::new(vec![]),
+            start_pattern: RefCell::new(vec![]),
             utf8_state: RefCell::new(Utf8State::new()),
             trie_state: RefCell::new(RangeTrie::new()),
             utf8_suffix: RefCell::new(Utf8SuffixMap::new(1000)),
@@ -474,23 +514,19 @@ impl Compiler {
             }
         };
 
-        let mut start_pattern = vec![StateID::ZERO; exprs.len()];
+        self.start_pattern.borrow_mut().clear();
+        self.start_pattern.borrow_mut().resize(exprs.len(), StateID::ZERO);
         let compiled = self.c_alternation(
             exprs.iter().with_pattern_ids().map(|(pid, e)| {
                 let one = self.c(e.borrow())?;
                 let match_state_id = self.add_match(pid)?;
-                self.patch(one.end, match_state_id);
-                start_pattern[pid] = one.start;
+                self.patch(one.end, match_state_id)?;
+                self.start_pattern.borrow_mut()[pid] = one.start;
                 Ok(ThompsonRef { start: one.start, end: match_state_id })
             }),
         )?;
-        self.patch(unanchored_prefix.end, compiled.start);
-        self.finish(
-            nfa,
-            compiled.start,
-            unanchored_prefix.start,
-            &start_pattern,
-        )?;
+        self.patch(unanchored_prefix.end, compiled.start)?;
+        self.finish(nfa, compiled.start, unanchored_prefix.start)?;
         Ok(())
     }
 
@@ -501,8 +537,11 @@ impl Compiler {
         nfa: &mut NFA,
         start_anchored: StateID,
         start_unanchored: StateID,
-        start_pattern: &[StateID],
     ) -> Result<(), Error> {
+        trace!(
+            "NFA compilation complete, intermediate NFA size: {:?}",
+            self.nfa_memory_usage(),
+        );
         let mut bstates = self.states.borrow_mut();
         let mut remap = self.remap.borrow_mut();
         remap.resize(bstates.len(), StateID::ZERO);
@@ -578,7 +617,8 @@ impl Compiler {
         nfa.set_byte_class_set(byteset.clone());
         nfa.set_start_anchored(remap[start_anchored]);
         nfa.set_start_unanchored(remap[start_unanchored]);
-        for (pid, &old_id) in start_pattern.iter().with_pattern_ids() {
+        let mut start_pats = self.start_pattern.borrow();
+        for (pid, &old_id) in start_pats.iter().with_pattern_ids() {
             nfa.set_start_pattern(pid, remap[old_id]);
         }
         Ok(())
@@ -620,7 +660,7 @@ impl Compiler {
                 Some(result) => result?,
                 None => break,
             };
-            self.patch(end, compiled.start);
+            self.patch(end, compiled.start)?;
             end = compiled.end;
         }
         Ok(ThompsonRef { start, end })
@@ -638,14 +678,14 @@ impl Compiler {
 
         let union = self.add_union()?;
         let end = self.add_empty()?;
-        self.patch(union, first.start);
-        self.patch(first.end, end);
-        self.patch(union, second.start);
-        self.patch(second.end, end);
+        self.patch(union, first.start)?;
+        self.patch(first.end, end)?;
+        self.patch(union, second.start)?;
+        self.patch(second.end, end)?;
         for result in it {
             let compiled = result?;
-            self.patch(union, compiled.start);
-            self.patch(compiled.end, end);
+            self.patch(union, compiled.start)?;
+            self.patch(compiled.end, end)?;
         }
         Ok(ThompsonRef { start: union, end })
     }
@@ -728,12 +768,12 @@ impl Compiler {
                 self.add_reverse_union()
             }?;
             let compiled = self.c(expr)?;
-            self.patch(prev_end, union);
-            self.patch(union, compiled.start);
-            self.patch(union, empty);
+            self.patch(prev_end, union)?;
+            self.patch(union, compiled.start)?;
+            self.patch(union, empty)?;
             prev_end = compiled.end;
         }
-        self.patch(prev_end, empty);
+        self.patch(prev_end, empty)?;
         Ok(ThompsonRef { start: prefix.start, end: empty })
     }
 
@@ -755,8 +795,8 @@ impl Compiler {
                     self.add_reverse_union()
                 }?;
                 let compiled = self.c(expr)?;
-                self.patch(union, compiled.start);
-                self.patch(compiled.end, union);
+                self.patch(union, compiled.start)?;
+                self.patch(compiled.end, union)?;
                 return Ok(ThompsonRef { start: union, end: union });
             }
 
@@ -774,8 +814,8 @@ impl Compiler {
             } else {
                 self.add_reverse_union()
             }?;
-            self.patch(compiled.end, plus);
-            self.patch(plus, compiled.start);
+            self.patch(compiled.end, plus)?;
+            self.patch(plus, compiled.start)?;
 
             let question = if greedy {
                 self.add_union()
@@ -783,9 +823,9 @@ impl Compiler {
                 self.add_reverse_union()
             }?;
             let empty = self.add_empty()?;
-            self.patch(question, compiled.start);
-            self.patch(question, empty);
-            self.patch(plus, empty);
+            self.patch(question, compiled.start)?;
+            self.patch(question, empty)?;
+            self.patch(plus, empty)?;
             Ok(ThompsonRef { start: question, end: empty })
         } else if n == 1 {
             let compiled = self.c(expr)?;
@@ -794,8 +834,8 @@ impl Compiler {
             } else {
                 self.add_reverse_union()
             }?;
-            self.patch(compiled.end, union);
-            self.patch(union, compiled.start);
+            self.patch(compiled.end, union)?;
+            self.patch(union, compiled.start)?;
             Ok(ThompsonRef { start: compiled.start, end: union })
         } else {
             let prefix = self.c_exactly(expr, n - 1)?;
@@ -805,9 +845,9 @@ impl Compiler {
             } else {
                 self.add_reverse_union()
             }?;
-            self.patch(prefix.end, last.start);
-            self.patch(last.end, union);
-            self.patch(union, last.start);
+            self.patch(prefix.end, last.start)?;
+            self.patch(last.end, union)?;
+            self.patch(union, last.start)?;
             Ok(ThompsonRef { start: prefix.start, end: union })
         }
     }
@@ -821,9 +861,9 @@ impl Compiler {
             if greedy { self.add_union() } else { self.add_reverse_union() }?;
         let compiled = self.c(expr)?;
         let empty = self.add_empty()?;
-        self.patch(union, compiled.start);
-        self.patch(union, empty);
-        self.patch(compiled.end, empty);
+        self.patch(union, compiled.start)?;
+        self.patch(union, empty)?;
+        self.patch(compiled.end, empty)?;
         Ok(ThompsonRef { start: union, end: empty })
     }
 
@@ -977,11 +1017,11 @@ impl Compiler {
                     }
 
                     let compiled = self.c_range(brng.start, brng.end)?;
-                    self.patch(compiled.end, end);
+                    self.patch(compiled.end, end)?;
                     end = compiled.start;
                     cache.set(key, hash, end);
                 }
-                self.patch(union, end);
+                self.patch(union, end)?;
             }
         }
         Ok(ThompsonRef { start: union, end: alt_end })
@@ -1040,7 +1080,8 @@ impl Compiler {
         self.c_at_least(&Hir::any(true), false, 0)
     }
 
-    fn patch(&self, from: StateID, to: StateID) {
+    fn patch(&self, from: StateID, to: StateID) -> Result<(), Error> {
+        let old_memory_cstates = self.memory_cstates.get();
         match self.states.borrow_mut()[from] {
             CState::Empty { ref mut next } => {
                 *next = to;
@@ -1056,18 +1097,20 @@ impl Compiler {
             }
             CState::Union { ref mut alternates } => {
                 alternates.push(to);
-                self.memory_cstates.set(
-                    self.memory_cstates.get() + mem::size_of::<StateID>(),
-                );
+                self.memory_cstates
+                    .set(old_memory_cstates + mem::size_of::<StateID>());
             }
             CState::UnionReverse { ref mut alternates } => {
                 alternates.push(to);
-                self.memory_cstates.set(
-                    self.memory_cstates.get() + mem::size_of::<StateID>(),
-                );
+                self.memory_cstates
+                    .set(old_memory_cstates + mem::size_of::<StateID>());
             }
             CState::Match(_) => {}
         }
+        if old_memory_cstates != self.memory_cstates.get() {
+            self.check_nfa_size_limit()?;
+        }
+        Ok(())
     }
 
     fn add_empty(&self) -> Result<StateID, Error> {
@@ -1113,6 +1156,10 @@ impl Compiler {
         self.memory_cstates
             .set(self.memory_cstates.get() + state.memory_usage());
         states.push(state);
+        // If we don't explicitly drop this, then 'nfa_memory_usage' will also
+        // try to borrow it and hit an error.
+        drop(states);
+        self.check_nfa_size_limit()?;
         Ok(id)
     }
 
@@ -1120,14 +1167,33 @@ impl Compiler {
         self.config.get_reverse()
     }
 
-    fn memory_usage(&self) -> usize {
+    /// If an NFA size limit was set, this checks that the NFA compiled so far
+    /// fits within that limit. If so, then nothing is returned. Otherwise, an
+    /// error is returned.
+    ///
+    /// This should be called after increasing the heap usage of the
+    /// intermediate NFA.
+    ///
+    /// Note that this borrows 'self.states', so callers should ensure there is
+    /// no mutable borrow of it outstanding.
+    fn check_nfa_size_limit(&self) -> Result<(), Error> {
+        if let Some(limit) = self.config.get_nfa_size_limit() {
+            if self.nfa_memory_usage() > limit {
+                return Err(Error::exceeded_size_limit(limit));
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the heap memory usage, in bytes, of the NFA compiled so far.
+    ///
+    /// Note that this is an approximation of how big the final NFA will be. In
+    /// practice, the final NFA will likely be a bit small since it uses things
+    /// like `Box<[T]>` instead of `Vec<T>`.
+    fn nfa_memory_usage(&self) -> usize {
         self.states.borrow().len() * mem::size_of::<CState>()
-        // TODO: Implement these methods. It's going to be brutal.
-        // + self.utf8_state.memory_usage()
-        // + self.trie_state.memory_usage()
-        // + self.utf8_suffix.memory_usage()
-        + self.remap.borrow().len() * mem::size_of::<StateID>()
-        + self.empties.borrow().len() * mem::size_of::<(StateID, StateID)>()
+            + self.memory_cstates.get()
+            + (self.start_pattern.borrow().len() * mem::size_of::<StateID>())
     }
 }
 

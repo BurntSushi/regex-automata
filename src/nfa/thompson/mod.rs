@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, mem};
 
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
@@ -53,6 +53,9 @@ pub struct NFA {
     /// boundaries) or for performing optimizations (avoiding an increase in
     /// states if there are no look-around states).
     facts: Facts,
+    /// Heap memory used indirectly by NFA states. Since each state might use a
+    /// different amount of heap, we need to keep track of this incrementally.
+    memory_states: usize,
 }
 
 impl NFA {
@@ -75,6 +78,7 @@ impl NFA {
             states: vec![State::Match(PatternID::ZERO)],
             byte_class_set: ByteClassSet::empty(),
             facts: Facts::default(),
+            memory_states: 0,
         };
         nfa.set_match_len(1);
         nfa
@@ -91,13 +95,13 @@ impl NFA {
             states: vec![State::Fail],
             byte_class_set: ByteClassSet::empty(),
             facts: Facts::default(),
+            memory_states: 0,
         }
     }
 
     /// Return the number of states in this NFA.
     ///
-    /// This is guaranteed to be no bigger than one more than
-    /// [`StateID::MAX`].
+    /// This is guaranteed to be no bigger than [`StateID::LIMIT`].
     #[inline]
     pub fn len(&self) -> usize {
         self.states.len()
@@ -111,8 +115,7 @@ impl NFA {
     /// this case, and only this case, the NFA can never produce a match for
     /// any input.
     ///
-    /// This is guaranteed to be no bigger than one more than
-    /// [`PatternID::MAX`].
+    /// This is guaranteed to be no bigger than [`PatternID::LIMIT`].
     #[inline]
     pub fn match_len(&self) -> usize {
         self.start_pattern.len()
@@ -185,10 +188,17 @@ impl NFA {
         self.byte_class_set = set;
     }
 
-    /// Return the NFA state corresponding to the given ID.
+    /// Return a reference to the NFA state corresponding to the given ID.
     #[inline]
     pub fn state(&self, id: StateID) -> &State {
         &self.states[id]
+    }
+
+    /// Return a mutable referecne to the NFA state corresponding to the given
+    /// ID.
+    #[inline]
+    pub fn state_mut(&mut self, id: StateID) -> &mut State {
+        &mut self.states[id]
     }
 
     /// Returns a slice of all states in this NFA.
@@ -243,6 +253,7 @@ impl NFA {
         }
         let id = StateID::new(self.states.len())
             .map_err(|_| Error::too_many_states(self.states.len()))?;
+        self.memory_states += state.memory_usage();
         self.states.push(state);
         Ok(id)
     }
@@ -285,15 +296,15 @@ impl NFA {
         self.facts.has_word_boundary_ascii()
     }
 
-    /// Returns the memory usage, in bytes, of this lazy DFA.
+    /// Returns the memory usage, in bytes, of this NFA.
     ///
-    /// This does **not** include the stack size used up by this lazy DFA. To
-    /// compute that, use `std::mem::size_of::<DFA>()`. This also does
-    /// not include the size of the `Cache` used.
+    /// This does **not** include the stack size used up by this NFA. To
+    /// compute that, use `std::mem::size_of::<NFA>()`.
     #[inline]
     pub fn memory_usage(&self) -> usize {
-        // TODO: Fix this.
-        0
+        self.states.len() * mem::size_of::<State>()
+            + self.memory_states
+            + self.start_pattern.len() * mem::size_of::<StateID>()
     }
 }
 
@@ -373,6 +384,22 @@ impl State {
             | State::Fail
             | State::Match(_) => false,
             State::Look { .. } | State::Union { .. } => true,
+        }
+    }
+
+    /// Returns the heap memory usage of this NFA state in bytes.
+    fn memory_usage(&self) -> usize {
+        match *self {
+            State::Range { .. }
+            | State::Look { .. }
+            | State::Match(_)
+            | State::Fail => 0,
+            State::Sparse { ref ranges } => {
+                ranges.len() * mem::size_of::<Transition>()
+            }
+            State::Union { ref alternates } => {
+                alternates.len() * mem::size_of::<StateID>()
+            }
         }
     }
 

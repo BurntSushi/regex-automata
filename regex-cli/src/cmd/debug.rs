@@ -189,6 +189,7 @@ fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
     table.add("translate time", time_hir);
     let (nfa, time_nfa) = util::timeitr(|| cthompson.from_hirs(&hirs))?;
     table.add("compile nfa time", time_nfa);
+    table.add("nfa memory", nfa.memory_usage());
     table.add("pattern count", nfa.match_len());
     table.print(stdout())?;
     if !args.is_present("quiet") {

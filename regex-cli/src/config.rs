@@ -546,6 +546,30 @@ This mode cannot be toggled inside the regex.
             );
         }
         {
+            const SHORT: &str =
+                "Set a size limit, in bytes, on the NFA compiled.";
+            const LONG: &str = "\
+Set a size limit, in bytes, on the NFA compiled.
+
+This permits imposing constraints on the size of a compiled NFA. This may be
+useful in contexts where the regex pattern is untrusted and one wants to avoid
+using too much memory.
+
+This size limit does not apply to auxiliary heap used during compilation that
+is not part of the built NFA.
+
+Note that this size limit is applied during compilation in order for the limit
+to prevent too much heap from being used. However, the implementation may use
+an intermediate NFA representation that is otherwise slightly bigger than the
+final public form. Since the size limit may be applied to an intermediate
+representation, there is not necessarily a precise correspondence between the
+configured size limit and the heap usage of the final NFA.
+
+The default for this flag is 'none', which sets no size limit.
+";
+            app = app.arg(flag("nfa-size-limit").help(SHORT).long_help(LONG));
+        }
+        {
             const SHORT: &str = "Disable NFA shrinking.";
             const LONG: &str = "\
 Disable NFA shrinking.
@@ -564,10 +588,19 @@ compile a DFA.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Thompson> {
-        let c = thompson::Config::new()
+        let mut c = thompson::Config::new()
             .reverse(args.is_present("reverse"))
             .utf8(!args.is_present("no-utf8-nfa"))
             .shrink(!args.is_present("no-shrink"));
+        if let Some(x) = args.value_of_lossy("nfa-size-limit") {
+            if x.to_lowercase() == "none" {
+                c = c.nfa_size_limit(None);
+            } else {
+                let limit =
+                    x.parse().context("failed to parse --nfa-size-limit")?;
+                c = c.nfa_size_limit(Some(limit));
+            }
+        }
         Ok(Thompson(c))
     }
 
@@ -762,6 +795,52 @@ Will cause the DFA to quit whenever it sees one of 'a', 'b' or 'c'.
 ";
             app = app.arg(switch("quit").help(SHORT).long_help(LONG));
         }
+        {
+            const SHORT: &str =
+                "Set a size limit, in bytes, on the DFA compiled.";
+            const LONG: &str = "\
+Set a size limit, in bytes, on the DFA compiled.
+
+This size limit is expressed in bytes and is applied during determinization
+of an NFA into a DFA. If the DFA's heap usage, and only the DFA, exceeds this
+configured limit, then determinization is stopped and an error is returned.
+
+This limit does not apply to auxiliary storage used during determinization that
+isn't part of the generated DFA.
+
+This limit is only applied during determinization. Currently, there is no way
+to post-pone this check to after minimization if minimization was enabled.
+
+The total limit on heap used during determinization is the sum of the DFA and
+determinization size limits.
+
+The default for this flag is 'none', which sets no size limit.
+";
+            app = app.arg(flag("dfa-size-limit").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str =
+                "Set a size limit, in bytes, to be used by determinization.";
+            const LONG: &str = "\
+Set a size limit, in bytes, to be used by determinization.
+
+This size limit is expressed in bytes and is applied during determinization
+of an NFA into a DFA. If the heap used for auxiliary storage during
+determinization (memory that is not in the DFA but necessary for building the
+DFA) exceeds this configured limit, then determinization is stopped and an
+error is returned.
+
+This limit does not apply to heap used by the DFA itself.
+
+The total limit on heap used during determinization is the sum of the DFA and
+determinization size limits.
+
+The default for this flag is 'none', which sets no size limit.
+";
+            app = app.arg(
+                flag("determinize-size-limit").help(SHORT).long_help(LONG),
+            );
+        }
         app
     }
 
@@ -790,6 +869,25 @@ Will cause the DFA to quit whenever it sees one of 'a', 'b' or 'c'.
                     anyhow::bail!("quit bytes must be ASCII");
                 }
                 c = c.quit(ch as u8, true);
+            }
+        }
+        if let Some(x) = args.value_of_lossy("dfa-size-limit") {
+            if x.to_lowercase() == "none" {
+                c = c.dfa_size_limit(None);
+            } else {
+                let limit =
+                    x.parse().context("failed to parse --dfa-size-limit")?;
+                c = c.dfa_size_limit(Some(limit));
+            }
+        }
+        if let Some(x) = args.value_of_lossy("determinize-size-limit") {
+            if x.to_lowercase() == "none" {
+                c = c.determinize_size_limit(None);
+            } else {
+                let limit = x
+                    .parse()
+                    .context("failed to parse --determinize-size-limit")?;
+                c = c.determinize_size_limit(Some(limit));
             }
         }
         Ok(Dense { config: c })
@@ -821,6 +919,7 @@ Will cause the DFA to quit whenever it sees one of 'a', 'b' or 'c'.
         table.add("translate time", time);
         let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
         table.add("compile nfa time", time);
+        table.add("nfa memory", nfa.memory_usage());
         let (dfa, time) = util::timeitr(|| dense.from_nfa(&nfa))?;
         table.add("compile dense dfa time", time);
         table.add("dense dfa memory", dfa.memory_usage());
@@ -1229,6 +1328,7 @@ technique would likely be superior.
         table.add("translate time", time);
         let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
         table.add("compile nfa time", time);
+        table.add("nfa memory", nfa.memory_usage());
         let nfa = Arc::new(nfa);
         let (dfa, time) = util::timeitr(|| self.from_nfa(nfa))?;
         table.add("build hybrid dfa time", time);
@@ -1339,8 +1439,6 @@ Set the approximate size of the cache used by the DFA.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<RegexAPI> {
-        let config = hybrid::regex::Config::new()
-            .utf8(!args.is_present("no-utf8-regex"));
         let mut config = RegexAPI { size_limit: None, dfa_size_limit: None };
         if let Some(x) = args.value_of_lossy("size-limit") {
             let limit = x.parse().context("failed to parse --size-limit")?;
