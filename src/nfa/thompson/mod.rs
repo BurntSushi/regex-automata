@@ -2,17 +2,18 @@ use core::{fmt, mem};
 
 use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
-use crate::{
-    nfa::error::Error,
-    util::{
-        alphabet::ByteClassSet,
-        id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
-    },
+use crate::util::{
+    alphabet::ByteClassSet,
+    id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
 };
 
-pub use self::compiler::{Builder, Config};
+pub use self::{
+    compiler::{Builder, Config},
+    error::Error,
+};
 
 mod compiler;
+mod error;
 mod map;
 mod range_trie;
 
@@ -503,7 +504,9 @@ impl Facts {
     define_bool!(3, has_word_boundary_ascii, set_has_word_boundary_ascii);
 }
 
-/// A conditional NFA epsilon transition that can only be passed through if
+/// A conditional NFA epsilon transition.
+///
+/// A simulation of the NFA can only move through this epsilon transition if
 /// the current position satisfies some look-around property. Some assertions
 /// are look-behind (StartLine, StartText), some assertions are look-ahead
 /// (EndLine, EndText) while other assertions are both look-behind and

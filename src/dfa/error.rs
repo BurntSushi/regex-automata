@@ -12,8 +12,8 @@ use crate::{
 /// generally only two things you can do with it:
 ///
 /// * Obtain a human readable message via its `std::fmt::Display` impl.
-/// * Access an underlying [`nfa::Error`] type from its `source` method
-/// via the `std::error::Error` trait. This error only occurs when using
+/// * Access an underlying [`nfa::thompson::Error`] type from its `source`
+/// method via the `std::error::Error` trait. This error only occurs when using
 /// convenience routines for building a DFA directly from a pattern string.
 ///
 /// When the `std` feature is enabled, this implements the `std::error::Error`
@@ -31,7 +31,7 @@ pub struct Error {
 enum ErrorKind {
     /// An error that occurred while constructing an NFA as a precursor step
     /// before a DFA is compiled.
-    NFA(nfa::Error),
+    NFA(nfa::thompson::Error),
     /// An error that occurred because an unsupported regex feature was used.
     /// The message string describes which unsupported feature was used.
     ///
@@ -67,7 +67,7 @@ impl Error {
         &self.kind
     }
 
-    pub(crate) fn nfa(err: nfa::Error) -> Error {
+    pub(crate) fn nfa(err: nfa::thompson::Error) -> Error {
         Error { kind: ErrorKind::NFA(err) }
     }
 

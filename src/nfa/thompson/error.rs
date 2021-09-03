@@ -1,12 +1,25 @@
 use crate::util::id::{PatternID, StateID};
 
-/// An error that can occured during the construction of an NFA.
+/// An error that can occured during the construction of a thompson NFA.
+///
+/// This error does not provide many introspection capabilities. There are
+/// generally only two things you can do with it:
+///
+/// * Obtain a human readable message via its `std::fmt::Display` impl.
+/// * Access an underlying [`regex_syntax::Error`] type from its `source`
+/// method via the `std::error::Error` trait. This error only occurs when using
+/// convenience routines for building an NFA directly from a pattern string.
+///
+/// Otherwise, errors typically occur when a limit has been breeched. For
+/// example, if the total heap usage of the compiled NFA exceeds the limit
+/// set by [`Config::nfa_size_limit`](crate::nfa::thompson::Config), then
+/// building the NFA will fail.
 #[derive(Clone, Debug)]
 pub struct Error {
     kind: ErrorKind,
 }
 
-/// The kind of error that occurred during the construction of an NFA.
+/// The kind of error that occurred during the construction of a thompson NFA.
 #[derive(Clone, Debug)]
 enum ErrorKind {
     /// An error that occurred while parsing a regular expression. Note that

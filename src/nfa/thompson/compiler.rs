@@ -48,13 +48,11 @@ use regex_syntax::{
 };
 
 use crate::{
-    nfa::{
+    nfa::thompson::{
         error::Error,
-        thompson::{
-            map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
-            range_trie::RangeTrie,
-            Look, State, Transition, NFA,
-        },
+        map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
+        range_trie::RangeTrie,
+        Look, State, Transition, NFA,
     },
     util::{
         alphabet::ByteClassSet,
