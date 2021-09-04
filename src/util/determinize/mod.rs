@@ -181,7 +181,8 @@ pub(crate) fn next(
         match *nfa.state(nfa_id) {
             thompson::State::Union { .. }
             | thompson::State::Fail
-            | thompson::State::Look { .. } => {}
+            | thompson::State::Look { .. }
+            | thompson::State::Capture { .. } => {}
             thompson::State::Match(pid) => {
                 // Notice here that we are calling the NEW state a match
                 // state if the OLD state we are transitioning from
@@ -333,6 +334,9 @@ pub(crate) fn epsilon_closure(
                     // to the top of the stack.
                     stack.extend(alternates[1..].iter().rev());
                 }
+                thompson::State::Capture { next, .. } => {
+                    id = next;
+                }
             }
         }
     }
@@ -373,7 +377,8 @@ pub(crate) fn add_nfa_states(
                 builder.add_nfa_state_id(nfa_id);
                 builder.look_need().insert(look);
             }
-            thompson::State::Union { .. } => {
+            thompson::State::Union { .. }
+            | thompson::State::Capture { .. } => {
                 // Pure epsilon transitions don't need to be tracked
                 // as part of the DFA state. Tracking them is actually
                 // superfluous; they won't cause any harm other than making

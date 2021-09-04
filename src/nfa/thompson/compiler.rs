@@ -382,6 +382,12 @@ pub struct Compiler {
     /// transforming the compiler's internal NFA representation to the external
     /// form.
     empties: RefCell<Vec<(StateID, StateID)>>,
+    /// The next capture offset to assign to a capturing group.
+    ///
+    /// These are assigned from left-to-right in an auto-incrementing fashion.
+    /// The special 0th offset corresponds to a capture group for the entire
+    /// match.
+    next_capture_offset: Cell<usize>,
     /// The total memory used by each of the 'CState's in 'states'. This only
     /// includes heap usage by each state, and not the size of the state
     /// itself.
@@ -398,6 +404,20 @@ enum CState {
     /// another state via en epsilon transition. These are useful during
     /// compilation but are otherwise removed at the end.
     Empty { next: StateID },
+    /// An empty state that records a capture location.
+    ///
+    /// From the perspective of finite automata, this is precisely equivalent
+    /// to 'Empty', but serves the purpose of instructing NFA simulations to
+    /// record additional state when the finite state machine passes through
+    /// this epsilon transition.
+    ///
+    /// These transitions are treated as epsilon transitions with no additional
+    /// effects in DFAs.
+    ///
+    /// 'slot' in this context refers to the specific capture group offset that
+    /// is being recorded. Each capturing group has two slots corresponding to
+    /// the start and end of the matching portion of that group.
+    Capture { next: StateID, slot: usize },
     /// A state that only transitions to `next` if the current input byte is
     /// in the range `[start, end]` (inclusive on both ends).
     Range { range: Transition },
@@ -464,6 +484,7 @@ impl Compiler {
             utf8_suffix: RefCell::new(Utf8SuffixMap::new(1000)),
             remap: RefCell::new(vec![]),
             empties: RefCell::new(vec![]),
+            next_capture_offset: Cell::new(0),
             memory_cstates: Cell::new(0),
         }
     }
@@ -476,6 +497,7 @@ impl Compiler {
     fn configure(&mut self, config: Config) {
         self.config = config;
         self.states.borrow_mut().clear();
+        self.next_capture_offset.set(0);
         self.memory_cstates.set(0);
         // We don't need to clear anything else since they are cleared on
         // their own and only when they are used.
@@ -516,7 +538,7 @@ impl Compiler {
         self.start_pattern.borrow_mut().resize(exprs.len(), StateID::ZERO);
         let compiled = self.c_alternation(
             exprs.iter().with_pattern_ids().map(|(pid, e)| {
-                let one = self.c(e.borrow())?;
+                let one = self.c_group(e.borrow())?;
                 let match_state_id = self.add_match(pid)?;
                 self.patch(one.end, match_state_id)?;
                 self.start_pattern.borrow_mut()[pid] = one.start;
@@ -561,6 +583,11 @@ impl Compiler {
                     // them later since we don't yet know which new state this
                     // empty state will be mapped to.
                     empties.push((sid, next));
+                }
+                CState::Capture { next, slot } => {
+                    // We can't remove this empty state because of the side
+                    // effect of capturing an offset for this capture slot.
+                    remap[sid] = nfa.add(State::Capture { next, slot })?;
                 }
                 CState::Range { range } => {
                     byteset.set_range(range.start, range.end);
@@ -632,7 +659,7 @@ impl Compiler {
             HirKind::Anchor(ref anchor) => self.c_anchor(anchor),
             HirKind::WordBoundary(ref wb) => self.c_word_boundary(wb),
             HirKind::Repetition(ref rep) => self.c_repetition(rep),
-            HirKind::Group(ref group) => self.c(&*group.hir),
+            HirKind::Group(ref group) => self.c_group(&*group.hir),
             HirKind::Concat(ref es) => {
                 self.c_concat(es.iter().map(|e| self.c(e)))
             }
@@ -686,6 +713,19 @@ impl Compiler {
             self.patch(compiled.end, end)?;
         }
         Ok(ThompsonRef { start: union, end })
+    }
+
+    fn c_group(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
+        let capi = self.next_capture_offset();
+        let slot_start = capi.checked_mul(2).unwrap();
+        let slot_end = slot_start.checked_add(1).unwrap();
+        let start = self.add_capture(slot_start)?;
+        let inner = self.c(expr)?;
+        let end = self.add_capture(slot_end)?;
+
+        self.patch(start, inner.start)?;
+        self.patch(inner.end, end)?;
+        Ok(ThompsonRef { start, end })
     }
 
     fn c_repetition(
@@ -1103,6 +1143,9 @@ impl Compiler {
                 self.memory_cstates
                     .set(old_memory_cstates + mem::size_of::<StateID>());
             }
+            CState::Capture { ref mut next, .. } => {
+                *next = to;
+            }
             CState::Match(_) => {}
         }
         if old_memory_cstates != self.memory_cstates.get() {
@@ -1113,6 +1156,10 @@ impl Compiler {
 
     fn add_empty(&self) -> Result<StateID, Error> {
         self.add_state(CState::Empty { next: StateID::ZERO })
+    }
+
+    fn add_capture(&self, slot: usize) -> Result<StateID, Error> {
+        self.add_state(CState::Capture { next: StateID::ZERO, slot })
     }
 
     fn add_range(&self, start: u8, end: u8) -> Result<StateID, Error> {
@@ -1161,6 +1208,12 @@ impl Compiler {
         Ok(id)
     }
 
+    fn next_capture_offset(&self) -> usize {
+        let next = self.next_capture_offset.get();
+        self.next_capture_offset.set(next.checked_add(1).unwrap());
+        next
+    }
+
     fn is_reverse(&self) -> bool {
         self.config.get_reverse()
     }
@@ -1201,6 +1254,7 @@ impl CState {
             CState::Empty { .. }
             | CState::Range { .. }
             | CState::Look { .. }
+            | CState::Capture { .. }
             | CState::Match(_) => 0,
             CState::Sparse { ref ranges } => {
                 ranges.len() * mem::size_of::<Transition>()

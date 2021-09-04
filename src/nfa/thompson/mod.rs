@@ -15,6 +15,7 @@ pub use self::{
 mod compiler;
 mod error;
 mod map;
+mod pikevm;
 mod range_trie;
 
 /// A final compiled NFA.
@@ -37,6 +38,13 @@ pub struct NFA {
     /// state ID, and it is also guaranteed to contain exactly one `Match`
     /// state.
     states: Vec<State>,
+    /// The total number of capturing slots in this NFA.
+    ///
+    /// Generally speaking, it is expected that this value be a multiple of
+    /// 2. (Where each capturing group has precisely two capturing slots in the
+    /// NFA.) However, this invariant is not enforced and an ill-formed NFA
+    /// created by the caller is possible.
+    slots: usize,
     /// A representation of equivalence classes over the transitions in this
     /// NFA. Two bytes in the same equivalence class cannot discriminate
     /// between a match or a non-match. This map can be used to shrink the
@@ -77,6 +85,7 @@ impl NFA {
             start_unanchored: StateID::ZERO,
             start_pattern: vec![StateID::ZERO],
             states: vec![State::Match(PatternID::ZERO)],
+            slots: 0,
             byte_class_set: ByteClassSet::empty(),
             facts: Facts::default(),
             memory_states: 0,
@@ -94,6 +103,7 @@ impl NFA {
             start_unanchored: StateID::ZERO,
             start_pattern: vec![],
             states: vec![State::Fail],
+            slots: 0,
             byte_class_set: ByteClassSet::empty(),
             facts: Facts::default(),
             memory_states: 0,
@@ -122,6 +132,43 @@ impl NFA {
         self.start_pattern.len()
     }
 
+    /// Configures the NFA to match the specified number of patterns.
+    #[inline]
+    pub(crate) fn set_match_len(&mut self, patterns: usize) {
+        self.start_pattern.resize(patterns, StateID::ZERO);
+    }
+
+    /// Returns the total number of capturing slots in this NFA.
+    ///
+    /// Generally speaking, it is expected that this value be a multiple of
+    /// 2. (Where each capturing group has precisely two capturing slots in the
+    /// NFA.) However, this invariant is not enforced and an ill-formed NFA
+    /// created by the caller is possible.
+    #[inline]
+    pub fn capture_slot_len(&self) -> usize {
+        self.slots
+    }
+
+    /// Returns the total number of capturing groups in this NFA.
+    ///
+    /// This includes the special 0th capture group that is always present and
+    /// captures the start and end offset of the entire match.
+    ///
+    /// This is a convenience routine for `nfa.capture_slot_len() / 2`. This
+    /// panics if the number of slots is not divisible by `2`.
+    #[inline]
+    pub fn capture_len(&self) -> usize {
+        let slots = self.capture_slot_len();
+        assert_eq!(slots % 2, 0, "capture slots must be divisible by 2");
+        slots / 2
+    }
+
+    /// Configures the NFA to match the specified number of patterns.
+    #[inline]
+    pub(crate) fn set_capture_slot_len(&mut self, slots: usize) {
+        self.slots = slots;
+    }
+
     /// Returns an iterator over all pattern IDs in this NFA.
     #[inline]
     pub fn patterns(&self) -> PatternIter {
@@ -129,12 +176,6 @@ impl NFA {
             it: PatternID::iter(self.match_len()),
             _marker: core::marker::PhantomData,
         }
-    }
-
-    /// Configures the NFA to match the specified number of patterns.
-    #[inline]
-    pub(crate) fn set_match_len(&mut self, patterns: usize) {
-        self.start_pattern.resize(patterns, StateID::ZERO);
     }
 
     /// Return the ID of the initial anchored state of this NFA.
@@ -226,6 +267,12 @@ impl NFA {
             | State::Sparse { .. }
             | State::Union { .. }
             | State::Fail => {}
+            State::Capture { slot, .. } => {
+                let len = slot.checked_add(1).unwrap();
+                if len > self.capture_slot_len() {
+                    self.set_capture_slot_len(len);
+                }
+            }
             State::Match(pid) => {
                 let len = pid.one_more();
                 if len > self.match_len() {
@@ -366,8 +413,24 @@ pub enum State {
     /// states in `alternates`, where matches found via earlier transitions
     /// are preferred over later transitions.
     Union { alternates: Box<[StateID]> },
+    /// An empty state that records a capture location.
+    ///
+    /// From the perspective of finite automata, this is precisely equivalent
+    /// to an epsilon transition, but serves the purpose of instructing NFA
+    /// simulations to record additional state when the finite state machine
+    /// passes through this epsilon transition.
+    ///
+    /// These transitions are treated as epsilon transitions with no additional
+    /// effects in DFAs.
+    ///
+    /// 'slot' in this context refers to the specific capture group offset that
+    /// is being recorded. Each capturing group has two slots corresponding to
+    /// the start and end of the matching portion of that group.
     /// A fail state. When encountered, the automaton is guaranteed to never
     /// reach a match state.
+    Capture { next: StateID, slot: usize },
+    /// A state that cannot be transitioned out of. If a search reaches this
+    /// state, then no match is possible and the search should terminate.
     Fail,
     /// A match state. There is exactly one such occurrence of this state for
     /// each regex compiled into the NFA.
@@ -384,7 +447,9 @@ impl State {
             | State::Sparse { .. }
             | State::Fail
             | State::Match(_) => false,
-            State::Look { .. } | State::Union { .. } => true,
+            State::Look { .. }
+            | State::Union { .. }
+            | State::Capture { .. } => true,
         }
     }
 
@@ -393,6 +458,7 @@ impl State {
         match *self {
             State::Range { .. }
             | State::Look { .. }
+            | State::Capture { .. }
             | State::Match(_)
             | State::Fail => 0,
             State::Sparse { ref ranges } => {
@@ -424,6 +490,7 @@ impl State {
                     *alt = remap[*alt];
                 }
             }
+            State::Capture { ref mut next, .. } => *next = remap[*next],
             State::Fail => {}
             State::Match(_) => {}
         }
@@ -452,6 +519,9 @@ impl fmt::Debug for State {
                     .collect::<Vec<String>>()
                     .join(", ");
                 write!(f, "alt({})", alts)
+            }
+            State::Capture { next, slot } => {
+                write!(f, "capture({:?}) => {:?}", slot, next.as_usize())
             }
             State::Fail => write!(f, "FAIL"),
             State::Match(id) => write!(f, "MATCH({:?})", id.as_usize()),

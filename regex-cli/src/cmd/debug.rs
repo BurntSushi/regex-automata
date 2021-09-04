@@ -191,6 +191,7 @@ fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
     table.add("compile nfa time", time_nfa);
     table.add("nfa memory", nfa.memory_usage());
     table.add("pattern count", nfa.match_len());
+    table.add("capture count", nfa.capture_len());
     table.print(stdout())?;
     if !args.is_present("quiet") {
         writeln!(stdout(), "\n{:?}", nfa)?;
