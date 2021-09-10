@@ -985,30 +985,35 @@ mod tests {
     fn look_matches_word_unicode() {
         let look = Look::WordBoundaryUnicode;
 
+        // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
+        // \xF0\x90\x86\x80 = 𐆀 (not in \w)
+
+        // Simple ASCII word boundaries.
         assert!(look.matches(B("a"), 0));
         assert!(look.matches(B("a"), 1));
         assert!(look.matches(B("a "), 1));
         assert!(look.matches(B(" a "), 1));
         assert!(look.matches(B(" a "), 2));
 
-        // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
-        // \xF0\x90\x86\x80 = 𐆀 (not in \w)
-
+        // Unicode word boundaries with a non-ASCII codepoint.
         assert!(look.matches(B("𝛃"), 0));
         assert!(look.matches(B("𝛃"), 4));
         assert!(look.matches(B("𝛃 "), 4));
         assert!(look.matches(B(" 𝛃 "), 1));
         assert!(look.matches(B(" 𝛃 "), 5));
 
+        // Unicode word boundaries between non-ASCII codepoints.
         assert!(look.matches(B("𝛃𐆀"), 0));
         assert!(look.matches(B("𝛃𐆀"), 4));
 
+        // Non word boundaries for ASCII.
         assert!(!look.matches(B(""), 0));
         assert!(!look.matches(B("ab"), 1));
         assert!(!look.matches(B("a "), 2));
         assert!(!look.matches(B(" a "), 0));
         assert!(!look.matches(B(" a "), 3));
 
+        // Non word boundaries with a non-ASCII codepoint.
         assert!(!look.matches(B("𝛃b"), 4));
         assert!(!look.matches(B("𝛃 "), 5));
         assert!(!look.matches(B(" 𝛃 "), 0));
@@ -1017,6 +1022,7 @@ mod tests {
         assert!(!look.matches(B("𝛃"), 2));
         assert!(!look.matches(B("𝛃"), 3));
 
+        // Non word boundaries with non-ASCII codepoints.
         assert!(!look.matches(B("𝛃𐆀"), 1));
         assert!(!look.matches(B("𝛃𐆀"), 2));
         assert!(!look.matches(B("𝛃𐆀"), 3));
@@ -1030,17 +1036,157 @@ mod tests {
     fn look_matches_word_ascii() {
         let look = Look::WordBoundaryAscii;
 
+        // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
+        // \xF0\x90\x86\x80 = 𐆀 (not in \w)
+
+        // Simple ASCII word boundaries.
         assert!(look.matches(B("a"), 0));
         assert!(look.matches(B("a"), 1));
         assert!(look.matches(B("a "), 1));
         assert!(look.matches(B(" a "), 1));
         assert!(look.matches(B(" a "), 2));
 
+        // Unicode word boundaries with a non-ASCII codepoint. Since this is
+        // an ASCII word boundary, none of these match.
+        assert!(!look.matches(B("𝛃"), 0));
+        assert!(!look.matches(B("𝛃"), 4));
+        assert!(!look.matches(B("𝛃 "), 4));
+        assert!(!look.matches(B(" 𝛃 "), 1));
+        assert!(!look.matches(B(" 𝛃 "), 5));
+
+        // Unicode word boundaries between non-ASCII codepoints. Again, since
+        // this is an ASCII word boundary, none of these match.
+        assert!(!look.matches(B("𝛃𐆀"), 0));
+        assert!(!look.matches(B("𝛃𐆀"), 4));
+
+        // Non word boundaries for ASCII.
         assert!(!look.matches(B(""), 0));
         assert!(!look.matches(B("ab"), 1));
         assert!(!look.matches(B("a "), 2));
         assert!(!look.matches(B(" a "), 0));
         assert!(!look.matches(B(" a "), 3));
+
+        // Non word boundaries with a non-ASCII codepoint.
+        assert!(look.matches(B("𝛃b"), 4));
+        assert!(!look.matches(B("𝛃 "), 5));
+        assert!(!look.matches(B(" 𝛃 "), 0));
+        assert!(!look.matches(B(" 𝛃 "), 6));
+        assert!(!look.matches(B("𝛃"), 1));
+        assert!(!look.matches(B("𝛃"), 2));
+        assert!(!look.matches(B("𝛃"), 3));
+
+        // Non word boundaries with non-ASCII codepoints.
+        assert!(!look.matches(B("𝛃𐆀"), 1));
+        assert!(!look.matches(B("𝛃𐆀"), 2));
+        assert!(!look.matches(B("𝛃𐆀"), 3));
+        assert!(!look.matches(B("𝛃𐆀"), 5));
+        assert!(!look.matches(B("𝛃𐆀"), 6));
+        assert!(!look.matches(B("𝛃𐆀"), 7));
+        assert!(!look.matches(B("𝛃𐆀"), 8));
+    }
+
+    #[test]
+    fn look_matches_word_unicode_negate() {
+        let look = Look::WordBoundaryUnicodeNegate;
+
+        // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
+        // \xF0\x90\x86\x80 = 𐆀 (not in \w)
+
+        // Simple ASCII word boundaries.
+        assert!(!look.matches(B("a"), 0));
+        assert!(!look.matches(B("a"), 1));
+        assert!(!look.matches(B("a "), 1));
+        assert!(!look.matches(B(" a "), 1));
+        assert!(!look.matches(B(" a "), 2));
+
+        // Unicode word boundaries with a non-ASCII codepoint.
+        assert!(!look.matches(B("𝛃"), 0));
+        assert!(!look.matches(B("𝛃"), 4));
+        assert!(!look.matches(B("𝛃 "), 4));
+        assert!(!look.matches(B(" 𝛃 "), 1));
+        assert!(!look.matches(B(" 𝛃 "), 5));
+
+        // Unicode word boundaries between non-ASCII codepoints.
+        assert!(!look.matches(B("𝛃𐆀"), 0));
+        assert!(!look.matches(B("𝛃𐆀"), 4));
+
+        // Non word boundaries for ASCII.
+        assert!(look.matches(B(""), 0));
+        assert!(look.matches(B("ab"), 1));
+        assert!(look.matches(B("a "), 2));
+        assert!(look.matches(B(" a "), 0));
+        assert!(look.matches(B(" a "), 3));
+
+        // Non word boundaries with a non-ASCII codepoint.
+        assert!(look.matches(B("𝛃b"), 4));
+        assert!(look.matches(B("𝛃 "), 5));
+        assert!(look.matches(B(" 𝛃 "), 0));
+        assert!(look.matches(B(" 𝛃 "), 6));
+        assert!(look.matches(B("𝛃"), 1));
+        assert!(look.matches(B("𝛃"), 2));
+        assert!(look.matches(B("𝛃"), 3));
+
+        // Non word boundaries with non-ASCII codepoints.
+        assert!(look.matches(B("𝛃𐆀"), 1));
+        assert!(look.matches(B("𝛃𐆀"), 2));
+        assert!(look.matches(B("𝛃𐆀"), 3));
+        assert!(look.matches(B("𝛃𐆀"), 5));
+        assert!(look.matches(B("𝛃𐆀"), 6));
+        assert!(look.matches(B("𝛃𐆀"), 7));
+        assert!(look.matches(B("𝛃𐆀"), 8));
+    }
+
+    #[test]
+    fn look_matches_word_ascii_negate() {
+        let look = Look::WordBoundaryAsciiNegate;
+
+        // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
+        // \xF0\x90\x86\x80 = 𐆀 (not in \w)
+
+        // Simple ASCII word boundaries.
+        assert!(!look.matches(B("a"), 0));
+        assert!(!look.matches(B("a"), 1));
+        assert!(!look.matches(B("a "), 1));
+        assert!(!look.matches(B(" a "), 1));
+        assert!(!look.matches(B(" a "), 2));
+
+        // Unicode word boundaries with a non-ASCII codepoint. Since this is
+        // an ASCII word boundary, none of these match.
+        assert!(look.matches(B("𝛃"), 0));
+        assert!(look.matches(B("𝛃"), 4));
+        assert!(look.matches(B("𝛃 "), 4));
+        assert!(look.matches(B(" 𝛃 "), 1));
+        assert!(look.matches(B(" 𝛃 "), 5));
+
+        // Unicode word boundaries between non-ASCII codepoints. Again, since
+        // this is an ASCII word boundary, none of these match.
+        assert!(look.matches(B("𝛃𐆀"), 0));
+        assert!(look.matches(B("𝛃𐆀"), 4));
+
+        // Non word boundaries for ASCII.
+        assert!(look.matches(B(""), 0));
+        assert!(look.matches(B("ab"), 1));
+        assert!(look.matches(B("a "), 2));
+        assert!(look.matches(B(" a "), 0));
+        assert!(look.matches(B(" a "), 3));
+
+        // Non word boundaries with a non-ASCII codepoint.
+        assert!(!look.matches(B("𝛃b"), 4));
+        assert!(look.matches(B("𝛃 "), 5));
+        assert!(look.matches(B(" 𝛃 "), 0));
+        assert!(look.matches(B(" 𝛃 "), 6));
+        assert!(look.matches(B("𝛃"), 1));
+        assert!(look.matches(B("𝛃"), 2));
+        assert!(look.matches(B("𝛃"), 3));
+
+        // Non word boundaries with non-ASCII codepoints.
+        assert!(look.matches(B("𝛃𐆀"), 1));
+        assert!(look.matches(B("𝛃𐆀"), 2));
+        assert!(look.matches(B("𝛃𐆀"), 3));
+        assert!(look.matches(B("𝛃𐆀"), 5));
+        assert!(look.matches(B("𝛃𐆀"), 6));
+        assert!(look.matches(B("𝛃𐆀"), 7));
+        assert!(look.matches(B("𝛃𐆀"), 8));
     }
 
     fn B<'a, T: 'a + ?Sized + AsRef<[u8]>>(string: &'a T) -> &'a [u8] {
