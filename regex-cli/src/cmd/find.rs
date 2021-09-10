@@ -526,6 +526,9 @@ fn search_dfa_regex<A: Automaton>(
     Ok(counts)
 }
 
+// TODO: Fix the DFA-only searches to handle zero-width matches correctly.
+// We shouldn't be slicing the haystack. We should be using the '_at' methods.
+
 fn search_hybrid_dfa<'i, 'c>(
     dfa: &hybrid::dfa::DFA,
     cache: &mut hybrid::dfa::Cache,

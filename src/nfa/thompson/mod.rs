@@ -4,7 +4,9 @@ use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 
 use crate::util::{
     alphabet::ByteClassSet,
+    decode_last_utf8, decode_utf8,
     id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
+    is_word_byte, is_word_char,
 };
 
 pub use self::{
@@ -618,6 +620,51 @@ pub enum Look {
 }
 
 impl Look {
+    pub fn matches(&self, bytes: &[u8], at: usize) -> bool {
+        match *self {
+            Look::StartLine => at == 0 || bytes[at - 1] == b'\n',
+            Look::EndLine => at == bytes.len() || bytes[at] == b'\n',
+            Look::StartText => at == 0,
+            Look::EndText => at == bytes.len(),
+            Look::WordBoundaryUnicode => {
+                let word_before = at > 0
+                    && match decode_last_utf8(&bytes[..at]) {
+                        None | Some(Err(_)) => false,
+                        Some(Ok(ch)) => is_word_char(ch),
+                    };
+                let word_after = at < bytes.len()
+                    && match decode_utf8(&bytes[at..]) {
+                        None | Some(Err(_)) => false,
+                        Some(Ok(ch)) => is_word_char(ch),
+                    };
+                word_before != word_after
+            }
+            Look::WordBoundaryUnicodeNegate => {
+                let word_before = at > 0
+                    && match decode_last_utf8(&bytes[..at]) {
+                        None | Some(Err(_)) => false,
+                        Some(Ok(ch)) => is_word_char(ch),
+                    };
+                let word_after = at < bytes.len()
+                    && match decode_utf8(&bytes[at..]) {
+                        None | Some(Err(_)) => false,
+                        Some(Ok(ch)) => is_word_char(ch),
+                    };
+                word_before == word_after
+            }
+            Look::WordBoundaryAscii => {
+                let word_before = at > 0 && is_word_byte(bytes[at - 1]);
+                let word_after = at < bytes.len() && is_word_byte(bytes[at]);
+                word_before != word_after
+            }
+            Look::WordBoundaryAsciiNegate => {
+                let word_before = at > 0 && is_word_byte(bytes[at - 1]);
+                let word_after = at < bytes.len() && is_word_byte(bytes[at]);
+                word_before == word_after
+            }
+        }
+    }
+
     /// Create a look-around assertion from its corresponding integer (as
     /// defined in `Look`). If the given integer does not correspond to any
     /// assertion, then None is returned.
@@ -872,5 +919,131 @@ mod tests {
         assert!(f.contains(Look::WordBoundaryAsciiNegate));
         f.remove(Look::WordBoundaryAsciiNegate);
         assert!(!f.contains(Look::WordBoundaryAsciiNegate));
+    }
+
+    #[test]
+    fn look_matches_start_line() {
+        let look = Look::StartLine;
+
+        assert!(look.matches(B(""), 0));
+        assert!(look.matches(B("\n"), 0));
+        assert!(look.matches(B("\n"), 1));
+        assert!(look.matches(B("a"), 0));
+        assert!(look.matches(B("\na"), 1));
+
+        assert!(!look.matches(B("a"), 1));
+        assert!(!look.matches(B("a\na"), 1));
+    }
+
+    #[test]
+    fn look_matches_end_line() {
+        let look = Look::EndLine;
+
+        assert!(look.matches(B(""), 0));
+        assert!(look.matches(B("\n"), 1));
+        assert!(look.matches(B("\na"), 0));
+        assert!(look.matches(B("\na"), 2));
+        assert!(look.matches(B("a\na"), 1));
+
+        assert!(!look.matches(B("a"), 0));
+        assert!(!look.matches(B("\na"), 1));
+        assert!(!look.matches(B("a\na"), 0));
+        assert!(!look.matches(B("a\na"), 2));
+    }
+
+    #[test]
+    fn look_matches_start_text() {
+        let look = Look::StartText;
+
+        assert!(look.matches(B(""), 0));
+        assert!(look.matches(B("\n"), 0));
+        assert!(look.matches(B("a"), 0));
+
+        assert!(!look.matches(B("\n"), 1));
+        assert!(!look.matches(B("\na"), 1));
+        assert!(!look.matches(B("a"), 1));
+        assert!(!look.matches(B("a\na"), 1));
+    }
+
+    #[test]
+    fn look_matches_end_text() {
+        let look = Look::EndText;
+
+        assert!(look.matches(B(""), 0));
+        assert!(look.matches(B("\n"), 1));
+        assert!(look.matches(B("\na"), 2));
+
+        assert!(!look.matches(B("\na"), 0));
+        assert!(!look.matches(B("a\na"), 1));
+        assert!(!look.matches(B("a"), 0));
+        assert!(!look.matches(B("\na"), 1));
+        assert!(!look.matches(B("a\na"), 0));
+        assert!(!look.matches(B("a\na"), 2));
+    }
+
+    #[test]
+    fn look_matches_word_unicode() {
+        let look = Look::WordBoundaryUnicode;
+
+        assert!(look.matches(B("a"), 0));
+        assert!(look.matches(B("a"), 1));
+        assert!(look.matches(B("a "), 1));
+        assert!(look.matches(B(" a "), 1));
+        assert!(look.matches(B(" a "), 2));
+
+        // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
+        // \xF0\x90\x86\x80 = 𐆀 (not in \w)
+
+        assert!(look.matches(B("𝛃"), 0));
+        assert!(look.matches(B("𝛃"), 4));
+        assert!(look.matches(B("𝛃 "), 4));
+        assert!(look.matches(B(" 𝛃 "), 1));
+        assert!(look.matches(B(" 𝛃 "), 5));
+
+        assert!(look.matches(B("𝛃𐆀"), 0));
+        assert!(look.matches(B("𝛃𐆀"), 4));
+
+        assert!(!look.matches(B(""), 0));
+        assert!(!look.matches(B("ab"), 1));
+        assert!(!look.matches(B("a "), 2));
+        assert!(!look.matches(B(" a "), 0));
+        assert!(!look.matches(B(" a "), 3));
+
+        assert!(!look.matches(B("𝛃b"), 4));
+        assert!(!look.matches(B("𝛃 "), 5));
+        assert!(!look.matches(B(" 𝛃 "), 0));
+        assert!(!look.matches(B(" 𝛃 "), 6));
+        assert!(!look.matches(B("𝛃"), 1));
+        assert!(!look.matches(B("𝛃"), 2));
+        assert!(!look.matches(B("𝛃"), 3));
+
+        assert!(!look.matches(B("𝛃𐆀"), 1));
+        assert!(!look.matches(B("𝛃𐆀"), 2));
+        assert!(!look.matches(B("𝛃𐆀"), 3));
+        assert!(!look.matches(B("𝛃𐆀"), 5));
+        assert!(!look.matches(B("𝛃𐆀"), 6));
+        assert!(!look.matches(B("𝛃𐆀"), 7));
+        assert!(!look.matches(B("𝛃𐆀"), 8));
+    }
+
+    #[test]
+    fn look_matches_word_ascii() {
+        let look = Look::WordBoundaryAscii;
+
+        assert!(look.matches(B("a"), 0));
+        assert!(look.matches(B("a"), 1));
+        assert!(look.matches(B("a "), 1));
+        assert!(look.matches(B(" a "), 1));
+        assert!(look.matches(B(" a "), 2));
+
+        assert!(!look.matches(B(""), 0));
+        assert!(!look.matches(B("ab"), 1));
+        assert!(!look.matches(B("a "), 2));
+        assert!(!look.matches(B(" a "), 0));
+        assert!(!look.matches(B(" a "), 3));
+    }
+
+    fn B<'a, T: 'a + ?Sized + AsRef<[u8]>>(string: &'a T) -> &'a [u8] {
+        string.as_ref()
     }
 }

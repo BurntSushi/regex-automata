@@ -72,20 +72,25 @@ pub(crate) fn next_utf8(text: &[u8], i: usize) -> usize {
         None => return i.checked_add(1).unwrap(),
         Some(&b) => b,
     };
-    let inc = if b <= 0x7F {
-        1
-    } else if b <= 0b110_11111 {
-        2
-    } else if b <= 0b1110_1111 {
-        3
-    } else if b <= 0b1111_0111 {
-        4
-    } else {
-        // For cases where we see an invalid UTF-8 byte, there isn't much we
-        // can do other than just start at the next byte.
-        1
-    };
+    // For cases where we see an invalid UTF-8 byte, there isn't much we can do
+    // other than just start at the next byte.
+    let inc = utf8_len(b).unwrap_or(1);
     i.checked_add(inc).unwrap()
+}
+
+/// Returns true if and only if the given character is considered a Unicode
+/// word character.
+#[inline(always)]
+pub(crate) fn is_word_char(ch: char) -> bool {
+    // TODO: We might consider implementing this ourselves... Some things
+    // to think about: 1) regex-syntax might not have Unicode word tables
+    // enabled, so this can technically fail. 2) We might want to expose the
+    // NFA machinery *without* a dependency on regex-syntax, and to do that,
+    // we'd need to implement this ourselves.
+    //
+    // We can punt on (2), but we have to figure out (1) before we ship since
+    // this could otherwise panic.
+    regex_syntax::try_is_word_character(ch).unwrap()
 }
 
 /// Returns true if and only if the given byte is considered a word character.
@@ -101,4 +106,92 @@ pub(crate) fn is_word_byte(b: u8) -> bool {
         b'_' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => true,
         _ => false,
     }
+}
+
+/// Decodes the next UTF-8 encoded codepoint from the given byte slice.
+///
+/// If no valid encoding of a codepoint exists at the beginning of the given
+/// byte slice, then the first byte is returned instead.
+///
+/// This returns `None` if and only if `bytes` is empty.
+pub(crate) fn decode_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let len = match utf8_len(bytes[0]) {
+        None => return Some(Err(bytes[0])),
+        Some(len) if len > bytes.len() => return Some(Err(bytes[0])),
+        Some(len) => len,
+    };
+    match str::from_utf8(&bytes[..len]) {
+        Ok(s) => Some(Ok(s.chars().next().unwrap())),
+        Err(_) => Some(Err(bytes[0])),
+    }
+}
+
+/// Decodes the last UTF-8 encoded codepoint from the given byte slice.
+///
+/// If no valid encoding of a codepoint exists at the end of the given byte
+/// slice, then the last byte is returned instead.
+///
+/// This returns `None` if and only if `bytes` is empty.
+pub(crate) fn decode_last_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut start = bytes.len() - 1;
+    let limit = bytes.len().saturating_sub(4);
+    while start > limit && !is_leading_or_invalid_utf8_byte(bytes[start]) {
+        start -= 1;
+    }
+    match decode_utf8(&bytes[start..]) {
+        None => None,
+        Some(Ok(ch)) => Some(Ok(ch)),
+        Some(Err(_)) => Some(Err(bytes[bytes.len() - 1])),
+    }
+}
+
+/// Given a UTF-8 leading byte, this returns the total number of code units
+/// in the following encoded codepoint.
+///
+/// If the given byte is not a valid UTF-8 leading byte, then this returns
+/// `None`.
+fn utf8_len(byte: u8) -> Option<usize> {
+    if byte <= 0x7F {
+        Some(1)
+    } else if byte <= 0b110_11111 {
+        Some(2)
+    } else if byte <= 0b1110_1111 {
+        Some(3)
+    } else if byte <= 0b1111_0111 {
+        Some(4)
+    } else {
+        None
+    }
+}
+
+/// Returns true if and only if the given byte is either a valid leading UTF-8
+/// byte, or is otherwise an invalid byte that can never appear anywhere in a
+/// valid UTF-8 sequence.
+fn is_leading_or_invalid_utf8_byte(b: u8) -> bool {
+    // In the ASCII case, the most significant bit is never set. The leading
+    // byte of a 2/3/4-byte sequence always has the top two most significant
+    // bits set. For bytes that can never appear anywhere in valid UTF-8, this
+    // also returns true, since every such byte has its two most significant
+    // bits set:
+    //
+    //     \xC0 :: 11000000
+    //     \xC1 :: 11000001
+    //     \xF5 :: 11110101
+    //     \xF6 :: 11110110
+    //     \xF7 :: 11110111
+    //     \xF8 :: 11111000
+    //     \xF9 :: 11111001
+    //     \xFA :: 11111010
+    //     \xFB :: 11111011
+    //     \xFC :: 11111100
+    //     \xFD :: 11111101
+    //     \xFE :: 11111110
+    //     \xFF :: 11111111
+    (b & 0b1100_0000) != 0b1000_0000
 }

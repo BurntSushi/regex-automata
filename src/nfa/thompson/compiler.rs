@@ -67,6 +67,7 @@ pub struct Config {
     utf8: Option<bool>,
     nfa_size_limit: Option<Option<usize>>,
     shrink: Option<bool>,
+    captures: Option<bool>,
     #[cfg(test)]
     unanchored_prefix: Option<bool>,
 }
@@ -183,6 +184,14 @@ impl Config {
         self
     }
 
+    /// Whether to include 'Capture' states in the NFA.
+    ///
+    /// This is enabled by default.
+    pub fn captures(mut self, yes: bool) -> Config {
+        self.captures = Some(yes);
+        self
+    }
+
     /// Whether to compile an unanchored prefix into this NFA.
     ///
     /// This is enabled by default. It is made available for tests only to make
@@ -209,6 +218,10 @@ impl Config {
         self.shrink.unwrap_or(true)
     }
 
+    pub fn get_captures(&self) -> bool {
+        self.captures.unwrap_or(true)
+    }
+
     fn get_unanchored_prefix(&self) -> bool {
         #[cfg(test)]
         {
@@ -226,6 +239,7 @@ impl Config {
             utf8: o.utf8.or(self.utf8),
             nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
             shrink: o.shrink.or(self.shrink),
+            captures: o.captures.or(self.captures),
             #[cfg(test)]
             unanchored_prefix: o.unanchored_prefix.or(self.unanchored_prefix),
         }
@@ -716,6 +730,9 @@ impl Compiler {
     }
 
     fn c_group(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
+        if !self.config.get_captures() {
+            return self.c(expr);
+        }
         let capi = self.next_capture_offset();
         let slot_start = capi.checked_mul(2).unwrap();
         let slot_end = slot_start.checked_add(1).unwrap();
@@ -1426,7 +1443,7 @@ mod tests {
 
     fn build(pattern: &str) -> NFA {
         Builder::new()
-            .configure(Config::new().unanchored_prefix(false))
+            .configure(Config::new().captures(false).unanchored_prefix(false))
             .build(pattern)
             .unwrap()
     }
@@ -1482,7 +1499,10 @@ mod tests {
     #[test]
     fn compile_unanchored_prefix() {
         // When the machine can only match valid UTF-8.
-        let nfa = Builder::new().build(r"a").unwrap();
+        let nfa = Builder::new()
+            .configure(Config::new().captures(false))
+            .build(r"a")
+            .unwrap();
         // There should be many states since the `.` in `(?s:.)*?` matches any
         // Unicode scalar value.
         assert_eq!(11, nfa.len());
@@ -1491,7 +1511,7 @@ mod tests {
 
         // When the machine can match through invalid UTF-8.
         let nfa = Builder::new()
-            .configure(Config::new().utf8(false))
+            .configure(Config::new().captures(false).utf8(false))
             .build(r"a")
             .unwrap();
         assert_eq!(
@@ -1524,7 +1544,12 @@ mod tests {
 
         // Check that non-UTF-8 literals work.
         let nfa = Builder::new()
-            .configure(Config::new().utf8(false).unanchored_prefix(false))
+            .configure(
+                Config::new()
+                    .captures(false)
+                    .utf8(false)
+                    .unanchored_prefix(false),
+            )
             .syntax(crate::SyntaxConfig::new().utf8(false))
             .build(r"(?-u)\xFF")
             .unwrap();
@@ -1614,7 +1639,7 @@ mod tests {
     #[test]
     fn many_start_pattern() {
         let nfa = Builder::new()
-            .configure(Config::new().unanchored_prefix(false))
+            .configure(Config::new().captures(false).unanchored_prefix(false))
             .build_many(&["a", "b"])
             .unwrap();
         assert_eq!(

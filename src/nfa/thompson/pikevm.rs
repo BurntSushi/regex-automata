@@ -41,7 +41,11 @@ pub struct PikeVM {
     nfa: Arc<NFA>,
 }
 
-impl PikeVM {}
+impl PikeVM {
+    fn nfa(&self) -> &Arc<NFA> {
+        &self.nfa
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Cache {
@@ -65,18 +69,34 @@ enum FollowEpsilon {
     Capture { slot: usize, pos: Slot },
 }
 
+impl Cache {
+    pub fn new(vm: &PikeVM) -> Cache {
+        Cache {
+            stack: vec![],
+            clist: Threads::new(vm.nfa()),
+            nlist: Threads::new(vm.nfa()),
+        }
+    }
+}
+
 impl Threads {
-    fn new() -> Self {
-        Threads { set: SparseSet::new(0), caps: vec![], slots_per_thread: 0 }
+    fn new(nfa: &NFA) -> Threads {
+        let mut threads = Threads {
+            set: SparseSet::new(0),
+            caps: vec![],
+            slots_per_thread: 0,
+        };
+        threads.resize(nfa);
+        threads
     }
 
-    fn resize(&mut self, state_count: usize, ncaps: usize) {
-        if state_count == self.set.capacity() {
+    fn resize(&mut self, nfa: &NFA) {
+        if nfa.states().len() == self.set.capacity() {
             return;
         }
-        self.slots_per_thread = ncaps * 2;
-        self.set.resize(state_count);
-        self.caps.resize(self.slots_per_thread * state_count, None);
+        self.slots_per_thread = nfa.capture_len() * 2;
+        self.set.resize(nfa.states().len());
+        self.caps.resize(self.slots_per_thread * nfa.states().len(), None);
     }
 
     fn caps(&mut self, sid: StateID) -> &mut [Slot] {

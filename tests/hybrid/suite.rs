@@ -102,7 +102,7 @@ fn compiler(
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
         let mut thompson = thompson::Builder::new();
-        thompson.configure(config_thompson(test));
+        thompson.syntax(config_syntax(test)).configure(config_thompson(test));
         if let Ok(nfa) = thompson.build_many(&regexes) {
             let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
             if nfa.has_word_boundary_unicode() && non_ascii {
@@ -185,19 +185,14 @@ fn configure_regex_builder(
         TestMatchKind::LeftmostLongest => return false,
     };
 
-    let syntax_config = SyntaxConfig::new()
-        .case_insensitive(test.case_insensitive())
-        .unicode(test.unicode())
-        .utf8(test.utf8());
     let dense_config = DFA::config()
         .anchored(test.anchored())
         .match_kind(match_kind)
         .unicode_word_boundary(true);
     let regex_config = Regex::config().utf8(test.utf8());
-
     builder
         .configure(regex_config)
-        .syntax(syntax_config)
+        .syntax(config_syntax(test))
         .thompson(config_thompson(test))
         .dfa(dense_config);
     true
@@ -206,4 +201,12 @@ fn configure_regex_builder(
 /// Configuration of a Thompson NFA compiler from a regex test.
 fn config_thompson(test: &RegexTest) -> thompson::Config {
     thompson::Config::new().utf8(test.utf8())
+}
+
+/// Configuration of the regex parser from a regex test.
+fn config_syntax(test: &RegexTest) -> SyntaxConfig {
+    SyntaxConfig::new()
+        .case_insensitive(test.case_insensitive())
+        .unicode(test.unicode())
+        .utf8(test.utf8())
 }
