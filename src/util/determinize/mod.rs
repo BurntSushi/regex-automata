@@ -210,16 +210,14 @@ pub(crate) fn next(
                 }
             }
             thompson::State::Range { range: ref r } => {
-                if let Some(b) = unit.as_u8() {
-                    if r.start <= b && b <= r.end {
-                        epsilon_closure(
-                            nfa,
-                            r.next,
-                            *builder.look_have(),
-                            stack,
-                            &mut sparses.set2,
-                        );
-                    }
+                if r.matches_unit(unit) {
+                    epsilon_closure(
+                        nfa,
+                        r.next,
+                        *builder.look_have(),
+                        stack,
+                        &mut sparses.set2,
+                    );
                 }
             }
             thompson::State::Sparse { ref ranges } => {

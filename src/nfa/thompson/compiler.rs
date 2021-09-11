@@ -294,7 +294,7 @@ impl Builder {
     /// only error that can occur is if the compiled regex would exceed the
     /// size limits configured on this builder.
     pub fn build_from_hir(&self, expr: &Hir) -> Result<NFA, Error> {
-        let mut nfa = NFA::always_match();
+        let mut nfa = NFA::empty();
         self.build_from_hir_with(&mut Compiler::new(), &mut nfa, expr)?;
         Ok(nfa)
     }
@@ -303,7 +303,7 @@ impl Builder {
         &self,
         exprs: &[H],
     ) -> Result<NFA, Error> {
-        let mut nfa = NFA::always_match();
+        let mut nfa = NFA::empty();
         self.build_many_from_hir_with(&mut Compiler::new(), &mut nfa, exprs)?;
         Ok(nfa)
     }
@@ -581,8 +581,6 @@ impl Compiler {
         remap.resize(bstates.len(), StateID::ZERO);
         let mut empties = self.empties.borrow_mut();
         empties.clear();
-
-        nfa.clear();
         let mut byteset = ByteClassSet::new();
 
         // The idea here is to convert our intermediate states to their final
@@ -649,9 +647,7 @@ impl Compiler {
             }
             remap[empty_id] = remap[empty_next];
         }
-        for state in nfa.states_mut() {
-            state.remap(&remap);
-        }
+        nfa.remap(&remap);
         // The compiler always begins the NFA at the first state.
         nfa.set_byte_class_set(byteset.clone());
         nfa.set_start_anchored(remap[start_anchored]);
