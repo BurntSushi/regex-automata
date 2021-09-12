@@ -52,7 +52,7 @@ use crate::{
         error::Error,
         map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
         range_trie::RangeTrie,
-        Look, State, Transition, NFA,
+        Look, SparseTransitions, State, Transition, NFA,
     },
     util::{
         alphabet::ByteClassSet,
@@ -573,7 +573,8 @@ impl Compiler {
         start_unanchored: StateID,
     ) -> Result<(), Error> {
         trace!(
-            "NFA compilation complete, intermediate NFA size: {:?}",
+            "intermediate NFA compilation complete, \
+             intermediate NFA size: {:?}",
             self.nfa_memory_usage(),
         );
         let mut bstates = self.states.borrow_mut();
@@ -610,9 +611,10 @@ impl Compiler {
                     for r in &ranges {
                         byteset.set_range(r.start, r.end);
                     }
-                    remap[sid] = nfa.add(State::Sparse {
-                        ranges: ranges.into_boxed_slice(),
-                    })?;
+                    remap[sid] =
+                        nfa.add(State::Sparse(SparseTransitions {
+                            ranges: ranges.into_boxed_slice(),
+                        }))?;
                 }
                 CState::Look { look, next } => {
                     look.add_to_byteset(&mut byteset);
@@ -631,8 +633,8 @@ impl Compiler {
                         alternates: alternates.into_boxed_slice(),
                     })?;
                 }
-                CState::Match(pid) => {
-                    remap[sid] = nfa.add(State::Match(pid))?;
+                CState::Match(id) => {
+                    remap[sid] = nfa.add(State::Match { id })?;
                 }
             }
         }
@@ -656,6 +658,12 @@ impl Compiler {
         for (pid, &old_id) in start_pats.iter().with_pattern_ids() {
             nfa.set_start_pattern(pid, remap[old_id]);
         }
+        trace!(
+            "final NFA (reverse? {:?}) compilation complete, \
+             final NFA size: {:?}",
+            self.config.get_reverse(),
+            nfa.memory_usage(),
+        );
         Ok(())
     }
 
@@ -1435,7 +1443,10 @@ impl Utf8Node {
 
 #[cfg(test)]
 mod tests {
-    use super::{Builder, Config, PatternID, State, StateID, Transition, NFA};
+    use super::{
+        Builder, Config, PatternID, SparseTransitions, State, StateID,
+        Transition, NFA,
+    };
 
     fn build(pattern: &str) -> NFA {
         Builder::new()
@@ -1473,7 +1484,7 @@ mod tests {
                 next: sid(next),
             })
             .collect();
-        State::Sparse { ranges }
+        State::Sparse(SparseTransitions { ranges })
     }
 
     fn s_union(alts: &[usize]) -> State {
@@ -1487,7 +1498,7 @@ mod tests {
     }
 
     fn s_match(id: usize) -> State {
-        State::Match(pid(id))
+        State::Match { id: pid(id) }
     }
 
     // Test that building an unanchored NFA has an appropriate `(?s:.)*?`

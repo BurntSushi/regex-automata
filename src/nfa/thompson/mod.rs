@@ -106,7 +106,7 @@ impl NFA {
     #[inline]
     pub fn always_match() -> NFA {
         let mut nfa = NFA::empty();
-        nfa.add(State::Match(PatternID::ZERO));
+        nfa.add(State::Match { id: PatternID::ZERO });
         nfa
     }
 
@@ -284,8 +284,8 @@ impl NFA {
                     self.set_capture_slot_len(len);
                 }
             }
-            State::Match(pid) => {
-                let len = pid.one_more();
+            State::Match { id } => {
+                let len = id.one_more();
                 if len > self.match_len() {
                     self.set_match_len(len);
                 }
@@ -423,7 +423,7 @@ pub enum State {
     /// fashion. Transitions are ordered lexicographically by input range. As
     /// such, this may only be used when every transition has equal priority.
     /// (In practice, this is only used for encoding UTF-8 automata.)
-    Sparse { ranges: Box<[Transition]> },
+    Sparse(SparseTransitions),
     /// A conditional epsilon transition satisfied via some sort of
     /// look-around.
     Look { look: Look, next: StateID },
@@ -452,7 +452,7 @@ pub enum State {
     Fail,
     /// A match state. There is exactly one such occurrence of this state for
     /// each regex compiled into the NFA.
-    Match(PatternID),
+    Match { id: PatternID },
 }
 
 impl State {
@@ -464,7 +464,7 @@ impl State {
             State::Range { .. }
             | State::Sparse { .. }
             | State::Fail
-            | State::Match(_) => false,
+            | State::Match { .. } => false,
             State::Look { .. }
             | State::Union { .. }
             | State::Capture { .. } => true,
@@ -477,9 +477,9 @@ impl State {
             State::Range { .. }
             | State::Look { .. }
             | State::Capture { .. }
-            | State::Match(_)
+            | State::Match { .. }
             | State::Fail => 0,
-            State::Sparse { ref ranges } => {
+            State::Sparse(SparseTransitions { ref ranges }) => {
                 ranges.len() * mem::size_of::<Transition>()
             }
             State::Union { ref alternates } => {
@@ -497,7 +497,7 @@ impl State {
     fn remap(&mut self, remap: &[StateID]) {
         match *self {
             State::Range { ref mut range } => range.next = remap[range.next],
-            State::Sparse { ref mut ranges } => {
+            State::Sparse(SparseTransitions { ref mut ranges }) => {
                 for r in ranges.iter_mut() {
                     r.next = remap[r.next];
                 }
@@ -510,7 +510,7 @@ impl State {
             }
             State::Capture { ref mut next, .. } => *next = remap[*next],
             State::Fail => {}
-            State::Match(_) => {}
+            State::Match { .. } => {}
         }
     }
 }
@@ -519,7 +519,7 @@ impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             State::Range { ref range } => range.fmt(f),
-            State::Sparse { ref ranges } => {
+            State::Sparse(SparseTransitions { ref ranges }) => {
                 let rs = ranges
                     .iter()
                     .map(|t| format!("{:?}", t))
@@ -542,7 +542,7 @@ impl fmt::Debug for State {
                 write!(f, "capture({:?}) => {:?}", slot, next.as_usize())
             }
             State::Fail => write!(f, "FAIL"),
-            State::Match(id) => write!(f, "MATCH({:?})", id.as_usize()),
+            State::Match { id } => write!(f, "MATCH({:?})", id.as_usize()),
         }
     }
 }
@@ -564,8 +564,28 @@ impl Facts {
     define_bool!(3, has_word_boundary_ascii, set_has_word_boundary_ascii);
 }
 
-// /// A sequence of transitions used to represent a sparse state.
-// TODO
+/// A sequence of transitions used to represent a sparse state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SparseTransitions {
+    pub ranges: Box<[Transition]>,
+}
+
+impl SparseTransitions {
+    pub fn matches_unit(&self, unit: alphabet::Unit) -> Option<StateID> {
+        unit.as_u8().map_or(None, |byte| self.matches_byte(byte))
+    }
+
+    pub fn matches_byte(&self, byte: u8) -> Option<StateID> {
+        for t in self.ranges.iter() {
+            if t.start > byte {
+                break;
+            } else if t.matches_byte(byte) {
+                return Some(t.next);
+            }
+        }
+        None
+    }
+}
 
 /// A transition to another state, only if the given byte falls in the
 /// inclusive range specified.
@@ -577,12 +597,12 @@ pub struct Transition {
 }
 
 impl Transition {
-    pub fn matches_byte(&self, byte: u8) -> bool {
-        self.start <= byte && byte <= self.end
-    }
-
     pub fn matches_unit(&self, unit: alphabet::Unit) -> bool {
         unit.as_u8().map_or(false, |byte| self.matches_byte(byte))
+    }
+
+    pub fn matches_byte(&self, byte: u8) -> bool {
+        self.start <= byte && byte <= self.end
     }
 }
 

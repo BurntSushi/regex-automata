@@ -183,7 +183,7 @@ pub(crate) fn next(
             | thompson::State::Fail
             | thompson::State::Look { .. }
             | thompson::State::Capture { .. } => {}
-            thompson::State::Match(pid) => {
+            thompson::State::Match { id } => {
                 // Notice here that we are calling the NEW state a match
                 // state if the OLD state we are transitioning from
                 // contains an NFA match state. This is precisely how we
@@ -204,7 +204,7 @@ pub(crate) fn next(
                 // IDs in a set, we are guarateed not to have any duplicative
                 // match states. Thus, it is impossible to add the same pattern
                 // ID more than once.
-                builder.add_match_pattern_id(pid);
+                builder.add_match_pattern_id(id);
                 if !match_kind.continue_past_first_match() {
                     break;
                 }
@@ -220,24 +220,15 @@ pub(crate) fn next(
                     );
                 }
             }
-            thompson::State::Sparse { ref ranges } => {
-                let b = match unit.as_u8() {
-                    None => continue,
-                    Some(b) => b,
-                };
-                for r in ranges.iter() {
-                    if r.start > b {
-                        break;
-                    } else if r.start <= b && b <= r.end {
-                        epsilon_closure(
-                            nfa,
-                            r.next,
-                            *builder.look_have(),
-                            stack,
-                            &mut sparses.set2,
-                        );
-                        break;
-                    }
+            thompson::State::Sparse(ref sparse) => {
+                if let Some(next) = sparse.matches_unit(unit) {
+                    epsilon_closure(
+                        nfa,
+                        next,
+                        *builder.look_have(),
+                        stack,
+                        &mut sparses.set2,
+                    );
                 }
             }
         }
@@ -315,7 +306,7 @@ pub(crate) fn epsilon_closure(
                 thompson::State::Range { .. }
                 | thompson::State::Sparse { .. }
                 | thompson::State::Fail
-                | thompson::State::Match(_) => break,
+                | thompson::State::Match { .. } => break,
                 thompson::State::Look { look, next } => {
                     if !look_have.contains(look) {
                         break;
@@ -414,7 +405,7 @@ pub(crate) fn add_nfa_states(
             thompson::State::Fail => {
                 break;
             }
-            thompson::State::Match(_) => {
+            thompson::State::Match { .. } => {
                 // Normally, the NFA match state doesn't actually need to
                 // be inside the DFA state. But since we delay matches by
                 // one byte, the matching DFA state corresponds to states
