@@ -75,11 +75,12 @@ impl PikeVM {
     }
 
     pub fn create_cache(&self) -> Cache {
-        Cache::new(self)
+        Cache::new(self.nfa())
     }
 
-    // pub fn create_captures(&self) -> Captures {
-    // }
+    pub fn create_captures(&self) -> Captures {
+        Captures::new(self.nfa())
+    }
 
     pub fn nfa(&self) -> &Arc<NFA> {
         &self.nfa
@@ -93,6 +94,17 @@ impl PikeVM {
         end: usize,
     ) -> Option<MultiMatch> {
         todo!()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Captures {
+    slots: Vec<Slot>,
+}
+
+impl Captures {
+    pub fn new(nfa: &NFA) -> Captures {
+        Captures { slots: vec![None; nfa.capture_slot_len()] }
     }
 }
 
@@ -119,11 +131,11 @@ enum FollowEpsilon {
 }
 
 impl Cache {
-    pub fn new(vm: &PikeVM) -> Cache {
+    pub fn new(nfa: &NFA) -> Cache {
         Cache {
             stack: vec![],
-            clist: Threads::new(vm.nfa()),
-            nlist: Threads::new(vm.nfa()),
+            clist: Threads::new(nfa),
+            nlist: Threads::new(nfa),
         }
     }
 }
@@ -143,7 +155,7 @@ impl Threads {
         if nfa.states().len() == self.set.capacity() {
             return;
         }
-        self.slots_per_thread = nfa.capture_len() * 2;
+        self.slots_per_thread = nfa.capture_slot_len();
         self.set.resize(nfa.states().len());
         self.caps.resize(self.slots_per_thread * nfa.states().len(), None);
     }

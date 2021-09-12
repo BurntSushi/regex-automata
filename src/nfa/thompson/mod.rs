@@ -338,6 +338,11 @@ impl NFA {
     }
 
     #[inline]
+    pub fn is_always_start_anchored(&self) -> bool {
+        self.start_anchored() == self.start_unanchored()
+    }
+
+    #[inline]
     pub fn has_any_look(&self) -> bool {
         self.facts.has_any_look()
     }
