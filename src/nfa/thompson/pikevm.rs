@@ -1,8 +1,8 @@
 use alloc::sync::Arc;
 
 use crate::{
-    nfa::thompson::NFA,
-    util::{id::StateID, sparse_set::SparseSet},
+    nfa::thompson::{self, Error, NFA},
+    util::{id::StateID, matchtypes::MultiMatch, sparse_set::SparseSet},
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -23,12 +23,28 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
+    thompson: thompson::Builder,
 }
 
 impl Builder {
     /// Create a new PikeVM builder with its default configuration.
     pub fn new() -> Builder {
-        Builder { config: Config::default() }
+        Builder {
+            config: Config::default(),
+            thompson: thompson::Builder::new(),
+        }
+    }
+
+    pub fn build(&self, pattern: &str) -> Result<PikeVM, Error> {
+        self.build_many(&[pattern])
+    }
+
+    pub fn build_many<P: AsRef<str>>(
+        &self,
+        patterns: &[P],
+    ) -> Result<PikeVM, Error> {
+        let nfa = self.thompson.build_many(patterns)?;
+        self.build_from_nfa(Arc::new(nfa))
     }
 
     pub fn build_from_nfa(&self, nfa: Arc<NFA>) -> Result<PikeVM, Error> {
@@ -42,8 +58,41 @@ pub struct PikeVM {
 }
 
 impl PikeVM {
-    fn nfa(&self) -> &Arc<NFA> {
+    pub fn new(pattern: &str) -> Result<PikeVM, Error> {
+        PikeVM::builder().build(pattern)
+    }
+
+    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<PikeVM, Error> {
+        PikeVM::builder().build_many(patterns)
+    }
+
+    pub fn config() -> Config {
+        Config::new()
+    }
+
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+
+    pub fn create_cache(&self) -> Cache {
+        Cache::new(self)
+    }
+
+    // pub fn create_captures(&self) -> Captures {
+    // }
+
+    pub fn nfa(&self) -> &Arc<NFA> {
         &self.nfa
+    }
+
+    pub fn find_leftmost_at(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+    ) -> Option<MultiMatch> {
+        todo!()
     }
 }
 
@@ -104,6 +153,3 @@ impl Threads {
         &mut self.caps[i..i + self.slots_per_thread]
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct Error(());
