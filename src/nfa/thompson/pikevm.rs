@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
 use crate::{
-    nfa::thompson::{self, Error, NFA},
+    nfa::thompson::{self, Error, State, NFA},
     util::{id::StateID, matchtypes::MultiMatch, sparse_set::SparseSet},
 };
 
@@ -95,6 +95,142 @@ impl PikeVM {
     ) -> Option<MultiMatch> {
         todo!()
     }
+
+    fn step(
+        &self,
+        nlist: &mut Threads,
+        slots: &mut [Slot],
+        thread_caps: &mut [Slot],
+        stack: &mut Vec<FollowEpsilon>,
+        sid: StateID,
+        haystack: &[u8],
+        at: usize,
+    ) -> bool {
+        match *self.nfa.state(sid) {
+            State::Fail
+            | State::Look { .. }
+            | State::Union { .. }
+            | State::Capture { .. } => false,
+            State::Range { ref range } => {
+                if range.matches_byte(haystack[at]) {
+                    self.epsilon_closure(
+                        nlist,
+                        thread_caps,
+                        stack,
+                        range.next,
+                        haystack,
+                        at + 1,
+                    );
+                }
+                false
+            }
+            State::Sparse(ref sparse) => {
+                if let Some(next) = sparse.matches_byte(haystack[at]) {
+                    self.epsilon_closure(
+                        nlist,
+                        thread_caps,
+                        stack,
+                        next,
+                        haystack,
+                        at + 1,
+                    );
+                }
+                false
+            }
+            State::Match { id } => {
+                for (slot, val) in slots.iter_mut().zip(thread_caps.iter()) {
+                    *slot = *val;
+                }
+                true
+            }
+        }
+    }
+
+    fn epsilon_closure(
+        &self,
+        nlist: &mut Threads,
+        thread_caps: &mut [Slot],
+        stack: &mut Vec<FollowEpsilon>,
+        sid: StateID,
+        haystack: &[u8],
+        at: usize,
+    ) {
+        stack.push(FollowEpsilon::StateID(sid));
+        while let Some(frame) = stack.pop() {
+            match frame {
+                FollowEpsilon::StateID(sid) => {
+                    self.epsilon_closure_step(
+                        nlist,
+                        thread_caps,
+                        stack,
+                        sid,
+                        haystack,
+                        at,
+                    );
+                }
+                FollowEpsilon::Capture { slot, pos } => {
+                    thread_caps[slot] = pos;
+                }
+            }
+        }
+    }
+
+    fn epsilon_closure_step(
+        &self,
+        nlist: &mut Threads,
+        thread_caps: &mut [Slot],
+        stack: &mut Vec<FollowEpsilon>,
+        mut sid: StateID,
+        haystack: &[u8],
+        at: usize,
+    ) {
+        loop {
+            if !nlist.set.insert(sid) {
+                break;
+            }
+            match *self.nfa.state(sid) {
+                State::Fail
+                | State::Range { .. }
+                | State::Sparse { .. }
+                | State::Match { .. } => {
+                    let t = &mut nlist.caps(sid);
+                    for (slot, val) in t.iter_mut().zip(thread_caps.iter()) {
+                        *slot = *val;
+                    }
+                    return;
+                }
+                State::Look { look, next } => {
+                    if !look.matches(haystack, at) {
+                        break;
+                    }
+                    sid = next;
+                }
+                State::Union { ref alternates } => {
+                    sid = match alternates.get(0) {
+                        None => break,
+                        Some(&sid) => sid,
+                    };
+                    stack.extend(
+                        alternates[1..]
+                            .iter()
+                            .copied()
+                            .rev()
+                            .map(FollowEpsilon::StateID),
+                    );
+                }
+                State::Capture { next, slot } => {
+                    if slot < thread_caps.len() {
+                        stack.push(FollowEpsilon::Capture {
+                            slot,
+                            pos: thread_caps[slot],
+                        });
+                        thread_caps[slot] = Some(at);
+                    }
+                    sid = next;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -126,7 +262,7 @@ struct Threads {
 
 #[derive(Clone, Debug)]
 enum FollowEpsilon {
-    IP(StateID),
+    StateID(StateID),
     Capture { slot: usize, pos: Slot },
 }
 
