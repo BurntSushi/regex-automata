@@ -4,7 +4,7 @@ use anyhow::Context;
 use automata::{
     dfa::{self, dense, sparse},
     hybrid,
-    nfa::thompson,
+    nfa::thompson::{self, pikevm},
     MatchKind,
 };
 use bstr::{BStr, BString, ByteSlice};
@@ -612,6 +612,83 @@ compile a DFA.
             .configure(self.0)
             .build_many_from_hir(exprs)
             .context("failed to compile Thompson NFA")
+    }
+}
+
+#[derive(Debug)]
+pub struct PikeVM {
+    config: pikevm::Config,
+}
+
+impl PikeVM {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Build an anchored Pike VM.";
+            const LONG: &str = "\
+Build an anchored Pike VM.
+
+When enabled, the Pike VM only executes anchored searches, even if the
+underlying NFA has an unanchored start state. This means that the Pike VM
+can only find matches that begin where the search starts. When disabled (the
+default), the Pike VM will have an \"unanchored\" prefix that permits it to
+match anywhere.
+";
+            app = app.arg(
+                switch("anchored").short("a").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Disable UTF-8 handling for iterators.";
+            const LONG: &str = "\
+Disable UTF-8 handling for regex iterators when an empty match is seen.
+
+When UTF-8 mode is enabled for regexes (the default) and an empty match is
+seen, the iterators will always start the next search at the next UTF-8 encoded
+codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
+searches are started at the next byte offset.
+
+Generally speaking, UTF-8 mode for regexes should only be used when you know
+you are searching valid UTF-8. Typically, this should only be disabled in
+precisely the cases where the regex itself is permitted to match invalid UTF-8.
+This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
+'--no-utf8-regex' together.
+
+This mode cannot be toggled inside the regex.
+";
+            app = app.arg(switch("no-utf8-regex").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<PikeVM> {
+        let config = pikevm::Config::new()
+            .anchored(args.is_present("anchored"))
+            .utf8(!args.is_present("no-utf8-regex"));
+        Ok(PikeVM { config })
+    }
+
+    pub fn builder(
+        &self,
+        syntax: &Syntax,
+        thompson: &Thompson,
+    ) -> pikevm::Builder {
+        let mut builder = pikevm::PikeVM::builder();
+        builder.configure(self.config).syntax(syntax.0).thompson(thompson.0);
+        builder
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        thompson: &Thompson,
+        patterns: &Patterns,
+    ) -> anyhow::Result<pikevm::PikeVM> {
+        let patterns = patterns.as_strings();
+        let b = self.builder(syntax, thompson);
+        let (vm, time) = util::timeitr(|| b.build_many(patterns))?;
+        table.add("build pike vm time", time);
+        Ok(vm)
     }
 }
 
@@ -1346,8 +1423,7 @@ pub struct RegexHybrid {
 impl RegexHybrid {
     pub fn define(mut app: App) -> App {
         {
-            const SHORT: &str =
-                "Allow unachored searches through invalid UTF-8.";
+            const SHORT: &str = "Disable UTF-8 handling for iterators.";
             const LONG: &str = "\
 Disable UTF-8 handling for regex iterators when an empty match is seen.
 

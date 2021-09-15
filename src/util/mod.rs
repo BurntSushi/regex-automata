@@ -114,6 +114,7 @@ pub(crate) fn is_word_byte(b: u8) -> bool {
 /// byte slice, then the first byte is returned instead.
 ///
 /// This returns `None` if and only if `bytes` is empty.
+#[inline(always)]
 pub(crate) fn decode_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
     if bytes.is_empty() {
         return None;
@@ -135,6 +136,7 @@ pub(crate) fn decode_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
 /// slice, then the last byte is returned instead.
 ///
 /// This returns `None` if and only if `bytes` is empty.
+#[inline(always)]
 pub(crate) fn decode_last_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
     if bytes.is_empty() {
         return None;
@@ -156,6 +158,7 @@ pub(crate) fn decode_last_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
 ///
 /// If the given byte is not a valid UTF-8 leading byte, then this returns
 /// `None`.
+#[inline(always)]
 fn utf8_len(byte: u8) -> Option<usize> {
     if byte <= 0x7F {
         Some(1)
@@ -173,6 +176,7 @@ fn utf8_len(byte: u8) -> Option<usize> {
 /// Returns true if and only if the given byte is either a valid leading UTF-8
 /// byte, or is otherwise an invalid byte that can never appear anywhere in a
 /// valid UTF-8 sequence.
+#[inline(always)]
 fn is_leading_or_invalid_utf8_byte(b: u8) -> bool {
     // In the ASCII case, the most significant bit is never set. The leading
     // byte of a 2/3/4-byte sequence always has the top two most significant
@@ -194,4 +198,60 @@ fn is_leading_or_invalid_utf8_byte(b: u8) -> bool {
     //     \xFE :: 11111110
     //     \xFF :: 11111111
     (b & 0b1100_0000) != 0b1000_0000
+}
+
+#[inline(never)]
+pub(crate) fn is_word_char_fwd(bytes: &[u8], mut at: usize) -> bool {
+    use crate::dfa::{dense, Automaton};
+
+    lazy_static::lazy_static! {
+        static ref WORD_FWD: dense::DFA<Vec<u32>> = dense::Builder::new()
+                .configure(dense::Config::new().anchored(true))
+                .build(r"\w")
+                .unwrap();
+    }
+
+    let dfa = &*WORD_FWD;
+    let mut sid = dfa.start_state_forward(None, bytes, at, bytes.len());
+    while at < bytes.len() {
+        let byte = bytes[at];
+        sid = dfa.next_state(sid, byte);
+        at += 1;
+        if dfa.is_match_state(sid) {
+            return true;
+        } else if dfa.is_dead_state(sid) {
+            return false;
+        }
+    }
+    dfa.is_match_state(dfa.next_eoi_state(sid))
+}
+
+#[inline(never)]
+pub(crate) fn is_word_char_rev(bytes: &[u8], mut at: usize) -> bool {
+    use crate::{
+        dfa::{dense, Automaton},
+        nfa::thompson::NFA,
+    };
+
+    lazy_static::lazy_static! {
+        static ref WORD_REV: dense::DFA<Vec<u32>> = dense::Builder::new()
+                .configure(dense::Config::new().anchored(true))
+                .thompson(NFA::config().reverse(true).shrink(true))
+                .build(r"\w")
+                .unwrap();
+    }
+
+    let dfa = &*WORD_REV;
+    let mut sid = dfa.start_state_reverse(None, bytes, at, bytes.len());
+    while at > 0 {
+        at -= 1;
+        let byte = bytes[at];
+        sid = dfa.next_state(sid, byte);
+        if dfa.is_match_state(sid) {
+            return true;
+        } else if dfa.is_dead_state(sid) {
+            return false;
+        }
+    }
+    dfa.is_match_state(dfa.next_eoi_state(sid))
 }

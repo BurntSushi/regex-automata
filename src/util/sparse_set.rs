@@ -176,6 +176,14 @@ impl SparseSet {
         i.as_usize() < self.len() && self.dense[i] == value
     }
 
+    /// Returns the ith inserted element from this set.
+    ///
+    /// Panics when i >= self.len().
+    #[inline]
+    pub(crate) fn get(&self, i: usize) -> StateID {
+        self.dense[i]
+    }
+
     /// Clear this set such that it has no members.
     #[inline]
     pub(crate) fn clear(&mut self) {

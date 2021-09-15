@@ -2,11 +2,18 @@ use alloc::sync::Arc;
 
 use crate::{
     nfa::thompson::{self, Error, State, NFA},
-    util::{id::StateID, matchtypes::MultiMatch, sparse_set::SparseSet},
+    util::{
+        id::{PatternID, StateID},
+        matchtypes::MultiMatch,
+        sparse_set::SparseSet,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Config {}
+pub struct Config {
+    anchored: Option<bool>,
+    utf8: Option<bool>,
+}
 
 impl Config {
     /// Return a new default PikeVM configuration.
@@ -14,8 +21,29 @@ impl Config {
         Config::default()
     }
 
+    pub fn anchored(mut self, yes: bool) -> Config {
+        self.anchored = Some(yes);
+        self
+    }
+
+    pub fn utf8(mut self, yes: bool) -> Config {
+        self.utf8 = Some(yes);
+        self
+    }
+
+    pub fn get_anchored(&self) -> bool {
+        self.anchored.unwrap_or(false)
+    }
+
+    pub fn get_utf8(&self) -> bool {
+        self.utf8.unwrap_or(true)
+    }
+
     pub(crate) fn overwrite(self, o: Config) -> Config {
-        Config {}
+        Config {
+            anchored: o.anchored.or(self.anchored),
+            utf8: o.utf8.or(self.utf8),
+        }
     }
 }
 
@@ -48,12 +76,47 @@ impl Builder {
     }
 
     pub fn build_from_nfa(&self, nfa: Arc<NFA>) -> Result<PikeVM, Error> {
-        Ok(PikeVM { nfa })
+        Ok(PikeVM { config: self.config, nfa })
+    }
+
+    pub fn configure(&mut self, config: Config) -> &mut Builder {
+        self.config = self.config.overwrite(config);
+        self
+    }
+
+    /// Set the syntax configuration for this builder using
+    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    ///
+    /// This permits setting things like case insensitivity, Unicode and multi
+    /// line mode.
+    ///
+    /// These settings only apply when constructing a PikeVM directly from a
+    /// pattern.
+    pub fn syntax(
+        &mut self,
+        config: crate::util::syntax::SyntaxConfig,
+    ) -> &mut Builder {
+        self.thompson.syntax(config);
+        self
+    }
+
+    /// Set the Thompson NFA configuration for this builder using
+    /// [`nfa::thompson::Config`](crate::nfa::thompson::Config).
+    ///
+    /// This permits setting things like if additional time should be spent
+    /// shrinking the size of the NFA.
+    ///
+    /// These settings only apply when constructing a PikeVM directly from a
+    /// pattern.
+    pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
+        self.thompson.configure(config);
+        self
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct PikeVM {
+    config: Config,
     nfa: Arc<NFA>,
 }
 
@@ -86,16 +149,80 @@ impl PikeVM {
         &self.nfa
     }
 
+    pub fn find_leftmost_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> FindLeftmostMatches<'r, 'c, 't> {
+        FindLeftmostMatches::new(self, cache, haystack)
+    }
+
     pub fn find_leftmost_at(
         &self,
         cache: &mut Cache,
         haystack: &[u8],
         start: usize,
         end: usize,
+        caps: &mut Captures,
     ) -> Option<MultiMatch> {
-        todo!()
+        let anchored =
+            self.config.get_anchored() || self.nfa.is_always_start_anchored();
+        let mut at = start;
+        let mut matched_pid = None;
+        cache.clear();
+        'LOOP: loop {
+            if cache.clist.set.is_empty() {
+                if matched_pid.is_some() || (anchored && at > start) {
+                    break 'LOOP;
+                }
+                // TODO: prefilter
+            }
+            if (!anchored && matched_pid.is_none())
+                || cache.clist.set.is_empty()
+            {
+                self.epsilon_closure(
+                    &mut cache.clist,
+                    &mut caps.slots,
+                    &mut cache.stack,
+                    self.nfa.start_anchored(),
+                    haystack,
+                    at,
+                );
+            }
+            for i in 0..cache.clist.set.len() {
+                let sid = cache.clist.set.get(i);
+                let pid = match self.step(
+                    &mut cache.nlist,
+                    &mut caps.slots,
+                    cache.clist.caps(sid),
+                    &mut cache.stack,
+                    sid,
+                    haystack,
+                    at,
+                ) {
+                    None => continue,
+                    Some(pid) => pid,
+                };
+                matched_pid = Some(pid);
+                break;
+            }
+            if at >= end {
+                break;
+            }
+            at += 1;
+            cache.swap();
+            cache.nlist.set.clear();
+        }
+        matched_pid.map(|pid| {
+            MultiMatch::new(
+                pid,
+                caps.slots[0].unwrap(),
+                caps.slots[1].unwrap(),
+            )
+        })
     }
 
+    #[inline(never)]
     fn step(
         &self,
         nlist: &mut Threads,
@@ -105,14 +232,14 @@ impl PikeVM {
         sid: StateID,
         haystack: &[u8],
         at: usize,
-    ) -> bool {
+    ) -> Option<PatternID> {
         match *self.nfa.state(sid) {
             State::Fail
             | State::Look { .. }
             | State::Union { .. }
-            | State::Capture { .. } => false,
+            | State::Capture { .. } => None,
             State::Range { ref range } => {
-                if range.matches_byte(haystack[at]) {
+                if range.matches(haystack, at) {
                     self.epsilon_closure(
                         nlist,
                         thread_caps,
@@ -122,10 +249,10 @@ impl PikeVM {
                         at + 1,
                     );
                 }
-                false
+                None
             }
             State::Sparse(ref sparse) => {
-                if let Some(next) = sparse.matches_byte(haystack[at]) {
+                if let Some(next) = sparse.matches(haystack, at) {
                     self.epsilon_closure(
                         nlist,
                         thread_caps,
@@ -135,13 +262,11 @@ impl PikeVM {
                         at + 1,
                     );
                 }
-                false
+                None
             }
             State::Match { id } => {
-                for (slot, val) in slots.iter_mut().zip(thread_caps.iter()) {
-                    *slot = *val;
-                }
-                true
+                slots.copy_from_slice(thread_caps);
+                Some(id)
             }
         }
     }
@@ -186,7 +311,7 @@ impl PikeVM {
     ) {
         loop {
             if !nlist.set.insert(sid) {
-                break;
+                return;
             }
             match *self.nfa.state(sid) {
                 State::Fail
@@ -194,20 +319,18 @@ impl PikeVM {
                 | State::Sparse { .. }
                 | State::Match { .. } => {
                     let t = &mut nlist.caps(sid);
-                    for (slot, val) in t.iter_mut().zip(thread_caps.iter()) {
-                        *slot = *val;
-                    }
+                    t.copy_from_slice(thread_caps);
                     return;
                 }
                 State::Look { look, next } => {
                     if !look.matches(haystack, at) {
-                        break;
+                        return;
                     }
                     sid = next;
                 }
                 State::Union { ref alternates } => {
                     sid = match alternates.get(0) {
-                        None => break,
+                        None => return,
                         Some(&sid) => sid,
                     };
                     stack.extend(
@@ -230,6 +353,76 @@ impl PikeVM {
                 }
             }
         }
+    }
+}
+
+/// An iterator over all non-overlapping leftmost matches for a particular
+/// infallible search.
+///
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found. If the underlying search returns an error, then this panics.
+///
+/// The lifetime variables are as follows:
+///
+/// * `'r` is the lifetime of the regular expression itself.
+/// * `'c` is the lifetime of the mutable cache used during search.
+/// * `'t` is the lifetime of the text being searched.
+#[derive(Debug)]
+pub struct FindLeftmostMatches<'r, 'c, 't> {
+    vm: &'r PikeVM,
+    cache: &'c mut Cache,
+    // scanner: Option<prefilter::Scanner<'r>>,
+    text: &'t [u8],
+    last_end: usize,
+    last_match: Option<usize>,
+}
+
+impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
+    fn new(
+        vm: &'r PikeVM,
+        cache: &'c mut Cache,
+        text: &'t [u8],
+    ) -> FindLeftmostMatches<'r, 'c, 't> {
+        FindLeftmostMatches { vm, cache, text, last_end: 0, last_match: None }
+    }
+}
+
+impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
+    // type Item = Captures;
+    type Item = MultiMatch;
+
+    // fn next(&mut self) -> Option<Captures> {
+    fn next(&mut self) -> Option<MultiMatch> {
+        if self.last_end > self.text.len() {
+            return None;
+        }
+        let mut caps = self.vm.create_captures();
+        let m = self.vm.find_leftmost_at(
+            self.cache,
+            self.text,
+            self.last_end,
+            self.text.len(),
+            &mut caps,
+        )?;
+        if m.is_empty() {
+            // This is an empty match. To ensure we make progress, start
+            // the next search at the smallest possible starting position
+            // of the next match following this one.
+            self.last_end = if self.vm.config.get_utf8() {
+                crate::util::next_utf8(self.text, m.end())
+            } else {
+                m.end() + 1
+            };
+            // Don't accept empty matches immediately following a match.
+            // Just move on to the next match.
+            if Some(m.end()) == self.last_match {
+                return self.next();
+            }
+        } else {
+            self.last_end = m.end();
+        }
+        self.last_match = Some(m.end());
+        Some(m)
     }
 }
 
@@ -273,6 +466,16 @@ impl Cache {
             clist: Threads::new(nfa),
             nlist: Threads::new(nfa),
         }
+    }
+
+    fn clear(&mut self) {
+        self.stack.clear();
+        self.clist.set.clear();
+        self.nlist.set.clear();
+    }
+
+    fn swap(&mut self) {
+        core::mem::swap(&mut self.clist, &mut self.nlist);
     }
 }
 

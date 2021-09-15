@@ -4,6 +4,7 @@ use regex_test::RegexTests;
 
 mod dfa;
 mod hybrid;
+mod nfa;
 mod regression;
 mod util;
 

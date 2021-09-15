@@ -11,6 +11,7 @@ use anyhow::Context;
 use automata::{
     dfa::{self, Automaton},
     hybrid,
+    nfa::thompson::pikevm::{self, PikeVM},
 };
 
 const ABOUT: &'static str = "\
@@ -29,6 +30,7 @@ pub fn define() -> App {
         .subcommand(define_api())
         .subcommand(define_dfa())
         .subcommand(define_hybrid())
+        .subcommand(define_nfa())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
@@ -36,6 +38,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         "api" => run_api(args),
         "dfa" => run_dfa(args),
         "hybrid" => run_hybrid(args),
+        "nfa" => run_nfa(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
@@ -125,6 +128,26 @@ fn define_hybrid() -> App {
         .about("Search using a hybrid NFA/DFA object.")
         .subcommand(dfa)
         .subcommand(regex)
+}
+
+fn define_nfa() -> App {
+    app::command("nfa")
+        .about("Search using an NFA.")
+        .subcommand(define_nfa_thompson())
+}
+
+fn define_nfa_thompson() -> App {
+    let mut pikevm = app::leaf("pikevm").about("Search using a Pike VM.");
+    pikevm = config::Input::define(pikevm);
+    pikevm = config::Patterns::define(pikevm);
+    pikevm = config::Syntax::define(pikevm);
+    pikevm = config::Thompson::define(pikevm);
+    pikevm = config::PikeVM::define(pikevm);
+    pikevm = config::Find::define(pikevm);
+
+    app::command("thompson")
+        .about("Search using a Thompson NFA.")
+        .subcommand(pikevm)
 }
 
 fn run_api(args: &Args) -> anyhow::Result<()> {
@@ -360,6 +383,50 @@ fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
         let (cache_fwd, cache_rev) = cache.as_parts();
         table.add("cache clear count (forward)", cache_fwd.clear_count());
         table.add("cache clear count (reverse)", cache_rev.clear_count());
+        table.add("counts", counts);
+        table.print(stdout())?;
+        if !buf.is_empty() {
+            write!(stdout(), "\n{}", buf)?;
+        }
+        Ok(())
+    })
+}
+
+fn run_nfa(args: &Args) -> anyhow::Result<()> {
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "thompson" => run_nfa_thompson(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
+    })
+}
+
+fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "pikevm" => run_nfa_thompson_pikevm(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
+    })
+}
+
+fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cvm = config::PikeVM::get(args)?;
+    let input = config::Input::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+    let find = config::Find::get(args)?;
+
+    let vm = cvm.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+
+    let (mut cache, time) = util::timeit(|| vm.create_cache());
+    table.add("create cache time", time);
+
+    input.with_mmap(|haystack| {
+        let mut buf = String::new();
+        let (counts, time) = util::timeitr(|| {
+            search_pikevm(&vm, &mut cache, &find, &*haystack, &mut buf)
+        })?;
+        table.add("search time", time);
         table.add("counts", counts);
         table.print(stdout())?;
         if !buf.is_empty() {
@@ -660,6 +727,35 @@ fn search_hybrid_regex(
                     write_multi_match(m, buf);
                 }
             }
+        }
+    }
+    Ok(counts)
+}
+
+fn search_pikevm(
+    vm: &PikeVM,
+    cache: &mut pikevm::Cache,
+    find: &config::Find,
+    haystack: &[u8],
+    buf: &mut String,
+) -> anyhow::Result<Vec<u64>> {
+    let mut count = 0;
+    let mut counts = vec![0u64; vm.nfa().match_len()];
+    match find.kind() {
+        config::FindKind::Earliest => {
+            todo!()
+        }
+        config::FindKind::Leftmost => {
+            for m in vm.find_leftmost_iter(cache, haystack) {
+                count += 1;
+                counts[m.pattern()] += 1;
+                if find.matches() {
+                    write_multi_match(m, buf);
+                }
+            }
+        }
+        config::FindKind::Overlapping => {
+            todo!()
         }
     }
     Ok(counts)
