@@ -1292,20 +1292,6 @@ impl<T: AsRef<[u32]>> DFA<T> {
         }
     }
 
-    /// Returns the memory usage, in bytes, of this DFA.
-    ///
-    /// The memory usage is computed based on the number of bytes used to
-    /// represent this DFA.
-    ///
-    /// This does **not** include the stack size used up by this DFA. To
-    /// compute that, use `std::mem::size_of::<dense::DFA>()`.
-    pub fn memory_usage(&self) -> usize {
-        self.tt.memory_usage()
-            + self.st.memory_usage()
-            + self.ms.memory_usage()
-            + self.accels.memory_usage()
-    }
-
     /// Returns true only if this DFA has starting states for each pattern.
     ///
     /// When a DFA has starting states for each pattern, then a search with the
@@ -1380,6 +1366,41 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// returns it as the exponent of a power of 2.
     pub fn stride(&self) -> usize {
         self.tt.stride()
+    }
+
+    /// Returns the "universal" start state for this DFA.
+    ///
+    /// A universal start state occurs only when all of the starting states
+    /// for this DFA are precisely the same. This occurs when there are no
+    /// look-around assertions at the beginning (or end for a reverse DFA) of
+    /// the pattern.
+    ///
+    /// Using this as a starting state for a DFA without a universal starting
+    /// state has unspecified behavior. This condition is not checked, so the
+    /// caller must guarantee it themselves.
+    pub(crate) fn universal_start_state(&self) -> StateID {
+        // We choose 'NonWordByte' for no particular reason, other than
+        // the fact that this is the 'main' starting configuration used in
+        // determinization. But in essence, it doesn't really matter.
+        //
+        // Also, we might consider exposing this routine, but it seems
+        // a little tricky to use correctly. Maybe if we also expose a
+        // 'has_universal_start_state' method?
+        self.st.start(Start::NonWordByte, None)
+    }
+
+    /// Returns the memory usage, in bytes, of this DFA.
+    ///
+    /// The memory usage is computed based on the number of bytes used to
+    /// represent this DFA.
+    ///
+    /// This does **not** include the stack size used up by this DFA. To
+    /// compute that, use `std::mem::size_of::<dense::DFA>()`.
+    pub fn memory_usage(&self) -> usize {
+        self.tt.memory_usage()
+            + self.st.memory_usage()
+            + self.ms.memory_usage()
+            + self.accels.memory_usage()
     }
 }
 

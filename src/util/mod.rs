@@ -4,11 +4,16 @@ TODO
 
 use core::{ascii, fmt, str};
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 pub mod alphabet;
 pub(crate) mod bytes;
 #[cfg(feature = "alloc")]
 pub(crate) mod determinize;
 pub mod id;
+#[cfg(feature = "alloc")]
+pub(crate) mod lazy;
 pub(crate) mod matchtypes;
 pub mod prefilter;
 #[cfg(feature = "alloc")]
@@ -80,6 +85,7 @@ pub(crate) fn next_utf8(text: &[u8], i: usize) -> usize {
 
 /// Returns true if and only if the given character is considered a Unicode
 /// word character.
+#[cfg(feature = "alloc")]
 #[inline(always)]
 pub(crate) fn is_word_char(ch: char) -> bool {
     // TODO: We might consider implementing this ourselves... Some things
@@ -200,57 +206,79 @@ fn is_leading_or_invalid_utf8_byte(b: u8) -> bool {
     (b & 0b1100_0000) != 0b1000_0000
 }
 
-#[inline(never)]
+#[cfg(feature = "alloc")]
+#[inline(always)]
 pub(crate) fn is_word_char_fwd(bytes: &[u8], mut at: usize) -> bool {
-    use crate::dfa::{dense, Automaton};
+    use core::{ptr, sync::atomic::AtomicPtr};
 
-    lazy_static::lazy_static! {
-        static ref WORD_FWD: dense::DFA<Vec<u32>> = dense::Builder::new()
-                .configure(dense::Config::new().anchored(true))
-                .build(r"\w")
-                .unwrap();
-    }
+    use crate::{
+        dfa::{
+            dense::{self, DFA},
+            Automaton,
+        },
+        util::lazy,
+    };
 
-    let dfa = &*WORD_FWD;
-    let mut sid = dfa.start_state_forward(None, bytes, at, bytes.len());
+    static WORD: AtomicPtr<DFA<Vec<u32>>> = AtomicPtr::new(ptr::null_mut());
+
+    let dfa = lazy::dfa(&WORD, || {
+        dense::Builder::new()
+            .configure(dense::Config::new().anchored(true))
+            .build(r"\w")
+            .unwrap()
+    });
+    // This is OK since '\w' contains no look-around.
+    let mut sid = dfa.universal_start_state();
     while at < bytes.len() {
         let byte = bytes[at];
         sid = dfa.next_state(sid, byte);
         at += 1;
-        if dfa.is_match_state(sid) {
-            return true;
-        } else if dfa.is_dead_state(sid) {
-            return false;
+        if dfa.is_special_state(sid) {
+            if dfa.is_match_state(sid) {
+                return true;
+            } else if dfa.is_dead_state(sid) {
+                return false;
+            }
         }
     }
     dfa.is_match_state(dfa.next_eoi_state(sid))
 }
 
-#[inline(never)]
+#[cfg(feature = "alloc")]
+#[inline(always)]
 pub(crate) fn is_word_char_rev(bytes: &[u8], mut at: usize) -> bool {
+    use core::{ptr, sync::atomic::AtomicPtr};
+
     use crate::{
-        dfa::{dense, Automaton},
+        dfa::{
+            dense::{self, DFA},
+            Automaton,
+        },
         nfa::thompson::NFA,
     };
 
-    lazy_static::lazy_static! {
-        static ref WORD_REV: dense::DFA<Vec<u32>> = dense::Builder::new()
-                .configure(dense::Config::new().anchored(true))
-                .thompson(NFA::config().reverse(true).shrink(true))
-                .build(r"\w")
-                .unwrap();
-    }
+    static WORD: AtomicPtr<DFA<Vec<u32>>> = AtomicPtr::new(ptr::null_mut());
 
-    let dfa = &*WORD_REV;
-    let mut sid = dfa.start_state_reverse(None, bytes, at, bytes.len());
+    let dfa = lazy::dfa(&WORD, || {
+        dense::Builder::new()
+            .configure(dense::Config::new().anchored(true))
+            .thompson(NFA::config().reverse(true).shrink(true))
+            .build(r"\w")
+            .unwrap()
+    });
+
+    // This is OK since '\w' contains no look-around.
+    let mut sid = dfa.universal_start_state();
     while at > 0 {
         at -= 1;
         let byte = bytes[at];
         sid = dfa.next_state(sid, byte);
-        if dfa.is_match_state(sid) {
-            return true;
-        } else if dfa.is_dead_state(sid) {
-            return false;
+        if dfa.is_special_state(sid) {
+            if dfa.is_match_state(sid) {
+                return true;
+            } else if dfa.is_dead_state(sid) {
+                return false;
+            }
         }
     }
     dfa.is_match_state(dfa.next_eoi_state(sid))

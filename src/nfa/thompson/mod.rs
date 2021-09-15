@@ -594,20 +594,18 @@ impl SparseTransitions {
         }
         None
 
-        /*
-        self.ranges
-            .binary_search_by(|t| {
-                if t.end < byte {
-                    core::cmp::Ordering::Less
-                } else if t.start > byte {
-                    core::cmp::Ordering::Greater
-                } else {
-                    core::cmp::Ordering::Equal
-                }
-            })
-            .ok()
-            .map(|i| self.ranges[i].next)
-        */
+        // self.ranges
+        // .binary_search_by(|t| {
+        // if t.end < byte {
+        // core::cmp::Ordering::Less
+        // } else if t.start > byte {
+        // core::cmp::Ordering::Greater
+        // } else {
+        // core::cmp::Ordering::Equal
+        // }
+        // })
+        // .ok()
+        // .map(|i| self.ranges[i].next)
     }
 }
 
@@ -697,19 +695,8 @@ pub enum Look {
 }
 
 impl Look {
+    #[inline(always)]
     pub fn matches(&self, bytes: &[u8], at: usize) -> bool {
-        // use crate::dfa::{dense, Automaton};
-        // lazy_static::lazy_static! {
-        // static ref WORD_FWD: dense::DFA<Vec<u32>> = dense::Builder::new()
-        // .configure(dense::Config::new().anchored(true))
-        // .build(r"\w")
-        // .unwrap();
-        // static ref WORD_REV: dense::DFA<Vec<u32>> = dense::Builder::new()
-        // .configure(dense::Config::new().anchored(true))
-        // .thompson(NFA::config().reverse(true).shrink(true))
-        // .build(r"\w")
-        // .unwrap();
-        // }
         match *self {
             Look::StartLine => at == 0 || bytes[at - 1] == b'\n',
             Look::EndLine => at == bytes.len() || bytes[at] == b'\n',
@@ -718,16 +705,6 @@ impl Look {
             Look::WordBoundaryUnicode => {
                 let word_before = is_word_char_rev(bytes, at);
                 let word_after = is_word_char_fwd(bytes, at);
-                // let word_before = at > 0
-                // && WORD_REV
-                // .find_earliest_rev(&bytes[..at])
-                // .unwrap()
-                // .is_some();
-                // let word_after = at < bytes.len()
-                // && WORD_FWD
-                // .find_earliest_fwd(&bytes[at..])
-                // .unwrap()
-                // .is_some();
                 // let word_before = at > 0
                 // && match decode_last_utf8(&bytes[..at]) {
                 // None | Some(Err(_)) => false,

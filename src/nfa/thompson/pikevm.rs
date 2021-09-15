@@ -1,4 +1,4 @@
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{self, Error, State, NFA},
@@ -222,7 +222,7 @@ impl PikeVM {
         })
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn step(
         &self,
         nlist: &mut Threads,
@@ -271,6 +271,7 @@ impl PikeVM {
         }
     }
 
+    #[inline(always)]
     fn epsilon_closure(
         &self,
         nlist: &mut Threads,
@@ -300,6 +301,7 @@ impl PikeVM {
         }
     }
 
+    #[inline(always)]
     fn epsilon_closure_step(
         &self,
         nlist: &mut Threads,
