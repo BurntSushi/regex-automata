@@ -1,6 +1,6 @@
-use core::{fmt, mem};
+use core::{fmt, mem, ops::Range};
 
-use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 
 use crate::util::{
     alphabet::{self, ByteClassSet},
@@ -20,12 +20,30 @@ mod map;
 pub mod pikevm;
 mod range_trie;
 
-/// A final compiled NFA.
+/// A map from capture group name to its corresponding capture index.
+///
+/// Since there are always two slots for each capture index, the pair of slots
+/// corresponding to the capture index for a pattern ID of 0 are indexed at
+/// `map["<name>"] * 2` and `map["<name>"] * 2 + 1`.
+///
+/// The key type is defined to include the pattern ID since multiple patterns
+/// in the same NFA may have the same capture group name.
+#[cfg(feature = "std")]
+type CaptureNameMap = std::collections::HashMap<(PatternID, Arc<str>), usize>;
+#[cfg(not(feature = "std"))]
+type CaptureNameMap =
+    alloc::collections::BTreeMap<(PatternID, Arc<str>), usize>;
+
+/// A fully compiled Thompson NFA.
 ///
 /// The states of the NFA are indexed by state IDs, which are how transitions
 /// are expressed.
 #[derive(Clone)]
 pub struct NFA {
+    /// The state list. This list is guaranteed to be indexable by the starting
+    /// state ID, and it is also guaranteed to contain exactly one `Match`
+    /// state.
+    states: Vec<State>,
     /// The anchored starting state of this NFA.
     start_anchored: StateID,
     /// The unanchored starting state of this NFA.
@@ -36,10 +54,8 @@ pub struct NFA {
     /// contains a single regex, then `start_pattern[0]` and `start_anchored`
     /// are always equivalent.
     start_pattern: Vec<StateID>,
-    /// The state list. This list is guaranteed to be indexable by the starting
-    /// state ID, and it is also guaranteed to contain exactly one `Match`
-    /// state.
-    states: Vec<State>,
+    /// A map from PatternID to its corresponding range of capture groups.
+    patterns_to_captures: Vec<Range<usize>>,
     /// The total number of capturing slots in this NFA.
     ///
     /// Generally speaking, it is expected that this value be a multiple of
@@ -47,6 +63,17 @@ pub struct NFA {
     /// NFA.) However, this invariant is not enforced and an ill-formed NFA
     /// created by the caller is possible.
     slots: usize,
+    /// A map from capture name to its corresponding index. So e.g., given
+    /// a regex like '(\w+) (\w+) (?P<word>\w+)', the capture name 'word'
+    /// would corresponding to the index '3'. Its corresponding slots would
+    /// then be '3 * 2 = 6' and '3 * 2 + 1 = 7'.
+    capture_name_to_index: CaptureNameMap,
+    /// A map from capture group index to name, if one exists. This is
+    /// effectively the inverse of 'capture_name_to_index'.
+    ///
+    /// The first capture group for each pattern is always unnamed and is thus
+    /// always None.
+    capture_index_to_name: Vec<Option<Arc<str>>>,
     /// A representation of equivalence classes over the transitions in this
     /// NFA. Two bytes in the same equivalence class cannot discriminate
     /// between a match or a non-match. This map can be used to shrink the
@@ -90,11 +117,14 @@ impl NFA {
     #[inline]
     pub fn empty() -> NFA {
         NFA {
+            states: vec![],
             start_anchored: StateID::ZERO,
             start_unanchored: StateID::ZERO,
             start_pattern: vec![],
-            states: vec![],
+            patterns_to_captures: vec![],
             slots: 0,
+            capture_name_to_index: CaptureNameMap::new(),
+            capture_index_to_name: vec![],
             byte_class_set: ByteClassSet::empty(),
             facts: Facts::default(),
             memory_states: 0,
@@ -594,18 +624,28 @@ impl SparseTransitions {
         }
         None
 
-        // self.ranges
-        // .binary_search_by(|t| {
-        // if t.end < byte {
-        // core::cmp::Ordering::Less
-        // } else if t.start > byte {
-        // core::cmp::Ordering::Greater
-        // } else {
-        // core::cmp::Ordering::Equal
-        // }
-        // })
-        // .ok()
-        // .map(|i| self.ranges[i].next)
+        /*
+        // This is an alternative implementation that uses binary search. In
+        // some ad hoc experiments, like
+        //
+        //   smallishru=OpenSubtitles2018.raw.sample.smallish.ru
+        //   regex-cli find nfa thompson pikevm -b "@$smallishru" '\b\w+\b'
+        //
+        // I could not observe any improvement, and in fact, things seemed to
+        // be a bit slower.
+        self.ranges
+            .binary_search_by(|t| {
+                if t.end < byte {
+                    core::cmp::Ordering::Less
+                } else if t.start > byte {
+                    core::cmp::Ordering::Greater
+                } else {
+                    core::cmp::Ordering::Equal
+                }
+            })
+            .ok()
+            .map(|i| self.ranges[i].next)
+        */
     }
 }
 
