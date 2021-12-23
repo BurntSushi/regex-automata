@@ -745,28 +745,46 @@ impl Look {
             Look::WordBoundaryUnicode => {
                 let word_before = is_word_char_rev(bytes, at);
                 let word_after = is_word_char_fwd(bytes, at);
-                // let word_before = at > 0
-                // && match decode_last_utf8(&bytes[..at]) {
-                // None | Some(Err(_)) => false,
-                // Some(Ok(ch)) => is_word_char(ch),
-                // };
-                // let word_after = at < bytes.len()
-                // && match decode_utf8(&bytes[at..]) {
-                // None | Some(Err(_)) => false,
-                // Some(Ok(ch)) => is_word_char(ch),
-                // };
                 word_before != word_after
             }
             Look::WordBoundaryUnicodeNegate => {
+                // This is pretty subtle. Why do we need to do UTF-8 decoding
+                // here? Well... at time of writing, the is_word_char_{fwd,rev}
+                // routines will only return true if there is a valid UTF-8
+                // encoding of a "word" codepoint, and false in every other
+                // case (including invalid UTF-8). This means that in regions
+                // of invalid UTF-8 (which might be a subset of valid UTF-8!),
+                // it would result in \B matching. While this would be
+                // questionable in the context of truly invalid UTF-8, it is
+                // *certainly* wrong to report match boundaries that split the
+                // encoding of a codepoint. So to work around this, we ensure
+                // that we can decode a codepoint on either side of `at`. If
+                // either direction fails, then we don't permit \B to match at
+                // all.
+                //
+                // Now, this isn't exactly optimal from a perf perspective. We
+                // could try and detect this in is_word_char_{fwd,rev}, but
+                // it's not clear if it's worth it. \B is, after all, rarely
+                // used.
+                //
+                // And in particular, we do *not* have to do this with \b,
+                // because \b *requires* that at least one side of `at` be a
+                // "word" codepoint, which in turn implies one side of `at`
+                // must be valid UTF-8. This in turn implies that \b can never
+                // split a valid UTF-8 encoding of a codepoint. In the case
+                // where one side of `at` is truly invalid UTF-8 and the other
+                // side IS a word codepoint, then we want \b to match since it
+                // represents a valid UTF-8 boundary. It also makes sense. For
+                // example, you'd want \b\w+\b to match 'abc' in '\xFFabc\xFF'.
                 let word_before = at > 0
                     && match decode_last_utf8(&bytes[..at]) {
-                        None | Some(Err(_)) => false,
-                        Some(Ok(ch)) => is_word_char(ch),
+                        None | Some(Err(_)) => return false,
+                        Some(Ok(_)) => is_word_char_rev(bytes, at),
                     };
                 let word_after = at < bytes.len()
                     && match decode_utf8(&bytes[at..]) {
-                        None | Some(Err(_)) => false,
-                        Some(Ok(ch)) => is_word_char(ch),
+                        None | Some(Err(_)) => return false,
+                        Some(Ok(_)) => is_word_char_fwd(bytes, at),
                     };
                 word_before == word_after
             }
@@ -1240,17 +1258,24 @@ mod tests {
         assert!(look.matches(B("𝛃 "), 5));
         assert!(look.matches(B(" 𝛃 "), 0));
         assert!(look.matches(B(" 𝛃 "), 6));
-        assert!(look.matches(B("𝛃"), 1));
-        assert!(look.matches(B("𝛃"), 2));
-        assert!(look.matches(B("𝛃"), 3));
+        // These don't match because they could otherwise return an offset that
+        // splits the UTF-8 encoding of a codepoint.
+        assert!(!look.matches(B("𝛃"), 1));
+        assert!(!look.matches(B("𝛃"), 2));
+        assert!(!look.matches(B("𝛃"), 3));
 
-        // Non word boundaries with non-ASCII codepoints.
-        assert!(look.matches(B("𝛃𐆀"), 1));
-        assert!(look.matches(B("𝛃𐆀"), 2));
-        assert!(look.matches(B("𝛃𐆀"), 3));
-        assert!(look.matches(B("𝛃𐆀"), 5));
-        assert!(look.matches(B("𝛃𐆀"), 6));
-        assert!(look.matches(B("𝛃𐆀"), 7));
+        // Non word boundaries with non-ASCII codepoints. These also don't
+        // match because they could otherwise return an offset that splits the
+        // UTF-8 encoding of a codepoint.
+        assert!(!look.matches(B("𝛃𐆀"), 1));
+        assert!(!look.matches(B("𝛃𐆀"), 2));
+        assert!(!look.matches(B("𝛃𐆀"), 3));
+        assert!(!look.matches(B("𝛃𐆀"), 5));
+        assert!(!look.matches(B("𝛃𐆀"), 6));
+        assert!(!look.matches(B("𝛃𐆀"), 7));
+        // But this one does, since 𐆀 isn't a word codepoint, and 8 is the end
+        // of the haystack. So the "end" of the haystack isn't a word and 𐆀
+        // isn't a word, thus, \B matches.
         assert!(look.matches(B("𝛃𐆀"), 8));
     }
 

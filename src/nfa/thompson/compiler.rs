@@ -294,18 +294,14 @@ impl Builder {
     /// only error that can occur is if the compiled regex would exceed the
     /// size limits configured on this builder.
     pub fn build_from_hir(&self, expr: &Hir) -> Result<NFA, Error> {
-        let mut nfa = NFA::empty();
-        self.build_from_hir_with(&mut Compiler::new(), &mut nfa, expr)?;
-        Ok(nfa)
+        self.build_from_hir_with(&mut Compiler::new(), expr)
     }
 
     pub fn build_many_from_hir<H: Borrow<Hir>>(
         &self,
         exprs: &[H],
     ) -> Result<NFA, Error> {
-        let mut nfa = NFA::empty();
-        self.build_many_from_hir_with(&mut Compiler::new(), &mut nfa, exprs)?;
-        Ok(nfa)
+        self.build_many_from_hir_with(&mut Compiler::new(), exprs)
     }
 
     /// Compile the given high level intermediate representation of a regular
@@ -324,20 +320,18 @@ impl Builder {
     fn build_from_hir_with(
         &self,
         compiler: &mut Compiler,
-        nfa: &mut NFA,
         expr: &Hir,
-    ) -> Result<(), Error> {
-        self.build_many_from_hir_with(compiler, nfa, &[expr])
+    ) -> Result<NFA, Error> {
+        self.build_many_from_hir_with(compiler, &[expr])
     }
 
     fn build_many_from_hir_with<H: Borrow<Hir>>(
         &self,
         compiler: &mut Compiler,
-        nfa: &mut NFA,
         exprs: &[H],
-    ) -> Result<(), Error> {
+    ) -> Result<NFA, Error> {
         compiler.configure(self.config);
-        compiler.compile(nfa, exprs)
+        compiler.compile(exprs)
     }
 
     /// Apply the given NFA configuration options to this builder.
@@ -371,6 +365,15 @@ impl Builder {
 pub struct Compiler {
     /// The configuration from the builder.
     config: Config,
+    /// The final NFA that is built.
+    ///
+    /// Parts of this NFA are constructed during compilation, but the actual
+    /// states aren't added until a final "finish" step. This is because the
+    /// states constructed during compilation have unconditional epsilon
+    /// transitions, which makes the logic of compilation much simpler. The
+    /// "finish" step removes these unconditional epsilon transitions and must
+    /// therefore remap all of the transition state IDs.
+    nfa: RefCell<NFA>,
     /// The set of compiled NFA states. Once a state is compiled, it is
     /// assigned a state ID equivalent to its index in this list. Subsequent
     /// compilation can modify previous states by adding new transitions.
@@ -491,6 +494,7 @@ impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
             config: Config::default(),
+            nfa: RefCell::new(NFA::empty()),
             states: RefCell::new(vec![]),
             start_pattern: RefCell::new(vec![]),
             utf8_state: RefCell::new(Utf8State::new()),
@@ -510,6 +514,7 @@ impl Compiler {
     /// compiler used during previous compilations.
     fn configure(&mut self, config: Config) {
         self.config = config;
+        self.nfa.borrow_mut().clear();
         self.states.borrow_mut().clear();
         self.next_capture_offset.set(0);
         self.memory_cstates.set(0);
@@ -518,14 +523,9 @@ impl Compiler {
     }
 
     /// Convert the current intermediate NFA to its final compiled form.
-    fn compile<H: Borrow<Hir>>(
-        &self,
-        nfa: &mut NFA,
-        exprs: &[H],
-    ) -> Result<(), Error> {
+    fn compile<H: Borrow<Hir>>(&self, exprs: &[H]) -> Result<NFA, Error> {
         if exprs.is_empty() {
-            *nfa = NFA::never_match();
-            return Ok(());
+            return Ok(NFA::never_match());
         }
         if exprs.len() > PatternID::LIMIT {
             return Err(Error::too_many_patterns(exprs.len()));
@@ -560,15 +560,14 @@ impl Compiler {
             }),
         )?;
         self.patch(unanchored_prefix.end, compiled.start)?;
-        self.finish(nfa, compiled.start, unanchored_prefix.start)?;
-        Ok(())
+        self.finish(compiled.start, unanchored_prefix.start)?;
+        Ok(self.nfa.replace(NFA::empty()))
     }
 
     /// Finishes the compilation process and populates the provide NFA with
     /// the final graph.
     fn finish(
         &self,
-        nfa: &mut NFA,
         start_anchored: StateID,
         start_unanchored: StateID,
     ) -> Result<(), Error> {
@@ -577,6 +576,7 @@ impl Compiler {
              intermediate NFA size: {:?}",
             self.nfa_memory_usage(),
         );
+        let mut nfa = self.nfa.borrow_mut();
         let mut bstates = self.states.borrow_mut();
         let mut remap = self.remap.borrow_mut();
         remap.resize(bstates.len(), StateID::ZERO);

@@ -680,21 +680,74 @@ matches = []
 unicode = false
 utf8 = false
 
+# The same as above, but with \b instead of \B as a sanity check.
+[[tests]]
+name = "unicode5"
+regex = '\b'
+input = "0\U0007EF5E"
+matches = [[0, 0], [1, 1]]
+
+[[tests]]
+name = "unicode5-only-ascii"
+regex = '\b'
+input = "0\U0007EF5E"
+matches = [[0, 0], [1, 1]]
+unicode = false
+utf8 = false
+
+[[tests]]
+name = "unicode5-noutf8"
+regex = '\b'
+input = '0\xFF\xFF\xFF\xFF'
+matches = [[0, 0], [1, 1]]
+unescape = true
+utf8 = false
+
+[[tests]]
+name = "unicode5-noutf8-only-ascii"
+regex = '\b'
+input = '0\xFF\xFF\xFF\xFF'
+matches = [[0, 0], [1, 1]]
+unescape = true
+unicode = false
+utf8 = false
+
 # Weird special case to ensure that ASCII \B treats each individual code unit
 # as a non-word byte. (The specific codepoint is irrelevant. It's an arbitrary
 # codepoint that uses 4 bytes in its UTF-8 encoding and is not a member of the
 # \w character class.)
 [[tests]]
-name = "unicode5"
+name = "unicode5-not"
 regex = '\B'
 input = "0\U0007EF5E"
 matches = [[5, 5]]
 
 [[tests]]
-name = "unicode5-only-ascii"
+name = "unicode5-not-only-ascii"
 regex = '\B'
 input = "0\U0007EF5E"
 matches = [[2, 2], [3, 3], [4, 4], [5, 5]]
+unicode = false
+utf8 = false
+
+# This gets no matches since \B only matches in the presence of valid UTF-8
+# when Unicode is enabled, even when UTF-8 mode is disabled.
+[[tests]]
+name = "unicode5-not-noutf8"
+regex = '\B'
+input = '0\xFF\xFF\xFF\xFF'
+matches = []
+unescape = true
+utf8 = false
+
+# But this DOES get matches since \B in ASCII mode only looks at individual
+# bytes.
+[[tests]]
+name = "unicode5-not-noutf8-only-ascii"
+regex = '\B'
+input = '0\xFF\xFF\xFF\xFF'
+matches = [[2, 2], [3, 3], [4, 4], [5, 5]]
+unescape = true
 unicode = false
 utf8 = false
 

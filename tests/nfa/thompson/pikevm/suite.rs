@@ -34,17 +34,6 @@ fn compiler(
         if regexes.len() > 1 {
             return Ok(CompiledRegex::skip());
         }
-
-        // Check if our regex contains things that aren't supported by DFAs.
-        // That is, Unicode word boundaries when searching non-ASCII text.
-        let mut thompson = thompson::Builder::new();
-        thompson.syntax(config_syntax(test)).configure(config_thompson(test));
-        if let Ok(nfa) = thompson.build_many(&regexes) {
-            let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
-            if nfa.has_word_boundary_unicode() && non_ascii {
-                return Ok(CompiledRegex::skip());
-            }
-        }
         if !configure_pikevm_builder(test, &mut builder) {
             return Ok(CompiledRegex::skip());
         }

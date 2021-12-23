@@ -48,6 +48,10 @@ enum ErrorKind {
         /// The configured limit, in bytes.
         limit: usize,
     },
+    /// An error that occurs when an NFA contains a Unicode word boundary, but
+    /// where the crate was compiled without the necessary data for dealing
+    /// with Unicode word boundaries.
+    UnicodeWordUnavailable,
 }
 
 impl Error {
@@ -72,6 +76,10 @@ impl Error {
     pub(crate) fn exceeded_size_limit(limit: usize) -> Error {
         Error { kind: ErrorKind::ExceededSizeLimit { limit } }
     }
+
+    pub(crate) fn unicode_word_unavailable() -> Error {
+        Error { kind: ErrorKind::UnicodeWordUnavailable }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -82,6 +90,7 @@ impl std::error::Error for Error {
             ErrorKind::TooManyPatterns { .. } => None,
             ErrorKind::TooManyStates { .. } => None,
             ErrorKind::ExceededSizeLimit { .. } => None,
+            ErrorKind::UnicodeWordUnavailable => None,
         }
     }
 }
@@ -106,6 +115,12 @@ impl core::fmt::Display for Error {
                 f,
                 "heap usage during NFA compilation exceeded limit of {:?}",
                 limit,
+            ),
+            ErrorKind::UnicodeWordUnavailable => write!(
+                f,
+                "crate has been compiled without Unicode word boundary \
+                 support, but the NFA contains Unicode word boundary \
+                 assertions",
             ),
         }
     }

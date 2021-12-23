@@ -24,11 +24,51 @@ members = ["bench", "examples", "regex-cli", "regex-test"]
 bench = false
 
 [features]
-default = ["std"]
-std = ["alloc", "memchr/std", "regex-syntax"]
-alloc = ["regex-syntax"]
+# TODO: These features need to be fleshed out more, actually implemented and
+# then tested. Also, add 'alloc' and 'std features to regex-syntax before
+# doing so.
+default = ["std", "dfa", "syntax", "unicode", "regex-syntax/default"]
+std = ["alloc", "memchr/std"]
+# TODO: Should this also imply regex-syntax/alloc? Will that turn into a no-op
+# if regex-syntax isn't enabled as a dependency? Do we need a separate
+# 'alloc_nosyntax' feature to enable alloc features without bringing in
+# regex-syntax? Sigh.
+alloc = []
 logging = ["log"]
 transducer = ["fst"]
+
+# When enabled, the 'dfa' sub-module will be available. Note that if 'dfa' is
+# enabled but 'alloc' is not, then only DFA deserialization and search will be
+# available. DFA construction requires the 'alloc' and 'syntax' features to be
+# enabled.
+dfa = []
+syntax = ["regex-syntax"]
+
+# Enables all Unicode features. This expands if new Unicode features are added.
+unicode = [
+  "unicode-age",
+  "unicode-bool",
+  "unicode-case",
+  "unicode-gencat",
+  "unicode-perl",
+  "unicode-script",
+  "unicode-segment",
+  "regex-syntax/unicode",
+]
+# Enables use of the `Age` property, e.g., `\p{Age:3.0}`.
+unicode-age = ["regex-syntax/unicode-age"]
+# Enables use of a smattering of boolean properties, e.g., `\p{Emoji}`.
+unicode-bool = ["regex-syntax/unicode-bool"]
+# Enables Unicode-aware case insensitive matching, e.g., `(?i)β`.
+unicode-case = ["regex-syntax/unicode-case"]
+# Enables Unicode general categories, e.g., `\p{Letter}` or `\pL`.
+unicode-gencat = ["regex-syntax/unicode-gencat"]
+# Enables Unicode-aware Perl classes corresponding to `\w`, `\s` and `\d`.
+unicode-perl = ["regex-syntax/unicode-perl"]
+# Enables Unicode scripts and script extensions, e.g., `\p{Greek}`.
+unicode-script = ["regex-syntax/unicode-script"]
+# Enables Unicode segmentation properties, e.g., `\p{gcb=Extend}`.
+unicode-segment = ["regex-syntax/unicode-segment"]
 
 [dependencies]
 fst = { version = "0.4.5", optional = true }

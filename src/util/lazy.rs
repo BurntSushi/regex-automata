@@ -6,13 +6,11 @@ use core::{
 
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::dfa::dense::DFA;
-
 #[inline(always)]
-pub(crate) fn dfa(
-    location: &'static AtomicPtr<DFA<Vec<u32>>>,
-    init: impl FnOnce() -> DFA<Vec<u32>>,
-) -> &'static DFA<Vec<u32>> {
+pub(crate) fn get_or_init<T: Send + Sync + 'static>(
+    location: &'static AtomicPtr<T>,
+    init: impl FnOnce() -> T,
+) -> &'static T {
     let mut ptr = location.load(Ordering::Acquire);
     if ptr.is_null() {
         let new_dfa = Box::new(init());

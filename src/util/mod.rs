@@ -128,6 +128,7 @@ pub(crate) fn decode_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
     let len = match utf8_len(bytes[0]) {
         None => return Some(Err(bytes[0])),
         Some(len) if len > bytes.len() => return Some(Err(bytes[0])),
+        Some(1) => return Some(Ok(bytes[0] as char)),
         Some(len) => len,
     };
     match str::from_utf8(&bytes[..len]) {
@@ -167,8 +168,10 @@ pub(crate) fn decode_last_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
 #[inline(always)]
 fn utf8_len(byte: u8) -> Option<usize> {
     if byte <= 0x7F {
-        Some(1)
-    } else if byte <= 0b110_11111 {
+        return Some(1);
+    } else if byte & 0b1100_0000 == 0b1000_0000 {
+        return None;
+    } else if byte <= 0b1101_1111 {
         Some(2)
     } else if byte <= 0b1110_1111 {
         Some(3)
@@ -221,7 +224,7 @@ pub(crate) fn is_word_char_fwd(bytes: &[u8], mut at: usize) -> bool {
 
     static WORD: AtomicPtr<DFA<Vec<u32>>> = AtomicPtr::new(ptr::null_mut());
 
-    let dfa = lazy::dfa(&WORD, || {
+    let dfa = lazy::get_or_init(&WORD, || {
         dense::Builder::new()
             .configure(dense::Config::new().anchored(true))
             .build(r"\w")
@@ -259,7 +262,7 @@ pub(crate) fn is_word_char_rev(bytes: &[u8], mut at: usize) -> bool {
 
     static WORD: AtomicPtr<DFA<Vec<u32>>> = AtomicPtr::new(ptr::null_mut());
 
-    let dfa = lazy::dfa(&WORD, || {
+    let dfa = lazy::get_or_init(&WORD, || {
         dense::Builder::new()
             .configure(dense::Config::new().anchored(true))
             .thompson(NFA::config().reverse(true).shrink(true))
