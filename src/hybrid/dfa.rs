@@ -40,7 +40,7 @@ const MIN_STATES: usize = 5;
 
 /// A hybrid NFA/DFA (also called a "lazy DFA") for regex searching.
 ///
-/// A lazy DFA is a DFA that builds itself at search. It otherwise has
+/// A lazy DFA is a DFA that builds itself at search time. It otherwise has
 /// very similar characteristics as a [`dense::DFA`](crate::dfa::dense::DFA).
 /// Indeed, both support precisely the same regex features with precisely the
 /// same semantics.
@@ -54,12 +54,12 @@ const MIN_STATES: usize = 5;
 /// does determinization _for that specific transition_ to compute the next DFA
 /// state.
 ///
-/// The main selling point of a lazy DFA is that, in practice, it has the
-/// performance profile of a `dense::DFA` without the weakness of it taking
-/// worst case exponential time to build. Indeed, for each byte of input, the
-/// lazy DFA will construct as most one new DFA state. Thus, a lazy DFA achieves
-/// best case `O(mn)` time for regex search (where `m ~ pattern.len()` and
-/// `n ~ haystack.len()`).
+/// The main selling point of a lazy DFA is that, in practice, it has
+/// the performance profile of a `dense::DFA` without the weakness of it
+/// taking worst case exponential time to build. Indeed, for each byte of
+/// input, the lazy DFA will construct as most one new DFA state. Thus, a
+/// lazy DFA achieves worst case `O(mn)` time for regex search (where `m ~
+/// pattern.len()` and `n ~ haystack.len()`).
 ///
 /// The main downsides of a lazy DFA are:
 ///

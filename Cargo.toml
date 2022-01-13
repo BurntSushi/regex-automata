@@ -25,7 +25,7 @@ bench = false
 
 [features]
 # TODO: These features need to be fleshed out more, actually implemented and
-# then tested. Also, add 'alloc' and 'std features to regex-syntax before
+# then tested. Also, add 'alloc' and 'std' features to regex-syntax before
 # doing so.
 default = ["std", "dfa", "syntax", "unicode", "regex-syntax/default"]
 std = ["alloc", "memchr/std"]

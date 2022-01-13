@@ -83,22 +83,6 @@ pub(crate) fn next_utf8(text: &[u8], i: usize) -> usize {
     i.checked_add(inc).unwrap()
 }
 
-/// Returns true if and only if the given character is considered a Unicode
-/// word character.
-#[cfg(feature = "alloc")]
-#[inline(always)]
-pub(crate) fn is_word_char(ch: char) -> bool {
-    // TODO: We might consider implementing this ourselves... Some things
-    // to think about: 1) regex-syntax might not have Unicode word tables
-    // enabled, so this can technically fail. 2) We might want to expose the
-    // NFA machinery *without* a dependency on regex-syntax, and to do that,
-    // we'd need to implement this ourselves.
-    //
-    // We can punt on (2), but we have to figure out (1) before we ship since
-    // this could otherwise panic.
-    regex_syntax::try_is_word_character(ch).unwrap()
-}
-
 /// Returns true if and only if the given byte is considered a word character.
 /// This only applies to ASCII.
 ///
@@ -225,6 +209,9 @@ pub(crate) fn is_word_char_fwd(bytes: &[u8], mut at: usize) -> bool {
     static WORD: AtomicPtr<DFA<Vec<u32>>> = AtomicPtr::new(ptr::null_mut());
 
     let dfa = lazy::get_or_init(&WORD, || {
+        // TODO: Should we use a lazy DFA here instead? It does complicate
+        // things somewhat, since we then need a mutable cache, which probably
+        // means a thread local.
         dense::Builder::new()
             .configure(dense::Config::new().anchored(true))
             .build(r"\w")

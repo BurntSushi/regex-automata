@@ -6,7 +6,7 @@ use crate::util::{
     alphabet::{self, ByteClassSet},
     decode_last_utf8, decode_utf8,
     id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
-    is_word_byte, is_word_char, is_word_char_fwd, is_word_char_rev,
+    is_word_byte, is_word_char_fwd, is_word_char_rev,
 };
 
 pub use self::{

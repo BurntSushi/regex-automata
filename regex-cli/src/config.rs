@@ -640,7 +640,7 @@ match anywhere.
         {
             const SHORT: &str = "Disable UTF-8 handling for iterators.";
             const LONG: &str = "\
-Disable UTF-8 handling for regex iterators when an empty match is seen.
+Disable UTF-8 handling for match iterators when an empty match is seen.
 
 When UTF-8 mode is enabled for regexes (the default) and an empty match is
 seen, the iterators will always start the next search at the next UTF-8 encoded
@@ -651,11 +651,11 @@ Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
 This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
-'--no-utf8-regex' together.
+'--no-utf8-iter' together.
 
 This mode cannot be toggled inside the regex.
 ";
-            app = app.arg(switch("no-utf8-regex").help(SHORT).long_help(LONG));
+            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
         }
         app
     }
@@ -663,7 +663,7 @@ This mode cannot be toggled inside the regex.
     pub fn get(args: &Args) -> anyhow::Result<PikeVM> {
         let config = pikevm::Config::new()
             .anchored(args.is_present("anchored"))
-            .utf8(!args.is_present("no-utf8-regex"));
+            .utf8(!args.is_present("no-utf8-iter"));
         Ok(PikeVM { config })
     }
 
@@ -1032,9 +1032,9 @@ pub struct RegexDFA {
 impl RegexDFA {
     pub fn define(mut app: App) -> App {
         {
-            const SHORT: &str = "Disable UTF-8 handling for regex iterators.";
+            const SHORT: &str = "Disable UTF-8 handling for match iterators.";
             const LONG: &str = "\
-Disable UTF-8 handling for regex iterators when an empty match is seen.
+Disable UTF-8 handling for match iterators when an empty match is seen.
 
 When UTF-8 mode is enabled for regexes (the default) and an empty match is
 seen, the iterators will always start the next search at the next UTF-8 encoded
@@ -1045,18 +1045,18 @@ Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
 This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
-'--no-utf8-regex' together.
+'--no-utf8-iter' together.
 
 This mode cannot be toggled inside the regex.
 ";
-            app = app.arg(switch("no-utf8-regex").help(SHORT).long_help(LONG));
+            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
         }
         app
     }
 
     pub fn get(args: &Args) -> anyhow::Result<RegexDFA> {
         let config =
-            dfa::regex::Config::new().utf8(!args.is_present("no-utf8-regex"));
+            dfa::regex::Config::new().utf8(!args.is_present("no-utf8-iter"));
         Ok(RegexDFA { config })
     }
 
@@ -1425,7 +1425,7 @@ impl RegexHybrid {
         {
             const SHORT: &str = "Disable UTF-8 handling for iterators.";
             const LONG: &str = "\
-Disable UTF-8 handling for regex iterators when an empty match is seen.
+Disable UTF-8 handling for match iterators when an empty match is seen.
 
 When UTF-8 mode is enabled for regexes (the default) and an empty match is
 seen, the iterators will always start the next search at the next UTF-8 encoded
@@ -1436,18 +1436,18 @@ Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
 This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
-'--no-utf8-regex' together.
+'--no-utf8-iter' together.
 
 This mode cannot be toggled inside the regex.
 ";
-            app = app.arg(switch("no-utf8-regex").help(SHORT).long_help(LONG));
+            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
         }
         app
     }
 
     pub fn get(args: &Args) -> anyhow::Result<RegexHybrid> {
         let config = hybrid::regex::Config::new()
-            .utf8(!args.is_present("no-utf8-regex"));
+            .utf8(!args.is_present("no-utf8-iter"));
         Ok(RegexHybrid { config })
     }
 

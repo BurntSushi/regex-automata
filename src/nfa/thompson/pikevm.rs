@@ -76,13 +76,13 @@ impl Builder {
     }
 
     pub fn build_from_nfa(&self, nfa: Arc<NFA>) -> Result<PikeVM, Error> {
-        // TODO: This should
+        // TODO: Check that this is correct.
         if !cfg!(all(
             feature = "dfa",
             feature = "syntax",
             feature = "unicode-perl"
         )) {
-            if nfa.has_word_boundary_unicode() && false {
+            if nfa.has_word_boundary_unicode() {
                 return Err(Error::unicode_word_unavailable());
             }
         }
