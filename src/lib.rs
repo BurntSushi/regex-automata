@@ -11,7 +11,7 @@ This section gives a brief overview of the primary types in this crate:
 * A [`Regex`](struct.Regex.html) provides a way to search for matches of a
   regular expression. This includes iterating over matches with both the start
   and end positions of each match.
-* A [`RegexBuilder`](struct.RegexBuilder.html) provides a way configure many
+* A [`RegexBuilder`](struct.RegexBuilder.html) provides a way to configure many
   compilation options for a regex.
 * A [`DenseDFA`](enum.DenseDFA.html) provides low level access to a DFA that
   uses a dense representation (uses lots of space, but fast searching).
