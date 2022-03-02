@@ -565,8 +565,8 @@ impl Compiler {
         Ok(self.nfa.replace(NFA::empty()))
     }
 
-    /// Finishes the compilation process and populates the provide NFA with
-    /// the final graph.
+    /// Finishes the compilation process and populates the NFA attached to this
+    /// compiler with the final graph.
     fn finish(
         &self,
         start_anchored: StateID,
@@ -574,7 +574,8 @@ impl Compiler {
     ) -> Result<(), Error> {
         trace!(
             "intermediate NFA compilation complete, \
-             intermediate NFA size: {:?}",
+             intermediate NFA size: {} states, {} bytes on heap",
+            self.states.borrow().len(),
             self.nfa_memory_usage(),
         );
         let mut nfa = self.nfa.borrow_mut();
@@ -583,7 +584,6 @@ impl Compiler {
         remap.resize(bstates.len(), StateID::ZERO);
         let mut empties = self.empties.borrow_mut();
         empties.clear();
-        let mut byteset = ByteClassSet::new();
 
         // The idea here is to convert our intermediate states to their final
         // form. The only real complexity here is the process of converting
@@ -604,21 +604,16 @@ impl Compiler {
                     remap[sid] = nfa.add(State::Capture { next, slot })?;
                 }
                 CState::Range { range } => {
-                    byteset.set_range(range.start, range.end);
                     remap[sid] = nfa.add(State::Range { range })?;
                 }
                 CState::Sparse { ref mut ranges } => {
                     let ranges = mem::replace(ranges, vec![]);
-                    for r in &ranges {
-                        byteset.set_range(r.start, r.end);
-                    }
                     remap[sid] =
                         nfa.add(State::Sparse(SparseTransitions {
                             ranges: ranges.into_boxed_slice(),
                         }))?;
                 }
                 CState::Look { look, next } => {
-                    look.add_to_byteset(&mut byteset);
                     remap[sid] = nfa.add(State::Look { look, next })?;
                 }
                 CState::Union { ref mut alternates } => {
@@ -652,7 +647,6 @@ impl Compiler {
         }
         nfa.remap(&remap);
         // The compiler always begins the NFA at the first state.
-        nfa.set_byte_class_set(byteset.clone());
         nfa.set_start_anchored(remap[start_anchored]);
         nfa.set_start_unanchored(remap[start_unanchored]);
         let mut start_pats = self.start_pattern.borrow();
@@ -744,8 +738,12 @@ impl Compiler {
             return self.c(expr);
         }
 
-        // TODO: Should we really compute capture offsets like this
-        // separate from the capture index present in 'knd'?
+        // TODO: Should we really compute capture offsets like this separate
+        // from the capture index present in 'knd'?
+        //
+        // Well, main weirdness here is that we might compile multiple
+        // patterns, and the global capture index will be distinct from the
+        // relative capture index isolated to each pattern.
         let capi = self.next_capture_offset();
         let slot_start = capi.checked_mul(2).unwrap();
         let slot_end = slot_start.checked_add(1).unwrap();
@@ -1232,7 +1230,7 @@ impl Compiler {
             .set(self.memory_cstates.get() + state.memory_usage());
         states.push(state);
         // If we don't explicitly drop this, then 'nfa_memory_usage' will also
-        // try to borrow it and hit an error.
+        // try to borrow it when we check the size limit and hit an error.
         drop(states);
         self.check_nfa_size_limit()?;
         Ok(id)

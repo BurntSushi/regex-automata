@@ -453,13 +453,6 @@ impl ByteClassSet {
     /// Create a new set of byte classes where all bytes are part of the same
     /// equivalence class.
     #[cfg(feature = "alloc")]
-    pub fn new() -> Self {
-        ByteClassSet(ByteSet::empty())
-    }
-
-    /// Create a new set of byte classes where all bytes are part of the same
-    /// equivalence class.
-    #[cfg(feature = "alloc")]
     pub fn empty() -> Self {
         ByteClassSet(ByteSet::empty())
     }
@@ -665,7 +658,7 @@ mod tests {
 
     #[test]
     fn byte_classes() {
-        let mut set = ByteClassSet::new();
+        let mut set = ByteClassSet::empty();
         set.set_range(b'a', b'z');
 
         let classes = set.byte_classes();
@@ -680,7 +673,7 @@ mod tests {
         assert_eq!(classes.get(254), 2);
         assert_eq!(classes.get(255), 2);
 
-        let mut set = ByteClassSet::new();
+        let mut set = ByteClassSet::empty();
         set.set_range(0, 2);
         set.set_range(4, 6);
         let classes = set.byte_classes();
@@ -697,7 +690,7 @@ mod tests {
 
     #[test]
     fn full_byte_classes() {
-        let mut set = ByteClassSet::new();
+        let mut set = ByteClassSet::empty();
         for i in 0..256u16 {
             set.set_range(i as u8, i as u8);
         }
@@ -706,7 +699,7 @@ mod tests {
 
     #[test]
     fn elements_typical() {
-        let mut set = ByteClassSet::new();
+        let mut set = ByteClassSet::empty();
         set.set_range(b'b', b'd');
         set.set_range(b'g', b'm');
         set.set_range(b'z', b'z');

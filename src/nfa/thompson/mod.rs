@@ -34,15 +34,29 @@ type CaptureNameMap = std::collections::HashMap<(PatternID, Arc<str>), usize>;
 type CaptureNameMap =
     alloc::collections::BTreeMap<(PatternID, Arc<str>), usize>;
 
+// BREADCRUMBS:
+//
+// While it's tempting to think of an NFA as just a sequence of states, it
+// turns out that its representation is quite a bit more complicated than that.
+// Capturing groups in particular add a bit of complexity.
+//
+// I think the next steps here should be to scrutinize the public API and try
+// to make it as simple as possible, with as much of the internal state being
+// computed automatically as possible. In other words, it should generally be
+// difficult to build an incorrect NFA. It's not clear if we can make it
+// completely impossible though.
+
 /// A fully compiled Thompson NFA.
 ///
 /// The states of the NFA are indexed by state IDs, which are how transitions
 /// are expressed.
 #[derive(Clone)]
 pub struct NFA {
-    /// The state list. This list is guaranteed to be indexable by the starting
-    /// state ID, and it is also guaranteed to contain exactly one `Match`
-    /// state.
+    /// The state list. This list is guaranteed to be indexable by all starting
+    /// state IDs, and it is also guaranteed to contain at most one `Match`
+    /// state for each pattern compiled into this NFA. (A pattern may not have
+    /// a corresponding `Match` state if a `Match` state is impossible to
+    /// reach.)
     states: Vec<State>,
     /// The anchored starting state of this NFA.
     start_anchored: StateID,
@@ -54,9 +68,10 @@ pub struct NFA {
     /// contains a single regex, then `start_pattern[0]` and `start_anchored`
     /// are always equivalent.
     start_pattern: Vec<StateID>,
-    /// A map from PatternID to its corresponding range of capture groups.
+    /// A map from PatternID to its corresponding range of capture group
+    /// indices.
     patterns_to_captures: Vec<Range<usize>>,
-    /// The total number of capturing slots in this NFA.
+    /// The total number of capturing slots in this NFA across all patterns.
     ///
     /// Generally speaking, it is expected that this value be a multiple of
     /// 2. (Where each capturing group has precisely two capturing slots in the
@@ -64,9 +79,9 @@ pub struct NFA {
     /// created by the caller is possible.
     slots: usize,
     /// A map from capture name to its corresponding index. So e.g., given
-    /// a regex like '(\w+) (\w+) (?P<word>\w+)', the capture name 'word'
-    /// would corresponding to the index '3'. Its corresponding slots would
-    /// then be '3 * 2 = 6' and '3 * 2 + 1 = 7'.
+    /// a single regex like '(\w+) (\w+) (?P<word>\w+)', the capture name
+    /// 'word' for pattern ID=0 would corresponding to the index '3'. Its
+    /// corresponding slots would then be '3 * 2 = 6' and '3 * 2 + 1 = 7'.
     capture_name_to_index: CaptureNameMap,
     /// A map from capture group index to name, if one exists. This is
     /// effectively the inverse of 'capture_name_to_index'.
@@ -75,7 +90,7 @@ pub struct NFA {
     /// always None.
     capture_index_to_name: Vec<Option<Arc<str>>>,
     /// A representation of equivalence classes over the transitions in this
-    /// NFA. Two bytes in the same equivalence class cannot discriminate
+    /// NFA. Two bytes in the same equivalence class must not discriminate
     /// between a match or a non-match. This map can be used to shrink the
     /// total size of a DFA's transition table with a small match-time cost.
     ///
@@ -266,12 +281,6 @@ impl NFA {
         &self.byte_class_set
     }
 
-    /// Set the byte class set for this NFA.
-    #[inline]
-    pub fn set_byte_class_set(&mut self, set: ByteClassSet) {
-        self.byte_class_set = set;
-    }
-
     /// Return a reference to the NFA state corresponding to the given ID.
     #[inline]
     pub fn state(&self, id: StateID) -> &State {
@@ -304,24 +313,17 @@ impl NFA {
     #[inline]
     pub fn add(&mut self, state: State) -> Result<StateID, Error> {
         match state {
-            State::Range { .. }
-            | State::Sparse { .. }
-            | State::Union { .. }
-            | State::Fail => {}
-            State::Capture { slot, .. } => {
-                let len = slot.checked_add(1).unwrap();
-                if len > self.capture_slot_len() {
-                    self.set_capture_slot_len(len);
-                }
+            State::Range { range } => {
+                self.byte_class_set.set_range(range.start, range.end);
             }
-            State::Match { id } => {
-                let len = id.one_more();
-                if len > self.match_len() {
-                    self.set_match_len(len);
+            State::Sparse(ref trans) => {
+                for range in trans.ranges.iter() {
+                    self.byte_class_set.set_range(range.start, range.end);
                 }
             }
             State::Look { look, .. } => {
                 self.facts.set_has_any_look(true);
+                look.add_to_byteset(&mut self.byte_class_set);
                 match look {
                     Look::StartLine
                     | Look::EndLine
@@ -337,6 +339,20 @@ impl NFA {
                     | Look::WordBoundaryAsciiNegate => {
                         self.facts.set_has_word_boundary_ascii(true);
                     }
+                }
+            }
+            State::Fail => {}
+            State::Union { .. } => {}
+            State::Capture { slot, .. } => {
+                let len = slot.checked_add(1).unwrap();
+                if len > self.capture_slot_len() {
+                    self.set_capture_slot_len(len);
+                }
+            }
+            State::Match { id } => {
+                let len = id.one_more();
+                if len > self.match_len() {
+                    self.set_match_len(len);
                 }
             }
         }
@@ -355,14 +371,15 @@ impl NFA {
     /// the identifiers are invalid.
     #[inline]
     pub fn clear(&mut self) {
+        self.states.clear();
         self.start_anchored = StateID::ZERO;
         self.start_unanchored = StateID::ZERO;
-        self.states.clear();
         self.start_pattern.clear();
+        self.patterns_to_captures.clear();
         self.slots = 0;
+        self.capture_name_to_index.clear();
+        self.capture_index_to_name.clear();
         self.byte_class_set = ByteClassSet::empty();
-        // These are directly derived from the states added, so they must also
-        // be cleared. They will be regenerated as new states are added.
         self.facts = Facts::default();
         self.memory_states = 0;
     }
