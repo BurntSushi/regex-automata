@@ -552,7 +552,8 @@ impl Compiler {
         self.start_pattern.borrow_mut().resize(exprs.len(), StateID::ZERO);
         let compiled = self.c_alternation(
             exprs.iter().with_pattern_ids().map(|(pid, e)| {
-                let one = self.c_group(e.borrow())?;
+                let group_kind = hir::GroupKind::CaptureIndex(0);
+                let one = self.c_group(&group_kind, e.borrow())?;
                 let match_state_id = self.add_match(pid)?;
                 self.patch(one.end, match_state_id)?;
                 self.start_pattern.borrow_mut()[pid] = one.start;
@@ -677,7 +678,7 @@ impl Compiler {
             HirKind::Anchor(ref anchor) => self.c_anchor(anchor),
             HirKind::WordBoundary(ref wb) => self.c_word_boundary(wb),
             HirKind::Repetition(ref rep) => self.c_repetition(rep),
-            HirKind::Group(ref group) => self.c_group(&*group.hir),
+            HirKind::Group(ref group) => self.c_group(&group.kind, &group.hir),
             HirKind::Concat(ref es) => {
                 self.c_concat(es.iter().map(|e| self.c(e)))
             }
@@ -733,10 +734,18 @@ impl Compiler {
         Ok(ThompsonRef { start: union, end })
     }
 
-    fn c_group(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
-        if !self.config.get_captures() {
+    fn c_group(
+        &self,
+        kind: &hir::GroupKind,
+        expr: &Hir,
+    ) -> Result<ThompsonRef, Error> {
+        let nocap = hir::GroupKind::NonCapturing;
+        if !self.config.get_captures() || kind == &nocap {
             return self.c(expr);
         }
+
+        // TODO: Should we really compute capture offsets like this
+        // separate from the capture index present in 'knd'?
         let capi = self.next_capture_offset();
         let slot_start = capi.checked_mul(2).unwrap();
         let slot_end = slot_start.checked_add(1).unwrap();
