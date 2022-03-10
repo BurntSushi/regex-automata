@@ -91,11 +91,11 @@ log = { version = "0.4.14", optional = true }
 memchr = { version = "2.4.0", default-features = false }
 regex-syntax = { version = "0.6.24", optional = true }
 
-[dev-dependencies]
-bstr = { version = "0.2.16", default-features = false, features = ["std"] }
-quickcheck = { version = "1.0.3", default-features = false }
-regex-syntax = "0.6.16"
-regex-test = { version = "*", path = "regex-test" }
+# [dev-dependencies]
+# bstr = { version = "0.2.16", default-features = false, features = ["std"] }
+# quickcheck = { version = "1.0.3", default-features = false }
+# regex-syntax = "0.6.16"
+# regex-test = { version = "*", path = "regex-test" }
 
 [[test]]
 path = "tests/tests.rs"
