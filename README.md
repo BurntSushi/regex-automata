@@ -23,8 +23,13 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-regex-automata = "0.2"
+regex-automata = "0.1"
 ```
+
+**WARNING**: The `master` branch currently contains code for the `0.2` release,
+but this README still targets the `0.1` release. Namely, it is recommended to
+stick with the `0.1` release. The `0.2` release was made prematurely in order
+to unblock some folks.
 
 
 ### Example: basic regex searching
@@ -42,7 +47,7 @@ assert_eq!(matches, vec![(0, 10), (11, 21)]);
 ```
 
 For more examples and information about the various knobs that can be turned,
-please see the [docs](https://docs.rs/regex-automata).
+please see the [docs](https://docs.rs/regex-automata/0.1).
 
 
 ### Support for `no_std`
