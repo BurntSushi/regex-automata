@@ -1,6 +1,6 @@
 [package]
 name = "regex-automata"
-version = "0.1.10"  #:version
+version = "0.2.0"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = "Automata construction and matching using regular expressions."
 documentation = "https://docs.rs/regex-automata"
