@@ -40,8 +40,6 @@ mod macros;
 pub mod dfa;
 #[cfg(feature = "alloc")]
 pub mod hybrid;
-#[doc(hidden)]
 #[cfg(feature = "alloc")]
 pub mod nfa;
-#[doc(hidden)]
 pub mod util;

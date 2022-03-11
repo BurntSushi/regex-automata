@@ -1,5 +1,13 @@
 use crate::Match;
 
+// TODO: Putting a Box<dyn Prefilter> into something else (like a Regex), makes
+// cloning difficult. I believe Aho-Corasick resolves this with some machinery.
+// Is that really our only option though? See hybrid::regex and PikeVM as
+// things that can't be cloned currently because of this.
+//
+// Maybe it's just as simple as using Arc<dyn Prefilter>? Why didn't we do that
+// in aho-corasick?
+
 /// A candidate is the result of running a prefilter on a haystack at a
 /// particular position. The result is one of no match, a confirmed match or
 /// a possible match.

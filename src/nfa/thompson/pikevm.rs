@@ -5,6 +5,7 @@ use crate::{
     util::{
         id::{PatternID, StateID},
         matchtypes::MultiMatch,
+        prefilter::{self, Prefilter},
         sparse_set::SparseSet,
     },
 };
@@ -87,7 +88,7 @@ impl Builder {
                 return Err(Error::unicode_word_unavailable());
             }
         }
-        Ok(PikeVM { config: self.config, nfa })
+        Ok(PikeVM { config: self.config, nfa, pre: None })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {
@@ -129,6 +130,7 @@ impl Builder {
 pub struct PikeVM {
     config: Config,
     nfa: Arc<NFA>,
+    pre: Option<Arc<dyn Prefilter>>,
 }
 
 impl PikeVM {
@@ -170,16 +172,16 @@ impl PikeVM {
 
     // BREADCRUMBS:
     //
-    // 1) Don't forget about prefilters.
-    //
     // 2) Consider the case of using a PikeVM with an NFA that has Capture
     // states, but where we don't want to track capturing groups (other than
     // group 0). This potentially saves a lot of copying around and what not. I
     // believe the current regex crate does this, for example. The interesting
-    // bit here is how to handle the case of multiple patterns...
+    // bit here is how to handle the case of multiple patterns... It looks like
+    // we might need a new state to differentiate "capture group" and "pattern
+    // match offsets." Hmm..?
     //
     // 3) Permit the caller to specify a pattern ID to run an anchored-only
-    // search on.
+    // search on. This is done I guess?
     //
     // 4) How to do overlapping? The way multi-regex support works in the regex
     // crate currently is to run the PikeVM until either we reach the end of
@@ -204,22 +206,70 @@ impl PikeVM {
     pub fn find_leftmost_at(
         &self,
         cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
         haystack: &[u8],
         start: usize,
         end: usize,
         caps: &mut Captures,
     ) -> Option<MultiMatch> {
-        let anchored =
-            self.config.get_anchored() || self.nfa.is_always_start_anchored();
+        let anchored = self.config.get_anchored()
+            || self.nfa.is_always_start_anchored()
+            || pattern_id.is_some();
+        let start_id = match pattern_id {
+            None => self.nfa.start_anchored(),
+            Some(pid) => self.nfa.start_pattern(pid),
+        };
         let mut at = start;
         let mut matched_pid = None;
+
+        if !anchored {
+            if let Some(ref mut pre) = self.scanner() {
+                if self.nfa.pattern_len() == 1
+                    && !pre.reports_false_positives()
+                {
+                    return pre
+                        .next_candidate(haystack, at)
+                        .into_option()
+                        .map(
+                            // TODO: This is obviously wrong. The prefilter
+                            // needs to report start AND end offsets. Sigh.
+                            |offset| {
+                                MultiMatch::new(
+                                    PatternID::ZERO,
+                                    offset,
+                                    offset,
+                                )
+                            },
+                        );
+                } else if pre.is_effective(at) {
+                    at = match pre.next_candidate(haystack, at).into_option() {
+                        None => return None,
+                        Some(at) => at,
+                    };
+                }
+            }
+        }
+
         cache.clear();
         'LOOP: loop {
             if cache.clist.set.is_empty() {
                 if matched_pid.is_some() || (anchored && at > start) {
                     break 'LOOP;
                 }
-                // TODO: prefilter
+                if !anchored {
+                    if let Some(ref mut pre) = self.scanner() {
+                        if pre.is_effective(at) {
+                            at = match pre
+                                .next_candidate(haystack, at)
+                                .into_option()
+                            {
+                                None => break,
+                                Some(at) => at,
+                            };
+                        }
+                    }
+                }
             }
             if (!anchored && matched_pid.is_none())
                 || cache.clist.set.is_empty()
@@ -228,7 +278,7 @@ impl PikeVM {
                     &mut cache.clist,
                     &mut caps.slots,
                     &mut cache.stack,
-                    self.nfa.start_anchored(),
+                    start_id,
                     haystack,
                     at,
                 );
@@ -267,7 +317,29 @@ impl PikeVM {
             )
         })
     }
+}
 
+impl PikeVM {
+    /// Convenience function for returning this regex's prefilter as a trait
+    /// object.
+    ///
+    /// If this regex doesn't have a prefilter, then `None` is returned.
+    pub fn prefilter(&self) -> Option<&dyn Prefilter> {
+        self.pre.as_ref().map(|x| &**x)
+    }
+
+    /// Attach the given prefilter to this regex.
+    pub fn set_prefilter(&mut self, pre: Option<Arc<dyn Prefilter>>) {
+        self.pre = pre;
+    }
+
+    /// Convenience function for returning a prefilter scanner.
+    fn scanner(&self) -> Option<prefilter::Scanner> {
+        self.prefilter().map(prefilter::Scanner::new)
+    }
+}
+
+impl PikeVM {
     #[inline(always)]
     fn step(
         &self,
@@ -367,6 +439,11 @@ impl PikeVM {
                 | State::Sparse { .. }
                 | State::Match { .. } => {
                     let t = &mut nlist.caps(sid);
+                    // TODO: What happens if 't' and 'thread_caps' aren't the
+                    // same size? Depending on how we handle it, it may happen
+                    // if we want to support running the PikeVM in a way that
+                    // only tracks match start/end, and not all capturing
+                    // groups.
                     t.copy_from_slice(thread_caps);
                     return;
                 }
@@ -447,6 +524,8 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
         let mut caps = self.vm.create_captures();
         let m = self.vm.find_leftmost_at(
             self.cache,
+            None,
+            None,
             self.text,
             self.last_end,
             self.text.len(),

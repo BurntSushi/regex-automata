@@ -65,10 +65,10 @@ fn find_fwd(
     assert!(end <= haystack.len());
 
     // Why do this? This lets 'bytes[at]' work without bounds checks below.
-    // It seems the assert on 'end <= haystack.len()' above is otherwise
-    // not enough. Why not just make 'bytes' scoped this way anyway? Well,
-    // 'eoi_fwd' (below) might actually want to try to access the byte at 'end'
-    // for resolving look-ahead.
+    // It seems the assert on 'end <= haystack.len()' above is otherwise not
+    // enough. Why not just make 'haystack' scoped this way? Well, 'eoi_fwd'
+    // (below) might actually want to try to access the byte at 'end' for
+    // resolving look-ahead.
     let bytes = &haystack[..end];
 
     let mut sid = init_fwd(dfa, cache, pattern_id, haystack, start, end)?;
@@ -81,6 +81,7 @@ fn find_fwd(
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
         if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
+            // TODO: This looks wrong? Shouldn't offset be the END of a match?
             return Ok(pre.next_candidate(bytes, at).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
@@ -201,6 +202,9 @@ fn find_fwd(
                     at += 1;
                 }
             }
+            // If we quit out of the code above with an unknown state ID at
+            // any point, then we need to re-compute that transition using
+            // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
                 sid = dfa
                     .next_state(cache, prev_sid, bytes[at - 1])
@@ -212,6 +216,10 @@ fn find_fwd(
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
                         match pre.next_candidate(bytes, at).into_option() {
+                            // TODO: This looks like a bug to me. We should
+                            // return 'Ok(last_match)', i.e., treat it like a
+                            // dead state. But don't 'fix' it until we can
+                            // write a regression test.
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
