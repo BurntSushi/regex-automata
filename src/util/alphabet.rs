@@ -449,10 +449,15 @@ impl<'a> Iterator for ByteClassElementRanges<'a> {
 #[derive(Clone, Debug)]
 pub struct ByteClassSet(ByteSet);
 
+impl Default for ByteClassSet {
+    fn default() -> ByteClassSet {
+        ByteClassSet::empty()
+    }
+}
+
 impl ByteClassSet {
     /// Create a new set of byte classes where all bytes are part of the same
     /// equivalence class.
-    #[cfg(feature = "alloc")]
     pub fn empty() -> Self {
         ByteClassSet(ByteSet::empty())
     }

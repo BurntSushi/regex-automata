@@ -340,7 +340,7 @@ impl PikeVM {
 }
 
 impl PikeVM {
-    #[inline(always)]
+    // #[inline(always)]
     fn step(
         &self,
         nlist: &mut Threads,
@@ -389,7 +389,7 @@ impl PikeVM {
         }
     }
 
-    #[inline(always)]
+    // #[inline(always)]
     fn epsilon_closure(
         &self,
         nlist: &mut Threads,
@@ -419,7 +419,7 @@ impl PikeVM {
         }
     }
 
-    #[inline(always)]
+    // #[inline(always)]
     fn epsilon_closure_step(
         &self,
         nlist: &mut Threads,

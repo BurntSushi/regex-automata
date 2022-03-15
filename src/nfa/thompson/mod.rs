@@ -14,9 +14,11 @@ pub use self::{
     error::Error,
 };
 
+mod builder;
 mod compiler;
 mod error;
 mod map;
+mod nfa;
 pub mod pikevm;
 mod range_trie;
 
@@ -699,8 +701,10 @@ pub enum State {
     /// A fail state. When encountered, the automaton is guaranteed to never
     /// reach a match state.
     Capture { next: StateID, slot: usize },
-    /// A state that cannot be transitioned out of. If a search reaches this
-    /// state, then no match is possible and the search should terminate.
+    /// A state that cannot be transitioned out of. This is useful for cases
+    /// where you want to prevent matching from occurring. For example, if your
+    /// regex parser permits empty character classes, then one could choose a
+    /// `Fail` state to represent it.
     Fail,
     /// A match state. There is exactly one such occurrence of this state for
     /// each regex compiled into the NFA.
