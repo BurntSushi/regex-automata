@@ -40,6 +40,28 @@ impl NFA {
     // Compiler::new()
     // }
 
+    /// Returns an NFA with a single regex pattern that always matches at every
+    /// position.
+    #[inline]
+    pub fn always_match() -> NFA {
+        let mut builder = NFA::builder();
+        let pid = builder.start_pattern().unwrap();
+        assert_eq!(pid.as_usize(), 0);
+        let start_id = builder.add_match().unwrap();
+        let pid = builder.finish_pattern(start_id).unwrap();
+        assert_eq!(pid.as_usize(), 0);
+        builder.build(start_id, start_id).unwrap()
+    }
+
+    /// Returns an NFA that never matches at any position. It contains no
+    /// regexes.
+    #[inline]
+    pub fn never_match() -> NFA {
+        let mut builder = NFA::builder();
+        let start_id = builder.add_fail().unwrap();
+        builder.build(start_id, start_id).unwrap()
+    }
+
     /// Returns an iterator over all pattern IDs in this NFA.
     #[inline]
     pub fn patterns(&self) -> PatternIter {
@@ -200,6 +222,12 @@ impl NFA {
             + self.0.capture_name_to_index.len() * s::<CaptureNameMap>()
             + self.0.capture_index_to_name.len() * s::<Vec<Option<Arc<str>>>>()
             + self.0.memory_extra
+    }
+}
+
+impl fmt::Debug for NFA {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -441,6 +469,38 @@ impl Inner {
         for (pid, id) in self.start_pattern.iter_mut().with_pattern_ids() {
             *id = old_to_new[*id];
         }
+    }
+}
+
+impl fmt::Debug for Inner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "thompson::NFA(")?;
+        for (sid, state) in self.states.iter().with_state_ids() {
+            let status = if sid == self.start_anchored {
+                '^'
+            } else if sid == self.start_unanchored {
+                '>'
+            } else {
+                ' '
+            };
+            writeln!(f, "{}{:06?}: {:?}", status, sid.as_usize(), state)?;
+        }
+        let pattern_len = self.start_pattern.len();
+        if pattern_len > 1 {
+            writeln!(f, "")?;
+            for pid in 0..pattern_len {
+                let sid = self.start_pattern[pid];
+                writeln!(f, "START({:06?}): {:?}", pid, sid.as_usize())?;
+            }
+        }
+        writeln!(f, "")?;
+        writeln!(
+            f,
+            "transition equivalence classes: {:?}",
+            self.byte_class_set.byte_classes(),
+        )?;
+        writeln!(f, ")")?;
+        Ok(())
     }
 }
 
@@ -766,7 +826,6 @@ pub enum Look {
 }
 
 impl Look {
-    #[inline(always)]
     pub fn matches(&self, bytes: &[u8], at: usize) -> bool {
         match *self {
             Look::StartLine => at == 0 || bytes[at - 1] == b'\n',
@@ -835,7 +894,7 @@ impl Look {
     /// Create a look-around assertion from its corresponding integer (as
     /// defined in `Look`). If the given integer does not correspond to any
     /// assertion, then None is returned.
-    fn from_int(n: u8) -> Option<Look> {
+    pub fn from_int(n: u8) -> Option<Look> {
         match n {
             0b0000_0001 => Some(Look::StartLine),
             0b0000_0010 => Some(Look::EndLine),
@@ -850,7 +909,7 @@ impl Look {
     }
 
     /// Flip the look-around assertion to its equivalent for reverse searches.
-    fn reversed(&self) -> Look {
+    pub fn reversed(&self) -> Look {
         match *self {
             Look::StartLine => Look::EndLine,
             Look::EndLine => Look::StartLine,

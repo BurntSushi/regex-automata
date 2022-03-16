@@ -9,7 +9,7 @@ This module also contains a [`hybrid::dfa::Builder`](Builder) and a
 
 use core::{borrow::Borrow, iter, mem::size_of};
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::vec::Vec;
 
 use crate::{
     hybrid::{
@@ -103,7 +103,7 @@ const MIN_STATES: usize = 5;
 /// ```
 #[derive(Clone, Debug)]
 pub struct DFA {
-    nfa: Arc<thompson::NFA>,
+    nfa: thompson::NFA,
     stride2: usize,
     classes: ByteClasses,
     quitset: ByteSet,
@@ -182,7 +182,7 @@ impl DFA {
     /// ```
     pub fn always_match() -> Result<DFA, BuildError> {
         let nfa = thompson::NFA::always_match();
-        Builder::new().build_from_nfa(Arc::new(nfa))
+        Builder::new().build_from_nfa(nfa)
     }
 
     /// Create a new lazy DFA that never matches any input.
@@ -201,7 +201,7 @@ impl DFA {
     /// ```
     pub fn never_match() -> Result<DFA, BuildError> {
         let nfa = thompson::NFA::never_match();
-        Builder::new().build_from_nfa(Arc::new(nfa))
+        Builder::new().build_from_nfa(nfa)
     }
 
     /// Return a default configuration for a `DFA`.
@@ -371,7 +371,7 @@ impl DFA {
     }
 
     /// Returns a reference to the underlying NFA.
-    pub fn nfa(&self) -> &Arc<thompson::NFA> {
+    pub fn nfa(&self) -> &thompson::NFA {
         &self.nfa
     }
 
@@ -3614,16 +3614,15 @@ impl Builder {
     ) -> Result<DFA, BuildError> {
         let nfa =
             self.thompson.build_many(patterns).map_err(BuildError::nfa)?;
-        self.build_from_nfa(Arc::new(nfa))
+        self.build_from_nfa(nfa)
     }
 
     /// Build a DFA from the given NFA.
     ///
-    /// Note that this requires an `Arc<thompson::NFA>` instead of a
-    /// `&thompson::NFA` because the lazy DFA builds itself from the NFA at
-    /// search time. This means that the lazy DFA must hold on to its source
-    /// NFA for the entirety of its lifetime. An `Arc` is used so that callers
-    /// aren't forced to clone the NFA if it is needed elsewhere.
+    /// Note that this requires owning a `thompson::NFA`. While this may force
+    /// you to clone the NFA, such a clone is not a deep clone. Namely, NFAs
+    /// are defined internally to support shared ownership such that cloning is
+    /// very cheap.
     ///
     /// # Example
     ///
@@ -3631,7 +3630,6 @@ impl Builder {
     /// in hand.
     ///
     /// ```
-    /// use std::sync::Arc;
     /// use regex_automata::{hybrid::dfa::DFA, nfa::thompson, HalfMatch};
     ///
     /// let haystack = "foo123bar".as_bytes();
@@ -3640,7 +3638,7 @@ impl Builder {
     /// let nfa = thompson::Builder::new()
     ///     .configure(thompson::Config::new().shrink(false))
     ///     .build(r"[0-9]+")?;
-    /// let dfa = DFA::builder().build_from_nfa(Arc::new(nfa))?;
+    /// let dfa = DFA::builder().build_from_nfa(nfa)?;
     /// let mut cache = dfa.create_cache();
     /// let expected = Some(HalfMatch::must(0, 6));
     /// let got = dfa.find_leftmost_fwd(&mut cache, haystack)?;
@@ -3650,7 +3648,7 @@ impl Builder {
     /// ```
     pub fn build_from_nfa(
         &self,
-        nfa: Arc<thompson::NFA>,
+        nfa: thompson::NFA,
     ) -> Result<DFA, BuildError> {
         let quitset = self.config.quit_set_from_nfa(&nfa)?;
         let classes = self.config.byte_classes_from_nfa(&nfa, &quitset);

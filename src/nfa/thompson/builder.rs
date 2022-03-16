@@ -192,13 +192,6 @@ pub struct Builder {
     size_limit: Option<usize>,
 }
 
-// BREADCRUMBS: I think we're ready to rewrite the compiler in terms of this
-// new builder. One little annoying hiccup is that the compiler really wants
-// to use interior mutability, which means putting this builder in a RefCell.
-// But we want to use this builder everywhere, which means lots of annoying
-// `self.builder.borrow_mut()` calls. We could define wrapper methods for each
-// routine on Builder, but that's *also* annoying. Meh.
-
 impl Builder {
     pub fn new() -> Builder {
         Builder::default()

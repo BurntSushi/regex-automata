@@ -73,10 +73,10 @@ impl Builder {
         patterns: &[P],
     ) -> Result<PikeVM, Error> {
         let nfa = self.thompson.build_many(patterns)?;
-        self.build_from_nfa(Arc::new(nfa))
+        self.build_from_nfa(nfa)
     }
 
-    pub fn build_from_nfa(&self, nfa: Arc<NFA>) -> Result<PikeVM, Error> {
+    pub fn build_from_nfa(&self, nfa: NFA) -> Result<PikeVM, Error> {
         // TODO: Check that this is correct.
         // if !cfg!(all(
         // feature = "dfa",
@@ -129,7 +129,7 @@ impl Builder {
 #[derive(Clone, Debug)]
 pub struct PikeVM {
     config: Config,
-    nfa: Arc<NFA>,
+    nfa: NFA,
     pre: Option<Arc<dyn Prefilter>>,
 }
 
@@ -140,6 +140,10 @@ impl PikeVM {
 
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<PikeVM, Error> {
         PikeVM::builder().build_many(patterns)
+    }
+
+    pub fn new_from_nfa(nfa: NFA) -> Result<PikeVM, Error> {
+        PikeVM::builder().build_from_nfa(nfa)
     }
 
     pub fn config() -> Config {
@@ -158,7 +162,7 @@ impl PikeVM {
         Captures::new(self.nfa())
     }
 
-    pub fn nfa(&self) -> &Arc<NFA> {
+    pub fn nfa(&self) -> &NFA {
         &self.nfa
     }
 
@@ -202,6 +206,23 @@ impl PikeVM {
     // need, but the state index of the last NFA state processed in the cache.
     // Then we just pick up where we left off. There might be another match
     // state, in which case, we report it.
+
+    pub fn find_leftmost(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        caps: &mut Captures,
+    ) -> Option<MultiMatch> {
+        self.find_leftmost_at(
+            cache,
+            None,
+            None,
+            haystack,
+            0,
+            haystack.len(),
+            caps,
+        )
+    }
 
     pub fn find_leftmost_at(
         &self,
