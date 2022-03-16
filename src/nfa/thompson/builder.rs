@@ -7,7 +7,7 @@ use crate::{
         error::Error,
         nfa::{self, Look, SparseTransitions, Transition, NFA},
     },
-    util::id::{PatternID, StateID},
+    util::id::{IteratorIDExt, PatternID, StateID},
 };
 
 /// An intermediate NFA state used during construction.
@@ -176,15 +176,11 @@ pub struct Builder {
     /// The first capture group for each pattern is always unnamed and is thus
     /// always None.
     captures: Vec<Vec<Option<Arc<str>>>>,
-    /// A map used to re-map state IDs when translating this builder's internal
-    /// NFA state representation to the final NFA representation.
-    remap: Vec<StateID>,
-    /// A set of compiler internal state IDs that correspond to states that are
-    /// exclusively epsilon transitions, i.e., goto instructions, combined with
-    /// the state that they point to. This is used to record said states while
-    /// transforming the compiler's internal NFA representation to the external
-    /// form.
-    empties: Vec<(StateID, StateID)>,
+    /// The total number of slots required to represent capturing groups in the
+    /// NFA. This builder doesn't use this for anything other than validating
+    /// that we don't have any capture indices that are too big. (It's likely
+    /// that such a thing is only possible on 16-bit systems.)
+    slots: usize,
     /// The combined memory used by each of the 'State's in 'states'. This
     /// only includes heap usage by each state, and not the size of the state
     /// itself. In other words, this tracks heap memory used that isn't
@@ -196,6 +192,13 @@ pub struct Builder {
     size_limit: Option<usize>,
 }
 
+// BREADCRUMBS: I think we're ready to rewrite the compiler in terms of this
+// new builder. One little annoying hiccup is that the compiler really wants
+// to use interior mutability, which means putting this builder in a RefCell.
+// But we want to use this builder everywhere, which means lots of annoying
+// `self.builder.borrow_mut()` calls. We could define wrapper methods for each
+// routine on Builder, but that's *also* annoying. Meh.
+
 impl Builder {
     pub fn new() -> Builder {
         Builder::default()
@@ -205,16 +208,116 @@ impl Builder {
         self.pattern_id = None;
         self.states.clear();
         self.start_pattern.clear();
-        self.remap.clear();
-        self.empties.clear();
+        self.captures.clear();
+        self.slots = 0;
         self.memory_states = 0;
     }
 
-    pub fn build(&self) -> Result<NFA, Error> {
+    pub fn build(
+        &self,
+        start_anchored: StateID,
+        start_unanchored: StateID,
+    ) -> Result<NFA, Error> {
         assert!(self.pattern_id.is_none(), "must call 'finish_pattern' first");
+        trace!(
+            "intermediate NFA compilation via builder is complete, \
+             intermediate NFA size: {} states, {} bytes on heap",
+            self.states.len(),
+            self.memory_usage(),
+        );
 
-        let inner = nfa::Inner::default();
-        Ok(NFA(Arc::new(inner)))
+        let mut nfa = nfa::Inner::default();
+        // A set of compiler internal state IDs that correspond to states
+        // that are exclusively epsilon transitions, i.e., goto instructions,
+        // combined with the state that they point to. This is used to
+        // record said states while transforming the compiler's internal NFA
+        // representation to the external form.
+        let mut empties = vec![];
+        // A map used to re-map state IDs when translating this builder's
+        // internal NFA state representation to the final NFA representation.
+        let mut remap = vec![];
+        remap.resize(self.states.len(), StateID::ZERO);
+
+        nfa.set_starts(start_anchored, start_unanchored, &self.start_pattern);
+        nfa.set_captures(&self.captures);
+        // The idea here is to convert our intermediate states to their final
+        // form. The only real complexity here is the process of converting
+        // transitions, which are expressed in terms of state IDs. The new
+        // set of states will be smaller because of partial epsilon removal,
+        // so the state IDs will not be the same.
+        for (sid, state) in self.states.iter().with_state_ids() {
+            match *state {
+                State::Empty { next } => {
+                    // Since we're removing empty states, we need to handle
+                    // them later since we don't yet know which new state this
+                    // empty state will be mapped to.
+                    empties.push((sid, next));
+                }
+                State::Range { range } => {
+                    remap[sid] = nfa.add(nfa::State::Range { range })?;
+                }
+                State::Sparse { ref ranges } => {
+                    let ranges = ranges.to_owned().into_boxed_slice();
+                    remap[sid] =
+                        nfa.add(nfa::State::Sparse(SparseTransitions {
+                            ranges,
+                        }))?;
+                }
+                State::Look { look, next } => {
+                    remap[sid] = nfa.add(nfa::State::Look { look, next })?;
+                }
+                State::CaptureStart { pattern_id, capture_index, next } => {
+                    // We can't remove this empty state because of the side
+                    // effect of capturing an offset for this capture slot.
+                    let slot = nfa.slot(pattern_id, capture_index);
+                    remap[sid] =
+                        nfa.add(nfa::State::Capture { next, slot })?;
+                }
+                State::CaptureEnd { pattern_id, capture_index, next } => {
+                    // We can't remove this empty state because of the side
+                    // effect of capturing an offset for this capture slot.
+                    let slot = nfa.slot(pattern_id, capture_index);
+                    remap[sid] =
+                        nfa.add(nfa::State::Capture { next, slot })?;
+                }
+                State::Union { ref alternates } => {
+                    let alternates = alternates.to_owned().into_boxed_slice();
+                    remap[sid] = nfa.add(nfa::State::Union { alternates })?;
+                }
+                State::UnionReverse { ref alternates } => {
+                    let mut alternates =
+                        alternates.to_owned().into_boxed_slice();
+                    alternates.reverse();
+                    remap[sid] = nfa.add(nfa::State::Union { alternates })?;
+                }
+                State::Fail => {
+                    remap[sid] = nfa.add(nfa::State::Fail)?;
+                }
+                State::Match { pattern_id } => {
+                    remap[sid] = nfa.add(nfa::State::Match { pattern_id })?;
+                }
+            }
+        }
+        for &(empty_id, mut empty_next) in empties.iter() {
+            // empty states can point to other empty states, forming a chain.
+            // So we must follow the chain until the end, which must end at
+            // a non-empty state, and therefore, a state that is correctly
+            // remapped. We are guaranteed to terminate because our compiler
+            // never builds a loop among only empty states.
+            while let State::Empty { next } = self.states[empty_next] {
+                empty_next = next;
+            }
+            remap[empty_id] = remap[empty_next];
+        }
+        nfa.remap(&remap);
+        let final_nfa = NFA(Arc::new(nfa));
+        trace!(
+            "NFA compilation via builder complete, \
+             final NFA size: {} states, {} bytes on heap",
+            final_nfa.states().len(),
+            final_nfa.memory_usage(),
+        );
+        Ok(final_nfa)
     }
 
     pub fn start_pattern(&mut self) -> Result<PatternID, Error> {
@@ -285,27 +388,6 @@ impl Builder {
         next: StateID,
         look: Look,
     ) -> Result<StateID, Error> {
-        // BREADCRUMBS: Do we build facts and byteset here in the builder?
-        // Or keep that in mutating methods on the NFA? If we want to avoid
-        // mutating methods on the NFA, then it seems like we should do it here
-        // in the builder......?
-
-        // self.facts.set_has_any_look(true);
-        // look.add_to_byteset(&mut self.byte_class_set);
-        // match look {
-        // Look::StartLine
-        // | Look::EndLine
-        // | Look::StartText
-        // | Look::EndText => {
-        // self.facts.set_has_any_anchor(true);
-        // }
-        // Look::WordBoundaryUnicode | Look::WordBoundaryUnicodeNegate => {
-        // self.facts.set_has_word_boundary_unicode(true);
-        // }
-        // Look::WordBoundaryAscii | Look::WordBoundaryAsciiNegate => {
-        // self.facts.set_has_word_boundary_ascii(true);
-        // }
-        // }
         self.add(State::Look { look, next })
     }
 
@@ -314,46 +396,6 @@ impl Builder {
         capture_index: u32,
         name: Option<Arc<str>>,
     ) -> Result<StateID, Error> {
-        // BREADCRUMBS: Here in the builder, we have some flexibility with how
-        // we deal with capturing groups, since we can put them through another
-        // transformation step when we produce the final NFA. So how should we
-        // store them?
-        //
-        // At minimum, we need an efficient mapping of the form:
-        //
-        //   (PatternID, PatternGroupIndex) |--> Absolute Slot Offset
-        //
-        // We could use Vec<Range<usize>>, which is indexed by pattern and the
-        // range is either absolute capture group index or slots. Slots seem
-        // a little weird, but they tend to be the only thing we care about
-        // in "absolute" terms, so that might actually be the most natural
-        // representation. But... capture group index is seemingly easier to
-        // reason about and seems more "fundamental." Either way, we can go
-        // between them very easily. Using slots directly would avoid some
-        // arithmetic I think on capture group lookup.
-        //
-        // What else? We also need to track capture group names. In the regex
-        // public API, we need:
-        //
-        //   (PatternID, PatternGroupName) |--> PatternGroupIndex
-        //
-        // but we also need the sequence:
-        //
-        //   <for each pattern <for each group, yield Option<NameString>>
-        //
-        // For the builder, I think if we only store the above map, then we
-        // can produce the sequence from it and the map above when we build the
-        // final NFA. Hmmm... Nope. I think it's actually the other way around!
-        //
-        // I suppose the other question is whether the builder should even
-        // concern itself with slots in the first place.
-        //
-        // And in fact, I think all we actually need is the sequence! We can
-        // build *both* maps above from that sequence I think.
-        //
-        // I think we should validate as much---perhaps all---properties of
-        // capturing groups as we can here. It would be better to fail fast
-        // than to wait until we go to build the final NFA.
         let pid = self.current_pattern_id();
         let capture_index = match usize::try_from(capture_index) {
             Err(_) => {
@@ -381,6 +423,20 @@ impl Builder {
                 return Err(Error::invalid_capture_index(capture_index));
             }
             self.captures[pid].push(None);
+            // We check that 'slots' remains valid, since slots could in theory
+            // overflow 'usize' without capture indices overflowing usize.
+            // (Although, it seems only likely on 16-bit systems.) Either way,
+            // we check that no overflows occur here. Also, note that we add
+            // 2 because each capture group has two slots (start and end).
+            // Otherwise, the NFA itself ultimately owns the allocation of
+            // slots. We only track it here in the builder to ensure that the
+            // total number ends up being valid.
+            self.slots = match self.slots.checked_add(2) {
+                Some(slots) => slots,
+                None => {
+                    return Err(Error::invalid_capture_index(capture_index))
+                }
+            };
         }
         self.add(State::CaptureStart {
             pattern_id: pid,
@@ -434,7 +490,7 @@ impl Builder {
         Ok(id)
     }
 
-    fn patch(&mut self, from: StateID, to: StateID) -> Result<(), Error> {
+    pub fn patch(&mut self, from: StateID, to: StateID) -> Result<(), Error> {
         let old_memory_states = self.memory_states;
         match self.states[from] {
             State::Empty { ref mut next } => {
