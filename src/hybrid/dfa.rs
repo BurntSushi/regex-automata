@@ -1823,7 +1823,7 @@ impl Cache {
             starts: alloc::vec![],
             states: alloc::vec![],
             states_to_id: StateMap::new(),
-            sparses: SparseSets::new(dfa.nfa.len()),
+            sparses: SparseSets::new(dfa.nfa.states().len()),
             stack: alloc::vec![],
             scratch_state_builder: StateBuilderEmpty::new(),
             state_saver: StateSaver::none(),
@@ -2209,7 +2209,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         // If a new DFA is used, it might have a different number of NFA
         // states, so we need to make sure our sparse sets have the appropriate
         // size.
-        self.cache.sparses.resize(self.dfa.nfa.len());
+        self.cache.sparses.resize(self.dfa.nfa.states().len());
         self.cache.clear_count = 0;
     }
 
@@ -3584,7 +3584,7 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
-    thompson: thompson::Builder,
+    thompson: thompson::Compiler,
 }
 
 impl Builder {
@@ -3592,7 +3592,7 @@ impl Builder {
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
-            thompson: thompson::Builder::new(),
+            thompson: thompson::Compiler::new(),
         }
     }
 
@@ -3635,7 +3635,7 @@ impl Builder {
     /// let haystack = "foo123bar".as_bytes();
     ///
     /// // This shows how to set non-default options for building an NFA.
-    /// let nfa = thompson::Builder::new()
+    /// let nfa = thompson::Compiler::new()
     ///     .configure(thompson::Config::new().shrink(false))
     ///     .build(r"[0-9]+")?;
     /// let dfa = DFA::builder().build_from_nfa(nfa)?;
@@ -3780,7 +3780,8 @@ fn minimum_cache_capacity(
     const ID_SIZE: usize = size_of::<LazyStateID>();
     let stride = 1 << classes.stride2();
 
-    let sparses = 2 * nfa.len() * NFAStateID::SIZE;
+    let states_len = nfa.states().len();
+    let sparses = 2 * states_len * NFAStateID::SIZE;
     let trans = MIN_STATES * stride * ID_SIZE;
 
     let mut starts = Start::count() * ID_SIZE;
@@ -3798,11 +3799,11 @@ fn minimum_cache_capacity(
     // small.
     assert!(MIN_STATES >= 3, "minimum number of states has to be at least 3");
     let dead_state_size = State::dead().memory_usage();
-    let max_state_size = 3 + 4 + (nfa.pattern_len() * 4) + (nfa.len() * 5);
+    let max_state_size = 3 + 4 + (nfa.pattern_len() * 4) + (states_len * 5);
     let states = (3 * (size_of::<State>() + dead_state_size))
         + ((MIN_STATES - 3) * (size_of::<State>() + max_state_size));
     let states_to_sid = states + (MIN_STATES * ID_SIZE);
-    let stack = nfa.len() * NFAStateID::SIZE;
+    let stack = states_len * NFAStateID::SIZE;
     let scratch_state_builder = max_state_size;
 
     trans

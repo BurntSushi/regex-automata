@@ -1,25 +1,66 @@
-use core::{borrow::Borrow, cell::RefCell};
+/*
+This module provides an NFA compiler using Thompson's construction
+algorithm. The compiler takes a regex-syntax::Hir as input and emits an NFA
+graph as output. The NFA graph is structured in a way that permits it to be
+executed by a virtual machine and also used to efficiently build a DFA.
 
-use alloc::sync::Arc;
+The compiler deals with a slightly expanded set of NFA states that notably
+includes an empty node that has exactly one epsilon transition to the next
+state. In other words, it's a "goto" instruction if one views Thompson's NFA
+as a set of bytecode instructions. These goto instructions are removed in
+a subsequent phase before returning the NFA to the caller. The purpose of
+these empty nodes is that they make the construction algorithm substantially
+simpler to implement. We remove them before returning to the caller because
+they can represent substantial overhead when traversing the NFA graph
+(either while searching using the NFA directly or while building a DFA).
+
+In the future, it would be nice to provide a Glushkov compiler as well,
+as it would work well as a bit-parallel NFA for smaller regexes. But
+the Thompson construction is one I'm more familiar with and seems more
+straight-forward to deal with when it comes to large Unicode character
+classes.
+
+Internally, the compiler uses interior mutability to improve composition
+in the face of the borrow checker. In particular, we'd really like to be
+able to write things like this:
+
+    self.c_concat(exprs.iter().map(|e| self.c(e)))
+
+Which elegantly uses iterators to build up a sequence of compiled regex
+sub-expressions and then hands it off to the concatenating compiler
+routine. Without interior mutability, the borrow checker won't let us
+borrow `self` mutably both inside and outside the closure at the same
+time.
+*/
+
+use core::{
+    borrow::Borrow,
+    cell::{Cell, RefCell},
+    mem,
+};
+
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use regex_syntax::{
-    hir::{self, Anchor, Hir, WordBoundary},
+    hir::{self, Anchor, Class, Hir, HirKind, Literal, WordBoundary},
     utf8::{Utf8Range, Utf8Sequences},
     ParserBuilder,
 };
 
 use crate::{
     nfa::thompson::{
-        builder::Builder,
         error::Error,
         map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
-        nfa::{Look, PatternIter, SparseTransitions, State, Transition, NFA},
         range_trie::RangeTrie,
+        Look, SparseTransitions, State, Transition, NFA,
     },
-    util::id::{IteratorIDExt, PatternID, StateID},
+    util::{
+        alphabet::ByteClassSet,
+        id::{IteratorIDExt, PatternID, StateID},
+    },
 };
 
-/// The configuration used for a Thompson NFA compiler.
+/// The configuration used for compiling a Thompson NFA from a regex pattern.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
     reverse: Option<bool>,
@@ -105,13 +146,13 @@ impl Config {
     /// use regex_automata::nfa::thompson::NFA;
     ///
     /// // 300KB isn't enough!
-    /// NFA::compiler()
+    /// NFA::builder()
     ///     .configure(NFA::config().nfa_size_limit(Some(300_000)))
     ///     .build(r"\w{20}")
     ///     .unwrap_err();
     ///
     /// // ... but 400KB probably is.
-    /// let nfa = NFA::compiler()
+    /// let nfa = NFA::builder()
     ///     .configure(NFA::config().nfa_size_limit(Some(400_000)))
     ///     .build(r"\w{20}")?;
     ///
@@ -211,34 +252,15 @@ impl Config {
 
 /// A builder for compiling an NFA.
 #[derive(Clone, Debug)]
-pub struct Compiler {
-    parser: ParserBuilder,
+pub struct Builder {
     config: Config,
-    /// The builder for actually constructing an NFA. This provides a
-    /// convenient abstraction for writing a compiler.
-    builder: RefCell<Builder>,
-    /// State used for compiling character classes to UTF-8 byte automata.
-    /// State is not retained between character class compilations. This just
-    /// serves to amortize allocation to the extent possible.
-    utf8_state: RefCell<Utf8State>,
-    /// State used for arranging character classes in reverse into a trie.
-    trie_state: RefCell<RangeTrie>,
-    /// State used for caching common suffixes when compiling reverse UTF-8
-    /// automata (for Unicode character classes).
-    utf8_suffix: RefCell<Utf8SuffixMap>,
+    parser: ParserBuilder,
 }
 
-impl Compiler {
+impl Builder {
     /// Create a new NFA builder with its default configuration.
-    pub fn new() -> Compiler {
-        Compiler {
-            parser: ParserBuilder::new(),
-            config: Config::default(),
-            builder: RefCell::new(Builder::new()),
-            utf8_state: RefCell::new(Utf8State::new()),
-            trie_state: RefCell::new(RangeTrie::new()),
-            utf8_suffix: RefCell::new(Utf8SuffixMap::new(1000)),
-        }
+    pub fn new() -> Builder {
+        Builder { config: Config::default(), parser: ParserBuilder::new() }
     }
 
     /// Compile the given regular expression into an NFA.
@@ -276,47 +298,254 @@ impl Compiler {
     /// only error that can occur is if the compiled regex would exceed the
     /// size limits configured on this builder.
     pub fn build_from_hir(&self, expr: &Hir) -> Result<NFA, Error> {
-        self.build_many_from_hir(&[expr])
+        self.build_from_hir_with(&mut Compiler::new(), expr)
     }
 
-    /// Compile the given high level intermediate representation of a regular
-    /// expression into an NFA.
-    ///
-    /// If there was a problem building the NFA, then an error is returned. The
-    /// only error that can occur is if the compiled regex would exceed the
-    /// size limits configured on this builder.
     pub fn build_many_from_hir<H: Borrow<Hir>>(
         &self,
         exprs: &[H],
     ) -> Result<NFA, Error> {
-        self.compile(exprs)
+        self.build_many_from_hir_with(&mut Compiler::new(), exprs)
+    }
+
+    /// Compile the given high level intermediate representation of a regular
+    /// expression into the NFA given using the given compiler. Callers may
+    /// prefer this over `build` if they would like to reuse allocations while
+    /// compiling many regular expressions.
+    ///
+    /// On success, the given NFA is completely overwritten with the NFA
+    /// produced by the compiler.
+    ///
+    /// If there was a problem building the NFA, then an error is returned.
+    /// The only error that can occur is if the compiled regex would exceed
+    /// the size limits configured on this builder. When an error is returned,
+    /// the contents of `nfa` are unspecified and should not be relied upon.
+    /// However, it can still be reused in subsequent calls to this method.
+    fn build_from_hir_with(
+        &self,
+        compiler: &mut Compiler,
+        expr: &Hir,
+    ) -> Result<NFA, Error> {
+        self.build_many_from_hir_with(compiler, &[expr])
+    }
+
+    fn build_many_from_hir_with<H: Borrow<Hir>>(
+        &self,
+        compiler: &mut Compiler,
+        exprs: &[H],
+    ) -> Result<NFA, Error> {
+        compiler.configure(self.config);
+        compiler.compile(exprs)
     }
 
     /// Apply the given NFA configuration options to this builder.
-    pub fn configure(&mut self, config: Config) -> &mut Compiler {
+    pub fn configure(&mut self, config: Config) -> &mut Builder {
         self.config = self.config.overwrite(config);
         self
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`SyntaxConfig`](../../struct.SyntaxConfig.html).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
     ///
-    /// This syntax configuration only applies when an NFA is built directly
-    /// from a pattern string. If an NFA is built from an HIR, then all syntax
-    /// settings are ignored.
+    /// This syntax configuration generally only applies when an NFA is built
+    /// directly from a pattern string. If an NFA is built from an HIR, then
+    /// all syntax settings are ignored.
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::SyntaxConfig,
-    ) -> &mut Compiler {
+    ) -> &mut Builder {
         config.apply(&mut self.parser);
         self
     }
 }
 
+/// A compiler that converts a regex abstract syntax to an NFA via Thompson's
+/// construction. Namely, this compiler permits epsilon transitions between
+/// states.
+#[derive(Clone, Debug)]
+pub struct Compiler {
+    /// The configuration from the builder.
+    config: Config,
+    /// The final NFA that is built.
+    ///
+    /// Parts of this NFA are constructed during compilation, but the actual
+    /// states aren't added until a final "finish" step. This is because the
+    /// states constructed during compilation have unconditional epsilon
+    /// transitions, which makes the logic of compilation much simpler. The
+    /// "finish" step removes these unconditional epsilon transitions and must
+    /// therefore remap all of the transition state IDs.
+    nfa: RefCell<NFA>,
+    /// The set of compiled NFA states. Once a state is compiled, it is
+    /// assigned a state ID equivalent to its index in this list. Subsequent
+    /// compilation can modify previous states by adding new transitions.
+    states: RefCell<Vec<CState>>,
+    /// State used for compiling character classes to UTF-8 byte automata.
+    /// State is not retained between character class compilations. This just
+    /// serves to amortize allocation to the extent possible.
+    utf8_state: RefCell<Utf8State>,
+    /// State used for arranging character classes in reverse into a trie.
+    trie_state: RefCell<RangeTrie>,
+    /// State used for caching common suffixes when compiling reverse UTF-8
+    /// automata (for Unicode character classes).
+    utf8_suffix: RefCell<Utf8SuffixMap>,
+    /// A map used to re-map state IDs when translating the compiler's internal
+    /// NFA state representation to the external NFA representation.
+    remap: RefCell<Vec<StateID>>,
+    /// A set of compiler internal state IDs that correspond to states that are
+    /// exclusively epsilon transitions, i.e., goto instructions, combined with
+    /// the state that they point to. This is used to record said states while
+    /// transforming the compiler's internal NFA representation to the external
+    /// form.
+    empties: RefCell<Vec<(StateID, StateID)>>,
+    /// The total memory used by each of the 'CState's in 'states'. This only
+    /// includes heap usage by each state, and not the size of the state
+    /// itself.
+    memory_cstates: Cell<usize>,
+}
+
+/// A compiler intermediate state representation for an NFA that is only used
+/// during compilation. Once compilation is done, `CState`s are converted
+/// to `State`s (defined in the parent module), which have a much simpler
+/// representation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CState {
+    /// An empty state whose only purpose is to forward the automaton to
+    /// another state via en epsilon transition. These are useful during
+    /// compilation but are otherwise removed at the end.
+    Empty {
+        next: StateID,
+    },
+    /// An empty state that records a capture location.
+    ///
+    /// From the perspective of finite automata, this is precisely equivalent
+    /// to 'Empty', but serves the purpose of instructing NFA simulations to
+    /// record additional state when the finite state machine passes through
+    /// this epsilon transition.
+    ///
+    /// These transitions are treated as epsilon transitions with no additional
+    /// effects in DFAs.
+    ///
+    /// 'slot' in this context refers to the specific capture group offset that
+    /// is being recorded. Each capturing group has two slots corresponding to
+    /// the start and end of the matching portion of that group.
+    CaptureStart {
+        next: StateID,
+        capture_index: u32,
+        name: Option<Arc<str>>,
+    },
+    CaptureEnd {
+        next: StateID,
+        capture_index: u32,
+    },
+    /// A state that only transitions to `next` if the current input byte is
+    /// in the range `[start, end]` (inclusive on both ends).
+    Range {
+        range: Transition,
+    },
+    /// A state with possibly many transitions, represented in a sparse
+    /// fashion. Transitions are ordered lexicographically by input range.
+    /// As such, this may only be used when every transition has equal
+    /// priority. (In practice, this is only used for encoding large UTF-8
+    /// automata.) In contrast, a `Union` state has each alternate in order
+    /// of priority. Priority is used to implement greedy matching and also
+    /// alternations themselves, e.g., `abc|a` where `abc` has priority over
+    /// `a`.
+    ///
+    /// To clarify, it is possible to remove `Sparse` and represent all things
+    /// that `Sparse` is used for via `Union`. But this creates a more bloated
+    /// NFA with more epsilon transitions than is necessary in the special case
+    /// of character classes.
+    Sparse {
+        ranges: Vec<Transition>,
+    },
+    /// A conditional epsilon transition satisfied via some sort of
+    /// look-around.
+    Look {
+        look: Look,
+        next: StateID,
+    },
+    /// An alternation such that there exists an epsilon transition to all
+    /// states in `alternates`, where matches found via earlier transitions
+    /// are preferred over later transitions.
+    Union {
+        alternates: Vec<StateID>,
+    },
+    /// An alternation such that there exists an epsilon transition to all
+    /// states in `alternates`, where matches found via later transitions are
+    /// preferred over earlier transitions.
+    ///
+    /// This "reverse" state exists for convenience during compilation that
+    /// permits easy construction of non-greedy combinations of NFA states. At
+    /// the end of compilation, Union and UnionReverse states are merged into
+    /// one Union type of state, where the latter has its epsilon transitions
+    /// reversed to reflect the priority inversion.
+    ///
+    /// The "convenience" here arises from the fact that as new states are
+    /// added to the list of `alternates`, we would like that add operation
+    /// to be amortized constant time. But if we used a `Union`, we'd need to
+    /// prepend the state, which takes O(n) time. There are other approaches we
+    /// could use to solve this, but this seems simple enough.
+    UnionReverse {
+        alternates: Vec<StateID>,
+    },
+    /// A match state. There is at most one such occurrence of this state in
+    /// an NFA for each pattern compiled into the NFA. At time of writing, a
+    /// match state is always produced for every pattern given, but in theory,
+    /// if a pattern can never lead to a match, then the match state could be
+    /// omitted.
+    ///
+    /// `id` refers to the ID of the pattern itself, which corresponds to the
+    /// pattern's index (starting at 0). `start_id` refers to the anchored
+    /// NFA starting state corresponding to this pattern.
+    Match {
+        pattern_id: PatternID,
+        start_id: StateID,
+    },
+}
+
+/// A value that represents the result of compiling a sub-expression of a
+/// regex's HIR. Specifically, this represents a sub-graph of the NFA that
+/// has an initial state at `start` and a final state at `end`.
+#[derive(Clone, Copy, Debug)]
+pub struct ThompsonRef {
+    start: StateID,
+    end: StateID,
+}
+
 impl Compiler {
+    /// Create a new compiler.
+    pub fn new() -> Compiler {
+        Compiler {
+            config: Config::default(),
+            nfa: RefCell::new(NFA::empty()),
+            states: RefCell::new(vec![]),
+            utf8_state: RefCell::new(Utf8State::new()),
+            trie_state: RefCell::new(RangeTrie::new()),
+            utf8_suffix: RefCell::new(Utf8SuffixMap::new(1000)),
+            remap: RefCell::new(vec![]),
+            empties: RefCell::new(vec![]),
+            memory_cstates: Cell::new(0),
+        }
+    }
+
+    /// Configure and prepare this compiler from the builder's knobs.
+    ///
+    /// The compiler is must always reconfigured by the builder before using it
+    /// to build an NFA. Namely, this will also clear any latent state in the
+    /// compiler used during previous compilations.
+    fn configure(&mut self, config: Config) {
+        self.config = config;
+        self.nfa.borrow_mut().clear();
+        self.states.borrow_mut().clear();
+        self.memory_cstates.set(0);
+        // We don't need to clear anything else since they are cleared on
+        // their own and only when they are used.
+    }
+
+    /// Convert the current intermediate NFA to its final compiled form.
     fn compile<H: Borrow<Hir>>(&self, exprs: &[H]) -> Result<NFA, Error> {
         if exprs.is_empty() {
             return Ok(NFA::never_match());
@@ -324,11 +553,6 @@ impl Compiler {
         if exprs.len() > PatternID::LIMIT {
             return Err(Error::too_many_patterns(exprs.len()));
         }
-
-        self.builder.borrow_mut().clear();
-        self.builder
-            .borrow_mut()
-            .set_size_limit(self.config.get_nfa_size_limit());
 
         // We always add an unanchored prefix unless we were specifically told
         // not to (for tests only), or if we know that the regex is anchored
@@ -347,44 +571,137 @@ impl Compiler {
             }
         };
 
-        let compiled =
-            self.c_alt(exprs.iter().with_pattern_ids().map(|(pid, e)| {
-                let _ = self.start_pattern()?;
+        let compiled = self.c_alternation(
+            exprs.iter().with_pattern_ids().map(|(pid, e)| {
                 let group_kind = hir::GroupKind::CaptureIndex(0);
                 let one = self.c_group(&group_kind, e.borrow())?;
-                let match_state_id = self.add_match()?;
+                let match_state_id = self.add_match(pid, one.start)?;
                 self.patch(one.end, match_state_id)?;
-                let _ = self.finish_pattern(one.start)?;
                 Ok(ThompsonRef { start: one.start, end: match_state_id })
-            }))?;
+            }),
+        )?;
         self.patch(unanchored_prefix.end, compiled.start)?;
-        let nfa = self
-            .builder
-            .borrow_mut()
-            .build(compiled.start, unanchored_prefix.start)?;
+        self.finish(compiled.start, unanchored_prefix.start)?;
+        Ok(self.nfa.replace(NFA::empty()))
+    }
 
+    /// Finishes the compilation process and populates the NFA attached to this
+    /// compiler with the final graph.
+    fn finish(
+        &self,
+        start_anchored: StateID,
+        start_unanchored: StateID,
+    ) -> Result<(), Error> {
         trace!(
-            "HIR-to-NFA compilation complete (reverse? {:?})",
-            self.config.get_reverse(),
+            "intermediate NFA compilation complete, \
+             intermediate NFA size: {} states, {} bytes on heap",
+            self.states.borrow().len(),
+            self.nfa_memory_usage(),
         );
-        Ok(nfa)
+        let mut nfa = self.nfa.borrow_mut();
+        let mut bstates = self.states.borrow_mut();
+        let mut remap = self.remap.borrow_mut();
+        let mut empties = self.empties.borrow_mut();
+        remap.resize(bstates.len(), StateID::ZERO);
+        empties.clear();
+
+        // The idea here is to convert our intermediate states to their final
+        // form. The only real complexity here is the process of converting
+        // transitions, which are expressed in terms of state IDs. The new
+        // set of states will be smaller because of partial epsilon removal,
+        // so the state IDs will not be the same.
+        for (sid, bstate) in bstates.iter_mut().with_state_ids() {
+            match *bstate {
+                CState::Empty { next } => {
+                    // Since we're removing empty states, we need to handle
+                    // them later since we don't yet know which new state this
+                    // empty state will be mapped to.
+                    empties.push((sid, next));
+                }
+                CState::CaptureStart { next, capture_index, ref name } => {
+                    // We can't remove this empty state because of the side
+                    // effect of capturing an offset for this capture slot.
+                    remap[sid] = nfa.add_capture_start(
+                        next,
+                        capture_index,
+                        name.clone(),
+                    )?;
+                }
+                CState::CaptureEnd { next, capture_index } => {
+                    // We can't remove this empty state because of the side
+                    // effect of capturing an offset for this capture slot.
+                    remap[sid] = nfa.add_capture_end(next, capture_index)?;
+                }
+                CState::Range { range } => {
+                    remap[sid] = nfa.add_range(range)?;
+                }
+                CState::Sparse { ref mut ranges } => {
+                    let ranges =
+                        mem::replace(ranges, vec![]).into_boxed_slice();
+                    remap[sid] =
+                        nfa.add_sparse(SparseTransitions { ranges })?;
+                }
+                CState::Look { look, next } => {
+                    remap[sid] = nfa.add_look(next, look)?;
+                }
+                CState::Union { ref mut alternates } => {
+                    let alternates =
+                        mem::replace(alternates, vec![]).into_boxed_slice();
+                    remap[sid] = nfa.add_union(alternates)?;
+                }
+                CState::UnionReverse { ref mut alternates } => {
+                    let mut alternates =
+                        mem::replace(alternates, vec![]).into_boxed_slice();
+                    alternates.reverse();
+                    remap[sid] = nfa.add_union(alternates)?;
+                }
+                CState::Match { start_id, .. } => {
+                    remap[sid] = nfa.add_match()?;
+                    nfa.finish_pattern(start_id)?;
+                }
+            }
+        }
+        for &(empty_id, mut empty_next) in empties.iter() {
+            // empty states can point to other empty states, forming a chain.
+            // So we must follow the chain until the end, which must end at
+            // a non-empty state, and therefore, a state that is correctly
+            // remapped. We are guaranteed to terminate because our compiler
+            // never builds a loop among only empty states.
+            while let CState::Empty { next } = bstates[empty_next] {
+                empty_next = next;
+            }
+            remap[empty_id] = remap[empty_next];
+        }
+        nfa.set_start_anchored(start_anchored);
+        nfa.set_start_unanchored(start_unanchored);
+        nfa.remap(&remap);
+        trace!(
+            "final NFA (reverse? {:?}) compilation complete, \
+             final NFA size: {} states, {} bytes on heap",
+            self.config.get_reverse(),
+            nfa.states().len(),
+            nfa.memory_usage(),
+        );
+        Ok(())
     }
 
     fn c(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
-        use regex_syntax::hir::{Class, HirKind::*, Literal};
-
         match *expr.kind() {
-            Empty => self.c_empty(),
-            Literal(Literal::Unicode(ch)) => self.c_char(ch),
-            Literal(Literal::Byte(b)) => self.c_range(b, b),
-            Class(Class::Bytes(ref c)) => self.c_byte_class(c),
-            Class(Class::Unicode(ref c)) => self.c_unicode_class(c),
-            Anchor(ref anchor) => self.c_anchor(anchor),
-            WordBoundary(ref wb) => self.c_word_boundary(wb),
-            Repetition(ref rep) => self.c_repetition(rep),
-            Group(ref group) => self.c_group(&group.kind, &group.hir),
-            Concat(ref es) => self.c_concat(es.iter().map(|e| self.c(e))),
-            Alternation(ref es) => self.c_alt(es.iter().map(|e| self.c(e))),
+            HirKind::Empty => self.c_empty(),
+            HirKind::Literal(Literal::Unicode(ch)) => self.c_char(ch),
+            HirKind::Literal(Literal::Byte(b)) => self.c_range(b, b),
+            HirKind::Class(Class::Bytes(ref c)) => self.c_byte_class(c),
+            HirKind::Class(Class::Unicode(ref c)) => self.c_unicode_class(c),
+            HirKind::Anchor(ref anchor) => self.c_anchor(anchor),
+            HirKind::WordBoundary(ref wb) => self.c_word_boundary(wb),
+            HirKind::Repetition(ref rep) => self.c_repetition(rep),
+            HirKind::Group(ref group) => self.c_group(&group.kind, &group.hir),
+            HirKind::Concat(ref es) => {
+                self.c_concat(es.iter().map(|e| self.c(e)))
+            }
+            HirKind::Alternation(ref es) => {
+                self.c_alternation(es.iter().map(|e| self.c(e)))
+            }
         }
     }
 
@@ -410,7 +727,7 @@ impl Compiler {
         Ok(ThompsonRef { start, end })
     }
 
-    fn c_alt<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
+    fn c_alternation<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
     where
         I: Iterator<Item = Result<ThompsonRef, Error>>,
     {
@@ -446,7 +763,7 @@ impl Compiler {
             hir::GroupKind::NonCapturing => return self.c(expr),
             hir::GroupKind::CaptureIndex(index) => (index, None),
             hir::GroupKind::CaptureName { ref name, index } => {
-                (index, Some(&**name))
+                (index, Some(Arc::from(&**name)))
             }
         };
 
@@ -534,7 +851,7 @@ impl Compiler {
             let union = if greedy {
                 self.add_union()
             } else {
-                self.add_union_reverse()
+                self.add_reverse_union()
             }?;
             let compiled = self.c(expr)?;
             self.patch(prev_end, union)?;
@@ -561,7 +878,7 @@ impl Compiler {
                 let union = if greedy {
                     self.add_union()
                 } else {
-                    self.add_union_reverse()
+                    self.add_reverse_union()
                 }?;
                 let compiled = self.c(expr)?;
                 self.patch(union, compiled.start)?;
@@ -581,7 +898,7 @@ impl Compiler {
             let plus = if greedy {
                 self.add_union()
             } else {
-                self.add_union_reverse()
+                self.add_reverse_union()
             }?;
             self.patch(compiled.end, plus)?;
             self.patch(plus, compiled.start)?;
@@ -589,7 +906,7 @@ impl Compiler {
             let question = if greedy {
                 self.add_union()
             } else {
-                self.add_union_reverse()
+                self.add_reverse_union()
             }?;
             let empty = self.add_empty()?;
             self.patch(question, compiled.start)?;
@@ -601,7 +918,7 @@ impl Compiler {
             let union = if greedy {
                 self.add_union()
             } else {
-                self.add_union_reverse()
+                self.add_reverse_union()
             }?;
             self.patch(compiled.end, union)?;
             self.patch(union, compiled.start)?;
@@ -612,7 +929,7 @@ impl Compiler {
             let union = if greedy {
                 self.add_union()
             } else {
-                self.add_union_reverse()
+                self.add_reverse_union()
             }?;
             self.patch(prefix.end, last.start)?;
             self.patch(last.end, union)?;
@@ -627,7 +944,7 @@ impl Compiler {
         greedy: bool,
     ) -> Result<ThompsonRef, Error> {
         let union =
-            if greedy { self.add_union() } else { self.add_union_reverse() }?;
+            if greedy { self.add_union() } else { self.add_reverse_union() }?;
         let compiled = self.c(expr)?;
         let empty = self.add_empty()?;
         self.patch(union, compiled.start)?;
@@ -705,10 +1022,8 @@ impl Compiler {
                         trie.insert(seq.as_slice());
                     }
                 }
-                let mut builder = self.builder.borrow_mut();
                 let mut utf8_state = self.utf8_state.borrow_mut();
-                let mut utf8c =
-                    Utf8Compiler::new(&mut *builder, &mut *utf8_state)?;
+                let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state)?;
                 trie.iter(|seq| {
                     utf8c.add(&seq)?;
                     Ok(())
@@ -720,10 +1035,8 @@ impl Compiler {
             // because we can stream it right into the UTF-8 compiler. There
             // is almost no downside (in either memory or time) to using this
             // approach.
-            let mut builder = self.builder.borrow_mut();
             let mut utf8_state = self.utf8_state.borrow_mut();
-            let mut utf8c =
-                Utf8Compiler::new(&mut *builder, &mut *utf8_state)?;
+            let mut utf8c = Utf8Compiler::new(self, &mut *utf8_state)?;
             for rng in cls.iter() {
                 for seq in Utf8Sequences::new(rng.start(), rng.end()) {
                     utf8c.add(seq.as_slice())?;
@@ -757,7 +1070,7 @@ impl Compiler {
                     .map(|rng| self.c_range(rng.start, rng.end));
                 self.c_concat(it)
             });
-        self.c_alt(it)
+        self.c_alternation(it)
         */
     }
 
@@ -853,94 +1166,176 @@ impl Compiler {
         self.c_at_least(&Hir::any(true), false, 0)
     }
 
-    // The below helpers are meant to be simple wrappers around the
-    // corresponding Builder methods. For the most part, they let us write
-    // 'self.add_foo()' instead of 'self.builder.borrow_mut().add_foo()', where
-    // the latter is a mouthful. Some of the methods do inject a little bit
-    // of extra logic. e.g., Flipping look-around operators when compiling in
-    // reverse mode.
-
     fn patch(&self, from: StateID, to: StateID) -> Result<(), Error> {
-        self.builder.borrow_mut().patch(from, to)
-    }
-
-    fn start_pattern(&self) -> Result<PatternID, Error> {
-        self.builder.borrow_mut().start_pattern()
-    }
-
-    fn finish_pattern(&self, start_id: StateID) -> Result<PatternID, Error> {
-        self.builder.borrow_mut().finish_pattern(start_id)
+        let old_memory_cstates = self.memory_cstates.get();
+        match self.states.borrow_mut()[from] {
+            CState::Empty { ref mut next } => {
+                *next = to;
+            }
+            CState::Range { ref mut range } => {
+                range.next = to;
+            }
+            CState::Sparse { .. } => {
+                panic!("cannot patch from a sparse NFA state")
+            }
+            CState::Look { ref mut next, .. } => {
+                *next = to;
+            }
+            CState::Union { ref mut alternates } => {
+                alternates.push(to);
+                self.memory_cstates
+                    .set(old_memory_cstates + mem::size_of::<StateID>());
+            }
+            CState::UnionReverse { ref mut alternates } => {
+                alternates.push(to);
+                self.memory_cstates
+                    .set(old_memory_cstates + mem::size_of::<StateID>());
+            }
+            CState::CaptureStart { ref mut next, .. } => {
+                *next = to;
+            }
+            CState::CaptureEnd { ref mut next, .. } => {
+                *next = to;
+            }
+            CState::Match { .. } => {}
+        }
+        if old_memory_cstates != self.memory_cstates.get() {
+            self.check_nfa_size_limit()?;
+        }
+        Ok(())
     }
 
     fn add_empty(&self) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_empty()
+        self.add_state(CState::Empty { next: StateID::ZERO })
     }
 
-    fn add_range(&self, start: u8, end: u8) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_range(Transition {
-            start,
-            end,
+    fn add_capture_start(
+        &self,
+        capture_index: u32,
+        name: Option<Arc<str>>,
+    ) -> Result<StateID, Error> {
+        self.add_state(CState::CaptureStart {
             next: StateID::ZERO,
+            capture_index,
+            name,
         })
     }
 
+    fn add_capture_end(&self, capture_index: u32) -> Result<StateID, Error> {
+        self.add_state(CState::CaptureEnd {
+            next: StateID::ZERO,
+            capture_index,
+        })
+    }
+
+    fn add_range(&self, start: u8, end: u8) -> Result<StateID, Error> {
+        let trans = Transition { start, end, next: StateID::ZERO };
+        self.add_state(CState::Range { range: trans })
+    }
+
     fn add_sparse(&self, ranges: Vec<Transition>) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_sparse(ranges)
+        if ranges.len() == 1 {
+            self.add_state(CState::Range { range: ranges[0] })
+        } else {
+            self.add_state(CState::Sparse { ranges })
+        }
     }
 
     fn add_look(&self, mut look: Look) -> Result<StateID, Error> {
         if self.is_reverse() {
             look = look.reversed();
         }
-        self.builder.borrow_mut().add_look(StateID::ZERO, look)
+        self.add_state(CState::Look { look, next: StateID::ZERO })
     }
 
     fn add_union(&self) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_union(vec![])
+        self.add_state(CState::Union { alternates: vec![] })
     }
 
-    fn add_union_reverse(&self) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_union_reverse(vec![])
+    fn add_reverse_union(&self) -> Result<StateID, Error> {
+        self.add_state(CState::UnionReverse { alternates: vec![] })
     }
 
-    fn add_capture_start(
+    fn add_match(
         &self,
-        capture_index: u32,
-        name: Option<&str>,
+        pattern_id: PatternID,
+        start_id: StateID,
     ) -> Result<StateID, Error> {
-        let name = name.map(|n| Arc::from(n));
-        self.builder.borrow_mut().add_capture_start(capture_index, name)
+        self.add_state(CState::Match { pattern_id, start_id })
     }
 
-    fn add_capture_end(&self, capture_index: u32) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_capture_end(capture_index)
-    }
-
-    fn add_fail(&self) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_fail()
-    }
-
-    fn add_match(&self) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_match()
+    fn add_state(&self, state: CState) -> Result<StateID, Error> {
+        let mut states = self.states.borrow_mut();
+        let id = StateID::new(states.len())
+            .map_err(|_| Error::too_many_states(states.len()))?;
+        self.memory_cstates
+            .set(self.memory_cstates.get() + state.memory_usage());
+        states.push(state);
+        // If we don't explicitly drop this, then 'nfa_memory_usage' will also
+        // try to borrow it when we check the size limit and hit an error.
+        drop(states);
+        self.check_nfa_size_limit()?;
+        Ok(id)
     }
 
     fn is_reverse(&self) -> bool {
         self.config.get_reverse()
     }
+
+    /// If an NFA size limit was set, this checks that the NFA compiled so far
+    /// fits within that limit. If so, then nothing is returned. Otherwise, an
+    /// error is returned.
+    ///
+    /// This should be called after increasing the heap usage of the
+    /// intermediate NFA.
+    ///
+    /// Note that this borrows 'self.states', so callers should ensure there is
+    /// no mutable borrow of it outstanding.
+    fn check_nfa_size_limit(&self) -> Result<(), Error> {
+        if let Some(limit) = self.config.get_nfa_size_limit() {
+            if self.nfa_memory_usage() > limit {
+                return Err(Error::exceeded_size_limit(limit));
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the heap memory usage, in bytes, of the NFA compiled so far.
+    ///
+    /// Note that this is an approximation of how big the final NFA will be.
+    /// In practice, the final NFA will likely be a bit smaller since it uses
+    /// things like `Box<[T]>` instead of `Vec<T>`.
+    fn nfa_memory_usage(&self) -> usize {
+        self.states.borrow().len() * mem::size_of::<CState>()
+            + self.memory_cstates.get()
+    }
 }
 
-/// A value that represents the result of compiling a sub-expression of a
-/// regex's HIR. Specifically, this represents a sub-graph of the NFA that
-/// has an initial state at `start` and a final state at `end`.
-#[derive(Clone, Copy, Debug)]
-struct ThompsonRef {
-    start: StateID,
-    end: StateID,
+impl CState {
+    fn memory_usage(&self) -> usize {
+        match *self {
+            CState::Empty { .. }
+            | CState::Range { .. }
+            | CState::Look { .. }
+            | CState::CaptureStart { .. }
+            | CState::CaptureEnd { .. }
+            | CState::Match { .. } => 0,
+            CState::Sparse { ref ranges } => {
+                ranges.len() * mem::size_of::<Transition>()
+            }
+            CState::Union { ref alternates } => {
+                alternates.len() * mem::size_of::<StateID>()
+            }
+            CState::UnionReverse { ref alternates } => {
+                alternates.len() * mem::size_of::<StateID>()
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 struct Utf8Compiler<'a> {
-    builder: &'a mut Builder,
+    nfac: &'a Compiler,
     state: &'a mut Utf8State,
     target: StateID,
 }
@@ -976,12 +1371,12 @@ impl Utf8State {
 
 impl<'a> Utf8Compiler<'a> {
     fn new(
-        builder: &'a mut Builder,
+        nfac: &'a Compiler,
         state: &'a mut Utf8State,
     ) -> Result<Utf8Compiler<'a>, Error> {
-        let target = builder.add_empty()?;
+        let target = nfac.add_empty()?;
         state.clear();
-        let mut utf8c = Utf8Compiler { builder, state, target };
+        let mut utf8c = Utf8Compiler { nfac, state, target };
         utf8c.add_empty();
         Ok(utf8c)
     }
@@ -1024,7 +1419,7 @@ impl<'a> Utf8Compiler<'a> {
         if let Some(id) = self.state.compiled.get(&node, hash) {
             return Ok(id);
         }
-        let id = self.builder.add_sparse(node.clone())?;
+        let id = self.nfac.add_sparse(node.clone())?;
         self.state.compiled.set(node, hash, id);
         Ok(id)
     }
@@ -1093,15 +1488,13 @@ impl Utf8Node {
 mod tests {
     use alloc::vec::Vec;
 
-    use crate::{
-        nfa::thompson::{SparseTransitions, State, Transition, NFA},
-        util::id::{PatternID, StateID},
+    use super::{
+        Builder, Config, PatternID, SparseTransitions, State, StateID,
+        Transition, NFA,
     };
 
-    use super::{Compiler, Config};
-
     fn build(pattern: &str) -> NFA {
-        Compiler::new()
+        Builder::new()
             .configure(Config::new().captures(false).unanchored_prefix(false))
             .build(pattern)
             .unwrap()
@@ -1150,7 +1543,7 @@ mod tests {
     }
 
     fn s_match(id: usize) -> State {
-        State::Match { pattern_id: pid(id) }
+        State::Match { id: pid(id) }
     }
 
     // Test that building an unanchored NFA has an appropriate `(?s:.)*?`
@@ -1158,23 +1551,23 @@ mod tests {
     #[test]
     fn compile_unanchored_prefix() {
         // When the machine can only match valid UTF-8.
-        let nfa = Compiler::new()
+        let nfa = Builder::new()
             .configure(Config::new().captures(false))
             .build(r"a")
             .unwrap();
         // There should be many states since the `.` in `(?s:.)*?` matches any
         // Unicode scalar value.
-        assert_eq!(11, nfa.states().len());
-        assert_eq!(nfa.states()[10], s_match(0));
-        assert_eq!(nfa.states()[9], s_byte(b'a', 10));
+        assert_eq!(11, nfa.len());
+        assert_eq!(nfa.states[10], s_match(0));
+        assert_eq!(nfa.states[9], s_byte(b'a', 10));
 
         // When the machine can match through invalid UTF-8.
-        let nfa = Compiler::new()
+        let nfa = Builder::new()
             .configure(Config::new().captures(false).utf8(false))
             .build(r"a")
             .unwrap();
         assert_eq!(
-            nfa.states(),
+            nfa.states,
             &[
                 s_union(&[2, 1]),
                 s_range(0, 255, 0),
@@ -1186,23 +1579,23 @@ mod tests {
 
     #[test]
     fn compile_empty() {
-        assert_eq!(build("").states(), &[s_match(0),]);
+        assert_eq!(build("").states, &[s_match(0),]);
     }
 
     #[test]
     fn compile_literal() {
-        assert_eq!(build("a").states(), &[s_byte(b'a', 1), s_match(0),]);
+        assert_eq!(build("a").states, &[s_byte(b'a', 1), s_match(0),]);
         assert_eq!(
-            build("ab").states(),
+            build("ab").states,
             &[s_byte(b'a', 1), s_byte(b'b', 2), s_match(0),]
         );
         assert_eq!(
-            build("☃").states(),
+            build("☃").states,
             &[s_byte(0xE2, 1), s_byte(0x98, 2), s_byte(0x83, 3), s_match(0)]
         );
 
         // Check that non-UTF-8 literals work.
-        let nfa = Compiler::new()
+        let nfa = Builder::new()
             .configure(
                 Config::new()
                     .captures(false)
@@ -1212,25 +1605,25 @@ mod tests {
             .syntax(crate::SyntaxConfig::new().utf8(false))
             .build(r"(?-u)\xFF")
             .unwrap();
-        assert_eq!(nfa.states(), &[s_byte(b'\xFF', 1), s_match(0),]);
+        assert_eq!(nfa.states, &[s_byte(b'\xFF', 1), s_match(0),]);
     }
 
     #[test]
     fn compile_class() {
         assert_eq!(
-            build(r"[a-z]").states(),
+            build(r"[a-z]").states,
             &[s_range(b'a', b'z', 1), s_match(0),]
         );
         assert_eq!(
-            build(r"[x-za-c]").states(),
+            build(r"[x-za-c]").states,
             &[s_sparse(&[(b'a', b'c', 1), (b'x', b'z', 1)]), s_match(0)]
         );
         assert_eq!(
-            build(r"[\u03B1-\u03B4]").states(),
+            build(r"[\u03B1-\u03B4]").states,
             &[s_range(0xB1, 0xB4, 2), s_byte(0xCE, 0), s_match(0)]
         );
         assert_eq!(
-            build(r"[\u03B1-\u03B4\u{1F919}-\u{1F91E}]").states(),
+            build(r"[\u03B1-\u03B4\u{1F919}-\u{1F91E}]").states,
             &[
                 s_range(0xB1, 0xB4, 5),
                 s_range(0x99, 0x9E, 5),
@@ -1241,7 +1634,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            build(r"[a-z☃]").states(),
+            build(r"[a-z☃]").states,
             &[
                 s_byte(0x83, 3),
                 s_byte(0x98, 0),
@@ -1254,11 +1647,11 @@ mod tests {
     #[test]
     fn compile_repetition() {
         assert_eq!(
-            build(r"a?").states(),
+            build(r"a?").states,
             &[s_union(&[1, 2]), s_byte(b'a', 2), s_match(0),]
         );
         assert_eq!(
-            build(r"a??").states(),
+            build(r"a??").states,
             &[s_union(&[2, 1]), s_byte(b'a', 2), s_match(0),]
         );
     }
@@ -1266,15 +1659,15 @@ mod tests {
     #[test]
     fn compile_group() {
         assert_eq!(
-            build(r"ab+").states(),
+            build(r"ab+").states,
             &[s_byte(b'a', 1), s_byte(b'b', 2), s_union(&[1, 3]), s_match(0)]
         );
         assert_eq!(
-            build(r"(ab)").states(),
+            build(r"(ab)").states,
             &[s_byte(b'a', 1), s_byte(b'b', 2), s_match(0)]
         );
         assert_eq!(
-            build(r"(ab)+").states(),
+            build(r"(ab)+").states,
             &[s_byte(b'a', 1), s_byte(b'b', 2), s_union(&[0, 3]), s_match(0)]
         );
     }
@@ -1282,27 +1675,27 @@ mod tests {
     #[test]
     fn compile_alternation() {
         assert_eq!(
-            build(r"a|b").states(),
+            build(r"a|b").states,
             &[s_byte(b'a', 3), s_byte(b'b', 3), s_union(&[0, 1]), s_match(0)]
         );
         assert_eq!(
-            build(r"|b").states(),
+            build(r"|b").states,
             &[s_byte(b'b', 2), s_union(&[2, 0]), s_match(0)]
         );
         assert_eq!(
-            build(r"a|").states(),
+            build(r"a|").states,
             &[s_byte(b'a', 2), s_union(&[0, 2]), s_match(0)]
         );
     }
 
     #[test]
     fn many_start_pattern() {
-        let nfa = Compiler::new()
+        let nfa = Builder::new()
             .configure(Config::new().captures(false).unanchored_prefix(false))
             .build_many(&["a", "b"])
             .unwrap();
         assert_eq!(
-            nfa.states(),
+            nfa.states,
             &[
                 s_byte(b'a', 1),
                 s_match(0),

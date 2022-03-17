@@ -183,7 +183,7 @@ pub(crate) fn next(
             | thompson::State::Fail
             | thompson::State::Look { .. }
             | thompson::State::Capture { .. } => {}
-            thompson::State::Match { id } => {
+            thompson::State::Match { pattern_id } => {
                 // Notice here that we are calling the NEW state a match
                 // state if the OLD state we are transitioning from
                 // contains an NFA match state. This is precisely how we
@@ -204,7 +204,7 @@ pub(crate) fn next(
                 // IDs in a set, we are guarateed not to have any duplicative
                 // match states. Thus, it is impossible to add the same pattern
                 // ID more than once.
-                builder.add_match_pattern_id(id);
+                builder.add_match_pattern_id(pattern_id);
                 if !match_kind.continue_past_first_match() {
                     break;
                 }

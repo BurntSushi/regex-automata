@@ -269,7 +269,10 @@ impl Builder {
                 State::CaptureEnd { pattern_id, capture_index, next } => {
                     // We can't remove this empty state because of the side
                     // effect of capturing an offset for this capture slot.
-                    let slot = nfa.slot(pattern_id, capture_index);
+                    let slot = nfa
+                        .slot(pattern_id, capture_index)
+                        .checked_add(1)
+                        .unwrap();
                     remap[sid] =
                         nfa.add(nfa::State::Capture { next, slot })?;
                 }
@@ -331,6 +334,7 @@ impl Builder {
     ) -> Result<PatternID, Error> {
         let pid = self.current_pattern_id();
         self.start_pattern[pid] = start_id;
+        self.pattern_id = None;
         Ok(pid)
     }
 
@@ -343,7 +347,6 @@ impl Builder {
     }
 
     pub fn add_empty(&mut self) -> Result<StateID, Error> {
-        let _ = self.current_pattern_id();
         self.add(State::Empty { next: StateID::ZERO })
     }
 
@@ -362,7 +365,6 @@ impl Builder {
     }
 
     pub fn add_range(&mut self, range: Transition) -> Result<StateID, Error> {
-        // self.byte_class_set.set_range(range.start, range.end);
         self.add(State::Range { range })
     }
 
@@ -370,10 +372,11 @@ impl Builder {
         &mut self,
         ranges: Vec<Transition>,
     ) -> Result<StateID, Error> {
-        // for range in sparse.ranges.iter() {
-        // self.byte_class_set.set_range(range.start, range.end);
-        // }
-        self.add(State::Sparse { ranges })
+        if ranges.len() == 1 {
+            self.add_range(ranges[0])
+        } else {
+            self.add(State::Sparse { ranges })
+        }
     }
 
     pub fn add_look(
@@ -527,6 +530,10 @@ impl Builder {
     ) -> Result<(), Error> {
         self.size_limit = limit;
         self.check_size_limit()
+    }
+
+    pub fn get_size_limit(&self) -> Option<usize> {
+        self.size_limit
     }
 
     /// Returns the heap memory usage, in bytes, used by the NFA states added

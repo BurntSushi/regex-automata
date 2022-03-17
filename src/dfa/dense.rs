@@ -906,7 +906,7 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
-    thompson: thompson::Builder,
+    thompson: thompson::Compiler,
 }
 
 #[cfg(feature = "alloc")]
@@ -915,7 +915,7 @@ impl Builder {
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
-            thompson: thompson::Builder::new(),
+            thompson: thompson::Compiler::new(),
         }
     }
 
@@ -956,7 +956,7 @@ impl Builder {
     /// let haystack = "foo123bar".as_bytes();
     ///
     /// // This shows how to set non-default options for building an NFA.
-    /// let nfa = thompson::Builder::new()
+    /// let nfa = thompson::Compiler::new()
     ///     .configure(thompson::Config::new().shrink(false))
     ///     .build(r"[0-9]+")?;
     /// let dfa = dense::Builder::new().build_from_nfa(&nfa)?;

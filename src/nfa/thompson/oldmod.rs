@@ -1,256 +1,72 @@
-use core::{cmp, convert::TryFrom, fmt, mem, ops::Range};
+use core::{convert::TryFrom, fmt, mem, ops::Range};
 
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 
-use crate::{
-    nfa::thompson::{
-        builder::Builder,
-        compiler::{Compiler, Config},
-        error::Error,
-    },
-    util::{
-        alphabet::{self, ByteClassSet},
-        decode_last_utf8, decode_utf8,
-        id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
-        is_word_byte, is_word_char_fwd, is_word_char_rev,
-    },
+use crate::util::{
+    alphabet::{self, ByteClassSet},
+    decode_last_utf8, decode_utf8,
+    id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
+    is_word_byte, is_word_char_fwd, is_word_char_rev,
 };
 
-#[derive(Clone)]
-pub struct NFA(
-    // We make NFAs reference counted primarily for two reasons. First is that
-    // the NFA type itself is quite large (at least 0.5KB), and so it makes
-    // sense to put it on the heap by default anyway. Second is that, for Arc
-    // specifically, this enables cheap clones. This tends to be useful because
-    // several structures (the backtracker, the Pike VM, the hybrid NFA/DFA)
-    // all want to hang on to an NFA for use during search time. We could
-    // provide the NFA at search time, but this makes for an unnecessarily
-    // annoying API. Instead, we just let each structure share ownership of the
-    // NFA. Using a deep clone would not be smart, since the NFA can use quite
-    // a bit of heap space.
-    pub(super) Arc<Inner>,
-);
+pub use self::{
+    compiler::{Builder, Config},
+    error::Error,
+};
 
-impl NFA {
-    pub fn config() -> Config {
-        Config::new()
-    }
+mod builder;
+mod compiler;
+mod error;
+mod map;
+mod nfa;
+pub mod pikevm;
+mod range_trie;
 
-    pub fn builder() -> Builder {
-        Builder::new()
-    }
-
-    pub fn compiler() -> Compiler {
-        Compiler::new()
-    }
-
-    /// Returns an NFA with a single regex pattern that always matches at every
-    /// position.
-    #[inline]
-    pub fn always_match() -> NFA {
-        let mut builder = NFA::builder();
-        let pid = builder.start_pattern().unwrap();
-        assert_eq!(pid.as_usize(), 0);
-        let start_id = builder.add_match().unwrap();
-        let pid = builder.finish_pattern(start_id).unwrap();
-        assert_eq!(pid.as_usize(), 0);
-        builder.build(start_id, start_id).unwrap()
-    }
-
-    /// Returns an NFA that never matches at any position. It contains no
-    /// regexes.
-    #[inline]
-    pub fn never_match() -> NFA {
-        let mut builder = NFA::builder();
-        let start_id = builder.add_fail().unwrap();
-        builder.build(start_id, start_id).unwrap()
-    }
-
-    /// Returns an iterator over all pattern IDs in this NFA.
-    #[inline]
-    pub fn patterns(&self) -> PatternIter {
-        PatternIter {
-            it: PatternID::iter(self.pattern_len()),
-            _marker: core::marker::PhantomData,
-        }
-    }
-
-    /// Returns the total number of regex patterns in this NFA.
-    ///
-    /// This may return zero if the NFA was constructed with no patterns. In
-    /// this case, the NFA can never produce a match for any input.
-    ///
-    /// This is guaranteed to be no bigger than [`PatternID::LIMIT`].
-    #[inline]
-    pub fn pattern_len(&self) -> usize {
-        self.0.start_pattern.len()
-    }
-
-    /// Return the ID of the initial anchored state of this NFA.
-    #[inline]
-    pub fn start_anchored(&self) -> StateID {
-        self.0.start_anchored
-    }
-
-    /// Return the ID of the initial unanchored state of this NFA.
-    #[inline]
-    pub fn start_unanchored(&self) -> StateID {
-        self.0.start_unanchored
-    }
-
-    /// Return the ID of the initial anchored state for the given pattern.
-    ///
-    /// # Panics
-    ///
-    /// If the pattern doesn't exist in this NFA, then this panics.
-    #[inline]
-    pub fn start_pattern(&self, pid: PatternID) -> StateID {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
-        self.0.start_pattern[pid]
-    }
-
-    /// Get the byte class set for this NFA.
-    #[inline]
-    pub fn byte_class_set(&self) -> &ByteClassSet {
-        &self.0.byte_class_set
-    }
-
-    /// Return a reference to the NFA state corresponding to the given ID.
-    ///
-    /// This is a convenience routine for `nfa.states()[id]`.
-    ///
-    /// # Panics
-    ///
-    /// This panics when the given identifier does not reference a valid state.
-    /// That is, when `id.as_usize() >= nfa.states().len()`.
-    #[inline]
-    pub fn state(&self, id: StateID) -> &State {
-        &self.states()[id]
-    }
-
-    /// Returns a slice of all states in this NFA.
-    ///
-    /// The slice returned is indexed by `StateID`. This provides a convenient
-    /// way to access states while following transitions among those states.
-    #[inline]
-    pub fn states(&self) -> &[State] {
-        &self.0.states
-    }
-
-    /// Returns the total number of capturing slots in this NFA.
-    ///
-    /// This value is guaranteed to be a multiple of 2. (Where each capturing
-    /// group across all patterns has precisely two capturing slots in the
-    /// NFA.)
-    #[inline]
-    pub fn capture_slot_len(&self) -> usize {
-        self.0.capture_slot_len
-    }
-
-    /// Returns the starting slot corresponding to the given capturing group
-    /// for the given pattern. The ending slot is always one more than the
-    /// value returned.
-    ///
-    /// # Panics
-    ///
-    /// If either the pattern ID or the capture index is invalid, then this
-    /// panics.
-    #[inline]
-    pub fn slot(&self, pid: PatternID, capture_index: usize) -> usize {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
-        self.0.slot(pid, capture_index)
-    }
-
-    /// Return the capture group index corresponding to the given name in the
-    /// given pattern. If no such capture group name exists in the given
-    /// pattern, then this returns `None`.
-    ///
-    /// # Panics
-    ///
-    /// If the given pattern ID is invalid, then this panics.
-    #[inline]
-    pub fn capture_name_to_index(
-        &self,
-        pid: PatternID,
-        name: &str,
-    ) -> Option<usize> {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
-        self.0.capture_name_to_index[pid].get(name).cloned()
-    }
-
-    #[inline]
-    pub fn has_any_captures(&self) -> bool {
-        self.0.facts.has_captures
-    }
-
-    #[inline]
-    pub fn is_always_start_anchored(&self) -> bool {
-        self.start_anchored() == self.start_unanchored()
-    }
-
-    #[inline]
-    pub fn has_any_look(&self) -> bool {
-        self.0.facts.has_any_look
-    }
-
-    #[inline]
-    pub fn has_any_anchor(&self) -> bool {
-        self.0.facts.has_any_anchor
-    }
-
-    #[inline]
-    pub fn has_word_boundary(&self) -> bool {
-        self.has_word_boundary_unicode() || self.has_word_boundary_ascii()
-    }
-
-    #[inline]
-    pub fn has_word_boundary_unicode(&self) -> bool {
-        self.0.facts.has_word_boundary_unicode
-    }
-
-    #[inline]
-    pub fn has_word_boundary_ascii(&self) -> bool {
-        self.0.facts.has_word_boundary_ascii
-    }
-
-    /// Returns the memory usage, in bytes, of this NFA.
-    ///
-    /// This does **not** include the stack size used up by this NFA. To
-    /// compute that, use `std::mem::size_of::<NFA>()`.
-    #[inline]
-    pub fn memory_usage(&self) -> usize {
-        use core::mem::size_of as s;
-
-        self.0.states.len() * s::<State>()
-            + self.0.start_pattern.len() * s::<StateID>()
-            + self.0.capture_to_slots.len() * s::<Vec<usize>>()
-            + self.0.capture_name_to_index.len() * s::<CaptureNameMap>()
-            + self.0.capture_index_to_name.len() * s::<Vec<Option<Arc<str>>>>()
-            + self.0.memory_extra
-    }
-}
-
-impl fmt::Debug for NFA {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-/// The "inner" part of the NFA. We split this part out so that we can easily
-/// wrap it in an `Arc` above in the definition of `NFA`.
+/// A map from capture group name to its corresponding capture index.
 ///
-/// See builder.rs for the code that actually builds this type. This module
-/// does provide (internal) mutable methods for adding things to this
-/// NFA before finalizing it, but the high level construction process is
-/// controlled by the builder abstraction. (Which is complicated enough to
-/// get its own module.)
-#[derive(Default)]
-pub(super) struct Inner {
-    /// The state sequence. This sequence is guaranteed to be indexable by all
-    /// starting state IDs, and it is also guaranteed to contain at most one
-    /// `Match` state for each pattern compiled into this NFA. (A pattern may
-    /// not have a corresponding `Match` state if a `Match` state is impossible
-    /// to reach.)
+/// Since there are always two slots for each capture index, the pair of slots
+/// corresponding to the capture index for a pattern ID of 0 are indexed at
+/// `map["<name>"] * 2` and `map["<name>"] * 2 + 1`.
+///
+/// This type is actually wrapped inside a Vec indexed by pattern ID on the
+/// NFA, since multiple patterns may have the same capture group name.
+///
+/// Note that this is somewhat of a sub-optimal representation, since it
+/// requires a hashmap for each pattern. A better representation would be
+/// HashMap<(PatternID, Arc<str>), usize>, but this makes it difficult to look
+/// up a capture index by name without producing a `Arc<str>`, which requires
+/// an allocation. To fix this, I think we'd need to define our own unsized
+/// type or something?
+#[cfg(feature = "std")]
+type CaptureNameMap = std::collections::HashMap<Arc<str>, usize>;
+#[cfg(not(feature = "std"))]
+type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, usize>;
+
+// The NFA API below is not something I'm terribly proud of at the moment. In
+// particular, it supports both mutating the NFA and actually using the NFA to
+// perform a search. I think combining these two things muddies the waters a
+// bit too much.
+//
+// I think the issue is that I saw the compiler as the 'builder,' and where
+// the compiler had the ability to manipulate the internal state of the NFA.
+// However, one of my goals was to make it possible for others to build their
+// own NFAs in a way that is *not* couple to the regex-syntax crate.
+//
+// So I think really, there should be an NFA, a NFABuilder and then the
+// internal compiler which uses the NFABuilder API to build an NFA. Alas, at
+// the time of writing, I kind of ran out of steam.
+
+/// A fully compiled Thompson NFA.
+///
+/// The states of the NFA are indexed by state IDs, which are how transitions
+/// are expressed.
+#[derive(Clone)]
+pub struct NFA {
+    /// The state list. This list is guaranteed to be indexable by all starting
+    /// state IDs, and it is also guaranteed to contain at most one `Match`
+    /// state for each pattern compiled into this NFA. (A pattern may not have
+    /// a corresponding `Match` state if a `Match` state is impossible to
+    /// reach.)
     states: Vec<State>,
     /// The anchored starting state of this NFA.
     start_anchored: StateID,
@@ -262,41 +78,11 @@ pub(super) struct Inner {
     /// contains a single regex, then `start_pattern[0]` and `start_anchored`
     /// are always equivalent.
     start_pattern: Vec<StateID>,
-    /// A map from PatternID to capture group index to its corresponding slot
-    /// for the capture's starting location. The end location is always at
-    /// `slot+1`. Since every capture group has two slots, it follows that all
-    /// slots in this map correspond to starting locations and are thus always
-    /// even.
-    ///
-    /// The way slots are distributed is unfortunately a bit complicated.
-    /// Namely, the first (at index 0, always unnamed and always present)
-    /// capturing group in every pattern is allocated a pair of slots before
-    /// any other capturing group. So for example, the 0th capture group in
-    /// pattern 2 will have a slot index less than the 1st capture group in
-    /// pattern 1. The motivation for this representation is so that all slots
-    /// corresponding to the overall match start/end offsets for each pattern
-    /// appear contiguously. This permits, e.g., the Pike VM to execute in a
-    /// mode that only tracks overall match offsets without also tracking all
-    /// capture group offsets.
-    ///
-    /// While the number of slots required can be computing by adding 2
-    /// to the maximum value found in this mapping, in practice, it takes
-    /// linear time with respect to the number of patterns because of our
-    /// odd representation. To avoid that inefficiency, the number of slots
-    /// is recorded independently via the 'slots' field. This way, one can
-    /// allocate the space needed for, say, running a Pike VM without iterating
-    /// over all of the patterns.
-    capture_to_slots: Vec<Vec<usize>>,
-    /// As described above, this is the number of slots required handle all
-    /// capturing groups during an NFA search.
-    ///
-    /// Another important number is the number of slots required to handle just
-    /// the start/end offsets of an entire match for each pattern. This number
-    /// is always twice the number of patterns.
-    ///
-    /// This number is always zero if there are no capturing groups in this
-    /// NFA.
-    capture_slot_len: usize,
+    /// A map from PatternID to its corresponding range of capture slots. Each
+    /// range is guaranteed to be contiguous with the previous range. The
+    /// end of the last range corresponds to the total number of slots needed
+    /// for this NFA.
+    patterns_to_slots: Vec<Range<usize>>,
     /// A map from capture name to its corresponding index. So e.g., given
     /// a single regex like '(\w+) (\w+) (?P<word>\w+)', the capture name
     /// 'word' for pattern ID=0 would corresponding to the index '3'. Its
@@ -327,145 +113,491 @@ pub(super) struct Inner {
     /// boundaries) or for performing optimizations (avoiding an increase in
     /// states if there are no look-around states).
     facts: Facts,
-    /// Heap memory used indirectly by NFA states and other things (like the
-    /// various capturing group representations above). Since each state
-    /// might use a different amount of heap, we need to keep track of this
-    /// incrementally.
-    memory_extra: usize,
+    /// Heap memory used indirectly by NFA states. Since each state might use a
+    /// different amount of heap, we need to keep track of this incrementally.
+    memory_states: usize,
 }
 
-impl Inner {
-    pub(super) fn slot(&self, pid: PatternID, capture_index: usize) -> usize {
-        self.capture_to_slots[pid][capture_index]
+impl NFA {
+    pub fn config() -> Config {
+        Config::new()
     }
 
-    pub(super) fn add(&mut self, state: State) -> Result<StateID, Error> {
-        match state {
-            State::Range { ref range } => {
-                self.byte_class_set.set_range(range.start, range.end);
-            }
-            State::Sparse(ref sparse) => {
-                for range in sparse.ranges.iter() {
-                    self.byte_class_set.set_range(range.start, range.end);
-                }
-            }
-            State::Look { ref look, .. } => {
-                self.facts.has_any_look = true;
-                look.add_to_byteset(&mut self.byte_class_set);
-                match look {
-                    Look::StartLine
-                    | Look::EndLine
-                    | Look::StartText
-                    | Look::EndText => {
-                        self.facts.has_any_anchor = true;
-                    }
-                    Look::WordBoundaryUnicode
-                    | Look::WordBoundaryUnicodeNegate => {
-                        self.facts.has_word_boundary_unicode = true;
-                    }
-                    Look::WordBoundaryAscii
-                    | Look::WordBoundaryAsciiNegate => {
-                        self.facts.has_word_boundary_ascii = true;
-                    }
-                }
-            }
-            State::Capture { .. } => {
-                self.facts.has_captures = true;
-            }
-            State::Union { .. } | State::Fail | State::Match { .. } => {}
-        }
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
 
+    /// Returns an NFA with no states. Its match semantics are unspecified.
+    ///
+    /// An empty NFA is useful as a starting point for building one. It is
+    /// itself not intended to be used for matching. For example, its starting
+    /// state identifiers are configured to be `0`, but since it has no states,
+    /// the identifiers are invalid.
+    ///
+    /// If you need an NFA that never matches is anything and can be correctly
+    /// used for matching, use [`NFA::never_match`].
+    #[inline]
+    pub fn empty() -> NFA {
+        NFA {
+            states: vec![],
+            start_anchored: StateID::ZERO,
+            start_unanchored: StateID::ZERO,
+            start_pattern: vec![],
+            patterns_to_slots: vec![],
+            capture_name_to_index: vec![],
+            capture_index_to_name: vec![],
+            byte_class_set: ByteClassSet::empty(),
+            facts: Facts::default(),
+            memory_states: 0,
+        }
+    }
+
+    /// Returns an NFA with a single regex that always matches at every
+    /// position.
+    #[inline]
+    pub fn always_match() -> NFA {
+        let mut nfa = NFA::empty();
+        // Since we're only adding one pattern, these are guaranteed to work.
+        let start = nfa.add_match().unwrap();
+        assert_eq!(start.as_usize(), 0);
+        let pid = nfa.finish_pattern(start).unwrap();
+        assert_eq!(pid.as_usize(), 0);
+        nfa
+    }
+
+    /// Returns an NFA that never matches at any position. It contains no
+    /// regexes.
+    #[inline]
+    pub fn never_match() -> NFA {
+        let mut nfa = NFA::empty();
+        // Since we're only adding one state, this can never fail.
+        nfa.add_fail().unwrap();
+        nfa
+    }
+
+    /// Return the number of states in this NFA.
+    ///
+    /// This is guaranteed to be no bigger than [`StateID::LIMIT`].
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.states.len()
+    }
+
+    /// Returns the total number of distinct match states in this NFA.
+    /// Stated differently, this returns the total number of regex patterns
+    /// used to build this NFA.
+    ///
+    /// This may return zero if the NFA was constructed with no patterns. In
+    /// this case, and only this case, the NFA can never produce a match for
+    /// any input.
+    ///
+    /// This is guaranteed to be no bigger than [`PatternID::LIMIT`].
+    #[inline]
+    pub fn pattern_len(&self) -> usize {
+        self.start_pattern.len()
+    }
+
+    /// Returns the pattern ID of the pattern currently being compiled by this
+    /// NFA.
+    fn current_pattern_id(&self) -> PatternID {
+        // This always works because we never permit more patterns in
+        // 'start_pattern' than can be addressed by PatternID. Also, we only
+        // add a new entry to 'start_pattern' once we finish compiling a
+        // pattern. Thus, the length refers to the ID of the current pattern
+        // being compiled.
+        PatternID::new(self.start_pattern.len()).unwrap()
+    }
+
+    /// Returns the total number of capturing groups in this NFA.
+    ///
+    /// This includes the special 0th capture group that is always present and
+    /// captures the start and end offset of the entire match.
+    ///
+    /// This is a convenience routine for `nfa.capture_slot_len() / 2`.
+    #[inline]
+    pub fn capture_len(&self) -> usize {
+        let slots = self.capture_slot_len();
+        // This assert is guaranteed to pass since the NFA construction process
+        // guarantees that it is always true.
+        assert_eq!(slots % 2, 0, "capture slots must be divisible by 2");
+        slots / 2
+    }
+
+    /// Returns the total number of capturing slots in this NFA.
+    ///
+    /// This value is guaranteed to be a multiple of 2. (Where each capturing
+    /// group has precisely two capturing slots in the NFA.)
+    #[inline]
+    pub fn capture_slot_len(&self) -> usize {
+        self.patterns_to_slots.last().map_or(0, |r| r.end)
+    }
+
+    /// Return a range of capture slots for the given pattern.
+    ///
+    /// The range returned is guaranteed to be contiguous with ranges for
+    /// adjacent patterns.
+    ///
+    /// This panics if the given pattern ID is greater than or equal to the
+    /// number of patterns in this NFA.
+    #[inline]
+    pub fn pattern_slots(&self, pid: PatternID) -> Range<usize> {
+        self.patterns_to_slots[pid].clone()
+    }
+
+    /// Return the capture group index corresponding to the given name in the
+    /// given pattern. If no such capture group name exists in the given
+    /// pattern, then this returns `None`.
+    ///
+    /// If the given pattern ID is invalid, then this panics.
+    #[inline]
+    pub fn capture_name_to_index(
+        &self,
+        pid: PatternID,
+        name: &str,
+    ) -> Option<usize> {
+        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
+        self.capture_name_to_index[pid].get(name).cloned()
+    }
+
+    // TODO: add iterators over capture group names.
+    // Do we also permit indexing?
+
+    /// Returns an iterator over all pattern IDs in this NFA.
+    #[inline]
+    pub fn patterns(&self) -> PatternIter {
+        PatternIter {
+            it: PatternID::iter(self.pattern_len()),
+            _marker: core::marker::PhantomData,
+        }
+    }
+
+    /// Return the ID of the initial anchored state of this NFA.
+    #[inline]
+    pub fn start_anchored(&self) -> StateID {
+        self.start_anchored
+    }
+
+    /// Set the anchored starting state ID for this NFA.
+    #[inline]
+    pub fn set_start_anchored(&mut self, id: StateID) {
+        self.start_anchored = id;
+    }
+
+    /// Return the ID of the initial unanchored state of this NFA.
+    #[inline]
+    pub fn start_unanchored(&self) -> StateID {
+        self.start_unanchored
+    }
+
+    /// Set the unanchored starting state ID for this NFA.
+    #[inline]
+    pub fn set_start_unanchored(&mut self, id: StateID) {
+        self.start_unanchored = id;
+    }
+
+    /// Return the ID of the initial anchored state for the given pattern.
+    ///
+    /// If the pattern doesn't exist in this NFA, then this panics.
+    #[inline]
+    pub fn start_pattern(&self, pid: PatternID) -> StateID {
+        self.start_pattern[pid]
+    }
+
+    /// Get the byte class set for this NFA.
+    #[inline]
+    pub fn byte_class_set(&self) -> &ByteClassSet {
+        &self.byte_class_set
+    }
+
+    /// Return a reference to the NFA state corresponding to the given ID.
+    #[inline]
+    pub fn state(&self, id: StateID) -> &State {
+        &self.states[id]
+    }
+
+    /// Returns a slice of all states in this NFA.
+    ///
+    /// The slice returned may be indexed by a `StateID` generated by `add`.
+    #[inline]
+    pub fn states(&self) -> &[State] {
+        &self.states
+    }
+
+    #[inline]
+    pub fn is_always_start_anchored(&self) -> bool {
+        self.start_anchored() == self.start_unanchored()
+    }
+
+    #[inline]
+    pub fn has_any_look(&self) -> bool {
+        self.facts.has_any_look()
+    }
+
+    #[inline]
+    pub fn has_any_anchor(&self) -> bool {
+        self.facts.has_any_anchor()
+    }
+
+    #[inline]
+    pub fn has_word_boundary(&self) -> bool {
+        self.has_word_boundary_unicode() || self.has_word_boundary_ascii()
+    }
+
+    #[inline]
+    pub fn has_word_boundary_unicode(&self) -> bool {
+        self.facts.has_word_boundary_unicode()
+    }
+
+    #[inline]
+    pub fn has_word_boundary_ascii(&self) -> bool {
+        self.facts.has_word_boundary_ascii()
+    }
+
+    /// Returns the memory usage, in bytes, of this NFA.
+    ///
+    /// This does **not** include the stack size used up by this NFA. To
+    /// compute that, use `std::mem::size_of::<NFA>()`.
+    #[inline]
+    pub fn memory_usage(&self) -> usize {
+        self.states.len() * mem::size_of::<State>()
+            + self.memory_states
+            + self.start_pattern.len() * mem::size_of::<StateID>()
+    }
+
+    // Why do we define a bunch of 'add_*' routines below instead of just
+    // defining a single 'add' routine that accepts a 'State'? Indeed, for most
+    // of the 'add_*' routines below, such a simple API would be more than
+    // appropriate. Unfortunately, adding capture states and, to a lesser
+    // extent, match states, is a bit more complex. Namely, when we add a
+    // capture state, we *really* want to know the corresponding capture
+    // group's name and index and what not, so that we can update other state
+    // inside this NFA. But, e.g., the capture group name is not and should
+    // not be included in 'State::Capture'. So what are our choices?
+    //
+    // 1) Define one 'add' and require some additional optional parameters.
+    // This feels quite ugly, and adds unnecessary complexity to more common
+    // and simpler cases.
+    //
+    // 2) Do what we do below. The sad thing is that our API is bigger with
+    // more methods. But each method is very specific and hopefully simple.
+    //
+    // 3) Define a new enum, say, 'StateWithInfo', or something that permits
+    // providing both a State and some extra ancillary info in some cases. This
+    // doesn't seem too bad to me, but seems slightly worse than (2) because of
+    // the additional type required.
+    //
+    // 4) Abandon the idea that we have to specify things like the capture
+    // group name when we add the Capture state to the NFA. We would then need
+    // to add other methods that permit the caller to add this additional state
+    // "out of band." Other than it introducing some additional complexity, I
+    // decided against this because I wanted the NFA builder API to make it
+    // as hard as possible to build a bad or invalid NFA. Using the approach
+    // below, as you'll see, permits us to do a lot of strict checking of our
+    // inputs and return an error if we see something we don't expect.
+
+    pub fn add_range(&mut self, range: Transition) -> Result<StateID, Error> {
+        self.byte_class_set.set_range(range.start, range.end);
+        self.add_state(State::Range { range })
+    }
+
+    pub fn add_sparse(
+        &mut self,
+        sparse: SparseTransitions,
+    ) -> Result<StateID, Error> {
+        for range in sparse.ranges.iter() {
+            self.byte_class_set.set_range(range.start, range.end);
+        }
+        self.add_state(State::Sparse(sparse))
+    }
+
+    pub fn add_look(
+        &mut self,
+        next: StateID,
+        look: Look,
+    ) -> Result<StateID, Error> {
+        self.facts.set_has_any_look(true);
+        look.add_to_byteset(&mut self.byte_class_set);
+        match look {
+            Look::StartLine
+            | Look::EndLine
+            | Look::StartText
+            | Look::EndText => {
+                self.facts.set_has_any_anchor(true);
+            }
+            Look::WordBoundaryUnicode | Look::WordBoundaryUnicodeNegate => {
+                self.facts.set_has_word_boundary_unicode(true);
+            }
+            Look::WordBoundaryAscii | Look::WordBoundaryAsciiNegate => {
+                self.facts.set_has_word_boundary_ascii(true);
+            }
+        }
+        self.add_state(State::Look { look, next })
+    }
+
+    pub fn add_union(
+        &mut self,
+        alternates: Box<[StateID]>,
+    ) -> Result<StateID, Error> {
+        self.add_state(State::Union { alternates })
+    }
+
+    pub fn add_capture_start(
+        &mut self,
+        next_id: StateID,
+        capture_index: u32,
+        name: Option<Arc<str>>,
+    ) -> Result<StateID, Error> {
+        let pid = self.current_pattern_id();
+        let capture_index = match usize::try_from(capture_index) {
+            Err(_) => {
+                return Err(Error::invalid_capture_index(core::usize::MAX))
+            }
+            Ok(capture_index) => capture_index,
+        };
+        // Do arithmetic to find our absolute slot index first, to make sure
+        // the index is at least possibly valid (doesn't overflow).
+        let relative_slot = match capture_index.checked_mul(2) {
+            Some(relative_slot) => relative_slot,
+            None => return Err(Error::invalid_capture_index(capture_index)),
+        };
+        let slot = match relative_slot.checked_add(self.capture_slot_len()) {
+            Some(slot) => slot,
+            None => return Err(Error::invalid_capture_index(capture_index)),
+        };
+        // Make sure we have space to insert our (pid,index)|-->name mapping.
+        if pid.as_usize() >= self.capture_index_to_name.len() {
+            // Note that we require that if you're adding capturing groups,
+            // then there must be at least one capturing group per pattern.
+            // Moreover, whenever we expand our space here, it should always
+            // first be for the first capture group (at index==0).
+            if pid.as_usize() > self.capture_index_to_name.len()
+                || capture_index > 0
+            {
+                return Err(Error::invalid_capture_index(capture_index));
+            }
+            self.capture_name_to_index.push(CaptureNameMap::new());
+            self.capture_index_to_name.push(vec![]);
+        }
+        if capture_index >= self.capture_index_to_name[pid].len() {
+            // We require that capturing groups are added in correspondence
+            // to their index. So no discontinuous indices. This is likely
+            // overly strict, but also makes it simpler to provide guarantees
+            // about our capturing group data.
+            if capture_index > self.capture_index_to_name[pid].len() {
+                return Err(Error::invalid_capture_index(capture_index));
+            }
+            self.capture_index_to_name[pid].push(None);
+        }
+        if let Some(ref name) = name {
+            self.capture_name_to_index[pid]
+                .insert(Arc::clone(name), capture_index);
+        }
+        self.capture_index_to_name[pid][capture_index] = name;
+        self.add_state(State::Capture { next: next_id, slot })
+    }
+
+    pub fn add_capture_end(
+        &mut self,
+        next_id: StateID,
+        capture_index: u32,
+    ) -> Result<StateID, Error> {
+        let pid = self.current_pattern_id();
+        let capture_index = match usize::try_from(capture_index) {
+            Err(_) => {
+                return Err(Error::invalid_capture_index(core::usize::MAX))
+            }
+            Ok(capture_index) => capture_index,
+        };
+        // If we haven't already added this capture group via a corresponding
+        // 'add_capture_start' call, then we consider the index given to be
+        // invalid.
+        if pid.as_usize() >= self.capture_index_to_name.len()
+            || capture_index >= self.capture_index_to_name[pid].len()
+        {
+            return Err(Error::invalid_capture_index(capture_index));
+        }
+        // Since we've already confirmed that this capture index is invalid
+        // and has a corresponding starting slot, we know the multiplcation
+        // has already been done and succeeded.
+        let relative_slot_start = capture_index.checked_mul(2).unwrap();
+        let relative_slot = match relative_slot_start.checked_add(1) {
+            Some(relative_slot) => relative_slot,
+            None => return Err(Error::invalid_capture_index(capture_index)),
+        };
+        let slot = match relative_slot.checked_add(self.capture_slot_len()) {
+            Some(slot) => slot,
+            None => return Err(Error::invalid_capture_index(capture_index)),
+        };
+        self.add_state(State::Capture { next: next_id, slot })
+    }
+
+    pub fn add_fail(&mut self) -> Result<StateID, Error> {
+        self.add_state(State::Fail)
+    }
+
+    /// Add a new match state to this NFA and return its state ID.
+    pub fn add_match(&mut self) -> Result<StateID, Error> {
+        let pattern_id = self.current_pattern_id();
+        let sid = self.add_state(State::Match { id: pattern_id })?;
+        Ok(sid)
+    }
+
+    /// Finish compiling the current pattern and return its identifier. The
+    /// given ID should be the state ID corresponding to the anchored starting
+    /// state for matching this pattern.
+    pub fn finish_pattern(
+        &mut self,
+        start_id: StateID,
+    ) -> Result<PatternID, Error> {
+        // We've gotta make sure that we never permit the user to add more
+        // patterns than we can identify. So if we're already at the limit,
+        // then return an error. This is somewhat non-ideal since this won't
+        // result in an error until trying to complete the compilation of a
+        // pattern instead of starting it.
+        if self.start_pattern.len() >= PatternID::LIMIT {
+            return Err(Error::too_many_patterns(
+                self.start_pattern.len().saturating_add(1),
+            ));
+        }
+        let pid = self.current_pattern_id();
+        self.start_pattern.push(start_id);
+        // Add the number of new slots created by this pattern. This is always
+        // equivalent to '2 * caps.len()', where 'caps.len()' is the number of
+        // new capturing groups introduced by the pattern we're finishing.
+        let new_cap_groups = self
+            .capture_index_to_name
+            .get(pid.as_usize())
+            .map_or(0, |caps| caps.len());
+        let new_slots = match new_cap_groups.checked_mul(2) {
+            Some(new_slots) => new_slots,
+            None => {
+                // Just return the biggest index that we know exists.
+                let index = new_cap_groups.saturating_sub(1);
+                return Err(Error::invalid_capture_index(index));
+            }
+        };
+        let slot_start = self.capture_slot_len();
+        self.patterns_to_slots.push(slot_start..(slot_start + new_slots));
+        Ok(pid)
+    }
+
+    fn add_state(&mut self, state: State) -> Result<StateID, Error> {
         let id = StateID::new(self.states.len())
             .map_err(|_| Error::too_many_states(self.states.len()))?;
-        self.memory_extra += state.memory_usage();
+        self.memory_states += state.memory_usage();
         self.states.push(state);
         Ok(id)
-    }
-
-    pub(super) fn set_starts(
-        &mut self,
-        start_anchored: StateID,
-        start_unanchored: StateID,
-        start_pattern: &[StateID],
-    ) {
-        self.start_anchored = start_anchored;
-        self.start_unanchored = start_unanchored;
-        self.start_pattern = start_pattern.to_owned();
-    }
-
-    pub(super) fn set_captures(&mut self, captures: &[Vec<Option<Arc<str>>>]) {
-        // IDEA: I wonder if it makes sense to split this routine up by
-        // defining smaller mutator methods. We are manipulating a lot of state
-        // here, and the code below looks fairly hairy.
-
-        assert!(
-            self.states.is_empty(),
-            "set_captures must be called before adding states",
-        );
-        let numpats = captures.len();
-        let mut next_slot_pattern = 0usize;
-        // The builder verifies that all capture group indices are valid with
-        // respect to the number of slots required, so this unwrap is OK.
-        let mut next_slot_group = numpats.checked_mul(2).unwrap();
-        for (pid, groups) in captures.iter().with_pattern_ids() {
-            assert_eq!(
-                pid.as_usize(),
-                self.capture_name_to_index.len(),
-                "pattern IDs should be in correspondence",
-            );
-
-            let mut slots = vec![next_slot_pattern];
-            self.memory_extra += mem::size_of::<usize>();
-            // Since next_slot_group will always be greater and we know it's
-            // valid, we know that adding 2 `numpats` times will always
-            // succeed.
-            next_slot_pattern = next_slot_pattern.checked_add(2).unwrap();
-            self.capture_slot_len =
-                cmp::max(self.capture_slot_len, next_slot_pattern);
-            self.capture_name_to_index.push(CaptureNameMap::new());
-            self.capture_index_to_name.push(vec![None]);
-            self.memory_extra += mem::size_of::<Option<Arc<str>>>();
-            // Since we added group[0] above (corresponding to the capture for
-            // the entire pattern), we skip that here.
-            for (cap_idx, group_name) in groups.iter().enumerate().skip(1) {
-                slots.push(next_slot_group);
-                self.memory_extra += mem::size_of::<usize>();
-                // As above, we know all capture indices are valid.
-                next_slot_group = next_slot_group.checked_add(2).unwrap();
-                self.capture_slot_len =
-                    cmp::max(self.capture_slot_len, next_slot_group);
-                if let Some(ref name) = group_name {
-                    self.capture_name_to_index[pid]
-                        .insert(Arc::clone(name), cap_idx);
-                    // Since we're using a hash/btree map, these are more
-                    // like minimum amounts of memory used rather than known
-                    // actual memory used. (Where actual memory used is an
-                    // implementation detail of the hash/btree map itself.)
-                    self.memory_extra += mem::size_of::<Arc<str>>();
-                    self.memory_extra += mem::size_of::<usize>();
-                }
-                assert_eq!(
-                    cap_idx,
-                    self.capture_index_to_name[pid].len(),
-                    "capture indices should be in correspondence",
-                );
-                self.capture_index_to_name[pid].push(group_name.clone());
-                self.memory_extra += mem::size_of::<Option<Arc<str>>>();
-            }
-            self.capture_to_slots.push(slots);
-        }
     }
 
     /// Remap the transitions in every state of this NFA using the given map.
     /// The given map should be indexed according to state ID namespace used by
     /// the transitions of the states currently in this NFA.
     ///
-    /// This is particularly useful to the NFA builder, since it is convenient
-    /// to add NFA states in order to produce their final IDs. Then, after all
-    /// of the intermediate "empty" states (unconditional epsilon transitions)
-    /// have been removed from the builder's representation, we can re-map all
-    /// of the transitions in the states already added to their final IDs.
-    pub(super) fn remap(&mut self, old_to_new: &[StateID]) {
+    /// This may be used during the final phases of an NFA compiler, which
+    /// turns its intermediate NFA into the final NFA. Remapping may be
+    /// required to bring the state pointers from the intermediate NFA to the
+    /// final NFA.
+    pub fn remap(&mut self, old_to_new: &[StateID]) {
         for state in &mut self.states {
             state.remap(old_to_new);
         }
@@ -475,9 +607,28 @@ impl Inner {
             *id = old_to_new[*id];
         }
     }
+
+    /// Clear this NFA such that it has zero states and is otherwise "empty."
+    ///
+    /// An empty NFA is useful as a starting point for building one. It is
+    /// itself not intended to be used for matching. For example, its starting
+    /// state identifiers are configured to be `0`, but since it has no states,
+    /// the identifiers are invalid.
+    pub fn clear(&mut self) {
+        self.states.clear();
+        self.start_anchored = StateID::ZERO;
+        self.start_unanchored = StateID::ZERO;
+        self.start_pattern.clear();
+        self.patterns_to_slots.clear();
+        self.capture_name_to_index.clear();
+        self.capture_index_to_name.clear();
+        self.byte_class_set = ByteClassSet::empty();
+        self.facts = Facts::default();
+        self.memory_states = 0;
+    }
 }
 
-impl fmt::Debug for Inner {
+impl fmt::Debug for NFA {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "thompson::NFA(")?;
         for (sid, state) in self.states.iter().with_state_ids() {
@@ -490,44 +641,28 @@ impl fmt::Debug for Inner {
             };
             writeln!(f, "{}{:06?}: {:?}", status, sid.as_usize(), state)?;
         }
-        let pattern_len = self.start_pattern.len();
-        if pattern_len > 1 {
+        if self.pattern_len() > 1 {
             writeln!(f, "")?;
-            for pid in 0..pattern_len {
-                let sid = self.start_pattern[pid];
-                writeln!(f, "START({:06?}): {:?}", pid, sid.as_usize())?;
+            for pid in self.patterns() {
+                let sid = self.start_pattern(pid);
+                writeln!(
+                    f,
+                    "START({:06?}): {:?}",
+                    pid.as_usize(),
+                    sid.as_usize()
+                )?;
             }
         }
         writeln!(f, "")?;
         writeln!(
             f,
             "transition equivalence classes: {:?}",
-            self.byte_class_set.byte_classes(),
+            self.byte_class_set().byte_classes()
         )?;
         writeln!(f, ")")?;
         Ok(())
     }
 }
-
-/// A map from capture group name to its corresponding capture index.
-///
-/// Since there are always two slots for each capture index, the pair of slots
-/// corresponding to the capture index for a pattern ID of 0 are indexed at
-/// `map["<name>"] * 2` and `map["<name>"] * 2 + 1`.
-///
-/// This type is actually wrapped inside a Vec indexed by pattern ID on the
-/// NFA, since multiple patterns may have the same capture group name.
-///
-/// Note that this is somewhat of a sub-optimal representation, since it
-/// requires a hashmap for each pattern. A better representation would be
-/// HashMap<(PatternID, Arc<str>), usize>, but this makes it difficult to look
-/// up a capture index by name without producing a `Arc<str>`, which requires
-/// an allocation. To fix this, I think we'd need to define our own unsized
-/// type or something?
-#[cfg(feature = "std")]
-type CaptureNameMap = std::collections::HashMap<Arc<str>, usize>;
-#[cfg(not(feature = "std"))]
-type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, usize>;
 
 /// A state in a final compiled NFA.
 #[derive(Clone, Eq, PartialEq)]
@@ -573,7 +708,7 @@ pub enum State {
     Fail,
     /// A match state. There is exactly one such occurrence of this state for
     /// each regex compiled into the NFA.
-    Match { pattern_id: PatternID },
+    Match { id: PatternID },
 }
 
 impl State {
@@ -663,9 +798,7 @@ impl fmt::Debug for State {
                 write!(f, "capture({:?}) => {:?}", slot, next.as_usize())
             }
             State::Fail => write!(f, "FAIL"),
-            State::Match { pattern_id } => {
-                write!(f, "MATCH({:?})", pattern_id.as_usize())
-            }
+            State::Match { id } => write!(f, "MATCH({:?})", id.as_usize()),
         }
     }
 }
@@ -675,12 +808,16 @@ impl fmt::Debug for State {
 /// There are no real cohesive principles behind what gets put in here. For
 /// the most part, it is implementation driven.
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Facts {
-    pub(super) has_captures: bool,
-    pub(super) has_any_look: bool,
-    pub(super) has_any_anchor: bool,
-    pub(super) has_word_boundary_unicode: bool,
-    pub(super) has_word_boundary_ascii: bool,
+struct Facts {
+    /// Various yes/no facts about this NFA.
+    bools: u16,
+}
+
+impl Facts {
+    define_bool!(0, has_any_look, set_has_any_look);
+    define_bool!(1, has_any_anchor, set_has_any_anchor);
+    define_bool!(2, has_word_boundary_unicode, set_has_word_boundary_unicode);
+    define_bool!(3, has_word_boundary_ascii, set_has_word_boundary_ascii);
 }
 
 /// A sequence of transitions used to represent a sparse state.
@@ -819,6 +956,7 @@ pub enum Look {
 }
 
 impl Look {
+    #[inline(always)]
     pub fn matches(&self, bytes: &[u8], at: usize) -> bool {
         match *self {
             Look::StartLine => at == 0 || bytes[at - 1] == b'\n',
@@ -887,7 +1025,7 @@ impl Look {
     /// Create a look-around assertion from its corresponding integer (as
     /// defined in `Look`). If the given integer does not correspond to any
     /// assertion, then None is returned.
-    pub fn from_int(n: u8) -> Option<Look> {
+    fn from_int(n: u8) -> Option<Look> {
         match n {
             0b0000_0001 => Some(Look::StartLine),
             0b0000_0010 => Some(Look::EndLine),
@@ -902,7 +1040,7 @@ impl Look {
     }
 
     /// Flip the look-around assertion to its equivalent for reverse searches.
-    pub fn reversed(&self) -> Look {
+    fn reversed(&self) -> Look {
         match *self {
             Look::StartLine => Look::EndLine,
             Look::EndLine => Look::StartLine,

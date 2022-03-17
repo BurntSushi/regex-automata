@@ -608,7 +608,7 @@ compile a DFA.
         &self,
         exprs: &[H],
     ) -> anyhow::Result<thompson::NFA> {
-        thompson::Builder::new()
+        thompson::Compiler::new()
             .configure(self.0)
             .build_many_from_hir(exprs)
             .context("failed to compile Thompson NFA")
@@ -1382,7 +1382,7 @@ technique would likely be superior.
 
     pub fn from_nfa(
         &self,
-        nfa: Arc<thompson::NFA>,
+        nfa: thompson::NFA,
     ) -> anyhow::Result<hybrid::dfa::DFA> {
         hybrid::dfa::Builder::new()
             .configure(self.config)
@@ -1406,7 +1406,6 @@ technique would likely be superior.
         let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
         table.add("compile nfa time", time);
         table.add("nfa memory", nfa.memory_usage());
-        let nfa = Arc::new(nfa);
         let (dfa, time) = util::timeitr(|| self.from_nfa(nfa))?;
         table.add("build hybrid dfa time", time);
         table.add("hybrid dfa memory", dfa.memory_usage());

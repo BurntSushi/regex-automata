@@ -177,7 +177,7 @@ fn compiler(
 
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
-        let mut thompson = thompson::Builder::new();
+        let mut thompson = thompson::Compiler::new();
         thompson.configure(config_thompson(test));
         // TODO: Modify Hir to report facts like this, instead of needing to
         // build an NFA to do it.

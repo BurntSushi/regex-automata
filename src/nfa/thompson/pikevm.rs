@@ -52,7 +52,7 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
-    thompson: thompson::Builder,
+    thompson: thompson::Compiler,
 }
 
 impl Builder {
@@ -60,7 +60,7 @@ impl Builder {
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
-            thompson: thompson::Builder::new(),
+            thompson: thompson::Compiler::new(),
         }
     }
 
@@ -329,8 +329,8 @@ impl PikeVM {
             cache.nlist.set.clear();
         }
         matched_pid.map(|pid| {
-            let slots = self.nfa.pattern_slots(pid);
-            let (start, end) = (slots.start, slots.start + 1);
+            let start = self.nfa.slot(pid, 0);
+            let end = start + 1;
             MultiMatch::new(
                 pid,
                 caps.slots[start].unwrap(),
@@ -403,9 +403,9 @@ impl PikeVM {
                 }
                 None
             }
-            State::Match { id } => {
+            State::Match { pattern_id } => {
                 slots.copy_from_slice(thread_caps);
-                Some(id)
+                Some(pattern_id)
             }
         }
     }

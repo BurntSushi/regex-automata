@@ -71,7 +71,7 @@ impl Config {
             builder_states: alloc::vec![dead, quit],
             cache,
             memory_usage_state: 0,
-            sparses: SparseSets::new(nfa.len()),
+            sparses: SparseSets::new(nfa.states().len()),
             stack: alloc::vec![],
             scratch_state_builder: StateBuilderEmpty::new(),
         };

@@ -101,7 +101,7 @@ fn compiler(
 
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
-        let mut thompson = thompson::Builder::new();
+        let mut thompson = thompson::Compiler::new();
         thompson.syntax(config_syntax(test)).configure(config_thompson(test));
         if let Ok(nfa) = thompson.build_many(&regexes) {
             let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
