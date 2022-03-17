@@ -190,6 +190,7 @@ fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
     let (nfa, time_nfa) = util::timeitr(|| cthompson.from_hirs(&hirs))?;
     table.add("compile nfa time", time_nfa);
     table.add("nfa memory", nfa.memory_usage());
+    table.add("nfa states", nfa.states().len());
     table.add("pattern count", nfa.pattern_len());
     table.add("capture count", nfa.capture_slot_len() / 2);
     table.print(stdout())?;

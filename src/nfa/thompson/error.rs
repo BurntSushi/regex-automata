@@ -60,6 +60,9 @@ enum ErrorKind {
     /// where the crate was compiled without the necessary data for dealing
     /// with Unicode word boundaries.
     UnicodeWordUnavailable,
+    /// An error that occurs when one tries to build an NFA simulation (such as
+    /// the PikeVM) without any capturing groups.
+    MissingCaptures,
 }
 
 impl Error {
@@ -92,6 +95,10 @@ impl Error {
     pub(crate) fn unicode_word_unavailable() -> Error {
         Error { kind: ErrorKind::UnicodeWordUnavailable }
     }
+
+    pub(crate) fn missing_captures() -> Error {
+        Error { kind: ErrorKind::MissingCaptures }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -104,6 +111,7 @@ impl std::error::Error for Error {
             ErrorKind::ExceededSizeLimit { .. } => None,
             ErrorKind::InvalidCaptureIndex { .. } => None,
             ErrorKind::UnicodeWordUnavailable => None,
+            ErrorKind::MissingCaptures => None,
         }
     }
 }
@@ -139,6 +147,11 @@ impl core::fmt::Display for Error {
                 "crate has been compiled without Unicode word boundary \
                  support, but the NFA contains Unicode word boundary \
                  assertions",
+            ),
+            ErrorKind::MissingCaptures => write!(
+                f,
+                "operation requires the NFA to have capturing groups, \
+                 but the NFA given contains none",
             ),
         }
     }

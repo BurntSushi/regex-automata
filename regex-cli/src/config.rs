@@ -583,6 +583,34 @@ compile a DFA.
 ";
             app = app.arg(switch("no-shrink").help(SHORT).long_help(LONG));
         }
+        {
+            const SHORT: &str = "Do not include capturing groups.";
+            const LONG: &str = "\
+Do not include capturing groups in the NFA.
+
+By default, when compiling an NFA, capturing groups will be included. They are
+represented as unconditional epsilon transitions in the NFA graph, and permit
+an NFA simulation to record information (such as the current position) when
+a search passes through them. Each capturing group gets translated into two
+NFA states representing distinct \"slots.\" These slots are represented by
+indices. An NFA simulation can use these indices to record the aforementioned
+information.
+
+Note that even if the pattern does not have any explicit capturing groups in
+them, at least one such capturing group always implicitly exists: the capturing
+group corresponding to the entire match.
+
+These are useful to disable primarily in two cases. First is that getting rid
+of them may make the NFA easier for a human to read and analyze. Second is that
+they are useless when building a DFA, since a DFA doesn't (and cannot) support
+capturing groups. So in the context of building a DFA, capturing group NFA
+states are precisely equivalent to unconditional epsilon transitions.
+
+This tool will error if you try to use something that does require capturing
+groups (such as a search with the PikeVM).
+";
+            app = app.arg(switch("no-captures").help(SHORT).long_help(LONG));
+        }
 
         app
     }
@@ -591,7 +619,8 @@ compile a DFA.
         let mut c = thompson::Config::new()
             .reverse(args.is_present("reverse"))
             .utf8(!args.is_present("no-utf8-nfa"))
-            .shrink(!args.is_present("no-shrink"));
+            .shrink(!args.is_present("no-shrink"))
+            .captures(!args.is_present("no-captures"));
         if let Some(x) = args.value_of_lossy("nfa-size-limit") {
             if x.to_lowercase() == "none" {
                 c = c.nfa_size_limit(None);

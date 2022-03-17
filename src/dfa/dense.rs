@@ -885,14 +885,14 @@ impl Config {
 /// ```
 /// use regex_automata::{
 ///     dfa::{Automaton, dense},
-///     nfa::thompson,
+///     nfa::thompson::NFA,
 ///     HalfMatch, SyntaxConfig,
 /// };
 ///
 /// let dfa = dense::Builder::new()
 ///     .configure(dense::Config::new().minimize(false))
 ///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
-///     .thompson(thompson::Config::new().utf8(false))
+///     .thompson(NFA::config().utf8(false))
 ///     .build(r"foo[^b]ar.*")?;
 ///
 /// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";
@@ -949,15 +949,15 @@ impl Builder {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     nfa::thompson,
+    ///     nfa::thompson::NFA,
     ///     HalfMatch,
     /// };
     ///
     /// let haystack = "foo123bar".as_bytes();
     ///
     /// // This shows how to set non-default options for building an NFA.
-    /// let nfa = thompson::Compiler::new()
-    ///     .configure(thompson::Config::new().shrink(false))
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().shrink(false))
     ///     .build(r"[0-9]+")?;
     /// let dfa = dense::Builder::new().build_from_nfa(&nfa)?;
     /// let expected = Some(HalfMatch::must(0, 6));

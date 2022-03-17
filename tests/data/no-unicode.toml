@@ -156,3 +156,20 @@ input = 'b\xFFr'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 unescape = true
 utf8 = false
+
+
+[[tests]]
+name = "unanchored-invalid-utf8-match"
+regex = '[a-z]'
+input = '\xFFa\xFF'
+matches = [[1, 2]]
+unescape = true
+utf8 = false
+
+[[tests]]
+name = "unanchored-invalid-utf8-nomatch"
+regex = '[a-z]'
+input = '\xFFa\xFF'
+matches = []
+unescape = true
+utf8 = true

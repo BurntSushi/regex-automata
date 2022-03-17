@@ -40,15 +40,42 @@ impl Config {
     /// Reverse the NFA.
     ///
     /// A NFA reversal is performed by reversing all of the concatenated
-    /// sub-expressions in the original pattern, recursively. The resulting
-    /// NFA can be used to match the pattern starting from the end of a string
-    /// instead of the beginning of a string.
+    /// sub-expressions in the original pattern, recursively. (Look around
+    /// operators are also inverted.) The resulting NFA can be used to match
+    /// the pattern starting from the end of a string instead of the beginning
+    /// of a string.
     ///
     /// Reversing the NFA is useful for building a reverse DFA, which is most
     /// useful for finding the start of a match after its ending position has
-    /// been found.
+    /// been found. NFA execution engines typically do not work on reverse
+    /// NFAs. For example, currently, the Pike VM reports the starting location
+    /// of matches without a reverse NFA.
+    ///
+    /// Currently, enabling this setting will forcefully disable the
+    /// [`captures`](Config::captures) setting.
     ///
     /// This is disabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build a DFA from a reverse NFA, and then use
+    /// the DFA to search backwards.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{self, Automaton},
+    ///     nfa::thompson::NFA,
+    ///     HalfMatch,
+    /// };
+    ///
+    /// let dfa = dfa::dense::Builder::new()
+    ///     .thompson(NFA::config().reverse(true))
+    ///     .build("baz[0-9]+")?;
+    /// let expected = HalfMatch::must(0, 3);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_rev(b"foobaz12345bar")?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn reverse(mut self, yes: bool) -> Config {
         self.reverse = Some(yes);
         self
@@ -71,6 +98,40 @@ impl Config {
     /// as expected.
     ///
     /// This is enabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates the difference between enabling and disabling
+    /// this option. In particular, we show how disabling this permits
+    /// searching through bytes that are not valid UTF-8.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::{pikevm::PikeVM, NFA};
+    ///
+    /// let haystack = b"\xFFabc\xFF";
+    ///
+    /// let nfa = NFA::new(r"[a-z]+")?;
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = vm.create_captures();
+    /// // No match is found, because UTF-8 mode is enabled by default.
+    /// assert!(vm.find_leftmost(&mut cache, &*haystack, &mut caps).is_none());
+    ///
+    /// // ...but disabling UTF-8 mode permits us to build an NFA that will
+    /// // much through invalid UTF-8.
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().utf8(false))
+    ///     .build(r"[a-z]+")?;
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = vm.create_captures();
+    /// let m = vm.find_leftmost(&mut cache, &*haystack, &mut caps).unwrap();
+    /// assert_eq!(m.pattern().as_usize(), 0);
+    /// assert_eq!(m.start(), 1);
+    /// assert_eq!(m.end(), 4);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn utf8(mut self, yes: bool) -> Config {
         self.utf8 = Some(yes);
         self
@@ -134,10 +195,39 @@ impl Config {
     /// amount of time it takes to build a DFA.
     ///
     /// The only reason to disable this if you want to compile an NFA and start
-    /// using it as quickly as possible without needing to build a DFA. e.g.,
-    /// for an NFA simulation or for a lazy DFA.
+    /// using it as quickly as possible without needing to build a DFA, and you
+    /// don't mind using a bit of extra memory for the NFA. e.g., for an NFA
+    /// simulation or for a lazy DFA.
+    ///
+    /// NFA shrinking is currently most useful when compiling a reverse
+    /// NFA with large Unicode character classes. In particular, it trades
+    /// additional CPU time during NFA compilation in favor of generating fewer
+    /// NFA states.
     ///
     /// This is enabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows that NFA shrinking can lead to substantial space
+    /// savings in some cases. Notice that, as noted above, we build a reverse
+    /// DFA and use a pattern with a large Unicode character class.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// let not_shrunk = NFA::compiler()
+    ///     .configure(NFA::config().reverse(true).shrink(false))
+    ///     .build(r"\w")?;
+    /// let shrunk = NFA::compiler()
+    ///     .configure(NFA::config().reverse(true).shrink(true))
+    ///     .build(r"\w")?;
+    ///
+    /// // While a specific shrink factor is not guaranteed, the savings can be
+    /// // considerable in some cases.
+    /// assert!(shrunk.states().len() * 2 < not_shrunk.states().len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn shrink(mut self, yes: bool) -> Config {
         self.shrink = Some(yes);
         self
@@ -150,6 +240,23 @@ impl Config {
     /// configuration is enabled.
     ///
     /// This is enabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates that some regex engines, like the Pike VM,
+    /// require capturing groups to be present in the NFA. Building a Pike VM
+    /// with an NFA without capturing groups will result in an error.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::{pikevm::PikeVM, NFA};
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build(r"[a-z]+")?;
+    /// assert!(PikeVM::new_from_nfa(nfa).is_err());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn captures(mut self, yes: bool) -> Config {
         self.captures = Some(yes);
         self
@@ -165,26 +272,36 @@ impl Config {
         self
     }
 
+    /// Returns whether this configuration has enabled reverse NFA compilation.
     pub fn get_reverse(&self) -> bool {
         self.reverse.unwrap_or(false)
     }
 
+    /// Returns whether UTF-8 mode is enabled or not for NFA compilation.
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
     }
 
+    /// Return the configured NFA size limit, if it exists, in the number of
+    /// bytes of heap used.
     pub fn get_nfa_size_limit(&self) -> Option<usize> {
         self.nfa_size_limit.unwrap_or(None)
     }
 
+    /// Return whether NFA shrinking is enabled.
     pub fn get_shrink(&self) -> bool {
         self.shrink.unwrap_or(true)
     }
 
+    /// Return whether NFA compilation is configured to produce capture states.
     pub fn get_captures(&self) -> bool {
         !self.get_reverse() && self.captures.unwrap_or(true)
     }
 
+    /// Return whether NFA compilation is configured to include an unanchored
+    /// prefix.
+    ///
+    /// This is always false when not in test mode.
     fn get_unanchored_prefix(&self) -> bool {
         #[cfg(test)]
         {
@@ -196,6 +313,10 @@ impl Config {
         }
     }
 
+    /// Overwrite the default configuration such that the options in `o` are
+    /// always used. If an option in `o` is not set, then the corresponding
+    /// option in `self` is used. If it's not set in `self` either, then it
+    /// remains not set.
     pub(crate) fn overwrite(self, o: Config) -> Config {
         Config {
             reverse: o.reverse.or(self.reverse),
@@ -209,10 +330,117 @@ impl Config {
     }
 }
 
-/// A builder for compiling an NFA.
+/*
+This compiler below uses Thompson's construction algorithm. The compiler takes
+a regex-syntax::Hir as input and emits an NFA graph as output. The NFA graph
+is structured in a way that permits it to be executed by a virtual machine and
+also used to efficiently build a DFA.
+
+The compiler deals with a slightly expanded set of NFA states than what is
+in a final NFA (as exhibited by builder::State and nfa::State). Notably a
+compiler state includes an empty node that has exactly one unconditional
+epsilon transition to the next state. In other words, it's a "goto" instruction
+if one views Thompson's NFA as a set of bytecode instructions. These goto
+instructions are removed in a subsequent phase before returning the NFA to the
+caller. The purpose of these empty nodes is that they make the construction
+algorithm substantially simpler to implement. We remove them before returning
+to the caller because they can represent substantial overhead when traversing
+the NFA graph (either while searching using the NFA directly or while building
+a DFA).
+
+In the future, it would be nice to provide a Glushkov compiler as well, as it
+would work well as a bit-parallel NFA for smaller regexes. But the Thompson
+construction is one I'm more familiar with and seems more straight-forward to
+deal with when it comes to large Unicode character classes.
+
+Internally, the compiler uses interior mutability to improve composition in the
+face of the borrow checker. In particular, we'd really like to be able to write
+things like this:
+
+    self.c_concat(exprs.iter().map(|e| self.c(e)))
+
+Which elegantly uses iterators to build up a sequence of compiled regex
+sub-expressions and then hands it off to the concatenating compiler routine.
+Without interior mutability, the borrow checker won't let us borrow `self`
+mutably both inside and outside the closure at the same time.
+*/
+
+/// A builder for compiling an NFA from a regex's high-level intermediate
+/// representation (HIR).
+///
+/// This compiler provides a way to translate a parsed regex pattern into an
+/// NFA state graph. The NFA state graph can either be used directly to execute
+/// a search (e.g., with a Pike VM), or it can be further used to build a DFA.
+///
+/// This compiler provides APIs both for compiling regex patterns directly from
+/// their concrete syntax, or via a [`regex_syntax::hir::Hir`].
+///
+/// This compiler has various options that may be configured via
+/// [`thompson::Config`](Config).
+///
+/// Note that a compiler is not the same as a [`thompson::Builder`](Builder).
+/// A `Builder` provides a lower level API that is uncoupled from a regex
+/// pattern's concrete syntax or even its HIR. Instead, it permits stitching
+/// together an NFA by hand. See its docs for examples.
+///
+/// # Example: compilation from concrete syntax
+///
+/// This shows how to compile an NFA from a pattern string while setting a
+/// size limit on how build the NFA is allowed to be (in terms of bytes of heap
+/// used).
+///
+/// ```
+/// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
+///
+/// let config = NFA::config().nfa_size_limit(Some(1_000));
+/// let nfa = NFA::compiler().configure(config).build(r"(?-u)\w")?;
+///
+/// let vm = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = vm.create_cache();
+/// let mut caps = vm.create_captures();
+/// let m = vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps).unwrap();
+/// assert_eq!(m.pattern().as_usize(), 0);
+/// assert_eq!(m.start(), 3);
+/// assert_eq!(m.end(), 4);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Example: compilation from HIR
+///
+/// This shows how to hand assemble a regular expression via its HIR, and then
+/// compile an NFA directly from it.
+///
+/// ```
+/// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
+/// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
+///
+/// let hir = Hir::class(Class::Bytes(ClassBytes::new(vec![
+///     ClassBytesRange::new(b'0', b'9'),
+///     ClassBytesRange::new(b'A', b'Z'),
+///     ClassBytesRange::new(b'_', b'_'),
+///     ClassBytesRange::new(b'a', b'z'),
+/// ])));
+///
+/// let config = NFA::config().nfa_size_limit(Some(1_000));
+/// let nfa = NFA::compiler().configure(config).build_from_hir(&hir)?;
+///
+/// let vm = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = vm.create_cache();
+/// let mut caps = vm.create_captures();
+/// let m = vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps).unwrap();
+/// assert_eq!(m.pattern().as_usize(), 0);
+/// assert_eq!(m.start(), 3);
+/// assert_eq!(m.end(), 4);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct Compiler {
+    /// A regex parser, used when compiling an NFA directly from a pattern
+    /// string.
     parser: ParserBuilder,
+    /// The compiler configuration.
     config: Config,
     /// The builder for actually constructing an NFA. This provides a
     /// convenient abstraction for writing a compiler.
@@ -241,17 +469,64 @@ impl Compiler {
         }
     }
 
-    /// Compile the given regular expression into an NFA.
+    /// Compile the given regular expression pattern into an NFA.
     ///
     /// If there was a problem parsing the regex, then that error is returned.
     ///
     /// Otherwise, if there was a problem building the NFA, then an error is
     /// returned. The only error that can occur is if the compiled regex would
-    /// exceed the size limits configured on this builder.
+    /// exceed the size limits configured on this builder, or if any part of
+    /// the NFA would exceed the integer representations used. (For example,
+    /// too many states might plausibly occur on a 16-bit target.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
+    ///
+    /// let config = NFA::config().nfa_size_limit(Some(1_000));
+    /// let nfa = NFA::compiler().configure(config).build(r"(?-u)\w")?;
+    ///
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = vm.create_captures();
+    /// let m = vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps).unwrap();
+    /// assert_eq!(m.pattern().as_usize(), 0);
+    /// assert_eq!(m.start(), 3);
+    /// assert_eq!(m.end(), 4);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build(&self, pattern: &str) -> Result<NFA, Error> {
         self.build_many(&[pattern])
     }
 
+    /// Compile the given regular expression patterns into a single NFA.
+    ///
+    /// When matches are returned, the pattern ID corresponds to the index of
+    /// the pattern in the slice given.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
+    ///
+    /// let config = NFA::config().nfa_size_limit(Some(1_000));
+    /// let nfa = NFA::compiler().configure(config).build_many(&[
+    ///     r"(?-u)\s",
+    ///     r"(?-u)\w",
+    /// ])?;
+    ///
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = vm.create_captures();
+    /// let m = vm.find_leftmost(&mut cache, b"!A! !A!", &mut caps).unwrap();
+    /// assert_eq!(m.pattern().as_usize(), 1);
+    /// assert_eq!(m.start(), 1);
+    /// assert_eq!(m.end(), 2);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -274,17 +549,78 @@ impl Compiler {
     ///
     /// If there was a problem building the NFA, then an error is returned. The
     /// only error that can occur is if the compiled regex would exceed the
-    /// size limits configured on this builder.
+    /// size limits configured on this builder, or if any part of the NFA would
+    /// exceed the integer representations used. (For example, too many states
+    /// might plausibly occur on a 16-bit target.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
+    /// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
+    ///
+    /// let hir = Hir::class(Class::Bytes(ClassBytes::new(vec![
+    ///     ClassBytesRange::new(b'0', b'9'),
+    ///     ClassBytesRange::new(b'A', b'Z'),
+    ///     ClassBytesRange::new(b'_', b'_'),
+    ///     ClassBytesRange::new(b'a', b'z'),
+    /// ])));
+    ///
+    /// let config = NFA::config().nfa_size_limit(Some(1_000));
+    /// let nfa = NFA::compiler().configure(config).build_from_hir(&hir)?;
+    ///
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = vm.create_captures();
+    /// let m = vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps).unwrap();
+    /// assert_eq!(m.pattern().as_usize(), 0);
+    /// assert_eq!(m.start(), 3);
+    /// assert_eq!(m.end(), 4);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_from_hir(&self, expr: &Hir) -> Result<NFA, Error> {
         self.build_many_from_hir(&[expr])
     }
 
-    /// Compile the given high level intermediate representation of a regular
-    /// expression into an NFA.
+    /// Compile the given high level intermediate representations of regular
+    /// expressions into a single NFA.
     ///
-    /// If there was a problem building the NFA, then an error is returned. The
-    /// only error that can occur is if the compiled regex would exceed the
-    /// size limits configured on this builder.
+    /// When matches are returned, the pattern ID corresponds to the index of
+    /// the pattern in the slice given.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
+    /// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
+    ///
+    /// let hirs = &[
+    ///     Hir::class(Class::Bytes(ClassBytes::new(vec![
+    ///         ClassBytesRange::new(b'\t', b'\r'),
+    ///         ClassBytesRange::new(b' ', b' '),
+    ///     ]))),
+    ///     Hir::class(Class::Bytes(ClassBytes::new(vec![
+    ///         ClassBytesRange::new(b'0', b'9'),
+    ///         ClassBytesRange::new(b'A', b'Z'),
+    ///         ClassBytesRange::new(b'_', b'_'),
+    ///         ClassBytesRange::new(b'a', b'z'),
+    ///     ]))),
+    /// ];
+    ///
+    /// let config = NFA::config().nfa_size_limit(Some(1_000));
+    /// let nfa = NFA::compiler().configure(config).build_many_from_hir(hirs)?;
+    ///
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = vm.create_captures();
+    /// let m = vm.find_leftmost(&mut cache, b"!A! !A!", &mut caps).unwrap();
+    /// assert_eq!(m.pattern().as_usize(), 1);
+    /// assert_eq!(m.start(), 1);
+    /// assert_eq!(m.end(), 2);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_many_from_hir<H: Borrow<Hir>>(
         &self,
         exprs: &[H],
@@ -293,6 +629,18 @@ impl Compiler {
     }
 
     /// Apply the given NFA configuration options to this builder.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// let config = NFA::config().nfa_size_limit(Some(1_000));
+    /// let nfa = NFA::compiler().configure(config).build(r"(?-u)\w")?;
+    /// assert_eq!(nfa.pattern_len(), 1);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn configure(&mut self, config: Config) -> &mut Compiler {
         self.config = self.config.overwrite(config);
         self
@@ -307,6 +655,19 @@ impl Compiler {
     /// This syntax configuration only applies when an NFA is built directly
     /// from a pattern string. If an NFA is built from an HIR, then all syntax
     /// settings are ignored.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, SyntaxConfig};
+    ///
+    /// let syntax_config = SyntaxConfig::new().unicode(false);
+    /// let nfa = NFA::compiler().syntax(syntax_config).build(r"\w")?;
+    /// // If Unicode were enabled, the number of states would be much bigger.
+    /// assert!(nfa.states().len() < 15);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::SyntaxConfig,
@@ -745,7 +1106,10 @@ impl Compiler {
         //
         // The code below is kept as a reference point in order to make it
         // easier to understand the higher level goal here. Although, it will
-        // almost certainly bit-rot, so keep that in mind.
+        // almost certainly bit-rot, so keep that in mind. Also, if you try to
+        // use it, some of the tests in this module will fail because they look
+        // for terser byte code produce by the more optimized handling above.
+        // But the integration test suite should still pass.
         /*
         let it = cls
             .iter()
@@ -938,6 +1302,24 @@ struct ThompsonRef {
     end: StateID,
 }
 
+/// A UTF-8 compiler based on Daciuk's algorithm for compilining minimal DFAs
+/// from a lexicographically sorted sequence of strings in linear time.
+///
+/// The trick here is that any Unicode codepoint range can be converted to
+/// a sequence of byte ranges that form a UTF-8 automaton. Connecting them
+/// together via an alternation is trivial, and indeed, it works. However,
+/// there is a lot of redundant structure in many UTF-8 automatons. Since our
+/// UTF-8 ranges are in lexicographic order, we can use Daciuk's algorithm
+/// to build nearly minimal DFAs in linear time. (They are guaranteed to be
+/// minimal because we use a bounded cache of previously build DFA states.)
+///
+/// The drawback is that this sadly doesn't work for reverse automata, since
+/// the ranges are no longer in lexicographic order. For that, we invented the
+/// range trie (which gets its own module). Once a range trie is built, we then
+/// use this same Utf8Compiler to build a reverse UTF-8 automaton.
+///
+/// The high level idea is described here:
+/// https://blog.burntsushi.net/transducers/#finite-state-machines-as-data-structures
 #[derive(Debug)]
 struct Utf8Compiler<'a> {
     builder: &'a mut Builder,

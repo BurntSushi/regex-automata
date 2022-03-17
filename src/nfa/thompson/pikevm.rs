@@ -83,6 +83,13 @@ impl Builder {
         // feature = "syntax",
         // feature = "unicode-perl"
         // )) {
+        // If the NFA has no captures, then the PikeVM doesn't work since it
+        // relies on them in order to report match locations. However, in the
+        // special case of an NFA with no patterns, it is allowed, since no
+        // matches can ever be produced.
+        if !nfa.has_captures() && nfa.pattern_len() > 0 {
+            return Err(Error::missing_captures());
+        }
         if !cfg!(feature = "syntax") {
             if nfa.has_word_boundary_unicode() {
                 return Err(Error::unicode_word_unavailable());
@@ -238,7 +245,8 @@ impl PikeVM {
             || self.nfa.is_always_start_anchored()
             || pattern_id.is_some();
         let start_id = match pattern_id {
-            None => self.nfa.start_anchored(),
+            None if anchored => self.nfa.start_anchored(),
+            None => self.nfa.start_unanchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
         let mut at = start;
@@ -273,10 +281,63 @@ impl PikeVM {
         }
 
         cache.clear();
-        'LOOP: loop {
+        // FIXME: Putting the epsilon closure here is the most correct thing to
+        // do, since it will correctly terminate a search when invalid UTF-8
+        // is encountered if a only-valid-UTF-8 unanchored prefix is built
+        // into the NFA. It also handles all other cases correctly. The main
+        // problem is that this can lead to a fairly large slow-down, since the
+        // list of states will always contain whatever this epsilon closure
+        // populates them with (for unanchored searches). That's in contrast
+        // to bypassing the unanchored prefix entirely by just re-adding the
+        // *anchored* start state whenever the current list of states is empty.
+        // (This would occur inside the loop below, but before the loop over
+        // the current list of states.)
+        //
+        // But if we implement the unanchored prefix ourselves, then we also
+        // need to provide a way for the search to terminate in the presence of
+        // invalid UTF-8. This is... quite annoying to deal with. Here are some
+        // options:
+        //
+        // 1) Accept the perf hit and keep the code simple.
+        //
+        // 2) Make the NFA expose what kind of unanchored prefix it has.
+        // If it requires valid UTF-8, then... what? Write a specialized
+        // UTF-8 decoder and only do an epsilon closure if we're at a valid
+        // UTF-8 boundary?
+        //
+        // 3) Like 2, but expose something in the API that requires the
+        // caller to say if the haystack is all valid UTF-8. If so, then the
+        // unanchored prefix can never reject anything and all is well: the
+        // fast version works. In cases where we have a valid UTF-8 unanchored
+        // prefix but the haystack is not valid UTF-8, then we need to put the
+        // epsilon closure at the start. (Which is also a huge bummer.)
+        //
+        // 4) Figure out how to make the simple code fast...
+        //
+        // How did the regex crate's old PikeVM implementation handle this?
+        // Well, it rolled its own unanchored prefix (i.e., the fast way) but
+        // its PikeVM was built on top of a input handling mechanism that tries
+        // hard to deal only with Unicode codepoints. So the Pike VM there does
+        // actually do its own UTF-8 decoding. Siiiiigh. We really do not want
+        // to go back to that. Why? i) NFAs are now all byte based and ii) that
+        // input handling mechanism greatly complicates the implementation and
+        // was actually the source of some bugs. (ii) is likely possible to
+        // mitigate by smarter code organization.
+        //
+        // Maybe we just go with (1) for now, accept the hit and try to
+        // optimize this later? Siiiiiiiiiigh. Yup, that's what I'm doing.
+        self.epsilon_closure(
+            &mut cache.clist,
+            &mut caps.slots,
+            &mut cache.stack,
+            start_id,
+            haystack,
+            at,
+        );
+        while at <= end {
             if cache.clist.set.is_empty() {
                 if matched_pid.is_some() || (anchored && at > start) {
-                    break 'LOOP;
+                    break;
                 }
                 if !anchored {
                     if let Some(ref mut pre) = self.scanner() {
@@ -291,18 +352,6 @@ impl PikeVM {
                         }
                     }
                 }
-            }
-            if (!anchored && matched_pid.is_none())
-                || cache.clist.set.is_empty()
-            {
-                self.epsilon_closure(
-                    &mut cache.clist,
-                    &mut caps.slots,
-                    &mut cache.stack,
-                    start_id,
-                    haystack,
-                    at,
-                );
             }
             for i in 0..cache.clist.set.len() {
                 let sid = cache.clist.set.get(i);
@@ -321,16 +370,12 @@ impl PikeVM {
                 matched_pid = Some(pid);
                 break;
             }
-            if at >= end {
-                break;
-            }
             at += 1;
             cache.swap();
             cache.nlist.set.clear();
         }
         matched_pid.map(|pid| {
-            let start = self.nfa.slot(pid, 0);
-            let end = start + 1;
+            let (start, end) = self.nfa.slots(pid, 0);
             MultiMatch::new(
                 pid,
                 caps.slots[start].unwrap(),

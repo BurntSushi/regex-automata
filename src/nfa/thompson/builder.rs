@@ -148,6 +148,41 @@ impl State {
 }
 
 /// TODO
+///
+/// # Example
+///
+/// ```
+/// use regex_automata::{
+///     nfa::thompson::{pikevm::PikeVM, Builder, Transition},
+///     util::id::StateID,
+/// };
+///
+/// let mut builder = Builder::new();
+/// builder.start_pattern()?;
+/// let start = builder.add_capture_start(0, None)?;
+/// let range = builder.add_range(Transition {
+///     start: b'a', end: b'z', next: StateID::ZERO
+/// })?;
+/// let alt = builder.add_union(vec![])?;
+/// let end = builder.add_capture_end(0)?;
+/// let mat = builder.add_match()?;
+/// builder.patch(start, range);
+/// builder.patch(range, alt);
+/// builder.patch(alt, range);
+/// builder.patch(alt, end);
+/// builder.finish_pattern(start)?;
+/// let nfa = builder.build(start, start)?;
+///
+/// let vm = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = vm.create_cache();
+/// let mut caps = vm.create_captures();
+/// let m = vm.find_leftmost(&mut cache, b"foo0", &mut caps).unwrap();
+/// assert_eq!(m.pattern().as_usize(), 0);
+/// assert_eq!(m.start(), 0);
+/// assert_eq!(m.end(), 3);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug, Default)]
 pub struct Builder {
     /// The ID of the pattern that we're currently building.
@@ -269,6 +304,9 @@ impl Builder {
                 State::CaptureEnd { pattern_id, capture_index, next } => {
                     // We can't remove this empty state because of the side
                     // effect of capturing an offset for this capture slot.
+                    // Also, this always succeeds because we check that all
+                    // slot indices are valid for all capture indices when they
+                    // are initially added.
                     let slot = nfa
                         .slot(pattern_id, capture_index)
                         .checked_add(1)
@@ -294,6 +332,9 @@ impl Builder {
                 }
             }
         }
+        // Some of the new states still point to empty state IDs, so we need to
+        // follow each of them and remap the empty state IDs to their non-empty
+        // state IDs.
         for &(empty_id, mut empty_next) in empties.iter() {
             // empty states can point to other empty states, forming a chain.
             // So we must follow the chain until the end, which must end at
@@ -305,6 +346,7 @@ impl Builder {
             }
             remap[empty_id] = remap[empty_next];
         }
+        // Finally remap all of the state IDs.
         nfa.remap(&remap);
         let final_nfa = NFA(Arc::new(nfa));
         trace!(

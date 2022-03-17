@@ -32,23 +32,19 @@ pub struct NFA(
 );
 
 impl NFA {
-    pub fn config() -> Config {
-        Config::new()
+    pub fn new(pattern: &str) -> Result<NFA, Error> {
+        NFA::compiler().build(pattern)
     }
 
-    pub fn builder() -> Builder {
-        Builder::new()
-    }
-
-    pub fn compiler() -> Compiler {
-        Compiler::new()
+    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<NFA, Error> {
+        NFA::compiler().build_many(patterns)
     }
 
     /// Returns an NFA with a single regex pattern that always matches at every
     /// position.
     #[inline]
     pub fn always_match() -> NFA {
-        let mut builder = NFA::builder();
+        let mut builder = Builder::new();
         let pid = builder.start_pattern().unwrap();
         assert_eq!(pid.as_usize(), 0);
         let start_id = builder.add_match().unwrap();
@@ -61,9 +57,17 @@ impl NFA {
     /// regexes.
     #[inline]
     pub fn never_match() -> NFA {
-        let mut builder = NFA::builder();
+        let mut builder = Builder::new();
         let start_id = builder.add_fail().unwrap();
         builder.build(start_id, start_id).unwrap()
+    }
+
+    pub fn config() -> Config {
+        Config::new()
+    }
+
+    pub fn compiler() -> Compiler {
+        Compiler::new()
     }
 
     /// Returns an iterator over all pattern IDs in this NFA.
@@ -161,6 +165,25 @@ impl NFA {
         self.0.slot(pid, capture_index)
     }
 
+    /// Returns the starting and ending slot corresponding to the given
+    /// capturing group for the given pattern. The ending slot is always one
+    /// more than the starting slot returned.
+    ///
+    /// # Panics
+    ///
+    /// If either the pattern ID or the capture index is invalid, then this
+    /// panics.
+    #[inline]
+    pub fn slots(
+        &self,
+        pid: PatternID,
+        capture_index: usize,
+    ) -> (usize, usize) {
+        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
+        let start = self.0.slot(pid, capture_index);
+        (start, start + 1)
+    }
+
     /// Return the capture group index corresponding to the given name in the
     /// given pattern. If no such capture group name exists in the given
     /// pattern, then this returns `None`.
@@ -179,7 +202,7 @@ impl NFA {
     }
 
     #[inline]
-    pub fn has_any_captures(&self) -> bool {
+    pub fn has_captures(&self) -> bool {
         self.0.facts.has_captures
     }
 
