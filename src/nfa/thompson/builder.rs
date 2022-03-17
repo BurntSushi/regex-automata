@@ -147,7 +147,11 @@ impl State {
     }
 }
 
-/// TODO
+/// An abstraction for building NFAs by hand.
+///
+/// A builder is what a [`thompson::Compiler`](nfa::Compiler) uses internally
+/// to translate a regex's high-level intermediate representation into an
+/// [`NFA`].
 ///
 /// # Example
 ///
@@ -170,13 +174,14 @@ impl State {
 /// builder.patch(range, alt);
 /// builder.patch(alt, range);
 /// builder.patch(alt, end);
+/// builder.patch(end, mat);
 /// builder.finish_pattern(start)?;
 /// let nfa = builder.build(start, start)?;
 ///
 /// let vm = PikeVM::new_from_nfa(nfa)?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
-/// let m = vm.find_leftmost(&mut cache, b"foo0", &mut caps).unwrap();
+/// let m = vm.find_leftmost(&mut cache, b"0foo0", &mut caps).unwrap();
 /// assert_eq!(m.pattern().as_usize(), 0);
 /// assert_eq!(m.start(), 0);
 /// assert_eq!(m.end(), 3);
