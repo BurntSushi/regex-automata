@@ -44,22 +44,37 @@ impl NFA {
     /// position.
     #[inline]
     pub fn always_match() -> NFA {
+        // We could use NFA::new("") here and we'd get the same semantics, but
+        // hand-assembling the NFA (as below) does the same thing with a fewer
+        // number of states.
+        //
+        // Technically all we need is the "match" state, but we add the
+        // "capture" states so that the PikeVM can use this NFA.
+        //
+        // The unwraps below are OK because we add so few states that they will
+        // never exhaust any default limits in any environment.
         let mut builder = Builder::new();
         let pid = builder.start_pattern().unwrap();
         assert_eq!(pid.as_usize(), 0);
-        let start_id = builder.add_match().unwrap();
+        let start_id =
+            builder.add_capture_start(StateID::ZERO, 0, None).unwrap();
+        let end_id = builder.add_capture_end(StateID::ZERO, 0).unwrap();
+        let match_id = builder.add_match().unwrap();
+        builder.patch(start_id, end_id);
+        builder.patch(end_id, match_id);
         let pid = builder.finish_pattern(start_id).unwrap();
         assert_eq!(pid.as_usize(), 0);
         builder.build(start_id, start_id).unwrap()
     }
 
-    /// Returns an NFA that never matches at any position. It contains no
-    /// regexes.
+    /// Returns an NFA that never matches at any position.
+    ///
+    /// This is a convenience routine for creating an NFA with zero patterns.
     #[inline]
     pub fn never_match() -> NFA {
-        let mut builder = Builder::new();
-        let start_id = builder.add_fail().unwrap();
-        builder.build(start_id, start_id).unwrap()
+        // This always succeeds because it only requires one NFA state, which
+        // will never exhaust any (default) limits.
+        NFA::new_many::<&str>(&[]).unwrap()
     }
 
     pub fn config() -> Config {
@@ -362,7 +377,7 @@ impl Inner {
         self.capture_to_slots[pid][capture_index]
     }
 
-    pub(super) fn add(&mut self, state: State) -> Result<StateID, Error> {
+    pub(super) fn add(&mut self, state: State) -> StateID {
         match state {
             State::Range { ref range } => {
                 self.byte_class_set.set_range(range.start, range.end);
@@ -398,11 +413,13 @@ impl Inner {
             State::Union { .. } | State::Fail | State::Match { .. } => {}
         }
 
-        let id = StateID::new(self.states.len())
-            .map_err(|_| Error::too_many_states(self.states.len()))?;
+        // This always succeeds because a final NFA never has more states that
+        // the builder does, and the builder has already verified that the
+        // identifier space has not been exhausted.
+        let id = StateID::new(self.states.len()).unwrap();
         self.memory_extra += state.memory_usage();
         self.states.push(state);
-        Ok(id)
+        id
     }
 
     pub(super) fn set_starts(
@@ -1071,17 +1088,19 @@ impl<'a> Iterator for PatternIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // TODO: Replace tests using DFA with NFA matching engine once implemented.
-    use crate::dfa::{dense, Automaton};
+    use crate::nfa::thompson::pikevm::PikeVM;
 
     #[test]
     fn always_match() {
-        let nfa = NFA::always_match();
-        let dfa = dense::Builder::new().build_from_nfa(&nfa).unwrap();
-        let find = |input, start, end| {
-            dfa.find_leftmost_fwd_at(None, None, input, start, end)
-                .unwrap()
-                .map(|m| m.offset())
+        let nfa = dbg!(NFA::always_match());
+        let vm = PikeVM::new_from_nfa(nfa).unwrap();
+        let mut cache = vm.create_cache();
+        let mut caps = vm.create_captures();
+        let mut find = |input, start, end| {
+            vm.find_leftmost_at(
+                &mut cache, None, None, input, start, end, &mut caps,
+            )
+            .map(|m| m.end())
         };
 
         assert_eq!(Some(0), find(b"", 0, 0));
@@ -1095,11 +1114,14 @@ mod tests {
     #[test]
     fn never_match() {
         let nfa = NFA::never_match();
-        let dfa = dense::Builder::new().build_from_nfa(&nfa).unwrap();
-        let find = |input, start, end| {
-            dfa.find_leftmost_fwd_at(None, None, input, start, end)
-                .unwrap()
-                .map(|m| m.offset())
+        let vm = PikeVM::new_from_nfa(nfa).unwrap();
+        let mut cache = vm.create_cache();
+        let mut caps = vm.create_captures();
+        let mut find = |input, start, end| {
+            vm.find_leftmost_at(
+                &mut cache, None, None, input, start, end, &mut caps,
+            )
+            .map(|m| m.end())
         };
 
         assert_eq!(None, find(b"", 0, 0));

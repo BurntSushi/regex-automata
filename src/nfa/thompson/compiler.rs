@@ -1,9 +1,9 @@
-use core::{borrow::Borrow, cell::RefCell};
+use core::{borrow::Borrow, cell::RefCell, convert::TryFrom};
 
 use alloc::sync::Arc;
 
 use regex_syntax::{
-    hir::{self, Anchor, Hir, WordBoundary},
+    hir::{self, Hir},
     utf8::{Utf8Range, Utf8Sequences},
     ParserBuilder,
 };
@@ -678,10 +678,21 @@ impl Compiler {
 }
 
 impl Compiler {
+    /// Compile the sequence of HIR expressions given. Pattern IDs are
+    /// allocated starting from 0, in correspondence with the slice given.
+    ///
+    /// It is legal to provide an empty slice. In that case, the NFA returned
+    /// has no patterns and will never match anything.
     fn compile<H: Borrow<Hir>>(&self, exprs: &[H]) -> Result<NFA, Error> {
-        if exprs.is_empty() {
-            return Ok(NFA::never_match());
-        }
+        // TODO: Can we stop asking for a slice and ask for an iterator
+        // instrad? Looks like we can, now that c_alt correctly handles an
+        // empty iterator. But also, think about what this means for supporting
+        // use cases like, "here's a bunch of patterns, compile what you can
+        // and return a partial error for expressions that failed."
+        //
+        // The 'with_pattern_ids' adapter below will panic if we exhaust the
+        // pattern ID space. AND it requires ExactSizeIterator anyway. So
+        // I think we just need to not use the adapter?
         if exprs.len() > PatternID::LIMIT {
             return Err(Error::too_many_patterns(exprs.len()));
         }
@@ -731,6 +742,7 @@ impl Compiler {
         Ok(nfa)
     }
 
+    /// Compile an arbitrary HIR expression.
     fn c(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
         use regex_syntax::hir::{Class, HirKind::*, Literal};
 
@@ -749,6 +761,12 @@ impl Compiler {
         }
     }
 
+    /// Compile a concatenation of the sub-expressions yielded by the given
+    /// iterator. If the iterator yields no elements, then this compiles down
+    /// to an "empty" state that always matches.
+    ///
+    /// If the compiler is in reverse mode, then the expressions given are
+    /// automatically compiled in reverse.
     fn c_concat<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
     where
         I: DoubleEndedIterator<Item = Result<ThompsonRef, Error>>,
@@ -771,11 +789,23 @@ impl Compiler {
         Ok(ThompsonRef { start, end })
     }
 
+    /// Compile an alternation, where each element yielded by the given
+    /// iterator represents an item in the alternation. If the iterator yields
+    /// no elements, then this compiles down to a "fail" state.
+    ///
+    /// In an alternation, expressions appearing earlier are "preferred" at
+    /// match time over expressions appearing later. At least, this is true
+    /// when using "leftmost first" match semantics. (If "leftmost longest" are
+    /// ever added in the future, then this preference order of priority would
+    /// not apply in that mode.)
     fn c_alt<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
     where
         I: Iterator<Item = Result<ThompsonRef, Error>>,
     {
-        let first = it.next().expect("alternations must be non-empty")?;
+        let first = match it.next() {
+            None => return self.c_fail(),
+            Some(result) => result?,
+        };
         let second = match it.next() {
             None => return Ok(first),
             Some(result) => result?,
@@ -795,6 +825,14 @@ impl Compiler {
         Ok(ThompsonRef { start: union, end })
     }
 
+    /// Compile the given group expression. `kind` should be the kind of group,
+    /// while `expr` should be the sub-expression contained inside the group.
+    /// If "capture" states are enabled, then they are added as appropriate.
+    ///
+    /// This accepts the pieces of a group instead of a `hir::Group` so that
+    /// it's easy to manufacture a "fake" group when necessary, e.g., for
+    /// adding the entire pattern as if it were a group in order to create
+    /// appropriate "capture" states in the NFA.
     fn c_group(
         &self,
         kind: &hir::GroupKind,
@@ -820,6 +858,8 @@ impl Compiler {
         Ok(ThompsonRef { start, end })
     }
 
+    /// Compile the given repetition expression. This handles all types of
+    /// repetitions and greediness.
     fn c_repetition(
         &self,
         rep: &hir::Repetition,
@@ -848,6 +888,12 @@ impl Compiler {
         }
     }
 
+    /// Compile the given expression such that it matches at least `min` times,
+    /// but no more than `max` times.
+    ///
+    /// When `greedy` is true, then the preference is for the expression to
+    /// match as much as possible. Otheriwse, it will match as little as
+    /// possible.
     fn c_bounded(
         &self,
         expr: &Hir,
@@ -907,6 +953,13 @@ impl Compiler {
         Ok(ThompsonRef { start: prefix.start, end: empty })
     }
 
+    /// Compile the given expression such that it may be matched `n` or more
+    /// times, where `n` can be any integer. (Although a particularly large
+    /// integer is likely to run afoul of any configured size limits.)
+    ///
+    /// When `greedy` is true, then the preference is for the expression to
+    /// match as much as possible. Otheriwse, it will match as little as
+    /// possible.
     fn c_at_least(
         &self,
         expr: &Hir,
@@ -982,6 +1035,12 @@ impl Compiler {
         }
     }
 
+    /// Compile the given expression such that it may be matched zero or one
+    /// times.
+    ///
+    /// When `greedy` is true, then the preference is for the expression to
+    /// match as much as possible. Otheriwse, it will match as little as
+    /// possible.
     fn c_zero_or_one(
         &self,
         expr: &Hir,
@@ -997,11 +1056,22 @@ impl Compiler {
         Ok(ThompsonRef { start: union, end: empty })
     }
 
+    /// Compile the given HIR expression exactly `n` times.
     fn c_exactly(&self, expr: &Hir, n: u32) -> Result<ThompsonRef, Error> {
         let it = (0..n).map(|_| self.c(expr));
         self.c_concat(it)
     }
 
+    /// Compile the given byte oriented character class.
+    ///
+    /// This uses "sparse" states to represent an alternation between ranges in
+    /// this character class. We can use "sparse" states instead of stitching
+    /// together a "union" state because all ranges in a character class have
+    /// equal priority *and* are non-overlapping (thus, only one can match, so
+    /// there's never a question of priority in the first place). This saves a
+    /// fair bit of overhead when traversing an NFA.
+    ///
+    /// This routine compiles an empty character class into a "fail" state.
     fn c_byte_class(
         &self,
         cls: &hir::ClassBytes,
@@ -1018,6 +1088,19 @@ impl Compiler {
         Ok(ThompsonRef { start: self.add_sparse(trans)?, end })
     }
 
+    /// Compile the given Unicode character class.
+    ///
+    /// This routine specifically tries to use various types of compression,
+    /// since UTF-8 automata of large classes can get quite large. The specific
+    /// type of compression used depends on forward vs reverse compilation, and
+    /// whether NFA shrinking is enabled or not.
+    ///
+    /// Aside from repetitions causing lots of repeat group, this is like the
+    /// single most expensive part of regex compilation. Therefore, a large part
+    /// of the expense of compilation may be reduce by disabling Unicode in the
+    /// pattern.
+    ///
+    /// This routine compiles an empty character class into a "fail" state.
     fn c_unicode_class(
         &self,
         cls: &hir::ClassUnicode,
@@ -1029,11 +1112,13 @@ impl Compiler {
             let end = self.add_empty()?;
             let mut trans = Vec::with_capacity(cls.ranges().len());
             for r in cls.iter() {
-                assert!(r.start() <= '\x7F');
-                assert!(r.end() <= '\x7F');
+                // The unwraps below are OK because we've verified that this
+                // class only contains ASCII codepoints.
                 trans.push(Transition {
-                    start: r.start() as u8,
-                    end: r.end() as u8,
+                    // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once
+                    // we are at Rust 1.59+.
+                    start: u8::try_from(u32::from(r.start())).unwrap(),
+                    end: u8::try_from(u32::from(r.end())).unwrap(),
                     next: end,
                 });
             }
@@ -1125,6 +1210,21 @@ impl Compiler {
         */
     }
 
+    /// Compile the given Unicode character class in reverse with suffix
+    /// caching.
+    ///
+    /// This is a "quick" way to compile large Unicode classes into reverse
+    /// UTF-8 automata while doing a small amount of compression on that
+    /// automata by reusing common suffixes.
+    ///
+    /// A more comprehensive compression scheme can be accomplished by using
+    /// a range trie to efficiently sort a reverse sequence of UTF-8 byte
+    /// rqanges, and then use Daciuk's algorithm via `Utf8Compiler`.
+    ///
+    /// This is the technique used when "NFA shrinking" is disabled.
+    ///
+    /// (This also tries to use "sparse" states where possible, just like
+    /// `c_byte_class` does.)
     fn c_unicode_class_reverse_with_suffix(
         &self,
         cls: &hir::ClassUnicode,
@@ -1164,31 +1264,36 @@ impl Compiler {
         Ok(ThompsonRef { start: union, end: alt_end })
     }
 
-    fn c_anchor(&self, anchor: &Anchor) -> Result<ThompsonRef, Error> {
+    /// Compile the given HIR anchor to an NFA look-around assertion.
+    fn c_anchor(&self, anchor: &hir::Anchor) -> Result<ThompsonRef, Error> {
         let look = match *anchor {
-            Anchor::StartLine => Look::StartLine,
-            Anchor::EndLine => Look::EndLine,
-            Anchor::StartText => Look::StartText,
-            Anchor::EndText => Look::EndText,
+            hir::Anchor::StartLine => Look::StartLine,
+            hir::Anchor::EndLine => Look::EndLine,
+            hir::Anchor::StartText => Look::StartText,
+            hir::Anchor::EndText => Look::EndText,
         };
         let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
+    /// Compile the given HIR word boundary to an NFA look-around assertion.
     fn c_word_boundary(
         &self,
-        wb: &WordBoundary,
+        wb: &hir::WordBoundary,
     ) -> Result<ThompsonRef, Error> {
         let look = match *wb {
-            WordBoundary::Unicode => Look::WordBoundaryUnicode,
-            WordBoundary::UnicodeNegate => Look::WordBoundaryUnicodeNegate,
-            WordBoundary::Ascii => Look::WordBoundaryAscii,
-            WordBoundary::AsciiNegate => Look::WordBoundaryAsciiNegate,
+            hir::WordBoundary::Unicode => Look::WordBoundaryUnicode,
+            hir::WordBoundary::UnicodeNegate => {
+                Look::WordBoundaryUnicodeNegate
+            }
+            hir::WordBoundary::Ascii => Look::WordBoundaryAscii,
+            hir::WordBoundary::AsciiNegate => Look::WordBoundaryAsciiNegate,
         };
         let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
+    /// Compile the given codepoint to a concatenation of its UTF-8 encoding.
     fn c_char(&self, ch: char) -> Result<ThompsonRef, Error> {
         let mut buf = [0; 4];
         let it = ch
@@ -1199,20 +1304,39 @@ impl Compiler {
         self.c_concat(it)
     }
 
+    /// Compile a "range" state with one transition that may only be followed
+    /// if the input byte is in the (inclusive) range given.
+    ///
+    /// Both the `start` and `end` locations point to the state created.
+    /// Callers will likely want to keep the `start`, but patch the `end` to
+    /// point to some other state.
     fn c_range(&self, start: u8, end: u8) -> Result<ThompsonRef, Error> {
         let id = self.add_range(start, end)?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
+    /// Compile an "empty" state with one unconditional epsilon transition.
+    ///
+    /// Both the `start` and `end` locations point to the state created.
+    /// Callers will likely want to keep the `start`, but patch the `end` to
+    /// point to some other state.
     fn c_empty(&self) -> Result<ThompsonRef, Error> {
         let id = self.add_empty()?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
+    /// Compile a "fail" state that can never have any outgoing transitions.
+    fn c_fail(&self) -> Result<ThompsonRef, Error> {
+        let id = self.add_fail()?;
+        Ok(ThompsonRef { start: id, end: id })
+    }
+
+    /// Compile an unanchored prefix that lazily matches only valid UTF-8.
     fn c_unanchored_prefix_valid_utf8(&self) -> Result<ThompsonRef, Error> {
         self.c_at_least(&Hir::any(false), false, 0)
     }
 
+    /// Compile an unanchored prefix that lazily matches any sequence of bytes.
     fn c_unanchored_prefix_invalid_utf8(&self) -> Result<ThompsonRef, Error> {
         self.c_at_least(&Hir::any(true), false, 0)
     }
@@ -1273,11 +1397,15 @@ impl Compiler {
         name: Option<&str>,
     ) -> Result<StateID, Error> {
         let name = name.map(|n| Arc::from(n));
-        self.builder.borrow_mut().add_capture_start(capture_index, name)
+        self.builder.borrow_mut().add_capture_start(
+            StateID::ZERO,
+            capture_index,
+            name,
+        )
     }
 
     fn add_capture_end(&self, capture_index: u32) -> Result<StateID, Error> {
-        self.builder.borrow_mut().add_capture_end(capture_index)
+        self.builder.borrow_mut().add_capture_end(StateID::ZERO, capture_index)
     }
 
     fn add_fail(&self) -> Result<StateID, Error> {
@@ -1320,6 +1448,8 @@ struct ThompsonRef {
 ///
 /// The high level idea is described here:
 /// https://blog.burntsushi.net/transducers/#finite-state-machines-as-data-structures
+///
+/// There is also another implementation of this in the `fst` crate.
 #[derive(Debug)]
 struct Utf8Compiler<'a> {
     builder: &'a mut Builder,
@@ -1531,6 +1661,10 @@ mod tests {
         }
     }
 
+    fn s_fail() -> State {
+        State::Fail
+    }
+
     fn s_match(id: usize) -> State {
         State::Match { pattern_id: pid(id) }
     }
@@ -1698,5 +1832,31 @@ mod tests {
         // Test that the start states for each individual pattern are correct.
         assert_eq!(nfa.start_pattern(pid(0)), sid(0));
         assert_eq!(nfa.start_pattern(pid(1)), sid(2));
+    }
+
+    // This tests that our compiler can handle an empty character class. At the
+    // time of writing, the regex parser forbids it, so the only way to test it
+    // is to provide a hand written HIR.
+    #[test]
+    fn empty_class_bytes() {
+        use regex_syntax::hir::{Class, ClassBytes, Hir};
+
+        let hir = Hir::class(Class::Bytes(ClassBytes::new(vec![])));
+        let config = NFA::config().captures(false).unanchored_prefix(false);
+        let nfa =
+            NFA::compiler().configure(config).build_from_hir(&hir).unwrap();
+        assert_eq!(nfa.states(), &[s_fail(), s_match(0)]);
+    }
+
+    // Like empty_class_bytes, but for a Unicode class.
+    #[test]
+    fn empty_class_unicode() {
+        use regex_syntax::hir::{Class, ClassUnicode, Hir};
+
+        let hir = Hir::class(Class::Unicode(ClassUnicode::new(vec![])));
+        let config = NFA::config().captures(false).unanchored_prefix(false);
+        let nfa =
+            NFA::compiler().configure(config).build_from_hir(&hir).unwrap();
+        assert_eq!(nfa.states(), &[s_fail(), s_match(0)]);
     }
 }
