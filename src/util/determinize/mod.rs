@@ -56,7 +56,7 @@ use crate::{
 
 mod state;
 
-/// Compute the set of all eachable NFA states, including the full epsilon
+/// Compute the set of all reachable NFA states, including the full epsilon
 /// closure, from a DFA state for a single unit of input. The set of reachable
 /// states is returned as a `StateBuilderNFA`. The `StateBuilderNFA` returned
 /// also includes any look-behind assertions satisfied by `unit`, in addition

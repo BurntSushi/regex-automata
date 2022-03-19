@@ -10,13 +10,13 @@ The term "DFA state" is somewhat overloaded in this crate. In some cases, it
 refers to the set of transitions over an alphabet for a particular state. In
 other cases, it refers to a set of NFA states. The former is really about the
 final representation of a state in a DFA's transition table, where as the
-latter---what this module is focusedon---is closer to an intermediate form that
-is used to help eventually build the transition table.
+latter---what this module is focused on---is closer to an intermediate form
+that is used to help eventually build the transition table.
 
 This module exports four types. All four types represent the same idea: an
 ordered set of NFA states. This ordered set represents the epsilon closure of a
 particular NFA state, where the "epsilon closure" is the set of NFA states that
-can be transitioned to without consuming any input. i.e., Follow all of theNFA
+can be transitioned to without consuming any input. i.e., Follow all of the NFA
 state's epsilon transitions. In addition, this implementation of DFA states
 cares about two other things: the ordered set of pattern IDs corresponding
 to the patterns that match if the state is a match state, and the set of
@@ -68,7 +68,7 @@ type below.) If we just used one type for everything, it would be possible for
 callers to use an incorrect interleaving of calls and thus result in a corrupt
 representation. I chose to use more type machinery to make this impossible to
 do because 1) determinization is itself pretty complex and it wouldn't be too
-hard to foul this up and 2) there isn't too much machinery involve and it's
+hard to foul this up and 2) there isn't too much machinery involved and it's
 well contained.
 
 As an optimization, sometimes states won't have certain things set. For

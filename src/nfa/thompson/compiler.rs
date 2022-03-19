@@ -684,15 +684,6 @@ impl Compiler {
     /// It is legal to provide an empty slice. In that case, the NFA returned
     /// has no patterns and will never match anything.
     fn compile<H: Borrow<Hir>>(&self, exprs: &[H]) -> Result<NFA, Error> {
-        // TODO: Can we stop asking for a slice and ask for an iterator
-        // instrad? Looks like we can, now that c_alt correctly handles an
-        // empty iterator. But also, think about what this means for supporting
-        // use cases like, "here's a bunch of patterns, compile what you can
-        // and return a partial error for expressions that failed."
-        //
-        // The 'with_pattern_ids' adapter below will panic if we exhaust the
-        // pattern ID space. AND it requires ExactSizeIterator anyway. So
-        // I think we just need to not use the adapter?
         if exprs.len() > PatternID::LIMIT {
             return Err(Error::too_many_patterns(exprs.len()));
         }

@@ -1006,6 +1006,7 @@ impl LookSet {
     pub(crate) fn from_repr_mut(repr: &mut u8) -> &mut LookSet {
         // SAFETY: This is safe since a LookSet is repr(transparent) where its
         // repr is a u8.
+        // TODO: It seems like we could get rid of this without too much fuss.
         unsafe { core::mem::transmute::<&mut u8, &mut LookSet>(repr) }
     }
 
