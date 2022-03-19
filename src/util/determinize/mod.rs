@@ -40,11 +40,11 @@ it into logical sub-components works better.
 use alloc::vec::Vec;
 
 pub(crate) use self::state::{
-    State, StateBuilderEmpty, StateBuilderMatches, StateBuilderNFA,
+    LookSet, State, StateBuilderEmpty, StateBuilderMatches, StateBuilderNFA,
 };
 
 use crate::{
-    nfa::thompson::{self, Look, LookSet},
+    nfa::thompson::{self, Look},
     util::{
         alphabet,
         id::StateID,

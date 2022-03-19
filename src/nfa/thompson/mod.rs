@@ -6,8 +6,6 @@ mod nfa;
 pub mod pikevm;
 mod range_trie;
 
-pub(crate) use self::nfa::LookSet;
-
 pub use self::{
     builder::Builder,
     compiler::{Compiler, Config},
