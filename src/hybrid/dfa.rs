@@ -2047,7 +2047,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         determinize::epsilon_closure(
             self.dfa.nfa.borrow(),
             nfa_start_id,
-            *builder_matches.look_have(),
+            builder_matches.look_have(),
             &mut self.cache.stack,
             &mut self.cache.sparses.set1,
         );

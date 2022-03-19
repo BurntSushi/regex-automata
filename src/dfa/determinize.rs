@@ -428,7 +428,7 @@ impl<'a> Runner<'a> {
         util::determinize::epsilon_closure(
             self.nfa,
             nfa_start,
-            *builder_matches.look_have(),
+            builder_matches.look_have(),
             &mut self.stack,
             &mut self.sparses.set1,
         );

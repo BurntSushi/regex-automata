@@ -2732,7 +2732,11 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         current: StateID,
         input: u8,
     ) -> StateID {
-        let input = self.byte_classes().get_unchecked(input);
+        // We don't (or shouldn't) need an unchecked variant for the byte
+        // class mapping, since bound checks should be omitted automatically
+        // by virtue of its representation. If this ends up not being true as
+        // confirmed by codegen, please file an issue. ---AG
+        let input = self.byte_classes().get(input);
         let o = current.as_usize() + usize::from(input);
         *self.trans().get_unchecked(o)
     }

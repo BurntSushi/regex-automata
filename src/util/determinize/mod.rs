@@ -123,20 +123,20 @@ pub(crate) fn next(
         let mut look_have = state.look_have().clone();
         match unit.as_u8() {
             Some(b'\n') => {
-                look_have.insert(Look::EndLine);
+                look_have = look_have.insert(Look::EndLine);
             }
             Some(_) => {}
             None => {
-                look_have.insert(Look::EndText);
-                look_have.insert(Look::EndLine);
+                look_have = look_have.insert(Look::EndText);
+                look_have = look_have.insert(Look::EndLine);
             }
         }
         if state.is_from_word() == unit.is_word_byte() {
-            look_have.insert(Look::WordBoundaryUnicodeNegate);
-            look_have.insert(Look::WordBoundaryAsciiNegate);
+            look_have = look_have.insert(Look::WordBoundaryUnicodeNegate);
+            look_have = look_have.insert(Look::WordBoundaryAsciiNegate);
         } else {
-            look_have.insert(Look::WordBoundaryUnicode);
-            look_have.insert(Look::WordBoundaryAscii);
+            look_have = look_have.insert(Look::WordBoundaryUnicode);
+            look_have = look_have.insert(Look::WordBoundaryAscii);
         }
         // If we have new assertions satisfied that are among the set of
         // assertions that exist in this state (that is, just because
@@ -174,7 +174,7 @@ pub(crate) fn next(
             // Why only handle StartLine here and not StartText? That's
             // because StartText can only impact the starting state, which
             // is speical cased in start state handling.
-            builder.look_have().insert(Look::StartLine);
+            builder.set_look_have(|have| have.insert(Look::StartLine));
         }
     }
     for nfa_id in &sparses.set1 {
@@ -214,7 +214,7 @@ pub(crate) fn next(
                     epsilon_closure(
                         nfa,
                         r.next,
-                        *builder.look_have(),
+                        builder.look_have(),
                         stack,
                         &mut sparses.set2,
                     );
@@ -225,7 +225,7 @@ pub(crate) fn next(
                     epsilon_closure(
                         nfa,
                         next,
-                        *builder.look_have(),
+                        builder.look_have(),
                         stack,
                         &mut sparses.set2,
                     );
@@ -364,7 +364,7 @@ pub(crate) fn add_nfa_states(
             }
             thompson::State::Look { look, .. } => {
                 builder.add_nfa_state_id(nfa_id);
-                builder.look_need().insert(look);
+                builder.set_look_need(|need| need.insert(look));
             }
             thompson::State::Union { .. }
             | thompson::State::Capture { .. } => {
@@ -420,7 +420,7 @@ pub(crate) fn add_nfa_states(
     // there's no reason to track which look-around assertions were
     // satisfied when this state was created.
     if builder.look_need().is_empty() {
-        builder.look_have().clear();
+        builder.set_look_have(|have| have.clear());
     }
 }
 
@@ -436,11 +436,12 @@ pub(crate) fn set_lookbehind_from_start(
             builder.set_is_from_word();
         }
         Start::Text => {
-            builder.look_have().insert(Look::StartText);
-            builder.look_have().insert(Look::StartLine);
+            builder.set_look_have(|have| {
+                have.insert(Look::StartText).insert(Look::StartLine)
+            });
         }
         Start::Line => {
-            builder.look_have().insert(Look::StartLine);
+            builder.set_look_have(|have| have.insert(Look::StartLine));
         }
     }
 }

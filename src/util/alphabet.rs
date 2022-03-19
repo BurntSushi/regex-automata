@@ -195,13 +195,6 @@ impl ByteClasses {
         self.0[byte as usize]
     }
 
-    /// Get the equivalence class for the given byte while forcefully
-    /// eliding bounds checks.
-    #[inline]
-    pub unsafe fn get_unchecked(&self, byte: u8) -> u8 {
-        *self.0.get_unchecked(byte as usize)
-    }
-
     /// Get the equivalence class for the given input unit and return the
     /// class as a `usize`.
     #[inline]

@@ -242,12 +242,26 @@ impl StateBuilderMatches {
         self.repr_vec().set_is_from_word()
     }
 
-    pub(crate) fn look_have(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.0[1])
+    pub(crate) fn look_have(&self) -> LookSet {
+        LookSet::from_repr(self.0[1])
     }
 
-    pub(crate) fn look_need(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.0[2])
+    pub(crate) fn look_need(&self) -> LookSet {
+        LookSet::from_repr(self.0[2])
+    }
+
+    pub(crate) fn set_look_have(
+        &mut self,
+        set: impl FnMut(LookSet) -> LookSet,
+    ) {
+        self.repr_vec().set_look_have(set)
+    }
+
+    pub(crate) fn set_look_need(
+        &mut self,
+        set: impl FnMut(LookSet) -> LookSet,
+    ) {
+        self.repr_vec().set_look_need(set)
     }
 
     pub(crate) fn add_match_pattern_id(&mut self, pid: PatternID) {
@@ -303,12 +317,26 @@ impl StateBuilderNFA {
         self.repr().is_from_word()
     }
 
-    pub(crate) fn look_have(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.repr[1])
+    pub(crate) fn look_have(&self) -> LookSet {
+        LookSet::from_repr(self.repr[1])
     }
 
-    pub(crate) fn look_need(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.repr[2])
+    pub(crate) fn look_need(&self) -> LookSet {
+        LookSet::from_repr(self.repr[2])
+    }
+
+    pub(crate) fn set_look_have(
+        &mut self,
+        set: impl FnMut(LookSet) -> LookSet,
+    ) {
+        self.repr_vec().set_look_have(set)
+    }
+
+    pub(crate) fn set_look_need(
+        &mut self,
+        set: impl FnMut(LookSet) -> LookSet,
+    ) {
+        self.repr_vec().set_look_need(set)
     }
 
     pub(crate) fn add_nfa_state_id(&mut self, sid: StateID) {
@@ -608,14 +636,28 @@ impl<'a> ReprVec<'a> {
         self.0[0] |= 1 << 2;
     }
 
-    /// Return a mutable reference to the 'look_have' assertion set.
-    fn look_have_mut(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.0[1])
+    /// The set of look-behind assertions that were true in the transition that
+    /// created this state.
+    fn look_have(&self) -> LookSet {
+        LookSet::from_repr(self.0[1])
     }
 
-    /// Return a mutable reference to the 'look_need' assertion set.
-    fn look_need_mut(&mut self) -> &mut LookSet {
-        LookSet::from_repr_mut(&mut self.0[2])
+    /// The set of look-around (both behind and ahead) assertions that appear
+    /// at least once in this state's set of NFA states.
+    fn look_need(&self) -> LookSet {
+        LookSet::from_repr(self.0[2])
+    }
+
+    /// Mutate the set of look-behind assertions that were true in the
+    /// transition that created this state.
+    fn set_look_have(&mut self, mut set: impl FnMut(LookSet) -> LookSet) {
+        self.0[1] = set(self.look_have()).to_repr();
+    }
+
+    /// Mutate the set of look-around (both behind and ahead) assertions that
+    /// appear at least once in this state's set of NFA states.
+    fn set_look_need(&mut self, mut set: impl FnMut(LookSet) -> LookSet) {
+        self.0[2] = set(self.look_need()).to_repr();
     }
 
     /// Add a pattern ID to this state. All match states must have at least
@@ -702,7 +744,6 @@ impl<'a> ReprVec<'a> {
 
 /// LookSet is a memory-efficient set of look-around assertions. Callers may
 /// idempotently insert or remove any look-around assertion from a set.
-#[repr(transparent)]
 #[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub(crate) struct LookSet {
     set: u8,
@@ -710,55 +751,52 @@ pub(crate) struct LookSet {
 
 impl LookSet {
     /// Return a LookSet from its representation.
-    pub(crate) fn from_repr(repr: u8) -> LookSet {
+    fn from_repr(repr: u8) -> LookSet {
         LookSet { set: repr }
     }
 
-    /// Return a mutable LookSet from a mutable pointer to its representation.
-    pub(crate) fn from_repr_mut(repr: &mut u8) -> &mut LookSet {
-        // SAFETY: This is safe since a LookSet is repr(transparent) where its
-        // repr is a u8.
-        // TODO: It seems like we could get rid of this without too much fuss.
-        unsafe { core::mem::transmute::<&mut u8, &mut LookSet>(repr) }
+    /// Return the internal byte representation of this set.
+    fn to_repr(self) -> u8 {
+        self.set
     }
 
     /// Return true if and only if this set is empty.
-    pub(crate) fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(self) -> bool {
         self.set == 0
     }
 
     /// Clears this set such that it has no assertions in it.
-    pub(crate) fn clear(&mut self) {
-        self.set = 0;
+    pub(crate) fn clear(self) -> LookSet {
+        LookSet { set: 0 }
     }
 
     /// Insert the given look-around assertion into this set. If the assertion
     /// already exists, then this is a no-op.
-    pub(crate) fn insert(&mut self, look: Look) {
-        self.set |= look as u8;
+    pub(crate) fn insert(self, look: Look) -> LookSet {
+        LookSet { set: self.set | (look as u8) }
     }
 
     /// Remove the given look-around assertion from this set. If the assertion
     /// is not in this set, then this is a no-op.
     #[cfg(test)]
-    pub(crate) fn remove(&mut self, look: Look) {
-        self.set &= !(look as u8);
+    pub(crate) fn remove(self, look: Look) -> LookSet {
+        LookSet { set: self.set & !(look as u8) }
     }
 
     /// Return true if and only if the given assertion is in this set.
-    pub(crate) fn contains(&self, look: Look) -> bool {
+    pub(crate) fn contains(self, look: Look) -> bool {
         (look as u8) & self.set != 0
     }
 
     /// Subtract the given `other` set from the `self` set and return a new
     /// set.
-    pub(crate) fn subtract(&self, other: LookSet) -> LookSet {
+    pub(crate) fn subtract(self, other: LookSet) -> LookSet {
         LookSet { set: self.set & !other.set }
     }
 
     /// Return the intersection of the given `other` set with the `self` set
     /// and return the resulting set.
-    pub(crate) fn intersect(&self, other: LookSet) -> LookSet {
+    pub(crate) fn intersect(self, other: LookSet) -> LookSet {
         LookSet { set: self.set & other.set }
     }
 }
@@ -962,44 +1000,44 @@ mod tests {
         assert!(!f.contains(Look::WordBoundaryAscii));
         assert!(!f.contains(Look::WordBoundaryAsciiNegate));
 
-        f.insert(Look::StartText);
+        f = f.insert(Look::StartText);
         assert!(f.contains(Look::StartText));
-        f.remove(Look::StartText);
+        f = f.remove(Look::StartText);
         assert!(!f.contains(Look::StartText));
 
-        f.insert(Look::EndText);
+        f = f.insert(Look::EndText);
         assert!(f.contains(Look::EndText));
-        f.remove(Look::EndText);
+        f = f.remove(Look::EndText);
         assert!(!f.contains(Look::EndText));
 
-        f.insert(Look::StartLine);
+        f = f.insert(Look::StartLine);
         assert!(f.contains(Look::StartLine));
-        f.remove(Look::StartLine);
+        f = f.remove(Look::StartLine);
         assert!(!f.contains(Look::StartLine));
 
-        f.insert(Look::EndLine);
+        f = f.insert(Look::EndLine);
         assert!(f.contains(Look::EndLine));
-        f.remove(Look::EndLine);
+        f = f.remove(Look::EndLine);
         assert!(!f.contains(Look::EndLine));
 
-        f.insert(Look::WordBoundaryUnicode);
+        f = f.insert(Look::WordBoundaryUnicode);
         assert!(f.contains(Look::WordBoundaryUnicode));
-        f.remove(Look::WordBoundaryUnicode);
+        f = f.remove(Look::WordBoundaryUnicode);
         assert!(!f.contains(Look::WordBoundaryUnicode));
 
-        f.insert(Look::WordBoundaryUnicodeNegate);
+        f = f.insert(Look::WordBoundaryUnicodeNegate);
         assert!(f.contains(Look::WordBoundaryUnicodeNegate));
-        f.remove(Look::WordBoundaryUnicodeNegate);
+        f = f.remove(Look::WordBoundaryUnicodeNegate);
         assert!(!f.contains(Look::WordBoundaryUnicodeNegate));
 
-        f.insert(Look::WordBoundaryAscii);
+        f = f.insert(Look::WordBoundaryAscii);
         assert!(f.contains(Look::WordBoundaryAscii));
-        f.remove(Look::WordBoundaryAscii);
+        f = f.remove(Look::WordBoundaryAscii);
         assert!(!f.contains(Look::WordBoundaryAscii));
 
-        f.insert(Look::WordBoundaryAsciiNegate);
+        f = f.insert(Look::WordBoundaryAsciiNegate);
         assert!(f.contains(Look::WordBoundaryAsciiNegate));
-        f.remove(Look::WordBoundaryAsciiNegate);
+        f = f.remove(Look::WordBoundaryAsciiNegate);
         assert!(!f.contains(Look::WordBoundaryAsciiNegate));
     }
 }
