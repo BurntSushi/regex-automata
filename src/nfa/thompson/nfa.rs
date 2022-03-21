@@ -975,6 +975,10 @@ impl Look {
                 let iswb = regex_syntax::is_word_byte;
                 let mut b1: u16 = 0;
                 let mut b2: u16;
+                // TODO: Figure out how to write the loop below with u8's
+                // instead. And also think through its correctness. Changing
+                // the <= signs below to < causes all tests to pass, which is
+                // worrisome.
                 while b1 <= 255 {
                     b2 = b1 + 1;
                     while b2 <= 255 && iswb(b1 as u8) == iswb(b2 as u8) {
@@ -983,6 +987,16 @@ impl Look {
                     set.set_range(b1 as u8, (b2 - 1) as u8);
                     b1 = b2;
                 }
+                /*
+                while b1 < 255 {
+                    b2 = b1 + 1;
+                    loop {
+                        if b2 == 255 {
+                            break;
+                        }
+                    }
+                }
+                */
             }
         }
     }

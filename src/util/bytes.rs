@@ -758,12 +758,12 @@ pub fn read_varu64(
     let limit = cmp::min(slice.len(), 10);
     for (i, &b) in slice[..limit].iter().enumerate() {
         if b < 0b1000_0000 {
-            return match (b as u64).checked_shl(shift) {
+            return match u64::from(b).checked_shl(shift) {
                 None => Err(DeserializeError::invalid_varint(what)),
                 Some(b) => Ok((n | b, i + 1)),
             };
         }
-        match ((b as u64) & 0b0111_1111).checked_shl(shift) {
+        match (u64::from(b) & 0b0111_1111).checked_shl(shift) {
             None => return Err(DeserializeError::invalid_varint(what)),
             Some(b) => n |= b,
         }
