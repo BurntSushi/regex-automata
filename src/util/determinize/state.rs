@@ -773,19 +773,19 @@ impl LookSet {
     /// Insert the given look-around assertion into this set. If the assertion
     /// already exists, then this is a no-op.
     pub(crate) fn insert(self, look: Look) -> LookSet {
-        LookSet { set: self.set | (look as u8) }
+        LookSet { set: self.set | look.as_repr() }
     }
 
     /// Remove the given look-around assertion from this set. If the assertion
     /// is not in this set, then this is a no-op.
     #[cfg(test)]
     pub(crate) fn remove(self, look: Look) -> LookSet {
-        LookSet { set: self.set & !(look as u8) }
+        LookSet { set: self.set & !look.as_repr() }
     }
 
     /// Return true if and only if the given assertion is in this set.
     pub(crate) fn contains(self, look: Look) -> bool {
-        (look as u8) & self.set != 0
+        look.as_repr() & self.set != 0
     }
 
     /// Subtract the given `other` set from the `self` set and return a new
@@ -805,7 +805,7 @@ impl core::fmt::Debug for LookSet {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut members = vec![];
         for i in 0..8 {
-            let look = match Look::from_int(1 << i) {
+            let look = match Look::from_repr(1 << i) {
                 None => continue,
                 Some(look) => look,
             };

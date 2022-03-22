@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fs, path::PathBuf, sync::Arc};
+use std::{borrow::Borrow, convert::TryFrom, fs, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use automata::{
@@ -974,7 +974,9 @@ The default for this flag is 'none', which sets no size limit.
                 if !ch.is_ascii() {
                     anyhow::bail!("quit bytes must be ASCII");
                 }
-                c = c.quit(ch as u8, true);
+                // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once we are
+                // at Rust 1.59+.
+                c = c.quit(u8::try_from(u32::from(ch)).unwrap(), true);
             }
         }
         if let Some(x) = args.value_of_lossy("dfa-size-limit") {
@@ -1388,7 +1390,9 @@ technique would likely be superior.
                 if !ch.is_ascii() {
                     anyhow::bail!("quit bytes must be ASCII");
                 }
-                c = c.quit(ch as u8, true);
+                // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once we are
+                // at Rust 1.59+.
+                c = c.quit(u8::try_from(u32::from(ch)).unwrap(), true);
             }
         }
         if let Some(n) = args.value_of_lossy("cache-capacity") {

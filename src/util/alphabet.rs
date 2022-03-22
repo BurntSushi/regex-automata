@@ -75,14 +75,14 @@ impl Unit {
     pub fn as_eoi(self) -> Option<usize> {
         match self {
             Unit::U8(_) => None,
-            Unit::EOI(eoi) => Some(eoi as usize),
+            Unit::EOI(eoi) => Some(usize::from(eoi)),
         }
     }
 
     pub fn as_usize(self) -> usize {
         match self {
-            Unit::U8(b) => b as usize,
-            Unit::EOI(eoi) => eoi as usize,
+            Unit::U8(b) => usize::from(b),
+            Unit::EOI(eoi) => usize::from(eoi),
         }
     }
 
@@ -128,8 +128,8 @@ impl ByteClasses {
     #[cfg(feature = "alloc")]
     pub fn singletons() -> ByteClasses {
         let mut classes = ByteClasses::empty();
-        for i in 0..256 {
-            classes.set(i as u8, i as u8);
+        for b in 0..=255 {
+            classes.set(b, b);
         }
         classes
     }
@@ -147,7 +147,7 @@ impl ByteClasses {
         }
         let mut classes = ByteClasses::empty();
         for (b, &class) in slice[..256].iter().enumerate() {
-            classes.set(b as u8, class);
+            classes.set(u8::try_from(b).unwrap(), class);
         }
         for b in classes.iter() {
             if b.as_usize() >= classes.alphabet_len() {
@@ -186,13 +186,13 @@ impl ByteClasses {
     /// Set the equivalence class for the given byte.
     #[inline]
     pub fn set(&mut self, byte: u8, class: u8) {
-        self.0[byte as usize] = class;
+        self.0[usize::from(byte)] = class;
     }
 
     /// Get the equivalence class for the given byte.
     #[inline]
     pub fn get(&self, byte: u8) -> u8 {
-        self.0[byte as usize]
+        self.0[usize::from(byte)]
     }
 
     /// Get the equivalence class for the given input unit and return the
@@ -200,8 +200,8 @@ impl ByteClasses {
     #[inline]
     pub fn get_by_unit(&self, unit: Unit) -> usize {
         match unit {
-            Unit::U8(b) => usize::try_from(self.get(b)).unwrap(),
-            Unit::EOI(b) => usize::try_from(b).unwrap(),
+            Unit::U8(b) => usize::from(self.get(b)),
+            Unit::EOI(b) => usize::from(b),
         }
     }
 
@@ -218,7 +218,7 @@ impl ByteClasses {
         // Add one since the number of equivalence classes is one bigger than
         // the last one. But add another to account for the final EOI class
         // that isn't explicitly represented.
-        self.0[255] as usize + 1 + 1
+        usize::from(self.0[255]) + 1 + 1
     }
 
     /// Returns the stride, as a base-2 exponent, required for these
@@ -230,7 +230,8 @@ impl ByteClasses {
     /// faster than integer division.
     #[cfg(feature = "alloc")]
     pub fn stride2(&self) -> usize {
-        self.alphabet_len().next_power_of_two().trailing_zeros() as usize
+        let zeros = self.alphabet_len().next_power_of_two().trailing_zeros();
+        usize::try_from(zeros).unwrap()
     }
 
     /// Returns true if and only if every byte in this class maps to its own
@@ -314,7 +315,7 @@ impl<'a> Iterator for ByteClassIter<'a> {
             self.i += 1;
             Some(self.classes.eoi())
         } else if self.i < self.classes.alphabet_len() {
-            let class = self.i as u8;
+            let class = u8::try_from(self.i).unwrap();
             self.i += 1;
             Some(Unit::u8(class))
         } else {
@@ -338,7 +339,7 @@ impl<'a> Iterator for ByteClassRepresentatives<'a> {
 
     fn next(&mut self) -> Option<Unit> {
         while self.byte < 256 {
-            let byte = self.byte as u8;
+            let byte = u8::try_from(self.byte).unwrap();
             let class = self.classes.get(byte);
             self.byte += 1;
 
@@ -368,7 +369,7 @@ impl<'a> Iterator for ByteClassElements<'a> {
 
     fn next(&mut self) -> Option<Unit> {
         while self.byte < 256 {
-            let byte = self.byte as u8;
+            let byte = u8::try_from(self.byte).unwrap();
             self.byte += 1;
             if self.class.as_u8() == Some(self.classes.get(byte)) {
                 return Some(Unit::u8(byte));
@@ -521,7 +522,7 @@ impl ByteSet {
     pub fn add(&mut self, byte: u8) {
         let bucket = byte / 128;
         let bit = byte % 128;
-        self.bits.0[bucket as usize] |= 1 << bit;
+        self.bits.0[usize::from(bucket)] |= 1 << bit;
     }
 
     /// Add an inclusive range of bytes.
@@ -539,7 +540,7 @@ impl ByteSet {
     pub fn remove(&mut self, byte: u8) {
         let bucket = byte / 128;
         let bit = byte % 128;
-        self.bits.0[bucket as usize] &= !(1 << bit);
+        self.bits.0[usize::from(bucket)] &= !(1 << bit);
     }
 
     /// Remove an inclusive range of bytes.
@@ -554,7 +555,7 @@ impl ByteSet {
     pub fn contains(&self, byte: u8) -> bool {
         let bucket = byte / 128;
         let bit = byte % 128;
-        self.bits.0[bucket as usize] & (1 << bit) > 0
+        self.bits.0[usize::from(bucket)] & (1 << bit) > 0
     }
 
     /// Return true if and only if the given inclusive range of bytes is in
@@ -579,7 +580,8 @@ impl ByteSet {
     /// Return the number of bytes in this set.
     #[cfg(feature = "alloc")]
     pub fn len(&self) -> usize {
-        (self.bits.0[0].count_ones() + self.bits.0[1].count_ones()) as usize
+        let count = self.bits.0[0].count_ones() + self.bits.0[1].count_ones();
+        usize::try_from(count).unwrap()
     }
 
     /// Return true if and only if this set is empty.
@@ -592,7 +594,7 @@ impl ByteSet {
 impl core::fmt::Debug for BitSet {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut fmtd = f.debug_set();
-        for b in (0..256).map(|b| b as u8) {
+        for b in 0u8..=255 {
             if (ByteSet { bits: *self }).contains(b) {
                 fmtd.entry(&b);
             }
@@ -612,7 +614,7 @@ impl<'a> Iterator for ByteSetIter<'a> {
 
     fn next(&mut self) -> Option<u8> {
         while self.b <= 255 {
-            let b = self.b as u8;
+            let b = u8::try_from(self.b).unwrap();
             self.b += 1;
             if self.set.contains(b) {
                 return Some(b);
@@ -632,16 +634,17 @@ impl<'a> Iterator for ByteSetRangeIter<'a> {
     type Item = (u8, u8);
 
     fn next(&mut self) -> Option<(u8, u8)> {
+        let asu8 = |n: usize| u8::try_from(n).unwrap();
         while self.b <= 255 {
-            let start = self.b as u8;
+            let start = asu8(self.b);
             self.b += 1;
             if !self.set.contains(start) {
                 continue;
             }
 
             let mut end = start;
-            while self.b <= 255 && self.set.contains(self.b as u8) {
-                end = self.b as u8;
+            while self.b <= 255 && self.set.contains(asu8(self.b)) {
+                end = asu8(self.b);
                 self.b += 1;
             }
             return Some((start, end));
@@ -692,8 +695,8 @@ mod tests {
     #[test]
     fn full_byte_classes() {
         let mut set = ByteClassSet::empty();
-        for i in 0..256u16 {
-            set.set_range(i as u8, i as u8);
+        for b in 0u8..=255 {
+            set.set_range(b, b);
         }
         assert_eq!(set.byte_classes().alphabet_len(), 257);
     }

@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use std::{ffi::OsStr, str};
+use std::{convert::TryFrom, ffi::OsStr, str};
 
 use bstr::{ByteSlice, ByteVec};
 
@@ -178,7 +178,9 @@ pub fn unescape_os(string: &OsStr) -> Vec<u8> {
 /// Adds the given codepoint to the given string, escaping it if necessary.
 fn escape_char(cp: char, into: &mut String) {
     if cp.is_ascii() {
-        escape_byte(cp as u8, into);
+        // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once we are at Rust
+        // 1.59+.
+        escape_byte(u8::try_from(u32::from(cp)).unwrap(), into);
     } else {
         into.push(cp);
     }
@@ -187,7 +189,7 @@ fn escape_char(cp: char, into: &mut String) {
 /// Adds the given byte to the given string, escaping it if necessary.
 fn escape_byte(byte: u8, into: &mut String) {
     match byte {
-        0x21..=0x5B | 0x5D..=0x7D => into.push(byte as char),
+        0x21..=0x5B | 0x5D..=0x7D => into.push(char::from(byte)),
         b'\n' => into.push_str(r"\n"),
         b'\r' => into.push_str(r"\r"),
         b'\t' => into.push_str(r"\t"),

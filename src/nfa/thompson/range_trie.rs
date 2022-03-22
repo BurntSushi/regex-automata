@@ -140,7 +140,9 @@
 // [1] - https://blog.burntsushi.net/transducers/
 // [2] - https://www.mitpressjournals.org/doi/pdfplus/10.1162/089120100561601
 
-use core::{cell::RefCell, fmt, mem, ops::RangeInclusive, u32};
+use core::{
+    cell::RefCell, convert::TryFrom, fmt, mem, ops::RangeInclusive, u32,
+};
 
 use alloc::{format, string::String, vec, vec::Vec};
 
@@ -431,14 +433,16 @@ impl RangeTrie {
     }
 
     pub fn add_empty(&mut self) -> StateID {
-        if self.states.len() as u64 > u32::MAX as u64 {
-            // This generally should not happen since a range trie is only
-            // ever used to compile a single sequence of Unicode scalar values.
-            // If we ever got to this point, we would, at *minimum*, be using
-            // 96GB in just the range trie alone.
-            panic!("too many sequences added to range trie");
-        }
-        let id = self.states.len() as StateID;
+        let id = match StateID::try_from(self.states.len()) {
+            Ok(id) => id,
+            Err(_) => {
+                // This generally should not happen since a range trie is
+                // only ever used to compile a single sequence of Unicode
+                // scalar values. If we ever got to this point, we would, at
+                // *minimum*, be using 96GB in just the range trie alone.
+                panic!("too many sequences added to range trie");
+            }
+        };
         // If we have some free states available, then use them to avoid
         // more allocations.
         if let Some(mut state) = self.free.pop() {
@@ -542,12 +546,12 @@ impl RangeTrie {
 
     /// Return an immutable borrow for the state with the given ID.
     fn state(&self, id: StateID) -> &State {
-        &self.states[id as usize]
+        &self.states[usize::try_from(id).unwrap()]
     }
 
     /// Return a mutable borrow for the state with the given ID.
     fn state_mut(&mut self, id: StateID) -> &mut State {
-        &mut self.states[id as usize]
+        &mut self.states[usize::try_from(id).unwrap()]
     }
 }
 
@@ -651,7 +655,7 @@ impl NextInsert {
 
         let mut tmp = [Utf8Range { start: 0, end: 0 }; 4];
         tmp[..len].copy_from_slice(ranges);
-        NextInsert { state_id, ranges: tmp, len: len as u8 }
+        NextInsert { state_id, ranges: tmp, len: u8::try_from(len).unwrap() }
     }
 
     /// Push a new empty state to visit along with any remaining ranges that
@@ -679,7 +683,7 @@ impl NextInsert {
 
     /// Return the remaining ranges to insert.
     fn ranges(&self) -> &[Utf8Range] {
-        &self.ranges[..self.len as usize]
+        &self.ranges[..usize::try_from(self.len).unwrap()]
     }
 }
 
@@ -869,9 +873,11 @@ impl Split {
 
 impl fmt::Debug for RangeTrie {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // OK since FINAL == 0.
+        let ufinal = usize::try_from(FINAL).unwrap();
         writeln!(f, "")?;
         for (i, state) in self.states.iter().enumerate() {
-            let status = if i == FINAL as usize { '*' } else { ' ' };
+            let status = if i == ufinal { '*' } else { ' ' };
             writeln!(f, "{}{:06}: {:?}", status, i, state)?;
         }
         Ok(())

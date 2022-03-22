@@ -927,7 +927,7 @@ impl Look {
     /// Create a look-around assertion from its corresponding integer (as
     /// defined in `Look`). If the given integer does not correspond to any
     /// assertion, then None is returned.
-    pub fn from_int(n: u8) -> Option<Look> {
+    pub fn from_repr(n: u8) -> Option<Look> {
         match n {
             0b0000_0001 => Some(Look::StartLine),
             0b0000_0010 => Some(Look::EndLine),
@@ -939,6 +939,14 @@ impl Look {
             0b1000_0000 => Some(Look::WordBoundaryAsciiNegate),
             _ => None,
         }
+    }
+
+    /// Return the underlying representation of this look-around enumeration
+    /// as an integer. Giving the return value to the [`Look::from_repr`]
+    /// constructor is guaranteed to return the same look-around variant that
+    /// one started with.
+    pub fn as_repr(self) -> u8 {
+        self as u8
     }
 
     /// Flip the look-around assertion to its equivalent for reverse searches.
@@ -972,31 +980,33 @@ impl Look {
                 // for Unicode word boundaries, but DFAs can't handle those
                 // anyway, and thus, the byte classes don't need to either
                 // since they are themselves only used in DFAs.
+                //
+                // FIXME: It seems like the calls to 'set_range' here are
+                // completely invariant, which means we could just hard-code
+                // them here without needing to write a loop. And we only need
+                // to do this dance at most once per regex.
+                //
+                // FIXME: Is this correct for \B?
                 let iswb = regex_syntax::is_word_byte;
+                // This unwrap is OK because we guard every use of 'asu8' with
+                // a check that the input is <= 255.
+                let asu8 = |b: u16| u8::try_from(b).unwrap();
                 let mut b1: u16 = 0;
                 let mut b2: u16;
-                // TODO: Figure out how to write the loop below with u8's
-                // instead. And also think through its correctness. Changing
-                // the <= signs below to < causes all tests to pass, which is
-                // worrisome.
                 while b1 <= 255 {
                     b2 = b1 + 1;
-                    while b2 <= 255 && iswb(b1 as u8) == iswb(b2 as u8) {
+                    while b2 <= 255 && iswb(asu8(b1)) == iswb(asu8(b2)) {
                         b2 += 1;
                     }
-                    set.set_range(b1 as u8, (b2 - 1) as u8);
+                    // The guards above guarantee that b2 can never get any
+                    // bigger.
+                    assert!(b2 <= 256);
+                    // Subtracting 1 from b2 is always OK because it is always
+                    // at least 1 greater than b1, and the assert above
+                    // guarantees that the asu8 conversion will succeed.
+                    set.set_range(asu8(b1), asu8(b2.checked_sub(1).unwrap()));
                     b1 = b2;
                 }
-                /*
-                while b1 < 255 {
-                    b2 = b1 + 1;
-                    loop {
-                        if b2 == 255 {
-                            break;
-                        }
-                    }
-                }
-                */
             }
         }
     }
