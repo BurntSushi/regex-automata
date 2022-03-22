@@ -1,3 +1,5 @@
+use core::convert::TryFrom;
+
 use crate::{
     nfa,
     util::{
@@ -135,7 +137,8 @@ impl core::fmt::Display for Error {
                 // only way this error can occur). Thus, the total number of
                 // patterns that can fit in the table is `stride` less than
                 // what we can allocate.
-                let limit = ((core::isize::MAX as usize) - stride) / stride;
+                let max = usize::try_from(core::isize::MAX).unwrap();
+                let limit = (max - stride) / stride;
                 write!(
                     f,
                     "compiling DFA with start states exceeds pattern \

@@ -1500,7 +1500,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
             (&[][..], state)
         };
 
-        let accel_len = state[0] as usize;
+        let accel_len = usize::from(state[0]);
         let accel = &state[1..accel_len + 1];
         State { id, is_match, ntrans, input_ranges, next, pattern_ids, accel }
     }
@@ -1597,7 +1597,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         if state.is_empty() {
             return Err(DeserializeError::generic("no accelerator length"));
         }
-        let (accel_len, state) = (state[0] as usize, &state[1..]);
+        let (accel_len, state) = (usize::from(state[0]), &state[1..]);
 
         if accel_len > 3 {
             return Err(DeserializeError::generic(
@@ -1668,7 +1668,7 @@ impl<T: AsMut<[u8]>> Transitions<T> {
             (&mut [][..], state)
         };
 
-        let accel_len = state[0] as usize;
+        let accel_len = usize::from(state[0]);
         let accel = &mut state[1..accel_len + 1];
         StateMut {
             id,

@@ -3415,7 +3415,7 @@ impl StartTable<Vec<u32>> {
             Some(x) => x,
             None => return Err(Error::too_many_start_states()),
         };
-        if table_len > core::isize::MAX as usize {
+        if let Err(_) = isize::try_from(table_len) {
             return Err(Error::too_many_start_states());
         }
         let table = vec![DEAD.as_u32(); table_len];

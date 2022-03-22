@@ -1,3 +1,5 @@
+use core::convert::TryFrom;
+
 /// A state identifier especially tailored for lazy DFAs.
 ///
 /// A lazy state ID logically represents a pointer to a DFA state. In practice,
@@ -175,7 +177,8 @@ impl LazyStateID {
     #[inline]
     pub(crate) fn new(id: usize) -> Result<LazyStateID, LazyStateIDError> {
         if id > LazyStateID::MAX {
-            return Err(LazyStateIDError { attempted: id as u64 });
+            let attempted = u64::try_from(id).unwrap();
+            return Err(LazyStateIDError { attempted });
         }
         Ok(LazyStateID::new_unchecked(id))
     }

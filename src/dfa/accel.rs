@@ -268,7 +268,7 @@ impl<A: AsRef<[AccelTy]>> Accels<A> {
         }
         let bytes = self.as_bytes();
         let offset = ACCEL_TY_SIZE + i * ACCEL_CAP;
-        let len = bytes[offset] as usize;
+        let len = usize::from(bytes[offset]);
         &bytes[offset + 1..offset + 1 + len]
     }
 
@@ -420,7 +420,7 @@ impl Accel {
     ///
     /// If the given bytes are invalid, then this returns an error.
     fn from_bytes(bytes: [u8; 4]) -> Result<Accel, DeserializeError> {
-        if bytes[0] as usize >= ACCEL_LEN {
+        if usize::from(bytes[0]) >= ACCEL_LEN {
             return Err(DeserializeError::generic(
                 "accelerator bytes cannot have length more than 3",
             ));
@@ -458,7 +458,7 @@ impl Accel {
 
     /// Return the number of bytes in this accelerator.
     pub fn len(&self) -> usize {
-        self.bytes[0] as usize
+        usize::from(self.bytes[0])
     }
 
     /// Returns true if and only if there are no bytes in this accelerator.
