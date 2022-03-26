@@ -389,6 +389,20 @@ input = 's\xE4'
 matches = []
 unescape = true
 
+# See: https://github.com/rust-lang/regex/issues/850
+[[tests]]
+name = "adjacent-line-boundary-100"
+regex = '(?m)^([^ ]+?)$'
+input = "line1\nline2"
+matches = [[0, 5], [6, 11]]
+
+# Continued.
+[[tests]]
+name = "adjacent-line-boundary-200"
+regex = '(?m)^([^ ]+?)$'
+input = "A\nB"
+matches = [[0, 1], [2, 3]]
+
 # There is no issue for this bug.
 [[tests]]
 name = "anchored-prefix-100"
