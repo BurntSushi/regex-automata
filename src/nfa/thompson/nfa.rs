@@ -22,7 +22,7 @@ use crate::{
 /// transitions, but guarantees that there exists at most one non-epsilon
 /// transition for each element in the alphabet for each state.
 ///
-/// An NFA may be used directly for searching, or for analysis or to build
+/// An NFA may be used directly for searching, for analysis or to build
 /// a deterministic finite automaton (DFA).
 ///
 /// # Capabilities
@@ -56,7 +56,10 @@ use crate::{
 /// expanded) to build and linear memory usage. A DFA, on the other hand, may
 /// take exponential time and/or space to build. Even in non-pathological
 /// cases, DFAs often take quite a bit more memory than their NFA counterparts,
-/// _especially_ if large Unicode character classes are involved.
+/// _especially_ if large Unicode character classes are involved. Of course,
+/// an NFA also provides additional capabilities. For example, it can match
+/// Unicode word boundaries on non-ASCII text and resolve the positions of
+/// capturing groups.
 ///
 /// Note that a [`hybrid::regex::Regex`](crate::hybrid::regex::Regex) strikes a
 /// good balance between an NFA and a DFA. It avoids the exponential build time
@@ -84,6 +87,10 @@ use crate::{
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+///
+/// # Example: resolving capturing groups
+///
+/// TODO
 #[derive(Clone)]
 pub struct NFA(
     // We make NFAs reference counted primarily for two reasons. First is that
@@ -100,17 +107,76 @@ pub struct NFA(
 );
 
 impl NFA {
+    /// Parse the given regular expression using a default configuration and
+    /// build an NFA from it.
+    ///
+    /// If you want a non-default configuration, then use the NFA
+    /// [`Compiler`] with a [`Config`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    ///
+    /// let nfa = NFA::new("foo[0-9]+")?;
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// let expected = Some(MultiMatch::must(0, 0, 8));
+    /// let found = vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
+    /// assert_eq!(expected, found);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(pattern: &str) -> Result<NFA, Error> {
         NFA::compiler().build(pattern)
     }
 
+    /// Parse the given regular expressions using a default configuration and
+    /// build a multi-NFA from them.
+    ///
+    /// If you want a non-default configuration, then use the NFA
+    /// [`Compiler`] with a [`Config`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    ///
+    /// let nfa = NFA::new_many(&["[0-9]+", "[a-z]+"])?;
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// let expected = Some(MultiMatch::must(1, 0, 3));
+    /// let found = vm.find_leftmost(&mut cache, b"foo12345bar", &mut caps);
+    /// assert_eq!(expected, found);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<NFA, Error> {
         NFA::compiler().build_many(patterns)
     }
 
     /// Returns an NFA with a single regex pattern that always matches at every
     /// position.
-    #[inline]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    ///
+    /// let nfa = NFA::always_match();
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// let expected = Some(MultiMatch::must(0, 0, 0));
+    /// let found = vm.find_leftmost(&mut cache, b"", &mut caps);
+    /// assert_eq!(expected, found);
+    /// let found = vm.find_leftmost(&mut cache, b"foo", &mut caps);
+    /// assert_eq!(expected, found);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn always_match() -> NFA {
         // We could use NFA::new("") here and we'd get the same semantics, but
         // hand-assembling the NFA (as below) does the same thing with a fewer
@@ -138,23 +204,114 @@ impl NFA {
     /// Returns an NFA that never matches at any position.
     ///
     /// This is a convenience routine for creating an NFA with zero patterns.
-    #[inline]
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    ///
+    /// let nfa = NFA::never_match();
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// let found = vm.find_leftmost(&mut cache, b"", &mut caps);
+    /// assert_eq!(None, found);
+    /// let found = vm.find_leftmost(&mut cache, b"foo", &mut caps);
+    /// assert_eq!(None, found);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn never_match() -> NFA {
         // This always succeeds because it only requires one NFA state, which
         // will never exhaust any (default) limits.
         NFA::new_many::<&str>(&[]).unwrap()
     }
 
+    /// Return a default configuration for an `NFA`.
+    ///
+    /// This is a convenience routine to avoid needing to import the `Config`
+    /// type when customizing the construction of an NFA.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build an NFA that is permitted to search
+    /// through invalid UTF-8.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().utf8(false))
+    ///     .build(r"[a-z]+")?;
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// let expected = Some(MultiMatch::must(0, 1, 4));
+    /// let found = vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
+    /// assert_eq!(expected, found);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn config() -> Config {
         Config::new()
     }
 
+    /// Return a compiler for configuring the construction of an `NFA`.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// [`Compiler`] type in common cases.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build an NFA that is permitted to both
+    /// search through and match invalid UTF-8. With the additional syntax
+    /// configuration here, compilation of `(?-u:.)` would fail because it is
+    /// permitted to match invalid UTF-8.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{NFA, pikevm::PikeVM},
+    ///     MultiMatch, SyntaxConfig
+    /// };
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .configure(NFA::config().utf8(false))
+    ///     .build(r"[a-z]+(?-u:.)")?;
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// let expected = Some(MultiMatch::must(0, 1, 5));
+    /// let found = vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
+    /// assert_eq!(expected, found);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn compiler() -> Compiler {
         Compiler::new()
     }
 
-    /// Returns an iterator over all pattern IDs in this NFA.
-    #[inline]
+    /// Returns an iterator over all pattern identifiers in this NFA.
+    ///
+    /// Pattern IDs are allocated in sequential order starting from zero,
+    /// where the order corresponds to the order of patterns provided to the
+    /// [`NFA::new_many`] constructor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
+    /// let pids: Vec<PatternID> = nfa.patterns().collect();
+    /// assert_eq!(pids, vec![
+    ///     PatternID::must(0),
+    ///     PatternID::must(1),
+    ///     PatternID::must(2),
+    /// ]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn patterns(&self) -> PatternIter {
         PatternIter {
             it: PatternID::iter(self.pattern_len()),
@@ -167,19 +324,88 @@ impl NFA {
     /// This may return zero if the NFA was constructed with no patterns. In
     /// this case, the NFA can never produce a match for any input.
     ///
-    /// This is guaranteed to be no bigger than [`PatternID::LIMIT`].
+    /// This is guaranteed to be no bigger than [`PatternID::LIMIT`] because
+    /// NFA construction will fail if too many patterns are added.
+    ///
+    /// It is always true that `nfa.patterns().count() == nfa.pattern_len()`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
+    /// assert_eq!(3, nfa.pattern_len());
+    ///
+    /// let nfa = NFA::never_match();
+    /// assert_eq!(0, nfa.pattern_len());
+    ///
+    /// let nfa = NFA::always_match();
+    /// assert_eq!(1, nfa.pattern_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn pattern_len(&self) -> usize {
         self.0.start_pattern.len()
     }
 
-    /// Return the ID of the initial anchored state of this NFA.
+    /// Return the state identifier of the initial anchored state of this NFA.
+    ///
+    /// The returned identifier is guaranteed to be a valid index into the
+    /// slice returned by [`NFA::states`], and is also a valid argument to
+    /// [`NFA::state`].
+    ///
+    /// # Example
+    ///
+    /// This example shows a somewhat contrived example where we can easily
+    /// predict the anchored starting state.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::{NFA, State};
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build("a")?;
+    /// let state = nfa.state(nfa.start_anchored());
+    /// match *state {
+    ///     State::Range { range } => {
+    ///         assert_eq!(b'a', range.start);
+    ///         assert_eq!(b'a', range.end);
+    ///     }
+    ///     _ => unreachable!("unexpected state"),
+    /// }
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn start_anchored(&self) -> StateID {
         self.0.start_anchored
     }
 
-    /// Return the ID of the initial unanchored state of this NFA.
+    /// Return the state identifier of the initial unanchored state of this
+    /// NFA.
+    ///
+    /// This is equivalent to the identifier returned by
+    /// [`NFA::start_anchored`] when the NFA has no unanchored starting state.
+    ///
+    /// The returned identifier is guaranteed to be a valid index into the
+    /// slice returned by [`NFA::states`], and is also a valid argument to
+    /// [`NFA::state`].
+    ///
+    /// # Example
+    ///
+    /// This example shows that the anchored and unanchored starting states
+    /// are equivalent when an anchored NFA is built.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// let nfa = NFA::new("^a")?;
+    /// assert_eq!(nfa.start_anchored(), nfa.start_unanchored());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn start_unanchored(&self) -> StateID {
         self.0.start_unanchored
