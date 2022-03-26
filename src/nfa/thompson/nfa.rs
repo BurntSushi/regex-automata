@@ -16,6 +16,74 @@ use crate::{
     },
 };
 
+/// A Thompson non-deterministic finite automaton (NFA).
+///
+/// A Thompson NFA is a finite state machine that permits unconditional epsilon
+/// transitions, but guarantees that there exists at most one non-epsilon
+/// transition for each element in the alphabet for each state.
+///
+/// An NFA may be used directly for searching, or for analysis or to build
+/// a deterministic finite automaton (DFA).
+///
+/// # Capabilities
+///
+/// Using an NFA for searching provides the most amount of "power" of any
+/// regex engine in this crate. Namely, it supports the following:
+///
+/// 1. Detection of a match.
+/// 2. Location of a match, including both the start and end offset, in a
+/// single pass of the haystack.
+/// 3. Resolves capturing groups.
+/// 4. Handles multiple patterns, including (1)-(3) when multiple patterns are
+/// present.
+///
+/// # Differences with DFAs
+///
+/// At the theoretical level, the precise difference between an NFA and a DFA
+/// is that, in a DFA, for every state, an input symbol unambiguously refers
+/// to a single transition _and_ that an input symbol is required for each
+/// transition. At a practical level, this permits DFA implementations to be
+/// implemented at their core with a small constant number of CPU instructions.
+/// In practice, this makes them quite a bit faster than NFAs _in general_.
+/// Namely, in order to execute a search for any Thompson NFA, one needs to
+/// keep track of a _set_ of states, and execute the possible transitions on
+/// all of those states for each input symbol. Overall, this results in much
+/// more overhead. To a first approximation, one can expect DFA searches to be
+/// about an order of magnitude faster.
+///
+/// So why use an NFA at all? The main advantage of an NFA is that it takes
+/// linear time (in the size of the pattern string after repetitions have been
+/// expanded) to build and linear memory usage. A DFA, on the other hand, may
+/// take exponential time and/or space to build. Even in non-pathological
+/// cases, DFAs often take quite a bit more memory than their NFA counterparts,
+/// _especially_ if large Unicode character classes are involved.
+///
+/// Note that a [`hybrid::regex::Regex`](crate::hybrid::regex::Regex) strikes a
+/// good balance between an NFA and a DFA. It avoids the exponential build time
+/// of a DFA while maintaining its fast search time. The downside of a hybrid
+/// NFA/DFA is that in some cases it can be slower at search time than the NFA.
+/// (It also has less functionality than a pure NFA. It cannot handle Unicode
+/// word boundaries on non-ASCII text and cannot resolve capturing groups.)
+///
+/// # Example
+///
+/// This shows how to build an NFA with the default configuration and execute a
+/// search using the Pike VM.
+///
+/// ```
+/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+///
+/// let nfa = NFA::new("foo[0-9]+")?;
+/// let vm = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = vm.create_cache();
+/// let mut caps = vm.create_captures();
+///
+/// let expected = Some(MultiMatch::must(0, 0, 8));
+/// let found = vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
+/// assert_eq!(expected, found);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone)]
 pub struct NFA(
     // We make NFAs reference counted primarily for two reasons. First is that
@@ -24,10 +92,10 @@ pub struct NFA(
     // specifically, this enables cheap clones. This tends to be useful because
     // several structures (the backtracker, the Pike VM, the hybrid NFA/DFA)
     // all want to hang on to an NFA for use during search time. We could
-    // provide the NFA at search time, but this makes for an unnecessarily
-    // annoying API. Instead, we just let each structure share ownership of the
-    // NFA. Using a deep clone would not be smart, since the NFA can use quite
-    // a bit of heap space.
+    // provide the NFA at search time via a function argument, but this makes
+    // for an unnecessarily annoying API. Instead, we just let each structure
+    // share ownership of the NFA. Using a deep clone would not be smart, since
+    // the NFA can use quite a bit of heap space.
     pub(super) Arc<Inner>,
 );
 
