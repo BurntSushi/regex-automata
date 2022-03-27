@@ -411,11 +411,42 @@ impl NFA {
         self.0.start_unanchored
     }
 
-    /// Return the ID of the initial anchored state for the given pattern.
+    /// Return the state identifier of the initial anchored state for the given
+    /// pattern.
+    ///
+    /// If one uses the starting state for a particular pattern, then the only
+    /// match that can be returned is for the corresponding pattern.
+    ///
+    /// The returned identifier is guaranteed to be a valid index into the
+    /// slice returned by [`NFA::states`], and is also a valid argument to
+    /// [`NFA::state`].
     ///
     /// # Panics
     ///
-    /// If the pattern doesn't exist in this NFA, then this panics.
+    /// If the pattern doesn't exist in this NFA, then this panics. This
+    /// occurs when `pid.as_usize() >= nfa.pattern_len()`.
+    ///
+    /// # Example
+    ///
+    /// This example shows that the anchored and unanchored starting states
+    /// are equivalent when an anchored NFA is built.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new_many(&["^a", "^b"])?;
+    /// // The anchored and unanchored states for the entire NFA are the same,
+    /// // since all of the patterns are anchored.
+    /// assert_eq!(nfa.start_anchored(), nfa.start_unanchored());
+    /// // But the anchored starting states for each pattern are distinct,
+    /// // because these starting states can only lead to matches for the
+    /// // corresponding pattern.
+    /// let anchored = nfa.start_anchored();
+    /// assert_ne!(anchored, nfa.start_pattern(PatternID::must(0)));
+    /// assert_ne!(anchored, nfa.start_pattern(PatternID::must(1)));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn start_pattern(&self, pid: PatternID) -> StateID {
         assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
@@ -423,6 +454,36 @@ impl NFA {
     }
 
     /// Get the byte class set for this NFA.
+    ///
+    /// A byte class set is a partitioning of this NFA's alphabet into
+    /// equivalence classes. Any two bytes in the same equivalence class are
+    /// guaranteed to never discriminate between a match or a non-match. (The
+    /// partitioning may not be minimal.)
+    ///
+    /// Byte classes are used internally by this crate when building DFAs.
+    /// Namely, among other optimizations, they enable a space optimization
+    /// where the DFA's internal alphabet is defined over the equivalence
+    /// classes of bytes instead of all possible byte values. The former is
+    /// often quite a bit smaller than the latter, which permits the DFA to use
+    /// less space for its transition table.
+    ///
+    /// # Example
+    ///
+    /// Typically the only operation one can perform on a `ByteClassSet` is to
+    /// extract the equivalence classes:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// let nfa = NFA::new("[a-z]+")?;
+    /// let classes = nfa.byte_class_set().byte_classes();
+    /// // 'a' and 'z' are in the same class for this regex.
+    /// assert_eq!(classes.get(b'a'), classes.get(b'z'));
+    /// // But 'a' and 'A' are not.
+    /// assert_ne!(classes.get(b'a'), classes.get(b'A'));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn byte_class_set(&self) -> &ByteClassSet {
         &self.0.byte_class_set
@@ -436,6 +497,27 @@ impl NFA {
     ///
     /// This panics when the given identifier does not reference a valid state.
     /// That is, when `id.as_usize() >= nfa.states().len()`.
+    ///
+    /// # Example
+    ///
+    /// The anchored state for a pattern will typically correspond to a
+    /// capturing state for that pattern. (Although, this is not an API
+    /// guarantee!)
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, State}, PatternID};
+    ///
+    /// let nfa = NFA::new("a")?;
+    /// let state = nfa.state(nfa.start_pattern(PatternID::ZERO));
+    /// match *state {
+    ///     State::Capture { slot, .. } => {
+    ///         assert_eq!(0, slot);
+    ///     }
+    ///     _ => unreachable!("unexpected state"),
+    /// }
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn state(&self, id: StateID) -> &State {
         &self.states()[id]
@@ -445,6 +527,25 @@ impl NFA {
     ///
     /// The slice returned is indexed by `StateID`. This provides a convenient
     /// way to access states while following transitions among those states.
+    ///
+    /// # Example
+    ///
+    /// This demonstrates that disabling UTF-8 mode can shrink the size of the
+    /// NFA. (Disabling UTF-8 mode for the NFA means that its unanchored prefix
+    /// will match through any sequence of bytes, instead of only matching
+    /// through valid UTF-8.)
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, State}, PatternID};
+    ///
+    /// let nfa_default = NFA::new("a")?;
+    /// let nfa_small = NFA::compiler()
+    ///     .configure(NFA::config().utf8(false))
+    ///     .build("a")?;
+    /// assert!(2 * nfa_small.states().len() < nfa_default.states().len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn states(&self) -> &[State] {
         &self.0.states

@@ -252,34 +252,6 @@ impl PikeVM {
         let mut at = start;
         let mut matched_pid = None;
 
-        if !anchored {
-            if let Some(ref mut pre) = self.scanner() {
-                if self.nfa.pattern_len() == 1
-                    && !pre.reports_false_positives()
-                {
-                    return pre
-                        .next_candidate(haystack, at)
-                        .into_option()
-                        .map(
-                            // TODO: This is obviously wrong. The prefilter
-                            // needs to report start AND end offsets. Sigh.
-                            |offset| {
-                                MultiMatch::new(
-                                    PatternID::ZERO,
-                                    offset,
-                                    offset,
-                                )
-                            },
-                        );
-                } else if pre.is_effective(at) {
-                    at = match pre.next_candidate(haystack, at).into_option() {
-                        None => return None,
-                        Some(at) => at,
-                    };
-                }
-            }
-        }
-
         cache.clear();
         // FIXME: Putting the epsilon closure here is the most correct thing to
         // do, since it will correctly terminate a search when invalid UTF-8
@@ -334,25 +306,7 @@ impl PikeVM {
             haystack,
             at,
         );
-        while at <= end {
-            if cache.clist.set.is_empty() {
-                if matched_pid.is_some() || (anchored && at > start) {
-                    break;
-                }
-                if !anchored {
-                    if let Some(ref mut pre) = self.scanner() {
-                        if pre.is_effective(at) {
-                            at = match pre
-                                .next_candidate(haystack, at)
-                                .into_option()
-                            {
-                                None => break,
-                                Some(at) => at,
-                            };
-                        }
-                    }
-                }
-            }
+        while at <= end && !cache.clist.set.is_empty() {
             for i in 0..cache.clist.set.len() {
                 let sid = cache.clist.set.get(i);
                 let pid = match self.step(

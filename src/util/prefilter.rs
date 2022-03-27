@@ -8,6 +8,50 @@ use crate::Match;
 // Maybe it's just as simple as using Arc<dyn Prefilter>? Why didn't we do that
 // in aho-corasick?
 
+// BREADCRUMBS: What if the presumed prefilter design is just all wrong? Up
+// until this point, I've been assuming that every regex engine needs to accept
+// a prefilter and then weave it into its own search execution. But what if the
+// prefilter should actually be the responsibility of the caller? This would
+// considerably simplify the regex engines, and seems plausibly necessary for
+// full flexibility. (For example, if we have a regex like `\wFOO`, it would be
+// nice to centralize the logic in how we deal with an offset prefilter.)
+//
+// I think the main challenge with moving prefilters to the caller is to ensure
+// that it is as fast as possible and that we don't lose anything by making
+// this move.
+//
+// For the NFA at least, this seems likely true. We only execute a prefilter
+// when the set of current states becomes empty and we aren't executing an
+// anchored search. (Actually, in the current impl, we aren't even detecting
+// whether we're in a starting state or not, since emulating the `(?s:.)*?`
+// outside of the NFA itself is actually quite tricky.)
+//
+// For the DFA, it seems a little trickier in the case where there are
+// many false positives reported by the prefilter. But using a prefilter
+// in cases like this will always lead to some kind of slowdown. If we
+// push the prefilter down into the search execution, then there should be
+// less overhead. But if it's in the caller, then the DFA search has to be
+// repeatedly stopped and started. Either way, both techniques require a
+// heuristic to disable the prefilter. That heuristic threshold might be lower
+// when the prefilter is in the caller (since the overhead is higher).
+//
+// In effect, the way this would work is that the caller would execute a
+// prefilter, and for each match, run the appropriate regex engine in anchored
+// mode. If a match is found, great, we're done. If a match is not found, then
+// we have to re-execute the prefilter at some position. I believe the position
+// should be the position at which the regex search gave up. (But we should
+// verify this.) If we instead re-execute the prefilter at the end of the
+// previous candidate match, then we open ourselves up to easy quadratic search
+// time (in the size of the input). That's bad. The idea behind this is that if
+// we didn't have an anchored search, then instead of the search failing, it
+// would loop back into the start state otherwise. Thus, we do this manually
+// when a prefilter is present.
+//
+// This does unfortunately mean that we have to change all of the regex engines
+// to report the position at which it stopped a search. So, Option<Match> has
+// to become SearchResult, where SearchResult is an enum. That's... annoying.
+// But, frightfully, seems worth it.
+
 /// A candidate is the result of running a prefilter on a haystack at a
 /// particular position. The result is one of no match, a confirmed match or
 /// a possible match.
