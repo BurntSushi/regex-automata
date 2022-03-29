@@ -79,7 +79,7 @@ pub(crate) struct SparseSet {
     /// Sparse maps ids to their location in dense.
     ///
     /// A state ID is in the set if and only if
-    /// sparse[id] < dense.len() && id == dense[sparse[id]].
+    /// sparse[id] < len && id == dense[sparse[id]].
     sparse: Vec<StateID>,
 }
 

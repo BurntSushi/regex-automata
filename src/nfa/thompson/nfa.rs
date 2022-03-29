@@ -1363,16 +1363,18 @@ type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, usize>;
 /// need to do some kind of analysis on the NFA.
 #[derive(Clone, Eq, PartialEq)]
 pub enum State {
-    /// A state that transitions to `next` if and only if the current input
-    /// byte is in the `range`.
-    ///
-    /// This is a special case of Sparse in that it encodes only one transition
-    /// (and therefore avoids the allocation).
+    /// A state with a single transition that can only be taken if the current
+    /// input symbol is in a particular range of bytes.
     ByteRange { trans: Transition },
-    /// A state with possibly many transitions, represented in a sparse
-    /// fashion. Transitions are ordered lexicographically by input range. As
-    /// such, this may only be used when every transition has equal priority.
-    /// (In practice, this is only used for encoding UTF-8 automata.)
+    /// A state with possibly many transitions represented in a sparse fashion.
+    /// Transitions are non-overlapping and ordered lexicographically by input
+    /// range.
+    ///
+    /// In practice, this is only used for encoding UTF-8 automata. Its
+    /// presence is primarily an optimization that avoids many additional
+    /// unconditional epsilon transitions (via [`Union`](State::Union) states),
+    /// and thus decreases the overhead of traversing the NFA. This can improve
+    /// both matching time and DFA construction time.
     Sparse(SparseTransitions),
     /// A conditional epsilon transition satisfied via some sort of
     /// look-around.

@@ -247,6 +247,7 @@ impl PikeVM {
         let start_id = match pattern_id {
             None if anchored => self.nfa.start_anchored(),
             None => self.nfa.start_unanchored(),
+            // None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
         let mut at = start;
@@ -307,6 +308,24 @@ impl PikeVM {
             at,
         );
         while at <= end && !cache.clist.set.is_empty() {
+            // while at <= end {
+            // if cache.clist.set.is_empty() {
+            // if matched_pid.is_some() || (anchored && at > start) {
+            // break;
+            // }
+            // }
+            // if cache.clist.set.is_empty()
+            // || (!anchored && matched_pid.is_none())
+            // {
+            // self.epsilon_closure(
+            // &mut cache.clist,
+            // &mut caps.slots,
+            // &mut cache.stack,
+            // start_id,
+            // haystack,
+            // at,
+            // );
+            // }
             for i in 0..cache.clist.set.len() {
                 let sid = cache.clist.set.get(i);
                 let pid = match self.step(
@@ -361,6 +380,7 @@ impl PikeVM {
 
 impl PikeVM {
     // #[inline(always)]
+    // #[inline(never)]
     fn step(
         &self,
         nlist: &mut Threads,
@@ -410,6 +430,7 @@ impl PikeVM {
     }
 
     // #[inline(always)]
+    #[inline(never)]
     fn epsilon_closure(
         &self,
         nlist: &mut Threads,
@@ -440,6 +461,7 @@ impl PikeVM {
     }
 
     // #[inline(always)]
+    // #[inline(never)]
     fn epsilon_closure_step(
         &self,
         nlist: &mut Threads,
@@ -450,6 +472,11 @@ impl PikeVM {
         at: usize,
     ) {
         loop {
+            // BREADCRUMBS: Time to look at the actual regex programs being
+            // executed in the regex crate. There are some CRAZY perf
+            // differences in the PikeVM. Methinks it has to do with the fact
+            // that the regex crate has a "UnicodeRanges" state where as this
+            // crate does not... Sigh. ---AG
             if !nlist.set.insert(sid) {
                 return;
             }
