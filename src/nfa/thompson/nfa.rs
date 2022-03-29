@@ -37,6 +37,10 @@ use crate::{
 /// 4. Handles multiple patterns, including (1)-(3) when multiple patterns are
 /// present.
 ///
+/// # Capturing Groups
+///
+/// TODO
+///
 /// # Differences with DFAs
 ///
 /// At the theoretical level, the precise difference between an NFA and a DFA
@@ -369,9 +373,9 @@ impl NFA {
     ///     .build("a")?;
     /// let state = nfa.state(nfa.start_anchored());
     /// match *state {
-    ///     State::Range { range } => {
-    ///         assert_eq!(b'a', range.start);
-    ///         assert_eq!(b'a', range.end);
+    ///     State::ByteRange { trans } => {
+    ///         assert_eq!(b'a', trans.start);
+    ///         assert_eq!(b'a', trans.end);
     ///     }
     ///     _ => unreachable!("unexpected state"),
     /// }
@@ -556,6 +560,26 @@ impl NFA {
     /// This value is guaranteed to be a multiple of 2. (Where each capturing
     /// group across all patterns has precisely two capturing slots in the
     /// NFA.)
+    ///
+    /// The number of slots tends to be useful for creating allocations
+    /// that can handle all possible slot values for any of the NFA's
+    /// [`Capture`](State::Capture) states.
+    ///
+    /// # Example
+    ///
+    /// This example shows the relationship between the capturing groups in a
+    /// regex pattern and the number of slots. Remember that when capturing
+    /// is enabled (which it is by default), every pattern always has one
+    /// unnamed capturing group that refers to the entire pattern.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// let nfa = NFA::new("(a)(b)(c)")?;
+    /// assert_eq!(8, nfa.capture_slot_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn capture_slot_len(&self) -> usize {
         self.0.capture_slot_len
@@ -565,10 +589,36 @@ impl NFA {
     /// for the given pattern. The ending slot is always one more than the
     /// value returned.
     ///
+    /// There are no API guarantees for how a capturing group index is mapped
+    /// to a slot number. Callers must use the NFA's public API to look up the
+    /// slot number for a particular capture index.
+    ///
+    /// A capture index is relative to the pattern. So for example, when
+    /// captures are enabled when using a [`Compiler`] to build an NFA (which
+    /// is the default), the capture index of `0` is valid for all patterns in
+    /// the NFA.
+    ///
     /// # Panics
     ///
     /// If either the pattern ID or the capture index is invalid, then this
     /// panics.
+    ///
+    /// # Example
+    ///
+    /// This example shows that the starting slots for the first capturing
+    /// group of each pattern are distinct.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new_many(&["a", "b"])?;
+    /// assert_ne!(
+    ///     nfa.slot(PatternID::must(0), 0),
+    ///     nfa.slot(PatternID::must(1), 0),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn slot(&self, pid: PatternID, capture_index: usize) -> usize {
         assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
@@ -579,10 +629,43 @@ impl NFA {
     /// capturing group for the given pattern. The ending slot is always one
     /// more than the starting slot returned.
     ///
+    /// There are no API guarantees for how a capturing group index is mapped
+    /// to a slot number. Callers must use the NFA's public API to look up the
+    /// slot number for a particular capture index.
+    ///
+    /// A capture index is relative to the pattern. So for example, when
+    /// captures are enabled when using a [`Compiler`] to build an NFA (which
+    /// is the default), the capture index of `0` is valid for all patterns in
+    /// the NFA.
+    ///
+    /// Note that this is like [`NFA::slot`], except that it also returns the
+    /// ending slot value for convenience.
+    ///
     /// # Panics
     ///
     /// If either the pattern ID or the capture index is invalid, then this
     /// panics.
+    ///
+    /// # Example
+    ///
+    /// This example shows that the starting slots for the first capturing
+    /// group of each pattern are distinct.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new_many(&["a", "b"])?;
+    /// assert_ne!(
+    ///     nfa.slots(PatternID::must(0), 0),
+    ///     nfa.slots(PatternID::must(1), 0),
+    /// );
+    ///
+    /// // Also, the start and end slot values are never equivalent.
+    /// let (start, end) = nfa.slots(PatternID::ZERO, 0);
+    /// assert_ne!(start, end);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn slots(
         &self,
@@ -591,7 +674,9 @@ impl NFA {
     ) -> (usize, usize) {
         assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
         let start = self.0.slot(pid, capture_index);
-        (start, start + 1)
+        // This will never wrap because NFA construction guarantees that all
+        // slot values fit in a usize at construction time.
+        (start, start.wrapping_add(1))
     }
 
     /// Return the capture group index corresponding to the given name in the
@@ -601,6 +686,40 @@ impl NFA {
     /// # Panics
     ///
     /// If the given pattern ID is invalid, then this panics.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find the capture index for the given pattern
+    /// and group name.
+    ///
+    /// Remember that capture indices are relative to the pattern, such that
+    /// the same capture index value may refer to different capturing groups
+    /// for distinct patterns.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let (pid0, pid1) = (PatternID::must(0), PatternID::must(1));
+    ///
+    /// let nfa = NFA::new_many(&[
+    ///     r"a(?P<inner>\w+)z(?P<trailing>\s+)",
+    ///     r"a(?P<inner>\d+)z",
+    /// ])?;
+    /// let inner0 = nfa.capture_name_to_index(pid0, "inner");
+    /// // Recall that capture index 0 is always unnamed and refers to the
+    /// // entire pattern. So the first capturing group present in the pattern
+    /// // itself always starts at index 1.
+    /// assert_eq!(Some(1), inner0);
+    /// let inner1 = nfa.capture_name_to_index(pid1, "inner");
+    /// assert_eq!(inner0, inner1);
+    ///
+    /// // And if a name does not exist for a particular pattern, None is
+    /// // returned.
+    /// assert!(nfa.capture_name_to_index(pid0, "trailing").is_some());
+    /// assert!(nfa.capture_name_to_index(pid1, "trailing").is_none());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn capture_name_to_index(
         &self,
@@ -611,36 +730,254 @@ impl NFA {
         self.0.capture_name_to_index[pid].get(name).cloned()
     }
 
+    /// Returns true if and only if this NFA has at least one
+    /// [`Capture`](State::Capture) in its sequence of states.
+    ///
+    /// This is useful as a way to perform a quick test before attempting
+    /// something that does or does not require capture states. For example,
+    /// some regex engines (like the PikeVM) require capture states in order to
+    /// work at all.
+    ///
+    /// # Example
+    ///
+    /// This example shows a few different NFAs and whether they have captures
+    /// or not.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // Obviously has capture states.
+    /// let nfa = NFA::new("(a)")?;
+    /// assert!(nfa.has_capture());
+    ///
+    /// // Less obviously has capture states, because every pattern has at
+    /// // least one anonymous capture group corresponding to the match for the
+    /// // entire pattern.
+    /// let nfa = NFA::new("a")?;
+    /// assert!(nfa.has_capture());
+    ///
+    /// // Other than hand building your own NFA, this is the only way to build
+    /// // an NFA without capturing groups. In general, you should only do this
+    /// // if you don't intend to use any of the NFA-oriented regex engines.
+    /// // Overall, capturing groups don't have many downsides. Although they
+    /// // can add a bit of noise to simple NFAs, so it can be nice to disable
+    /// // them for debugging purposes.
+    /// //
+    /// // Notice that 'has_capture' is false here even when we have an
+    /// // explicit capture group in the pattern.
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build("(a)")?;
+    /// assert!(!nfa.has_capture());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn has_captures(&self) -> bool {
-        self.0.facts.has_captures
+    pub fn has_capture(&self) -> bool {
+        self.0.facts.has_capture
     }
 
+    /// Returns true if and only if all starting states for this NFA correspond
+    /// to the beginning of an anchored search.
+    ///
+    /// Typically, an NFA will have both an anchored and an unanchored starting
+    /// state. Namely, because it tends to be useful to have both and the cost
+    /// of having an unanchored starting state is almost zero (for an NFA).
+    /// However, if all patterns in the NFA are themselves anchored, then even
+    /// the unanchored starting state will correspond to an anchored search
+    /// since the pattern doesn't permit anything else.
+    ///
+    /// # Example
+    ///
+    /// This example shows a few different scenarios where this method's
+    /// return value varies.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // The unanchored starting state permits matching this pattern anywhere
+    /// // in a haystack, instead of just at the beginning.
+    /// let nfa = NFA::new("a")?;
+    /// assert!(!nfa.is_always_start_anchored());
+    ///
+    /// // In this case, the pattern is itself anchored, so there is no way
+    /// // to run an unanchored search.
+    /// let nfa = NFA::new("^a")?;
+    /// assert!(nfa.is_always_start_anchored());
+    ///
+    /// // When multiline mode is enabled, '^' can match at the start of a line
+    /// // in addition to the start of a haystack, so an unanchored search is
+    /// // actually possible.
+    /// let nfa = NFA::new("(?m)^a")?;
+    /// assert!(!nfa.is_always_start_anchored());
+    ///
+    /// // Weird cases also work. A pattern is only considered anchored if all
+    /// // matches may only occur at the start of a haystack.
+    /// let nfa = NFA::new("(^a)|a")?;
+    /// assert!(!nfa.is_always_start_anchored());
+    ///
+    /// // When multiple patterns are present, if they are all anchored, then
+    /// // the NFA is always anchored too.
+    /// let nfa = NFA::new_many(&["^a", "^b", "^c"])?;
+    /// assert!(nfa.is_always_start_anchored());
+    ///
+    /// // But if one pattern is unanchored, then the NFA must permit an
+    /// // unanchored search.
+    /// let nfa = NFA::new_many(&["^a", "b", "^c"])?;
+    /// assert!(!nfa.is_always_start_anchored());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn is_always_start_anchored(&self) -> bool {
         self.start_anchored() == self.start_unanchored()
     }
 
+    /// Returns true if this NFA has any [`Look`](State::Look) states.
+    ///
+    /// This is useful for cases where you want to use an NFA in contexts that
+    /// can't handle look-around.
+    ///
+    /// # Example
+    ///
+    /// This example shows how this routine varies based on the regex pattern:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // No look-around at all.
+    /// let nfa = NFA::new("a")?;
+    /// assert!(!nfa.has_look());
+    ///
+    /// // Look-around via an anchor.
+    /// let nfa = NFA::new("^")?;
+    /// assert!(nfa.has_look());
+    ///
+    /// // Look-around via a word boundary.
+    /// let nfa = NFA::new(r"\b")?;
+    /// assert!(nfa.has_look());
+    ///
+    /// // When multiple patterns are present, this still returns true even
+    /// // if only one of them has look-around.
+    /// let nfa = NFA::new_many(&["a", "b", "^", "c"])?;
+    /// assert!(nfa.has_look());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn has_any_look(&self) -> bool {
-        self.0.facts.has_any_look
+    pub fn has_look(&self) -> bool {
+        self.0.facts.has_look
     }
 
+    /// Returns true if this NFA has any [`Look`](State::Look) states that
+    /// correspond to an anchor assertion (start/end of haystack or start/end
+    /// of line).
+    ///
+    /// This is useful for cases where you want to use an NFA in contexts that
+    /// can't handle anchor assertions.
+    ///
+    /// # Example
+    ///
+    /// This example shows how this routine varies based on the regex pattern:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // With an anchor.
+    /// let nfa = NFA::new("^")?;
+    /// assert!(nfa.has_anchor());
+    ///
+    /// // A word boundary isn't an anchor.
+    /// let nfa = NFA::new(r"\b")?;
+    /// assert!(!nfa.has_anchor());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn has_any_anchor(&self) -> bool {
-        self.0.facts.has_any_anchor
+    pub fn has_anchor(&self) -> bool {
+        self.0.facts.has_anchor
     }
 
+    /// Returns true if this NFA has any [`Look`](State::Look) states that
+    /// correspond to a word boundary assertion.
+    ///
+    /// This is useful for cases where you want to use an NFA in contexts that
+    /// can't handle word boundary assertions.
+    ///
+    /// # Example
+    ///
+    /// This example shows how this routine varies based on the regex pattern:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // An anchor isn't a word boundary.
+    /// let nfa = NFA::new("^")?;
+    /// assert!(!nfa.has_word_boundary());
+    ///
+    /// // With a word boundary.
+    /// let nfa = NFA::new(r"\b")?;
+    /// assert!(nfa.has_word_boundary());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn has_word_boundary(&self) -> bool {
         self.has_word_boundary_unicode() || self.has_word_boundary_ascii()
     }
 
+    /// Returns true if this NFA has any [`Look`](State::Look) states that
+    /// correspond to a Unicode word boundary assertion.
+    ///
+    /// This is useful for cases where you want to use an NFA in contexts that
+    /// can't handle Unicode word boundary assertions (such as the DFAs in this
+    /// crate).
+    ///
+    /// # Example
+    ///
+    /// This example shows how this routine varies based on the regex pattern:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // With a Unicode word boundary.
+    /// let nfa = NFA::new(r"\b")?;
+    /// assert!(nfa.has_word_boundary_unicode());
+    ///
+    /// // When Unicode is disabled, \b is only ASCII-aware.
+    /// let nfa = NFA::new(r"(?-u:\b)")?;
+    /// assert!(!nfa.has_word_boundary_unicode());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn has_word_boundary_unicode(&self) -> bool {
         self.0.facts.has_word_boundary_unicode
     }
 
+    /// Returns true if this NFA has any [`Look`](State::Look) states that
+    /// correspond to an ASCII word boundary assertion.
+    ///
+    /// This is useful for cases where you want to use an NFA in contexts that
+    /// can't handle ASCII word boundary assertions.
+    ///
+    /// # Example
+    ///
+    /// This example shows how this routine varies based on the regex pattern:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// // With a Unicode word boundary, this returns false.
+    /// let nfa = NFA::new(r"\b")?;
+    /// assert!(!nfa.has_word_boundary_ascii());
+    ///
+    /// // When Unicode is disabled, \b is only ASCII-aware.
+    /// let nfa = NFA::new(r"(?-u:\b)")?;
+    /// assert!(nfa.has_word_boundary_ascii());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn has_word_boundary_ascii(&self) -> bool {
         self.0.facts.has_word_boundary_ascii
@@ -650,6 +987,22 @@ impl NFA {
     ///
     /// This does **not** include the stack size used up by this NFA. To
     /// compute that, use `std::mem::size_of::<NFA>()`.
+    ///
+    /// # Example
+    ///
+    /// This example shows that large Unicode character classes can use quite
+    /// a bit of memory.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::NFA;
+    ///
+    /// let nfa_unicode = NFA::new(r"\w")?;
+    /// let nfa_ascii = NFA::new(r"(?-u:\w)")?;
+    ///
+    /// assert!(10 * nfa_ascii.memory_usage() < nfa_unicode.memory_usage());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn memory_usage(&self) -> usize {
         use core::mem::size_of as s;
@@ -712,9 +1065,9 @@ pub(super) struct Inner {
     /// mode that only tracks overall match offsets without also tracking all
     /// capture group offsets.
     ///
-    /// While the number of slots required can be computing by adding 2
-    /// to the maximum value found in this mapping, in practice, it takes
-    /// linear time with respect to the number of patterns because of our
+    /// While the number of slots required can be computing by adding 2 to the
+    /// maximum value found in this mapping, it takes linear time with respect
+    /// to the number of patterns to find the maximum value because of our
     /// odd representation. To avoid that inefficiency, the number of slots
     /// is recorded independently via the 'slots' field. This way, one can
     /// allocate the space needed for, say, running a Pike VM without iterating
@@ -768,29 +1121,39 @@ pub(super) struct Inner {
 }
 
 impl Inner {
+    /// Returns the slot value for the given pattern and capture index.
+    ///
+    /// Capture indices are relative to the pattern. e.g., When captures are
+    /// enabled, every pattern has a capture at index `0`.
     pub(super) fn slot(&self, pid: PatternID, capture_index: usize) -> usize {
         self.capture_to_slots[pid][capture_index]
     }
 
+    /// Add the given state to this NFA after allocating a fresh identifier for
+    /// it.
+    ///
+    /// This panics if too many states are added such that a fresh identifier
+    /// could not be created. (Currently, the only caller of this routine is
+    /// a `Builder`, and it upholds this invariant.)
     pub(super) fn add(&mut self, state: State) -> StateID {
         match state {
-            State::Range { ref range } => {
-                self.byte_class_set.set_range(range.start, range.end);
+            State::ByteRange { ref trans } => {
+                self.byte_class_set.set_range(trans.start, trans.end);
             }
             State::Sparse(ref sparse) => {
-                for range in sparse.ranges.iter() {
-                    self.byte_class_set.set_range(range.start, range.end);
+                for trans in sparse.transitions.iter() {
+                    self.byte_class_set.set_range(trans.start, trans.end);
                 }
             }
             State::Look { ref look, .. } => {
-                self.facts.has_any_look = true;
+                self.facts.has_look = true;
                 look.add_to_byteset(&mut self.byte_class_set);
                 match look {
                     Look::StartLine
                     | Look::EndLine
                     | Look::StartText
                     | Look::EndText => {
-                        self.facts.has_any_anchor = true;
+                        self.facts.has_anchor = true;
                     }
                     Look::WordBoundaryUnicode
                     | Look::WordBoundaryUnicodeNegate => {
@@ -803,20 +1166,23 @@ impl Inner {
                 }
             }
             State::Capture { .. } => {
-                self.facts.has_captures = true;
+                self.facts.has_capture = true;
             }
             State::Union { .. } | State::Fail | State::Match { .. } => {}
         }
 
-        // This always succeeds because a final NFA never has more states that
-        // the builder does, and the builder has already verified that the
-        // identifier space has not been exhausted.
         let id = StateID::new(self.states.len()).unwrap();
         self.memory_extra += state.memory_usage();
         self.states.push(state);
         id
     }
 
+    /// Set the starting state identifiers for this NFA.
+    ///
+    /// `start_anchored` and `start_unanchored` may be equivalent. When they
+    /// are, then the NFA can only execute anchored searches. This might
+    /// occur, for example, for patterns that are unconditionally anchored.
+    /// e.g., `^foo`.
     pub(super) fn set_starts(
         &mut self,
         start_anchored: StateID,
@@ -828,6 +1194,13 @@ impl Inner {
         self.start_pattern = start_pattern.to_owned();
     }
 
+    /// Set the capturing groups for this NFA.
+    ///
+    /// The given slice should contain the capturing groups for each pattern,
+    /// The capturing groups in turn should correspond to the total number of
+    /// capturing groups in the pattern, including the anonymous first capture
+    /// group for each pattern. Any capturing group does have a name, then it
+    /// should be provided.
     pub(super) fn set_captures(&mut self, captures: &[Vec<Option<Arc<str>>>]) {
         // IDEA: I wonder if it makes sense to split this routine up by
         // defining smaller mutator methods. We are manipulating a lot of state
@@ -964,15 +1337,38 @@ type CaptureNameMap = std::collections::HashMap<Arc<str>, usize>;
 #[cfg(not(feature = "std"))]
 type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, usize>;
 
-/// A state in a final compiled NFA.
+/// A state in an NFA.
+///
+/// In theory, it can help to conceptualize an `NFA` as a graph consisting of
+/// `State`s. Each `State` contains its complete set of outgoing transitions.
+///
+/// In practice, it can help to conceptualize an `NFA` as a sequence of
+/// instructions for a virtual machine. Each `State` says what to do and where
+/// to go next.
+///
+/// Strictly speaking, the practical interpretation is the most correct one,
+/// because of the [`Capture`](State::Capture) state. Namely, a `Capture`
+/// state always forwards execution to another state unconditionally. Its only
+/// purpose is to cause a side effect: the recording of the current input
+/// position at a particular location in memory. In this sense, an `NFA`
+/// has more power than a theoretical non-deterministic finite automaton.
+/// (Although, strictly speaking, one could write a search implementation that
+/// ignores `Capture` states and reports only the end location of a match, just
+/// like the DFAs do. However, such a limited implementation does not exist in
+/// this crate.)
+///
+/// For most uses of this crate, it is likely that one may never even need to
+/// be aware of this type at all. The main use cases for looking at `State`s
+/// directly are if you need to write your own search implementation or if you
+/// need to do some kind of analysis on the NFA.
 #[derive(Clone, Eq, PartialEq)]
 pub enum State {
     /// A state that transitions to `next` if and only if the current input
-    /// byte is in the range `[start, end]` (inclusive).
+    /// byte is in the `range`.
     ///
     /// This is a special case of Sparse in that it encodes only one transition
     /// (and therefore avoids the allocation).
-    Range { range: Transition },
+    ByteRange { trans: Transition },
     /// A state with possibly many transitions, represented in a sparse
     /// fashion. Transitions are ordered lexicographically by input range. As
     /// such, this may only be used when every transition has equal priority.
@@ -1017,7 +1413,7 @@ impl State {
     #[inline]
     pub fn is_epsilon(&self) -> bool {
         match *self {
-            State::Range { .. }
+            State::ByteRange { .. }
             | State::Sparse { .. }
             | State::Fail
             | State::Match { .. } => false,
@@ -1030,13 +1426,13 @@ impl State {
     /// Returns the heap memory usage of this NFA state in bytes.
     fn memory_usage(&self) -> usize {
         match *self {
-            State::Range { .. }
+            State::ByteRange { .. }
             | State::Look { .. }
             | State::Capture { .. }
             | State::Match { .. }
             | State::Fail => 0,
-            State::Sparse(SparseTransitions { ref ranges }) => {
-                ranges.len() * mem::size_of::<Transition>()
+            State::Sparse(SparseTransitions { ref transitions }) => {
+                transitions.len() * mem::size_of::<Transition>()
             }
             State::Union { ref alternates } => {
                 alternates.len() * mem::size_of::<StateID>()
@@ -1052,10 +1448,12 @@ impl State {
     /// its intermediate NFA into the final NFA.
     fn remap(&mut self, remap: &[StateID]) {
         match *self {
-            State::Range { ref mut range } => range.next = remap[range.next],
-            State::Sparse(SparseTransitions { ref mut ranges }) => {
-                for r in ranges.iter_mut() {
-                    r.next = remap[r.next];
+            State::ByteRange { ref mut trans } => {
+                trans.next = remap[trans.next]
+            }
+            State::Sparse(SparseTransitions { ref mut transitions }) => {
+                for t in transitions.iter_mut() {
+                    t.next = remap[t.next];
                 }
             }
             State::Look { ref mut next, .. } => *next = remap[*next],
@@ -1074,9 +1472,9 @@ impl State {
 impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            State::Range { ref range } => range.fmt(f),
-            State::Sparse(SparseTransitions { ref ranges }) => {
-                let rs = ranges
+            State::ByteRange { ref trans } => trans.fmt(f),
+            State::Sparse(SparseTransitions { ref transitions }) => {
+                let rs = transitions
                     .iter()
                     .map(|t| format!("{:?}", t))
                     .collect::<Vec<String>>()
@@ -1111,17 +1509,17 @@ impl fmt::Debug for State {
 /// the most part, it is implementation driven.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Facts {
-    pub(super) has_captures: bool,
-    pub(super) has_any_look: bool,
-    pub(super) has_any_anchor: bool,
-    pub(super) has_word_boundary_unicode: bool,
-    pub(super) has_word_boundary_ascii: bool,
+    has_capture: bool,
+    has_look: bool,
+    has_anchor: bool,
+    has_word_boundary_unicode: bool,
+    has_word_boundary_ascii: bool,
 }
 
 /// A sequence of transitions used to represent a sparse state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SparseTransitions {
-    pub ranges: Box<[Transition]>,
+    pub transitions: Box<[Transition]>,
 }
 
 impl SparseTransitions {
@@ -1134,7 +1532,7 @@ impl SparseTransitions {
     }
 
     pub fn matches_byte(&self, byte: u8) -> Option<StateID> {
-        for t in self.ranges.iter() {
+        for t in self.transitions.iter() {
             if t.start > byte {
                 break;
             } else if t.matches_byte(byte) {
@@ -1152,7 +1550,7 @@ impl SparseTransitions {
         //
         // I could not observe any improvement, and in fact, things seemed to
         // be a bit slower.
-        self.ranges
+        self.transitions
             .binary_search_by(|t| {
                 if t.end < byte {
                     core::cmp::Ordering::Less
@@ -1163,7 +1561,7 @@ impl SparseTransitions {
                 }
             })
             .ok()
-            .map(|i| self.ranges[i].next)
+            .map(|i| self.transitions[i].next)
         */
     }
 }
@@ -1433,7 +1831,7 @@ mod tests {
 
     #[test]
     fn always_match() {
-        let nfa = dbg!(NFA::always_match());
+        let nfa = NFA::always_match();
         let vm = PikeVM::new_from_nfa(nfa).unwrap();
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();

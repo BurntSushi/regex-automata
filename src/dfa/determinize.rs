@@ -383,7 +383,7 @@ impl<'a> Runner<'a> {
                 dfa_state_ids.push(id);
             }
         }
-        if !self.nfa.has_any_anchor() {
+        if !self.nfa.has_anchor() {
             self.dfa.set_start_state(Start::Text, pattern_id, id);
             self.dfa.set_start_state(Start::Line, pattern_id, id);
         } else {

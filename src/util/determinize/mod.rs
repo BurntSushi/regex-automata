@@ -169,7 +169,7 @@ pub(crate) fn next(
     // Set whether the StartLine look-behind assertion is true for this
     // transition or not. The look-behind assertion for ASCII word boundaries
     // is handled below.
-    if nfa.has_any_anchor() {
+    if nfa.has_anchor() {
         if unit.as_u8().map_or(false, |b| b == b'\n') {
             // Why only handle StartLine here and not StartText? That's
             // because StartText can only impact the starting state, which
@@ -209,11 +209,11 @@ pub(crate) fn next(
                     break;
                 }
             }
-            thompson::State::Range { range: ref r } => {
-                if r.matches_unit(unit) {
+            thompson::State::ByteRange { ref trans } => {
+                if trans.matches_unit(unit) {
                     epsilon_closure(
                         nfa,
-                        r.next,
+                        trans.next,
                         builder.look_have(),
                         stack,
                         &mut sparses.set2,
@@ -303,7 +303,7 @@ pub(crate) fn epsilon_closure(
                 break;
             }
             match *nfa.state(id) {
-                thompson::State::Range { .. }
+                thompson::State::ByteRange { .. }
                 | thompson::State::Sparse { .. }
                 | thompson::State::Fail
                 | thompson::State::Match { .. } => break,
@@ -356,7 +356,7 @@ pub(crate) fn add_nfa_states(
 ) {
     for nfa_id in set {
         match *nfa.state(nfa_id) {
-            thompson::State::Range { .. } => {
+            thompson::State::ByteRange { .. } => {
                 builder.add_nfa_state_id(nfa_id);
             }
             thompson::State::Sparse { .. } => {

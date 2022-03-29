@@ -38,7 +38,7 @@ enum State {
     },
     /// A state that only transitions to another state if the current input
     /// byte is in a particular range of bytes.
-    Range { range: Transition },
+    ByteRange { trans: Transition },
     /// A state with possibly many transitions, represented in a sparse
     /// fashion. Transitions must be ordered lexicographically by input range
     /// and be non-overlapping. As such, this may only be used when every
@@ -52,7 +52,7 @@ enum State {
     /// that `Sparse` is used for via `Union`. But this creates a more bloated
     /// NFA with more epsilon transitions than is necessary in the special case
     /// of character classes.
-    Sparse { ranges: Vec<Transition> },
+    Sparse { transitions: Vec<Transition> },
     /// A conditional epsilon transition satisfied via some sort of
     /// look-around.
     Look { look: Look, next: StateID },
@@ -128,14 +128,14 @@ impl State {
     fn memory_usage(&self) -> usize {
         match *self {
             State::Empty { .. }
-            | State::Range { .. }
+            | State::ByteRange { .. }
             | State::Look { .. }
             | State::CaptureStart { .. }
             | State::CaptureEnd { .. }
             | State::Fail
             | State::Match { .. } => 0,
-            State::Sparse { ref ranges } => {
-                ranges.len() * mem::size_of::<Transition>()
+            State::Sparse { ref transitions } => {
+                transitions.len() * mem::size_of::<Transition>()
             }
             State::Union { ref alternates } => {
                 alternates.len() * mem::size_of::<StateID>()
@@ -420,16 +420,19 @@ impl Builder {
                     // empty state will be mapped to.
                     empties.push((sid, next));
                 }
-                State::Range { range } => {
-                    remap[sid] = nfa.add(nfa::State::Range { range });
+                State::ByteRange { trans } => {
+                    remap[sid] = nfa.add(nfa::State::ByteRange { trans });
                 }
-                State::Sparse { ref ranges } => {
-                    remap[sid] = match ranges.len() {
+                State::Sparse { ref transitions } => {
+                    remap[sid] = match transitions.len() {
                         0 => nfa.add(nfa::State::Fail),
-                        1 => nfa.add(nfa::State::Range { range: ranges[0] }),
+                        1 => nfa.add(nfa::State::ByteRange {
+                            trans: transitions[0],
+                        }),
                         _ => {
-                            let ranges = ranges.to_owned().into_boxed_slice();
-                            let sparse = SparseTransitions { ranges };
+                            let transitions =
+                                transitions.to_owned().into_boxed_slice();
+                            let sparse = SparseTransitions { transitions };
                             nfa.add(nfa::State::Sparse(sparse))
                         }
                     }
@@ -663,8 +666,8 @@ impl Builder {
     ///
     /// This returns an error if the state identifier space is exhausted, or if
     /// the configured heap size limit has been exceeded.
-    pub fn add_range(&mut self, range: Transition) -> Result<StateID, Error> {
-        self.add(State::Range { range })
+    pub fn add_range(&mut self, trans: Transition) -> Result<StateID, Error> {
+        self.add(State::ByteRange { trans })
     }
 
     /// Add a "sparse" NFA state.
@@ -699,9 +702,9 @@ impl Builder {
     /// in ascending order.
     pub fn add_sparse(
         &mut self,
-        ranges: Vec<Transition>,
+        transitions: Vec<Transition>,
     ) -> Result<StateID, Error> {
-        self.add(State::Sparse { ranges })
+        self.add(State::Sparse { transitions })
     }
 
     /// Add a "look" NFA state.
@@ -793,7 +796,7 @@ impl Builder {
             if capture_index > self.captures[pid].len() {
                 return Err(Error::invalid_capture_index(capture_index));
             }
-            self.captures[pid].push(None);
+            self.captures[pid].push(name);
             // We check that 'slots' remains valid, since slots could in theory
             // overflow 'usize' without capture indices overflowing usize.
             // (Although, it seems only likely on 16-bit systems.) Either way,
@@ -942,8 +945,8 @@ impl Builder {
             State::Empty { ref mut next } => {
                 *next = to;
             }
-            State::Range { ref mut range } => {
-                range.next = to;
+            State::ByteRange { ref mut trans } => {
+                trans.next = to;
             }
             State::Sparse { .. } => {
                 panic!("cannot patch from a sparse NFA state")

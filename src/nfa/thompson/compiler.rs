@@ -1621,17 +1621,17 @@ mod tests {
     fn s_byte(byte: u8, next: usize) -> State {
         let next = sid(next);
         let trans = Transition { start: byte, end: byte, next };
-        State::Range { range: trans }
+        State::ByteRange { trans }
     }
 
     fn s_range(start: u8, end: u8, next: usize) -> State {
         let next = sid(next);
         let trans = Transition { start, end, next };
-        State::Range { range: trans }
+        State::ByteRange { trans }
     }
 
-    fn s_sparse(ranges: &[(u8, u8, usize)]) -> State {
-        let ranges = ranges
+    fn s_sparse(transitions: &[(u8, u8, usize)]) -> State {
+        let transitions = transitions
             .iter()
             .map(|&(start, end, next)| Transition {
                 start,
@@ -1639,7 +1639,7 @@ mod tests {
                 next: sid(next),
             })
             .collect();
-        State::Sparse(SparseTransitions { ranges })
+        State::Sparse(SparseTransitions { transitions })
     }
 
     fn s_union(alts: &[usize]) -> State {

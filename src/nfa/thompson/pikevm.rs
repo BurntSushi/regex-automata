@@ -87,7 +87,7 @@ impl Builder {
         // relies on them in order to report match locations. However, in the
         // special case of an NFA with no patterns, it is allowed, since no
         // matches can ever be produced.
-        if !nfa.has_captures() && nfa.pattern_len() > 0 {
+        if !nfa.has_capture() && nfa.pattern_len() > 0 {
             return Err(Error::missing_captures());
         }
         if !cfg!(feature = "syntax") {
@@ -376,13 +376,13 @@ impl PikeVM {
             | State::Look { .. }
             | State::Union { .. }
             | State::Capture { .. } => None,
-            State::Range { ref range } => {
-                if range.matches(haystack, at) {
+            State::ByteRange { ref trans } => {
+                if trans.matches(haystack, at) {
                     self.epsilon_closure(
                         nlist,
                         thread_caps,
                         stack,
-                        range.next,
+                        trans.next,
                         haystack,
                         at + 1,
                     );
@@ -455,7 +455,7 @@ impl PikeVM {
             }
             match *self.nfa.state(sid) {
                 State::Fail
-                | State::Range { .. }
+                | State::ByteRange { .. }
                 | State::Sparse { .. }
                 | State::Match { .. } => {
                     let t = &mut nlist.caps(sid);

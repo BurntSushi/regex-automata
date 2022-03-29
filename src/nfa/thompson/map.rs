@@ -25,13 +25,13 @@
 // fast as the naive approach and typically winds up using less memory (since
 // it generates smaller NFAs) despite the presence of the cache.
 //
-// These maps effectively represent caching mechanisms for CState::Sparse and
-// CState::Range, respectively. The former represents a single NFA state with
-// many transitions of equivalent priority while the latter represents a single
-// NFA state with a single transition. (Neither state ever has or is an
-// epsilon transition.) Thus, they have different key types. It's likely we
-// could make one generic map, but the machinery didn't seem worth it. They
-// are simple enough.
+// These maps effectively represent caching mechanisms for sparse and
+// byte-range NFA states, respectively. The former represents a single NFA
+// state with many transitions of equivalent priority while the latter
+// represents a single NFA state with a single transition. (Neither state ever
+// has or is an epsilon transition.) Thus, they have different key types. It's
+// likely we could make one generic map, but the machinery didn't seem worth
+// it. They are simple enough.
 
 use alloc::{vec, vec::Vec};
 
