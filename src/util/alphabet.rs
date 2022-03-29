@@ -420,6 +420,8 @@ impl<'a> Iterator for ByteClassElementRanges<'a> {
     }
 }
 
+/// A partitioning of bytes into equivalence classes.
+///
 /// A byte class set keeps track of an *approximation* of equivalence classes
 /// of bytes during NFA construction. That is, every byte in an equivalence
 /// class cannot discriminate between a match and a non-match.
@@ -452,14 +454,14 @@ impl Default for ByteClassSet {
 impl ByteClassSet {
     /// Create a new set of byte classes where all bytes are part of the same
     /// equivalence class.
-    pub fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         ByteClassSet(ByteSet::empty())
     }
 
     /// Indicate the the range of byte given (inclusive) can discriminate a
     /// match between it and all other bytes outside of the range.
     #[cfg(feature = "alloc")]
-    pub fn set_range(&mut self, start: u8, end: u8) {
+    pub(crate) fn set_range(&mut self, start: u8, end: u8) {
         debug_assert!(start <= end);
         if start > 0 {
             self.0.add(start - 1);
@@ -469,7 +471,7 @@ impl ByteClassSet {
 
     /// Add the contiguous ranges in the set given to this byte class set.
     #[cfg(feature = "alloc")]
-    pub fn add_set(&mut self, set: &ByteSet) {
+    pub(crate) fn add_set(&mut self, set: &ByteSet) {
         for (start, end) in set.iter_ranges() {
             self.set_range(start, end);
         }
