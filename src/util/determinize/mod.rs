@@ -180,6 +180,7 @@ pub(crate) fn next(
     for nfa_id in &sparses.set1 {
         match *nfa.state(nfa_id) {
             thompson::State::Union { .. }
+            | thompson::State::BinaryUnion { .. }
             | thompson::State::Fail
             | thompson::State::Look { .. }
             | thompson::State::Capture { .. } => {}
@@ -323,6 +324,10 @@ pub(crate) fn epsilon_closure(
                     // to the top of the stack.
                     stack.extend(alternates[1..].iter().rev());
                 }
+                thompson::State::BinaryUnion { alt1, alt2 } => {
+                    id = alt1;
+                    stack.push(alt2);
+                }
                 thompson::State::Capture { next, .. } => {
                     id = next;
                 }
@@ -367,6 +372,7 @@ pub(crate) fn add_nfa_states(
                 builder.set_look_need(|need| need.insert(look));
             }
             thompson::State::Union { .. }
+            | thompson::State::BinaryUnion { .. }
             | thompson::State::Capture { .. } => {
                 // Pure epsilon transitions don't need to be tracked
                 // as part of the DFA state. Tracking them is actually

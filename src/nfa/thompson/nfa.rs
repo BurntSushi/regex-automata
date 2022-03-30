@@ -1168,7 +1168,10 @@ impl Inner {
             State::Capture { .. } => {
                 self.facts.has_capture = true;
             }
-            State::Union { .. } | State::Fail | State::Match { .. } => {}
+            State::Union { .. }
+            | State::BinaryUnion { .. }
+            | State::Fail
+            | State::Match { .. } => {}
         }
 
         let id = StateID::new(self.states.len()).unwrap();
@@ -1383,6 +1386,14 @@ pub enum State {
     /// states in `alternates`, where matches found via earlier transitions
     /// are preferred over later transitions.
     Union { alternates: Box<[StateID]> },
+    /// An alternation such that there exists precisely two unconditional
+    /// epsilon transitions, where matches found via `alt1` are preferred over
+    /// matches found via `alt2`.
+    ///
+    /// This state exists as a common special case of Union where there are
+    /// only two alternates. In this case, we don't need any allocations to
+    /// represent the state.
+    BinaryUnion { alt1: StateID, alt2: StateID },
     /// An empty state that records a capture location.
     ///
     /// From the perspective of finite automata, this is precisely equivalent
@@ -1421,6 +1432,7 @@ impl State {
             | State::Match { .. } => false,
             State::Look { .. }
             | State::Union { .. }
+            | State::BinaryUnion { .. }
             | State::Capture { .. } => true,
         }
     }
@@ -1430,6 +1442,7 @@ impl State {
         match *self {
             State::ByteRange { .. }
             | State::Look { .. }
+            | State::BinaryUnion { .. }
             | State::Capture { .. }
             | State::Match { .. }
             | State::Fail => 0,
@@ -1464,6 +1477,10 @@ impl State {
                     *alt = remap[*alt];
                 }
             }
+            State::BinaryUnion { ref mut alt1, ref mut alt2 } => {
+                *alt1 = remap[*alt1];
+                *alt2 = remap[*alt2];
+            }
             State::Capture { ref mut next, .. } => *next = remap[*next],
             State::Fail => {}
             State::Match { .. } => {}
@@ -1492,7 +1509,15 @@ impl fmt::Debug for State {
                     .map(|id| format!("{:?}", id.as_usize()))
                     .collect::<Vec<String>>()
                     .join(", ");
-                write!(f, "alt({})", alts)
+                write!(f, "union({})", alts)
+            }
+            State::BinaryUnion { alt1, alt2 } => {
+                write!(
+                    f,
+                    "binary-union({}, {})",
+                    alt1.as_usize(),
+                    alt2.as_usize()
+                )
             }
             State::Capture { next, slot } => {
                 write!(f, "capture({:?}) => {:?}", slot, next.as_usize())

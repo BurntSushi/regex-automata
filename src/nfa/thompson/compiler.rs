@@ -1601,11 +1601,9 @@ mod tests {
         util::id::{PatternID, StateID},
     };
 
-    use super::{Compiler, Config};
-
     fn build(pattern: &str) -> NFA {
-        Compiler::new()
-            .configure(Config::new().captures(false).unanchored_prefix(false))
+        NFA::compiler()
+            .configure(NFA::config().captures(false).unanchored_prefix(false))
             .build(pattern)
             .unwrap()
     }
@@ -1642,6 +1640,10 @@ mod tests {
         State::Sparse(SparseTransitions { transitions })
     }
 
+    fn s_bin_union(alt1: usize, alt2: usize) -> State {
+        State::BinaryUnion { alt1: sid(alt1), alt2: sid(alt2) }
+    }
+
     fn s_union(alts: &[usize]) -> State {
         State::Union {
             alternates: alts
@@ -1665,8 +1667,8 @@ mod tests {
     #[test]
     fn compile_unanchored_prefix() {
         // When the machine can only match valid UTF-8.
-        let nfa = Compiler::new()
-            .configure(Config::new().captures(false))
+        let nfa = NFA::compiler()
+            .configure(NFA::config().captures(false))
             .build(r"a")
             .unwrap();
         // There should be many states since the `.` in `(?s:.)*?` matches any
@@ -1676,14 +1678,14 @@ mod tests {
         assert_eq!(nfa.states()[9], s_byte(b'a', 10));
 
         // When the machine can match through invalid UTF-8.
-        let nfa = Compiler::new()
-            .configure(Config::new().captures(false).utf8(false))
+        let nfa = NFA::compiler()
+            .configure(NFA::config().captures(false).utf8(false))
             .build(r"a")
             .unwrap();
         assert_eq!(
             nfa.states(),
             &[
-                s_union(&[2, 1]),
+                s_bin_union(2, 1),
                 s_range(0, 255, 0),
                 s_byte(b'a', 3),
                 s_match(0),
@@ -1709,9 +1711,9 @@ mod tests {
         );
 
         // Check that non-UTF-8 literals work.
-        let nfa = Compiler::new()
+        let nfa = NFA::compiler()
             .configure(
-                Config::new()
+                NFA::config()
                     .captures(false)
                     .utf8(false)
                     .unanchored_prefix(false),
@@ -1762,11 +1764,11 @@ mod tests {
     fn compile_repetition() {
         assert_eq!(
             build(r"a?").states(),
-            &[s_union(&[1, 2]), s_byte(b'a', 2), s_match(0),]
+            &[s_bin_union(1, 2), s_byte(b'a', 2), s_match(0),]
         );
         assert_eq!(
             build(r"a??").states(),
-            &[s_union(&[2, 1]), s_byte(b'a', 2), s_match(0),]
+            &[s_bin_union(2, 1), s_byte(b'a', 2), s_match(0),]
         );
     }
 
@@ -1774,7 +1776,7 @@ mod tests {
     fn compile_group() {
         assert_eq!(
             build(r"ab+").states(),
-            &[s_byte(b'a', 1), s_byte(b'b', 2), s_union(&[1, 3]), s_match(0)]
+            &[s_byte(b'a', 1), s_byte(b'b', 2), s_bin_union(1, 3), s_match(0)]
         );
         assert_eq!(
             build(r"(ab)").states(),
@@ -1782,7 +1784,7 @@ mod tests {
         );
         assert_eq!(
             build(r"(ab)+").states(),
-            &[s_byte(b'a', 1), s_byte(b'b', 2), s_union(&[0, 3]), s_match(0)]
+            &[s_byte(b'a', 1), s_byte(b'b', 2), s_bin_union(0, 3), s_match(0)]
         );
     }
 
@@ -1790,22 +1792,55 @@ mod tests {
     fn compile_alternation() {
         assert_eq!(
             build(r"a|b").states(),
-            &[s_byte(b'a', 3), s_byte(b'b', 3), s_union(&[0, 1]), s_match(0)]
+            &[s_byte(b'a', 3), s_byte(b'b', 3), s_bin_union(0, 1), s_match(0)]
         );
         assert_eq!(
             build(r"|b").states(),
-            &[s_byte(b'b', 2), s_union(&[2, 0]), s_match(0)]
+            &[s_byte(b'b', 2), s_bin_union(2, 0), s_match(0)]
         );
         assert_eq!(
             build(r"a|").states(),
-            &[s_byte(b'a', 2), s_union(&[0, 2]), s_match(0)]
+            &[s_byte(b'a', 2), s_bin_union(0, 2), s_match(0)]
+        );
+    }
+
+    // This tests the use of a non-binary union, i.e., a state with more than
+    // 2 unconditional epsilon transitions. The only place they tend to appear
+    // is in reverse NFAs when shrinking is disabled. Otherwise, 'binary-union'
+    // and 'sparse' tend to cover all other cases of alternation.
+    #[test]
+    fn compile_non_binary_union() {
+        let nfa = NFA::compiler()
+            .configure(
+                NFA::config()
+                    .reverse(true)
+                    .shrink(false)
+                    .unanchored_prefix(false),
+            )
+            .build(r"[\u1000\u2000\u3000]")
+            .unwrap();
+        assert_eq!(
+            nfa.states(),
+            &[
+                s_union(&[3, 6, 9]),
+                s_byte(0xE1, 10),
+                s_byte(0x80, 1),
+                s_byte(0x80, 2),
+                s_byte(0xE2, 10),
+                s_byte(0x80, 4),
+                s_byte(0x80, 5),
+                s_byte(0xE3, 10),
+                s_byte(0x80, 7),
+                s_byte(0x80, 8),
+                s_match(0),
+            ]
         );
     }
 
     #[test]
-    fn many_start_pattern() {
-        let nfa = Compiler::new()
-            .configure(Config::new().captures(false).unanchored_prefix(false))
+    fn compile_many_start_pattern() {
+        let nfa = NFA::compiler()
+            .configure(NFA::config().captures(false).unanchored_prefix(false))
             .build_many(&["a", "b"])
             .unwrap();
         assert_eq!(
@@ -1815,7 +1850,7 @@ mod tests {
                 s_match(0),
                 s_byte(b'b', 3),
                 s_match(1),
-                s_union(&[0, 2]),
+                s_bin_union(0, 2),
             ]
         );
         assert_eq!(nfa.start_anchored().as_usize(), 4);

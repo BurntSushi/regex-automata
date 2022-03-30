@@ -463,6 +463,11 @@ impl Builder {
                         remap[sid] = nfa.add(nfa::State::Fail);
                     } else if alternates.len() == 1 {
                         empties.push((sid, alternates[0]));
+                    } else if alternates.len() == 2 {
+                        remap[sid] = nfa.add(nfa::State::BinaryUnion {
+                            alt1: alternates[0],
+                            alt2: alternates[1],
+                        });
                     } else {
                         let alternates =
                             alternates.to_owned().into_boxed_slice();
@@ -474,6 +479,11 @@ impl Builder {
                         remap[sid] = nfa.add(nfa::State::Fail);
                     } else if alternates.len() == 1 {
                         empties.push((sid, alternates[0]));
+                    } else if alternates.len() == 2 {
+                        remap[sid] = nfa.add(nfa::State::BinaryUnion {
+                            alt1: alternates[1],
+                            alt2: alternates[0],
+                        });
                     } else {
                         let mut alternates =
                             alternates.to_owned().into_boxed_slice();

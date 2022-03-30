@@ -18,6 +18,10 @@ edition = "2018"
 [[bin]]
 name = "regex-cli"
 
+[features]
+instrument = ["instrument-pikevm"]
+instrument-pikevm = ["automata/instrument-pikevm"]
+
 [dependencies]
 anyhow = "1.0.28"
 bstr = { version = "0.2.16", default-features = false, features = ["std"] }

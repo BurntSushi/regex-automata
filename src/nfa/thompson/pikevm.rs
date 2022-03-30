@@ -252,53 +252,38 @@ impl PikeVM {
         let mut at = start;
         let mut matched_pid = None;
 
+        #[cfg(feature = "instrument-pikevm")]
+        let mut counters = Counters::new(&self.nfa);
+
         cache.clear();
-        // FIXME: Putting the epsilon closure here is the most correct thing to
-        // do, since it will correctly terminate a search when invalid UTF-8
-        // is encountered if a only-valid-UTF-8 unanchored prefix is built
-        // into the NFA. It also handles all other cases correctly. The main
-        // problem is that this can lead to a fairly large slow-down, since the
-        // list of states will always contain whatever this epsilon closure
-        // populates them with (for unanchored searches). That's in contrast
-        // to bypassing the unanchored prefix entirely by just re-adding the
-        // *anchored* start state whenever the current list of states is empty.
-        // (This would occur inside the loop below, but before the loop over
-        // the current list of states.)
+        // NOTE: Putting the epsilon closure here is the most correct thing to
+        // do, since it will correctly terminate a search when invalid UTF-8 is
+        // encountered if a only-valid-UTF-8 unanchored prefix is built into
+        // the NFA. It also handles all other cases correctly. The main problem
+        // with this approach is that it can lead to a bit more churn from
+        // state shuffling when compared to implementing the unanchored prefix
+        // manually. (As we used to before.)
         //
-        // But if we implement the unanchored prefix ourselves, then we also
-        // need to provide a way for the search to terminate in the presence of
-        // invalid UTF-8. This is... quite annoying to deal with. Here are some
-        // options:
+        // Since manually implementing the unanchored prefix leads to
+        // correctness issues, are choices are to either fix the manual
+        // unanchored prefix or to only use it in cases where there are no
+        // correctness issues.
         //
-        // 1) Accept the perf hit and keep the code simple.
+        // Fixing it is plausible, but it would require weaving a separate
+        // UTF-8 validity automaton into the loop below. Seems possible, but
+        // annoying.
         //
-        // 2) Make the NFA expose what kind of unanchored prefix it has.
-        // If it requires valid UTF-8, then... what? Write a specialized
-        // UTF-8 decoder and only do an epsilon closure if we're at a valid
-        // UTF-8 boundary?
+        // Using it only in cases where it's correct is also possible. For
+        // example, it is always correct to use a manual unanchored prefix if
+        // you *know* the haystack is valid UTF-8. And that corresponds to
+        // &str in Rust. But this does lead to some annoyances in terms of API
+        // design and implementation.
         //
-        // 3) Like 2, but expose something in the API that requires the
-        // caller to say if the haystack is all valid UTF-8. If so, then the
-        // unanchored prefix can never reject anything and all is well: the
-        // fast version works. In cases where we have a valid UTF-8 unanchored
-        // prefix but the haystack is not valid UTF-8, then we need to put the
-        // epsilon closure at the start. (Which is also a huge bummer.)
-        //
-        // 4) Figure out how to make the simple code fast...
-        //
-        // How did the regex crate's old PikeVM implementation handle this?
-        // Well, it rolled its own unanchored prefix (i.e., the fast way) but
-        // its PikeVM was built on top of a input handling mechanism that tries
-        // hard to deal only with Unicode codepoints. So the Pike VM there does
-        // actually do its own UTF-8 decoding. Siiiiigh. We really do not want
-        // to go back to that. Why? i) NFAs are now all byte based and ii) that
-        // input handling mechanism greatly complicates the implementation and
-        // was actually the source of some bugs. (ii) is likely possible to
-        // mitigate by smarter code organization.
-        //
-        // Maybe we just go with (1) for now, accept the hit and try to
-        // optimize this later? Siiiiiiiiiigh. Yup, that's what I'm doing.
+        // For now, we stick with the simpler and correct choice because this
+        // is the NFA simulation, which is already pretty slow.
         self.epsilon_closure(
+            #[cfg(feature = "instrument-pikevm")]
+            &mut counters,
             &mut cache.clist,
             &mut caps.slots,
             &mut cache.stack,
@@ -307,9 +292,17 @@ impl PikeVM {
             at,
         );
         while at <= end && !cache.clist.set.is_empty() {
+            #[cfg(feature = "instrument-pikevm")]
+            counters.record_state_set(&cache.clist.set);
+
             for i in 0..cache.clist.set.len() {
                 let sid = cache.clist.set.get(i);
+                #[cfg(feature = "instrument-pikevm")]
+                counters.record_step(sid);
+
                 let pid = match self.step(
+                    #[cfg(feature = "instrument-pikevm")]
+                    &mut counters,
                     &mut cache.nlist,
                     &mut caps.slots,
                     cache.clist.caps(sid),
@@ -328,6 +321,8 @@ impl PikeVM {
             cache.swap();
             cache.nlist.set.clear();
         }
+        #[cfg(feature = "instrument-pikevm")]
+        counters.eprint(&self.nfa);
         matched_pid.map(|pid| {
             let (start, end) = self.nfa.slots(pid, 0);
             MultiMatch::new(
@@ -364,6 +359,7 @@ impl PikeVM {
     // #[inline(never)]
     fn step(
         &self,
+        #[cfg(feature = "instrument-pikevm")] counters: &mut Counters,
         nlist: &mut Threads,
         slots: &mut [Slot],
         thread_caps: &mut [Slot],
@@ -376,10 +372,13 @@ impl PikeVM {
             State::Fail
             | State::Look { .. }
             | State::Union { .. }
+            | State::BinaryUnion { .. }
             | State::Capture { .. } => None,
             State::ByteRange { ref trans } => {
                 if trans.matches(haystack, at) {
                     self.epsilon_closure(
+                        #[cfg(feature = "instrument-pikevm")]
+                        counters,
                         nlist,
                         thread_caps,
                         stack,
@@ -393,6 +392,8 @@ impl PikeVM {
             State::Sparse(ref sparse) => {
                 if let Some(next) = sparse.matches(haystack, at) {
                     self.epsilon_closure(
+                        #[cfg(feature = "instrument-pikevm")]
+                        counters,
                         nlist,
                         thread_caps,
                         stack,
@@ -414,6 +415,7 @@ impl PikeVM {
     #[inline(never)]
     fn epsilon_closure(
         &self,
+        #[cfg(feature = "instrument-pikevm")] counters: &mut Counters,
         nlist: &mut Threads,
         thread_caps: &mut [Slot],
         stack: &mut Vec<FollowEpsilon>,
@@ -421,11 +423,18 @@ impl PikeVM {
         haystack: &[u8],
         at: usize,
     ) {
+        #[cfg(feature = "instrument-pikevm")]
+        counters.record_closure(sid);
+
+        #[cfg(feature = "instrument-pikevm")]
+        counters.record_stack_push(sid);
         stack.push(FollowEpsilon::StateID(sid));
         while let Some(frame) = stack.pop() {
             match frame {
                 FollowEpsilon::StateID(sid) => {
                     self.epsilon_closure_step(
+                        #[cfg(feature = "instrument-pikevm")]
+                        counters,
                         nlist,
                         thread_caps,
                         stack,
@@ -445,6 +454,7 @@ impl PikeVM {
     // #[inline(never)]
     fn epsilon_closure_step(
         &self,
+        #[cfg(feature = "instrument-pikevm")] counters: &mut Counters,
         nlist: &mut Threads,
         thread_caps: &mut [Slot],
         stack: &mut Vec<FollowEpsilon>,
@@ -453,11 +463,8 @@ impl PikeVM {
         at: usize,
     ) {
         loop {
-            // BREADCRUMBS: Time to look at the actual regex programs being
-            // executed in the regex crate. There are some CRAZY perf
-            // differences in the PikeVM. Methinks it has to do with the fact
-            // that the regex crate has a "UnicodeRanges" state where as this
-            // crate does not... Sigh. ---AG
+            #[cfg(feature = "instrument-pikevm")]
+            counters.record_set_insert(sid);
             if !nlist.set.insert(sid) {
                 return;
             }
@@ -486,6 +493,12 @@ impl PikeVM {
                         None => return,
                         Some(&sid) => sid,
                     };
+                    #[cfg(feature = "instrument-pikevm")]
+                    {
+                        for &alt in &alternates[1..] {
+                            counters.record_stack_push(alt);
+                        }
+                    }
                     stack.extend(
                         alternates[1..]
                             .iter()
@@ -493,6 +506,12 @@ impl PikeVM {
                             .rev()
                             .map(FollowEpsilon::StateID),
                     );
+                }
+                State::BinaryUnion { alt1, alt2 } => {
+                    sid = alt1;
+                    #[cfg(feature = "instrument-pikevm")]
+                    counters.record_stack_push(sid);
+                    stack.push(FollowEpsilon::StateID(alt2));
                 }
                 State::Capture { next, slot } => {
                     if slot < thread_caps.len() {
@@ -657,5 +676,133 @@ impl Threads {
     fn caps(&mut self, sid: StateID) -> &mut [Slot] {
         let i = sid.as_usize() * self.slots_per_thread;
         &mut self.caps[i..i + self.slots_per_thread]
+    }
+}
+
+/// A set of counters that "instruments" a PikeVM search.
+///
+/// This is a somewhat hacked together collection of metrics that are useful
+/// to gather from a PikeVM search. In particular, it lets us scrutinize the
+/// performance profile of a search beyond what general purpose profiling tools
+/// give us. Namely, we orient the profiling data around the specific states of
+/// the NFA.
+///
+/// In other words, this lets us see which parts of the NFA graph are most
+/// frequently activated. This then provides direction for optimization
+/// opportunities.
+///
+/// The really sad part about this is that it absolutely clutters up the PikeVM
+/// implementation. :'( Another approach would be to just manually add this
+/// code in whenever I want this kind of profiling data, but it's complicated
+/// and tedious enough that I went with this approach... for now.
+///
+/// When instrumentation is enabled (which also turns on 'logging'), then a
+/// `Counters` is initialized for every search and `trace`'d just before the
+/// search returns to the caller.
+///
+/// Tip: When debugging performance problems with the PikeVM, it's best to try
+/// to work with an NFA that is as small as possible. Otherwise the state graph
+/// is likely to be too big to digest.
+#[cfg(feature = "instrument-pikevm")]
+#[derive(Clone, Debug)]
+struct Counters {
+    /// The number of times the NFA is in a particular permutation of states.
+    state_sets: alloc::collections::BTreeMap<Vec<StateID>, u64>,
+    /// The number of times 'step' is called for a particular state ID (which
+    /// indexes this array).
+    steps: Vec<u64>,
+    /// The number of times an epsilon closure was computed for a state.
+    closures: Vec<u64>,
+    /// The number of times a particular state ID is pushed on to a stack while
+    /// computing an epsilon closure.
+    stack_pushes: Vec<u64>,
+    /// The number of times a particular state ID is inserted into a sparse set
+    /// while computing an epsilon closure.
+    set_inserts: Vec<u64>,
+}
+
+#[cfg(feature = "instrument-pikevm")]
+impl Counters {
+    fn new(nfa: &NFA) -> Counters {
+        let len = nfa.states().len();
+        Counters {
+            state_sets: alloc::collections::BTreeMap::new(),
+            steps: vec![0; len],
+            closures: vec![0; len],
+            stack_pushes: vec![0; len],
+            set_inserts: vec![0; len],
+        }
+    }
+
+    fn eprint(&self, nfa: &NFA) {
+        trace!("===== START PikeVM Instrumentation Output =====");
+        // We take the top-K most occurring state sets. Otherwise the output
+        // is likely to be overwhelming. And we probably only care about the
+        // most frequently occuring ones anyway.
+        const LIMIT: usize = 20;
+        let mut set_counts =
+            self.state_sets.iter().collect::<Vec<(&Vec<StateID>, &u64)>>();
+        set_counts.sort_by_key(|(_, &count)| core::cmp::Reverse(count));
+        trace!("## PikeVM frequency of state sets (top {})", LIMIT);
+        for (set, count) in set_counts.iter().take(LIMIT) {
+            trace!("{:?}: {}", set, count);
+        }
+        if set_counts.len() > LIMIT {
+            trace!(
+                "... {} sets omitted (out of {} total)",
+                set_counts.len() - LIMIT,
+                set_counts.len(),
+            );
+        }
+
+        trace!("");
+        trace!("## PikeVM total frequency of events");
+        trace!(
+            "steps: {}, closures: {}, stack-pushes: {}, set-inserts: {}",
+            self.steps.iter().copied().sum::<u64>(),
+            self.closures.iter().copied().sum::<u64>(),
+            self.stack_pushes.iter().copied().sum::<u64>(),
+            self.set_inserts.iter().copied().sum::<u64>(),
+        );
+
+        trace!("");
+        trace!("## PikeVM frequency of events broken down by state");
+        for sid in 0..self.steps.len() {
+            trace!(
+                "{:06}: steps: {}, closures: {}, \
+                 stack-pushes: {}, set-inserts: {}",
+                sid,
+                self.steps[sid],
+                self.closures[sid],
+                self.stack_pushes[sid],
+                self.set_inserts[sid],
+            );
+        }
+
+        trace!("");
+        trace!("## NFA debug display");
+        trace!("{:?}", nfa);
+        trace!("===== END PikeVM Instrumentation Output =====");
+    }
+
+    fn record_state_set(&mut self, set: &SparseSet) {
+        let set = set.into_iter().collect::<Vec<StateID>>();
+        *self.state_sets.entry(set).or_insert(0) += 1;
+    }
+
+    fn record_step(&mut self, sid: StateID) {
+        self.steps[sid] += 1;
+    }
+
+    fn record_closure(&mut self, sid: StateID) {
+        self.closures[sid] += 1;
+    }
+
+    fn record_stack_push(&mut self, sid: StateID) {
+        self.stack_pushes[sid] += 1;
+    }
+
+    fn record_set_insert(&mut self, sid: StateID) {
+        self.set_inserts[sid] += 1;
     }
 }
