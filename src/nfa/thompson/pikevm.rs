@@ -10,6 +10,22 @@ use crate::{
     },
 };
 
+/// A simple macro for conditionally executing instrumentation logic when
+/// the 'trace' log level is enabled. This is a compile-time no-op when the
+/// 'instrument-pikevm' feature isn't enabled. The intent here is that this
+/// makes it easier to avoid doing extra work when instrumentation isn't
+/// enabled.
+macro_rules! instrument {
+    ($($tt:tt)*) => {
+        #[cfg(feature = "instrument-pikevm")]
+        {
+            if log::log_enabled!(log::Level::Trace) {
+                $($tt)*
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
     anchored: Option<bool>,
@@ -245,8 +261,9 @@ impl PikeVM {
             || self.nfa.is_always_start_anchored()
             || pattern_id.is_some();
         let start_id = match pattern_id {
-            None if anchored => self.nfa.start_anchored(),
-            None => self.nfa.start_unanchored(),
+            // None if anchored => self.nfa.start_anchored(),
+            // None => self.nfa.start_unanchored(),
+            None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
         let mut at = start;
@@ -281,24 +298,46 @@ impl PikeVM {
         //
         // For now, we stick with the simpler and correct choice because this
         // is the NFA simulation, which is already pretty slow.
-        self.epsilon_closure(
-            #[cfg(feature = "instrument-pikevm")]
-            &mut counters,
-            &mut cache.clist,
-            &mut caps.slots,
-            &mut cache.stack,
-            start_id,
-            haystack,
-            at,
-        );
-        while at <= end && !cache.clist.set.is_empty() {
-            #[cfg(feature = "instrument-pikevm")]
-            counters.record_state_set(&cache.clist.set);
+        // self.epsilon_closure(
+        // #[cfg(feature = "instrument-pikevm")]
+        // &mut counters,
+        // &mut cache.clist,
+        // &mut caps.slots,
+        // &mut cache.stack,
+        // start_id,
+        // haystack,
+        // at,
+        // );
+        // while at <= end && !cache.clist.set.is_empty() {
+        while at <= end {
+            if cache.clist.set.is_empty() {
+                if matched_pid.is_some() || (anchored && at > start) {
+                    break;
+                }
+            }
+            if cache.clist.set.is_empty()
+                || (!anchored && matched_pid.is_none())
+            {
+                self.epsilon_closure(
+                    #[cfg(feature = "instrument-pikevm")]
+                    &mut counters,
+                    &mut cache.clist,
+                    &mut caps.slots,
+                    &mut cache.stack,
+                    start_id,
+                    haystack,
+                    at,
+                );
+            }
+            instrument! {
+                counters.record_state_set(&cache.clist.set);
+            }
 
             for i in 0..cache.clist.set.len() {
                 let sid = cache.clist.set.get(i);
-                #[cfg(feature = "instrument-pikevm")]
-                counters.record_step(sid);
+                instrument! {
+                    counters.record_step(sid);
+                }
 
                 let pid = match self.step(
                     #[cfg(feature = "instrument-pikevm")]
@@ -321,8 +360,9 @@ impl PikeVM {
             cache.swap();
             cache.nlist.set.clear();
         }
-        #[cfg(feature = "instrument-pikevm")]
-        counters.eprint(&self.nfa);
+        instrument! {
+            counters.eprint(&self.nfa);
+        }
         matched_pid.map(|pid| {
             let (start, end) = self.nfa.slots(pid, 0);
             MultiMatch::new(
@@ -423,11 +463,13 @@ impl PikeVM {
         haystack: &[u8],
         at: usize,
     ) {
-        #[cfg(feature = "instrument-pikevm")]
-        counters.record_closure(sid);
+        instrument! {
+            counters.record_closure(sid);
+        }
 
-        #[cfg(feature = "instrument-pikevm")]
-        counters.record_stack_push(sid);
+        instrument! {
+            counters.record_stack_push(sid);
+        }
         stack.push(FollowEpsilon::StateID(sid));
         while let Some(frame) = stack.pop() {
             match frame {
@@ -462,9 +504,29 @@ impl PikeVM {
         haystack: &[u8],
         at: usize,
     ) {
+        // BREADCRUMBS: OK so we've got two big wins: the return to manual
+        // unanchored prefix (because we don't need to care about valid
+        // for the unanchored prefix), and a rejiggering of the epsilon-closure
+        // and step sequence: we move the 'byte' check into the epsilon closure
+        // instead of in step. This keeps our states smaller.
+        //
+        // We also should rejigger how we deal with captures. RE2 has some
+        // optimizations here. We really want to deal with allocation better
+        // and perhaps avoid the 'caps' call. AND we want to be able to say
+        // "we've seen this state" (to avoid epsilon closure loops) and
+        // "don't step over this state" (because epsilon transitions do nothing
+        // in 'step').
+        //
+        // So I think we need another kind of sparse set that permits storing
+        // values with indices.
+        //
+        // Also, get rid of the NFA utf-8 option? That would be nice... Yes,
+        // I think we should. If we keep it, then we can't unconditionally do
+        // our manual unanchored prefix.
         loop {
-            #[cfg(feature = "instrument-pikevm")]
-            counters.record_set_insert(sid);
+            instrument! {
+                counters.record_set_insert(sid);
+            }
             if !nlist.set.insert(sid) {
                 return;
             }
@@ -493,8 +555,7 @@ impl PikeVM {
                         None => return,
                         Some(&sid) => sid,
                     };
-                    #[cfg(feature = "instrument-pikevm")]
-                    {
+                    instrument! {
                         for &alt in &alternates[1..] {
                             counters.record_stack_push(alt);
                         }
@@ -509,8 +570,9 @@ impl PikeVM {
                 }
                 State::BinaryUnion { alt1, alt2 } => {
                     sid = alt1;
-                    #[cfg(feature = "instrument-pikevm")]
-                    counters.record_stack_push(sid);
+                    instrument! {
+                        counters.record_stack_push(sid);
+                    }
                     stack.push(FollowEpsilon::StateID(alt2));
                 }
                 State::Capture { next, slot } => {
@@ -679,7 +741,17 @@ impl Threads {
     }
 }
 
-/// A set of counters that "instruments" a PikeVM search.
+/// A set of counters that "instruments" a PikeVM search. To enable this, you
+/// must enable the 'instrument-pikevm' feature. Then run your Rust program
+/// with RUST_LOG=regex_automata::nfa::thompson::pikevm=trace set in the
+/// environment. The metrics collected will be dumped automatically for every
+/// search executed by the PikeVM.
+///
+/// NOTE: When 'instrument-pikevm' is enabled, it will likely cause an absolute
+/// decrease in wall-clock performance, even if the 'trace' log level isn't
+/// enabled. (Although, we do try to avoid extra costs when 'trace' isn't
+/// enabled.) The main point of instrumentation is to get counts of various
+/// events that occur during the PikeVM's execution.
 ///
 /// This is a somewhat hacked together collection of metrics that are useful
 /// to gather from a PikeVM search. In particular, it lets us scrutinize the
@@ -724,13 +796,23 @@ struct Counters {
 #[cfg(feature = "instrument-pikevm")]
 impl Counters {
     fn new(nfa: &NFA) -> Counters {
-        let len = nfa.states().len();
-        Counters {
-            state_sets: alloc::collections::BTreeMap::new(),
-            steps: vec![0; len],
-            closures: vec![0; len],
-            stack_pushes: vec![0; len],
-            set_inserts: vec![0; len],
+        if log::log_enabled!(log::Level::Trace) {
+            let len = nfa.states().len();
+            Counters {
+                state_sets: alloc::collections::BTreeMap::new(),
+                steps: vec![0; len],
+                closures: vec![0; len],
+                stack_pushes: vec![0; len],
+                set_inserts: vec![0; len],
+            }
+        } else {
+            Counters {
+                state_sets: alloc::collections::BTreeMap::new(),
+                steps: vec![],
+                closures: vec![],
+                stack_pushes: vec![],
+                set_inserts: vec![],
+            }
         }
     }
 

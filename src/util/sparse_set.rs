@@ -60,6 +60,10 @@ impl SparseSets {
     }
 }
 
+// TODO: We need a slightly more sophisticated SparseSet for the NFA, where we
+// can create a spot for something with additional data aside from the state
+// ID.
+
 /// A sparse set used for representing ordered NFA states.
 ///
 /// This supports constant time addition and membership testing. Clearing an
@@ -163,6 +167,15 @@ impl SparseSet {
         // OK since i < self.capacity() and self.capacity() is guaranteed to
         // be <= StateID::LIMIT.
         let id = StateID::new_unchecked(i);
+        self.dense[id] = value;
+        self.sparse[value] = id;
+        self.len += 1;
+        true
+    }
+
+    #[inline(always)]
+    pub(crate) fn insert2(&mut self, value: StateID) -> bool {
+        let id = StateID::new_unchecked(self.len());
         self.dense[id] = value;
         self.sparse[value] = id;
         self.len += 1;

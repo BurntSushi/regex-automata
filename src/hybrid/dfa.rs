@@ -3312,7 +3312,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_leftmost_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 25 }),
+    ///     Err(MatchError::GaveUp { offset: 46 }),
     /// );
     ///
     /// // Now that we know the cache is full, if we search a haystack that we
@@ -3330,7 +3330,7 @@ impl Config {
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_earliest_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 26 }),
+    ///     Err(MatchError::GaveUp { offset: 51 }),
     /// );
     ///
     /// // ... switching back to ASCII still makes progress since it just needs
@@ -3338,7 +3338,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_earliest_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 13 }),
+    ///     Err(MatchError::GaveUp { offset: 25 }),
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())

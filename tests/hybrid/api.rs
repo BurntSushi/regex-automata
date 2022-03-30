@@ -27,8 +27,15 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // non-ASCII letter so that we can check that no new states are created
     // once the cache is full. Namely, if we fill up the cache on a haystack
     // of 'a's, then in order to match one 'β', a new state will need to be
-    // created since a 'β' is encoded with multiple bytes. Since there's no
-    // room for this state, the search should quit at the very first position.
+    // created since a 'β' is encoded with multiple bytes.
+    //
+    // So we proceed by "filling" up the cache by searching a haystack of just
+    // 'a's. The cache won't have enough room to add enough states to find the
+    // match (because of the bounded repetition), which should result in it
+    // giving up before it finds a match.
+    //
+    // Since there's now no more room to create states, we search a haystack
+    // of 'β' and confirm that it gives up immediately.
     let pattern = r"[aβ]{100}";
     let dfa = DFA::builder()
         .configure(
@@ -39,11 +46,15 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
                 .cache_capacity(0)
                 .minimum_cache_clear_count(Some(0)),
         )
+        .thompson(thompson::NFA::config().utf8(false))
         .build(pattern)?;
     let mut cache = dfa.create_cache();
 
     let haystack = "a".repeat(101).into_bytes();
-    let err = MatchError::GaveUp { offset: 25 };
+    let err = MatchError::GaveUp { offset: 46 };
+    // Notice that we make the same amount of progress in each search! That's
+    // because the cache is reused and already has states to handle the first
+    // 46 bytes.
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err.clone()));
     assert_eq!(dfa.find_leftmost_fwd(&mut cache, &haystack), Err(err.clone()));
     assert_eq!(
@@ -63,13 +74,13 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // OK, if we reset the cache, then we should be able to create more states
     // and make more progress with searching for betas.
     cache.reset(&dfa);
-    let err = MatchError::GaveUp { offset: 26 };
+    let err = MatchError::GaveUp { offset: 51 };
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
 
     // ... switching back to ASCII still makes progress since it just needs to
     // set transitions on existing states!
     let haystack = "a".repeat(101).into_bytes();
-    let err = MatchError::GaveUp { offset: 13 };
+    let err = MatchError::GaveUp { offset: 25 };
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
 
     Ok(())

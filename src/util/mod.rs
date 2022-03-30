@@ -66,7 +66,8 @@ impl fmt::Debug for DebugByte {
 /// starting after `i`.
 ///
 /// For all inputs, including invalid UTF-8 and any value of `i`, the return
-/// value is guaranteed to be greater than `i`.
+/// value is guaranteed to be greater than `i`. (If there is no value greater
+/// than `i` that fits in `usize`, then this panics.)
 ///
 /// Generally speaking, this should only be called on `text` when it is
 /// permitted to assume that it is valid UTF-8 and where either `i >=

@@ -16,7 +16,7 @@ use crate::{
     },
 };
 
-/// A Thompson non-deterministic finite automaton (NFA).
+/// A byte oriented Thompson non-deterministic finite automaton (NFA).
 ///
 /// A Thompson NFA is a finite state machine that permits unconditional epsilon
 /// transitions, but guarantees that there exists at most one non-epsilon
@@ -40,6 +40,30 @@ use crate::{
 /// # Capturing Groups
 ///
 /// TODO
+///
+/// # Byte oriented
+///
+/// This NFA is byte oriented, which means that all of its transitions are
+/// defined on bytes. In other words, the alphabet of an NFA consists of the
+/// 256 different byte values.
+///
+/// While DFAs nearly demand that they be byte oriented for performance
+/// reasons, an NFA could conceivably be *Unicode codepoint* oriented. Indeed,
+/// a previous version of this NFA supported both byte and codepoint oriented
+/// modes. A codepoint oriented mode can work because an NFA fundamentally uses
+/// a sparse representation of transitions, which works well with the large
+/// sparse space of Unicode codepoints.
+///
+/// Nevertheless, this NFA is only byte oriented. This choice is primarily
+/// driven by implementation simplicity, and also in part memory usage. In
+/// practice, performance between the two is roughly comparable. However,
+/// building a DFA (including a hybrid DFA) really wants a byte oriented NFA.
+/// So if we do have a codepoint oriented NFA, then we also need to generate
+/// byte oriented NFA in order to build an hybrid NFA/DFA. Thus, by only
+/// generating byte oriented NFAs, we can produce one less NFA. In other words,
+/// if we made our NFA codepoint oriented, we'd need to *also* make it support
+/// a byte oriented mode, which is more complicated. But a byte oriented mode
+/// can support everything.
 ///
 /// # Differences with DFAs
 ///
@@ -316,7 +340,7 @@ impl NFA {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn patterns(&self) -> PatternIter {
+    pub fn patterns(&self) -> PatternIter<'_> {
         PatternIter {
             it: PatternID::iter(self.pattern_len()),
             _marker: core::marker::PhantomData,
@@ -535,18 +559,16 @@ impl NFA {
     /// # Example
     ///
     /// This demonstrates that disabling UTF-8 mode can shrink the size of the
-    /// NFA. (Disabling UTF-8 mode for the NFA means that its unanchored prefix
-    /// will match through any sequence of bytes, instead of only matching
-    /// through valid UTF-8.)
+    /// NFA considerably in some cases, especially when using Unicode character
+    /// classes.
     ///
     /// ```
     /// use regex_automata::{nfa::thompson::{NFA, State}, PatternID};
     ///
-    /// let nfa_default = NFA::new("a")?;
-    /// let nfa_small = NFA::compiler()
-    ///     .configure(NFA::config().utf8(false))
-    ///     .build("a")?;
-    /// assert!(2 * nfa_small.states().len() < nfa_default.states().len());
+    /// let nfa_unicode = NFA::new(r"\w")?;
+    /// let nfa_ascii = NFA::new(r"(?-u)\w")?;
+    /// // Yes, a factor of 45 difference. No lie.
+    /// assert!(40 * nfa_ascii.states().len() < nfa_unicode.states().len());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1373,14 +1395,21 @@ pub enum State {
     /// Transitions are non-overlapping and ordered lexicographically by input
     /// range.
     ///
-    /// In practice, this is only used for encoding UTF-8 automata. Its
-    /// presence is primarily an optimization that avoids many additional
-    /// unconditional epsilon transitions (via [`Union`](State::Union) states),
-    /// and thus decreases the overhead of traversing the NFA. This can improve
-    /// both matching time and DFA construction time.
+    /// In practice, this is used for encoding UTF-8 automata. Its presence is
+    /// primarily an optimization that avoids many additional unconditional
+    /// epsilon transitions (via [`Union`](State::Union) states), and thus
+    /// decreases the overhead of traversing the NFA. This can improve both
+    /// matching time and DFA construction time.
     Sparse(SparseTransitions),
     /// A conditional epsilon transition satisfied via some sort of
-    /// look-around.
+    /// look-around. Look-around is limited to anchor and word boundary
+    /// assertions.
+    ///
+    /// Look-around states are meant to be evaluated while performing epsilon
+    /// closure (computing the set of states reachable from a particular state
+    /// via only epsilon transitions). If the current position in the haystack
+    /// satisfies the look-around assertion, then you're permitted to follow
+    /// that epsilon transition.
     Look { look: Look, next: StateID },
     /// An alternation such that there exists an epsilon transition to all
     /// states in `alternates`, where matches found via earlier transitions
@@ -1392,7 +1421,8 @@ pub enum State {
     ///
     /// This state exists as a common special case of Union where there are
     /// only two alternates. In this case, we don't need any allocations to
-    /// represent the state.
+    /// represent the state. This saves a bit of memory and also saves an
+    /// additional memory access when traversing the NFA.
     BinaryUnion { alt1: StateID, alt2: StateID },
     /// An empty state that records a capture location.
     ///
@@ -1407,22 +1437,46 @@ pub enum State {
     /// 'slot' in this context refers to the specific capture group offset that
     /// is being recorded. Each capturing group has two slots corresponding to
     /// the start and end of the matching portion of that group.
-    /// A fail state. When encountered, the automaton is guaranteed to never
-    /// reach a match state.
     Capture { next: StateID, slot: usize },
     /// A state that cannot be transitioned out of. This is useful for cases
     /// where you want to prevent matching from occurring. For example, if your
     /// regex parser permits empty character classes, then one could choose a
     /// `Fail` state to represent it.
     Fail,
-    /// A match state. There is exactly one such occurrence of this state for
-    /// each regex compiled into the NFA.
+    /// A match state. There is at least one such occurrence of this state for
+    /// each regex compiled into the NFA. The pattern ID in the state indicates
+    /// which pattern matched.
     Match { pattern_id: PatternID },
 }
 
 impl State {
     /// Returns true if and only if this state contains one or more epsilon
     /// transitions.
+    ///
+    /// In practice, a state has no outgoing transitions (like `Match`), has
+    /// only non-epsilon transitions (like `ByteRange`) or has only epsilon
+    /// transitions (like `Union`).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{State, Transition},
+    ///     util::id::StateID,
+    /// };
+    ///
+    /// // Capture states are epsilon transitions.
+    /// let state = State::Capture { next: StateID::ZERO, slot: 0 };
+    /// assert!(state.is_epsilon());
+    ///
+    /// // ByteRange states are not.
+    /// let state = State::ByteRange {
+    ///     trans: Transition { start: b'a', end: b'z', next: StateID::ZERO },
+    /// };
+    /// assert!(!state.is_epsilon());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn is_epsilon(&self) -> bool {
         match *self {
@@ -1533,9 +1587,11 @@ impl fmt::Debug for State {
 /// A collection of facts about an NFA.
 ///
 /// There are no real cohesive principles behind what gets put in here. For
-/// the most part, it is implementation driven.
+/// the most part, it is implementation driven. That is, what we put here
+/// depends on what callers want to know cheaply. Most of these things could be
+/// computed on the fly, but it's convenient to have cheap access.
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct Facts {
+struct Facts {
     has_capture: bool,
     has_look: bool,
     has_anchor: bool,
@@ -1543,21 +1599,53 @@ pub(super) struct Facts {
     has_word_boundary_ascii: bool,
 }
 
+// THOUGHT: I wonder if it makes sense to add a DenseTransitions too? The main
+// problem, of course, is that it would use a lot of space, especially without
+// any sort of byte class optimization. (Although, perhaps we can make the
+// byte class optimization for the NFA work..?) Naively, if DenseTransitions
+// had space for 256 transitions, then it would take 256*sizeof(StateID)=1KB.
+// Yikes. So we would really need to figure out *when* to use it, and that
+// seems a little tricky...
+
 /// A sequence of transitions used to represent a sparse state.
+///
+/// This is the primary representation of a [`Sparse`](State::Sparse) state.
+/// It corresponds to a sorted sequence of transitions with non-overlapping
+/// byte ranges. If the byte at the current position in the haystack matches
+/// one of the byte ranges, then the finite state machine should take the
+/// corresponding transition.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SparseTransitions {
+    /// The sorted sequence of non-overlapping transitions.
     pub transitions: Box<[Transition]>,
 }
 
 impl SparseTransitions {
+    /// This follows the matching transition for a particular byte.
+    ///
+    /// The matching transition is found by looking for a matching byte
+    /// range (there is at most one) corresponding to the position `at` in
+    /// `haystack`.
+    ///
+    /// If `at >= haystack.len()`, then this returns `None`.
     pub fn matches(&self, haystack: &[u8], at: usize) -> Option<StateID> {
         haystack.get(at).and_then(|&b| self.matches_byte(b))
     }
 
+    /// This follows the matching transition for any member of the alphabet.
+    ///
+    /// The matching transition is found by looking for a matching byte
+    /// range (there is at most one) corresponding to the position `at` in
+    /// `haystack`. If the given alphabet unit is [`EOI`](alphabet::Unit::EOI),
+    /// then this always returns `None`.
     pub fn matches_unit(&self, unit: alphabet::Unit) -> Option<StateID> {
         unit.as_u8().map_or(None, |byte| self.matches_byte(byte))
     }
 
+    /// This follows the matching transition for a particular byte.
+    ///
+    /// The matching transition is found by looking for a matching byte range
+    /// (there is at most one) corresponding to the byte given.
     pub fn matches_byte(&self, byte: u8) -> Option<StateID> {
         for t in self.transitions.iter() {
             if t.start > byte {
@@ -1593,24 +1681,38 @@ impl SparseTransitions {
     }
 }
 
-/// A transition to another state, only if the given byte falls in the
-/// inclusive range specified.
+/// A single transition to another state.
+///
+/// This transition may only be followed if the current byte in the haystack
+/// falls in the inclusive range of bytes specified.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct Transition {
+    /// The start of the byte range.
     pub start: u8,
+    /// The end of the byte range.
     pub end: u8,
+    /// The identifier of the state to transition to.
     pub next: StateID,
 }
 
 impl Transition {
+    /// Returns true if the position `at` in `haystack` falls in this
+    /// transition's range of bytes.
+    ///
+    /// If `at >= haystack.len()`, then this returns `false`.
     pub fn matches(&self, haystack: &[u8], at: usize) -> bool {
         haystack.get(at).map_or(false, |&b| self.matches_byte(b))
     }
 
+    /// Returns true if the given alphabet unit falls in this transition's
+    /// range of bytes. If the given unit is [`EOI`](alphabet::Unit::EOI), then
+    /// this returns `false`.
     pub fn matches_unit(&self, unit: alphabet::Unit) -> bool {
         unit.as_u8().map_or(false, |byte| self.matches_byte(byte))
     }
 
+    /// Returns true if the given byte falls in this transition's range of
+    /// bytes.
     pub fn matches_byte(&self, byte: u8) -> bool {
         self.start <= byte && byte <= self.end
     }
@@ -1635,25 +1737,25 @@ impl fmt::Debug for Transition {
     }
 }
 
-/// A conditional NFA epsilon transition.
+/// A look-around assertion.
 ///
-/// A simulation of the NFA can only move through this epsilon transition if
-/// the current position satisfies some look-around property. Some assertions
-/// are look-behind (StartLine, StartText), some assertions are look-ahead
-/// (EndLine, EndText) while other assertions are both look-behind and
-/// look-ahead (WordBoundary*).
+/// A simulation of the NFA can only move through conditional epsilon
+/// transitions if the current position satisfies some look-around property.
+/// Some assertions are look-behind (`StartLine`, `StartText`), some assertions
+/// are look-ahead (`EndLine`, `EndText`) while other assertions are both
+/// look-behind and look-ahead (`WordBoundary*`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Look {
     /// The previous position is either `\n` or the current position is the
-    /// beginning of the haystack (i.e., at position `0`).
+    /// beginning of the haystack (at position `0`).
     StartLine = 1 << 0,
     /// The next position is either `\n` or the current position is the end of
-    /// the haystack (i.e., at position `haystack.len()`).
+    /// the haystack (at position `haystack.len()`).
     EndLine = 1 << 1,
-    /// The current position is the beginning of the haystack (i.e., at
-    /// position `0`).
+    /// The current position is the beginning of the haystack (at position
+    /// `0`).
     StartText = 1 << 2,
-    /// The current position is the end of the haystack (i.e., at position
+    /// The current position is the end of the haystack (at position
     /// `haystack.len()`).
     EndText = 1 << 3,
     /// When tested at position `i`, where `p=decode_utf8_rev(&haystack[..i])`
@@ -1674,20 +1776,24 @@ pub enum Look {
     ///
     /// Note that it is possible for this assertion to match at positions that
     /// split the UTF-8 encoding of a codepoint. For this reason, this may only
-    /// be used when UTF-8 mode is disable in the regex syntax.
+    /// be used when UTF-8 mode is disabled in the regex syntax.
     WordBoundaryAsciiNegate = 1 << 7,
 }
 
 impl Look {
-    pub fn matches(&self, bytes: &[u8], at: usize) -> bool {
+    /// Returns true when the position `at` in `haystack` satisfies this
+    /// look-around assertion.
+    ///
+    /// This panics if `at > haystack.len()`.
+    pub fn matches(&self, haystack: &[u8], at: usize) -> bool {
         match *self {
-            Look::StartLine => at == 0 || bytes[at - 1] == b'\n',
-            Look::EndLine => at == bytes.len() || bytes[at] == b'\n',
+            Look::StartLine => at == 0 || haystack[at - 1] == b'\n',
+            Look::EndLine => at == haystack.len() || haystack[at] == b'\n',
             Look::StartText => at == 0,
-            Look::EndText => at == bytes.len(),
+            Look::EndText => at == haystack.len(),
             Look::WordBoundaryUnicode => {
-                let word_before = is_word_char_rev(bytes, at);
-                let word_after = is_word_char_fwd(bytes, at);
+                let word_before = is_word_char_rev(haystack, at);
+                let word_after = is_word_char_fwd(haystack, at);
                 word_before != word_after
             }
             Look::WordBoundaryUnicodeNegate => {
@@ -1720,25 +1826,27 @@ impl Look {
                 // represents a valid UTF-8 boundary. It also makes sense. For
                 // example, you'd want \b\w+\b to match 'abc' in '\xFFabc\xFF'.
                 let word_before = at > 0
-                    && match decode_last_utf8(&bytes[..at]) {
+                    && match decode_last_utf8(&haystack[..at]) {
                         None | Some(Err(_)) => return false,
-                        Some(Ok(_)) => is_word_char_rev(bytes, at),
+                        Some(Ok(_)) => is_word_char_rev(haystack, at),
                     };
-                let word_after = at < bytes.len()
-                    && match decode_utf8(&bytes[at..]) {
+                let word_after = at < haystack.len()
+                    && match decode_utf8(&haystack[at..]) {
                         None | Some(Err(_)) => return false,
-                        Some(Ok(_)) => is_word_char_fwd(bytes, at),
+                        Some(Ok(_)) => is_word_char_fwd(haystack, at),
                     };
                 word_before == word_after
             }
             Look::WordBoundaryAscii => {
-                let word_before = at > 0 && is_word_byte(bytes[at - 1]);
-                let word_after = at < bytes.len() && is_word_byte(bytes[at]);
+                let word_before = at > 0 && is_word_byte(haystack[at - 1]);
+                let word_after =
+                    at < haystack.len() && is_word_byte(haystack[at]);
                 word_before != word_after
             }
             Look::WordBoundaryAsciiNegate => {
-                let word_before = at > 0 && is_word_byte(bytes[at - 1]);
-                let word_after = at < bytes.len() && is_word_byte(bytes[at]);
+                let word_before = at > 0 && is_word_byte(haystack[at - 1]);
+                let word_after =
+                    at < haystack.len() && is_word_byte(haystack[at]);
                 word_before == word_after
             }
         }
@@ -1746,7 +1854,7 @@ impl Look {
 
     /// Create a look-around assertion from its corresponding integer (as
     /// defined in `Look`). If the given integer does not correspond to any
-    /// assertion, then None is returned.
+    /// assertion, then `None` is returned.
     pub fn from_repr(n: u8) -> Option<Look> {
         match n {
             0b0000_0001 => Some(Look::StartLine),
@@ -1770,6 +1878,7 @@ impl Look {
     }
 
     /// Flip the look-around assertion to its equivalent for reverse searches.
+    /// For example, `StartLine` gets translated to `EndLine`.
     pub fn reversed(&self) -> Look {
         match *self {
             Look::StartLine => Look::EndLine,
@@ -1833,6 +1942,11 @@ impl Look {
 }
 
 /// An iterator over all pattern IDs in an NFA.
+///
+/// This iterator is created by [`NFA::patterns`].
+///
+/// The lifetime parameter `'a` refers to the lifetime of the NFA from which
+/// this pattern iterator was created.
 pub struct PatternIter<'a> {
     it: PatternIDIter,
     /// We explicitly associate a lifetime with this iterator even though we

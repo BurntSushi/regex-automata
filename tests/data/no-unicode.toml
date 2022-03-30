@@ -158,8 +158,30 @@ unescape = true
 utf8 = false
 
 
+# These test that unanchored prefixes can munch through invalid UTF-8 even when
+# utf8 is enabled.
+#
+# This test actually reflects an interesting simplification in how the Thompson
+# NFA is constructed. It used to be that the NFA could be built with an
+# unanchored prefix that either matched any byte or _only_ matched valid UTF-8.
+# But the latter turns out to be pretty precarious when it comes to prefilters,
+# because if you search a haystack that contains invalid UTF-8 but have an
+# unanchored prefix that requires UTF-8, then prefilters are no longer a valid
+# optimization because you actually have to check that everything is valid
+# UTF-8.
+#
+# Originally, I had thought that we needed a valid UTF-8 unanchored prefix in
+# order to guarantee that we only match at valid UTF-8 boundaries. But this
+# isn't actually true! There are really only two things to consider here:
+#
+# 1) Will a regex match split an encoded codepoint? No. Because by construction,
+# we ensure that a MATCH state can only be reached by following valid UTF-8 (assuming
+# all of the UTF-8 modes are enabled).
+#
+# 2) Will a regex match arbitrary bytes that aren't valid UTF-8? Again, no,
+# assuming all of the UTF-8 modes are enabled.
 [[tests]]
-name = "unanchored-invalid-utf8-match"
+name = "unanchored-invalid-utf8-match-100"
 regex = '[a-z]'
 input = '\xFFa\xFF'
 matches = [[1, 2]]
@@ -167,8 +189,20 @@ unescape = true
 utf8 = false
 
 [[tests]]
-name = "unanchored-invalid-utf8-nomatch"
+name = "unanchored-invalid-utf8-match-101"
 regex = '[a-z]'
+input = '\xFFa\xFF'
+matches = [[1, 2]]
+unescape = true
+utf8 = true
+
+# This test shows that we can still prevent a match from occurring by requiring
+# that valid UTF-8 match by inserting our own unanchored prefix. Thus, if the
+# behavior of not munching through invalid UTF-8 anywhere is needed, then it
+# can be achieved thusly.
+[[tests]]
+name = "unanchored-invalid-utf8-nomatch"
+regex = '^(?s:.)*?[a-z]'
 input = '\xFFa\xFF'
 matches = []
 unescape = true
