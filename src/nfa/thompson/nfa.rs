@@ -13,6 +13,7 @@ use crate::{
         decode_last_utf8, decode_utf8,
         id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
         is_word_byte, is_word_char_fwd, is_word_char_rev,
+        matchtypes::Match,
     },
 };
 
@@ -1962,6 +1963,96 @@ impl<'a> Iterator for PatternIter<'a> {
 
     fn next(&mut self) -> Option<PatternID> {
         self.it.next()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Captures {
+    nfa: NFA,
+    // TODO: There are other choices for this representation. At minimum, we
+    // MUST have the ability to detect presence/absence, because in a match,
+    // not all capturing groups may participate in it. For example,
+    // in '(?P<a>\d)|(?P<b>\s)', 'a' and 'b' are mutually exclusive and we need
+    // to be able to say: "'a' did not match but 'b' did."
+    //
+    // 1) We could say that 'usize::MAX' never happens, and treat it as a
+    // sentinel. I'm not sure if I'm comfortable with this. We could make the
+    // failure mode explicit by panicking if 'haystack.len() == usize::MAX'.
+    //
+    // 2) Like (1), but use 'Vec<Option<NonZeroUsize>>' and then doing
+    // arithmetic to correct it on access... Which is kind of a bummer.
+    //
+    // 3) We could use Vec<usize> and add a bitset keeping track of which
+    // slots are active. This would use less memory, but would require more
+    // book-keeping.
+    //
+    // 4) Stick with Vec<Option<usize>>. It uses twice the memory of Vec<usize>
+    // sadly.
+    //
+    // 5) We could use '*const u8' as a pointer into the haystack. It's
+    // word-sized, can be NULL and would let us compute offsets all in safe
+    // Rust. But, that's the rub: we'd have to "compute" offsets, just like if
+    // we used Vec<Option<NonZeroUsize>>. So if we have to compute stuff, we
+    // might as well just go with the NonZeroUsize approach.
+    slots: Vec<Option<usize>>,
+}
+
+impl Captures {
+    pub fn new(nfa: NFA) -> Captures {
+        let slots = nfa.capture_slot_len();
+        Captures { nfa, slots: vec![None; slots] }
+    }
+
+    pub fn get(&self, pid: PatternID, group_index: usize) -> Option<Match> {
+        let (slot_start, slot_end) = self.nfa.slots(pid, group_index);
+        let start = self.slots[slot_start]?;
+        let end = self.slots[slot_end]?;
+        Some(Match::new(start, end))
+    }
+
+    pub fn get_name(&self, pid: PatternID, name: &str) -> Option<Match> {
+        let index = self.nfa.capture_name_to_index(pid, name)?;
+        self.get(pid, index)
+    }
+
+    pub fn reset(&mut self) {
+        for slot in self.slots.iter_mut() {
+            *slot = None;
+        }
+    }
+
+    pub fn no_slots(&mut self) {
+        self.slots.clear();
+    }
+
+    pub fn only_match_slots(&mut self) {
+        if self.nfa.capture_slot_len() == 0 {
+            return;
+        }
+        // This is OK because we know there are at least this many slots,
+        // and NFA construction guarantees that the number of slots fits
+        // into a usize.
+        let pattern_slots = self.nfa.pattern_len().checked_mul(2).unwrap();
+        self.slots.resize(pattern_slots, None);
+    }
+
+    pub fn all_slots(&mut self) {
+        self.slots.resize(self.nfa.capture_slot_len(), None);
+    }
+
+    pub fn set_slot(&mut self, slot: usize, at: usize) {
+        self.slots[slot] = Some(at);
+    }
+
+    pub fn clear_slot(&mut self, slot: usize) {
+        self.slots[slot] = None;
+    }
+
+    // TODO: Gotta figure out how to get rid of this so we don't expose our
+    // representation... Will probably need to introduce a layer of abstraction
+    // in the Pike VM?
+    pub fn slots_mut(&mut self) -> &mut [Option<usize>] {
+        &mut self.slots
     }
 }
 

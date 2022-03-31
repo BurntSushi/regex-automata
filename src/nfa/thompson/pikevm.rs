@@ -1,7 +1,7 @@
 use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
-    nfa::thompson::{self, Error, State, NFA},
+    nfa::thompson::{self, Captures, Error, State, NFA},
     util::{
         id::{PatternID, StateID},
         matchtypes::MultiMatch,
@@ -182,7 +182,7 @@ impl PikeVM {
     }
 
     pub fn create_captures(&self) -> Captures {
-        Captures::new(self.nfa())
+        Captures::new(self.nfa().clone())
     }
 
     pub fn nfa(&self) -> &NFA {
@@ -322,7 +322,7 @@ impl PikeVM {
                     #[cfg(feature = "instrument-pikevm")]
                     &mut counters,
                     &mut cache.clist,
-                    &mut caps.slots,
+                    caps.slots_mut(),
                     &mut cache.stack,
                     start_id,
                     haystack,
@@ -343,7 +343,7 @@ impl PikeVM {
                     #[cfg(feature = "instrument-pikevm")]
                     &mut counters,
                     &mut cache.nlist,
-                    &mut caps.slots,
+                    caps.slots_mut(),
                     cache.clist.caps(sid),
                     &mut cache.stack,
                     sid,
@@ -364,12 +364,8 @@ impl PikeVM {
             counters.eprint(&self.nfa);
         }
         matched_pid.map(|pid| {
-            let (start, end) = self.nfa.slots(pid, 0);
-            MultiMatch::new(
-                pid,
-                caps.slots[start].unwrap(),
-                caps.slots[end].unwrap(),
-            )
+            let m = caps.get(pid, 0).unwrap();
+            MultiMatch::new(pid, m.start(), m.end())
         })
     }
 }
@@ -659,17 +655,6 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
         }
         self.last_match = Some(m.end());
         Some(m)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Captures {
-    slots: Vec<Slot>,
-}
-
-impl Captures {
-    pub fn new(nfa: &NFA) -> Captures {
-        Captures { slots: vec![None; nfa.capture_slot_len()] }
     }
 }
 

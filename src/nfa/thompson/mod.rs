@@ -10,5 +10,7 @@ pub use self::{
     builder::Builder,
     compiler::{Compiler, Config},
     error::Error,
-    nfa::{Look, PatternIter, SparseTransitions, State, Transition, NFA},
+    nfa::{
+        Captures, Look, PatternIter, SparseTransitions, State, Transition, NFA,
+    },
 };
