@@ -78,7 +78,7 @@ name = "captures-repeat"
 regex = '([a-f]){2}(?P<foo>[x-z])'
 input = "abx"
 captures = [
-  [[0, 3], [0, 2], [2, 3]],
+  [[0, 3], [1, 2], [2, 3]],
 ]
 
 # See: https://github.com/rust-lang/regex/issues/153

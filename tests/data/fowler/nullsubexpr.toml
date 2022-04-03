@@ -12,15 +12,15 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr5"
+name = "nullsubexpr4"
 regex = '''(a*)*'''
 input = '''x'''
-captures = [[[0, 0], []]]
+captures = [[[0, 0], [0, 0]]]
 match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr6"
+name = "nullsubexpr5"
 regex = '''(a*)*'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -28,7 +28,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr7"
+name = "nullsubexpr6"
 regex = '''(a*)*'''
 input = '''aaaaaax'''
 captures = [[[0, 6], [0, 6]]]
@@ -36,7 +36,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr8"
+name = "nullsubexpr7"
 regex = '''(a*)+'''
 input = '''a'''
 captures = [[[0, 1], [0, 1]]]
@@ -44,7 +44,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr9"
+name = "nullsubexpr8"
 regex = '''(a*)+'''
 input = '''x'''
 captures = [[[0, 0], [0, 0]]]
@@ -52,7 +52,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr10"
+name = "nullsubexpr9"
 regex = '''(a*)+'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -60,7 +60,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr11"
+name = "nullsubexpr10"
 regex = '''(a*)+'''
 input = '''aaaaaax'''
 captures = [[[0, 6], [0, 6]]]
@@ -68,7 +68,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr12"
+name = "nullsubexpr11"
 regex = '''(a+)*'''
 input = '''a'''
 captures = [[[0, 1], [0, 1]]]
@@ -76,7 +76,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr13"
+name = "nullsubexpr12"
 regex = '''(a+)*'''
 input = '''x'''
 captures = [[[0, 0]]]
@@ -84,7 +84,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr14"
+name = "nullsubexpr13"
 regex = '''(a+)*'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -92,7 +92,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr15"
+name = "nullsubexpr14"
 regex = '''(a+)*'''
 input = '''aaaaaax'''
 captures = [[[0, 6], [0, 6]]]
@@ -100,7 +100,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr16"
+name = "nullsubexpr15"
 regex = '''(a+)+'''
 input = '''a'''
 captures = [[[0, 1], [0, 1]]]
@@ -108,7 +108,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr17"
+name = "nullsubexpr16"
 regex = '''(a+)+'''
 input = '''x'''
 captures = []
@@ -116,7 +116,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr18"
+name = "nullsubexpr17"
 regex = '''(a+)+'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -124,7 +124,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr19"
+name = "nullsubexpr18"
 regex = '''(a+)+'''
 input = '''aaaaaax'''
 captures = [[[0, 6], [0, 6]]]
@@ -132,7 +132,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr21"
+name = "nullsubexpr20"
 regex = '''([a]*)*'''
 input = '''a'''
 captures = [[[0, 1], [0, 1]]]
@@ -140,15 +140,15 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr23"
+name = "nullsubexpr21"
 regex = '''([a]*)*'''
 input = '''x'''
-captures = [[[0, 0], []]]
+captures = [[[0, 0], [0, 0]]]
 match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr24"
+name = "nullsubexpr22"
 regex = '''([a]*)*'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -156,7 +156,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr25"
+name = "nullsubexpr23"
 regex = '''([a]*)*'''
 input = '''aaaaaax'''
 captures = [[[0, 6], [0, 6]]]
@@ -164,7 +164,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr26"
+name = "nullsubexpr24"
 regex = '''([a]*)+'''
 input = '''a'''
 captures = [[[0, 1], [0, 1]]]
@@ -172,7 +172,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr27"
+name = "nullsubexpr25"
 regex = '''([a]*)+'''
 input = '''x'''
 captures = [[[0, 0], [0, 0]]]
@@ -180,7 +180,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr28"
+name = "nullsubexpr26"
 regex = '''([a]*)+'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -188,7 +188,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr29"
+name = "nullsubexpr27"
 regex = '''([a]*)+'''
 input = '''aaaaaax'''
 captures = [[[0, 6], [0, 6]]]
@@ -196,7 +196,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr30"
+name = "nullsubexpr28"
 regex = '''([^b]*)*'''
 input = '''a'''
 captures = [[[0, 1], [0, 1]]]
@@ -204,15 +204,15 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr32"
+name = "nullsubexpr29"
 regex = '''([^b]*)*'''
 input = '''b'''
-captures = [[[0, 0], []]]
+captures = [[[0, 0], [0, 0]]]
 match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr33"
+name = "nullsubexpr30"
 regex = '''([^b]*)*'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -220,7 +220,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr34"
+name = "nullsubexpr31"
 regex = '''([^b]*)*'''
 input = '''aaaaaab'''
 captures = [[[0, 6], [0, 6]]]
@@ -228,7 +228,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr35"
+name = "nullsubexpr32"
 regex = '''([ab]*)*'''
 input = '''a'''
 captures = [[[0, 1], [0, 1]]]
@@ -236,7 +236,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr36"
+name = "nullsubexpr33"
 regex = '''([ab]*)*'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 6]]]
@@ -244,7 +244,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr37"
+name = "nullsubexpr34"
 regex = '''([ab]*)*'''
 input = '''ababab'''
 captures = [[[0, 6], [0, 6]]]
@@ -252,7 +252,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr38"
+name = "nullsubexpr35"
 regex = '''([ab]*)*'''
 input = '''bababa'''
 captures = [[[0, 6], [0, 6]]]
@@ -260,7 +260,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr39"
+name = "nullsubexpr36"
 regex = '''([ab]*)*'''
 input = '''b'''
 captures = [[[0, 1], [0, 1]]]
@@ -268,7 +268,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr40"
+name = "nullsubexpr37"
 regex = '''([ab]*)*'''
 input = '''bbbbbb'''
 captures = [[[0, 6], [0, 6]]]
@@ -276,7 +276,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr41"
+name = "nullsubexpr38"
 regex = '''([ab]*)*'''
 input = '''aaaabcde'''
 captures = [[[0, 5], [0, 5]]]
@@ -284,7 +284,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr42"
+name = "nullsubexpr39"
 regex = '''([^a]*)*'''
 input = '''b'''
 captures = [[[0, 1], [0, 1]]]
@@ -292,7 +292,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr43"
+name = "nullsubexpr40"
 regex = '''([^a]*)*'''
 input = '''bbbbbb'''
 captures = [[[0, 6], [0, 6]]]
@@ -300,15 +300,15 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr45"
+name = "nullsubexpr41"
 regex = '''([^a]*)*'''
 input = '''aaaaaa'''
-captures = [[[0, 0], []]]
+captures = [[[0, 0], [0, 0]]]
 match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr46"
+name = "nullsubexpr42"
 regex = '''([^ab]*)*'''
 input = '''ccccxx'''
 captures = [[[0, 6], [0, 6]]]
@@ -316,15 +316,15 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr48"
+name = "nullsubexpr43"
 regex = '''([^ab]*)*'''
 input = '''ababab'''
-captures = [[[0, 0], []]]
+captures = [[[0, 0], [0, 0]]]
 match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr50"
+name = "nullsubexpr45"
 regex = '''((z)+|a)*'''
 input = '''zabcde'''
 captures = [[[0, 2], [1, 2]]]
@@ -332,15 +332,15 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr69"
+name = "nullsubexpr63"
 regex = '''(a*)*(x)'''
 input = '''x'''
-captures = [[[0, 1], [], [0, 1]]]
+captures = [[[0, 1], [0, 0], [0, 1]]]
 match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr70"
+name = "nullsubexpr64"
 regex = '''(a*)*(x)'''
 input = '''ax'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
@@ -348,7 +348,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr71"
+name = "nullsubexpr65"
 regex = '''(a*)*(x)'''
 input = '''axa'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
@@ -356,7 +356,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr73"
+name = "nullsubexpr67"
 regex = '''(a*)+(x)'''
 input = '''x'''
 captures = [[[0, 1], [0, 0], [0, 1]]]
@@ -364,7 +364,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr74"
+name = "nullsubexpr68"
 regex = '''(a*)+(x)'''
 input = '''ax'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
@@ -372,7 +372,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr75"
+name = "nullsubexpr69"
 regex = '''(a*)+(x)'''
 input = '''axa'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
@@ -380,7 +380,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr77"
+name = "nullsubexpr71"
 regex = '''(a*){2}(x)'''
 input = '''x'''
 captures = [[[0, 1], [0, 0], [0, 1]]]
@@ -388,7 +388,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr78"
+name = "nullsubexpr72"
 regex = '''(a*){2}(x)'''
 input = '''ax'''
 captures = [[[0, 2], [1, 1], [1, 2]]]
@@ -396,7 +396,7 @@ match_limit = 1
 unescape = true
 
 [[tests]]
-name = "nullsubexpr79"
+name = "nullsubexpr73"
 regex = '''(a*){2}(x)'''
 input = '''axa'''
 captures = [[[0, 2], [1, 1], [1, 2]]]
