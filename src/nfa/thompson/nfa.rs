@@ -753,6 +753,24 @@ impl NFA {
         self.0.capture_name_to_index[pid].get(name).cloned()
     }
 
+    #[inline]
+    pub fn pattern_capture_names(
+        &self,
+        pid: PatternID,
+    ) -> PatternCaptureNames<'_> {
+        PatternCaptureNames { it: self.0.capture_index_to_name[pid].iter() }
+    }
+
+    #[inline]
+    pub fn all_capture_names(&self) -> AllCaptureNames<'_> {
+        AllCaptureNames {
+            nfa: self,
+            pids: PatternID::iter(self.pattern_len()),
+            current_pid: None,
+            names: None,
+        }
+    }
+
     /// Returns true if and only if this NFA has at least one
     /// [`Capture`](State::Capture) in its sequence of states.
     ///
@@ -1948,6 +1966,7 @@ impl Look {
 ///
 /// The lifetime parameter `'a` refers to the lifetime of the NFA from which
 /// this pattern iterator was created.
+#[derive(Debug)]
 pub struct PatternIter<'a> {
     it: PatternIDIter,
     /// We explicitly associate a lifetime with this iterator even though we
@@ -1963,6 +1982,49 @@ impl<'a> Iterator for PatternIter<'a> {
 
     fn next(&mut self) -> Option<PatternID> {
         self.it.next()
+    }
+}
+
+#[derive(Debug)]
+pub struct PatternCaptureNames<'a> {
+    it: core::slice::Iter<'a, Option<Arc<str>>>,
+}
+
+impl<'a> Iterator for PatternCaptureNames<'a> {
+    type Item = Option<&'a str>;
+
+    fn next(&mut self) -> Option<Option<&'a str>> {
+        self.it.next().map(|x| x.as_deref())
+    }
+}
+
+#[derive(Debug)]
+pub struct AllCaptureNames<'a> {
+    nfa: &'a NFA,
+    pids: PatternIDIter,
+    current_pid: Option<PatternID>,
+    names: Option<core::iter::Enumerate<PatternCaptureNames<'a>>>,
+}
+
+impl<'a> Iterator for AllCaptureNames<'a> {
+    type Item = (PatternID, usize, Option<&'a str>);
+
+    fn next(&mut self) -> Option<(PatternID, usize, Option<&'a str>)> {
+        if self.current_pid.is_none() {
+            self.current_pid = Some(self.pids.next()?);
+        }
+        let pid = self.current_pid.unwrap();
+        if self.names.is_none() {
+            self.names = Some(self.nfa.pattern_capture_names(pid).enumerate());
+        }
+        let (group_index, name) = match self.names.as_mut().unwrap().next() {
+            Some((group_index, name)) => (group_index, name),
+            None => {
+                self.current_pid = None;
+                return self.next();
+            }
+        };
+        Some((pid, group_index, name))
     }
 }
 
@@ -2051,8 +2113,53 @@ impl Captures {
     // TODO: Gotta figure out how to get rid of this so we don't expose our
     // representation... Will probably need to introduce a layer of abstraction
     // in the Pike VM?
+    pub fn slots(&self) -> &[Option<usize>] {
+        &self.slots
+    }
+
     pub fn slots_mut(&mut self) -> &mut [Option<usize>] {
         &mut self.slots
+    }
+
+    pub fn iter_pattern(&self, pid: PatternID) -> CapturesPatternIter<'_> {
+        let names = self.nfa.pattern_capture_names(pid).enumerate();
+        CapturesPatternIter { caps: self, pid, names }
+    }
+
+    pub fn iter_all(&self) -> CapturesAllIter<'_> {
+        let names = self.nfa.all_capture_names();
+        CapturesAllIter { caps: self, names }
+    }
+}
+
+#[derive(Debug)]
+pub struct CapturesPatternIter<'a> {
+    caps: &'a Captures,
+    pid: PatternID,
+    names: core::iter::Enumerate<PatternCaptureNames<'a>>,
+}
+
+impl<'a> Iterator for CapturesPatternIter<'a> {
+    type Item = Option<Match>;
+
+    fn next(&mut self) -> Option<Option<Match>> {
+        let (group_index, _) = self.names.next()?;
+        Some(self.caps.get(self.pid, group_index))
+    }
+}
+
+#[derive(Debug)]
+pub struct CapturesAllIter<'a> {
+    caps: &'a Captures,
+    names: AllCaptureNames<'a>,
+}
+
+impl<'a> Iterator for CapturesAllIter<'a> {
+    type Item = (PatternID, usize, Option<Match>);
+
+    fn next(&mut self) -> Option<(PatternID, usize, Option<Match>)> {
+        let (pid, group_index, _) = self.names.next()?;
+        Some((pid, group_index, self.caps.get(pid, group_index)))
     }
 }
 

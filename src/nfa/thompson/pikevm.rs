@@ -189,12 +189,10 @@ impl PikeVM {
         &self.nfa
     }
 
-    pub fn find_leftmost_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindLeftmostMatches<'r, 'c, 't> {
-        FindLeftmostMatches::new(self, cache, haystack)
+    pub fn is_match(&self, cache: &mut Cache, haystack: &[u8]) -> bool {
+        // TODO: Fix this. We should need to allocate any captures.
+        let mut caps = self.create_captures();
+        self.find_leftmost(cache, haystack, &mut caps).is_some()
     }
 
     // BREADCRUMBS:
@@ -245,6 +243,22 @@ impl PikeVM {
             haystack.len(),
             caps,
         )
+    }
+
+    pub fn find_leftmost_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> FindLeftmostMatches<'r, 'c, 't> {
+        FindLeftmostMatches::new(self, cache, haystack)
+    }
+
+    pub fn captures_leftmost_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> CapturesLeftmostMatches<'r, 'c, 't> {
+        CapturesLeftmostMatches::new(self, cache, haystack)
     }
 
     pub fn find_leftmost_at(
@@ -391,6 +405,23 @@ impl PikeVM {
 }
 
 impl PikeVM {
+    // BREADCRUMBS:
+    //
+    // Here's a good failing test to look at:
+    //
+    //     fowler/nullsubexpr/nullsubexpr69: expected to find
+    //         [Captures([Some((0, (0, 1))), None, Some((0, (0, 1)))])]
+    //     captures, but got
+    //         [Captures([Some((0, (0, 1))), Some((0, (0, 0))), Some((0, (0, 1)))])]
+    //     pattern:     ["(a*)*(x)"]
+    //     input:       "x"
+    //     test result: "captures_leftmost_iter"
+    //
+    // It looks like our PikeVM might not be handling empty capture group
+    // matches correctly? The interesting bit here though is that at first
+    // glance, it does look like '(a*)*' should match at the position before
+    // 'x'. But it looks like that's now how most regex engines work.
+
     // #[inline(always)]
     // #[inline(never)]
     fn step(
@@ -655,6 +686,82 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
         }
         self.last_match = Some(m.end());
         Some(m)
+    }
+}
+
+/// An iterator over all non-overlapping leftmost matches, with their capturing
+/// groups, for a particular infallible search.
+///
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found. If the underlying search returns an error, then this panics.
+///
+/// The lifetime variables are as follows:
+///
+/// * `'r` is the lifetime of the regular expression itself.
+/// * `'c` is the lifetime of the mutable cache used during search.
+/// * `'t` is the lifetime of the text being searched.
+#[derive(Debug)]
+pub struct CapturesLeftmostMatches<'r, 'c, 't> {
+    vm: &'r PikeVM,
+    cache: &'c mut Cache,
+    // scanner: Option<prefilter::Scanner<'r>>,
+    text: &'t [u8],
+    last_end: usize,
+    last_match: Option<usize>,
+}
+
+impl<'r, 'c, 't> CapturesLeftmostMatches<'r, 'c, 't> {
+    fn new(
+        vm: &'r PikeVM,
+        cache: &'c mut Cache,
+        text: &'t [u8],
+    ) -> CapturesLeftmostMatches<'r, 'c, 't> {
+        CapturesLeftmostMatches {
+            vm,
+            cache,
+            text,
+            last_end: 0,
+            last_match: None,
+        }
+    }
+}
+
+impl<'r, 'c, 't> Iterator for CapturesLeftmostMatches<'r, 'c, 't> {
+    type Item = Captures;
+
+    fn next(&mut self) -> Option<Captures> {
+        if self.last_end > self.text.len() {
+            return None;
+        }
+        let mut caps = self.vm.create_captures();
+        let m = self.vm.find_leftmost_at(
+            self.cache,
+            None,
+            None,
+            self.text,
+            self.last_end,
+            self.text.len(),
+            &mut caps,
+        )?;
+        if m.is_empty() {
+            // This is an empty match. To ensure we make progress, start
+            // the next search at the smallest possible starting position
+            // of the next match following this one.
+            self.last_end = if self.vm.config.get_utf8() {
+                crate::util::next_utf8(self.text, m.end())
+            } else {
+                m.end() + 1
+            };
+            // Don't accept empty matches immediately following a match.
+            // Just move on to the next match.
+            if Some(m.end()) == self.last_match {
+                return self.next();
+            }
+        } else {
+            self.last_end = m.end();
+        }
+        self.last_match = Some(m.end());
+        Some(caps)
     }
 }
 

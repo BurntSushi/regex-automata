@@ -211,6 +211,10 @@ impl Captures {
     pub fn new<I: IntoIterator<Item = Option<Match>>>(it: I) -> Captures {
         Captures(it.into_iter().collect())
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl RegexTest {
@@ -1079,7 +1083,7 @@ impl RegexTestFailureKind {
                 write!(
                     buf,
                     "expected to find {:?} captures, but got {:?}",
-                    todo!(),
+                    test.captures().unwrap(),
                     got,
                 )?;
             }

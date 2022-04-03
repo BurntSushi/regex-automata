@@ -11,3 +11,6 @@ constant overhead associated with them.
 
 * Scrutinize whether the SparseTransitions and Transition types should have
 their representations expose. The State enum is already totally exposed...
+
+* Provid a more elementary API for 'start_state_forward'.
+See: https://github.com/rust-lang/regex/issues/852
