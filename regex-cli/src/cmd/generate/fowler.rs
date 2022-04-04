@@ -110,6 +110,31 @@ impl TomlTest {
         group_name: &str,
         dat: &DatTest,
     ) -> anyhow::Result<TomlTest> {
+        let mut captures = dat.captures.clone();
+        if !captures.is_empty() {
+            // Many of the Fowler tests don't actually list out every capturing
+            // group match, and they instead stop once all remaining capturing
+            // groups are empty. In effect, it makes writing tests terser,
+            // but adds more implicitness. The TOML test suite does not make
+            // this trade off (to this extent anyway), so it really wants all
+            // capturing groups...
+            //
+            // So what we do here is is look for the number of groups in the
+            // pattern and then just pad out the capture matches with None
+            // values. Sadly, in order to get the number of capturing groups,
+            // we do actually have to parse the regex.
+            //
+            // Sadly, this doesn't work for a small subset of tests that
+            // actually have more capturing group MATCHES than what is listed
+            // explicitly in the test. Instead, the test includes an 'nmatch'
+            // instruction that instructs the test runner to only consider the
+            // first N capturing groups. Our test runner has no such option...
+            let numcaps = count_capturing_groups(&dat.regex)?;
+            for i in captures.len()..numcaps {
+                captures.push(None);
+            }
+        }
+
         let comment = if dat.re2go {
             Some("Test added by RE2/Go project.".to_string())
         } else if dat.rust {
@@ -122,7 +147,7 @@ impl TomlTest {
             line_number: dat.line_number,
             regex: dat.regex.clone(),
             input: dat.input.clone(),
-            captures: dat.captures.clone(),
+            captures,
             unescape: dat.flags.contains(&'$'),
             case_insensitive: dat.flags.contains(&'i'),
             comment,
@@ -286,5 +311,37 @@ impl DatTest {
             re2go,
             rust,
         }))
+    }
+}
+
+fn count_capturing_groups(pattern: &str) -> anyhow::Result<usize> {
+    let ast = syntax::ast::parse::Parser::new()
+        .parse(pattern)
+        .with_context(|| format!("failed to parse '{}'", pattern))?;
+    // We add 1 to account for the capturing group for the entire
+    // pattern.
+    Ok(1 + count_capturing_groups_ast(&ast))
+}
+
+fn count_capturing_groups_ast(ast: &syntax::ast::Ast) -> usize {
+    use syntax::ast::{Ast, Group, Repetition};
+    match *ast {
+        Ast::Empty(_)
+        | Ast::Flags(_)
+        | Ast::Literal(_)
+        | Ast::Dot(_)
+        | Ast::Assertion(_)
+        | Ast::Class(_) => 0,
+        Ast::Repetition(ref rep) => count_capturing_groups_ast(&*rep.ast),
+        Ast::Group(ref group) => {
+            let this = if group.is_capturing() { 1 } else { 0 };
+            this + count_capturing_groups_ast(&*group.ast)
+        }
+        Ast::Alternation(ref alt) => {
+            alt.asts.iter().map(count_capturing_groups_ast).sum()
+        }
+        Ast::Concat(ref concat) => {
+            concat.asts.iter().map(count_capturing_groups_ast).sum()
+        }
     }
 }

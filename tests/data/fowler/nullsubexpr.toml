@@ -70,7 +70,7 @@ match_limit = 1
 name = "nullsubexpr12"
 regex = '''(a+)*'''
 input = '''x'''
-captures = [[[0, 0]]]
+captures = [[[0, 0], []]]
 match_limit = 1
 
 [[tests]]
@@ -283,71 +283,72 @@ input = '''ababab'''
 captures = [[[0, 0], [0, 0]]]
 match_limit = 1
 
+# Test added by Rust regex project.
 [[tests]]
-name = "nullsubexpr45"
+name = "nullsubexpr46"
 regex = '''((z)+|a)*'''
 input = '''zabcde'''
-captures = [[[0, 2], [1, 2]]]
-match_limit = 1
-
-[[tests]]
-name = "nullsubexpr63"
-regex = '''(a*)*(x)'''
-input = '''x'''
-captures = [[[0, 1], [0, 0], [0, 1]]]
+captures = [[[0, 2], [1, 2], [0, 1]]]
 match_limit = 1
 
 [[tests]]
 name = "nullsubexpr64"
 regex = '''(a*)*(x)'''
+input = '''x'''
+captures = [[[0, 1], [0, 0], [0, 1]]]
+match_limit = 1
+
+[[tests]]
+name = "nullsubexpr65"
+regex = '''(a*)*(x)'''
 input = '''ax'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
 match_limit = 1
 
 [[tests]]
-name = "nullsubexpr65"
+name = "nullsubexpr66"
 regex = '''(a*)*(x)'''
 input = '''axa'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
 match_limit = 1
 
 [[tests]]
-name = "nullsubexpr67"
+name = "nullsubexpr68"
 regex = '''(a*)+(x)'''
 input = '''x'''
 captures = [[[0, 1], [0, 0], [0, 1]]]
 match_limit = 1
 
 [[tests]]
-name = "nullsubexpr68"
+name = "nullsubexpr69"
 regex = '''(a*)+(x)'''
 input = '''ax'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
 match_limit = 1
 
 [[tests]]
-name = "nullsubexpr69"
+name = "nullsubexpr70"
 regex = '''(a*)+(x)'''
 input = '''axa'''
 captures = [[[0, 2], [0, 1], [1, 2]]]
 match_limit = 1
 
 [[tests]]
-name = "nullsubexpr71"
+name = "nullsubexpr72"
 regex = '''(a*){2}(x)'''
 input = '''x'''
 captures = [[[0, 1], [0, 0], [0, 1]]]
 match_limit = 1
 
 [[tests]]
-name = "nullsubexpr72"
+name = "nullsubexpr73"
 regex = '''(a*){2}(x)'''
 input = '''ax'''
 captures = [[[0, 2], [1, 1], [1, 2]]]
 match_limit = 1
 
 [[tests]]
-name = "nullsubexpr73"
+name = "nullsubexpr74"
 regex = '''(a*){2}(x)'''
 input = '''axa'''
 captures = [[[0, 2], [1, 1], [1, 2]]]

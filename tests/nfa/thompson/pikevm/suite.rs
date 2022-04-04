@@ -101,12 +101,12 @@ fn run_test(
                     // needs to be overhauled, and we should probably try to
                     // fix the fowler tests so they aren't terse for the sake
                     // of being terse.
-                    let nexpected = test.captures().map_or(0, |c| c[0].len());
-                    let mut stestcaps = &testcaps[..];
-                    if nexpected < stestcaps.len() {
-                        stestcaps = &stestcaps[..nexpected];
-                    }
-                    TestCaptures::new(stestcaps.to_vec())
+                    // let nexpected = test.captures().map_or(0, |c| c[0].len());
+                    // let mut stestcaps = &testcaps[..];
+                    // if nexpected < stestcaps.len() {
+                    // stestcaps = &stestcaps[..nexpected];
+                    // }
+                    TestCaptures::new(testcaps)
                 });
             TestResult::captures(it).name("captures_leftmost_iter")
         }

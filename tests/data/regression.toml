@@ -273,10 +273,10 @@ name = "captures-after-dfa-premature-end-300"
 regex = '(aa$)?'
 input = "aaz"
 captures = [
-  [[0, 0]],
-  [[1, 1]],
-  [[2, 2]],
-  [[3, 3]],
+  [[0, 0], []],
+  [[1, 1], []],
+  [[2, 2], []],
+  [[3, 3], []],
 ]
 
 # See: https://github.com/rust-lang/regex/issues/437

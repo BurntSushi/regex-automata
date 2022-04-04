@@ -49,7 +49,7 @@ match_limit = 1
 name = "repetition18"
 regex = '''((..)|(.))*'''
 input = ''''''
-captures = [[[0, 0]]]
+captures = [[[0, 0], [], [], []]]
 match_limit = 1
 
 [[tests]]
