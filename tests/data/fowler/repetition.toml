@@ -9,7 +9,6 @@ regex = '''((..)|(.))'''
 input = ''''''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition11"
@@ -17,7 +16,6 @@ regex = '''((..)|(.))((..)|(.))'''
 input = ''''''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition12"
@@ -25,7 +23,6 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = ''''''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition14"
@@ -33,7 +30,6 @@ regex = '''((..)|(.)){1}'''
 input = ''''''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition15"
@@ -41,7 +37,6 @@ regex = '''((..)|(.)){2}'''
 input = ''''''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition16"
@@ -49,7 +44,6 @@ regex = '''((..)|(.)){3}'''
 input = ''''''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition18"
@@ -57,7 +51,6 @@ regex = '''((..)|(.))*'''
 input = ''''''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition20"
@@ -65,7 +58,6 @@ regex = '''((..)|(.))'''
 input = '''a'''
 captures = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition21"
@@ -73,7 +65,6 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''a'''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition22"
@@ -81,7 +72,6 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''a'''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition24"
@@ -89,7 +79,6 @@ regex = '''((..)|(.)){1}'''
 input = '''a'''
 captures = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition25"
@@ -97,7 +86,6 @@ regex = '''((..)|(.)){2}'''
 input = '''a'''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition26"
@@ -105,7 +93,6 @@ regex = '''((..)|(.)){3}'''
 input = '''a'''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition28"
@@ -113,7 +100,6 @@ regex = '''((..)|(.))*'''
 input = '''a'''
 captures = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition30"
@@ -121,7 +107,6 @@ regex = '''((..)|(.))'''
 input = '''aa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition31"
@@ -129,7 +114,6 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aa'''
 captures = [[[0, 2], [0, 1], [], [0, 1], [1, 2], [], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition32"
@@ -137,7 +121,6 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aa'''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition34"
@@ -145,7 +128,6 @@ regex = '''((..)|(.)){1}'''
 input = '''aa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition35"
@@ -153,7 +135,6 @@ regex = '''((..)|(.)){2}'''
 input = '''aa'''
 captures = [[[0, 2], [1, 2], [], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition36"
@@ -161,7 +142,6 @@ regex = '''((..)|(.)){3}'''
 input = '''aa'''
 captures = []
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition38"
@@ -169,7 +149,6 @@ regex = '''((..)|(.))*'''
 input = '''aa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition40"
@@ -177,7 +156,6 @@ regex = '''((..)|(.))'''
 input = '''aaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition41"
@@ -185,7 +163,6 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaa'''
 captures = [[[0, 3], [0, 2], [0, 2], [], [2, 3], [], [2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition42"
@@ -193,7 +170,6 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaa'''
 captures = [[[0, 3], [0, 1], [], [0, 1], [1, 2], [], [1, 2], [2, 3], [], [2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition44"
@@ -201,15 +177,14 @@ regex = '''((..)|(.)){1}'''
 input = '''aaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
+# Test added by RE2/Go project.
 [[tests]]
 name = "repetition46"
 regex = '''((..)|(.)){2}'''
 input = '''aaa'''
 captures = [[[0, 3], [2, 3], [0, 2], [2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition47"
@@ -217,15 +192,14 @@ regex = '''((..)|(.)){3}'''
 input = '''aaa'''
 captures = [[[0, 3], [2, 3], [], [2, 3]]]
 match_limit = 1
-unescape = true
 
+# Test added by RE2/Go project.
 [[tests]]
 name = "repetition50"
 regex = '''((..)|(.))*'''
 input = '''aaa'''
 captures = [[[0, 3], [2, 3], [0, 2], [2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition52"
@@ -233,7 +207,6 @@ regex = '''((..)|(.))'''
 input = '''aaaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition53"
@@ -241,7 +214,6 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaaa'''
 captures = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition54"
@@ -249,7 +221,6 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaaa'''
 captures = [[[0, 4], [0, 2], [0, 2], [], [2, 3], [], [2, 3], [3, 4], [], [3, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition56"
@@ -257,7 +228,6 @@ regex = '''((..)|(.)){1}'''
 input = '''aaaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition57"
@@ -265,15 +235,14 @@ regex = '''((..)|(.)){2}'''
 input = '''aaaa'''
 captures = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
-unescape = true
 
+# Test added by RE2/Go project.
 [[tests]]
 name = "repetition59"
 regex = '''((..)|(.)){3}'''
 input = '''aaaa'''
 captures = [[[0, 4], [3, 4], [0, 2], [3, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition61"
@@ -281,7 +250,6 @@ regex = '''((..)|(.))*'''
 input = '''aaaa'''
 captures = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition63"
@@ -289,7 +257,6 @@ regex = '''((..)|(.))'''
 input = '''aaaaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition64"
@@ -297,7 +264,6 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaaaa'''
 captures = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition65"
@@ -305,7 +271,6 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaaaa'''
 captures = [[[0, 5], [0, 2], [0, 2], [], [2, 4], [2, 4], [], [4, 5], [], [4, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition67"
@@ -313,7 +278,6 @@ regex = '''((..)|(.)){1}'''
 input = '''aaaaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition68"
@@ -321,23 +285,22 @@ regex = '''((..)|(.)){2}'''
 input = '''aaaaa'''
 captures = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
-unescape = true
 
+# Test added by RE2/Go project.
 [[tests]]
 name = "repetition70"
 regex = '''((..)|(.)){3}'''
 input = '''aaaaa'''
 captures = [[[0, 5], [4, 5], [2, 4], [4, 5]]]
 match_limit = 1
-unescape = true
 
+# Test added by RE2/Go project.
 [[tests]]
 name = "repetition73"
 regex = '''((..)|(.))*'''
 input = '''aaaaa'''
 captures = [[[0, 5], [4, 5], [2, 4], [4, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition75"
@@ -345,7 +308,6 @@ regex = '''((..)|(.))'''
 input = '''aaaaaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition76"
@@ -353,7 +315,6 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaaaaa'''
 captures = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition77"
@@ -361,7 +322,6 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [0, 2], [0, 2], [], [2, 4], [2, 4], [], [4, 6], [4, 6], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition79"
@@ -369,7 +329,6 @@ regex = '''((..)|(.)){1}'''
 input = '''aaaaaa'''
 captures = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition80"
@@ -377,7 +336,6 @@ regex = '''((..)|(.)){2}'''
 input = '''aaaaaa'''
 captures = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition81"
@@ -385,7 +343,6 @@ regex = '''((..)|(.)){3}'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [4, 6], [4, 6], []]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "repetition83"
@@ -393,5 +350,4 @@ regex = '''((..)|(.))*'''
 input = '''aaaaaa'''
 captures = [[[0, 6], [4, 6], [4, 6], []]]
 match_limit = 1
-unescape = true
 

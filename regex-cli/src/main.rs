@@ -12,6 +12,7 @@ fn main() -> anyhow::Result<()> {
     util::run_subcommand(&args, app::root, |cmd, args| match cmd {
         "debug" => cmd::debug::run(args),
         "find" => cmd::find::run(args),
+        "generate" => cmd::generate::run(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }

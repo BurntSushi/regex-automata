@@ -9,7 +9,6 @@ regex = '''abracadabra$'''
 input = '''abracadabracadabra'''
 captures = [[[7, 18]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic4"
@@ -17,7 +16,6 @@ regex = '''a...b'''
 input = '''abababbb'''
 captures = [[[2, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic5"
@@ -25,7 +23,6 @@ regex = '''XXXXXX'''
 input = '''..XXXXXX'''
 captures = [[[2, 8]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic6"
@@ -33,7 +30,6 @@ regex = '''\)'''
 input = '''()'''
 captures = [[[1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic7"
@@ -41,7 +37,6 @@ regex = '''a]'''
 input = '''a]a'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic9"
@@ -49,7 +44,6 @@ regex = '''\}'''
 input = '''}'''
 captures = [[[0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic10"
@@ -57,7 +51,6 @@ regex = '''\]'''
 input = ''']'''
 captures = [[[0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic12"
@@ -65,7 +58,6 @@ regex = ''']'''
 input = ''']'''
 captures = [[[0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic15"
@@ -73,7 +65,6 @@ regex = '''^a'''
 input = '''ax'''
 captures = [[[0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic16"
@@ -81,7 +72,6 @@ regex = '''\^a'''
 input = '''a^a'''
 captures = [[[1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic17"
@@ -89,7 +79,6 @@ regex = '''a\^'''
 input = '''a^'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic18"
@@ -97,7 +86,6 @@ regex = '''a$'''
 input = '''aa'''
 captures = [[[1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic19"
@@ -105,7 +93,6 @@ regex = '''a\$'''
 input = '''a$'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic20"
@@ -113,7 +100,6 @@ regex = '''^$'''
 input = ''''''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic21"
@@ -121,7 +107,6 @@ regex = '''$^'''
 input = ''''''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic22"
@@ -129,7 +114,6 @@ regex = '''a($)'''
 input = '''aa'''
 captures = [[[1, 2], [2, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic23"
@@ -137,7 +121,6 @@ regex = '''a*(^a)'''
 input = '''aa'''
 captures = [[[0, 1], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic24"
@@ -145,7 +128,6 @@ regex = '''(..)*(...)*'''
 input = '''a'''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic25"
@@ -153,7 +135,6 @@ regex = '''(..)*(...)*'''
 input = '''abcd'''
 captures = [[[0, 4], [2, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic26"
@@ -161,7 +142,6 @@ regex = '''(ab|a)(bc|c)'''
 input = '''abc'''
 captures = [[[0, 3], [0, 2], [2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic27"
@@ -169,7 +149,6 @@ regex = '''(ab)c|abc'''
 input = '''abc'''
 captures = [[[0, 3], [0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic28"
@@ -177,7 +156,6 @@ regex = '''a{0}b'''
 input = '''ab'''
 captures = [[[1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic29"
@@ -185,7 +163,6 @@ regex = '''(a*)(b?)(b+)b{3}'''
 input = '''aaabbbbbbb'''
 captures = [[[0, 10], [0, 3], [3, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic30"
@@ -193,7 +170,6 @@ regex = '''(a*)(b{0,1})(b{1,})b{3}'''
 input = '''aaabbbbbbb'''
 captures = [[[0, 10], [0, 3], [3, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic32"
@@ -201,7 +177,6 @@ regex = '''((a|a)|a)'''
 input = '''a'''
 captures = [[[0, 1], [0, 1], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic33"
@@ -209,7 +184,6 @@ regex = '''(a*)(a|aa)'''
 input = '''aaaa'''
 captures = [[[0, 4], [0, 3], [3, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic34"
@@ -217,7 +191,6 @@ regex = '''a*(a.|aa)'''
 input = '''aaaa'''
 captures = [[[0, 4], [2, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic35"
@@ -225,7 +198,6 @@ regex = '''a(b)|c(d)|a(e)f'''
 input = '''aef'''
 captures = [[[0, 3], [], [], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic36"
@@ -233,7 +205,6 @@ regex = '''(a|b)?.*'''
 input = '''b'''
 captures = [[[0, 1], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic37"
@@ -241,7 +212,6 @@ regex = '''(a|b)c|a(b|c)'''
 input = '''ac'''
 captures = [[[0, 2], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic38"
@@ -249,7 +219,6 @@ regex = '''(a|b)c|a(b|c)'''
 input = '''ab'''
 captures = [[[0, 2], [], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic39"
@@ -257,7 +226,6 @@ regex = '''(a|b)*c|(a|ab)*c'''
 input = '''abc'''
 captures = [[[0, 3], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic40"
@@ -265,7 +233,6 @@ regex = '''(a|b)*c|(a|ab)*c'''
 input = '''xc'''
 captures = [[[1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic41"
@@ -273,7 +240,6 @@ regex = '''(.a|.b).*|.*(.a|.b)'''
 input = '''xa'''
 captures = [[[0, 2], [0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic42"
@@ -281,7 +247,6 @@ regex = '''a?(ab|ba)ab'''
 input = '''abab'''
 captures = [[[0, 4], [0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic43"
@@ -289,7 +254,6 @@ regex = '''a?(ac{0}b|ba)ab'''
 input = '''abab'''
 captures = [[[0, 4], [0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic44"
@@ -297,7 +261,6 @@ regex = '''ab|abab'''
 input = '''abbabab'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic45"
@@ -305,7 +268,6 @@ regex = '''aba|bab|bba'''
 input = '''baaabbbaba'''
 captures = [[[5, 8]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic46"
@@ -313,7 +275,6 @@ regex = '''aba|bab'''
 input = '''baaabbbaba'''
 captures = [[[6, 9]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic47"
@@ -321,7 +282,6 @@ regex = '''(aa|aaa)*|(a|aaaaa)'''
 input = '''aa'''
 captures = [[[0, 2], [0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic48"
@@ -329,7 +289,6 @@ regex = '''(a.|.a.)*|(a|.a...)'''
 input = '''aa'''
 captures = [[[0, 2], [0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic49"
@@ -337,7 +296,6 @@ regex = '''ab|a'''
 input = '''xabc'''
 captures = [[[1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic50"
@@ -345,7 +303,6 @@ regex = '''ab|a'''
 input = '''xxabc'''
 captures = [[[2, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic51"
@@ -353,7 +310,6 @@ regex = '''(Ab|cD)*'''
 input = '''aBcD'''
 captures = [[[0, 4], [2, 4]]]
 match_limit = 1
-unescape = true
 case_insensitive = true
 
 [[tests]]
@@ -362,7 +318,6 @@ regex = '''[^-]'''
 input = '''--a'''
 captures = [[[2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic53"
@@ -370,7 +325,6 @@ regex = '''[a-]*'''
 input = '''--a'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic54"
@@ -378,7 +332,6 @@ regex = '''[a-m-]*'''
 input = '''--amoma--'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic55"
@@ -386,7 +339,6 @@ regex = ''':::1:::0:|:::1:1:0:'''
 input = ''':::0:::1:::1:::0:'''
 captures = [[[8, 17]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic56"
@@ -394,7 +346,6 @@ regex = ''':::1:::0:|:::1:1:1:'''
 input = ''':::0:::1:::1:::0:'''
 captures = [[[8, 17]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic57"
@@ -402,7 +353,6 @@ regex = '''[[:upper:]]'''
 input = '''A'''
 captures = [[[0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic58"
@@ -410,7 +360,6 @@ regex = '''[[:lower:]]+'''
 input = '''`az{'''
 captures = [[[1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic59"
@@ -418,7 +367,6 @@ regex = '''[[:upper:]]+'''
 input = '''@AZ['''
 captures = [[[1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic65"
@@ -458,7 +406,6 @@ regex = '''(a)(b)(c)'''
 input = '''abc'''
 captures = [[[0, 3], [0, 1], [1, 2], [2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic70"
@@ -466,7 +413,6 @@ regex = '''xxx'''
 input = '''xxx'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic71"
@@ -474,7 +420,6 @@ regex = '''(^|[ (,;])((([Ff]eb[^ ]* *|0*2/|\* */?)0*[6-7]))([^0-9]|$)'''
 input = '''feb 6,'''
 captures = [[[0, 6]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic72"
@@ -482,7 +427,6 @@ regex = '''(^|[ (,;])((([Ff]eb[^ ]* *|0*2/|\* */?)0*[6-7]))([^0-9]|$)'''
 input = '''2/7'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic73"
@@ -490,7 +434,6 @@ regex = '''(^|[ (,;])((([Ff]eb[^ ]* *|0*2/|\* */?)0*[6-7]))([^0-9]|$)'''
 input = '''feb 1,Feb 6'''
 captures = [[[5, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic74"
@@ -498,7 +441,6 @@ regex = '''((((((((((((((((((((((((((((((x))))))))))))))))))))))))))))))'''
 input = '''x'''
 captures = [[[0, 1], [0, 1], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic75"
@@ -506,7 +448,6 @@ regex = '''((((((((((((((((((((((((((((((x))))))))))))))))))))))))))))))*'''
 input = '''xx'''
 captures = [[[0, 2], [1, 2], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic76"
@@ -514,7 +455,6 @@ regex = '''a?(ab|ba)*'''
 input = '''ababababababababababababababababababababababababababababababababababababababababa'''
 captures = [[[0, 81], [79, 81]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic77"
@@ -522,7 +462,6 @@ regex = '''abaa|abbaa|abbbaa|abbbbaa'''
 input = '''ababbabbbabbbabbbbabbbbaa'''
 captures = [[[18, 25]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic78"
@@ -530,7 +469,6 @@ regex = '''abaa|abbaa|abbbaa|abbbbaa'''
 input = '''ababbabbbabbbabbbbabaa'''
 captures = [[[18, 22]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic79"
@@ -538,8 +476,8 @@ regex = '''aaac|aabc|abac|abbc|baac|babc|bbac|bbbc'''
 input = '''baaabbbabac'''
 captures = [[[7, 11]]]
 match_limit = 1
-unescape = true
 
+# Test added by Rust regex project.
 [[tests]]
 name = "basic81"
 regex = '''.*'''
@@ -554,7 +492,6 @@ regex = '''aaaa|bbbb|cccc|ddddd|eeeeee|fffffff|gggg|hhhh|iiiii|jjjjj|kkkkk|llll'
 input = '''XaaaXbbbXcccXdddXeeeXfffXgggXhhhXiiiXjjjXkkkXlllXcbaXaaaa'''
 captures = [[[53, 57]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic84"
@@ -562,7 +499,6 @@ regex = '''a*a*a*a*a*b'''
 input = '''aaaaaaaaab'''
 captures = [[[0, 10]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic85"
@@ -570,7 +506,6 @@ regex = '''^'''
 input = ''''''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic86"
@@ -578,7 +513,6 @@ regex = '''$'''
 input = ''''''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic87"
@@ -586,7 +520,6 @@ regex = '''^$'''
 input = ''''''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic88"
@@ -594,7 +527,6 @@ regex = '''^a$'''
 input = '''a'''
 captures = [[[0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic89"
@@ -602,7 +534,6 @@ regex = '''abc'''
 input = '''abc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic90"
@@ -610,7 +541,6 @@ regex = '''abc'''
 input = '''xabcy'''
 captures = [[[1, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic91"
@@ -618,7 +548,6 @@ regex = '''abc'''
 input = '''ababc'''
 captures = [[[2, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic92"
@@ -626,7 +555,6 @@ regex = '''ab*c'''
 input = '''abc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic93"
@@ -634,7 +562,6 @@ regex = '''ab*bc'''
 input = '''abc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic94"
@@ -642,7 +569,6 @@ regex = '''ab*bc'''
 input = '''abbc'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic95"
@@ -650,7 +576,6 @@ regex = '''ab*bc'''
 input = '''abbbbc'''
 captures = [[[0, 6]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic96"
@@ -658,7 +583,6 @@ regex = '''ab+bc'''
 input = '''abbc'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic97"
@@ -666,7 +590,6 @@ regex = '''ab+bc'''
 input = '''abbbbc'''
 captures = [[[0, 6]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic98"
@@ -674,7 +597,6 @@ regex = '''ab?bc'''
 input = '''abbc'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic99"
@@ -682,7 +604,6 @@ regex = '''ab?bc'''
 input = '''abc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic100"
@@ -690,7 +611,6 @@ regex = '''ab?c'''
 input = '''abc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic101"
@@ -698,7 +618,6 @@ regex = '''^abc$'''
 input = '''abc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic102"
@@ -706,7 +625,6 @@ regex = '''^abc'''
 input = '''abcc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic103"
@@ -714,7 +632,6 @@ regex = '''abc$'''
 input = '''aabc'''
 captures = [[[1, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic104"
@@ -722,7 +639,6 @@ regex = '''^'''
 input = '''abc'''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic105"
@@ -730,7 +646,6 @@ regex = '''$'''
 input = '''abc'''
 captures = [[[3, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic106"
@@ -738,7 +653,6 @@ regex = '''a.c'''
 input = '''abc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic107"
@@ -746,7 +660,6 @@ regex = '''a.c'''
 input = '''axc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic108"
@@ -754,7 +667,6 @@ regex = '''a.*c'''
 input = '''axyzc'''
 captures = [[[0, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic109"
@@ -762,7 +674,6 @@ regex = '''a[bc]d'''
 input = '''abd'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic110"
@@ -770,7 +681,6 @@ regex = '''a[b-d]e'''
 input = '''ace'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic111"
@@ -778,7 +688,6 @@ regex = '''a[b-d]'''
 input = '''aac'''
 captures = [[[1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic112"
@@ -786,7 +695,6 @@ regex = '''a[-b]'''
 input = '''a-'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic113"
@@ -794,7 +702,6 @@ regex = '''a[b-]'''
 input = '''a-'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic114"
@@ -802,7 +709,6 @@ regex = '''a]'''
 input = '''a]'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic115"
@@ -810,7 +716,6 @@ regex = '''a[]]b'''
 input = '''a]b'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic116"
@@ -818,7 +723,6 @@ regex = '''a[^bc]d'''
 input = '''aed'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic117"
@@ -826,7 +730,6 @@ regex = '''a[^-b]c'''
 input = '''adc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic118"
@@ -834,7 +737,6 @@ regex = '''a[^]b]c'''
 input = '''adc'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic119"
@@ -842,7 +744,6 @@ regex = '''ab|cd'''
 input = '''abc'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic120"
@@ -850,7 +751,6 @@ regex = '''ab|cd'''
 input = '''abcd'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic121"
@@ -858,7 +758,6 @@ regex = '''a\(b'''
 input = '''a(b'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic122"
@@ -866,7 +765,6 @@ regex = '''a\(*b'''
 input = '''ab'''
 captures = [[[0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic123"
@@ -874,7 +772,6 @@ regex = '''a\(*b'''
 input = '''a((b'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic124"
@@ -882,7 +779,6 @@ regex = '''((a))'''
 input = '''abc'''
 captures = [[[0, 1], [0, 1], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic125"
@@ -890,7 +786,6 @@ regex = '''(a)b(c)'''
 input = '''abc'''
 captures = [[[0, 3], [0, 1], [2, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic126"
@@ -898,7 +793,6 @@ regex = '''a+b+c'''
 input = '''aabbabc'''
 captures = [[[4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic127"
@@ -906,7 +800,6 @@ regex = '''a*'''
 input = '''aaa'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic128"
@@ -914,7 +807,6 @@ regex = '''(a*)*'''
 input = '''-'''
 captures = [[[0, 0], [0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic129"
@@ -922,7 +814,6 @@ regex = '''(a*)+'''
 input = '''-'''
 captures = [[[0, 0], [0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic130"
@@ -930,7 +821,6 @@ regex = '''(a*|b)*'''
 input = '''-'''
 captures = [[[0, 0], [0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic131"
@@ -938,7 +828,6 @@ regex = '''(a+|b)*'''
 input = '''ab'''
 captures = [[[0, 2], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic132"
@@ -946,7 +835,6 @@ regex = '''(a+|b)+'''
 input = '''ab'''
 captures = [[[0, 2], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic133"
@@ -954,7 +842,6 @@ regex = '''(a+|b)?'''
 input = '''ab'''
 captures = [[[0, 1], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic134"
@@ -962,7 +849,6 @@ regex = '''[^ab]*'''
 input = '''cde'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic135"
@@ -970,7 +856,6 @@ regex = '''(^)*'''
 input = '''-'''
 captures = [[[0, 0], [0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic136"
@@ -978,7 +863,6 @@ regex = '''a*'''
 input = ''''''
 captures = [[[0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic137"
@@ -986,7 +870,6 @@ regex = '''([abc])*d'''
 input = '''abbbcd'''
 captures = [[[0, 6], [4, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic138"
@@ -994,7 +877,6 @@ regex = '''([abc])*bcd'''
 input = '''abcd'''
 captures = [[[0, 4], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic139"
@@ -1002,7 +884,6 @@ regex = '''a|b|c|d|e'''
 input = '''e'''
 captures = [[[0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic140"
@@ -1010,7 +891,6 @@ regex = '''(a|b|c|d|e)f'''
 input = '''ef'''
 captures = [[[0, 2], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic141"
@@ -1018,7 +898,6 @@ regex = '''((a*|b))*'''
 input = '''-'''
 captures = [[[0, 0], [0, 0], [0, 0]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic142"
@@ -1026,7 +905,6 @@ regex = '''abcd*efg'''
 input = '''abcdefg'''
 captures = [[[0, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic143"
@@ -1034,7 +912,6 @@ regex = '''ab*'''
 input = '''xabyabbbz'''
 captures = [[[1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic144"
@@ -1042,7 +919,6 @@ regex = '''ab*'''
 input = '''xayabbbz'''
 captures = [[[1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic145"
@@ -1050,7 +926,6 @@ regex = '''(ab|cd)e'''
 input = '''abcde'''
 captures = [[[2, 5], [2, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic146"
@@ -1058,7 +933,6 @@ regex = '''[abhgefdc]ij'''
 input = '''hij'''
 captures = [[[0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic147"
@@ -1066,7 +940,6 @@ regex = '''(a|b)c*d'''
 input = '''abcd'''
 captures = [[[1, 4], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic148"
@@ -1074,7 +947,6 @@ regex = '''(ab|ab*)bc'''
 input = '''abc'''
 captures = [[[0, 3], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic149"
@@ -1082,7 +954,6 @@ regex = '''a([bc]*)c*'''
 input = '''abc'''
 captures = [[[0, 3], [1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic150"
@@ -1090,7 +961,6 @@ regex = '''a([bc]*)(c*d)'''
 input = '''abcd'''
 captures = [[[0, 4], [1, 3], [3, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic151"
@@ -1098,7 +968,6 @@ regex = '''a([bc]+)(c*d)'''
 input = '''abcd'''
 captures = [[[0, 4], [1, 3], [3, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic152"
@@ -1106,7 +975,6 @@ regex = '''a([bc]*)(c+d)'''
 input = '''abcd'''
 captures = [[[0, 4], [1, 2], [2, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic153"
@@ -1114,7 +982,6 @@ regex = '''a[bcd]*dcdcde'''
 input = '''adcdcde'''
 captures = [[[0, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic154"
@@ -1122,7 +989,6 @@ regex = '''(ab|a)b*c'''
 input = '''abc'''
 captures = [[[0, 3], [0, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic155"
@@ -1130,7 +996,6 @@ regex = '''((a)(b)c)(d)'''
 input = '''abcd'''
 captures = [[[0, 4], [0, 3], [0, 1], [1, 2], [3, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic156"
@@ -1138,7 +1003,6 @@ regex = '''[A-Za-z_][A-Za-z0-9_]*'''
 input = '''alpha'''
 captures = [[[0, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic157"
@@ -1146,7 +1010,6 @@ regex = '''^a(bc+|b[eh])g|.h$'''
 input = '''abh'''
 captures = [[[1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic158"
@@ -1154,7 +1017,6 @@ regex = '''(bc+d$|ef*g.|h?i(j|k))'''
 input = '''effgz'''
 captures = [[[0, 5], [0, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic159"
@@ -1162,7 +1024,6 @@ regex = '''(bc+d$|ef*g.|h?i(j|k))'''
 input = '''ij'''
 captures = [[[0, 2], [0, 2], [1, 2]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic160"
@@ -1170,7 +1031,6 @@ regex = '''(bc+d$|ef*g.|h?i(j|k))'''
 input = '''reffgz'''
 captures = [[[1, 6], [1, 6]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic161"
@@ -1178,7 +1038,6 @@ regex = '''(((((((((a)))))))))'''
 input = '''a'''
 captures = [[[0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1], [0, 1]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic162"
@@ -1186,7 +1045,6 @@ regex = '''multiple words'''
 input = '''multiple words yeah'''
 captures = [[[0, 14]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic163"
@@ -1194,7 +1052,6 @@ regex = '''(.*)c(.*)'''
 input = '''abcde'''
 captures = [[[0, 5], [0, 2], [3, 5]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic164"
@@ -1202,7 +1059,6 @@ regex = '''abcd'''
 input = '''abcd'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic165"
@@ -1210,7 +1066,6 @@ regex = '''a(bc)d'''
 input = '''abcd'''
 captures = [[[0, 4], [1, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic166"
@@ -1226,7 +1081,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Qaddafi'''
 captures = [[[0, 15], [], [10, 12]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic168"
@@ -1234,7 +1088,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Mo'ammar Gadhafi'''
 captures = [[[0, 16], [], [11, 13]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic169"
@@ -1242,7 +1095,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Kaddafi'''
 captures = [[[0, 15], [], [10, 12]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic170"
@@ -1250,7 +1102,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Qadhafi'''
 captures = [[[0, 15], [], [10, 12]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic171"
@@ -1258,7 +1109,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Gadafi'''
 captures = [[[0, 14], [], [10, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic172"
@@ -1266,7 +1116,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Mu'ammar Qadafi'''
 captures = [[[0, 15], [], [11, 12]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic173"
@@ -1274,7 +1123,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Moamar Gaddafi'''
 captures = [[[0, 14], [], [9, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic174"
@@ -1282,7 +1130,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Mu'ammar Qadhdhafi'''
 captures = [[[0, 18], [], [13, 15]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic175"
@@ -1290,7 +1137,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Khaddafi'''
 captures = [[[0, 16], [], [11, 13]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic176"
@@ -1298,7 +1144,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Ghaddafy'''
 captures = [[[0, 16], [], [11, 13]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic177"
@@ -1306,7 +1151,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Ghadafi'''
 captures = [[[0, 15], [], [11, 12]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic178"
@@ -1314,7 +1158,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Ghaddafi'''
 captures = [[[0, 16], [], [11, 13]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic179"
@@ -1322,7 +1165,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muamar Kaddafi'''
 captures = [[[0, 14], [], [9, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic180"
@@ -1330,7 +1172,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Quathafi'''
 captures = [[[0, 16], [], [11, 13]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic181"
@@ -1338,7 +1179,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Muammar Gheddafi'''
 captures = [[[0, 16], [], [11, 13]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic182"
@@ -1346,7 +1186,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Moammar Khadafy'''
 captures = [[[0, 15], [], [11, 12]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic183"
@@ -1354,7 +1193,6 @@ regex = '''M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]'''
 input = '''Moammar Qudhafi'''
 captures = [[[0, 15], [], [10, 12]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic184"
@@ -1362,7 +1200,6 @@ regex = '''a+(b|c)*d+'''
 input = '''aabcdd'''
 captures = [[[0, 6], [3, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic185"
@@ -1370,7 +1207,6 @@ regex = '''^.+$'''
 input = '''vivi'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic186"
@@ -1378,7 +1214,6 @@ regex = '''^(.+)$'''
 input = '''vivi'''
 captures = [[[0, 4], [0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic187"
@@ -1386,7 +1221,6 @@ regex = '''^([^!.]+).att.com!(.+)$'''
 input = '''gryphon.att.com!eby'''
 captures = [[[0, 19], [0, 7], [16, 19]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic188"
@@ -1394,7 +1228,6 @@ regex = '''^([^!]+!)?([^!]+)$'''
 input = '''bas'''
 captures = [[[0, 3], [], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic189"
@@ -1402,7 +1235,6 @@ regex = '''^([^!]+!)?([^!]+)$'''
 input = '''bar!bas'''
 captures = [[[0, 7], [0, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic190"
@@ -1410,7 +1242,6 @@ regex = '''^([^!]+!)?([^!]+)$'''
 input = '''foo!bas'''
 captures = [[[0, 7], [0, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic191"
@@ -1418,7 +1249,6 @@ regex = '''^.+!([^!]+!)([^!]+)$'''
 input = '''foo!bar!bas'''
 captures = [[[0, 11], [4, 8], [8, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic192"
@@ -1426,7 +1256,6 @@ regex = '''((foo)|(bar))!bas'''
 input = '''bar!bas'''
 captures = [[[0, 7], [0, 3], [], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic193"
@@ -1434,7 +1263,6 @@ regex = '''((foo)|(bar))!bas'''
 input = '''foo!bar!bas'''
 captures = [[[4, 11], [4, 7], [], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic194"
@@ -1442,7 +1270,6 @@ regex = '''((foo)|(bar))!bas'''
 input = '''foo!bas'''
 captures = [[[0, 7], [0, 3], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic195"
@@ -1450,7 +1277,6 @@ regex = '''((foo)|bar)!bas'''
 input = '''bar!bas'''
 captures = [[[0, 7], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic196"
@@ -1458,7 +1284,6 @@ regex = '''((foo)|bar)!bas'''
 input = '''foo!bar!bas'''
 captures = [[[4, 11], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic197"
@@ -1466,7 +1291,6 @@ regex = '''((foo)|bar)!bas'''
 input = '''foo!bas'''
 captures = [[[0, 7], [0, 3], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic198"
@@ -1474,7 +1298,6 @@ regex = '''(foo|(bar))!bas'''
 input = '''bar!bas'''
 captures = [[[0, 7], [0, 3], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic199"
@@ -1482,7 +1305,6 @@ regex = '''(foo|(bar))!bas'''
 input = '''foo!bar!bas'''
 captures = [[[4, 11], [4, 7], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic200"
@@ -1490,7 +1312,6 @@ regex = '''(foo|(bar))!bas'''
 input = '''foo!bas'''
 captures = [[[0, 7], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic201"
@@ -1498,7 +1319,6 @@ regex = '''(foo|bar)!bas'''
 input = '''bar!bas'''
 captures = [[[0, 7], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic202"
@@ -1506,7 +1326,6 @@ regex = '''(foo|bar)!bas'''
 input = '''foo!bar!bas'''
 captures = [[[4, 11], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic203"
@@ -1514,7 +1333,6 @@ regex = '''(foo|bar)!bas'''
 input = '''foo!bas'''
 captures = [[[0, 7], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic204"
@@ -1522,7 +1340,6 @@ regex = '''^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$'''
 input = '''foo!bar!bas'''
 captures = [[[0, 11], [0, 11], [], [], [4, 8], [8, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic205"
@@ -1530,7 +1347,6 @@ regex = '''^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$'''
 input = '''bas'''
 captures = [[[0, 3], [], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic206"
@@ -1538,7 +1354,6 @@ regex = '''^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$'''
 input = '''bar!bas'''
 captures = [[[0, 7], [0, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic207"
@@ -1546,7 +1361,6 @@ regex = '''^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$'''
 input = '''foo!bar!bas'''
 captures = [[[0, 11], [], [], [4, 8], [8, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic208"
@@ -1554,7 +1368,6 @@ regex = '''^([^!]+!)?([^!]+)$|^.+!([^!]+!)([^!]+)$'''
 input = '''foo!bas'''
 captures = [[[0, 7], [0, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic209"
@@ -1562,7 +1375,6 @@ regex = '''^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$'''
 input = '''bas'''
 captures = [[[0, 3], [0, 3], [], [0, 3]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic210"
@@ -1570,7 +1382,6 @@ regex = '''^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$'''
 input = '''bar!bas'''
 captures = [[[0, 7], [0, 7], [0, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic211"
@@ -1578,7 +1389,6 @@ regex = '''^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$'''
 input = '''foo!bar!bas'''
 captures = [[[0, 11], [0, 11], [], [], [4, 8], [8, 11]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic212"
@@ -1586,7 +1396,6 @@ regex = '''^(([^!]+!)?([^!]+)|.+!([^!]+!)([^!]+))$'''
 input = '''foo!bas'''
 captures = [[[0, 7], [0, 7], [0, 4], [4, 7]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic213"
@@ -1594,23 +1403,20 @@ regex = '''.*(/XXX).*'''
 input = '''/XXX'''
 captures = [[[0, 4], [0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic214"
 regex = '''.*(\\XXX).*'''
-input = '''\\XXX'''
+input = '''\XXX'''
 captures = [[[0, 4], [0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic215"
 regex = '''\\XXX'''
-input = '''\\XXX'''
+input = '''\XXX'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic216"
@@ -1618,21 +1424,18 @@ regex = '''.*(/000).*'''
 input = '''/000'''
 captures = [[[0, 4], [0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic217"
 regex = '''.*(\\000).*'''
-input = '''\\000'''
+input = '''\000'''
 captures = [[[0, 4], [0, 4]]]
 match_limit = 1
-unescape = true
 
 [[tests]]
 name = "basic218"
 regex = '''\\000'''
-input = '''\\000'''
+input = '''\000'''
 captures = [[[0, 4]]]
 match_limit = 1
-unescape = true
 

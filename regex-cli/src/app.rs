@@ -17,6 +17,7 @@ OPTIONS:
 {unified}";
 
 const TEMPLATE_SUBCOMMAND: &'static str = "\
+{before-help}
 USAGE:
     {usage}
 
@@ -30,6 +31,7 @@ OPTIONS:
 {unified}";
 
 const TEMPLATE_LEAF: &'static str = "\
+{before-help}
 USAGE:
     {usage}
 
@@ -108,4 +110,5 @@ pub fn root() -> App {
         .arg(switch("quiet").short("q").global(true).help("Show less output."))
         .subcommand(cmd::debug::define())
         .subcommand(cmd::find::define())
+        .subcommand(cmd::generate::define())
 }
