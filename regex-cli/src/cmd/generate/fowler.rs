@@ -129,6 +129,8 @@ impl TomlTest {
             // explicitly in the test. Instead, the test includes an 'nmatch'
             // instruction that instructs the test runner to only consider the
             // first N capturing groups. Our test runner has no such option...
+            // To fix that, I rewrote the tests to use non-capturing groups in
+            // order to match the expected number of expected capture matches.
             let numcaps = count_capturing_groups(&dat.regex)?;
             for i in captures.len()..numcaps {
                 captures.push(None);
