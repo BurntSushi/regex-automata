@@ -56,11 +56,17 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+// BREADCRUMBS: It would be nice to use original repetition.dat and split it
+// out in this program to repetition and repetition-expensive. Well you know
+// what? We can keep them in the same repetition.toml file, but just change
+// the test names!
+
 fn convert(
-    group_name: &str,
+    mut group_name: &str,
     src: &mut dyn Read,
     dst: &mut dyn Write,
 ) -> anyhow::Result<()> {
+    log::trace!("processing {}", group_name);
     let mut src = std::io::BufReader::new(src);
 
     writeln!(
@@ -78,8 +84,15 @@ fn convert(
         // Every usize can fit into a u64... Right?
         let line_number = u64::try_from(i).unwrap().checked_add(1).unwrap();
         let line = result.with_context(|| format!("line {}", line_number))?;
-        if line.starts_with('#') {
-            log::trace!("skipping {}: starts with a '#'", line_number);
+        // The last group of tests in 'repetition' take quite a lot of time
+        // when using them to build and minimize a DFA. So we tag them with
+        // 'expensive' so that we can skip those tests when we need to minimize
+        // a DFA.
+        if group_name == "repetition" && line.contains("Chris Kuklewicz") {
+            group_name = "repetition-expensive";
+        }
+        if line.trim().is_empty() || line.starts_with('#') {
+            // Too noisy to log that we're skipping an empty or commented test.
             continue;
         }
         let dat = match DatTest::parse(prev.as_ref(), line_number, &line)? {

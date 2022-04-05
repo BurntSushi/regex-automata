@@ -38,7 +38,6 @@ fn suite() -> Result<RegexTests> {
     load!("fowler/basic");
     load!("fowler/nullsubexpr");
     load!("fowler/repetition");
-    load!("fowler/repetition-expensive");
 
     Ok(tests)
 }
