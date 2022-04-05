@@ -77,7 +77,7 @@ fn run_test(
 
     let captures = match test.search_kind() {
         TestSearchKind::Earliest => {
-            TestResult::skip().name("find_earliest_iter")
+            TestResult::skip().name("captures_earliest_iter")
         }
         TestSearchKind::Leftmost => {
             let it = re
@@ -94,29 +94,16 @@ fn run_test(
                             })
                         })
                         .collect::<Vec<Option<Match>>>();
-                    // This is totally bonkers. The fowler tests omit trailing
-                    // capturing groups when they don't match. So, just to move
-                    // forward, we try to trim our set. But this is a complete
-                    // mess. The test suite's handling of capturing groups
-                    // needs to be overhauled, and we should probably try to
-                    // fix the fowler tests so they aren't terse for the sake
-                    // of being terse.
-                    // let nexpected = test.captures().map_or(0, |c| c[0].len());
-                    // let mut stestcaps = &testcaps[..];
-                    // if nexpected < stestcaps.len() {
-                    // stestcaps = &stestcaps[..nexpected];
-                    // }
                     TestCaptures::new(testcaps)
                 });
             TestResult::captures(it).name("captures_leftmost_iter")
         }
         TestSearchKind::Overlapping => {
-            TestResult::skip().name("find_overlapping_iter")
+            TestResult::skip().name("captures_overlapping_iter")
         }
     };
 
     vec![is_match, find, captures]
-    // vec![is_match, find]
 }
 
 /// Configures the given regex builder with all relevant settings on the given

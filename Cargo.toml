@@ -13,8 +13,6 @@ categories = ["text-processing"]
 exclude = [
   "/.github", "/scripts/*", "/regex-cli", "/regex-test",
 ]
-autotests = false
-autoexamples = false
 edition = "2018"
 resolver = "2"
 

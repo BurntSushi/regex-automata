@@ -5,7 +5,6 @@ use regex_test::RegexTests;
 mod dfa;
 mod hybrid;
 mod nfa;
-mod regression;
 mod util;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
