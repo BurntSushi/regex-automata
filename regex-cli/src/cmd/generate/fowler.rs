@@ -121,8 +121,9 @@ impl TomlTest {
             //
             // So what we do here is is look for the number of groups in the
             // pattern and then just pad out the capture matches with None
-            // values. Sadly, in order to get the number of capturing groups,
-            // we do actually have to parse the regex.
+            // values to make the number of capture matches equal to what we
+            // would expect from the pattern. (We actually parse the regex to
+            // determine this.)
             //
             // Sadly, this doesn't work for a small subset of tests that
             // actually have more capturing group MATCHES than what is listed
