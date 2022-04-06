@@ -14,6 +14,7 @@ use serde::Deserialize;
 mod escape;
 
 const ENV_REGEX_TEST: &str = "REGEX_TEST";
+const ENV_REGEX_TEST_VERBOSE: &str = "REGEX_TEST_VERBOSE";
 
 /// A collection of regex tests.
 #[derive(Clone, Debug, Deserialize)]
@@ -36,9 +37,6 @@ pub struct RegexTest {
     regex: Option<BString>,
     regexes: Option<Vec<BString>>,
     input: BString,
-    #[serde(rename = "match")]
-    is_match: Option<bool>,
-    which_matches: Option<Vec<usize>>,
     matches: Option<Vec<Match>>,
     captures: Option<Vec<Captures>>,
     match_limit: Option<usize>,
@@ -91,13 +89,6 @@ impl Default for SearchKind {
 /// The different types of match formats supported by tests.
 #[derive(Clone, Debug)]
 enum RegexMatches<'a> {
-    /// Just a simple yes/no as to whether the regex matches or not. Generally,
-    /// AllStartEnd should be preferred, but this is occasionally useful for
-    /// simpler cases.
-    YesNo(bool),
-    /// When testing multiple regexes, this indicates *which* of those regexes
-    /// should have matches.
-    Which(&'a [usize]),
     /// A sequence of all non-overlapping match offsets.
     ///
     /// This cannot be used when the input is Regexes::Many.
@@ -233,12 +224,6 @@ impl RegexTest {
         }
 
         let mut match_field_count = 0;
-        if self.is_match.is_some() {
-            match_field_count += 1;
-        }
-        if self.which_matches.is_some() {
-            match_field_count += 1;
-        }
         if self.matches.is_some() {
             match_field_count += 1;
         }
@@ -246,15 +231,9 @@ impl RegexTest {
             match_field_count += 1;
         }
         if match_field_count == 0 {
-            bail!(
-                "one of 'match', 'which_matches', 'matches' or \
-                'captures' must be present"
-            )
+            bail!("one of 'matches' or 'captures' must be present")
         } else if match_field_count > 1 {
-            bail!(
-                "only one of 'match', 'which_matches', 'matches' or \
-                 'captures' can be present"
-            )
+            bail!("only one of 'matches' or 'captures' can be present")
         }
         Ok(())
     }
@@ -306,8 +285,6 @@ impl RegexTest {
     /// regexes to match the input.
     pub fn is_match(&self) -> bool {
         match self.regex_matches() {
-            RegexMatches::YesNo(yesno) => yesno,
-            RegexMatches::Which(which) => !which.is_empty(),
             RegexMatches::AllStartEnd(matches) => !matches.is_empty(),
             RegexMatches::AllCaptures(matches) => !matches.is_empty(),
         }
@@ -317,29 +294,33 @@ impl RegexTest {
     /// slice is empty if no match is expected to occur. The indices returned
     /// here correspond to the indices of the slice returned by the `regexes`
     /// method.
-    pub fn which_matches(&self) -> &[usize] {
+    pub fn which_matches(&self) -> Vec<usize> {
         match self.regex_matches() {
-            RegexMatches::YesNo(yesno) => {
-                if yesno {
-                    &[0]
-                } else {
-                    &[]
-                }
-            }
-            RegexMatches::Which(which) => which,
             RegexMatches::AllStartEnd(matches) => {
-                if matches.is_empty() {
-                    &[]
-                } else {
-                    &[0]
+                let mut seen = HashSet::new();
+                let mut pids = vec![];
+                for m in matches {
+                    if !seen.contains(&m.id) {
+                        seen.insert(m.id);
+                        pids.push(m.id);
+                    }
                 }
+                pids
             }
             RegexMatches::AllCaptures(matches) => {
-                if matches.is_empty() {
-                    &[]
-                } else {
-                    &[0]
+                let mut seen = HashSet::new();
+                let mut pids = vec![];
+                for caps in matches {
+                    let pid = match caps.0[0] {
+                        None => continue,
+                        Some(ref m) => m.id,
+                    };
+                    if !seen.contains(&pid) {
+                        seen.insert(pid);
+                        pids.push(pid);
+                    }
                 }
+                pids
             }
         }
     }
@@ -348,7 +329,6 @@ impl RegexTest {
     /// or not), then they are returned. Otherwise, `None` is returned.
     pub fn matches(&self) -> Option<Vec<Match>> {
         match self.regex_matches() {
-            RegexMatches::YesNo(_) | RegexMatches::Which(_) => None,
             RegexMatches::AllStartEnd(matches) => Some(matches.to_vec()),
             RegexMatches::AllCaptures(matches) => {
                 Some(matches.iter().map(|c| c.0[0].clone().unwrap()).collect())
@@ -360,18 +340,13 @@ impl RegexTest {
     /// then they are returned. Otherwise, `None` is returned.
     pub fn captures(&self) -> Option<Vec<Captures>> {
         match self.regex_matches() {
-            RegexMatches::YesNo(_) | RegexMatches::Which(_) => None,
             RegexMatches::AllStartEnd(_) => None,
             RegexMatches::AllCaptures(matches) => Some(matches.to_vec()),
         }
     }
 
     fn regex_matches(&self) -> RegexMatches {
-        if let Some(ref is_match) = self.is_match {
-            RegexMatches::YesNo(*is_match)
-        } else if let Some(ref which) = self.which_matches {
-            RegexMatches::Which(which)
-        } else if let Some(ref matches) = self.matches {
+        if let Some(ref matches) = self.matches {
             RegexMatches::AllStartEnd(matches)
         } else if let Some(ref captures) = self.captures {
             RegexMatches::AllCaptures(captures)
@@ -415,13 +390,10 @@ impl RegexTest {
     /// Returns true if regex matching should exclusively match valid UTF-8.
     /// When this is disabled, matching on arbitrary bytes is permitted.
     ///
-    /// The most subtle difference this introduces is in unanchored regexes.
-    /// When UTF-8 mode is enabled, then an unanchored regex should have
-    /// an implicit `\p{any}*?` at the beginning, which only matches valid
-    /// UTF-8 bytes. When UTF-8 mode is disabled, then an unanchored regex
-    /// should have an implicit `[\x00-\xFF]*?` at the beginning, where `\xFF`
-    /// corresponds to the literal byte `0xFF` (and not the UTF-8 encoding of
-    /// the Unicode codepoint, `U+00FF`).
+    /// When this is enabled, all regex match substrings should be entirely
+    /// valid UTF-8. While parts of the haystack the regex searches through
+    /// may not be valid UTF-8, only the portions that are valid UTF-8 may be
+    /// reported in match spans.
     ///
     /// This is enabled by default.
     pub fn utf8(&self) -> bool {
@@ -964,7 +936,7 @@ impl RegexTestResults {
     }
 
     fn assert(&self) {
-        if read_env("REGEX_TEST_VERBOSE").map_or(false, |s| s == "1") {
+        if read_env(ENV_REGEX_TEST_VERBOSE).map_or(false, |s| s == "1") {
             self.verbose();
         }
         if self.fail.is_empty() {
@@ -1271,7 +1243,7 @@ input = "lib.rs"
 name = "foo"
 regex = ".*.rs"
 input = "lib.rs"
-match = true
+matches = [[0, 6]]
 compiles = false
 anchored = true
 case_insensitive = true
@@ -1288,7 +1260,7 @@ utf8 = false
         assert_eq!("test/foo", t0.full_name());
         assert_eq!(&[".*.rs"], t0.regexes());
         assert_eq!(true, t0.is_match());
-        assert_eq!(&[0], t0.which_matches());
+        assert_eq!(vec![0], t0.which_matches());
 
         assert!(!t0.compiles());
         assert!(t0.anchored());
@@ -1304,7 +1276,11 @@ utf8 = false
 name = "foo"
 regexes = [".*.rs", ".*.toml"]
 input = "lib.rs"
-which_matches = [0, 2, 5]
+matches = [
+    { id = 0, offsets = [0, 0] },
+    { id = 2, offsets = [0, 0] },
+    { id = 5, offsets = [0, 0] },
+]
 "#;
 
         let mut tests = RegexTests::new();
@@ -1313,7 +1289,7 @@ which_matches = [0, 2, 5]
         let t0 = &tests.tests[0];
         assert_eq!(&[".*.rs", ".*.toml"], t0.regexes());
         assert_eq!(true, t0.is_match());
-        assert_eq!(&[0, 2, 5], t0.which_matches());
+        assert_eq!(vec![0, 2, 5], t0.which_matches());
 
         assert!(t0.compiles());
         assert!(!t0.anchored());
@@ -1342,8 +1318,8 @@ matches = [[0, 2], [5, 10]]
         assert_eq!(
             t0.matches(),
             Some(vec![
-                Match { start: 0, end: 2 },
-                Match { start: 5, end: 10 },
+                Match { id: 0, start: 0, end: 2 },
+                Match { id: 0, start: 5, end: 10 },
             ])
         );
         assert_eq!(t0.captures(), None);
@@ -1372,23 +1348,23 @@ captures = [
         assert_eq!(
             t0.matches(),
             Some(vec![
-                Match { start: 0, end: 15 },
-                Match { start: 20, end: 30 },
+                Match { id: 0, start: 0, end: 15 },
+                Match { id: 0, start: 20, end: 30 },
             ])
         );
         assert_eq!(
             t0.captures(),
             Some(vec![
                 Captures::new(vec![
-                    Some(Match { start: 0, end: 15 }),
-                    Some(Match { start: 5, end: 10 }),
+                    Some(Match { id: 0, start: 0, end: 15 }),
+                    Some(Match { id: 0, start: 5, end: 10 }),
                     None,
-                    Some(Match { start: 13, end: 14 }),
+                    Some(Match { id: 0, start: 13, end: 14 }),
                 ]),
                 Captures::new(vec![
-                    Some(Match { start: 20, end: 30 }),
-                    Some(Match { start: 22, end: 24 }),
-                    Some(Match { start: 25, end: 27 }),
+                    Some(Match { id: 0, start: 20, end: 30 }),
+                    Some(Match { id: 0, start: 22, end: 24 }),
+                    Some(Match { id: 0, start: 25, end: 27 }),
                     None,
                 ]),
             ])

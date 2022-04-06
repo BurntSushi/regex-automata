@@ -294,20 +294,20 @@ input = ""
 matches = [[0, 0]]
 
 # See: https://github.com/rust-lang/regex/issues/533
-[[tests]]
-name = "blank-matches-nothing-between-space-and-tab"
-regex = '[[:blank:]]'
-input = '\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F'
-match = false
-unescape = true
+#[[tests]]
+#name = "blank-matches-nothing-between-space-and-tab"
+#regex = '[[:blank:]]'
+#input = '\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F'
+#match = false
+#unescape = true
 
 # See: https://github.com/rust-lang/regex/issues/533
-[[tests]]
-name = "blank-matches-nothing-between-space-and-tab-inverted"
-regex = '^[[:^blank:]]+$'
-input = '\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F'
-match = true
-unescape = true
+#[[tests]]
+#name = "blank-matches-nothing-between-space-and-tab-inverted"
+#regex = '^[[:^blank:]]+$'
+#input = '\x0A\x0B\x0C\x0D\x0E\x0F\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1A\x1B\x1C\x1D\x1E\x1F'
+#match = true
+#unescape = true
 
 # See: https://github.com/rust-lang/regex/issues/555
 [[tests]]

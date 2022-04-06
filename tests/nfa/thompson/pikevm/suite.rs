@@ -3,14 +3,12 @@ use regex_automata::{
         self,
         pikevm::{self, PikeVM},
     },
-    MatchKind, SyntaxConfig,
+    SyntaxConfig,
 };
-use regex_syntax as syntax;
 
 use regex_test::{
     bstr::{BString, ByteSlice},
-    Captures as TestCaptures, CompiledRegex, Match,
-    MatchKind as TestMatchKind, RegexTest, RegexTests,
+    Captures as TestCaptures, CompiledRegex, Match, RegexTest,
     SearchKind as TestSearchKind, TestResult, TestRunner,
 };
 
@@ -115,6 +113,13 @@ fn configure_pikevm_builder(
     test: &RegexTest,
     builder: &mut pikevm::Builder,
 ) -> bool {
+    // TODO: I think we need to support All in the PikeVM? Maybe not. But seems
+    // closely related to Overlapping search...
+    // let match_kind = match test.match_kind() {
+    // TestMatchKind::All => MatchKind::All,
+    // TestMatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
+    // TestMatchKind::LeftmostLongest => return false,
+    // };
     let pikevm_config =
         PikeVM::config().anchored(test.anchored()).utf8(test.utf8());
     builder

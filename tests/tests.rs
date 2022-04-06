@@ -1,11 +1,10 @@
-#![allow(warnings)]
-
 use regex_test::RegexTests;
 
-mod dfa;
-mod hybrid;
+// Turn off some tests for now while we iterate on testing harness.
+// mod dfa;
+// mod hybrid;
 mod nfa;
-mod util;
+// mod util;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
