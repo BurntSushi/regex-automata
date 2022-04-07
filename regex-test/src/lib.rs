@@ -1,9 +1,8 @@
 pub extern crate bstr;
 
-use std::borrow::Borrow;
-use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
+use std::{
+    borrow::Borrow, collections::HashSet, convert::TryFrom, fs, path::Path,
+};
 
 use anyhow::{bail, Context, Result};
 use bstr::{BStr, BString, ByteSlice, ByteVec};
@@ -116,7 +115,7 @@ impl std::fmt::Debug for Match {
 
 /// Captures represents a single group of captured matches from a regex search.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(from = "CapturesFormat")]
+#[serde(try_from = "CapturesFormat")]
 pub struct Captures {
     /// The ID of the regex that matched.
     ///
@@ -209,8 +208,14 @@ impl Captures {
     pub fn new<I: IntoIterator<Item = Option<Span>>>(
         id: usize,
         it: I,
-    ) -> Captures {
-        Captures { id, groups: it.into_iter().collect() }
+    ) -> Result<Captures> {
+        let groups: Vec<Option<Span>> = it.into_iter().collect();
+        if groups.is_empty() {
+            bail!("captures must contain at least one group");
+        } else if groups[0].is_none() {
+            bail!("first group (index 0) of captures must be non-None");
+        }
+        Ok(Captures { id, groups })
     }
 
     pub fn id(&self) -> usize {
@@ -1041,25 +1046,23 @@ enum MaybeSpan {
     Some([usize; 2]),
 }
 
-impl From<CapturesFormat> for Captures {
-    fn from(data: CapturesFormat) -> Captures {
-        // TODO: Make this fallible, because we need a non-None 0th group
-        // for captures.
+impl TryFrom<CapturesFormat> for Captures {
+    type Error = anyhow::Error;
+
+    fn try_from(data: CapturesFormat) -> Result<Captures> {
         match data {
             CapturesFormat::Span([start, end]) => {
-                Captures { id: 0, groups: vec![Some(Span { start, end })] }
+                Ok(Captures { id: 0, groups: vec![Some(Span { start, end })] })
             }
             CapturesFormat::Match { id, offsets: [start, end] } => {
-                Captures { id, groups: vec![Some(Span { start, end })] }
+                Ok(Captures { id, groups: vec![Some(Span { start, end })] })
             }
-            CapturesFormat::Spans(groups) => Captures {
-                id: 0,
-                groups: groups.into_iter().map(|g| g.into_option()).collect(),
-            },
-            CapturesFormat::Captures { id, groups } => Captures {
-                id,
-                groups: groups.into_iter().map(|g| g.into_option()).collect(),
-            },
+            CapturesFormat::Spans(groups) => {
+                Captures::new(0, groups.into_iter().map(|g| g.into_option()))
+            }
+            CapturesFormat::Captures { id, groups } => {
+                Captures::new(id, groups.into_iter().map(|g| g.into_option()))
+            }
         }
     }
 }
@@ -1259,8 +1262,8 @@ matches = [[0, 2], [5, 10]]
         assert_eq!(
             t0.captures(),
             vec![
-                Captures::new(0, vec![Some(spans[0])]),
-                Captures::new(0, vec![Some(spans[1])]),
+                Captures::new(0, vec![Some(spans[0])]).unwrap(),
+                Captures::new(0, vec![Some(spans[1])]).unwrap(),
             ]
         );
     }
@@ -1303,7 +1306,8 @@ matches = [
                         None,
                         Some(Span { start: 13, end: 14 }),
                     ]
-                ),
+                )
+                .unwrap(),
                 Captures::new(
                     0,
                     vec![
@@ -1312,8 +1316,105 @@ matches = [
                         Some(Span { start: 25, end: 27 }),
                         None,
                     ]
-                ),
+                )
+                .unwrap(),
             ]
         );
+    }
+
+    #[test]
+    fn fail_spans_empty1() {
+        let data = r#"
+[[tests]]
+name = "foo"
+regex = ".*.rs"
+input = "lib.rs"
+matches = [
+  [],
+]
+"#;
+
+        let mut tests = RegexTests::new();
+        assert!(tests.load_slice("test", data.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn fail_spans_empty2() {
+        let data = r#"
+[[tests]]
+name = "foo"
+regex = ".*.rs"
+input = "lib.rs"
+matches = [
+  [[]],
+]
+"#;
+
+        let mut tests = RegexTests::new();
+        assert!(tests.load_slice("test", data.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn fail_spans_empty3() {
+        let data = r#"
+[[tests]]
+name = "foo"
+regex = ".*.rs"
+input = "lib.rs"
+matches = [
+  [[], [0, 2]],
+]
+"#;
+
+        let mut tests = RegexTests::new();
+        assert!(tests.load_slice("test", data.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn fail_captures_empty1() {
+        let data = r#"
+[[tests]]
+name = "foo"
+regex = ".*.rs"
+input = "lib.rs"
+matches = [
+  { id = 0, groups = [] },
+]
+"#;
+
+        let mut tests = RegexTests::new();
+        assert!(tests.load_slice("test", data.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn fail_captures_empty2() {
+        let data = r#"
+[[tests]]
+name = "foo"
+regex = ".*.rs"
+input = "lib.rs"
+matches = [
+  { id = 0, groups = [[]] },
+]
+"#;
+
+        let mut tests = RegexTests::new();
+        assert!(tests.load_slice("test", data.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn fail_captures_empty3() {
+        let data = r#"
+[[tests]]
+name = "foo"
+regex = ".*.rs"
+input = "lib.rs"
+matches = [
+  { id = 0, groups = [[], [0, 2]] },
+]
+"#;
+
+        let mut tests = RegexTests::new();
+        assert!(tests.load_slice("test", data.as_bytes()).is_err());
     }
 }

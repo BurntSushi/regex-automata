@@ -81,10 +81,15 @@ fn run_test(
                 .captures_leftmost_iter(cache, test.input())
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|caps| {
+                    // We wouldn't get a non-matching captures in an iterator.
+                    assert!(caps.is_match());
                     let testcaps = caps.iter().map(|m| {
                         m.map(|m| Span { start: m.start(), end: m.end() })
                     });
+                    // This unwrap is OK because we know captures is a match,
+                    // and all matches always have the first group set.
                     TestCaptures::new(caps.pattern().as_usize(), testcaps)
+                        .unwrap()
                 });
             TestResult::captures(it).name("captures_leftmost_iter")
         }
