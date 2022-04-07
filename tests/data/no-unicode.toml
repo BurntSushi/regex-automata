@@ -10,7 +10,7 @@ unescape = true
 
 [[tests]]
 name = "mixed"
-regex = '(.+)(?-u)(.+)'
+regex = '(?:.+)(?-u)(?:.+)'
 input = '\xCE\x93\xCE\x94\xFF'
 matches = [[0, 5]]
 utf8 = false

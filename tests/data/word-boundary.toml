@@ -87,77 +87,77 @@ unicode = false
 
 [[tests]]
 name = "wb13"
-regex = '(foo|bar|[A-Z])\b'
+regex = '(?:foo|bar|[A-Z])\b'
 input = "foo"
 matches = [[0, 3]]
 unicode = false
 
 [[tests]]
 name = "wb14"
-regex = '(foo|bar|[A-Z])\b'
+regex = '(?:foo|bar|[A-Z])\b'
 input = "foo\n"
 matches = [[0, 3]]
 unicode = false
 
 [[tests]]
 name = "wb15"
-regex = '\b(foo|bar|[A-Z])'
+regex = '\b(?:foo|bar|[A-Z])'
 input = "foo"
 matches = [[0, 3]]
 unicode = false
 
 [[tests]]
 name = "wb16"
-regex = '\b(foo|bar|[A-Z])\b'
+regex = '\b(?:foo|bar|[A-Z])\b'
 input = "X"
 matches = [[0, 1]]
 unicode = false
 
 [[tests]]
 name = "wb17"
-regex = '\b(foo|bar|[A-Z])\b'
+regex = '\b(?:foo|bar|[A-Z])\b'
 input = "XY"
 matches = []
 unicode = false
 
 [[tests]]
 name = "wb18"
-regex = '\b(foo|bar|[A-Z])\b'
+regex = '\b(?:foo|bar|[A-Z])\b'
 input = "bar"
 matches = [[0, 3]]
 unicode = false
 
 [[tests]]
 name = "wb19"
-regex = '\b(foo|bar|[A-Z])\b'
+regex = '\b(?:foo|bar|[A-Z])\b'
 input = "foo"
 matches = [[0, 3]]
 unicode = false
 
 [[tests]]
 name = "wb20"
-regex = '\b(foo|bar|[A-Z])\b'
+regex = '\b(?:foo|bar|[A-Z])\b'
 input = "foo\n"
 matches = [[0, 3]]
 unicode = false
 
 [[tests]]
 name = "wb21"
-regex = '\b(foo|bar|[A-Z])\b'
+regex = '\b(?:foo|bar|[A-Z])\b'
 input = "ffoo bbar N x"
 matches = [[10, 11]]
 unicode = false
 
 [[tests]]
 name = "wb22"
-regex = '\b(fo|foo)\b'
+regex = '\b(?:fo|foo)\b'
 input = "fo"
 matches = [[0, 2]]
 unicode = false
 
 [[tests]]
 name = "wb23"
-regex = '\b(fo|foo)\b'
+regex = '\b(?:fo|foo)\b'
 input = "foo"
 matches = [[0, 3]]
 unicode = false
@@ -205,14 +205,14 @@ matches = [[0, 1]]
 
 [[tests]]
 name = "wb30"
-regex = '^\b(fo|foo)\b'
+regex = '^\b(?:fo|foo)\b'
 input = "fo"
 matches = [[0, 2]]
 unicode = false
 
 [[tests]]
 name = "wb31"
-regex = '^\b(fo|foo)\b'
+regex = '^\b(?:fo|foo)\b'
 input = "foo"
 matches = [[0, 3]]
 unicode = false
@@ -357,7 +357,7 @@ utf8 = false
 
 [[tests]]
 name = "nb7"
-regex = '(foo|bar|[A-Z])\B'
+regex = '(?:foo|bar|[A-Z])\B'
 input = "foox"
 matches = [[0, 3]]
 unicode = false
@@ -365,7 +365,7 @@ utf8 = false
 
 [[tests]]
 name = "nb8"
-regex = '(foo|bar|[A-Z])\B'
+regex = '(?:foo|bar|[A-Z])\B'
 input = "foo\n"
 matches = []
 unicode = false
@@ -389,7 +389,7 @@ utf8 = false
 
 [[tests]]
 name = "nb11"
-regex = '\B(foo|bar|[A-Z])'
+regex = '\B(?:foo|bar|[A-Z])'
 input = "foo"
 matches = []
 unicode = false
@@ -397,7 +397,7 @@ utf8 = false
 
 [[tests]]
 name = "nb12"
-regex = '\B(foo|bar|[A-Z])\B'
+regex = '\B(?:foo|bar|[A-Z])\B'
 input = "xXy"
 matches = [[1, 2]]
 unicode = false
@@ -405,7 +405,7 @@ utf8 = false
 
 [[tests]]
 name = "nb13"
-regex = '\B(foo|bar|[A-Z])\B'
+regex = '\B(?:foo|bar|[A-Z])\B'
 input = "XY"
 matches = []
 unicode = false
@@ -413,7 +413,7 @@ utf8 = false
 
 [[tests]]
 name = "nb14"
-regex = '\B(foo|bar|[A-Z])\B'
+regex = '\B(?:foo|bar|[A-Z])\B'
 input = "XYZ"
 matches = [[1, 2]]
 unicode = false
@@ -421,7 +421,7 @@ utf8 = false
 
 [[tests]]
 name = "nb15"
-regex = '\B(foo|bar|[A-Z])\B'
+regex = '\B(?:foo|bar|[A-Z])\B'
 input = "abara"
 matches = [[1, 4]]
 unicode = false
@@ -429,7 +429,7 @@ utf8 = false
 
 [[tests]]
 name = "nb16"
-regex = '\B(foo|bar|[A-Z])\B'
+regex = '\B(?:foo|bar|[A-Z])\B'
 input = "xfoo_"
 matches = [[1, 4]]
 unicode = false
@@ -437,7 +437,7 @@ utf8 = false
 
 [[tests]]
 name = "nb17"
-regex = '\B(foo|bar|[A-Z])\B'
+regex = '\B(?:foo|bar|[A-Z])\B'
 input = "xfoo\n"
 matches = []
 unicode = false
@@ -445,7 +445,7 @@ utf8 = false
 
 [[tests]]
 name = "nb18"
-regex = '\B(foo|bar|[A-Z])\B'
+regex = '\B(?:foo|bar|[A-Z])\B'
 input = "foo bar vNX"
 matches = [[9, 10]]
 unicode = false
@@ -453,7 +453,7 @@ utf8 = false
 
 [[tests]]
 name = "nb19"
-regex = '\B(fo|foo)\B'
+regex = '\B(?:fo|foo)\B'
 input = "xfoo"
 matches = [[1, 3]]
 unicode = false
@@ -461,7 +461,7 @@ utf8 = false
 
 [[tests]]
 name = "nb20"
-regex = '\B(foo|fo)\B'
+regex = '\B(?:foo|fo)\B'
 input = "xfooo"
 matches = [[1, 4]]
 unicode = false
@@ -517,7 +517,7 @@ utf8 = false
 
 [[tests]]
 name = "nb27"
-regex = '^\B(fo|foo)\B'
+regex = '^\B(?:fo|foo)\B'
 input = "fo"
 matches = []
 unicode = false
@@ -525,7 +525,7 @@ utf8 = false
 
 [[tests]]
 name = "nb28"
-regex = '^\B(fo|foo)\B'
+regex = '^\B(?:fo|foo)\B'
 input = "fo"
 matches = []
 unicode = false

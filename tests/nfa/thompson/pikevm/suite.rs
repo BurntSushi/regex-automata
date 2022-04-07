@@ -9,7 +9,7 @@ use regex_automata::{
 use regex_test::{
     bstr::{BString, ByteSlice},
     Captures as TestCaptures, CompiledRegex, Match, RegexTest,
-    SearchKind as TestSearchKind, TestResult, TestRunner,
+    SearchKind as TestSearchKind, Span, TestResult, TestRunner,
 };
 
 use crate::{suite, Result};
@@ -63,8 +63,7 @@ fn run_test(
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|m| Match {
                     id: m.pattern().as_usize(),
-                    start: m.start(),
-                    end: m.end(),
+                    span: Span { start: m.start(), end: m.end() },
                 });
             TestResult::matches(it).name("find_leftmost_iter")
         }
@@ -82,17 +81,10 @@ fn run_test(
                 .captures_leftmost_iter(cache, test.input())
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|caps| {
-                    let testcaps = caps
-                        .iter_all()
-                        .map(|(pid, _, m)| {
-                            m.map(|m| Match {
-                                id: pid.as_usize(),
-                                start: m.start(),
-                                end: m.end(),
-                            })
-                        })
-                        .collect::<Vec<Option<Match>>>();
-                    TestCaptures::new(testcaps)
+                    let testcaps = caps.iter().map(|m| {
+                        m.map(|m| Span { start: m.start(), end: m.end() })
+                    });
+                    TestCaptures::new(caps.pattern().as_usize(), testcaps)
                 });
             TestResult::captures(it).name("captures_leftmost_iter")
         }

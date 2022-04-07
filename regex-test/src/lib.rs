@@ -1,5 +1,3 @@
-#![allow(warnings)]
-
 pub extern crate bstr;
 
 use std::borrow::Borrow;
@@ -37,8 +35,8 @@ pub struct RegexTest {
     regex: Option<BString>,
     regexes: Option<Vec<BString>>,
     input: BString,
-    matches: Option<Vec<Match>>,
-    captures: Option<Vec<Captures>>,
+    matches: Vec<Captures>,
+    // captures: Option<Vec<Captures>>,
     match_limit: Option<usize>,
     #[serde(default = "default_true")]
     compiles: bool,
@@ -86,46 +84,55 @@ impl Default for SearchKind {
     }
 }
 
-/// The different types of match formats supported by tests.
-#[derive(Clone, Debug)]
-enum RegexMatches<'a> {
-    /// A sequence of all non-overlapping match offsets.
-    ///
-    /// This cannot be used when the input is Regexes::Many.
-    AllStartEnd(&'a [Match]),
-    /// A sequence of all non-overlapping capturing groups, one for each match.
-    ///
-    /// This cannot be used when the input is Regexes::Many.
-    AllCaptures(&'a [Captures]),
-}
-
-/// Match represents a single match span, from start to end, represented via
+/// Span represents a single match span, from start to end, represented via
 /// byte offsets.
-#[derive(Clone, Deserialize, Eq, PartialEq)]
-#[serde(from = "MatchFormat")]
-pub struct Match {
-    /// The ID of the regex that matched.
-    ///
-    /// The ID is the index of the regex provided to the regex compiler,
-    /// starting from `0`. In the case of a single regex search, the only
-    /// possible ID is `0`.
-    pub id: usize,
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Span {
     /// The starting byte offset of the match.
     pub start: usize,
     /// The ending byte offset of the match.
     pub end: usize,
 }
 
+impl std::fmt::Debug for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "({:?}, {:?})", self.start, self.end)
+    }
+}
+
+/// Match represents a single match span, from start to end, represented via
+/// byte offsets.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Match {
+    pub id: usize,
+    pub span: Span,
+}
+
 impl std::fmt::Debug for Match {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({}, ({}, {}))", self.id, self.start, self.end)
+        write!(f, "({:?}: {:?})", self.id, self.span)
     }
 }
 
 /// Captures represents a single group of captured matches from a regex search.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(from = "CapturesFormat")]
-pub struct Captures(Vec<Option<Match>>);
+pub struct Captures {
+    /// The ID of the regex that matched.
+    ///
+    /// The ID is the index of the regex provided to the regex compiler,
+    /// starting from `0`. In the case of a single regex search, the only
+    /// possible ID is `0`.
+    id: usize,
+    /// The capturing groups that matched, along with the match offsets for
+    /// each. The first group should always be non-None, as it corresponds to
+    /// the overall match.
+    ///
+    /// This should either have length 1 (when not capturing group offsets are
+    /// included in the tes tresult) or it should have length equal to the
+    /// number of capturing groups in the regex pattern.
+    groups: Vec<Option<Span>>,
+}
 
 impl RegexTests {
     /// Create a new empty collection of glob tests.
@@ -199,12 +206,33 @@ impl Captures {
     /// match. If a capturing group did not participate in the match, then a
     /// `None` value should be used. (Consequently, the 0th capturing group
     /// should never be `None`.)
-    pub fn new<I: IntoIterator<Item = Option<Match>>>(it: I) -> Captures {
-        Captures(it.into_iter().collect())
+    pub fn new<I: IntoIterator<Item = Option<Span>>>(
+        id: usize,
+        it: I,
+    ) -> Captures {
+        Captures { id, groups: it.into_iter().collect() }
+    }
+
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    pub fn groups(&self) -> &[Option<Span>] {
+        &self.groups
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.groups.len()
+    }
+
+    pub fn to_match(&self) -> Match {
+        Match { id: self.id(), span: self.to_span() }
+    }
+
+    pub fn to_span(&self) -> Span {
+        // This is OK because a Captures value must always have at least one
+        // group where the first group always corresponds to match offsets.
+        self.groups[0].unwrap()
     }
 }
 
@@ -221,19 +249,6 @@ impl RegexTest {
             bail!("one of 'regex' or 'regexes' must be present");
         } else if self.regex.is_some() && self.regexes.is_some() {
             bail!("only one of 'regex' or 'regexes' can be present");
-        }
-
-        let mut match_field_count = 0;
-        if self.matches.is_some() {
-            match_field_count += 1;
-        }
-        if self.captures.is_some() {
-            match_field_count += 1;
-        }
-        if match_field_count == 0 {
-            bail!("one of 'matches' or 'captures' must be present")
-        } else if match_field_count > 1 {
-            bail!("only one of 'matches' or 'captures' can be present")
         }
         Ok(())
     }
@@ -284,10 +299,7 @@ impl RegexTest {
     /// Returns true if and only if this test expects at least one of the
     /// regexes to match the input.
     pub fn is_match(&self) -> bool {
-        match self.regex_matches() {
-            RegexMatches::AllStartEnd(matches) => !matches.is_empty(),
-            RegexMatches::AllCaptures(matches) => !matches.is_empty(),
-        }
+        !self.matches.is_empty()
     }
 
     /// Returns a slice of regexes that are expected to match the input. The
@@ -295,64 +307,31 @@ impl RegexTest {
     /// here correspond to the indices of the slice returned by the `regexes`
     /// method.
     pub fn which_matches(&self) -> Vec<usize> {
-        match self.regex_matches() {
-            RegexMatches::AllStartEnd(matches) => {
-                let mut seen = HashSet::new();
-                let mut pids = vec![];
-                for m in matches {
-                    if !seen.contains(&m.id) {
-                        seen.insert(m.id);
-                        pids.push(m.id);
-                    }
-                }
-                pids
-            }
-            RegexMatches::AllCaptures(matches) => {
-                let mut seen = HashSet::new();
-                let mut pids = vec![];
-                for caps in matches {
-                    let pid = match caps.0[0] {
-                        None => continue,
-                        Some(ref m) => m.id,
-                    };
-                    if !seen.contains(&pid) {
-                        seen.insert(pid);
-                        pids.push(pid);
-                    }
-                }
-                pids
+        let mut seen = HashSet::new();
+        let mut ids = vec![];
+        for cap in &self.matches {
+            if !seen.contains(&cap.id) {
+                seen.insert(cap.id);
+                ids.push(cap.id);
             }
         }
+        ids
     }
 
     /// If this test expects all non-overlapping matches (whether capturing
     /// or not), then they are returned. Otherwise, `None` is returned.
-    pub fn matches(&self) -> Option<Vec<Match>> {
-        match self.regex_matches() {
-            RegexMatches::AllStartEnd(matches) => Some(matches.to_vec()),
-            RegexMatches::AllCaptures(matches) => {
-                Some(matches.iter().map(|c| c.0[0].clone().unwrap()).collect())
-            }
+    pub fn matches(&self) -> Vec<Match> {
+        let mut matches = vec![];
+        for cap in &self.matches {
+            matches.push(cap.to_match());
         }
+        matches
     }
 
     /// If this test expects all non-overlapping matches as capturing groups,
     /// then they are returned. Otherwise, `None` is returned.
-    pub fn captures(&self) -> Option<Vec<Captures>> {
-        match self.regex_matches() {
-            RegexMatches::AllStartEnd(_) => None,
-            RegexMatches::AllCaptures(matches) => Some(matches.to_vec()),
-        }
-    }
-
-    fn regex_matches(&self) -> RegexMatches {
-        if let Some(ref matches) = self.matches {
-            RegexMatches::AllStartEnd(matches)
-        } else if let Some(ref captures) = self.captures {
-            RegexMatches::AllCaptures(captures)
-        } else {
-            unreachable!()
-        }
+    pub fn captures(&self) -> Vec<Captures> {
+        self.matches.clone()
     }
 
     /// Returns the limit on the number of matches that should be reported,
@@ -453,15 +432,10 @@ pub struct TestResult {
 
 #[derive(Debug, Clone)]
 enum TestResultKind {
-    Matched {
-        which: Vec<usize>,
-    },
-    MatchedStartEnd {
-        matches: Vec<Match>,
-    },
-    MatchedCaptures {
-        matches: Vec<Captures>,
-    },
+    Match(bool),
+    Which(Vec<usize>),
+    StartEnd(Vec<Match>),
+    Captures(Vec<Captures>),
     Skip,
     /// Occurs when no test result is available. e.g., A regex failed to
     /// compile or something panicked.
@@ -471,22 +445,19 @@ enum TestResultKind {
 impl TestResult {
     /// Create a test result that indicates a match.
     pub fn matched() -> TestResult {
-        TestResult::which(vec![0])
+        TestResult { name: "".to_string(), kind: TestResultKind::Match(true) }
     }
 
     /// Create a test result that indicates the glob did not match.
     pub fn no_match() -> TestResult {
-        TestResult::which(vec![])
+        TestResult { name: "".to_string(), kind: TestResultKind::Match(false) }
     }
 
     /// Create a test result that indicates which out of possibly many globs
     /// matched the input. If `which` is empty, then this is equivalent to
     /// `TestResult::no_match()`.
     pub fn which(which: Vec<usize>) -> TestResult {
-        TestResult {
-            name: "".to_string(),
-            kind: TestResultKind::Matched { which },
-        }
+        TestResult { name: "".to_string(), kind: TestResultKind::Which(which) }
     }
 
     /// Create a test result containing a sequence of all matches in the
@@ -494,9 +465,7 @@ impl TestResult {
     pub fn matches<I: IntoIterator<Item = Match>>(it: I) -> TestResult {
         TestResult {
             name: "".to_string(),
-            kind: TestResultKind::MatchedStartEnd {
-                matches: it.into_iter().collect(),
-            },
+            kind: TestResultKind::StartEnd(it.into_iter().collect()),
         }
     }
 
@@ -505,9 +474,7 @@ impl TestResult {
     pub fn captures<I: IntoIterator<Item = Captures>>(it: I) -> TestResult {
         TestResult {
             name: "".to_string(),
-            kind: TestResultKind::MatchedCaptures {
-                matches: it.into_iter().collect(),
-            },
+            kind: TestResultKind::Captures(it.into_iter().collect()),
         }
     }
 
@@ -520,13 +487,6 @@ impl TestResult {
     /// Indicate that this test has no results.
     pub fn none() -> TestResult {
         TestResult { name: "".to_string(), kind: TestResultKind::None }
-    }
-
-    fn is_none(&self) -> bool {
-        match self.kind {
-            TestResultKind::None => true,
-            _ => false,
-        }
     }
 
     /// Give a name to this test result. This will be included in the output
@@ -745,20 +705,19 @@ impl TestRunner {
                 TestResultKind::Skip => {
                     self.results.skip(test, result);
                 }
-                TestResultKind::Matched { ref which } => {
-                    if which.is_empty() && test.is_match() {
+                TestResultKind::Match(yes) => {
+                    if yes == test.is_match() {
+                        self.results.pass(test, result);
+                    } else {
                         self.results.fail(
                             test,
                             result,
                             RegexTestFailureKind::IsMatch,
                         );
-                    } else if !which.is_empty() && !test.is_match() {
-                        self.results.fail(
-                            test,
-                            result,
-                            RegexTestFailureKind::IsMatch,
-                        );
-                    } else if &**which != test.which_matches() {
+                    }
+                }
+                TestResultKind::Which(ref which) => {
+                    if &**which != test.which_matches() {
                         self.results.fail(
                             test,
                             result,
@@ -768,47 +727,29 @@ impl TestRunner {
                         self.results.pass(test, result);
                     }
                 }
-                TestResultKind::MatchedStartEnd { ref matches } => {
-                    if let Some(expected) = test.matches() {
-                        if &expected != matches {
-                            self.results.fail(
-                                test,
-                                result,
-                                RegexTestFailureKind::StartEnd {
-                                    got: matches.clone(),
-                                },
-                            );
-                        } else {
-                            self.results.pass(test, result);
-                        }
-                    } else if test.is_match() != !matches.is_empty() {
+                TestResultKind::StartEnd(ref matches) => {
+                    let expected = test.matches();
+                    if &expected != matches {
                         self.results.fail(
                             test,
                             result,
-                            RegexTestFailureKind::IsMatch,
+                            RegexTestFailureKind::StartEnd {
+                                got: matches.clone(),
+                            },
                         );
                     } else {
                         self.results.pass(test, result);
                     }
                 }
-                TestResultKind::MatchedCaptures { ref matches } => {
-                    if let Some(expected) = test.captures() {
-                        if &expected != matches {
-                            self.results.fail(
-                                test,
-                                result,
-                                RegexTestFailureKind::Captures {
-                                    got: matches.clone(),
-                                },
-                            );
-                        } else {
-                            self.results.pass(test, result);
-                        }
-                    } else if test.is_match() != !matches.is_empty() {
+                TestResultKind::Captures(ref caps) => {
+                    let expected = test.captures();
+                    if &expected != caps {
                         self.results.fail(
                             test,
                             result,
-                            RegexTestFailureKind::IsMatch,
+                            RegexTestFailureKind::Captures {
+                                got: caps.clone(),
+                            },
                         );
                     } else {
                         self.results.pass(test, result);
@@ -885,16 +826,6 @@ enum RegexTestFailureKind {
     /// This occurs when the test expected the regex to compile successfully,
     /// but it failed to compile.
     CompileError { err: Box<dyn std::error::Error> },
-    /// This occurs when the test result is incompatible with the output that
-    /// the test expects. For example, this can occur if the test expects a
-    /// sequence of matches, but the test result reported is only a binary
-    /// yes/no as to whether the regex matched or not.
-    Incompatible {
-        /// A description of the test results that were expected.
-        expected: &'static str,
-        /// A description of the test results that were received.
-        got: &'static str,
-    },
     /// While compiling, a panic occurred. If possible, the panic message
     /// is captured.
     UnexpectedPanicCompile(String),
@@ -1008,7 +939,7 @@ impl std::fmt::Display for RegexTestFailure {
             "{}: {}\n\
              pattern:     {:?}\n\
              input:       {:?}",
-            self.test.full_name(),
+            self.full_name(),
             self.kind.fmt(&self.test)?,
             self.test.regexes(),
             self.test.input(),
@@ -1047,7 +978,7 @@ impl RegexTestFailureKind {
                     "did not find expected matches\n\
                      expected: {:?}\n     \
                      got: {:?}",
-                    test.matches().unwrap(),
+                    test.matches(),
                     got,
                 )?;
             }
@@ -1055,7 +986,7 @@ impl RegexTestFailureKind {
                 write!(
                     buf,
                     "expected to find {:?} captures, but got {:?}",
-                    test.captures().unwrap(),
+                    test.captures(),
                     got,
                 )?;
             }
@@ -1064,9 +995,6 @@ impl RegexTestFailureKind {
             }
             RegexTestFailureKind::CompileError { ref err } => {
                 write!(buf, "expected regex to compile, failed: {}", err)?;
-            }
-            RegexTestFailureKind::Incompatible { expected, got } => {
-                write!(buf, "expected {} results, but got {}", expected, got)?;
             }
             RegexTestFailureKind::UnexpectedPanicCompile(ref msg) => {
                 write!(buf, "got unexpected panic while compiling:\n{}", msg)?;
@@ -1093,51 +1021,55 @@ impl<'a> Iterator for RegexTestsIter<'a> {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum MatchFormat {
-    Zero([usize; 2]),
-    Identified { id: usize, offsets: [usize; 2] },
-}
-
-impl From<MatchFormat> for Match {
-    fn from(mf: MatchFormat) -> Match {
-        match mf {
-            MatchFormat::Zero([start, end]) => Match { id: 0, start, end },
-            MatchFormat::Identified { id, offsets: [start, end] } => {
-                Match { id, start, end }
-            }
-        }
-    }
-}
-
 /// Represents the actual 'captures' key format more faithfully such that
 /// Serde can deserialize it. Namely, we need a way to represent a 'None' value
 /// inside a TOML array, and TOML has no 'null' value. So we make '[]' be
-/// 'None', and we use 'MaybeMatch' to recognize it.
+/// 'None', and we use 'MaybeSpan' to recognize it.
 #[derive(Deserialize)]
-struct CapturesFormat(Vec<MaybeMatch>);
+#[serde(untagged)]
+enum CapturesFormat {
+    Span([usize; 2]),
+    Match { id: usize, offsets: [usize; 2] },
+    Spans(Vec<MaybeSpan>),
+    Captures { id: usize, groups: Vec<MaybeSpan> },
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
-enum MaybeMatch {
+enum MaybeSpan {
     None([usize; 0]),
     Some([usize; 2]),
 }
 
 impl From<CapturesFormat> for Captures {
     fn from(data: CapturesFormat) -> Captures {
-        Captures(
-            data.0
-                .into_iter()
-                .map(|m| match m {
-                    MaybeMatch::None(_) => None,
-                    MaybeMatch::Some([start, end]) => {
-                        Some(Match { id: 0, start, end })
-                    }
-                })
-                .collect(),
-        )
+        // TODO: Make this fallible, because we need a non-None 0th group
+        // for captures.
+        match data {
+            CapturesFormat::Span([start, end]) => {
+                Captures { id: 0, groups: vec![Some(Span { start, end })] }
+            }
+            CapturesFormat::Match { id, offsets: [start, end] } => {
+                Captures { id, groups: vec![Some(Span { start, end })] }
+            }
+            CapturesFormat::Spans(groups) => Captures {
+                id: 0,
+                groups: groups.into_iter().map(|g| g.into_option()).collect(),
+            },
+            CapturesFormat::Captures { id, groups } => Captures {
+                id,
+                groups: groups.into_iter().map(|g| g.into_option()).collect(),
+            },
+        }
+    }
+}
+
+impl MaybeSpan {
+    fn into_option(self) -> Option<Span> {
+        match self {
+            MaybeSpan::None(_) => None,
+            MaybeSpan::Some([start, end]) => Some(Span { start, end }),
+        }
     }
 }
 
@@ -1299,7 +1231,7 @@ matches = [
     }
 
     #[test]
-    fn load_matches() {
+    fn load_spans() {
         let data = r#"
 [[tests]]
 name = "foo"
@@ -1311,28 +1243,36 @@ matches = [[0, 2], [5, 10]]
         let mut tests = RegexTests::new();
         tests.load_slice("test", data.as_bytes()).unwrap();
 
+        let spans =
+            vec![Span { start: 0, end: 2 }, Span { start: 5, end: 10 }];
         let t0 = &tests.tests[0];
         assert_eq!(t0.regexes(), &[".*.rs"]);
         assert_eq!(t0.is_match(), true);
         assert_eq!(t0.which_matches(), &[0]);
         assert_eq!(
             t0.matches(),
-            Some(vec![
-                Match { id: 0, start: 0, end: 2 },
-                Match { id: 0, start: 5, end: 10 },
-            ])
+            vec![
+                Match { id: 0, span: spans[0] },
+                Match { id: 0, span: spans[1] },
+            ]
         );
-        assert_eq!(t0.captures(), None);
+        assert_eq!(
+            t0.captures(),
+            vec![
+                Captures::new(0, vec![Some(spans[0])]),
+                Captures::new(0, vec![Some(spans[1])]),
+            ]
+        );
     }
 
     #[test]
-    fn load_captures() {
+    fn load_capture_spans() {
         let data = r#"
 [[tests]]
 name = "foo"
 regex = ".*.rs"
 input = "lib.rs"
-captures = [
+matches = [
   [[0, 15], [5, 10], [], [13, 14]],
   [[20, 30], [22, 24], [25, 27], []],
 ]
@@ -1347,27 +1287,33 @@ captures = [
         assert_eq!(t0.which_matches(), &[0]);
         assert_eq!(
             t0.matches(),
-            Some(vec![
-                Match { id: 0, start: 0, end: 15 },
-                Match { id: 0, start: 20, end: 30 },
-            ])
+            vec![
+                Match { id: 0, span: Span { start: 0, end: 15 } },
+                Match { id: 0, span: Span { start: 20, end: 30 } },
+            ]
         );
         assert_eq!(
             t0.captures(),
-            Some(vec![
-                Captures::new(vec![
-                    Some(Match { id: 0, start: 0, end: 15 }),
-                    Some(Match { id: 0, start: 5, end: 10 }),
-                    None,
-                    Some(Match { id: 0, start: 13, end: 14 }),
-                ]),
-                Captures::new(vec![
-                    Some(Match { id: 0, start: 20, end: 30 }),
-                    Some(Match { id: 0, start: 22, end: 24 }),
-                    Some(Match { id: 0, start: 25, end: 27 }),
-                    None,
-                ]),
-            ])
+            vec![
+                Captures::new(
+                    0,
+                    vec![
+                        Some(Span { start: 0, end: 15 }),
+                        Some(Span { start: 5, end: 10 }),
+                        None,
+                        Some(Span { start: 13, end: 14 }),
+                    ]
+                ),
+                Captures::new(
+                    0,
+                    vec![
+                        Some(Span { start: 20, end: 30 }),
+                        Some(Span { start: 22, end: 24 }),
+                        Some(Span { start: 25, end: 27 }),
+                        None,
+                    ]
+                ),
+            ]
         );
     }
 }

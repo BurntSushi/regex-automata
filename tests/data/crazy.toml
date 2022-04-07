@@ -63,19 +63,19 @@ matches = [[8, 26]]
 
 [[tests]]
 name = "date1"
-regex = '(?-u)^(19|20)\d\d[- /.](0[1-9]|1[012])[- /.](0[1-9]|[12][0-9]|3[01])$'
+regex = '(?-u)^(?:19|20)\d\d[- /.](?:0[1-9]|1[012])[- /.](?:0[1-9]|[12][0-9]|3[01])$'
 input = "1900-01-01"
 matches = [[0, 10]]
 
 [[tests]]
 name = "date2"
-regex = '(?-u)^(19|20)\d\d[- /.](0[1-9]|1[012])[- /.](0[1-9]|[12][0-9]|3[01])$'
+regex = '(?-u)^(?:19|20)\d\d[- /.](?:0[1-9]|1[012])[- /.](?:0[1-9]|[12][0-9]|3[01])$'
 input = "1900-00-01"
 matches = []
 
 [[tests]]
 name = "date3"
-regex = '(?-u)^(19|20)\d\d[- /.](0[1-9]|1[012])[- /.](0[1-9]|[12][0-9]|3[01])$'
+regex = '(?-u)^(?:19|20)\d\d[- /.](?:0[1-9]|1[012])[- /.](?:0[1-9]|[12][0-9]|3[01])$'
 input = "1900-13-01"
 matches = []
 
@@ -165,73 +165,73 @@ matches = [[1, 2]]
 
 [[tests]]
 name = "lazy-many-many"
-regex = '((?:.*)*?)='
+regex = '(?:(?:.*)*?)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "lazy-many-optional"
-regex = '((?:.?)*?)='
+regex = '(?:(?:.?)*?)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "lazy-one-many-many"
-regex = '((?:.*)+?)='
+regex = '(?:(?:.*)+?)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "lazy-one-many-optional"
-regex = '((?:.?)+?)='
+regex = '(?:(?:.?)+?)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "lazy-range-min-many"
-regex = '((?:.*){1,}?)='
+regex = '(?:(?:.*){1,}?)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "lazy-range-many"
-regex = '((?:.*){1,2}?)='
+regex = '(?:(?:.*){1,2}?)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "greedy-many-many"
-regex = '((?:.*)*)='
+regex = '(?:(?:.*)*)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "greedy-many-optional"
-regex = '((?:.?)*)='
+regex = '(?:(?:.?)*)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "greedy-one-many-many"
-regex = '((?:.*)+)='
+regex = '(?:(?:.*)+)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "greedy-one-many-optional"
-regex = '((?:.?)+)='
+regex = '(?:(?:.?)+)='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "greedy-range-min-many"
-regex = '((?:.*){1,})='
+regex = '(?:(?:.*){1,})='
 input = "a=b"
 matches = [[0, 2]]
 
 [[tests]]
 name = "greedy-range-many"
-regex = '((?:.*){1,2})='
+regex = '(?:(?:.*){1,2})='
 input = "a=b"
 matches = [[0, 2]]
 
@@ -249,54 +249,54 @@ matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty3"
-regex = '()'
+regex = '(?:)'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty4"
-regex = '()*'
+regex = '(?:)*'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty5"
-regex = '()+'
+regex = '(?:)+'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty6"
-regex = '()?'
+regex = '(?:)?'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty7"
-regex = '()()'
+regex = '(?:)(?:)'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty8"
-regex = '()+|z'
+regex = '(?:)+|z'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty9"
-regex = 'z|()+'
+regex = 'z|(?:)+'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty10"
-regex = '()+|b'
+regex = '(?:)+|b'
 input = "abc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty11"
-regex = 'b|()+'
+regex = 'b|(?:)+'
 input = "abc"
 matches = [[0, 0], [1, 2], [3, 3]]

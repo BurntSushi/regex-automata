@@ -2021,6 +2021,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
             Some((group_index, name)) => (group_index, name),
             None => {
                 self.current_pid = None;
+                self.names = None;
                 return self.next();
             }
         };
@@ -2031,6 +2032,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 #[derive(Clone, Debug)]
 pub struct Captures {
     nfa: NFA,
+    pid: Option<PatternID>,
     // TODO: There are other choices for this representation. At minimum, we
     // MUST have the ability to detect presence/absence, because in a match,
     // not all capturing groups may participate in it. For example,
@@ -2062,22 +2064,32 @@ pub struct Captures {
 impl Captures {
     pub fn new(nfa: NFA) -> Captures {
         let slots = nfa.capture_slot_len();
-        Captures { nfa, slots: vec![None; slots] }
+        Captures { nfa, pid: None, slots: vec![None; slots] }
     }
 
-    pub fn get(&self, pid: PatternID, group_index: usize) -> Option<Match> {
+    pub fn is_match(&self) -> bool {
+        self.pid.is_some()
+    }
+
+    pub fn pattern(&self) -> PatternID {
+        self.pid.expect("can only be called after a successful match")
+    }
+
+    pub fn get(&self, group_index: usize) -> Option<Match> {
+        let pid = self.pattern();
         let (slot_start, slot_end) = self.nfa.slots(pid, group_index);
         let start = self.slots[slot_start]?;
         let end = self.slots[slot_end]?;
         Some(Match::new(start, end))
     }
 
-    pub fn get_name(&self, pid: PatternID, name: &str) -> Option<Match> {
-        let index = self.nfa.capture_name_to_index(pid, name)?;
-        self.get(pid, index)
+    pub fn get_name(&self, name: &str) -> Option<Match> {
+        let index = self.nfa.capture_name_to_index(self.pattern(), name)?;
+        self.get(index)
     }
 
     pub fn reset(&mut self) {
+        self.pid = None;
         for slot in self.slots.iter_mut() {
             *slot = None;
         }
@@ -2102,6 +2114,10 @@ impl Captures {
         self.slots.resize(self.nfa.capture_slot_len(), None);
     }
 
+    pub fn set_pattern(&mut self, pid: PatternID) {
+        self.pid = Some(pid);
+    }
+
     pub fn set_slot(&mut self, slot: usize, at: usize) {
         self.slots[slot] = Some(at);
     }
@@ -2121,21 +2137,16 @@ impl Captures {
         &mut self.slots
     }
 
-    pub fn iter_pattern(&self, pid: PatternID) -> CapturesPatternIter<'_> {
+    pub fn iter(&self) -> CapturesPatternIter<'_> {
+        let pid = self.pattern();
         let names = self.nfa.pattern_capture_names(pid).enumerate();
-        CapturesPatternIter { caps: self, pid, names }
-    }
-
-    pub fn iter_all(&self) -> CapturesAllIter<'_> {
-        let names = self.nfa.all_capture_names();
-        CapturesAllIter { caps: self, names }
+        CapturesPatternIter { caps: self, names }
     }
 }
 
 #[derive(Debug)]
 pub struct CapturesPatternIter<'a> {
     caps: &'a Captures,
-    pid: PatternID,
     names: core::iter::Enumerate<PatternCaptureNames<'a>>,
 }
 
@@ -2144,22 +2155,7 @@ impl<'a> Iterator for CapturesPatternIter<'a> {
 
     fn next(&mut self) -> Option<Option<Match>> {
         let (group_index, _) = self.names.next()?;
-        Some(self.caps.get(self.pid, group_index))
-    }
-}
-
-#[derive(Debug)]
-pub struct CapturesAllIter<'a> {
-    caps: &'a Captures,
-    names: AllCaptureNames<'a>,
-}
-
-impl<'a> Iterator for CapturesAllIter<'a> {
-    type Item = (PatternID, usize, Option<Match>);
-
-    fn next(&mut self) -> Option<(PatternID, usize, Option<Match>)> {
-        let (pid, group_index, _) = self.names.next()?;
-        Some((pid, group_index, self.caps.get(pid, group_index)))
+        Some(self.caps.get(group_index))
     }
 }
 

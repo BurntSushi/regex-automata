@@ -378,7 +378,10 @@ impl PikeVM {
             counters.eprint(&self.nfa);
         }
         matched_pid.map(|pid| {
-            let m = caps.get(pid, 0).unwrap();
+            // TODO: I think this should be set when the Match instruction
+            // is seen?
+            caps.set_pattern(pid);
+            let m = caps.get(0).unwrap();
             MultiMatch::new(pid, m.start(), m.end())
         })
     }
@@ -472,6 +475,7 @@ impl PikeVM {
                 None
             }
             State::Match { pattern_id } => {
+                // TODO: This is where we should call caps.set_pattern.
                 slots.copy_from_slice(thread_caps);
                 Some(pattern_id)
             }

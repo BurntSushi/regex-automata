@@ -181,9 +181,9 @@ impl core::fmt::Display for TomlTest {
         writeln!(f, "regex = '''{}'''", self.regex)?;
         writeln!(f, "input = '''{}'''", self.input)?;
         if self.captures.is_empty() {
-            writeln!(f, "captures = []")?;
+            writeln!(f, "matches = []")?;
         } else {
-            write!(f, "captures = [[")?;
+            write!(f, "matches = [[")?;
             for (i, &group) in self.captures.iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;

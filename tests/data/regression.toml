@@ -77,7 +77,7 @@ matches = [[0, 1]]
 name = "captures-repeat"
 regex = '([a-f]){2}(?P<foo>[x-z])'
 input = "abx"
-captures = [
+matches = [
   [[0, 3], [1, 2], [2, 3]],
 ]
 
@@ -91,7 +91,7 @@ matches = [[0, 1], [2, 2]]
 # See: https://github.com/rust-lang/regex/issues/153
 [[tests]]
 name = "alt-in-alt-200"
-regex = '^(.*?)(\n|\r\n?|$)'
+regex = '^(?:.*?)(?:\n|\r\n?|$)'
 input = "ab\rcd"
 matches = [[0, 3]]
 
@@ -135,7 +135,7 @@ utf8 = false
 # See: https://github.com/rust-lang/regex/issues/264
 [[tests]]
 name = "word-boundary-ascii-capture"
-regex = '(\B)'
+regex = '(?:\B)'
 input = "\U00028F3E"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
 unicode = false
@@ -209,7 +209,7 @@ matches = []
 # See: https://github.com/rust-lang/regex/issues/289
 [[tests]]
 name = "lits-unambiguous-100"
-regex = '(ABC|CDA|BC)X'
+regex = '(?:ABC|CDA|BC)X'
 input = "CDAX"
 matches = [[0, 4]]
 
@@ -218,7 +218,7 @@ matches = [[0, 4]]
 name = "lits-unambiguous-200"
 regex = '((IMG|CAM|MG|MB2)_|(DSCN|CIMG))(?P<n>[0-9]+)$'
 input = "CIMG2341"
-captures = [
+matches = [
   [[0, 8], [0, 4], [], [0, 4], [4, 8]],
 ]
 
@@ -252,7 +252,7 @@ matches = []
 name = "captures-after-dfa-premature-end-100"
 regex = 'a(b*(X|$))?'
 input = "abcbX"
-captures = [
+matches = [
   [[0, 1], [], []],
 ]
 
@@ -262,7 +262,7 @@ captures = [
 name = "captures-after-dfa-premature-end-200"
 regex = 'a(bc*(X|$))?'
 input = "abcbX"
-captures = [
+matches = [
   [[0, 1], [], []],
 ]
 
@@ -272,7 +272,7 @@ captures = [
 name = "captures-after-dfa-premature-end-300"
 regex = '(aa$)?'
 input = "aaz"
-captures = [
+matches = [
   [[0, 0], []],
   [[1, 1], []],
   [[2, 2], []],
@@ -289,7 +289,7 @@ matches = []
 # See: https://github.com/rust-lang/regex/issues/527
 [[tests]]
 name = "empty-flag-expr"
-regex = '(((?x)))'
+regex = '(?:(?:(?x)))'
 input = ""
 matches = [[0, 0]]
 
@@ -320,7 +320,7 @@ compiles = false
 # See: https://github.com/rust-lang/regex/issues/640
 [[tests]]
 name = "flags-are-unset"
-regex = '((?i)foo)|Bar'
+regex = '(?:(?i)foo)|Bar'
 input = "foo Foo bar Bar"
 matches = [[0, 3], [4, 7], [12, 15]]
 
@@ -330,7 +330,7 @@ matches = [[0, 3], [4, 7], [12, 15]]
 # See: https://github.com/rust-lang/regex/issues/659
 [[tests]]
 name = "empty-group-with-unicode"
-regex = '()Ј01'
+regex = '(?:)Ј01'
 input = 'zЈ01'
 matches = [[1, 5]]
 
@@ -392,14 +392,14 @@ unescape = true
 # See: https://github.com/rust-lang/regex/issues/850
 [[tests]]
 name = "adjacent-line-boundary-100"
-regex = '(?m)^([^ ]+?)$'
+regex = '(?m)^(?:[^ ]+?)$'
 input = "line1\nline2"
 matches = [[0, 5], [6, 11]]
 
 # Continued.
 [[tests]]
 name = "adjacent-line-boundary-200"
-regex = '(?m)^([^ ]+?)$'
+regex = '(?m)^(?:[^ ]+?)$'
 input = "A\nB"
 matches = [[0, 1], [2, 3]]
 

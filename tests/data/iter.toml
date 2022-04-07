@@ -24,55 +24,55 @@ matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty3"
-regex = '()'
+regex = '(?:)'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty4"
-regex = '()*'
+regex = '(?:)*'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty5"
-regex = '()+'
+regex = '(?:)+'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty6"
-regex = '()?'
+regex = '(?:)?'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty7"
-regex = '()()'
+regex = '(?:)(?:)'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty8"
-regex = '()+|z'
+regex = '(?:)+|z'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty9"
-regex = 'z|()+'
+regex = 'z|(?:)+'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty10"
-regex = '()+|b'
+regex = '(?:)+|b'
 input = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty11"
-regex = 'b|()+'
+regex = 'b|(?:)+'
 input = 'abc'
 matches = [[0, 0], [1, 2], [3, 3]]
 
