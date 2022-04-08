@@ -3,12 +3,10 @@ use regex_automata::{
     nfa::thompson,
     MatchKind, SyntaxConfig,
 };
-use regex_syntax as syntax;
 
-use regex_test::{
+use ret::{
     bstr::{BString, ByteSlice},
-    CompiledRegex, Match, MatchKind as TestMatchKind, RegexTest, RegexTests,
-    SearchKind as TestSearchKind, TestResult, TestRunner,
+    CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
 use crate::{suite, Result};
@@ -18,6 +16,7 @@ use crate::{suite, Result};
 fn unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -30,6 +29,7 @@ fn unminimized_no_byte_class() -> Result<()> {
     builder.dense(dense::Config::new().byte_classes(false));
 
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -42,6 +42,7 @@ fn unminimized_no_nfa_shrink() -> Result<()> {
     builder.thompson(thompson::Config::new().shrink(false));
 
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -54,6 +55,7 @@ fn minimized_default() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dense(dense::Config::new().minimize(true));
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
@@ -68,6 +70,7 @@ fn minimized_no_byte_class() -> Result<()> {
     builder.dense(dense::Config::new().minimize(true).byte_classes(false));
 
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
@@ -80,6 +83,7 @@ fn minimized_no_byte_class() -> Result<()> {
 fn sparse_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         .test_iter(suite()?.iter(), sparse_compiler(builder))
         .assert();
     Ok(())
@@ -95,7 +99,7 @@ fn serialization_unminimized_default() -> Result<()> {
             let builder = builder.clone();
             let (fwd_bytes, _) = re.forward().to_bytes_native_endian();
             let (rev_bytes, _) = re.reverse().to_bytes_native_endian();
-            Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
+            Ok(CompiledRegex::compiled(move |test| -> TestResult {
                 let fwd: dense::DFA<&[u32]> =
                     dense::DFA::from_bytes(&fwd_bytes).unwrap().0;
                 let rev: dense::DFA<&[u32]> =
@@ -107,6 +111,7 @@ fn serialization_unminimized_default() -> Result<()> {
         })
     };
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         .test_iter(suite()?.iter(), my_compiler(builder))
         .assert();
     Ok(())
@@ -123,7 +128,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
             let builder = builder.clone();
             let fwd_bytes = re.forward().to_sparse()?.to_bytes_native_endian();
             let rev_bytes = re.reverse().to_sparse()?.to_bytes_native_endian();
-            Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
+            Ok(CompiledRegex::compiled(move |test| -> TestResult {
                 let fwd: sparse::DFA<&[u8]> =
                     sparse::DFA::from_bytes(&fwd_bytes).unwrap().0;
                 let rev: sparse::DFA<&[u8]> =
@@ -134,6 +139,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
         })
     };
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         .test_iter(suite()?.iter(), my_compiler(builder))
         .assert();
     Ok(())
@@ -143,7 +149,7 @@ fn dense_compiler(
     builder: dfa::regex::Builder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
     compiler(builder, |_, re| {
-        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
+        Ok(CompiledRegex::compiled(move |test| -> TestResult {
             run_test(&re, test)
         }))
     })
@@ -156,7 +162,7 @@ fn sparse_compiler(
         let fwd = re.forward().to_sparse()?;
         let rev = re.reverse().to_sparse()?;
         let re = builder.build_from_dfas(fwd, rev);
-        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
+        Ok(CompiledRegex::compiled(move |test| -> TestResult {
             run_test(&re, test)
         }))
     })
@@ -194,51 +200,43 @@ fn compiler(
     }
 }
 
-fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> Vec<TestResult> {
-    let is_match = if re.is_match(test.input()) {
-        TestResult::matched()
-    } else {
-        TestResult::no_match()
-    };
-    let is_match = is_match.name("is_match");
-
-    let find_matches = match test.search_kind() {
-        TestSearchKind::Earliest => {
-            let it = re
-                .find_earliest_iter(test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| Match {
-                    id: m.pattern().as_usize(),
-                    start: m.start(),
-                    end: m.end(),
-                });
-            TestResult::matches(it).name("find_earliest_iter")
-        }
-        TestSearchKind::Leftmost => {
-            let it = re
-                .find_leftmost_iter(test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| Match {
-                    id: m.pattern().as_usize(),
-                    start: m.start(),
-                    end: m.end(),
-                });
-            TestResult::matches(it).name("find_leftmost_iter")
-        }
-        TestSearchKind::Overlapping => {
-            let it = re
-                .find_overlapping_iter(test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| Match {
-                    id: m.pattern().as_usize(),
-                    start: m.start(),
-                    end: m.end(),
-                });
-            TestResult::matches(it).name("find_overlapping_iter")
-        }
-    };
-
-    vec![is_match, find_matches]
+fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
+    match test.additional_name() {
+        "is_match" => TestResult::matched(re.is_match(test.input())),
+        "find" => match test.search_kind() {
+            ret::SearchKind::Earliest => {
+                let it = re
+                    .find_earliest_iter(test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
+            ret::SearchKind::Leftmost => {
+                let it = re
+                    .find_leftmost_iter(test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
+            ret::SearchKind::Overlapping => {
+                let it = re
+                    .find_overlapping_iter(test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
+        },
+        name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+    }
 }
 
 /// Configures the given regex builder with all relevant settings on the given
@@ -251,9 +249,9 @@ fn configure_regex_builder(
     builder: &mut dfa::regex::Builder,
 ) -> bool {
     let match_kind = match test.match_kind() {
-        TestMatchKind::All => MatchKind::All,
-        TestMatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
-        TestMatchKind::LeftmostLongest => return false,
+        ret::MatchKind::All => MatchKind::All,
+        ret::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
+        ret::MatchKind::LeftmostLongest => return false,
     };
 
     let syntax_config = SyntaxConfig::new()

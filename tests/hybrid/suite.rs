@@ -6,12 +6,10 @@ use regex_automata::{
     nfa::thompson,
     MatchKind, SyntaxConfig,
 };
-use regex_syntax as syntax;
 
-use regex_test::{
+use ret::{
     bstr::{BString, ByteSlice},
-    CompiledRegex, Match, MatchKind as TestMatchKind, RegexTest, RegexTests,
-    SearchKind as TestSearchKind, TestResult, TestRunner,
+    CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
 use crate::{suite, Result};
@@ -20,7 +18,10 @@ use crate::{suite, Result};
 #[test]
 fn default() -> Result<()> {
     let builder = Regex::builder();
-    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
+        .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
     Ok(())
 }
 
@@ -37,6 +38,7 @@ fn no_nfa_shrink() -> Result<()> {
     let mut builder = Regex::builder();
     builder.thompson(thompson::Config::new().shrink(false));
     TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
         // Without NFA shrinking, this test blows the default cache capacity.
         .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
@@ -49,7 +51,10 @@ fn no_nfa_shrink() -> Result<()> {
 fn starts_for_each_pattern() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dfa(DFA::config().starts_for_each_pattern(true));
-    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
+        .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
     Ok(())
 }
 
@@ -62,7 +67,10 @@ fn starts_for_each_pattern() -> Result<()> {
 fn no_byte_classes() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dfa(DFA::config().byte_classes(false));
-    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
+        .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
     Ok(())
 }
 
@@ -76,7 +84,10 @@ fn no_byte_classes() -> Result<()> {
 fn no_cache_clearing() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dfa(DFA::config().minimum_cache_clear_count(Some(0)));
-    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
+        .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
     Ok(())
 }
 
@@ -86,7 +97,10 @@ fn min_cache_capacity() -> Result<()> {
     let mut builder = Regex::builder();
     builder
         .dfa(DFA::config().cache_capacity(0).skip_cache_capacity_check(true));
-    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    TestRunner::new()?
+        .expand(&["is_match", "find"], |t| t.compiles())
+        .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
     Ok(())
 }
 
@@ -114,7 +128,7 @@ fn compiler(
         }
         let re = builder.build_many(&regexes)?;
         let mut cache = re.create_cache();
-        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
+        Ok(CompiledRegex::compiled(move |test| -> TestResult {
             run_test(&re, &mut cache, test)
         }))
     }
@@ -124,50 +138,43 @@ fn run_test(
     re: &Regex,
     cache: &mut regex::Cache,
     test: &RegexTest,
-) -> Vec<TestResult> {
-    let is_match = if re.is_match(cache, test.input()) {
-        TestResult::matched()
-    } else {
-        TestResult::no_match()
-    };
-    let is_match = is_match.name("is_match");
-
-    let find_matches = match test.search_kind() {
-        TestSearchKind::Earliest => {
-            let it = re
-                .find_earliest_iter(cache, test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| Match {
-                    id: m.pattern().as_usize(),
-                    start: m.start(),
-                    end: m.end(),
-                });
-            TestResult::matches(it).name("find_earliest_iter")
-        }
-        TestSearchKind::Leftmost => {
-            let it = re
-                .find_leftmost_iter(cache, test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| Match {
-                    id: m.pattern().as_usize(),
-                    start: m.start(),
-                    end: m.end(),
-                });
-            TestResult::matches(it).name("find_leftmost_iter")
-        }
-        TestSearchKind::Overlapping => {
-            let it = re
-                .find_overlapping_iter(cache, test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| Match {
-                    id: m.pattern().as_usize(),
-                    start: m.start(),
-                    end: m.end(),
-                });
-            TestResult::matches(it).name("find_overlapping_iter")
-        }
-    };
-    vec![is_match, find_matches]
+) -> TestResult {
+    match test.additional_name() {
+        "is_match" => TestResult::matched(re.is_match(cache, test.input())),
+        "find" => match test.search_kind() {
+            ret::SearchKind::Earliest => {
+                let it = re
+                    .find_earliest_iter(cache, test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
+            ret::SearchKind::Leftmost => {
+                let it = re
+                    .find_leftmost_iter(cache, test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
+            ret::SearchKind::Overlapping => {
+                let it = re
+                    .find_overlapping_iter(cache, test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
+        },
+        name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+    }
 }
 
 /// Configures the given regex builder with all relevant settings on the given
@@ -180,9 +187,9 @@ fn configure_regex_builder(
     builder: &mut regex::Builder,
 ) -> bool {
     let match_kind = match test.match_kind() {
-        TestMatchKind::All => MatchKind::All,
-        TestMatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
-        TestMatchKind::LeftmostLongest => return false,
+        ret::MatchKind::All => MatchKind::All,
+        ret::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
+        ret::MatchKind::LeftmostLongest => return false,
     };
 
     let dense_config = DFA::config()

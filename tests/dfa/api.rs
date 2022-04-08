@@ -118,7 +118,6 @@ fn prefilter_works() -> Result<(), Box<dyn Error>> {
 // reports false negatives.
 #[test]
 fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
-    let text = b"za123";
     let re = Regex::new(r"a[0-9]+")
         .unwrap()
         .with_prefilter(SubstringPrefilter::new("a"));

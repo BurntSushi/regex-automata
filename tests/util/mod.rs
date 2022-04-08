@@ -13,7 +13,7 @@ impl Prefilter for SubstringPrefilter {
     #[inline]
     fn next_candidate(
         &self,
-        state: &mut prefilter::State,
+        _state: &mut prefilter::State,
         haystack: &[u8],
         at: usize,
     ) -> Candidate {

@@ -1,15 +1,12 @@
-use regex_test::RegexTests;
-
-// Turn off some tests for now while we iterate on testing harness.
-// mod dfa;
-// mod hybrid;
+mod dfa;
+mod hybrid;
 mod nfa;
-// mod util;
+mod util;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn suite() -> Result<RegexTests> {
-    let mut tests = RegexTests::new();
+fn suite() -> Result<ret::RegexTests> {
+    let mut tests = ret::RegexTests::new();
     macro_rules! load {
         ($name:expr) => {{
             const DATA: &[u8] =

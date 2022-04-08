@@ -6,10 +6,9 @@ use regex_automata::{
     SyntaxConfig,
 };
 
-use regex_test::{
+use ret::{
     bstr::{BString, ByteSlice},
-    Captures as TestCaptures, CompiledRegex, Match, RegexTest,
-    SearchKind as TestSearchKind, Span, TestResult, TestRunner,
+    CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
 use crate::{suite, Result};
@@ -51,23 +50,23 @@ fn run_test(
     match test.additional_name() {
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
-            TestSearchKind::Earliest => TestResult::skip(),
-            TestSearchKind::Leftmost => {
+            ret::SearchKind::Earliest => TestResult::skip(),
+            ret::SearchKind::Leftmost => {
                 let it = re
                     .find_leftmost_iter(cache, test.input())
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| Match {
+                    .map(|m| ret::Match {
                         id: m.pattern().as_usize(),
-                        span: Span { start: m.start(), end: m.end() },
+                        span: ret::Span { start: m.start(), end: m.end() },
                     });
                 TestResult::matches(it)
             }
-            TestSearchKind::Overlapping => TestResult::skip(),
+            ret::SearchKind::Overlapping => TestResult::skip(),
         },
         "captures" => {
             match test.search_kind() {
-                TestSearchKind::Earliest => TestResult::skip(),
-                TestSearchKind::Leftmost => {
+                ret::SearchKind::Earliest => TestResult::skip(),
+                ret::SearchKind::Leftmost => {
                     let it = re
                         .captures_leftmost_iter(cache, test.input())
                         .take(test.match_limit().unwrap_or(std::usize::MAX))
@@ -76,7 +75,7 @@ fn run_test(
                             // iterator.
                             assert!(caps.is_match());
                             let testcaps = caps.iter().map(|m| {
-                                m.map(|m| Span {
+                                m.map(|m| ret::Span {
                                     start: m.start(),
                                     end: m.end(),
                                 })
@@ -84,7 +83,7 @@ fn run_test(
                             // This unwrap is OK because we know captures is
                             // a match, and all matches always have the first
                             // group set.
-                            TestCaptures::new(
+                            ret::Captures::new(
                                 caps.pattern().as_usize(),
                                 testcaps,
                             )
@@ -92,7 +91,7 @@ fn run_test(
                         });
                     TestResult::captures(it)
                 }
-                TestSearchKind::Overlapping => TestResult::skip(),
+                ret::SearchKind::Overlapping => TestResult::skip(),
             }
         }
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),

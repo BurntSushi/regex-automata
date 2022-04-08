@@ -1,7 +1,4 @@
-use regex_automata::{
-    dfa::{dense, Automaton},
-    MatchError,
-};
+use regex_automata::dfa::{dense, Automaton};
 
 // A regression test for checking that minimization correctly translates
 // whether a state is a match state or not. Previously, it was possible for

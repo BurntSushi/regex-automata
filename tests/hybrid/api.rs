@@ -1,13 +1,9 @@
 use std::error::Error;
 
 use regex_automata::{
-    hybrid::{
-        dfa::{self, DFA},
-        regex::Regex,
-        OverlappingState,
-    },
+    hybrid::{dfa::DFA, regex::Regex, OverlappingState},
     nfa::thompson,
-    HalfMatch, MatchError, MatchKind, MultiMatch,
+    HalfMatch, MatchError, MultiMatch,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -184,7 +180,6 @@ fn prefilter_works() -> Result<(), Box<dyn Error>> {
 // reports false negatives.
 #[test]
 fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
-    let text = b"za123";
     let mut re = Regex::new(r"a[0-9]+").unwrap();
     let mut cache = re.create_cache();
 
