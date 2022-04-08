@@ -30,6 +30,8 @@ pub struct RegexTest {
     #[serde(default)]
     name: String,
     #[serde(skip)]
+    additional_name: String,
+    #[serde(skip)]
     full_name: String,
     regex: Option<BString>,
     regexes: Option<Vec<BString>>,
@@ -242,9 +244,9 @@ impl Captures {
 }
 
 impl RegexTest {
-    fn test(&self, regex: &mut CompiledRegex) -> Vec<TestResult> {
+    fn test(&self, regex: &mut CompiledRegex) -> TestResult {
         match regex.match_regex {
-            None => vec![TestResult::skip()],
+            None => TestResult::skip(),
             Some(ref mut match_regex) => match_regex(self),
         }
     }
@@ -256,6 +258,12 @@ impl RegexTest {
             bail!("only one of 'regex' or 'regexes' can be present");
         }
         Ok(())
+    }
+
+    fn with_additional_name(&self, name: &str) -> RegexTest {
+        let additional_name = name.to_string();
+        let full_name = format!("{}/{}", self.full_name, additional_name);
+        RegexTest { additional_name, full_name, ..self.clone() }
     }
 
     /// Return the group name of this test.
@@ -270,8 +278,13 @@ impl RegexTest {
         &self.name
     }
 
+    /// The additional name for this test.
+    pub fn additional_name(&self) -> &str {
+        &self.additional_name
+    }
+
     /// The full name of this test, which is formed by joining the group
-    /// name with the test name via a `/`.
+    /// name, the test name and the additional name with a `/`.
     pub fn full_name(&self) -> &str {
         &self.full_name
     }
@@ -303,7 +316,7 @@ impl RegexTest {
 
     /// Returns true if and only if this test expects at least one of the
     /// regexes to match the input.
-    pub fn is_match(&self) -> bool {
+    fn is_match(&self) -> bool {
         !self.matches.is_empty()
     }
 
@@ -311,7 +324,7 @@ impl RegexTest {
     /// slice is empty if no match is expected to occur. The indices returned
     /// here correspond to the indices of the slice returned by the `regexes`
     /// method.
-    pub fn which_matches(&self) -> Vec<usize> {
+    fn which_matches(&self) -> Vec<usize> {
         let mut seen = HashSet::new();
         let mut ids = vec![];
         for cap in &self.matches {
@@ -325,7 +338,7 @@ impl RegexTest {
 
     /// If this test expects all non-overlapping matches (whether capturing
     /// or not), then they are returned. Otherwise, `None` is returned.
-    pub fn matches(&self) -> Vec<Match> {
+    fn matches(&self) -> Vec<Match> {
         let mut matches = vec![];
         for cap in &self.matches {
             matches.push(cap.to_match());
@@ -335,7 +348,7 @@ impl RegexTest {
 
     /// If this test expects all non-overlapping matches as capturing groups,
     /// then they are returned. Otherwise, `None` is returned.
-    pub fn captures(&self) -> Vec<Captures> {
+    fn captures(&self) -> Vec<Captures> {
         self.matches.clone()
     }
 
@@ -391,7 +404,7 @@ impl RegexTest {
 /// the act of compiling a regex. A `CompiledRegex` represents a regex that has
 /// been compiled and is ready to be used for matching.
 pub struct CompiledRegex {
-    match_regex: Option<Box<dyn FnMut(&RegexTest) -> Vec<TestResult>>>,
+    match_regex: Option<Box<dyn FnMut(&RegexTest) -> TestResult>>,
 }
 
 impl CompiledRegex {
@@ -399,8 +412,8 @@ impl CompiledRegex {
     /// regex match on any `RegexTest`. The `RegexTest` given to the closure
     /// provided is the exact same `RegexTest` that is used to compile this
     /// regex.
-    pub fn compiled<F: FnMut(&RegexTest) -> Vec<TestResult> + 'static>(
-        match_regex: F,
+    pub fn compiled(
+        match_regex: impl FnMut(&RegexTest) -> TestResult + 'static,
     ) -> CompiledRegex {
         CompiledRegex { match_regex: Some(Box::new(match_regex)) }
     }
@@ -431,7 +444,6 @@ impl std::fmt::Debug for CompiledRegex {
 /// the `RegexTest`.
 #[derive(Debug, Clone)]
 pub struct TestResult {
-    name: String,
     kind: TestResultKind,
 }
 
@@ -442,63 +454,49 @@ enum TestResultKind {
     StartEnd(Vec<Match>),
     Captures(Vec<Captures>),
     Skip,
-    /// Occurs when no test result is available. e.g., A regex failed to
-    /// compile or something panicked.
-    None,
+    /// Occurs when the test has been explicitly failed by the implementor.
+    Fail {
+        why: String,
+    },
 }
 
 impl TestResult {
     /// Create a test result that indicates a match.
-    pub fn matched() -> TestResult {
-        TestResult { name: "".to_string(), kind: TestResultKind::Match(true) }
-    }
-
-    /// Create a test result that indicates the glob did not match.
-    pub fn no_match() -> TestResult {
-        TestResult { name: "".to_string(), kind: TestResultKind::Match(false) }
+    pub fn matched(yes: bool) -> TestResult {
+        TestResult { kind: TestResultKind::Match(yes) }
     }
 
     /// Create a test result that indicates which out of possibly many globs
     /// matched the input. If `which` is empty, then this is equivalent to
     /// `TestResult::no_match()`.
     pub fn which(which: Vec<usize>) -> TestResult {
-        TestResult { name: "".to_string(), kind: TestResultKind::Which(which) }
+        TestResult { kind: TestResultKind::Which(which) }
     }
 
     /// Create a test result containing a sequence of all matches in the
     /// test's input string.
     pub fn matches<I: IntoIterator<Item = Match>>(it: I) -> TestResult {
-        TestResult {
-            name: "".to_string(),
-            kind: TestResultKind::StartEnd(it.into_iter().collect()),
-        }
+        TestResult { kind: TestResultKind::StartEnd(it.into_iter().collect()) }
     }
 
     /// Create a test result containing a sequence of all capturing matches
     /// in the test's input string.
     pub fn captures<I: IntoIterator<Item = Captures>>(it: I) -> TestResult {
-        TestResult {
-            name: "".to_string(),
-            kind: TestResultKind::Captures(it.into_iter().collect()),
-        }
+        TestResult { kind: TestResultKind::Captures(it.into_iter().collect()) }
     }
 
     /// Indicate that this test should be skipped. It will not be counted as
     /// a failure.
     pub fn skip() -> TestResult {
-        TestResult { name: "".to_string(), kind: TestResultKind::Skip }
+        TestResult { kind: TestResultKind::Skip }
     }
 
-    /// Indicate that this test has no results.
-    pub fn none() -> TestResult {
-        TestResult { name: "".to_string(), kind: TestResultKind::None }
-    }
-
-    /// Give a name to this test result. This will be included in the output
-    /// if the test fails.
-    pub fn name(mut self, name: &str) -> TestResult {
-        self.name = name.to_string();
-        self
+    /// Indicate that this test should be failed for the reason given.
+    ///
+    /// This is useful when a test needs to be failed for reasons that the test
+    /// runner itself cannot check.
+    pub fn fail(why: &str) -> TestResult {
+        TestResult { kind: TestResultKind::Fail { why: why.to_string() } }
     }
 }
 
@@ -537,12 +535,18 @@ impl TestResult {
 pub struct TestRunner {
     include: Vec<IncludePattern>,
     results: RegexTestResults,
+    expanders: Vec<Expander>,
 }
 
 #[derive(Debug)]
 struct IncludePattern {
     blacklist: bool,
     substring: BString,
+}
+
+struct Expander {
+    predicate: Box<dyn FnMut(&RegexTest) -> bool>,
+    additional_names: Vec<String>,
 }
 
 impl TestRunner {
@@ -567,8 +571,11 @@ impl TestRunner {
     /// If there was a problem reading the environment variable, then an error
     /// is returned.
     pub fn new() -> Result<TestRunner> {
-        let mut runner =
-            TestRunner { include: vec![], results: RegexTestResults::new() };
+        let mut runner = TestRunner {
+            include: vec![],
+            results: RegexTestResults::new(),
+            expanders: vec![],
+        };
         for mut substring in read_env(ENV_REGEX_TEST)?.split(",") {
             substring = substring.trim();
             if substring.is_empty() {
@@ -615,6 +622,21 @@ impl TestRunner {
         self
     }
 
+    pub fn expand<S: AsRef<str>>(
+        &mut self,
+        additional_names: &[S],
+        predicate: impl FnMut(&RegexTest) -> bool + 'static,
+    ) -> &mut TestRunner {
+        self.expanders.push(Expander {
+            predicate: Box::new(predicate),
+            additional_names: additional_names
+                .iter()
+                .map(|s| s.as_ref().to_string())
+                .collect(),
+        });
+        self
+    }
+
     /// Run all of the given tests.
     pub fn test_iter<I, T>(
         &mut self,
@@ -633,11 +655,25 @@ impl TestRunner {
     {
         for test in it {
             let test = test.borrow();
-            if self.should_skip(test) {
-                self.results.skip(test, &TestResult::skip());
-                continue;
+            let mut additional = vec![];
+            for expander in &mut self.expanders {
+                if (expander.predicate)(test) {
+                    for name in &expander.additional_names {
+                        additional.push(test.with_additional_name(name));
+                    }
+                    break;
+                }
             }
-            self.test(test, |regexes| compile(test, regexes));
+            if additional.is_empty() {
+                additional.push(test.to_owned());
+            }
+            for test in &additional {
+                if self.should_skip(test) {
+                    self.results.skip(test);
+                    continue;
+                }
+                self.test(test, |regexes| compile(test, regexes));
+            }
         }
         self
     }
@@ -666,7 +702,6 @@ impl TestRunner {
                 // Regex tests should never panic. It's auto-fail if they do.
                 self.results.fail(
                     test,
-                    &TestResult::none(),
                     RegexTestFailureKind::UnexpectedPanicCompile(msg),
                 );
                 return self;
@@ -674,11 +709,10 @@ impl TestRunner {
             Ok(Ok(compiled)) => compiled,
             Ok(Err(err)) => {
                 if !test.compiles() {
-                    self.results.pass(test, &TestResult::none());
+                    self.results.pass(test);
                 } else {
                     self.results.fail(
                         test,
-                        &TestResult::none(),
                         RegexTestFailureKind::CompileError { err },
                     );
                 }
@@ -686,79 +720,62 @@ impl TestRunner {
             }
         };
         if !test.compiles() {
-            self.results.fail(
-                test,
-                &TestResult::none(),
-                RegexTestFailureKind::NoCompileError,
-            );
+            self.results.fail(test, RegexTestFailureKind::NoCompileError);
             return self;
         }
-        let results = match safe(|| test.test(&mut compiled)) {
-            Ok(results) => results,
+        let result = match safe(|| test.test(&mut compiled)) {
+            Ok(result) => result,
             Err(msg) => {
                 self.results.fail(
                     test,
-                    &TestResult::none(),
                     RegexTestFailureKind::UnexpectedPanicSearch(msg),
                 );
                 return self;
             }
         };
-        for result in results.iter() {
-            match result.kind {
-                TestResultKind::None => {}
-                TestResultKind::Skip => {
-                    self.results.skip(test, result);
+        match result.kind {
+            TestResultKind::Fail { why } => {
+                self.results
+                    .fail(test, RegexTestFailureKind::UserFailure { why });
+            }
+            TestResultKind::Skip => {
+                self.results.skip(test);
+            }
+            TestResultKind::Match(yes) => {
+                if yes == test.is_match() {
+                    self.results.pass(test);
+                } else {
+                    self.results.fail(test, RegexTestFailureKind::IsMatch);
                 }
-                TestResultKind::Match(yes) => {
-                    if yes == test.is_match() {
-                        self.results.pass(test, result);
-                    } else {
-                        self.results.fail(
-                            test,
-                            result,
-                            RegexTestFailureKind::IsMatch,
-                        );
-                    }
+            }
+            TestResultKind::Which(which) => {
+                if which != test.which_matches() {
+                    self.results
+                        .fail(test, RegexTestFailureKind::Many { got: which });
+                } else {
+                    self.results.pass(test);
                 }
-                TestResultKind::Which(ref which) => {
-                    if &**which != test.which_matches() {
-                        self.results.fail(
-                            test,
-                            result,
-                            RegexTestFailureKind::Many { got: which.to_vec() },
-                        );
-                    } else {
-                        self.results.pass(test, result);
-                    }
+            }
+            TestResultKind::StartEnd(matches) => {
+                let expected = test.matches();
+                if expected != matches {
+                    self.results.fail(
+                        test,
+                        RegexTestFailureKind::StartEnd { got: matches },
+                    );
+                } else {
+                    self.results.pass(test);
                 }
-                TestResultKind::StartEnd(ref matches) => {
-                    let expected = test.matches();
-                    if &expected != matches {
-                        self.results.fail(
-                            test,
-                            result,
-                            RegexTestFailureKind::StartEnd {
-                                got: matches.clone(),
-                            },
-                        );
-                    } else {
-                        self.results.pass(test, result);
-                    }
-                }
-                TestResultKind::Captures(ref caps) => {
-                    let expected = test.captures();
-                    if &expected != caps {
-                        self.results.fail(
-                            test,
-                            result,
-                            RegexTestFailureKind::Captures {
-                                got: caps.clone(),
-                            },
-                        );
-                    } else {
-                        self.results.pass(test, result);
-                    }
+            }
+            TestResultKind::Captures(caps) => {
+                let expected = test.captures();
+                if expected != caps {
+                    self.results.fail(
+                        test,
+                        RegexTestFailureKind::Captures { got: caps },
+                    );
+                } else {
+                    self.results.pass(test);
                 }
             }
         }
@@ -784,6 +801,15 @@ impl TestRunner {
     }
 }
 
+impl std::fmt::Debug for Expander {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("Expander")
+            .field("predicate", &"<FnMut(..)>")
+            .field("additional_names", &self.additional_names)
+            .finish()
+    }
+}
+
 /// A collection of test results, corresponding to passed, skipped and failed
 /// tests.
 #[derive(Debug)]
@@ -797,20 +823,21 @@ struct RegexTestResults {
 #[derive(Debug)]
 struct RegexTestResult {
     test: RegexTest,
-    result: TestResult,
 }
 
 /// A test that failed along with the reason why.
 #[derive(Debug)]
 struct RegexTestFailure {
     test: RegexTest,
-    result: TestResult,
     kind: RegexTestFailureKind,
 }
 
 /// Describes the nature of the failed test.
 #[derive(Debug)]
 enum RegexTestFailureKind {
+    /// UserFailure indicates that the test failed because the test function
+    /// explicitly failed it for the reason in the message given.
+    UserFailure { why: String },
     /// This occurs when the test expected a match (or didn't expect a match),
     /// but the actual regex implementation didn't match (or did match).
     IsMatch,
@@ -844,31 +871,16 @@ impl RegexTestResults {
         RegexTestResults { pass: vec![], fail: vec![], skip: vec![] }
     }
 
-    fn pass(&mut self, test: &RegexTest, result: &TestResult) {
-        self.pass.push(RegexTestResult {
-            test: test.clone(),
-            result: result.clone(),
-        });
+    fn pass(&mut self, test: &RegexTest) {
+        self.pass.push(RegexTestResult { test: test.clone() });
     }
 
-    fn fail(
-        &mut self,
-        test: &RegexTest,
-        result: &TestResult,
-        kind: RegexTestFailureKind,
-    ) {
-        self.fail.push(RegexTestFailure {
-            test: test.clone(),
-            result: result.clone(),
-            kind,
-        });
+    fn fail(&mut self, test: &RegexTest, kind: RegexTestFailureKind) {
+        self.fail.push(RegexTestFailure { test: test.clone(), kind });
     }
 
-    fn skip(&mut self, test: &RegexTest, result: &TestResult) {
-        self.skip.push(RegexTestResult {
-            test: test.clone(),
-            result: result.clone(),
-        });
+    fn skip(&mut self, test: &RegexTest) {
+        self.skip.push(RegexTestResult { test: test.clone() });
     }
 
     fn assert(&self) {
@@ -919,21 +931,13 @@ impl RegexTestResults {
 
 impl RegexTestResult {
     fn full_name(&self) -> String {
-        if self.result.name.is_empty() {
-            self.test.full_name().to_string()
-        } else {
-            format!("{} ({})", self.test.full_name(), self.result.name)
-        }
+        self.test.full_name().to_string()
     }
 }
 
 impl RegexTestFailure {
     fn full_name(&self) -> String {
-        if self.result.name.is_empty() {
-            self.test.full_name().to_string()
-        } else {
-            format!("{} ({})", self.test.full_name(), self.result.name)
-        }
+        self.test.full_name().to_string()
     }
 }
 
@@ -949,9 +953,6 @@ impl std::fmt::Display for RegexTestFailure {
             self.test.regexes(),
             self.test.input(),
         )?;
-        if !self.result.name.is_empty() {
-            write!(f, "\ntest result: {:?}", self.result.name)?;
-        }
         Ok(())
     }
 }
@@ -962,6 +963,9 @@ impl RegexTestFailureKind {
 
         let mut buf = String::new();
         match *self {
+            RegexTestFailureKind::UserFailure { ref why } => {
+                write!(buf, "failed by implementor because: {}", why)?;
+            }
             RegexTestFailureKind::IsMatch => {
                 if test.is_match() {
                     write!(buf, "expected match, but none found")?;

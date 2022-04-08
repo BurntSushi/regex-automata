@@ -18,7 +18,9 @@ use crate::{suite, Result};
 #[test]
 fn default() -> Result<()> {
     let builder = PikeVM::builder();
-    TestRunner::new()?.test_iter(suite()?.iter(), compiler(builder)).assert();
+    let mut runner = TestRunner::new()?;
+    runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
+    runner.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
 
@@ -35,7 +37,7 @@ fn compiler(
         }
         let re = builder.build_many(&regexes)?;
         let mut cache = re.create_cache();
-        Ok(CompiledRegex::compiled(move |test| -> Vec<TestResult> {
+        Ok(CompiledRegex::compiled(move |test| -> TestResult {
             run_test(&re, &mut cache, test)
         }))
     }
@@ -45,60 +47,56 @@ fn run_test(
     re: &PikeVM,
     cache: &mut pikevm::Cache,
     test: &RegexTest,
-) -> Vec<TestResult> {
-    let is_match = if re.is_match(cache, test.input()) {
-        TestResult::matched()
-    } else {
-        TestResult::no_match()
-    };
-    let is_match = is_match.name("is_match");
-
-    let find = match test.search_kind() {
-        TestSearchKind::Earliest => {
-            TestResult::skip().name("find_earliest_iter")
-        }
-        TestSearchKind::Leftmost => {
-            let it = re
-                .find_leftmost_iter(cache, test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| Match {
-                    id: m.pattern().as_usize(),
-                    span: Span { start: m.start(), end: m.end() },
-                });
-            TestResult::matches(it).name("find_leftmost_iter")
-        }
-        TestSearchKind::Overlapping => {
-            TestResult::skip().name("find_overlapping_iter")
-        }
-    };
-
-    let captures = match test.search_kind() {
-        TestSearchKind::Earliest => {
-            TestResult::skip().name("captures_earliest_iter")
-        }
-        TestSearchKind::Leftmost => {
-            let it = re
-                .captures_leftmost_iter(cache, test.input())
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|caps| {
-                    // We wouldn't get a non-matching captures in an iterator.
-                    assert!(caps.is_match());
-                    let testcaps = caps.iter().map(|m| {
-                        m.map(|m| Span { start: m.start(), end: m.end() })
+) -> TestResult {
+    match test.additional_name() {
+        "is_match" => TestResult::matched(re.is_match(cache, test.input())),
+        "find" => match test.search_kind() {
+            TestSearchKind::Earliest => TestResult::skip(),
+            TestSearchKind::Leftmost => {
+                let it = re
+                    .find_leftmost_iter(cache, test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| Match {
+                        id: m.pattern().as_usize(),
+                        span: Span { start: m.start(), end: m.end() },
                     });
-                    // This unwrap is OK because we know captures is a match,
-                    // and all matches always have the first group set.
-                    TestCaptures::new(caps.pattern().as_usize(), testcaps)
-                        .unwrap()
-                });
-            TestResult::captures(it).name("captures_leftmost_iter")
+                TestResult::matches(it)
+            }
+            TestSearchKind::Overlapping => TestResult::skip(),
+        },
+        "captures" => {
+            match test.search_kind() {
+                TestSearchKind::Earliest => TestResult::skip(),
+                TestSearchKind::Leftmost => {
+                    let it = re
+                        .captures_leftmost_iter(cache, test.input())
+                        .take(test.match_limit().unwrap_or(std::usize::MAX))
+                        .map(|caps| {
+                            // We wouldn't get a non-matching captures in an
+                            // iterator.
+                            assert!(caps.is_match());
+                            let testcaps = caps.iter().map(|m| {
+                                m.map(|m| Span {
+                                    start: m.start(),
+                                    end: m.end(),
+                                })
+                            });
+                            // This unwrap is OK because we know captures is
+                            // a match, and all matches always have the first
+                            // group set.
+                            TestCaptures::new(
+                                caps.pattern().as_usize(),
+                                testcaps,
+                            )
+                            .unwrap()
+                        });
+                    TestResult::captures(it)
+                }
+                TestSearchKind::Overlapping => TestResult::skip(),
+            }
         }
-        TestSearchKind::Overlapping => {
-            TestResult::skip().name("captures_overlapping_iter")
-        }
-    };
-
-    vec![is_match, find, captures]
+        name => TestResult::fail(&format!("unrecognized test name: {}", name)),
+    }
 }
 
 /// Configures the given regex builder with all relevant settings on the given
