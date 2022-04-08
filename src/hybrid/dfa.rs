@@ -3636,7 +3636,7 @@ impl Builder {
     ///
     /// // This shows how to set non-default options for building an NFA.
     /// let nfa = thompson::Compiler::new()
-    ///     .configure(thompson::Config::new().shrink(false))
+    ///     .configure(thompson::Config::new().shrink(true))
     ///     .build(r"[0-9]+")?;
     /// let dfa = DFA::builder().build_from_nfa(nfa)?;
     /// let mut cache = dfa.create_cache();
