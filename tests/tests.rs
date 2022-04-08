@@ -22,6 +22,7 @@ fn suite() -> Result<ret::RegexTests> {
     load!("expensive");
     load!("flags");
     load!("iter");
+    load!("leftmost-all");
     load!("misc");
     load!("multiline");
     load!("no-unicode");

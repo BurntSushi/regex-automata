@@ -4,7 +4,7 @@ use crate::{
     nfa::thompson::{self, Captures, Error, State, NFA},
     util::{
         id::{PatternID, StateID},
-        matchtypes::MultiMatch,
+        matchtypes::{MatchKind, MultiMatch},
         prefilter::{self, Prefilter},
         sparse_set::SparseSet,
     },
@@ -29,6 +29,7 @@ macro_rules! instrument {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Config {
     anchored: Option<bool>,
+    match_kind: Option<MatchKind>,
     utf8: Option<bool>,
 }
 
@@ -43,6 +44,11 @@ impl Config {
         self
     }
 
+    pub fn match_kind(mut self, kind: MatchKind) -> Config {
+        self.match_kind = Some(kind);
+        self
+    }
+
     pub fn utf8(mut self, yes: bool) -> Config {
         self.utf8 = Some(yes);
         self
@@ -52,6 +58,10 @@ impl Config {
         self.anchored.unwrap_or(false)
     }
 
+    pub fn get_match_kind(&self) -> MatchKind {
+        self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
+    }
+
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
     }
@@ -59,6 +69,7 @@ impl Config {
     pub(crate) fn overwrite(self, o: Config) -> Config {
         Config {
             anchored: o.anchored.or(self.anchored),
+            match_kind: o.match_kind.or(self.match_kind),
             utf8: o.utf8.or(self.utf8),
         }
     }
@@ -245,6 +256,14 @@ impl PikeVM {
         )
     }
 
+    pub fn find_earliest_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> FindEarliestMatches<'r, 'c, 't> {
+        FindEarliestMatches::new(self, cache, haystack)
+    }
+
     pub fn find_leftmost_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
@@ -261,8 +280,37 @@ impl PikeVM {
         CapturesLeftmostMatches::new(self, cache, haystack)
     }
 
+    pub fn find_earliest_at(
+        &self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+        caps: &mut Captures,
+    ) -> Option<MultiMatch> {
+        self.find_fwd(true, cache, pre, pattern_id, haystack, start, end, caps)
+    }
+
     pub fn find_leftmost_at(
         &self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+        caps: &mut Captures,
+    ) -> Option<MultiMatch> {
+        self.find_fwd(
+            false, cache, pre, pattern_id, haystack, start, end, caps,
+        )
+    }
+
+    fn find_fwd(
+        &self,
+        earliest: bool,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
         pattern_id: Option<PatternID>,
@@ -275,8 +323,6 @@ impl PikeVM {
             || self.nfa.is_always_start_anchored()
             || pattern_id.is_some();
         let start_id = match pattern_id {
-            // None if anchored => self.nfa.start_anchored(),
-            // None => self.nfa.start_unanchored(),
             None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
@@ -287,43 +333,7 @@ impl PikeVM {
         let mut counters = Counters::new(&self.nfa);
 
         cache.clear();
-        // NOTE: Putting the epsilon closure here is the most correct thing to
-        // do, since it will correctly terminate a search when invalid UTF-8 is
-        // encountered if a only-valid-UTF-8 unanchored prefix is built into
-        // the NFA. It also handles all other cases correctly. The main problem
-        // with this approach is that it can lead to a bit more churn from
-        // state shuffling when compared to implementing the unanchored prefix
-        // manually. (As we used to before.)
-        //
-        // Since manually implementing the unanchored prefix leads to
-        // correctness issues, are choices are to either fix the manual
-        // unanchored prefix or to only use it in cases where there are no
-        // correctness issues.
-        //
-        // Fixing it is plausible, but it would require weaving a separate
-        // UTF-8 validity automaton into the loop below. Seems possible, but
-        // annoying.
-        //
-        // Using it only in cases where it's correct is also possible. For
-        // example, it is always correct to use a manual unanchored prefix if
-        // you *know* the haystack is valid UTF-8. And that corresponds to
-        // &str in Rust. But this does lead to some annoyances in terms of API
-        // design and implementation.
-        //
-        // For now, we stick with the simpler and correct choice because this
-        // is the NFA simulation, which is already pretty slow.
-        // self.epsilon_closure(
-        // #[cfg(feature = "instrument-pikevm")]
-        // &mut counters,
-        // &mut cache.clist,
-        // &mut caps.slots,
-        // &mut cache.stack,
-        // start_id,
-        // haystack,
-        // at,
-        // );
-        // while at <= end && !cache.clist.set.is_empty() {
-        while at <= end {
+        'LOOP: while at <= end {
             if cache.clist.set.is_empty() {
                 if matched_pid.is_some() || (anchored && at > start) {
                     break;
@@ -368,7 +378,11 @@ impl PikeVM {
                     Some(pid) => pid,
                 };
                 matched_pid = Some(pid);
-                break;
+                if earliest {
+                    break 'LOOP;
+                } else if self.config.get_match_kind() != MatchKind::All {
+                    break;
+                }
             }
             at += 1;
             cache.swap();
@@ -618,6 +632,76 @@ impl PikeVM {
                 }
             }
         }
+    }
+}
+
+/// An iterator over all non-overlapping leftmost matches for a particular
+/// infallible search.
+///
+/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// found. If the underlying search returns an error, then this panics.
+///
+/// The lifetime variables are as follows:
+///
+/// * `'r` is the lifetime of the regular expression itself.
+/// * `'c` is the lifetime of the mutable cache used during search.
+/// * `'t` is the lifetime of the text being searched.
+#[derive(Debug)]
+pub struct FindEarliestMatches<'r, 'c, 't> {
+    vm: &'r PikeVM,
+    cache: &'c mut Cache,
+    // scanner: Option<prefilter::Scanner<'r>>,
+    text: &'t [u8],
+    last_end: usize,
+    last_match: Option<usize>,
+}
+
+impl<'r, 'c, 't> FindEarliestMatches<'r, 'c, 't> {
+    fn new(
+        vm: &'r PikeVM,
+        cache: &'c mut Cache,
+        text: &'t [u8],
+    ) -> FindEarliestMatches<'r, 'c, 't> {
+        FindEarliestMatches { vm, cache, text, last_end: 0, last_match: None }
+    }
+}
+
+impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
+    type Item = MultiMatch;
+
+    fn next(&mut self) -> Option<MultiMatch> {
+        if self.last_end > self.text.len() {
+            return None;
+        }
+        let mut caps = self.vm.create_captures();
+        let m = self.vm.find_earliest_at(
+            self.cache,
+            None,
+            None,
+            self.text,
+            self.last_end,
+            self.text.len(),
+            &mut caps,
+        )?;
+        if m.is_empty() {
+            // This is an empty match. To ensure we make progress, start
+            // the next search at the smallest possible starting position
+            // of the next match following this one.
+            self.last_end = if self.vm.config.get_utf8() {
+                crate::util::next_utf8(self.text, m.end())
+            } else {
+                m.end() + 1
+            };
+            // Don't accept empty matches immediately following a match.
+            // Just move on to the next match.
+            if Some(m.end()) == self.last_match {
+                return self.next();
+            }
+        } else {
+            self.last_end = m.end();
+        }
+        self.last_match = Some(m.end());
+        Some(m)
     }
 }
 

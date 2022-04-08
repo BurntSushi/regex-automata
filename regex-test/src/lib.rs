@@ -166,7 +166,9 @@ impl RegexTests {
     pub fn load_slice(&mut self, group_name: &str, data: &[u8]) -> Result<()> {
         let mut index = 1;
         let mut tests: RegexTests =
-            toml::from_slice(&data).context("error decoding TOML")?;
+            toml::from_slice(&data).with_context(|| {
+                format!("error decoding TOML for '{}'", group_name)
+            })?;
         for t in &mut tests.tests {
             t.group = group_name.to_string();
             if t.name.is_empty() {
@@ -1037,7 +1039,7 @@ impl<'a> Iterator for RegexTestsIter<'a> {
 #[serde(untagged)]
 enum CapturesFormat {
     Span([usize; 2]),
-    Match { id: usize, spans: [usize; 2] },
+    Match { id: usize, span: [usize; 2] },
     Spans(Vec<MaybeSpan>),
     Captures { id: usize, spans: Vec<MaybeSpan> },
 }
@@ -1057,7 +1059,7 @@ impl TryFrom<CapturesFormat> for Captures {
             CapturesFormat::Span([start, end]) => {
                 Ok(Captures { id: 0, groups: vec![Some(Span { start, end })] })
             }
-            CapturesFormat::Match { id, spans: [start, end] } => {
+            CapturesFormat::Match { id, span: [start, end] } => {
                 Ok(Captures { id, groups: vec![Some(Span { start, end })] })
             }
             CapturesFormat::Spans(spans) => {

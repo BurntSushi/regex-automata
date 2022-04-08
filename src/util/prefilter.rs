@@ -51,6 +51,35 @@ use crate::Match;
 // to report the position at which it stopped a search. So, Option<Match> has
 // to become SearchResult, where SearchResult is an enum. That's... annoying.
 // But, frightfully, seems worth it.
+//
+// ... some time passes where I think about the above ...
+//
+// Welp, nope, the above is all bunk. It turns out that the "we should verify
+// this" warning above was astute, because it doesn't work. The issue is what
+// happens when we find a candidate from a prefilter but there is no regex
+// match at that position. We can either restart the search after the prefilter
+// candidate or we can restart it where the regex engine failed. We already
+// dispensed with the former case above: it can too easily lead to quadratic
+// behavior. (e.g., matching 'foo\w+Z' on 'foofoofoofoofoo'.) It turns out that
+// the other strategy is bunk too, because we might miss matches. For example,
+// given the regex 'foo\war' and we search 'foofoobar'. We find the first 'foo'
+// from the prefilter, but the regex match doesn't fail until we get to the
+// third 'o' (at position 4). So if we restart the search at position 4, the
+// prefilter won't match the second 'foo' (because it's starting after the
+// second 'f'), and thus, the search will incorrectly report no-match.
+//
+// The underlying issue here is that the prefilter can really only be executed
+// when the finite state machine is in a 'start' state, because the finite
+// state machine automatically accounts for the fact that the '\w' in 'foo\war'
+// might be matching an 'f' in a way that brings us back around to the
+// beginning of the pattern without actually entering the start state. But if
+// we try to subvert this by putting the prefilter outside the context of the
+// finite state machine, then we lose the FSM's context and expose ourselves to
+// bad things.
+//
+// It seems like we are forever doomed to having to embed the prefilter into
+// the state machine traversal itself. But maybe there is a simpler way to do
+// it than what I'm doing now...
 
 /// A candidate is the result of running a prefilter on a haystack at a
 /// particular position. The result is one of no match, a confirmed match or

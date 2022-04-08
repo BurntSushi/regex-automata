@@ -3,7 +3,7 @@ use regex_automata::{
         self,
         pikevm::{self, PikeVM},
     },
-    SyntaxConfig,
+    MatchKind, SyntaxConfig,
 };
 
 use ret::{
@@ -50,7 +50,16 @@ fn run_test(
     match test.additional_name() {
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest => TestResult::skip(),
+            ret::SearchKind::Earliest => {
+                let it = re
+                    .find_earliest_iter(cache, test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
             ret::SearchKind::Leftmost => {
                 let it = re
                     .find_leftmost_iter(cache, test.input())
@@ -107,15 +116,15 @@ fn configure_pikevm_builder(
     test: &RegexTest,
     builder: &mut pikevm::Builder,
 ) -> bool {
-    // TODO: I think we need to support All in the PikeVM? Maybe not. But seems
-    // closely related to Overlapping search...
-    // let match_kind = match test.match_kind() {
-    // TestMatchKind::All => MatchKind::All,
-    // TestMatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
-    // TestMatchKind::LeftmostLongest => return false,
-    // };
-    let pikevm_config =
-        PikeVM::config().anchored(test.anchored()).utf8(test.utf8());
+    let match_kind = match test.match_kind() {
+        ret::MatchKind::All => MatchKind::All,
+        ret::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
+        ret::MatchKind::LeftmostLongest => return false,
+    };
+    let pikevm_config = PikeVM::config()
+        .anchored(test.anchored())
+        .match_kind(match_kind)
+        .utf8(test.utf8());
     builder
         .configure(pikevm_config)
         .syntax(config_syntax(test))

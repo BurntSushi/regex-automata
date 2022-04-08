@@ -3,8 +3,8 @@ name = "basic10"
 regexes = ["a", "a"]
 input = "a"
 matches = [
-  { id = 0, spans = [0, 1] },
-  { id = 1, spans = [0, 1] },
+  { id = 0, span = [0, 1] },
+  { id = 1, span = [0, 1] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -14,7 +14,7 @@ name = "basic10-leftmost-first"
 regexes = ["a", "a"]
 input = "a"
 matches = [
-  { id = 0, spans = [0, 1] },
+  { id = 0, span = [0, 1] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -24,8 +24,8 @@ name = "basic20"
 regexes = ["a", "a"]
 input = "ba"
 matches = [
-  { id = 0, spans = [1, 2] },
-  { id = 1, spans = [1, 2] },
+  { id = 0, span = [1, 2] },
+  { id = 1, span = [1, 2] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -35,7 +35,7 @@ name = "basic30"
 regexes = ["a", "b"]
 input = "a"
 matches = [
-  { id = 0, spans = [0, 1] },
+  { id = 0, span = [0, 1] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -45,7 +45,7 @@ name = "basic40"
 regexes = ["a", "b"]
 input = "b"
 matches = [
-  { id = 1, spans = [0, 1] },
+  { id = 1, span = [0, 1] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -55,8 +55,8 @@ name = "basic50"
 regexes = ["a|b", "b|a"]
 input = "b"
 matches = [
-  { id = 0, spans = [0, 1] },
-  { id = 1, spans = [0, 1] },
+  { id = 0, span = [0, 1] },
+  { id = 1, span = [0, 1] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -66,8 +66,8 @@ name = "basic60"
 regexes = ["foo", "oo"]
 input = "foo"
 matches = [
-  { id = 0, spans = [0, 3] },
-  { id = 1, spans = [1, 3] },
+  { id = 0, span = [0, 3] },
+  { id = 1, span = [1, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -77,7 +77,7 @@ name = "basic60-leftmost-first"
 regexes = ["foo", "oo"]
 input = "foo"
 matches = [
-  { id = 0, spans = [0, 3] },
+  { id = 0, span = [0, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -87,8 +87,8 @@ name = "basic61"
 regexes = ["oo", "foo"]
 input = "foo"
 matches = [
-  { id = 1, spans = [0, 3] },
-  { id = 0, spans = [1, 3] },
+  { id = 1, span = [0, 3] },
+  { id = 0, span = [1, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -98,7 +98,7 @@ name = "basic61-leftmost-first"
 regexes = ["oo", "foo"]
 input = "foo"
 matches = [
-  { id = 1, spans = [0, 3] },
+  { id = 1, span = [0, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -108,10 +108,10 @@ name = "basic70"
 regexes = ["abcd", "bcd", "cd", "d"]
 input = "abcd"
 matches = [
-  { id = 0, spans = [0, 4] },
-  { id = 1, spans = [1, 4] },
-  { id = 2, spans = [2, 4] },
-  { id = 3, spans = [3, 4] },
+  { id = 0, span = [0, 4] },
+  { id = 1, span = [1, 4] },
+  { id = 2, span = [2, 4] },
+  { id = 3, span = [3, 4] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -121,7 +121,7 @@ name = "basic71"
 regexes = ["bcd", "cd", "d", "abcd"]
 input = "abcd"
 matches = [
-  { id = 3, spans = [0, 4] },
+  { id = 3, span = [0, 4] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -131,7 +131,7 @@ name = "basic80"
 regexes = ["^foo", "bar$"]
 input = "foo"
 matches = [
-  { id = 0, spans = [0, 3] },
+  { id = 0, span = [0, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -141,8 +141,8 @@ name = "basic81"
 regexes = ["^foo", "bar$"]
 input = "foo bar"
 matches = [
-  { id = 0, spans = [0, 3] },
-  { id = 1, spans = [4, 7] },
+  { id = 0, span = [0, 3] },
+  { id = 1, span = [4, 7] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -152,7 +152,7 @@ name = "basic82"
 regexes = ["^foo", "bar$"]
 input = "bar"
 matches = [
-  { id = 1, spans = [0, 3] },
+  { id = 1, span = [0, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -162,8 +162,8 @@ name = "basic90"
 regexes = ["[a-z]+$", "foo"]
 input = "01234 foo"
 matches = [
-  { id = 0, spans = [6, 9] },
-  { id = 1, spans = [6, 9] },
+  { id = 0, span = [6, 9] },
+  { id = 1, span = [6, 9] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -173,7 +173,7 @@ name = "basic91"
 regexes = ["[a-z]+$", "foo"]
 input = "foo 01234"
 matches = [
-  { id = 1, spans = [0, 3] },
+  { id = 1, span = [0, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -183,12 +183,12 @@ name = "basic100"
 regexes = [".*?", "a"]
 input = "zzza"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [0, 1] },
-  { id = 0, spans = [0, 2] },
-  { id = 0, spans = [0, 3] },
-  { id = 0, spans = [0, 4] },
-  { id = 1, spans = [3, 4] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [0, 1] },
+  { id = 0, span = [0, 2] },
+  { id = 0, span = [0, 3] },
+  { id = 0, span = [0, 4] },
+  { id = 1, span = [3, 4] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -198,12 +198,12 @@ name = "basic101"
 regexes = [".*", "a"]
 input = "zzza"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [0, 1] },
-  { id = 0, spans = [0, 2] },
-  { id = 0, spans = [0, 3] },
-  { id = 0, spans = [0, 4] },
-  { id = 1, spans = [3, 4] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [0, 1] },
+  { id = 0, span = [0, 2] },
+  { id = 0, span = [0, 3] },
+  { id = 0, span = [0, 4] },
+  { id = 1, span = [3, 4] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -213,10 +213,10 @@ name = "basic102"
 regexes = [".*", "a"]
 input = "zzz"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [0, 1] },
-  { id = 0, spans = [0, 2] },
-  { id = 0, spans = [0, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [0, 1] },
+  { id = 0, span = [0, 2] },
+  { id = 0, span = [0, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -226,7 +226,7 @@ name = "basic110"
 regexes = ['\ba\b']
 input = "hello a bye"
 matches = [
-  { id = 0, spans = [6, 7] },
+  { id = 0, span = [6, 7] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -236,8 +236,8 @@ name = "basic111"
 regexes = ['\ba\b', '\be\b']
 input = "hello a bye e"
 matches = [
-  { id = 0, spans = [6, 7] },
-  { id = 1, spans = [12, 13] },
+  { id = 0, span = [6, 7] },
+  { id = 1, span = [12, 13] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -247,7 +247,7 @@ name = "basic120"
 regexes = ["a"]
 input = "a"
 matches = [
-  { id = 0, spans = [0, 1] },
+  { id = 0, span = [0, 1] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -257,7 +257,7 @@ name = "basic121"
 regexes = [".*a"]
 input = "a"
 matches = [
-  { id = 0, spans = [0, 1] },
+  { id = 0, span = [0, 1] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -267,7 +267,7 @@ name = "basic122"
 regexes = [".*a", "β"]
 input = "β"
 matches = [
-  { id = 1, spans = [0, 2] },
+  { id = 1, span = [0, 2] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -277,7 +277,7 @@ name = "basic130"
 regexes = ["ab", "b"]
 input = "ba"
 matches = [
-  { id = 1, spans = [0, 1] },
+  { id = 1, span = [0, 1] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -287,11 +287,11 @@ name = "empty10"
 regexes = ["", "a"]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 1, spans = [0, 1] },
-  { id = 0, spans = [1, 1] },
-  { id = 0, spans = [2, 2] },
-  { id = 0, spans = [3, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 1, span = [0, 1] },
+  { id = 0, span = [1, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -301,10 +301,10 @@ name = "empty10-leftmost-first"
 regexes = ["", "a"]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [1, 1] },
-  { id = 0, spans = [2, 2] },
-  { id = 0, spans = [3, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [3, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -314,11 +314,11 @@ name = "empty11"
 regexes = ["a", ""]
 input = "abc"
 matches = [
-  { id = 1, spans = [0, 0] },
-  { id = 0, spans = [0, 1] },
-  { id = 1, spans = [1, 1] },
-  { id = 1, spans = [2, 2] },
-  { id = 1, spans = [3, 3] },
+  { id = 1, span = [0, 0] },
+  { id = 0, span = [0, 1] },
+  { id = 1, span = [1, 1] },
+  { id = 1, span = [2, 2] },
+  { id = 1, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -328,9 +328,9 @@ name = "empty11-leftmost-first"
 regexes = ["a", ""]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 1] },
-  { id = 1, spans = [2, 2] },
-  { id = 1, spans = [3, 3] },
+  { id = 0, span = [0, 1] },
+  { id = 1, span = [2, 2] },
+  { id = 1, span = [3, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -340,11 +340,11 @@ name = "empty20"
 regexes = ["", "b"]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [1, 1] },
-  { id = 1, spans = [1, 2] },
-  { id = 0, spans = [2, 2] },
-  { id = 0, spans = [3, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
+  { id = 1, span = [1, 2] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -354,10 +354,10 @@ name = "empty20-leftmost-first"
 regexes = ["", "b"]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [1, 1] },
-  { id = 0, spans = [2, 2] },
-  { id = 0, spans = [3, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [3, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -367,11 +367,11 @@ name = "empty21"
 regexes = ["b", ""]
 input = "abc"
 matches = [
-  { id = 1, spans = [0, 0] },
-  { id = 1, spans = [1, 1] },
-  { id = 0, spans = [1, 2] },
-  { id = 1, spans = [2, 2] },
-  { id = 1, spans = [3, 3] },
+  { id = 1, span = [0, 0] },
+  { id = 1, span = [1, 1] },
+  { id = 0, span = [1, 2] },
+  { id = 1, span = [2, 2] },
+  { id = 1, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -381,9 +381,9 @@ name = "empty21-leftmost-first"
 regexes = ["b", ""]
 input = "abc"
 matches = [
-  { id = 1, spans = [0, 0] },
-  { id = 0, spans = [1, 2] },
-  { id = 1, spans = [3, 3] },
+  { id = 1, span = [0, 0] },
+  { id = 0, span = [1, 2] },
+  { id = 1, span = [3, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -393,11 +393,11 @@ name = "empty22"
 regexes = ["(?:)", "b"]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [1, 1] },
-  { id = 1, spans = [1, 2] },
-  { id = 0, spans = [2, 2] },
-  { id = 0, spans = [3, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
+  { id = 1, span = [1, 2] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -407,11 +407,11 @@ name = "empty23"
 regexes = ["b", "(?:)"]
 input = "abc"
 matches = [
-  { id = 1, spans = [0, 0] },
-  { id = 1, spans = [1, 1] },
-  { id = 0, spans = [1, 2] },
-  { id = 1, spans = [2, 2] },
-  { id = 1, spans = [3, 3] },
+  { id = 1, span = [0, 0] },
+  { id = 1, span = [1, 1] },
+  { id = 0, span = [1, 2] },
+  { id = 1, span = [2, 2] },
+  { id = 1, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -421,10 +421,10 @@ name = "empty30"
 regexes = ["", "z"]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [1, 1] },
-  { id = 0, spans = [2, 2] },
-  { id = 0, spans = [3, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -434,10 +434,10 @@ name = "empty30-leftmost-first"
 regexes = ["", "z"]
 input = "abc"
 matches = [
-  { id = 0, spans = [0, 0] },
-  { id = 0, spans = [1, 1] },
-  { id = 0, spans = [2, 2] },
-  { id = 0, spans = [3, 3] },
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [3, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -447,10 +447,10 @@ name = "empty31"
 regexes = ["z", ""]
 input = "abc"
 matches = [
-  { id = 1, spans = [0, 0] },
-  { id = 1, spans = [1, 1] },
-  { id = 1, spans = [2, 2] },
-  { id = 1, spans = [3, 3] },
+  { id = 1, span = [0, 0] },
+  { id = 1, span = [1, 1] },
+  { id = 1, span = [2, 2] },
+  { id = 1, span = [3, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -460,10 +460,10 @@ name = "empty31-leftmost-first"
 regexes = ["z", ""]
 input = "abc"
 matches = [
-  { id = 1, spans = [0, 0] },
-  { id = 1, spans = [1, 1] },
-  { id = 1, spans = [2, 2] },
-  { id = 1, spans = [3, 3] },
+  { id = 1, span = [0, 0] },
+  { id = 1, span = [1, 1] },
+  { id = 1, span = [2, 2] },
+  { id = 1, span = [3, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
@@ -473,8 +473,8 @@ name = "empty40"
 regexes = ["c(?:)", "b"]
 input = "abc"
 matches = [
-  { id = 1, spans = [1, 2] },
-  { id = 0, spans = [2, 3] },
+  { id = 1, span = [1, 2] },
+  { id = 0, span = [2, 3] },
 ]
 match_kind = "all"
 search_kind = "overlapping"
@@ -484,8 +484,8 @@ name = "empty40-leftmost-first"
 regexes = ["c(?:)", "b"]
 input = "abc"
 matches = [
-  { id = 1, spans = [1, 2] },
-  { id = 0, spans = [2, 3] },
+  { id = 1, span = [1, 2] },
+  { id = 0, span = [2, 3] },
 ]
 match_kind = "leftmost-first"
 search_kind = "leftmost"
