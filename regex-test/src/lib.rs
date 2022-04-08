@@ -37,7 +37,6 @@ pub struct RegexTest {
     regexes: Option<Vec<BString>>,
     input: BString,
     matches: Vec<Captures>,
-    // captures: Option<Vec<Captures>>,
     match_limit: Option<usize>,
     #[serde(default = "default_true")]
     compiles: bool,
@@ -1038,9 +1037,9 @@ impl<'a> Iterator for RegexTestsIter<'a> {
 #[serde(untagged)]
 enum CapturesFormat {
     Span([usize; 2]),
-    Match { id: usize, offsets: [usize; 2] },
+    Match { id: usize, spans: [usize; 2] },
     Spans(Vec<MaybeSpan>),
-    Captures { id: usize, groups: Vec<MaybeSpan> },
+    Captures { id: usize, spans: Vec<MaybeSpan> },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -1058,14 +1057,14 @@ impl TryFrom<CapturesFormat> for Captures {
             CapturesFormat::Span([start, end]) => {
                 Ok(Captures { id: 0, groups: vec![Some(Span { start, end })] })
             }
-            CapturesFormat::Match { id, offsets: [start, end] } => {
+            CapturesFormat::Match { id, spans: [start, end] } => {
                 Ok(Captures { id, groups: vec![Some(Span { start, end })] })
             }
-            CapturesFormat::Spans(groups) => {
-                Captures::new(0, groups.into_iter().map(|g| g.into_option()))
+            CapturesFormat::Spans(spans) => {
+                Captures::new(0, spans.into_iter().map(|s| s.into_option()))
             }
-            CapturesFormat::Captures { id, groups } => {
-                Captures::new(id, groups.into_iter().map(|g| g.into_option()))
+            CapturesFormat::Captures { id, spans } => {
+                Captures::new(id, spans.into_iter().map(|s| s.into_option()))
             }
         }
     }
@@ -1216,9 +1215,9 @@ name = "foo"
 regexes = [".*.rs", ".*.toml"]
 input = "lib.rs"
 matches = [
-    { id = 0, offsets = [0, 0] },
-    { id = 2, offsets = [0, 0] },
-    { id = 5, offsets = [0, 0] },
+    { id = 0, spans = [0, 0] },
+    { id = 2, spans = [0, 0] },
+    { id = 5, spans = [0, 0] },
 ]
 "#;
 
@@ -1382,7 +1381,7 @@ name = "foo"
 regex = ".*.rs"
 input = "lib.rs"
 matches = [
-  { id = 0, groups = [] },
+  { id = 0, spans = [] },
 ]
 "#;
 
@@ -1398,7 +1397,7 @@ name = "foo"
 regex = ".*.rs"
 input = "lib.rs"
 matches = [
-  { id = 0, groups = [[]] },
+  { id = 0, spans = [[]] },
 ]
 "#;
 
@@ -1414,7 +1413,7 @@ name = "foo"
 regex = ".*.rs"
 input = "lib.rs"
 matches = [
-  { id = 0, groups = [[], [0, 2]] },
+  { id = 0, spans = [[], [0, 2]] },
 ]
 "#;
 
