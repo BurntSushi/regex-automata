@@ -1590,30 +1590,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
             self.last_end,
             self.text.len(),
         );
-        let m = match result {
-            Err(err) => return Some(Err(err)),
-            Ok(None) => return None,
-            Ok(Some(m)) => m,
-        };
-        if m.is_empty() {
-            // This is an empty match. To ensure we make progress, start
-            // the next search at the smallest possible starting position
-            // of the next match following this one.
-            self.last_end = if self.re.utf8 {
-                crate::util::next_utf8(self.text, m.end())
-            } else {
-                m.end() + 1
-            };
-            // Don't accept empty matches immediately following a match.
-            // Just move on to the next match.
-            if Some(m.end()) == self.last_match {
-                return self.next();
-            }
-        } else {
-            self.last_end = m.end();
-        }
-        self.last_match = Some(m.end());
-        Some(Ok(m))
+        Some(Ok(handle_iter_match_fallible!(self, result, self.re.utf8)))
     }
 }
 
@@ -1669,30 +1646,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
             self.last_end,
             self.text.len(),
         );
-        let m = match result {
-            Err(err) => return Some(Err(err)),
-            Ok(None) => return None,
-            Ok(Some(m)) => m,
-        };
-        if m.is_empty() {
-            // This is an empty match. To ensure we make progress, start
-            // the next search at the smallest possible starting position
-            // of the next match following this one.
-            self.last_end = if self.re.utf8 {
-                crate::util::next_utf8(self.text, m.end())
-            } else {
-                m.end() + 1
-            };
-            // Don't accept empty matches immediately following a match.
-            // Just move on to the next match.
-            if Some(m.end()) == self.last_match {
-                return self.next();
-            }
-        } else {
-            self.last_end = m.end();
-        }
-        self.last_match = Some(m.end());
-        Some(Ok(m))
+        Some(Ok(handle_iter_match_fallible!(self, result, self.re.utf8)))
     }
 }
 
@@ -1750,16 +1704,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
             self.text.len(),
             &mut self.state,
         );
-        let m = match result {
-            Err(err) => return Some(Err(err)),
-            Ok(None) => return None,
-            Ok(Some(m)) => m,
-        };
-        // Unlike the non-overlapping case, we're OK with empty matches at this
-        // level. In particular, the overlapping search algorithm is itself
-        // responsible for ensuring that progress is always made.
-        self.last_end = m.end();
-        Some(Ok(m))
+        Some(Ok(handle_iter_match_overlapping_fallible!(self, result)))
     }
 }
 

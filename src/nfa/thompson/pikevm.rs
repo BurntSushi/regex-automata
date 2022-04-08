@@ -683,25 +683,7 @@ impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
             self.text.len(),
             &mut caps,
         )?;
-        if m.is_empty() {
-            // This is an empty match. To ensure we make progress, start
-            // the next search at the smallest possible starting position
-            // of the next match following this one.
-            self.last_end = if self.vm.config.get_utf8() {
-                crate::util::next_utf8(self.text, m.end())
-            } else {
-                m.end() + 1
-            };
-            // Don't accept empty matches immediately following a match.
-            // Just move on to the next match.
-            if Some(m.end()) == self.last_match {
-                return self.next();
-            }
-        } else {
-            self.last_end = m.end();
-        }
-        self.last_match = Some(m.end());
-        Some(m)
+        Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
     }
 }
 
@@ -755,25 +737,7 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
             self.text.len(),
             &mut caps,
         )?;
-        if m.is_empty() {
-            // This is an empty match. To ensure we make progress, start
-            // the next search at the smallest possible starting position
-            // of the next match following this one.
-            self.last_end = if self.vm.config.get_utf8() {
-                crate::util::next_utf8(self.text, m.end())
-            } else {
-                m.end() + 1
-            };
-            // Don't accept empty matches immediately following a match.
-            // Just move on to the next match.
-            if Some(m.end()) == self.last_match {
-                return self.next();
-            }
-        } else {
-            self.last_end = m.end();
-        }
-        self.last_match = Some(m.end());
-        Some(m)
+        Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
     }
 }
 
@@ -831,24 +795,7 @@ impl<'r, 'c, 't> Iterator for CapturesLeftmostMatches<'r, 'c, 't> {
             self.text.len(),
             &mut caps,
         )?;
-        if m.is_empty() {
-            // This is an empty match. To ensure we make progress, start
-            // the next search at the smallest possible starting position
-            // of the next match following this one.
-            self.last_end = if self.vm.config.get_utf8() {
-                crate::util::next_utf8(self.text, m.end())
-            } else {
-                m.end() + 1
-            };
-            // Don't accept empty matches immediately following a match.
-            // Just move on to the next match.
-            if Some(m.end()) == self.last_match {
-                return self.next();
-            }
-        } else {
-            self.last_end = m.end();
-        }
-        self.last_match = Some(m.end());
+        handle_iter_match!(self, m, self.vm.config.get_utf8());
         Some(caps)
     }
 }

@@ -997,6 +997,11 @@ impl Builder {
             // It is important to distinguish any "quit" bytes from all other
             // bytes. Otherwise, a non-quit byte may end up in the same class
             // as a quit byte, and thus cause the DFA stop when it shouldn't.
+            //
+            // Test case:
+            //
+            //   regex-cli find hybrid regex -w @conn.json.1000x.log \
+            //     '^#' '\b10\.55\.182\.100\b'
             if !quit.is_empty() {
                 set.add_set(&quit);
             }

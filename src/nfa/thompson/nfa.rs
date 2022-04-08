@@ -1935,7 +1935,7 @@ impl Look {
                 // to do this dance at most once per regex.
                 //
                 // FIXME: Is this correct for \B?
-                let iswb = regex_syntax::is_word_byte;
+                let iswb = is_word_byte;
                 // This unwrap is OK because we guard every use of 'asu8' with
                 // a check that the input is <= 255.
                 let asu8 = |b: u16| u8::try_from(b).unwrap();
