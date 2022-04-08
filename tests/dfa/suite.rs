@@ -35,11 +35,11 @@ fn unminimized_no_byte_class() -> Result<()> {
     Ok(())
 }
 
-/// Runs the test suite with NFA shrinking disabled.
+/// Runs the test suite with NFA shrinking enabled.
 #[test]
-fn unminimized_no_nfa_shrink() -> Result<()> {
+fn unminimized_nfa_shrink() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.thompson(thompson::Config::new().shrink(false));
+    builder.thompson(thompson::Config::new().shrink(true));
 
     TestRunner::new()?
         .expand(&["is_match", "find"], |t| t.compiles())

@@ -20,27 +20,31 @@ fn default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
         .expand(&["is_match", "find"], |t| t.compiles())
+        // Without NFA shrinking, this test blows the default cache capacity.
+        .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
         .assert();
     Ok(())
 }
 
-/// Tests the hybrid NFA/DFA with NFA shrinking disabled.
+/// Tests the hybrid NFA/DFA with NFA shrinking enabled.
 ///
-/// This is actually the typical configuration one wants for a lazy DFA. NFA
+/// This is *usually* not the configuration one wants for a lazy DFA. NFA
 /// shrinking is mostly only advantageous when building a full DFA since it
 /// can sharply decrease the amount of time determinization takes. But NFA
-/// shrinking is itself otherwise fairly expensive. Since a lazy DFA has
-/// no compilation time (other than for building the NFA of course) before
+/// shrinking is itself otherwise fairly expensive currently. Since a lazy DFA
+/// has no compilation time (other than for building the NFA of course) before
 /// executing a search, it's usually worth it to forgo NFA shrinking.
+///
+/// Nevertheless, we test to make sure everything is OK with NFA shrinking. As
+/// a bonus, there are some tests we don't need to skip because they now fit in
+/// the default cache capacity.
 #[test]
-fn no_nfa_shrink() -> Result<()> {
+fn nfa_shrink() -> Result<()> {
     let mut builder = Regex::builder();
-    builder.thompson(thompson::Config::new().shrink(false));
+    builder.thompson(thompson::Config::new().shrink(true));
     TestRunner::new()?
         .expand(&["is_match", "find"], |t| t.compiles())
-        // Without NFA shrinking, this test blows the default cache capacity.
-        .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
         .assert();
     Ok(())
@@ -53,6 +57,8 @@ fn starts_for_each_pattern() -> Result<()> {
     builder.dfa(DFA::config().starts_for_each_pattern(true));
     TestRunner::new()?
         .expand(&["is_match", "find"], |t| t.compiles())
+        // Without NFA shrinking, this test blows the default cache capacity.
+        .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
         .assert();
     Ok(())
@@ -69,6 +75,8 @@ fn no_byte_classes() -> Result<()> {
     builder.dfa(DFA::config().byte_classes(false));
     TestRunner::new()?
         .expand(&["is_match", "find"], |t| t.compiles())
+        // Without NFA shrinking, this test blows the default cache capacity.
+        .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
         .assert();
     Ok(())
@@ -86,6 +94,8 @@ fn no_cache_clearing() -> Result<()> {
     builder.dfa(DFA::config().minimum_cache_clear_count(Some(0)));
     TestRunner::new()?
         .expand(&["is_match", "find"], |t| t.compiles())
+        // Without NFA shrinking, this test blows the default cache capacity.
+        .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
         .assert();
     Ok(())

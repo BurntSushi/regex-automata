@@ -957,7 +957,7 @@ impl Builder {
     ///
     /// // This shows how to set non-default options for building an NFA.
     /// let nfa = NFA::compiler()
-    ///     .configure(NFA::config().shrink(false))
+    ///     .configure(NFA::config().shrink(true))
     ///     .build(r"[0-9]+")?;
     /// let dfa = dense::Builder::new().build_from_nfa(&nfa)?;
     /// let expected = Some(HalfMatch::must(0, 6));

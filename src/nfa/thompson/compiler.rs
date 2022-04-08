@@ -188,23 +188,24 @@ impl Config {
     /// Apply best effort heuristics to shrink the NFA at the expense of more
     /// time/memory.
     ///
-    /// This is enabled by default. Generally speaking, if one is using an NFA
-    /// to compile a DFA, then the extra time used to shrink the NFA will be
-    /// more than made up for during DFA construction (potentially by a lot).
-    /// In other words, enabling this can substantially decrease the overall
-    /// amount of time it takes to build a DFA.
+    /// Generally speaking, if one is using an NFA to compile a DFA, then the
+    /// extra time used to shrink the NFA will be more than made up for during
+    /// DFA construction (potentially by a lot). In other words, enabling this
+    /// can substantially decrease the overall amount of time it takes to build
+    /// a DFA.
     ///
-    /// The only reason to disable this if you want to compile an NFA and start
-    /// using it as quickly as possible without needing to build a DFA, and you
-    /// don't mind using a bit of extra memory for the NFA. e.g., for an NFA
-    /// simulation or for a lazy DFA.
+    /// A reason to keep this disabled is if you want to compile an NFA and
+    /// start using it as quickly as possible without needing to build a DFA,
+    /// and you don't mind using a bit of extra memory for the NFA. e.g., for
+    /// an NFA simulation or for a lazy DFA.
     ///
     /// NFA shrinking is currently most useful when compiling a reverse
     /// NFA with large Unicode character classes. In particular, it trades
     /// additional CPU time during NFA compilation in favor of generating fewer
     /// NFA states.
     ///
-    /// This is enabled by default.
+    /// This is disabled by default because it can increase compile times
+    /// quite a bit if you aren't building a full DFA.
     ///
     /// # Example
     ///
@@ -291,7 +292,7 @@ impl Config {
 
     /// Return whether NFA shrinking is enabled.
     pub fn get_shrink(&self) -> bool {
-        self.shrink.unwrap_or(true)
+        self.shrink.unwrap_or(false)
     }
 
     /// Return whether NFA compilation is configured to produce capture states.
