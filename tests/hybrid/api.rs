@@ -47,7 +47,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     let mut cache = dfa.create_cache();
 
     let haystack = "a".repeat(101).into_bytes();
-    let err = MatchError::GaveUp { offset: 46 };
+    let err = MatchError::GaveUp { offset: 45 };
     // Notice that we make the same amount of progress in each search! That's
     // because the cache is reused and already has states to handle the first
     // 46 bytes.
@@ -63,7 +63,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     );
 
     let haystack = "β".repeat(101).into_bytes();
-    let err = MatchError::GaveUp { offset: 0 };
+    let err = MatchError::GaveUp { offset: 2 };
     assert_eq!(dfa.find_earliest_fwd(&mut cache, &haystack), Err(err));
     // no need to test that other find routines quit, since we did that above
 

@@ -15,6 +15,7 @@ exclude = [
 ]
 edition = "2018"
 resolver = "2"
+autoexamples = false
 
 [workspace]
 members = ["bench", "examples", "regex-cli", "regex-test"]

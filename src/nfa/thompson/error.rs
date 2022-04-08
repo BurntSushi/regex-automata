@@ -63,6 +63,10 @@ enum ErrorKind {
     /// An error that occurs when one tries to build an NFA simulation (such as
     /// the PikeVM) without any capturing groups.
     MissingCaptures,
+    /// An error that occurs when one tries to build a reverse NFA with
+    /// captures enabled. Currently, this isn't supported, but we probably
+    /// should support it at some point.
+    UnsupportedCaptures,
 }
 
 impl Error {
@@ -99,6 +103,10 @@ impl Error {
     pub(crate) fn missing_captures() -> Error {
         Error { kind: ErrorKind::MissingCaptures }
     }
+
+    pub(crate) fn unsupported_captures() -> Error {
+        Error { kind: ErrorKind::UnsupportedCaptures }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -112,6 +120,7 @@ impl std::error::Error for Error {
             ErrorKind::InvalidCaptureIndex { .. } => None,
             ErrorKind::UnicodeWordUnavailable => None,
             ErrorKind::MissingCaptures => None,
+            ErrorKind::UnsupportedCaptures => None,
         }
     }
 }
@@ -152,6 +161,11 @@ impl core::fmt::Display for Error {
                 f,
                 "operation requires the NFA to have capturing groups, \
                  but the NFA given contains none",
+            ),
+            ErrorKind::UnsupportedCaptures => write!(
+                f,
+                "currently captures must be disabled when compiling \
+                 a reverse NFA",
             ),
         }
     }

@@ -51,8 +51,10 @@ impl Config {
     /// NFAs. For example, currently, the Pike VM reports the starting location
     /// of matches without a reverse NFA.
     ///
-    /// Currently, enabling this setting will forcefully disable the
-    /// [`captures`](Config::captures) setting.
+    /// Currently, enabling this setting requires disabling the
+    /// [`captures`](Config::captures) setting. If both are enabled, then the
+    /// compiler will return an error. It is expected that this limitation will
+    /// be lifted in the future.
     ///
     /// This is disabled by default.
     ///
@@ -69,7 +71,7 @@ impl Config {
     /// };
     ///
     /// let dfa = dfa::dense::Builder::new()
-    ///     .thompson(NFA::config().reverse(true))
+    ///     .thompson(NFA::config().captures(false).reverse(true))
     ///     .build("baz[0-9]+")?;
     /// let expected = HalfMatch::must(0, 3);
     /// assert_eq!(Some(expected), dfa.find_leftmost_rev(b"foobaz12345bar")?);
@@ -216,11 +218,13 @@ impl Config {
     /// ```
     /// use regex_automata::nfa::thompson::NFA;
     ///
+    /// // Currently we have to disable captures when enabling reverse NFA.
+    /// let config = NFA::config().captures(false).reverse(true);
     /// let not_shrunk = NFA::compiler()
-    ///     .configure(NFA::config().reverse(true).shrink(false))
+    ///     .configure(config.clone().shrink(false))
     ///     .build(r"\w")?;
     /// let shrunk = NFA::compiler()
-    ///     .configure(NFA::config().reverse(true).shrink(true))
+    ///     .configure(config.clone().shrink(true))
     ///     .build(r"\w")?;
     ///
     /// // While a specific shrink factor is not guaranteed, the savings can be
@@ -236,9 +240,10 @@ impl Config {
 
     /// Whether to include 'Capture' states in the NFA.
     ///
-    /// This can only be enabled when compiling a forward NFA. This is
-    /// always disabled---with no way to override it---when the `reverse`
-    /// configuration is enabled.
+    /// Currently, enabling this setting requires disabling the
+    /// [`reverse`](Config::reverse) setting. If both are enabled, then the
+    /// compiler will return an error. It is expected that this limitation will
+    /// be lifted in the future.
     ///
     /// This is enabled by default.
     ///
@@ -297,7 +302,7 @@ impl Config {
 
     /// Return whether NFA compilation is configured to produce capture states.
     pub fn get_captures(&self) -> bool {
-        !self.get_reverse() && self.captures.unwrap_or(true)
+        self.captures.unwrap_or(true)
     }
 
     /// Return whether NFA compilation is configured to include an unanchored
@@ -688,6 +693,9 @@ impl Compiler {
     fn compile<H: Borrow<Hir>>(&self, exprs: &[H]) -> Result<NFA, Error> {
         if exprs.len() > PatternID::LIMIT {
             return Err(Error::too_many_patterns(exprs.len()));
+        }
+        if self.config.get_reverse() && self.config.get_captures() {
+            return Err(Error::unsupported_captures());
         }
 
         self.builder.borrow_mut().clear();
@@ -1830,6 +1838,7 @@ mod tests {
         let nfa = NFA::compiler()
             .configure(
                 NFA::config()
+                    .captures(false)
                     .reverse(true)
                     .shrink(false)
                     .unanchored_prefix(false),

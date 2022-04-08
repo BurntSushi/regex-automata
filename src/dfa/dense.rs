@@ -935,7 +935,14 @@ impl Builder {
         &self,
         patterns: &[P],
     ) -> Result<OwnedDFA, Error> {
-        let nfa = self.thompson.build_many(patterns).map_err(Error::nfa)?;
+        let nfa = self
+            .thompson
+            .clone()
+            // We can always forcefully disable captures because DFAs do not
+            // support them.
+            .configure(thompson::Config::new().captures(false))
+            .build_many(patterns)
+            .map_err(Error::nfa)?;
         self.build_from_nfa(&nfa)
     }
 

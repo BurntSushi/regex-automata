@@ -3312,16 +3312,16 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_leftmost_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 46 }),
+    ///     Err(MatchError::GaveUp { offset: 45 }),
     /// );
     ///
     /// // Now that we know the cache is full, if we search a haystack that we
     /// // know will require creating at least one new state, it should not
-    /// // be able to make any progress.
+    /// // be able to make much progress.
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_leftmost_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 0 }),
+    ///     Err(MatchError::GaveUp { offset: 2 }),
     /// );
     ///
     /// // If we reset the cache, then we should be able to create more states
@@ -3612,8 +3612,14 @@ impl Builder {
         &self,
         patterns: &[P],
     ) -> Result<DFA, BuildError> {
-        let nfa =
-            self.thompson.build_many(patterns).map_err(BuildError::nfa)?;
+        let nfa = self
+            .thompson
+            .clone()
+            // We can always forcefully disable captures because DFAs do not
+            // support them.
+            .configure(thompson::Config::new().captures(false))
+            .build_many(patterns)
+            .map_err(BuildError::nfa)?;
         self.build_from_nfa(nfa)
     }
 
