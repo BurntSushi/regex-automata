@@ -754,6 +754,21 @@ impl NFA {
     }
 
     #[inline]
+    pub fn capture_index_to_name(
+        &self,
+        pid: PatternID,
+        group_index: usize,
+    ) -> Option<&str> {
+        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
+        self.0.capture_index_to_name[pid][group_index].as_deref()
+    }
+
+    #[inline]
+    pub fn pattern_capture_count(&self, pid: PatternID) -> usize {
+        self.0.capture_index_to_name[pid].len()
+    }
+
+    #[inline]
     pub fn pattern_capture_names(
         &self,
         pid: PatternID,
@@ -2135,6 +2150,10 @@ impl Captures {
 
     pub fn slots_mut(&mut self) -> &mut [Option<usize>] {
         &mut self.slots
+    }
+
+    pub fn len(&self) -> usize {
+        self.nfa.pattern_capture_count(self.pattern())
     }
 
     pub fn iter(&self) -> CapturesPatternIter<'_> {

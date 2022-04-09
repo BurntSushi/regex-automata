@@ -1,3 +1,24 @@
+// BREADCRUMBS: I think the time has finally come to sketch out the public
+// API for the PikeVM. We aren't going to document it yet though, because once
+// the API is sketched out, I want to work on optimizing the impl and that may
+// change the API.
+//
+// Current question on my mind: should we really have a billion iterators for
+// everything? It the iterator logic is just subtle enough that they are
+// convenient to have. But it would be nice if there was a slightly less
+// convenient way to iterate without actually needing to define iterator
+// types for everything. For example, the 'find_earliest_iter' group of
+// routines seems unlikely to be used frequently, if ever. But it's useful
+// to have 'find_earliest' at least. So we do just live with the asymmetry
+// in the API if we drop the iterator? Bite the bullet and keep the iterator?
+// Or something else?
+//
+// For the PikeVM, do we have 'find' iterators AND 'captures' iterators?
+// The latter has to allocate a 'Captures' on each iteration, so maybe 'find'
+// is a bit faster. (Plus 'find' shouldn't in theory need to track captures,
+// although we haven't implemented that yet. Maybe do that next.) Probably
+// should benchmark it I guess. Ug.
+
 use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
@@ -332,7 +353,7 @@ impl PikeVM {
         #[cfg(feature = "instrument-pikevm")]
         let mut counters = Counters::new(&self.nfa);
 
-        cache.clear();
+        cache.clear(caps.slots().len());
         'LOOP: while at <= end {
             if cache.clist.set.is_empty() {
                 if matched_pid.is_some() || (anchored && at > start) {
@@ -491,6 +512,9 @@ impl PikeVM {
             State::Match { pattern_id } => {
                 // TODO: This is where we should call caps.set_pattern.
                 slots.copy_from_slice(thread_caps);
+                // for (slot, val) in slots.iter_mut().zip(thread_caps.iter()) {
+                // *slot = *val;
+                // }
                 Some(pattern_id)
             }
         }
@@ -587,6 +611,16 @@ impl PikeVM {
                     // only tracks match start/end, and not all capturing
                     // groups.
                     t.copy_from_slice(thread_caps);
+
+                    // BREADCRUMBS: This is still slow because our 't' can be
+                    // much bigger that the 'Captures' passed in by caller.
+                    // Seems tricky to fix... But maybe not. Maybe we can
+                    // restrict slot size on access.
+                    //
+                    // But should I just jump to redesign using copy-on-write?
+                    // for (slot, val) in t.iter_mut().zip(thread_caps.iter()) {
+                    // *slot = *val;
+                    // }
                     return;
                 }
                 State::Look { look, next } => {
@@ -702,6 +736,7 @@ impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
 pub struct FindLeftmostMatches<'r, 'c, 't> {
     vm: &'r PikeVM,
     cache: &'c mut Cache,
+    captures: Captures,
     // scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
@@ -714,7 +749,16 @@ impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
         cache: &'c mut Cache,
         text: &'t [u8],
     ) -> FindLeftmostMatches<'r, 'c, 't> {
-        FindLeftmostMatches { vm, cache, text, last_end: 0, last_match: None }
+        let mut captures = vm.create_captures();
+        captures.only_match_slots();
+        FindLeftmostMatches {
+            vm,
+            cache,
+            captures,
+            text,
+            last_end: 0,
+            last_match: None,
+        }
     }
 }
 
@@ -727,7 +771,6 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
         if self.last_end > self.text.len() {
             return None;
         }
-        let mut caps = self.vm.create_captures();
         let m = self.vm.find_leftmost_at(
             self.cache,
             None,
@@ -735,7 +778,7 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
             self.text,
             self.last_end,
             self.text.len(),
-            &mut caps,
+            &mut self.captures,
         )?;
         Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
     }
@@ -814,6 +857,7 @@ struct Threads {
     set: SparseSet,
     caps: Vec<Slot>,
     slots_per_thread: usize,
+    current_slots: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -831,10 +875,12 @@ impl Cache {
         }
     }
 
-    fn clear(&mut self) {
+    fn clear(&mut self, slot_count: usize) {
         self.stack.clear();
         self.clist.set.clear();
         self.nlist.set.clear();
+        self.clist.current_slots = slot_count;
+        self.nlist.current_slots = slot_count;
     }
 
     fn swap(&mut self) {
@@ -848,6 +894,7 @@ impl Threads {
             set: SparseSet::new(0),
             caps: vec![],
             slots_per_thread: 0,
+            current_slots: 0,
         };
         threads.resize(nfa);
         threads
@@ -858,13 +905,14 @@ impl Threads {
             return;
         }
         self.slots_per_thread = nfa.capture_slot_len();
+        self.current_slots = nfa.capture_slot_len();
         self.set.resize(nfa.states().len());
         self.caps.resize(self.slots_per_thread * nfa.states().len(), None);
     }
 
     fn caps(&mut self, sid: StateID) -> &mut [Slot] {
         let i = sid.as_usize() * self.slots_per_thread;
-        &mut self.caps[i..i + self.slots_per_thread]
+        &mut self.caps[i..i + self.current_slots]
     }
 }
 

@@ -444,10 +444,10 @@ fn search_api_regex(
 ) -> anyhow::Result<u64> {
     let mut count = 0;
     match find.kind() {
-        config::FindKind::Earliest => {
+        config::SearchKind::Earliest => {
             anyhow::bail!("API 'Regex' only supports leftmost searching");
         }
-        config::FindKind::Leftmost => {
+        config::SearchKind::Leftmost => {
             for m in re.find_iter(haystack) {
                 count += 1;
                 if find.matches() {
@@ -455,7 +455,7 @@ fn search_api_regex(
                 }
             }
         }
-        config::FindKind::Overlapping => {
+        config::SearchKind::Overlapping => {
             anyhow::bail!("API 'Regex' only supports leftmost searching");
         }
     }
@@ -471,7 +471,7 @@ fn search_dfa_automaton<A: Automaton>(
     let mut counts = vec![0u64; dfa.pattern_count()];
     let mut at = 0;
     match find.kind() {
-        config::FindKind::Earliest => {
+        config::SearchKind::Earliest => {
             while at < haystack.len() {
                 let result =
                     dfa.find_earliest_fwd(&haystack[at..]).with_context(
@@ -489,7 +489,7 @@ fn search_dfa_automaton<A: Automaton>(
                 }
             }
         }
-        config::FindKind::Leftmost => {
+        config::SearchKind::Leftmost => {
             while at < haystack.len() {
                 let result =
                     dfa.find_leftmost_fwd(&haystack[at..]).with_context(
@@ -507,7 +507,7 @@ fn search_dfa_automaton<A: Automaton>(
                 }
             }
         }
-        config::FindKind::Overlapping => {
+        config::SearchKind::Overlapping => {
             let mut state = dfa::OverlappingState::start();
             while at < haystack.len() {
                 let result = dfa
@@ -553,7 +553,7 @@ fn search_dfa_regex<A: Automaton>(
     let mut count = 0;
     let mut counts = vec![0u64; re.pattern_count()];
     match find.kind() {
-        config::FindKind::Earliest => {
+        config::SearchKind::Earliest => {
             for result in re.try_find_earliest_iter(haystack) {
                 let m = result.with_context(|| {
                     format!("search failure after {} matches", count)
@@ -565,7 +565,7 @@ fn search_dfa_regex<A: Automaton>(
                 }
             }
         }
-        config::FindKind::Leftmost => {
+        config::SearchKind::Leftmost => {
             for result in re.try_find_leftmost_iter(haystack) {
                 let m = result.with_context(|| {
                     format!("search failure after {} matches", count)
@@ -577,7 +577,7 @@ fn search_dfa_regex<A: Automaton>(
                 }
             }
         }
-        config::FindKind::Overlapping => {
+        config::SearchKind::Overlapping => {
             for result in re.try_find_overlapping_iter(haystack) {
                 let m = result.with_context(|| {
                     format!("search failure after {} matches", count)
@@ -606,7 +606,7 @@ fn search_hybrid_dfa<'i, 'c>(
     let mut counts = vec![0u64; dfa.pattern_count()];
     let mut at = 0;
     match find.kind() {
-        config::FindKind::Earliest => {
+        config::SearchKind::Earliest => {
             while at < haystack.len() {
                 let result = dfa
                     .find_earliest_fwd(cache, &haystack[at..])
@@ -625,7 +625,7 @@ fn search_hybrid_dfa<'i, 'c>(
                 }
             }
         }
-        config::FindKind::Leftmost => {
+        config::SearchKind::Leftmost => {
             while at < haystack.len() {
                 let result = dfa
                     .find_leftmost_fwd(cache, &haystack[at..])
@@ -644,7 +644,7 @@ fn search_hybrid_dfa<'i, 'c>(
                 }
             }
         }
-        config::FindKind::Overlapping => {
+        config::SearchKind::Overlapping => {
             let mut state = hybrid::OverlappingState::start();
             while at < haystack.len() {
                 let result = dfa
@@ -692,7 +692,7 @@ fn search_hybrid_regex(
     let mut count = 0;
     let mut counts = vec![0u64; re.pattern_count()];
     match find.kind() {
-        config::FindKind::Earliest => {
+        config::SearchKind::Earliest => {
             for result in re.try_find_earliest_iter(cache, haystack) {
                 let m = result.with_context(|| {
                     format!("search failure after {} matches", count)
@@ -704,7 +704,7 @@ fn search_hybrid_regex(
                 }
             }
         }
-        config::FindKind::Leftmost => {
+        config::SearchKind::Leftmost => {
             for result in re.try_find_leftmost_iter(cache, haystack) {
                 let m = result.with_context(|| {
                     format!("search failure after {} matches", count)
@@ -716,7 +716,7 @@ fn search_hybrid_regex(
                 }
             }
         }
-        config::FindKind::Overlapping => {
+        config::SearchKind::Overlapping => {
             for result in re.try_find_overlapping_iter(cache, haystack) {
                 let m = result.with_context(|| {
                     format!("search failure after {} matches", count)
@@ -742,10 +742,10 @@ fn search_pikevm(
     let mut count = 0;
     let mut counts = vec![0u64; vm.nfa().pattern_len()];
     match find.kind() {
-        config::FindKind::Earliest => {
+        config::SearchKind::Earliest => {
             todo!()
         }
-        config::FindKind::Leftmost => {
+        config::SearchKind::Leftmost => {
             for m in vm.find_leftmost_iter(cache, haystack) {
                 count += 1;
                 counts[m.pattern()] += 1;
@@ -754,7 +754,7 @@ fn search_pikevm(
                 }
             }
         }
-        config::FindKind::Overlapping => {
+        config::SearchKind::Overlapping => {
             todo!()
         }
     }

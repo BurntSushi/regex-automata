@@ -188,7 +188,9 @@ impl Input {
                     format!("failed to open {}", p.display())
                 })?;
                 // SAFETY: We assume this is OK to do since we assume that our
-                // search input is immutable.
+                // search input is immutable. We specifically never try to
+                // mutate the bytes from the file or treat them as anything
+                // other than a slice of bytes.
                 let mmap = unsafe {
                     memmap2::Mmap::map(&file).with_context(|| {
                         format!("failed to mmap {}", p.display())
@@ -200,32 +202,18 @@ impl Input {
     }
 }
 
-/// Flags specific to searching.
+/// Flags specific to searching for entire matches.
 #[derive(Debug)]
 pub struct Find {
-    kind: FindKind,
+    kind: SearchKind,
     matches: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FindKind {
-    Earliest,
-    Leftmost,
-    Overlapping,
 }
 
 impl Find {
     pub fn define(mut app: App) -> App {
+        app = SearchKind::define(app);
         {
-            const SHORT: &str = "Set the type of search to perform.";
-            const LONG: &str = "\
-Set the type of search to perform.
-";
-            app = app
-                .arg(flag("find-kind").short("K").help(SHORT).long_help(LONG));
-        }
-        {
-            const SHORT: &str = "Show the offsets of each match found.";
+            const SHORT: &str = "Show the spans of each match found.";
             const LONG: &str = "\
 Show the offsets of each match found.
 
@@ -239,24 +227,85 @@ offset.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Find> {
-        let kind = match args.value_of_lossy("find-kind") {
-            None => FindKind::Leftmost,
-            Some(value) => match &*value {
-                "earliest" => FindKind::Earliest,
-                "leftmost" => FindKind::Leftmost,
-                "overlapping" => FindKind::Overlapping,
-                unk => anyhow::bail!("unrecognized find kind: {:?}", unk),
-            },
-        };
-        Ok(Find { kind, matches: args.is_present("matches") })
+        let kind = SearchKind::get(args)?;
+        let matches = args.is_present("matches");
+        Ok(Find { kind, matches })
     }
 
-    pub fn kind(&self) -> FindKind {
+    pub fn kind(&self) -> SearchKind {
         self.kind
     }
 
     pub fn matches(&self) -> bool {
         self.matches
+    }
+}
+
+/// Flags specific to searching for capturing groups.
+#[derive(Debug)]
+pub struct Captures {
+    kind: SearchKind,
+    matches: bool,
+}
+
+impl Captures {
+    pub fn define(mut app: App) -> App {
+        app = SearchKind::define(app);
+        {
+            const SHORT: &str = "Show the spans of each match found.";
+            const LONG: &str = "\
+Show the spans of each match found.
+
+Each match is printed on its own line. Every match includes all the capturing
+groups for the corresponding regex that matched along with the spans of each
+group (if they exist for the match).
+";
+            app = app.arg(switch("matches").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<Captures> {
+        let kind = SearchKind::get(args)?;
+        let matches = args.is_present("matches");
+        Ok(Captures { kind, matches })
+    }
+
+    pub fn kind(&self) -> SearchKind {
+        self.kind
+    }
+
+    pub fn matches(&self) -> bool {
+        self.matches
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SearchKind {
+    Earliest,
+    Leftmost,
+    Overlapping,
+}
+
+impl SearchKind {
+    pub fn define(mut app: App) -> App {
+        const SHORT: &str = "Set the type of search to perform.";
+        const LONG: &str = "\
+Set the type of search to perform.
+";
+        app.arg(flag("search-kind").short("K").help(SHORT).long_help(LONG))
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<SearchKind> {
+        Ok(match args.value_of_lossy("search-kind") {
+            None => SearchKind::Leftmost,
+            Some(value) => match &*value {
+                "earliest" => SearchKind::Earliest,
+                "leftmost" => SearchKind::Leftmost,
+                "overlapping" => SearchKind::Overlapping,
+                unk => anyhow::bail!("unrecognized find kind: {:?}", unk),
+            },
+        })
     }
 }
 

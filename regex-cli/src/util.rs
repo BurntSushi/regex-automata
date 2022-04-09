@@ -77,7 +77,7 @@ pub fn print_with_underline<W: io::Write>(
 
 #[derive(Debug)]
 pub struct Table {
-    pairs: Vec<(&'static str, Box<dyn std::fmt::Debug>)>,
+    pairs: Vec<(String, Box<dyn std::fmt::Debug>)>,
 }
 
 impl Table {
@@ -87,10 +87,10 @@ impl Table {
 
     pub fn add<D: std::fmt::Debug + 'static>(
         &mut self,
-        label: &'static str,
+        label: &str,
         value: D,
     ) {
-        self.pairs.push((label, Box::new(value)));
+        self.pairs.push((label.to_string(), Box::new(value)));
     }
 
     pub fn print<W: io::Write>(&self, wtr: W) -> io::Result<()> {

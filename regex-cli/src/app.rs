@@ -108,6 +108,7 @@ pub fn root() -> App {
         .max_term_width(100)
         .setting(clap::AppSettings::UnifiedHelpMessage)
         .arg(switch("quiet").short("q").global(true).help("Show less output."))
+        .subcommand(cmd::captures::define())
         .subcommand(cmd::debug::define())
         .subcommand(cmd::find::define())
         .subcommand(cmd::generate::define())
