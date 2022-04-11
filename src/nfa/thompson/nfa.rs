@@ -14,6 +14,7 @@ use crate::{
         id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
         is_word_byte, is_word_char_fwd, is_word_char_rev,
         matchtypes::Match,
+        nonmax::NonMaxUsize,
     },
 };
 
@@ -2073,7 +2074,8 @@ pub struct Captures {
     // Rust. But, that's the rub: we'd have to "compute" offsets, just like if
     // we used Vec<Option<NonZeroUsize>>. So if we have to compute stuff, we
     // might as well just go with the NonZeroUsize approach.
-    slots: Vec<Option<usize>>,
+    // slots: Vec<Option<usize>>,
+    slots: Vec<Option<NonMaxUsize>>,
 }
 
 impl Captures {
@@ -2095,7 +2097,7 @@ impl Captures {
         let (slot_start, slot_end) = self.nfa.slots(pid, group_index);
         let start = self.slots[slot_start]?;
         let end = self.slots[slot_end]?;
-        Some(Match::new(start, end))
+        Some(Match::new(start.get(), end.get()))
     }
 
     pub fn get_name(&self, name: &str) -> Option<Match> {
@@ -2134,7 +2136,8 @@ impl Captures {
     }
 
     pub fn set_slot(&mut self, slot: usize, at: usize) {
-        self.slots[slot] = Some(at);
+        // OK because length of a slice must fit into an isize.
+        self.slots[slot] = Some(NonMaxUsize::new(at).unwrap());
     }
 
     pub fn clear_slot(&mut self, slot: usize) {
@@ -2144,11 +2147,11 @@ impl Captures {
     // TODO: Gotta figure out how to get rid of this so we don't expose our
     // representation... Will probably need to introduce a layer of abstraction
     // in the Pike VM?
-    pub fn slots(&self) -> &[Option<usize>] {
+    pub(crate) fn slots(&self) -> &[Option<NonMaxUsize>] {
         &self.slots
     }
 
-    pub fn slots_mut(&mut self) -> &mut [Option<usize>] {
+    pub(crate) fn slots_mut(&mut self) -> &mut [Option<NonMaxUsize>] {
         &mut self.slots
     }
 

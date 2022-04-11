@@ -26,6 +26,7 @@ use crate::{
     util::{
         id::{PatternID, StateID},
         matchtypes::{MatchKind, MultiMatch},
+        nonmax::NonMaxUsize,
         prefilter::{self, Prefilter},
         sparse_set::SparseSet,
     },
@@ -340,6 +341,16 @@ impl PikeVM {
         end: usize,
         caps: &mut Captures,
     ) -> Option<MultiMatch> {
+        // Why do we even care about this? Well, in our 'Captures'
+        // representation, we use usize::MAX as a sentinel to indicate "no
+        // match." This isn't problematic so long as our haystack doesn't have
+        // a maximal length. Byte slices are guaranteed by Rust to have a
+        // length that fits into isize, and so this assert should always pass.
+        // But we put it here to make our assumption explicit.
+        assert!(
+            haystack.len() < core::usize::MAX,
+            "byte slice lengths must fit in isize",
+        );
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || pattern_id.is_some();
@@ -352,6 +363,12 @@ impl PikeVM {
 
         #[cfg(feature = "instrument-pikevm")]
         let mut counters = Counters::new(&self.nfa);
+
+        // This does work, proving that we only pass 'caps' to
+        // 'epsilon_closure' below as simple scratch space. Although this
+        // naively incantation fails because it might not have the same length
+        // as 'caps'.
+        // let mut scratch = self.create_captures();
 
         cache.clear(caps.slots().len());
         'LOOP: while at <= end {
@@ -443,23 +460,6 @@ impl PikeVM {
 }
 
 impl PikeVM {
-    // BREADCRUMBS:
-    //
-    // Here's a good failing test to look at:
-    //
-    //     fowler/nullsubexpr/nullsubexpr69: expected to find
-    //         [Captures([Some((0, (0, 1))), None, Some((0, (0, 1)))])]
-    //     captures, but got
-    //         [Captures([Some((0, (0, 1))), Some((0, (0, 0))), Some((0, (0, 1)))])]
-    //     pattern:     ["(a*)*(x)"]
-    //     input:       "x"
-    //     test result: "captures_leftmost_iter"
-    //
-    // It looks like our PikeVM might not be handling empty capture group
-    // matches correctly? The interesting bit here though is that at first
-    // glance, it does look like '(a*)*' should match at the position before
-    // 'x'. But it looks like that's now how most regex engines work.
-
     // #[inline(always)]
     // #[inline(never)]
     fn step(
@@ -511,6 +511,12 @@ impl PikeVM {
             }
             State::Match { pattern_id } => {
                 // TODO: This is where we should call caps.set_pattern.
+                // Also, all we really have to do here is copy the slots for
+                // the matching pattern.
+                //
+                // Also, this is ultimately the only place where we HAVE to
+                // write to the capturing slots given by the caller. We could
+                // use a different representation elsewhere.
                 slots.copy_from_slice(thread_caps);
                 // for (slot, val) in slots.iter_mut().zip(thread_caps.iter()) {
                 // *slot = *val;
@@ -660,7 +666,9 @@ impl PikeVM {
                             slot,
                             pos: thread_caps[slot],
                         });
-                        thread_caps[slot] = Some(at);
+                        // OK because length of a slice must fit into an isize.
+                        thread_caps[slot] =
+                            Some(NonMaxUsize::new(at).unwrap());
                     }
                     sid = next;
                 }
@@ -850,7 +858,7 @@ pub struct Cache {
     nlist: Threads,
 }
 
-type Slot = Option<usize>;
+type Slot = Option<NonMaxUsize>;
 
 #[derive(Clone, Debug)]
 struct Threads {

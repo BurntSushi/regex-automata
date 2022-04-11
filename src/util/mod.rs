@@ -15,6 +15,7 @@ pub mod id;
 #[cfg(feature = "alloc")]
 pub(crate) mod lazy;
 pub(crate) mod matchtypes;
+pub(crate) mod nonmax;
 pub mod prefilter;
 #[cfg(feature = "alloc")]
 pub(crate) mod sparse_set;
