@@ -92,7 +92,7 @@ mod state;
 pub(crate) fn next(
     nfa: &thompson::NFA,
     match_kind: MatchKind,
-    sparses: &mut SparseSets,
+    sparses: &mut SparseSets<()>,
     stack: &mut Vec<StateID>,
     state: &State,
     unit: alphabet::Unit,

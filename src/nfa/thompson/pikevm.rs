@@ -396,7 +396,7 @@ impl PikeVM {
             }
 
             for i in 0..cache.clist.set.len() {
-                let sid = cache.clist.set.get(i);
+                let sid = cache.clist.set.get_id(i);
                 instrument! {
                     counters.record_step(sid);
                 }
@@ -862,7 +862,7 @@ type Slot = Option<NonMaxUsize>;
 
 #[derive(Clone, Debug)]
 struct Threads {
-    set: SparseSet,
+    set: SparseSet<()>,
     caps: Vec<Slot>,
     slots_per_thread: usize,
     current_slots: usize,
@@ -1050,7 +1050,7 @@ impl Counters {
         trace!("===== END PikeVM Instrumentation Output =====");
     }
 
-    fn record_state_set(&mut self, set: &SparseSet) {
+    fn record_state_set(&mut self, set: &SparseSet<()>) {
         let set = set.into_iter().collect::<Vec<StateID>>();
         *self.state_sets.entry(set).or_insert(0) += 1;
     }

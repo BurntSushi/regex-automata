@@ -1784,7 +1784,7 @@ pub struct Cache {
     states_to_id: StateMap,
     /// Sparse sets used to track which NFA states have been visited during
     /// various traversals.
-    sparses: SparseSets,
+    sparses: SparseSets<()>,
     /// Scratch space for traversing the NFA graph. (We use space on the heap
     /// instead of the call stack.)
     stack: Vec<NFAStateID>,
