@@ -394,8 +394,8 @@ impl PikeVM {
 
             for i in 0..cache.clist.set.len() {
                 let sid = cache.clist.set.get_id(i);
-                instrument! {
-                    counters.record_step(sid);
+                if !cache.clist.set.get(sid).is_some() {
+                    continue;
                 }
 
                 let pid = match self.step(
@@ -422,6 +422,8 @@ impl PikeVM {
                 // should bump the reference count on the captures in
                 // 'clist.caps(sid)', and only do the final copy at the end.
                 caps.set_pattern(pid);
+                // caps.slots_mut()[0] = cache.clist.caps(sid)[0];
+                // caps.slots_mut()[1] = cache.clist.caps(sid)[1];
                 caps.slots_mut().copy_from_slice(cache.clist.caps(sid));
                 matched_pid = Some(pid);
                 if earliest {
@@ -477,6 +479,9 @@ impl PikeVM {
         haystack: &[u8],
         at: usize,
     ) -> Option<PatternID> {
+        instrument! {
+            counters.record_step(sid);
+        }
         match *self.nfa.state(sid) {
             State::Fail
             | State::Look { .. }
@@ -598,26 +603,12 @@ impl PikeVM {
             }
             match *self.nfa.state(sid) {
                 State::Fail
+                | State::Match { .. }
                 | State::ByteRange { .. }
-                | State::Sparse { .. }
-                | State::Match { .. } => {
+                | State::Sparse { .. } => {
                     let t = &mut nlist.caps(sid);
-                    // TODO: What happens if 't' and 'thread_caps' aren't the
-                    // same size? Depending on how we handle it, it may happen
-                    // if we want to support running the PikeVM in a way that
-                    // only tracks match start/end, and not all capturing
-                    // groups.
                     t.copy_from_slice(thread_caps);
-
-                    // BREADCRUMBS: This is still slow because our 't' can be
-                    // much bigger that the 'Captures' passed in by caller.
-                    // Seems tricky to fix... But maybe not. Maybe we can
-                    // restrict slot size on access.
-                    //
-                    // But should I just jump to redesign using copy-on-write?
-                    // for (slot, val) in t.iter_mut().zip(thread_caps.iter()) {
-                    // *slot = *val;
-                    // }
+                    nlist.set.set(sid, true);
                     return;
                 }
                 State::Look { look, next } => {
@@ -861,9 +852,17 @@ type Slots = Box<[Option<NonMaxUsize>]>;
 
 type Slot = Option<NonMaxUsize>;
 
+// BREADCRUMBS: Next step is to push 'Thread' into 'set'. Hopefully it can be
+// done without many (if any?) changes to the actual PikeVM. The next step
+// after that will be to try and push byte-matching into epsilon closure
+// instead of in 'step', since 'set' will now be able to keep "in the set"
+// and "should be visited" as distinct things.
+//
+// After that, we should be able to explore copy-on-write captures.
+
 #[derive(Clone, Debug)]
 struct Threads {
-    set: SparseSet<()>,
+    set: SparseSet<bool>,
     caps: Vec<Thread>,
     current_slots: usize,
 }
@@ -1054,7 +1053,7 @@ impl Counters {
         trace!("===== END PikeVM Instrumentation Output =====");
     }
 
-    fn record_state_set(&mut self, set: &SparseSet<()>) {
+    fn record_state_set<T>(&mut self, set: &SparseSet<T>) {
         let set = set.iter_ids().collect::<Vec<StateID>>();
         *self.state_sets.entry(set).or_insert(0) += 1;
     }
