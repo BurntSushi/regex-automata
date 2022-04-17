@@ -19,6 +19,8 @@
 // although we haven't implemented that yet. Maybe do that next.) Probably
 // should benchmark it I guess. Ug.
 
+use core::cell::RefCell;
+
 use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
@@ -349,8 +351,9 @@ impl PikeVM {
         // But we put it here to make our assumption explicit.
         assert!(
             haystack.len() < core::usize::MAX,
-            "byte slice lengths must fit in isize",
+            "byte slice lengths must be less than usize MAX",
         );
+        let match_kind = self.config.get_match_kind();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || pattern_id.is_some();
@@ -363,12 +366,6 @@ impl PikeVM {
 
         #[cfg(feature = "instrument-pikevm")]
         let mut counters = Counters::new(&self.nfa);
-
-        // This does work, proving that we only pass 'caps' to
-        // 'epsilon_closure' below as simple scratch space. Although this
-        // naively incantation fails because it might not have the same length
-        // as 'caps'.
-        // let mut scratch = self.create_captures();
 
         cache.clear(caps.slots().len());
         'LOOP: while at <= end {
@@ -384,7 +381,7 @@ impl PikeVM {
                     #[cfg(feature = "instrument-pikevm")]
                     &mut counters,
                     &mut cache.clist,
-                    caps.slots_mut(),
+                    &mut cache.scratch_caps,
                     &mut cache.stack,
                     start_id,
                     haystack,
@@ -405,7 +402,6 @@ impl PikeVM {
                     #[cfg(feature = "instrument-pikevm")]
                     &mut counters,
                     &mut cache.nlist,
-                    caps.slots_mut(),
                     cache.clist.caps(sid),
                     &mut cache.stack,
                     sid,
@@ -415,10 +411,22 @@ impl PikeVM {
                     None => continue,
                     Some(pid) => pid,
                 };
+                // TODO: Also, all we really have to do here is copy the
+                // slots for the matching pattern. We maybe can skip worrying
+                // about this for now, but it might impact the public API of
+                // Captures. It's an optimization that only really applies to
+                // multi-regexes.
+                //
+                // Also, if we switch to copy-on-write captures, then we
+                // shouldn't actually copy to 'caps' here. Instead, we
+                // should bump the reference count on the captures in
+                // 'clist.caps(sid)', and only do the final copy at the end.
+                caps.set_pattern(pid);
+                caps.slots_mut().copy_from_slice(cache.clist.caps(sid));
                 matched_pid = Some(pid);
                 if earliest {
                     break 'LOOP;
-                } else if self.config.get_match_kind() != MatchKind::All {
+                } else if !match_kind.continue_past_first_match() {
                     break;
                 }
             }
@@ -430,9 +438,6 @@ impl PikeVM {
             counters.eprint(&self.nfa);
         }
         matched_pid.map(|pid| {
-            // TODO: I think this should be set when the Match instruction
-            // is seen?
-            caps.set_pattern(pid);
             let m = caps.get(0).unwrap();
             MultiMatch::new(pid, m.start(), m.end())
         })
@@ -466,7 +471,6 @@ impl PikeVM {
         &self,
         #[cfg(feature = "instrument-pikevm")] counters: &mut Counters,
         nlist: &mut Threads,
-        slots: &mut [Slot],
         thread_caps: &mut [Slot],
         stack: &mut Vec<FollowEpsilon>,
         sid: StateID,
@@ -509,20 +513,7 @@ impl PikeVM {
                 }
                 None
             }
-            State::Match { pattern_id } => {
-                // TODO: This is where we should call caps.set_pattern.
-                // Also, all we really have to do here is copy the slots for
-                // the matching pattern.
-                //
-                // Also, this is ultimately the only place where we HAVE to
-                // write to the capturing slots given by the caller. We could
-                // use a different representation elsewhere.
-                slots.copy_from_slice(thread_caps);
-                // for (slot, val) in slots.iter_mut().zip(thread_caps.iter()) {
-                // *slot = *val;
-                // }
-                Some(pattern_id)
-            }
+            State::Match { pattern_id } => Some(pattern_id),
         }
     }
 
@@ -854,18 +845,10 @@ impl<'r, 'c, 't> Iterator for CapturesLeftmostMatches<'r, 'c, 't> {
 #[derive(Clone, Debug)]
 pub struct Cache {
     stack: Vec<FollowEpsilon>,
+    scratch_caps: Vec<Option<NonMaxUsize>>,
+    // free: Arc<RefCell<Vec<Slots>>>,
     clist: Threads,
     nlist: Threads,
-}
-
-type Slot = Option<NonMaxUsize>;
-
-#[derive(Clone, Debug)]
-struct Threads {
-    set: SparseSet<()>,
-    caps: Vec<Slot>,
-    slots_per_thread: usize,
-    current_slots: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -874,10 +857,29 @@ enum FollowEpsilon {
     Capture { slot: usize, pos: Slot },
 }
 
+type Slots = Box<[Option<NonMaxUsize>]>;
+
+type Slot = Option<NonMaxUsize>;
+
+#[derive(Clone, Debug)]
+struct Threads {
+    set: SparseSet<()>,
+    caps: Vec<Thread>,
+    current_slots: usize,
+}
+
+#[derive(Clone, Debug)]
+struct Thread {
+    slots: Slots,
+    // free: Arc<RefCell<Vec<Slots>>>,
+}
+
 impl Cache {
     pub fn new(nfa: &NFA) -> Cache {
         Cache {
             stack: vec![],
+            scratch_caps: vec![None; nfa.capture_slot_len()],
+            // free: Arc::new(RefCell::new(vec![])),
             clist: Threads::new(nfa),
             nlist: Threads::new(nfa),
         }
@@ -887,8 +889,11 @@ impl Cache {
         self.stack.clear();
         self.clist.set.clear();
         self.nlist.set.clear();
-        self.clist.current_slots = slot_count;
-        self.nlist.current_slots = slot_count;
+        if slot_count != self.clist.current_slots {
+            self.clist.current_slots = slot_count;
+            self.nlist.current_slots = slot_count;
+            self.scratch_caps.resize(slot_count, None);
+        }
     }
 
     fn swap(&mut self) {
@@ -898,29 +903,28 @@ impl Cache {
 
 impl Threads {
     fn new(nfa: &NFA) -> Threads {
-        let mut threads = Threads {
-            set: SparseSet::new(0),
-            caps: vec![],
-            slots_per_thread: 0,
-            current_slots: 0,
-        };
+        let mut threads =
+            Threads { set: SparseSet::new(0), caps: vec![], current_slots: 0 };
         threads.resize(nfa);
         threads
     }
 
     fn resize(&mut self, nfa: &NFA) {
-        if nfa.states().len() == self.set.capacity() {
-            return;
-        }
-        self.slots_per_thread = nfa.capture_slot_len();
         self.current_slots = nfa.capture_slot_len();
         self.set.resize(nfa.states().len());
-        self.caps.resize(self.slots_per_thread * nfa.states().len(), None);
+        self.caps.resize(nfa.states().len(), Thread::new(nfa));
     }
 
     fn caps(&mut self, sid: StateID) -> &mut [Slot] {
-        let i = sid.as_usize() * self.slots_per_thread;
-        &mut self.caps[i..i + self.current_slots]
+        &mut self.caps[sid].slots[..self.current_slots]
+    }
+}
+
+impl Thread {
+    fn new(nfa: &NFA) -> Thread {
+        let slots = vec![None; nfa.capture_slot_len()].into_boxed_slice();
+        // Thread { slots, free: cache.free.clone() }
+        Thread { slots }
     }
 }
 
@@ -1051,7 +1055,7 @@ impl Counters {
     }
 
     fn record_state_set(&mut self, set: &SparseSet<()>) {
-        let set = set.into_iter().collect::<Vec<StateID>>();
+        let set = set.iter_ids().collect::<Vec<StateID>>();
         *self.state_sets.entry(set).or_insert(0) += 1;
     }
 

@@ -236,6 +236,19 @@ impl<T> SparseSet<T> {
         self.len = 0;
     }
 
+    #[inline]
+    pub(crate) fn iter_ids(&self) -> SparseSetIter<'_, T> {
+        SparseSetIter(self.dense[..self.len()].iter())
+    }
+
+    #[inline]
+    pub(crate) fn iter_ids_and_take_values(
+        &mut self,
+    ) -> SparseSetTakeValuesIter<'_, T> {
+        let len = self.len();
+        SparseSetTakeValuesIter(self.dense[..len].iter_mut())
+    }
+
     /// Returns the heap memory usage, in bytes, used by this sparse set.
     #[inline]
     pub(crate) fn memory_usage(&self) -> usize {
@@ -245,7 +258,7 @@ impl<T> SparseSet<T> {
 
 impl<T: core::fmt::Debug> core::fmt::Debug for SparseSet<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let elements: Vec<StateID> = self.into_iter().collect();
+        let elements: Vec<StateID> = self.iter_ids().collect();
         f.debug_tuple("SparseSet").field(&elements).finish()
     }
 }
@@ -256,20 +269,25 @@ impl<T: core::fmt::Debug> core::fmt::Debug for SparseSet<T> {
 #[derive(Debug)]
 pub(crate) struct SparseSetIter<'a, T>(core::slice::Iter<'a, Element<T>>);
 
-impl<'a, T> IntoIterator for &'a SparseSet<T> {
-    type Item = StateID;
-    type IntoIter = SparseSetIter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        SparseSetIter(self.dense[..self.len()].iter())
-    }
-}
-
 impl<'a, T> Iterator for SparseSetIter<'a, T> {
     type Item = StateID;
 
     #[inline(always)]
     fn next(&mut self) -> Option<StateID> {
         self.0.next().map(|element| element.id)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SparseSetTakeValuesIter<'a, T>(
+    core::slice::IterMut<'a, Element<T>>,
+);
+
+impl<'a, T> Iterator for SparseSetTakeValuesIter<'a, T> {
+    type Item = (StateID, Option<T>);
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<(StateID, Option<T>)> {
+        self.0.next().map(|element| (element.id, element.value.take()))
     }
 }
