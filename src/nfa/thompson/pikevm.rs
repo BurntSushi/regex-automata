@@ -392,17 +392,21 @@ impl PikeVM {
                 counters.record_state_set(&cache.clist.set);
             }
 
-            for i in 0..cache.clist.set.len() {
-                let sid = cache.clist.set.get_id(i);
-                if !cache.clist.set.get(sid).is_some() {
-                    continue;
-                }
-
+            // for i in 0..cache.clist.set.len() {
+            // let sid = cache.clist.set.get_id(i);
+            // // BREADCRUMBS: This doesn't seem to make a perf difference?
+            // if !cache.clist.set.get(sid).is_some() {
+            // continue;
+            // }
+            for sid in cache.clist.list.drain(..) {
+                let thread_caps =
+                    &mut cache.clist.caps[sid].slots[..caps.slots().len()];
                 let pid = match self.step(
                     #[cfg(feature = "instrument-pikevm")]
                     &mut counters,
                     &mut cache.nlist,
-                    cache.clist.caps(sid),
+                    thread_caps,
+                    // cache.clist.caps(sid),
                     &mut cache.stack,
                     sid,
                     haystack,
@@ -424,7 +428,8 @@ impl PikeVM {
                 caps.set_pattern(pid);
                 // caps.slots_mut()[0] = cache.clist.caps(sid)[0];
                 // caps.slots_mut()[1] = cache.clist.caps(sid)[1];
-                caps.slots_mut().copy_from_slice(cache.clist.caps(sid));
+                // caps.slots_mut().copy_from_slice(cache.clist.caps(sid));
+                caps.slots_mut().copy_from_slice(thread_caps);
                 matched_pid = Some(pid);
                 if earliest {
                     break 'LOOP;
@@ -498,7 +503,9 @@ impl PikeVM {
                         stack,
                         trans.next,
                         haystack,
-                        at + 1,
+                        // OK because 'at <= haystack.len() < usize::MAX', so
+                        // adding 1 will never wrap.
+                        at.wrapping_add(1),
                     );
                 }
                 None
@@ -513,7 +520,9 @@ impl PikeVM {
                         stack,
                         next,
                         haystack,
-                        at + 1,
+                        // OK because 'at <= haystack.len() < usize::MAX', so
+                        // adding 1 will never wrap.
+                        at.wrapping_add(1),
                     );
                 }
                 None
@@ -608,7 +617,8 @@ impl PikeVM {
                 | State::Sparse { .. } => {
                     let t = &mut nlist.caps(sid);
                     t.copy_from_slice(thread_caps);
-                    nlist.set.set(sid, true);
+                    // nlist.set.set(sid, ());
+                    nlist.list.push(sid);
                     return;
                 }
                 State::Look { look, next } => {
@@ -862,7 +872,8 @@ type Slot = Option<NonMaxUsize>;
 
 #[derive(Clone, Debug)]
 struct Threads {
-    set: SparseSet<bool>,
+    set: SparseSet<()>,
+    list: Vec<StateID>,
     caps: Vec<Thread>,
     current_slots: usize,
 }
@@ -887,7 +898,9 @@ impl Cache {
     fn clear(&mut self, slot_count: usize) {
         self.stack.clear();
         self.clist.set.clear();
+        self.clist.list.clear();
         self.nlist.set.clear();
+        self.nlist.list.clear();
         if slot_count != self.clist.current_slots {
             self.clist.current_slots = slot_count;
             self.nlist.current_slots = slot_count;
@@ -902,8 +915,12 @@ impl Cache {
 
 impl Threads {
     fn new(nfa: &NFA) -> Threads {
-        let mut threads =
-            Threads { set: SparseSet::new(0), caps: vec![], current_slots: 0 };
+        let mut threads = Threads {
+            set: SparseSet::new(0),
+            list: Vec::with_capacity(nfa.states().len()),
+            caps: vec![],
+            current_slots: 0,
+        };
         threads.resize(nfa);
         threads
     }
