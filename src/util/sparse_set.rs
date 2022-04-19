@@ -15,17 +15,17 @@ use crate::util::id::StateID;
 /// The members of this struct are exposed so that callers may borrow 'set1'
 /// and 'set2' individually without being force to borrow both at the same
 /// time.
-#[derive(Clone)]
-pub(crate) struct SparseSets<T> {
-    pub(crate) set1: SparseSet<T>,
-    pub(crate) set2: SparseSet<T>,
+#[derive(Clone, Debug)]
+pub(crate) struct SparseSets {
+    pub(crate) set1: SparseSet,
+    pub(crate) set2: SparseSet,
 }
 
-impl<T: Clone> SparseSets<T> {
+impl SparseSets {
     /// Create a new pair of sparse sets where each set has the given capacity.
     ///
     /// This panics if the capacity given is bigger than `StateID::LIMIT`.
-    pub(crate) fn new(capacity: usize) -> SparseSets<T> {
+    pub(crate) fn new(capacity: usize) -> SparseSets {
         SparseSets {
             set1: SparseSet::new(capacity),
             set2: SparseSet::new(capacity),
@@ -60,19 +60,6 @@ impl<T: Clone> SparseSets<T> {
     }
 }
 
-impl<T: core::fmt::Debug> core::fmt::Debug for SparseSets<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("SparseSets")
-            .field("set1", &self.set1)
-            .field("set2", &self.set2)
-            .finish()
-    }
-}
-
-// TODO: We need a slightly more sophisticated SparseSet for the NFA, where we
-// can create a spot for something with additional data aside from the state
-// ID.
-
 /// A sparse set used for representing ordered NFA states.
 ///
 /// This supports constant time addition and membership testing. Clearing an
@@ -84,11 +71,11 @@ impl<T: core::fmt::Debug> core::fmt::Debug for SparseSets<T> {
 /// reuse sparse sets, so the initial allocation cost is bareable. However, its
 /// other properties listed above are extremely useful.
 #[derive(Clone)]
-pub(crate) struct SparseSet<T = ()> {
+pub(crate) struct SparseSet {
     /// The number of elements currently in this set.
     len: usize,
     /// Dense contains the ids in the order in which they were inserted.
-    dense: Vec<Element<T>>,
+    dense: Vec<StateID>,
     /// Sparse maps ids to their location in dense.
     ///
     /// A state ID is in the set if and only if
@@ -101,13 +88,7 @@ pub(crate) struct SparseSet<T = ()> {
     sparse: Vec<StateID>,
 }
 
-#[derive(Clone, Debug)]
-struct Element<T> {
-    id: StateID,
-    value: Option<T>,
-}
-
-impl<T: Clone> SparseSet<T> {
+impl SparseSet {
     /// Create a new sparse set with the given capacity.
     ///
     /// Sparse sets have a fixed size and they cannot grow. Attempting to
@@ -116,7 +97,7 @@ impl<T: Clone> SparseSet<T> {
     ///
     /// This panics if the capacity given is bigger than `StateID::LIMIT`.
     #[inline]
-    pub(crate) fn new(capacity: usize) -> SparseSet<T> {
+    pub(crate) fn new(capacity: usize) -> SparseSet {
         let mut set = SparseSet { len: 0, dense: vec![], sparse: vec![] };
         set.resize(capacity);
         set
@@ -135,13 +116,10 @@ impl<T: Clone> SparseSet<T> {
             StateID::LIMIT
         );
         self.clear();
-        self.dense
-            .resize(new_capacity, Element { id: StateID::ZERO, value: None });
+        self.dense.resize(new_capacity, StateID::ZERO);
         self.sparse.resize(new_capacity, StateID::ZERO);
     }
-}
 
-impl<T> SparseSet<T> {
     /// Returns the capacity of this set.
     ///
     /// The capacity represents a fixed limit on the number of distinct
@@ -190,44 +168,17 @@ impl<T> SparseSet<T> {
         // OK since i < self.capacity() and self.capacity() is guaranteed to
         // be <= StateID::LIMIT.
         let index = StateID::new_unchecked(i);
-        self.dense[index] = Element { id, value: None };
+        self.dense[index] = id;
         self.sparse[id] = index;
         self.len += 1;
         true
-    }
-
-    #[inline]
-    pub(crate) fn set(&mut self, id: StateID, value: T) {
-        debug_assert!(self.contains(id));
-        self.dense[self.sparse[id]].value = Some(value);
     }
 
     /// Returns true if and only if this set contains the given value.
     #[inline]
     pub(crate) fn contains(&self, id: StateID) -> bool {
         let index = self.sparse[id];
-        index.as_usize() < self.len() && self.dense[index].id == id
-    }
-
-    /// Returns a reference to the value associated with the given ID.
-    #[inline]
-    pub(crate) fn get(&self, id: StateID) -> Option<&T> {
-        self.dense[self.sparse[id]].value.as_ref()
-    }
-
-    /// Returns a mutable reference to the value associated with the given ID.
-    #[inline]
-    pub(crate) fn get_mut(&mut self, id: StateID) -> Option<&mut T> {
-        self.dense[self.sparse[id]].value.as_mut()
-    }
-
-    /// Returns the ith inserted ID from this set.
-    ///
-    /// Panics when i >= self.len().
-    #[inline]
-    pub(crate) fn get_id(&self, index: usize) -> StateID {
-        assert!(index < self.len());
-        self.dense[index].id
+        index.as_usize() < self.len() && self.dense[index] == id
     }
 
     /// Clear this set such that it has no members.
@@ -237,16 +188,8 @@ impl<T> SparseSet<T> {
     }
 
     #[inline]
-    pub(crate) fn iter_ids(&self) -> SparseSetIter<'_, T> {
+    pub(crate) fn iter(&self) -> SparseSetIter<'_> {
         SparseSetIter(self.dense[..self.len()].iter())
-    }
-
-    #[inline]
-    pub(crate) fn iter_ids_and_take_values(
-        &mut self,
-    ) -> SparseSetTakeValuesIter<'_, T> {
-        let len = self.len();
-        SparseSetTakeValuesIter(self.dense[..len].iter_mut())
     }
 
     /// Returns the heap memory usage, in bytes, used by this sparse set.
@@ -256,9 +199,9 @@ impl<T> SparseSet<T> {
     }
 }
 
-impl<T: core::fmt::Debug> core::fmt::Debug for SparseSet<T> {
+impl core::fmt::Debug for SparseSet {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let elements: Vec<StateID> = self.iter_ids().collect();
+        let elements: Vec<StateID> = self.iter().collect();
         f.debug_tuple("SparseSet").field(&elements).finish()
     }
 }
@@ -267,27 +210,13 @@ impl<T: core::fmt::Debug> core::fmt::Debug for SparseSet<T> {
 ///
 /// The lifetime `'a` refers to the lifetime of the set being iterated over.
 #[derive(Debug)]
-pub(crate) struct SparseSetIter<'a, T>(core::slice::Iter<'a, Element<T>>);
+pub(crate) struct SparseSetIter<'a>(core::slice::Iter<'a, StateID>);
 
-impl<'a, T> Iterator for SparseSetIter<'a, T> {
+impl<'a> Iterator for SparseSetIter<'a> {
     type Item = StateID;
 
     #[inline(always)]
     fn next(&mut self) -> Option<StateID> {
-        self.0.next().map(|element| element.id)
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct SparseSetTakeValuesIter<'a, T>(
-    core::slice::IterMut<'a, Element<T>>,
-);
-
-impl<'a, T> Iterator for SparseSetTakeValuesIter<'a, T> {
-    type Item = (StateID, Option<T>);
-
-    #[inline(always)]
-    fn next(&mut self) -> Option<(StateID, Option<T>)> {
-        self.0.next().map(|element| (element.id, element.value.take()))
+        self.0.next().map(|&id| id)
     }
 }

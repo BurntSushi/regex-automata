@@ -194,7 +194,7 @@ struct Runner<'a> {
     /// A pair of sparse sets for tracking ordered sets of NFA state IDs.
     /// These are reused throughout determinization. A bounded sparse set
     /// gives us constant time insertion, membership testing and clearing.
-    sparses: SparseSets<()>,
+    sparses: SparseSets,
     /// Scratch space for a stack of NFA states to visit, for depth first
     /// visiting without recursion.
     stack: Vec<StateID>,

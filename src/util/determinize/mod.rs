@@ -92,7 +92,7 @@ mod state;
 pub(crate) fn next(
     nfa: &thompson::NFA,
     match_kind: MatchKind,
-    sparses: &mut SparseSets<()>,
+    sparses: &mut SparseSets,
     stack: &mut Vec<StateID>,
     state: &State,
     unit: alphabet::Unit,
@@ -149,7 +149,7 @@ pub(crate) fn next(
             .intersect(state.look_need())
             .is_empty()
         {
-            for nfa_id in sparses.set1.iter_ids() {
+            for nfa_id in sparses.set1.iter() {
                 epsilon_closure(
                     nfa,
                     nfa_id,
@@ -177,7 +177,7 @@ pub(crate) fn next(
             builder.set_look_have(|have| have.insert(Look::StartLine));
         }
     }
-    for nfa_id in sparses.set1.iter_ids() {
+    for nfa_id in sparses.set1.iter() {
         match *nfa.state(nfa_id) {
             thompson::State::Union { .. }
             | thompson::State::BinaryUnion { .. }
@@ -359,7 +359,7 @@ pub(crate) fn add_nfa_states(
     set: &SparseSet,
     builder: &mut StateBuilderNFA,
 ) {
-    for nfa_id in set.iter_ids() {
+    for nfa_id in set.iter() {
         match *nfa.state(nfa_id) {
             thompson::State::ByteRange { .. } => {
                 builder.add_nfa_state_id(nfa_id);

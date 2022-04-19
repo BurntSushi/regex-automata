@@ -800,7 +800,7 @@ type Slot = Option<NonMaxUsize>;
 
 #[derive(Clone, Debug)]
 struct Threads {
-    set: SparseSet<()>,
+    set: SparseSet,
     list: Vec<StateID>,
     caps: Vec<Thread>,
     current_slots: usize,
