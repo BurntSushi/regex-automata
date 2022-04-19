@@ -13,7 +13,7 @@ use crate::{
         decode_last_utf8, decode_utf8,
         id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
         is_word_byte, is_word_char_fwd, is_word_char_rev,
-        matchtypes::Match,
+        matchtypes::{Match, MultiMatch},
         nonmax::NonMaxUsize,
     },
 };
@@ -2092,6 +2092,12 @@ impl Captures {
         self.pid.expect("can only be called after a successful match")
     }
 
+    pub fn get_match(&self) -> Option<MultiMatch> {
+        let pid = self.pid?;
+        let m = self.get(0)?;
+        Some(MultiMatch::new(pid, m.start(), m.end()))
+    }
+
     pub fn get(&self, group_index: usize) -> Option<Match> {
         let pid = self.pattern();
         let (slot_start, slot_end) = self.nfa.slots(pid, group_index);
@@ -2131,8 +2137,8 @@ impl Captures {
         self.slots.resize(self.nfa.capture_slot_len(), None);
     }
 
-    pub fn set_pattern(&mut self, pid: PatternID) {
-        self.pid = Some(pid);
+    pub fn set_pattern(&mut self, pid: Option<PatternID>) {
+        self.pid = pid;
     }
 
     pub fn set_slot(&mut self, slot: usize, at: usize) {

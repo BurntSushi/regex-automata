@@ -735,13 +735,43 @@ This mode cannot be toggled inside the regex.
 ";
             app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
         }
+        {
+            const SHORT: &str = "Choose the match kind.";
+            const LONG: &str = "\
+Choose the match kind.
+
+This permits setting the match kind to either 'leftmost-first' (the default)
+or 'all'. The former will attempt to find the longest match starting at the
+leftmost position, but prioritizing alternations in the regex that appear
+first. For example, with leftmost-first enabled, 'Sam|Samwise' will match 'Sam'
+in 'Samwise' while 'Samwise|Sam' would match 'Samwise'.
+
+'all' match semantics will include all possible matches, including the longest
+possible match. 'all' is most commonly used when compiling a reverse DFA to
+determine the starting position of a match. Note that when 'all' is used, there
+is no distinction between greedy and non-greedy regexes. Everything is greedy
+all the time.
+";
+            app = app.arg(
+                flag("match-kind").short("k").help(SHORT).long_help(LONG),
+            );
+        }
         app
     }
 
     pub fn get(args: &Args) -> anyhow::Result<PikeVM> {
+        let kind = match args.value_of_lossy("match-kind") {
+            None => MatchKind::LeftmostFirst,
+            Some(value) => match &*value {
+                "all" => MatchKind::All,
+                "leftmost-first" => MatchKind::LeftmostFirst,
+                unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
+            },
+        };
         let config = pikevm::Config::new()
             .anchored(args.is_present("anchored"))
-            .utf8(!args.is_present("no-utf8-iter"));
+            .utf8(!args.is_present("no-utf8-iter"))
+            .match_kind(kind);
         Ok(PikeVM { config })
     }
 

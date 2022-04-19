@@ -70,7 +70,16 @@ fn run_test(
                     });
                 TestResult::matches(it)
             }
-            ret::SearchKind::Overlapping => TestResult::skip(),
+            ret::SearchKind::Overlapping => {
+                let it = re
+                    .find_overlapping_iter(cache, test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                TestResult::matches(it)
+            }
         },
         "captures" => {
             match test.search_kind() {

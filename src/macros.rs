@@ -73,6 +73,17 @@ macro_rules! handle_iter_match_fallible {
     }};
 }
 
+macro_rules! handle_iter_match_overlapping {
+    ($self:ident, $match:expr) => {{
+        let m = $match;
+        // Unlike the non-overlapping case, we're OK with empty matches at this
+        // level. In particular, the overlapping search algorithm is itself
+        // responsible for ensuring that progress is always made.
+        $self.last_end = m.end();
+        m
+    }};
+}
+
 macro_rules! handle_iter_match_overlapping_fallible {
     ($self:ident, $result:expr) => {{
         let m = match $result {
@@ -80,10 +91,6 @@ macro_rules! handle_iter_match_overlapping_fallible {
             Ok(None) => return None,
             Ok(Some(m)) => m,
         };
-        // Unlike the non-overlapping case, we're OK with empty matches at this
-        // level. In particular, the overlapping search algorithm is itself
-        // responsible for ensuring that progress is always made.
-        $self.last_end = m.end();
-        m
+        handle_iter_match_overlapping!($self, m)
     }};
 }

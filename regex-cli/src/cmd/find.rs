@@ -755,7 +755,13 @@ fn search_pikevm(
             }
         }
         config::SearchKind::Overlapping => {
-            todo!()
+            for m in vm.find_overlapping_iter(cache, haystack) {
+                count += 1;
+                counts[m.pattern()] += 1;
+                if find.matches() {
+                    write_multi_match(m, buf);
+                }
+            }
         }
     }
     Ok(counts)

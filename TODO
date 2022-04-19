@@ -14,3 +14,12 @@ their representations expose. The State enum is already totally exposed...
 
 * Provid a more elementary API for 'start_state_forward'.
 See: https://github.com/rust-lang/regex/issues/852
+
+* There is an issue where the minimum cache capacity required by the lazy DFA
+is likely too big. This in turn could result in NOT using the lazy DFA even
+if it would be okay. We should either fix the minimum to be closer to the
+actual minimum or maybe not require a minimum? (The problem is that I think the
+minimum is there to avoid runtime panics in degenerate cases...)
+
+* There's likely some SIMD we can do to improve parts of the PikeVM.
+Specifically, the Sparse state. Maybe PCMPESTI can finally be useful?
