@@ -80,6 +80,7 @@ pub struct Config {
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
     quit: Option<ByteSet>,
+    specialize_start_states: Option<bool>,
     dfa_size_limit: Option<Option<usize>>,
     determinize_size_limit: Option<Option<usize>>,
 }
@@ -628,6 +629,75 @@ impl Config {
         self
     }
 
+    /// Enable specializing start states in the DFA.
+    ///
+    /// When start states are specialized, an implementor of a search routine
+    /// using a lazy DFA can tell when the search has entered a starting state.
+    /// When start states aren't specialized, then it is impossible to know
+    /// whether the search has entered a start state.
+    ///
+    /// Ideally, this option wouldn't need to exist and we could always
+    /// specialize start states. The problem is that start states can be quite
+    /// active. This in turn means that an efficient search routine is likely
+    /// to ping-pong between a heavily optimized hot loop that handles most
+    /// states and to a less optimized specialized handling of start states.
+    /// This causes branches to get heavily mispredicted and overall can
+    /// materially decrease throughput. Therefore, specializing start states
+    /// should only be enabled when it is needed.
+    ///
+    /// Knowing whether a search is in a start state is typically useful when a
+    /// prefilter is active for the search. A prefilter is typically only run
+    /// when in a start state and a prefilter can greatly accelerate a search.
+    /// Therefore, the possible cost of specializing start states is worth it
+    /// in this case. Otherwise, if you have no prefilter, there is likely no
+    /// reason to specialize start states.
+    ///
+    /// This is disabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to enable start state specialization and then
+    /// shows how to check whether a state is a start state or not.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}};
+    ///
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().specialize_start_states(true))
+    ///     .build(r"[a-z]+")?;
+    ///
+    /// let haystack = "123 foobar 4567".as_bytes();
+    /// let sid = dfa.start_state_forward(None, haystack, 0, haystack.len());
+    /// // The ID returned by 'start_state_forward' will always be tagged as
+    /// // a start state when start state specialization is enabled.
+    /// assert!(dfa.is_special_state(sid));
+    /// assert!(dfa.is_start_state(sid));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Compare the above with the default lazy DFA configuration where
+    /// start states are _not_ specialized. In this case, the start state
+    /// is not tagged and `sid.is_start()` returns false.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}};
+    ///
+    /// let dfa = DFA::new(r"[a-z]+")?;
+    ///
+    /// let haystack = "123 foobar 4567".as_bytes();
+    /// let sid = dfa.start_state_forward(None, haystack, 0, haystack.len());
+    /// // Start states are not special in the default configuration!
+    /// assert!(!dfa.is_special_state(sid));
+    /// assert!(!dfa.is_start_state(sid));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn specialize_start_states(mut self, yes: bool) -> Config {
+        self.specialize_start_states = Some(yes);
+        self
+    }
+
     /// Set a size limit on the total heap used by a DFA.
     ///
     /// This size limit is expressed in bytes and is applied during
@@ -786,6 +856,15 @@ impl Config {
         self.quit.map_or(false, |q| q.contains(byte))
     }
 
+    /// Returns whether this configuration will instruct the DFA to
+    /// "specialize" start states. When enabled, the DFA will mark start states
+    /// as "special" so that search routines using the DFA can detect when
+    /// it's in a start state and do some kind of optimization (like run a
+    /// prefilter).
+    pub fn get_specialize_start_states(&self) -> bool {
+        self.specialize_start_states.unwrap_or(false)
+    }
+
     /// Returns the DFA size limit of this configuration if one was set.
     /// The size limit is total number of bytes on the heap that a DFA is
     /// permitted to use. If the DFA exceeds this limit during construction,
@@ -828,6 +907,9 @@ impl Config {
                 .unicode_word_boundary
                 .or(self.unicode_word_boundary),
             quit: o.quit.or(self.quit),
+            specialize_start_states: o
+                .specialize_start_states
+                .or(self.specialize_start_states),
             dfa_size_limit: o.dfa_size_limit.or(self.dfa_size_limit),
             determinize_size_limit: o
                 .determinize_size_limit
@@ -1025,6 +1107,14 @@ impl Builder {
         }
         if self.config.get_accelerate() {
             dfa.accelerate();
+        }
+        // The state shuffling done before this point always assumes that start
+        // states should be marked as "special," even though it isn't the
+        // default configuration. State shuffling is complex enough as it is,
+        // so it's simpler to just "fix" our special state ID ranges to not
+        // include starting states after-the-fact.
+        if !self.config.get_specialize_start_states() {
+            dfa.special.set_no_special_start_states();
         }
         Ok(dfa)
     }
@@ -1272,6 +1362,24 @@ impl OwnedDFA {
             special: Special::new(),
             accels: Accels::empty(),
         })
+    }
+}
+
+impl DFA<&[u32]> {
+    /// Return a new default dense DFA compiler configuration.
+    ///
+    /// This is a convenience routine to avoid needing to import the [`Config`]
+    /// type when customizing the construction of a dense DFA.
+    pub fn config() -> Config {
+        Config::new()
+    }
+
+    /// Create a new dense DFA builder with the default configuration.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// [`Builder`] type in common cases.
+    pub fn builder() -> Builder {
+        Builder::new()
     }
 }
 

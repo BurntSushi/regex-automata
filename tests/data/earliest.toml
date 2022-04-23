@@ -23,14 +23,18 @@ search_kind = "earliest"
 name = "look-start-test"
 regex = '^(abc|a)'
 input = "abc"
-matches = [[0, 1]]
+matches = [
+  [[0, 1], [0, 1]],
+]
 search_kind = "earliest"
 
 [[tests]]
 name = "look-end-test"
 regex = '(abc|a)$'
 input = "abc"
-matches = [[0, 3]]
+matches = [
+  [[0, 3], [0, 3]],
+]
 search_kind = "earliest"
 
 [[tests]]

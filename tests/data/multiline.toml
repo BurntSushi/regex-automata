@@ -273,3 +273,9 @@ name = "repeat18-no-multi"
 regex = '(?:^|$)+'
 input = "\n\naaa\n\n"
 matches = [[0, 0], [7, 7]]
+
+[[tests]]
+name = "match-line-100"
+regex = '(?m)^.+$'
+input = "aa\naaaaaaaaaaaaaaaaaaa\n"
+matches = [[0, 2], [3, 22]]

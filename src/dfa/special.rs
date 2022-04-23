@@ -399,6 +399,23 @@ impl Special {
         );
     }
 
+    /// Sets the maximum special state ID such that starting states are not
+    /// considered "special." This also marks the min/max starting states as
+    /// DEAD such that 'is_start_state' always returns false, even if the state
+    /// is actually a starting state.
+    ///
+    /// This is useful when there is no prefilter set. It will avoid
+    /// ping-ponging between the hot path in the DFA search code and the start
+    /// state handling code, which is typically only useful for executing a
+    /// prefilter.
+    #[cfg(feature = "alloc")]
+    pub fn set_no_special_start_states(&mut self) {
+        use core::cmp::max;
+        self.max = max(self.quit_id, max(self.max_match, self.max_accel));
+        self.min_start = DEAD;
+        self.max_start = DEAD;
+    }
+
     /// Returns true if and only if the given state ID is a special state.
     #[inline]
     pub fn is_special_state(&self, id: StateID) -> bool {

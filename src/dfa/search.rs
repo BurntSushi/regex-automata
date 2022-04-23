@@ -47,6 +47,10 @@ pub fn find_leftmost_fwd<A: Automaton + ?Sized>(
     }
 }
 
+// BREADCRUMBS: Optimize the routines below, like we do for lazy DFA. But
+// first, convert the routines over to just using 'haystack' and increment 'at'
+// in the same way.
+
 /// This is marked as `inline(always)` specifically because it supports
 /// multiple modes of searching. Namely, the 'pre' and 'earliest' parameters
 /// getting inlined eliminate some critical branches. To avoid bloating binary

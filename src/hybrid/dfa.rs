@@ -7,7 +7,7 @@ This module also contains a [`hybrid::dfa::Builder`](Builder) and a
 [`hybrid::dfa::Config`](Config) for configuring and building a lazy DFA.
 */
 
-use core::{borrow::Borrow, iter, mem::size_of};
+use core::{iter, mem::size_of};
 
 use alloc::vec::Vec;
 
@@ -36,7 +36,15 @@ use crate::{
 /// at least this number of states, then the thinking is that it's pretty
 /// senseless to use the lazy DFA. More to the point, parts of the code do
 /// assume that the cache can fit at least some small number of states.
-const MIN_STATES: usize = 5;
+const MIN_STATES: usize = SENTINEL_STATES + 2;
+
+/// The number of "sentinel" states that get added to every lazy DFA.
+///
+/// These are special states indicating status conditions of a search: unknown,
+/// dead and quit. These states in particular also use zero NFA states, so
+/// their memory usage is quite small. This is relevant for computing the
+/// minimum memory needed for a lazy DFA cache.
+const SENTINEL_STATES: usize = 3;
 
 /// A hybrid NFA/DFA (also called a "lazy DFA") for regex searching.
 ///
@@ -107,6 +115,7 @@ pub struct DFA {
     stride2: usize,
     classes: ByteClasses,
     quitset: ByteSet,
+    specialize_start_states: bool,
     anchored: bool,
     match_kind: MatchKind,
     starts_for_each_pattern: bool,
@@ -206,7 +215,7 @@ impl DFA {
 
     /// Return a default configuration for a `DFA`.
     ///
-    /// This is a convenience routine to avoid needing to import the `Config`
+    /// This is a convenience routine to avoid needing to import the [`Config`]
     /// type when customizing the construction of a lazy DFA.
     ///
     /// # Example
@@ -1899,6 +1908,9 @@ impl Cache {
         const ID_SIZE: usize = size_of::<LazyStateID>();
         const STATE_SIZE: usize = size_of::<State>();
 
+        // NOTE: If you make changes to the below, then
+        // 'minimum_cache_capacity' should be updated correspondingly.
+
         self.trans.len() * ID_SIZE
         + self.starts.len() * ID_SIZE
         + self.states.len() * STATE_SIZE
@@ -2045,7 +2057,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         determinize::set_lookbehind_from_start(&start, &mut builder_matches);
         self.cache.sparses.set1.clear();
         determinize::epsilon_closure(
-            self.dfa.nfa.borrow(),
+            &self.dfa.nfa,
             nfa_start_id,
             builder_matches.look_have(),
             &mut self.cache.stack,
@@ -2053,11 +2065,25 @@ impl<'i, 'c> Lazy<'i, 'c> {
         );
         let mut builder = builder_matches.into_nfa();
         determinize::add_nfa_states(
-            self.dfa.nfa.borrow(),
+            &self.dfa.nfa,
             &self.cache.sparses.set1,
             &mut builder,
         );
-        self.add_builder_state(builder, |id| id.to_start())
+        // BREADCRUMBS: Holy moly, this can have a HUUUUGE impact on perf
+        // in some cases. Take \w{50} for example. By treating start states
+        // as "special," it causes the DFA search code to constantly bail
+        // out of its hot inner loop, and this in turn reduces throughput
+        // and dramatically increases branch misses. So we REALLY don't want
+        // to treat start states as special unless we really want to (i.e.,
+        // we have a prefix). So this definitely needs to be a config knob...
+        let tag_starts = self.dfa.specialize_start_states;
+        self.add_builder_state(builder, |id| {
+            if tag_starts {
+                id.to_start()
+            } else {
+                id
+            }
+        })
     }
 
     /// Either add the given builder state to this cache, or return an ID to an
@@ -2215,12 +2241,6 @@ impl<'i, 'c> Lazy<'i, 'c> {
 
     /// Clear the cache used by this lazy DFA.
     ///
-    /// If clearing the cache exceeds the minimum number of required cache
-    /// clearings, then this will return a cache error. In this case,
-    /// callers should bubble this up as the cache can't be used until it is
-    /// reset. Implementations of search should convert this error into a
-    /// `MatchError::GaveUp`.
-    ///
     /// If 'self.state_saver' is set to save a state, then this state is
     /// persisted through cache clearing. Otherwise, the cache is returned to
     /// its state after initialization with two exceptions: its clear count
@@ -2260,6 +2280,10 @@ impl<'i, 'c> Lazy<'i, 'c> {
             let new_id = self
                 .add_state(state, |id| {
                     if old_id.is_start() {
+                        // We don't need to consult the
+                        // 'specialize_start_states' config knob here, because
+                        // if it's disabled, old_is.is_start() will never
+                        // return true.
                         id.to_start()
                     } else {
                         id
@@ -2642,6 +2666,7 @@ pub struct Config {
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
     quitset: Option<ByteSet>,
+    specialize_start_states: Option<bool>,
     cache_capacity: Option<usize>,
     skip_cache_capacity_check: Option<bool>,
     minimum_cache_clear_count: Option<Option<usize>>,
@@ -3144,6 +3169,87 @@ impl Config {
         self
     }
 
+    /// Enable specializing start states in the lazy DFA.
+    ///
+    /// When start states are specialized, an implementor of a search routine
+    /// using a lazy DFA can tell when the search has entered a starting state.
+    /// When start states aren't specialized, then it is impossible to know
+    /// whether the search has entered a start state.
+    ///
+    /// Ideally, this option wouldn't need to exist and we could always
+    /// specialize start states. The problem is that start states can be quite
+    /// active. This in turn means that an efficient search routine is likely
+    /// to ping-pong between a heavily optimized hot loop that handles most
+    /// states and to a less optimized specialized handling of start states.
+    /// This causes branches to get heavily mispredicted and overall can
+    /// materially decrease throughput. Therefore, specializing start states
+    /// should only be enabled when it is needed.
+    ///
+    /// Knowing whether a search is in a start state is typically useful when a
+    /// prefilter is active for the search. A prefilter is typically only run
+    /// when in a start state and a prefilter can greatly accelerate a search.
+    /// Therefore, the possible cost of specializing start states is worth it
+    /// in this case. Otherwise, if you have no prefilter, there is likely no
+    /// reason to specialize start states.
+    ///
+    /// This is disabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to enable start state specialization and then
+    /// shows how to check whether a state is a start state or not.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::{Cache, DFA},
+    ///     MatchError,
+    /// };
+    ///
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().specialize_start_states(true))
+    ///     .build(r"[a-z]+")?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let haystack = "123 foobar 4567".as_bytes();
+    /// let sid = dfa.start_state_forward(
+    ///     &mut cache, None, haystack, 0, haystack.len(),
+    /// ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
+    /// // The ID returned by 'start_state_forward' will always be tagged as
+    /// // a start state when start state specialization is enabled.
+    /// assert!(sid.is_tagged());
+    /// assert!(sid.is_start());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Compare the above with the default lazy DFA configuration where
+    /// start states are _not_ specialized. In this case, the start state
+    /// is not tagged and `sid.is_start()` returns false.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::{Cache, DFA},
+    ///     MatchError,
+    /// };
+    ///
+    /// let dfa = DFA::new(r"[a-z]+")?;
+    /// let mut cache = dfa.create_cache();
+    ///
+    /// let haystack = "123 foobar 4567".as_bytes();
+    /// let sid = dfa.start_state_forward(
+    ///     &mut cache, None, haystack, 0, haystack.len(),
+    /// ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
+    /// // Start states are not tagged in the default configuration!
+    /// assert!(!sid.is_tagged());
+    /// assert!(!sid.is_start());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn specialize_start_states(mut self, yes: bool) -> Config {
+        self.specialize_start_states = Some(yes);
+        self
+    }
+
     /// Sets the maximum amount of heap memory, in bytes, to allocate to the
     /// cache for use during a lazy DFA search. If the lazy DFA would otherwise
     /// use more heap memory, then, depending on other configuration knobs,
@@ -3157,7 +3263,7 @@ impl Config {
     ///
     /// Note that while building a lazy DFA will do a "minimum" check to ensure
     /// the capacity is big enough, this is more or less about correctness.
-    /// If the cache is bigger than the minimum but still too small, then the
+    /// If the cache is bigger than the minimum but still "too small," then the
     /// lazy DFA could wind up spending a lot of time clearing the cache and
     /// recomputing transitions, thus negating the performance benefits of a
     /// lazy DFA. Thus, setting the cache capacity is mostly an experimental
@@ -3211,7 +3317,11 @@ impl Config {
     /// while a minimum cache capacity does permit the lazy DFA to function
     /// where it otherwise couldn't, it's plausible that it may not function
     /// well if it's constantly running out of room. In that case, the speed
-    /// advantages of the lazy DFA may be negated.
+    /// advantages of the lazy DFA may be negated. On the other hand, the
+    /// "minimum" cache capacity computed may not be completely accurate and
+    /// could actually be bigger than what is really necessary. Therefore, it
+    /// is plausible that using the minimum cache capacity could still result
+    /// in very good performance.
     ///
     /// This is disabled by default.
     ///
@@ -3263,9 +3373,10 @@ impl Config {
     ///
     /// Note that the number of times a cache is cleared is a property of
     /// the cache itself. Thus, if a cache is used in a subsequent search
-    /// with a similarly configured lazy DFA, then it would cause the
-    /// search to "give up" if the cache needed to be cleared. The cache
-    /// clear count can only be reset to `0` via [`DFA::reset_cache`] (or
+    /// with a similarly configured lazy DFA, then it could cause the
+    /// search to "give up" if the cache needed to be cleared, depending
+    /// on its internal count and configured minimum. The cache clear
+    /// count can only be reset to `0` via [`DFA::reset_cache`] (or
     /// [`Regex::reset_cache`](crate::hybrid::regex::Regex::reset_cache) if
     /// you're using the `Regex` API).
     ///
@@ -3312,7 +3423,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_leftmost_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 45 }),
+    ///     Err(MatchError::GaveUp { offset: 27 }),
     /// );
     ///
     /// // Now that we know the cache is full, if we search a haystack that we
@@ -3321,7 +3432,7 @@ impl Config {
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_leftmost_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 2 }),
+    ///     Err(MatchError::GaveUp { offset: 0 }),
     /// );
     ///
     /// // If we reset the cache, then we should be able to create more states
@@ -3330,7 +3441,7 @@ impl Config {
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_earliest_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 51 }),
+    ///     Err(MatchError::GaveUp { offset: 29 }),
     /// );
     ///
     /// // ... switching back to ASCII still makes progress since it just needs
@@ -3338,7 +3449,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.find_earliest_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 25 }),
+    ///     Err(MatchError::GaveUp { offset: 14 }),
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3378,12 +3489,21 @@ impl Config {
         self.unicode_word_boundary.unwrap_or(false)
     }
 
-    /// Returns whether this configuration will instruct the DFA to enter a
-    /// quit state whenever the given byte is seen during a search. When at
+    /// Returns whether this configuration will instruct the lazy DFA to enter
+    /// a quit state whenever the given byte is seen during a search. When at
     /// least one byte has this enabled, it is possible for a search to return
     /// an error.
     pub fn get_quit(&self, byte: u8) -> bool {
         self.quitset.map_or(false, |q| q.contains(byte))
+    }
+
+    /// Returns whether this configuration will instruct the lazy DFA to
+    /// "specialize" start states. When enabled, the lazy DFA will tag start
+    /// states so that search routines using the lazy DFA can detect when
+    /// it's in a start state and do some kind of optimization (like run a
+    /// prefilter).
+    pub fn get_specialize_start_states(&self) -> bool {
+        self.specialize_start_states.unwrap_or(false)
     }
 
     /// Returns the cache capacity set on this configuration.
@@ -3508,6 +3628,9 @@ impl Config {
                 .unicode_word_boundary
                 .or(self.unicode_word_boundary),
             quitset: o.quitset.or(self.quitset),
+            specialize_start_states: o
+                .specialize_start_states
+                .or(self.specialize_start_states),
             cache_capacity: o.cache_capacity.or(self.cache_capacity),
             skip_cache_capacity_check: o
                 .skip_cache_capacity_check
@@ -3703,7 +3826,7 @@ impl Builder {
         // of states in our state ID space. This is unlikely to trigger in
         // >=32-bit systems, but 16-bit systems have a pretty small state ID
         // space since a number of bits are used up as sentinels.
-        if let Err(err) = minimum_lazy_state_id(&nfa, &classes) {
+        if let Err(err) = minimum_lazy_state_id(&classes) {
             return Err(BuildError::insufficient_state_id_capacity(err));
         }
         let stride2 = classes.stride2();
@@ -3712,6 +3835,7 @@ impl Builder {
             stride2,
             classes,
             quitset,
+            specialize_start_states: self.config.get_specialize_start_states(),
             anchored: self.config.get_anchored(),
             match_kind: self.config.get_match_kind(),
             starts_for_each_pattern: self.config.get_starts_for_each_pattern(),
@@ -3762,11 +3886,10 @@ impl Builder {
 /// Based on the minimum number of states required for a useful lazy DFA cache,
 /// this returns the minimum lazy state ID that must be representable.
 ///
-/// It's likely not plausible for this to impose constraints on 32-bit systems
-/// (or higher), but on 16-bit systems, the lazy state ID space is quite
-/// constrained and thus may be insufficient for bigger regexes.
+/// It's not likely for this to have any impact 32-bit systems (or higher), but
+/// on 16-bit systems, the lazy state ID space is quite constrained and thus
+/// may be insufficient if our MIN_STATES value is (for some reason) too high.
 fn minimum_lazy_state_id(
-    nfa: &thompson::NFA,
     classes: &ByteClasses,
 ) -> Result<LazyStateID, LazyStateIDError> {
     let stride = 1 << classes.stride2();
@@ -3783,14 +3906,32 @@ fn minimum_lazy_state_id(
 /// than what is required in practice. Computing the true minimum effectively
 /// requires determinization, which is probably too much work to do for a
 /// simple check like this.
+///
+/// One of the issues with this approach IMO is that it requires that this
+/// be in sync with the calculation above for computing how much heap memory
+/// the DFA cache uses. If we get it wrong, it's possible for example for the
+/// minimum to be smaller than the computed heap memory, and thus, it may be
+/// the case that we can't add the required minimum number of states. That in
+/// turn will make lazy DFA panic because we assume that we can add at least a
+/// minimum number of states.
+///
+/// Another approach would be to always allow the minimum number of states to
+/// be added to the lazy DFA cache, even if it exceeds the configured cache
+/// limit. This does mean that the limit isn't really a limit in all cases,
+/// which is unfortunate. But it does at least guarantee that the lazy DFA can
+/// always make progress, even if it is slow. (This approach is very similar to
+/// enabling the 'skip_cache_capacity_check' config knob, except it wouldn't
+/// rely on cache size calculation. Instead, it would just always permit a
+/// minimum number of states to be added.)
 fn minimum_cache_capacity(
     nfa: &thompson::NFA,
     classes: &ByteClasses,
     starts_for_each_pattern: bool,
 ) -> usize {
     const ID_SIZE: usize = size_of::<LazyStateID>();
-    let stride = 1 << classes.stride2();
+    const STATE_SIZE: usize = size_of::<State>();
 
+    let stride = 1 << classes.stride2();
     let states_len = nfa.states().len();
     let sparses = 2 * states_len * NFAStateID::SIZE;
     let trans = MIN_STATES * stride * ID_SIZE;
@@ -3800,6 +3941,19 @@ fn minimum_cache_capacity(
         starts += (Start::count() * nfa.pattern_len()) * ID_SIZE;
     }
 
+    // The min number of states HAS to be at least 4: we have 3 sentinel states
+    // and then we need space for one more when we save a state after clearing
+    // the cache. We also need space for one more, otherwise we get stuck in a
+    // loop where we try to add a 5th state, which gets rejected, which clears
+    // the cache, which adds back a saved state (4th total state) which then
+    // tries to add the 5th state again.
+    assert!(MIN_STATES >= 5, "minimum number of states has to be at least 5");
+    // The minimum number of non-sentinel states. We consider this separately
+    // because sentinel states are much smaller in that they contain no NFA
+    // states. Given our aggressive calculation here, it's worth being more
+    // precise with the number of states we need.
+    let non_sentinel = MIN_STATES.checked_sub(SENTINEL_STATES).unwrap();
+
     // Every `State` has three bytes for flags, 4 bytes (max) for the number
     // of patterns, followed by 32-bit encodings of patterns and then delta
     // varint encodings of NFA state IDs. We use the worst case (which isn't
@@ -3808,12 +3962,14 @@ fn minimum_cache_capacity(
     // HOWEVER, three of the states needed by a lazy DFA are just the sentinel
     // unknown, dead and quit states. Those states have a known size and it is
     // small.
-    assert!(MIN_STATES >= 3, "minimum number of states has to be at least 3");
     let dead_state_size = State::dead().memory_usage();
     let max_state_size = 3 + 4 + (nfa.pattern_len() * 4) + (states_len * 5);
-    let states = (3 * (size_of::<State>() + dead_state_size))
-        + ((MIN_STATES - 3) * (size_of::<State>() + max_state_size));
-    let states_to_sid = states + (MIN_STATES * ID_SIZE);
+    let states = (SENTINEL_STATES * (STATE_SIZE + dead_state_size))
+        + (non_sentinel * (STATE_SIZE + max_state_size));
+    // NOTE: We don't double count heap memory used by State for this map since
+    // we use reference counting to avoid doubling memory usage. (This tends to
+    // be where most memory is allocated in the cache.)
+    let states_to_sid = (MIN_STATES * STATE_SIZE) + (MIN_STATES * ID_SIZE);
     let stack = states_len * NFAStateID::SIZE;
     let scratch_state_builder = max_state_size;
 

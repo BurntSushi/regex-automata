@@ -172,9 +172,9 @@ impl State {
 /// ## Adding multiple patterns
 ///
 /// Each pattern you add to an NFA should correspond to a pair of
-/// [`Builder::start_pattern`] and [`Builder::end_pattern`] calls, with calls
-/// inbetween that add NFA states for that pattern. NFA states may be added
-/// without first calling `start_pattern`, with the exception of adding
+/// [`Builder::start_pattern`] and [`Builder::finish_pattern`] calls, with
+/// calls inbetween that add NFA states for that pattern. NFA states may be
+/// added without first calling `start_pattern`, with the exception of adding
 /// capturing states.
 ///
 /// ## Adding NFA states
@@ -235,6 +235,7 @@ impl State {
 /// use regex_automata::{
 ///     nfa::thompson::{pikevm::PikeVM, Builder, Transition},
 ///     util::id::StateID,
+///     MultiMatch,
 /// };
 ///
 /// let mut builder = Builder::new();
@@ -277,14 +278,13 @@ impl State {
 /// let nfa = builder.build(start, start)?;
 ///
 /// // Now build a Pike VM from our NFA, and use it for searching. This shows
-/// // how we can use a regex engine without ever worry about syntax!
+/// // how we can use a regex engine without ever worrying about syntax!
 /// let vm = PikeVM::new_from_nfa(nfa)?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
-/// let m = vm.find_leftmost(&mut cache, b"foo0", &mut caps).unwrap();
-/// assert_eq!(m.pattern().as_usize(), 0);
-/// assert_eq!(m.start(), 0);
-/// assert_eq!(m.end(), 3);
+/// let expected = Some(MultiMatch::must(0, 0, 3));
+/// vm.find_leftmost(&mut cache, b"foo0", &mut caps);
+/// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -342,7 +342,7 @@ impl Builder {
     ///
     /// Clearing removes all state associated with building an NFA, but does
     /// not reset configuration (such as size limits). After clearing, the
-    /// builder can be reused to assemble an entirely new DFA.
+    /// builder can be reused to assemble an entirely new NFA.
     pub fn clear(&mut self) {
         self.pattern_id = None;
         self.states.clear();
@@ -624,10 +624,10 @@ impl Builder {
     /// later transitions.
     ///
     /// Callers may provide an empty set of alternates to this method call, and
-    /// then later add transitions via `patch`. At final build time, a "reverse
-    /// union" state with no alternates is converted to a "fail" state, and a
-    /// "reverse union" state with exactly one alternate is treated as if it
-    /// were an "empty" state.
+    /// then later add transitions via `patch`. At final build time, a "union"
+    /// state with no alternates is converted to a "fail" state, and a "union"
+    /// state with exactly one alternate is treated as if it were an "empty"
+    /// state.
     ///
     /// # Errors
     ///

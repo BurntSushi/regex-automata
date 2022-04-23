@@ -513,8 +513,10 @@ pub unsafe trait Automaton {
     /// method correctly.
     fn is_match_state(&self, id: StateID) -> bool;
 
-    /// Returns true if and only if the given identifier corresponds to a
-    /// start state. A start state is a state in which a DFA begins a search.
+    /// Returns true only if the given identifier corresponds to a start
+    /// state
+    ///
+    /// A start state is a state in which a DFA begins a search.
     /// All searches begin in a start state. Moreover, since all matches are
     /// delayed by one byte, a start state can never be a match state.
     ///
@@ -530,6 +532,18 @@ pub unsafe trait Automaton {
     /// pattern, if one exists. If a prefix exists and since all matches must
     /// begin with that prefix, then skipping ahead to occurrences of that
     /// prefix may be much faster than executing the DFA.
+    ///
+    /// As mentioned in the documentation for
+    /// [`is_special_state`](Automaton::is_special_state) implementations
+    /// _may_ always return false, even if the given identifier is a start
+    /// state. This is because knowing whether a state is a start state or not
+    /// is not necessary for correctness and is only treated as a potential
+    /// performance optimization. (For example, the implementations of this
+    /// trait in this crate will only return true when the given identifier
+    /// corresponds to a start state and when [specialization of start
+    /// states](crate::dfa::dense::Config::specialize_start_states) was enabled
+    /// during DFA construction. If start state specialization is disabled
+    /// (which is the default), then this method will always return false.)
     ///
     /// # Example
     ///
@@ -548,7 +562,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     MatchError, PatternID,
-    ///     dfa::{Automaton, dense},
+    ///     dfa::{Automaton, dense::DFA},
     ///     HalfMatch,
     /// };
     ///
@@ -620,8 +634,13 @@ pub unsafe trait Automaton {
     /// }
     ///
     /// // In this example, it's obvious that all occurrences of our pattern
-    /// // begin with 'Z', so we pass in 'Z'.
-    /// let dfa = dense::DFA::new(r"Z[a-z]+")?;
+    /// // begin with 'Z', so we pass in 'Z'. Note also that we need to
+    /// // enable start state specialization, or else it won't be possible to
+    /// // detect start states during a search. ('is_start_state' would always
+    /// // return false.)
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().specialize_start_states(true))
+    ///     .build(r"Z[a-z]+")?;
     /// let haystack = "123 foobar Zbaz quux".as_bytes();
     /// let mat = find_leftmost_first(&dfa, haystack, Some(b'Z'))?.unwrap();
     /// assert_eq!(mat.pattern().as_usize(), 0);

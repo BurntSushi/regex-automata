@@ -17,16 +17,16 @@ pub(crate) fn find_earliest_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
     if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, true, dfa, cache, pattern_id, bytes, start, end)
+        find_fwd(pre, true, dfa, cache, pattern_id, haystack, start, end)
     } else {
-        find_fwd(None, true, dfa, cache, pattern_id, bytes, start, end)
+        find_fwd(None, true, dfa, cache, pattern_id, haystack, start, end)
     }
 }
 
@@ -36,16 +36,16 @@ pub(crate) fn find_leftmost_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
     if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, false, dfa, cache, pattern_id, bytes, start, end)
+        find_fwd(pre, false, dfa, cache, pattern_id, haystack, start, end)
     } else {
-        find_fwd(None, false, dfa, cache, pattern_id, bytes, start, end)
+        find_fwd(None, false, dfa, cache, pattern_id, haystack, start, end)
     }
 }
 
@@ -64,17 +64,21 @@ fn find_fwd(
     assert!(start <= haystack.len());
     assert!(end <= haystack.len());
 
-    // Why do this? This lets 'bytes[at]' work without bounds checks below.
-    // It seems the assert on 'end <= haystack.len()' above is otherwise not
-    // enough. Why not just make 'haystack' scoped this way? Well, 'eoi_fwd'
-    // (below) might actually want to try to access the byte at 'end' for
-    // resolving look-ahead.
-    let bytes = &haystack[..end];
-
     let mut sid = init_fwd(dfa, cache, pattern_id, haystack, start, end)?;
     let mut last_match = None;
     let mut at = start;
+    // This could just be a closure, but then I think it would be unsound
+    // because it would need to be safe to invoke. This way, the lack of safety
+    // is clearer in the code below.
+    macro_rules! next_unchecked {
+        ($sid:expr, $at:expr) => {{
+            let byte = *haystack.get_unchecked($at);
+            dfa.next_state_untagged_unchecked(cache, $sid, byte)
+        }};
+    }
+
     if let Some(ref mut pre) = pre {
+        let haystack = &haystack[..end];
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
@@ -82,11 +86,11 @@ fn find_fwd(
         // In that case, any match must be the 0th pattern.
         if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
             // TODO: This looks wrong? Shouldn't offset be the END of a match?
-            return Ok(pre.next_candidate(bytes, at).into_option().map(
+            return Ok(pre.next_candidate(haystack, at).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
         } else if pre.is_effective(at) {
-            match pre.next_candidate(bytes, at).into_option() {
+            match pre.next_candidate(haystack, at).into_option() {
                 None => return Ok(None),
                 Some(i) => {
                     at = i;
@@ -97,109 +101,157 @@ fn find_fwd(
     while at < end {
         if sid.is_tagged() {
             sid = dfa
-                .next_state(cache, sid, bytes[at])
+                .next_state(cache, sid, haystack[at])
                 .map_err(|_| gave_up(at))?;
-            at += 1;
         } else {
             // SAFETY: There are two safety invariants we need to uphold
-            // here in the loop below: that 'sid' is a valid state ID for
-            // this DFA, and that 'at' is a valid index into 'bytes'. For
-            // the former, we rely on the invariant that next_state* and
-            // start_state_forward always returns a valid state ID (given a
-            // valid state ID in the former case), and that we are only at this
-            // place in the code if 'sid' is untagged. Moreover, every call to
-            // next_state_untagged_unchecked below is guarded by a check that
-            // sid is untagged. For the latter safety invariant, we always
-            // guard unchecked access with a check that 'at' is less than
-            // 'end', where 'end == bytes.len()'.
+            // here in the loops below: that 'sid' and 'prev_sid' are valid
+            // state IDs for this DFA, and that 'at' is a valid index into
+            // 'haystack'. For the former, we rely on the invariant that
+            // next_state* and start_state_forward always returns a valid state
+            // ID (given a valid state ID in the former case), and that we are
+            // only at this place in the code if 'sid' is untagged. Moreover,
+            // every call to next_state_untagged_unchecked below is guarded by
+            // a check that sid is untagged. For the latter safety invariant,
+            // we always guard unchecked access with a check that 'at' is less
+            // than 'end', where 'end <= haystack.len()'. In the unrolled loop
+            // below, we ensure that 'at' is always in bounds.
             //
-            // For justification, this gives us a ~10% bump in search time.
-            // This was used for a benchmark:
+            // PERF: For justification of omitting bounds checks, it gives us a
+            // ~10% bump in search time. This was used for a benchmark:
             //
-            //     regex-cli find hybrid regex @/some/big/file '(?m)^.+$' -UBb
+            //     regex-cli find hybrid dfa @bigfile '(?m)^.+$' -UBb
             //
-            // With bounds checked: ~881.4ms. Without: ~775ms. For input, I
-            // used OpenSubtitles2018.raw.sample.medium.en.
+            // PERF: For justification for the loop unrolling, we use a few
+            // different tests:
+            //
+            //     regex-cli find hybrid dfa @$bigfile '\w{50}' -UBb
+            //     regex-cli find hybrid dfa @$bigfile '(?m)^.+$' -UBb
+            //     regex-cli find hybrid dfa @$bigfile 'ZQZQZQZQ' -UBb
+            //
+            // And there are three different configurations:
+            //
+            //     nounroll: this entire 'else' block vanishes and we just
+            //               always use 'dfa.next_state(..)'.
+            //      unroll1: just the outer loop below
+            //      unroll2: just the inner loop below
+            //      unroll3: both the outer and inner loops below
+            //
+            // This results in a matrix of timings for each of the above
+            // regexes with each of the above unrolling configurations:
+            //
+            //              '\w{50}'   '(?m)^.+$'   'ZQZQZQZQ'
+            //   nounroll   1.51s      2.34s        1.51s
+            //    unroll1   1.53s      2.32s        1.56s
+            //    unroll2   2.22s      1.50s        0.61s
+            //    unroll3   1.67s      1.45s        0.61s
+            //
+            // Ideally we'd be able to find a configuration they yields the
+            // best time for all regexes, but alas we settle for unroll3 that
+            // gives us *almost* the best for '\w{50}' and the best for the
+            // other two regexes.
+            //
+            // So what exactly is going on here? The first unrolling (grouping
+            // together runs of untagged transitions) specifically targets
+            // our choice of representation. The second unrolling (grouping
+            // together runs of self-transitions) specifically targets a common
+            // DFA topology. Let's dig in a little bit by looking at our
+            // regexes:
+            //
+            // '\w{50}': This regex spends a lot of time outside of the DFA's
+            // start state matching some part of the '\w' repetition. This
+            // means that it's a bit of a worst case for loop unrolling that
+            // targets self-transitions since the self-transitions in '\w{50}'
+            // are not particularly active for this haystack. However, the
+            // first unrolling (grouping together untagged transitions)
+            // does apply quite well here since very few transitions hit
+            // match/dead/quit/unknown states. It is however worth mentioning
+            // that if start states are configured to be tagged (which you
+            // typically want to do if you have a prefilter), then this regex
+            // actually slows way down because it is constantly ping-ponging
+            // out of the unrolled loop and into the handling of a tagged start
+            // state below. But when start states aren't tagged, the unrolled
+            // loop stays hot. (This is why it's imperative that start state
+            // tagging be disabled when there isn't a prefilter!)
+            //
+            // '(?m)^.+$': There are two important aspects of this regex: 1)
+            // on this haystack, its match count is very high, much higher
+            // than the other two regex and 2) it spends the vast majority
+            // of its time matching '.+'. Since Unicode mode is disabled,
+            // this corresponds to repeatedly following self transitions for
+            // the vast majority of the input. This does benefit from the
+            // untagged unrolling since most of the transitions will be to
+            // untagged states, but the untagged unrolling does more work than
+            // what is actually required. Namely, it has to keep track of the
+            // previous and next state IDs, which I guess requires a bit more
+            // shuffling. This is supported by the fact that nounroll+unroll1
+            // are both slower than unroll2+unroll3, where the latter has a
+            // loop unrolling that specifically targets self-transitions.
+            //
+            // 'ZQZQZQZQ': This one is very similar to '(?m)^.+$' because it
+            // spends the vast majority of its time in self-transitions for
+            // the (implicit) unanchored prefix. The main difference with
+            // '(?m)^.+$' is that it has a much lower match count. So there
+            // isn't much time spent in the overhead of reporting matches. This
+            // is the primary explainer in the perf difference here. We include
+            // this regex and the former to make sure we have comparison points
+            // with high and low match counts.
+            //
+            // NOTE: I used 'OpenSubtitles2018.raw.sample.en' for 'bigfile'.
             let mut prev_sid = sid;
             while at < end {
-                prev_sid = sid;
-                sid = unsafe {
-                    dfa.next_state_untagged_unchecked(
-                        cache,
-                        sid,
-                        *bytes.get_unchecked(at),
-                    )
-                };
+                prev_sid = unsafe { next_unchecked!(sid, at) };
+                if prev_sid.is_tagged() || at + 3 >= end {
+                    core::mem::swap(&mut prev_sid, &mut sid);
+                    break;
+                }
                 at += 1;
+
+                sid = unsafe { next_unchecked!(prev_sid, at) };
                 if sid.is_tagged() {
                     break;
                 }
-                // SAFETY: we make four unguarded accesses to 'bytes[at]'
-                // below, and each are safe because we know that 'at + 4' is
-                // in bounds. Moreover, while we don't check whether 'sid' is
-                // untagged directly, we know it is because of the check above.
-                // And the unrolled loop below quits when the next state is not
-                // equal to the previous state.
-                //
-                // PERF: For justification for eliminating bounds checks,
-                // see above. For justification for the unrolling, we use
-                // two tests. The one above with regex '(?m)^.+$', and also
-                // '(?m)^.{40}$'. The former is kinda the best case for
-                // unrolling, and gives a 1.67 boost primarily because the DFA
-                // spends most of its time munching through the input in the
-                // same state. But the latter pattern rarely spends time in the
-                // same state through subsequent transitions, so unrolling is
-                // pretty much always ineffective in that it craps out on the
-                // first 'sid != next' check below. However, without unrolling,
-                // search is only 1.03 times faster than with unrolling on the
-                // latter pattern, which we deem to be an acceptable loss in
-                // favor of optimizing the more common case of having a "hot"
-                // state somewhere in the DFA.
-                while at + 4 < end {
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
+                at += 1;
+
+                prev_sid = unsafe { next_unchecked!(sid, at) };
+                if prev_sid.is_tagged() {
+                    core::mem::swap(&mut prev_sid, &mut sid);
+                    break;
+                }
+                at += 1;
+
+                sid = unsafe { next_unchecked!(prev_sid, at) };
+                if sid.is_tagged() {
+                    break;
+                }
+                at += 1;
+
+                if prev_sid == sid {
+                    while at + 4 < end {
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at += 1;
+
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at += 1;
+
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at += 1;
+
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at += 1;
                     }
-                    at += 1;
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
-                    }
-                    at += 1;
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
-                    }
-                    at += 1;
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
-                    }
-                    at += 1;
                 }
             }
             // If we quit out of the code above with an unknown state ID at
@@ -207,15 +259,16 @@ fn find_fwd(
             // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(cache, prev_sid, bytes[at - 1])
-                    .map_err(|_| gave_up(at - 1))?;
+                    .next_state(cache, prev_sid, haystack[at])
+                    .map_err(|_| gave_up(at))?;
             }
         }
         if sid.is_tagged() {
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
+                    let haystack = &haystack[..end];
                     if pre.is_effective(at) {
-                        match pre.next_candidate(bytes, at).into_option() {
+                        match pre.next_candidate(haystack, at).into_option() {
                             // TODO: This looks like a bug to me. We should
                             // return 'Ok(last_match)', i.e., treat it like a
                             // dead state. But don't 'fix' it until we can
@@ -223,15 +276,26 @@ fn find_fwd(
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
+                                // We want to skip any update to 'at' below
+                                // at the end of this iteration and just
+                                // jump immediately back to the next state
+                                // transition at the leading position of the
+                                // candidate match.
+                                continue;
                             }
                         }
                     }
                 }
             } else if sid.is_match() {
-                last_match = Some(HalfMatch {
-                    pattern: dfa.match_pattern(cache, sid, 0),
-                    offset: at - MATCH_OFFSET,
-                });
+                let pattern = dfa.match_pattern(cache, sid, 0);
+                // Since slice ranges are inclusive at the beginning and
+                // exclusive at the end, and since forward searches report
+                // the end, we can return 'at' as-is. This only works because
+                // matches are delayed by 1 byte. So by the time we observe a
+                // match, 'at' has already been set to 1 byte past the actual
+                // match location, which is precisely the exclusive ending
+                // bound of the match.
+                last_match = Some(HalfMatch { pattern, offset: at });
                 if earliest {
                     return Ok(last_match);
                 }
@@ -241,16 +305,17 @@ fn find_fwd(
                 if last_match.is_some() {
                     return Ok(last_match);
                 }
-                let offset = at - 1;
-                return Err(MatchError::Quit { byte: bytes[offset], offset });
+                return Err(MatchError::Quit {
+                    byte: haystack[at],
+                    offset: at,
+                });
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");
             }
         }
+        at += 1;
     }
-    // We are careful to use 'haystack' here, which contains the full context
-    // that we might want to inspect.
     Ok(eoi_fwd(dfa, cache, haystack, end, &mut sid)?.or(last_match))
 }
 
@@ -259,11 +324,11 @@ pub(crate) fn find_earliest_rev(
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(true, dfa, cache, pattern_id, bytes, start, end)
+    find_rev(true, dfa, cache, pattern_id, haystack, start, end)
 }
 
 #[inline(never)]
@@ -271,11 +336,11 @@ pub(crate) fn find_leftmost_rev(
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(false, dfa, cache, pattern_id, bytes, start, end)
+    find_rev(false, dfa, cache, pattern_id, haystack, start, end)
 }
 
 #[inline(always)]
@@ -292,88 +357,115 @@ fn find_rev(
     assert!(start <= haystack.len());
     assert!(end <= haystack.len());
 
-    // Why do this? This lets 'bytes[at]' work without bounds checks below.
-    // It seems the assert on 'end <= haystack.len()' above is otherwise
-    // not enough. Why not just make 'bytes' scoped this way anyway? Well,
-    // 'eoi_fwd' (below) might actually want to try to access the byte at 'end'
-    // for resolving look-ahead.
-    let bytes = &haystack[start..];
-
     let mut sid = init_rev(dfa, cache, pattern_id, haystack, start, end)?;
     let mut last_match = None;
-    let mut at = end - start;
-    while at > 0 {
+    // In reverse search, the loop below can't handle the case of searching an
+    // empty slice. Ideally we could write something congruent to the forward
+    // search, i.e., 'while at >= start', but 'start' might be 0. Since we use
+    // an unsigned offset, 'at >= 0' is trivially always true. We could avoid
+    // this extra case handling by using a signed offset, but Rust makes it
+    // annoying to do. So... We just handle the empty case separately.
+    if start == end {
+        return Ok(eoi_rev(dfa, cache, haystack, start, sid)?.or(last_match));
+    }
+
+    let mut at = end - 1;
+    macro_rules! next_unchecked {
+        ($sid:expr, $at:expr) => {{
+            let byte = *haystack.get_unchecked($at);
+            dfa.next_state_untagged_unchecked(cache, $sid, byte)
+        }};
+    }
+    loop {
         if sid.is_tagged() {
-            at -= 1;
             sid = dfa
-                .next_state(cache, sid, bytes[at])
+                .next_state(cache, sid, haystack[at as usize])
                 .map_err(|_| gave_up(at))?;
         } else {
-            // SAFETY: See comments in 'find_fwd' for both a safety argument
-            // and a justification from a performance perspective as to 1) why
-            // we elide bounds checks and 2) why we do a specialized version of
-            // unrolling below.
+            // SAFETY: See comments in 'find_fwd' for a safety argument.
+            //
+            // PERF: The comments in 'find_fwd' also provide a justification
+            // from a performance perspective as to 1) why we elide bounds
+            // checks and 2) why we do a specialized version of unrolling
+            // below. The reverse search does have a slightly different
+            // consideration in that most reverse searches tend to be
+            // anchored and on shorter haystacks. However, this still makes a
+            // difference. Take this command for example:
+            //
+            //     regex-cli find hybrid regex @$bigfile '(?m)^.+$' -UBb
+            //
+            // (Notice that we use 'find hybrid regex', not 'find hybrid dfa'
+            // like in the justification for the forward direction. The 'regex'
+            // sub-command will find start-of-match and thus run the reverse
+            // direction.)
+            //
+            // Without unrolling below, the above command takes around 3.76s.
+            // But with the unrolling below, we get down to 2.55s. If we keep
+            // the unrolling but add in bounds checks, then we get 2.86s.
+            //
+            // NOTE: I used 'OpenSubtitles2018.raw.sample.en' for 'bigfile'.
             let mut prev_sid = sid;
-            while at > 0 && !sid.is_tagged() {
-                prev_sid = sid;
-                at -= 1;
-                while at > 3 {
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
-                    let next = unsafe {
-                        dfa.next_state_untagged_unchecked(
-                            cache,
-                            sid,
-                            *bytes.get_unchecked(at),
-                        )
-                    };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
+            while at >= start {
+                prev_sid = unsafe { next_unchecked!(sid, at) };
+                if prev_sid.is_tagged() || at <= start.saturating_add(3) {
+                    core::mem::swap(&mut prev_sid, &mut sid);
+                    break;
                 }
-                sid = unsafe {
-                    dfa.next_state_untagged_unchecked(
-                        cache,
-                        sid,
-                        *bytes.get_unchecked(at),
-                    )
-                };
+                at -= 1;
+
+                sid = unsafe { next_unchecked!(prev_sid, at) };
+                if sid.is_tagged() {
+                    break;
+                }
+                at -= 1;
+
+                prev_sid = unsafe { next_unchecked!(sid, at) };
+                if prev_sid.is_tagged() {
+                    core::mem::swap(&mut prev_sid, &mut sid);
+                    break;
+                }
+                at -= 1;
+
+                sid = unsafe { next_unchecked!(prev_sid, at) };
+                if sid.is_tagged() {
+                    break;
+                }
+                at -= 1;
+
+                if prev_sid == sid {
+                    while at > start.saturating_add(3) {
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at -= 1;
+
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at -= 1;
+
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at -= 1;
+
+                        let next = unsafe { next_unchecked!(sid, at) };
+                        if sid != next {
+                            break;
+                        }
+                        at -= 1;
+                    }
+                }
             }
+            // If we quit out of the code above with an unknown state ID at
+            // any point, then we need to re-compute that transition using
+            // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(cache, prev_sid, bytes[at])
+                    .next_state(cache, prev_sid, haystack[at])
                     .map_err(|_| gave_up(at))?;
             }
         }
@@ -383,21 +475,35 @@ fn find_rev(
             } else if sid.is_match() {
                 last_match = Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, sid, 0),
-                    offset: start + at + MATCH_OFFSET,
+                    // Since slice ranges are inclusive at the beginning and
+                    // exclusive at the end, and since reverse searches report
+                    // the beginning, we need to offset the position by our
+                    // MATCH_OFFSET (because matches are delayed by 1 byte in
+                    // the DFA).
+                    offset: at + MATCH_OFFSET,
                 });
                 if earliest {
                     return Ok(last_match);
                 }
             } else if sid.is_dead() {
                 return Ok(last_match);
-            } else {
-                debug_assert!(sid.is_quit());
+            } else if sid.is_quit() {
                 if last_match.is_some() {
                     return Ok(last_match);
                 }
-                return Err(MatchError::Quit { byte: bytes[at], offset: at });
+                return Err(MatchError::Quit {
+                    byte: haystack[at],
+                    offset: at,
+                });
+            } else {
+                debug_assert!(sid.is_unknown());
+                unreachable!("sid being unknown is a bug");
             }
         }
+        if at == start {
+            break;
+        }
+        at -= 1;
     }
     Ok(eoi_rev(dfa, cache, haystack, start, sid)?.or(last_match))
 }
@@ -408,7 +514,7 @@ pub(crate) fn find_overlapping_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
     caller_state: &mut OverlappingState,
@@ -421,7 +527,7 @@ pub(crate) fn find_overlapping_fwd(
             dfa,
             cache,
             pattern_id,
-            bytes,
+            haystack,
             start,
             end,
             caller_state,
@@ -432,7 +538,7 @@ pub(crate) fn find_overlapping_fwd(
             dfa,
             cache,
             pattern_id,
-            bytes,
+            haystack,
             start,
             end,
             caller_state,
@@ -440,23 +546,31 @@ pub(crate) fn find_overlapping_fwd(
     }
 }
 
+/// The implementation for forward overlapping search.
+///
+/// We do not have a corresponding reverse overlapping search. We can actually
+/// reuse the existing non-overlapping reverse search to find start-of-match
+/// for overlapping results. (Because the start-of-match aspect already
+/// knows which pattern matched.) We might want a reverse overlapping search
+/// though if we want to support proper reverse searching instead of just
+/// start-of-match handling for forward searches.
 #[inline(always)]
 fn find_overlapping_fwd_imp(
     mut pre: Option<&mut prefilter::Scanner>,
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     mut start: usize,
     end: usize,
     caller_state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
-    assert!(start <= bytes.len());
-    assert!(end <= bytes.len());
+    assert!(start <= haystack.len());
+    assert!(end <= haystack.len());
 
     let mut sid = match caller_state.id() {
-        None => init_fwd(dfa, cache, pattern_id, bytes, start, end)?,
+        None => init_fwd(dfa, cache, pattern_id, haystack, start, end)?,
         Some(sid) => {
             if let Some(last) = caller_state.last_match() {
                 let match_count = dfa.match_count(cache, sid);
@@ -508,17 +622,21 @@ fn find_overlapping_fwd_imp(
         }
     };
 
+    // NOTE: We don't optimize the crap out of this routine primarily because
+    // it seems like most find_overlapping searches will have higher match
+    // counts, and thus, throughput is perhaps not as important. But if you
+    // have a use case for something faster, feel free to file an issue.
     let mut at = start;
     while at < end {
-        let byte = bytes[at];
+        let byte = haystack[at];
         sid = dfa.next_state(cache, sid, byte).map_err(|_| gave_up(at))?;
-        at += 1;
         if sid.is_tagged() {
             caller_state.set_id(sid);
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
+                    let haystack = &haystack[..end];
                     if pre.is_effective(at) {
-                        match pre.next_candidate(bytes, at).into_option() {
+                        match pre.next_candidate(haystack, at).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
@@ -527,23 +645,25 @@ fn find_overlapping_fwd_imp(
                     }
                 }
             } else if sid.is_match() {
-                let offset = at - MATCH_OFFSET;
                 caller_state
-                    .set_last_match(StateMatch { match_index: 1, offset });
+                    .set_last_match(StateMatch { match_index: 1, offset: at });
                 return Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, sid, 0),
-                    offset,
+                    offset: at,
                 }));
             } else if sid.is_dead() {
                 return Ok(None);
+            } else if sid.is_quit() {
+                return Err(MatchError::Quit { byte, offset: at });
             } else {
-                debug_assert!(sid.is_quit());
-                return Err(MatchError::Quit { byte, offset: at - 1 });
+                debug_assert!(sid.is_unknown());
+                unreachable!("sid being unknown is a bug");
             }
         }
+        at += 1;
     }
 
-    let result = eoi_fwd(dfa, cache, bytes, end, &mut sid);
+    let result = eoi_fwd(dfa, cache, haystack, end, &mut sid);
     caller_state.set_id(sid);
     if let Ok(Some(ref last_match)) = result {
         caller_state.set_last_match(StateMatch {
@@ -563,12 +683,12 @@ fn init_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
-        .start_state_forward(cache, pattern_id, bytes, start, end)
+        .start_state_forward(cache, pattern_id, haystack, start, end)
         .map_err(|_| gave_up(start))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
@@ -581,12 +701,12 @@ fn init_rev(
     dfa: &DFA,
     cache: &mut Cache,
     pattern_id: Option<PatternID>,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     end: usize,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
-        .start_state_reverse(cache, pattern_id, bytes, start, end)
+        .start_state_reverse(cache, pattern_id, haystack, start, end)
         .map_err(|_| gave_up(end))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
@@ -598,11 +718,11 @@ fn init_rev(
 fn eoi_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    bytes: &[u8],
+    haystack: &[u8],
     end: usize,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    match bytes.get(end) {
+    match haystack.get(end) {
         Some(&b) => {
             *sid = dfa.next_state(cache, *sid, b).map_err(|_| gave_up(end))?;
             if sid.is_match() {
@@ -617,11 +737,11 @@ fn eoi_fwd(
         None => {
             *sid = dfa
                 .next_eoi_state(cache, *sid)
-                .map_err(|_| gave_up(bytes.len()))?;
+                .map_err(|_| gave_up(haystack.len()))?;
             if sid.is_match() {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, *sid, 0),
-                    offset: bytes.len(),
+                    offset: haystack.len(),
                 }))
             } else {
                 Ok(None)
@@ -634,13 +754,13 @@ fn eoi_fwd(
 fn eoi_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    bytes: &[u8],
+    haystack: &[u8],
     start: usize,
     state: LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if start > 0 {
         let sid = dfa
-            .next_state(cache, state, bytes[start - 1])
+            .next_state(cache, state, haystack[start - 1])
             .map_err(|_| gave_up(start))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
@@ -668,4 +788,11 @@ fn eoi_rev(
 #[inline(always)]
 fn gave_up(offset: usize) -> MatchError {
     MatchError::GaveUp { offset }
+}
+
+/// A convenience routine for constructing a "gave up" match error from a
+/// signed offset.
+#[inline(always)]
+fn gave_upi(offset: isize) -> MatchError {
+    MatchError::GaveUp { offset: offset as usize }
 }

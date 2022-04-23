@@ -94,7 +94,10 @@ use core::convert::TryFrom;
 ///             }
 ///             // Implementors may also want to check for start states and
 ///             // handle them differently for performance reasons. But it is
-///             // not necessary for correctness.
+///             // not necessary for correctness. Note that in order to check
+///             // for start states, you'll need to enable the
+///             // 'specialize_start_states' config knob, otherwise start
+///             // states will not be tagged.
 ///         }
 ///     }
 ///     // Matches are always delayed by 1 byte, so we must explicitly walk
@@ -300,6 +303,11 @@ impl LazyStateID {
 
     /// Return true if and only if this lazy state ID has been tagged as a
     /// start state.
+    ///
+    /// Note that if
+    /// [`Config::specialize_start_states`](crate::hybrid::dfa::Config) is
+    /// disabled (which is the default), then this will always return false
+    /// since start states won't be tagged.
     #[inline]
     pub const fn is_start(&self) -> bool {
         self.as_usize_unchecked() & LazyStateID::MASK_START > 0

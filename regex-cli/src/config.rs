@@ -981,10 +981,40 @@ Will cause the DFA to quit whenever it sees one of 'a', 'b' or 'c'.
             app = app.arg(switch("quit").help(SHORT).long_help(LONG));
         }
         {
-            const SHORT: &str =
-                "Set a size limit, in bytes, on the DFA compiled.";
+            const SHORT: &str = "Enable start state specialization.";
             const LONG: &str = "\
-Set a size limit, in bytes, on the DFA compiled.
+Enable start state specialization.
+
+When start states are specialized, an implementor of a search routine using a
+DFA can tell when the search has entered a starting state. When start states
+aren't specialized, then it is impossible to know whether the search has
+entered a start state.
+
+Ideally, this option wouldn't need to exist and we could always specialize
+start states. The problem is that start states can be quite active. This in
+turn means that an efficient search routine is likely to ping-pong between a
+heavily optimized hot loop that handles most states and to a less optimized
+specialized handling of start states. This causes branches to get heavily
+mispredicted and overall can materially decrease throughput. Therefore,
+specializing start states should only be enabled when it is needed.
+
+Knowing whether a search is in a start state is typically useful when a
+prefilter is active for the search. A prefilter is typically only run when in
+a start state and a prefilter can greatly accelerate a search. Therefore, the
+possible cost of specializing start states is worth it in this case. Otherwise,
+if you have no prefilter, there is likely no reason to specialize start states.
+
+This is disabled by default.
+";
+            app = app.arg(
+                switch("specialize-start-states").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str =
+                "Set a size limit, in bytes, on the compiled DFA.";
+            const LONG: &str = "\
+Set a size limit, in bytes, on the compiled DFA.
 
 This size limit is expressed in bytes and is applied during determinization
 of an NFA into a DFA. If the DFA's heap usage, and only the DFA, exceeds this
@@ -1047,7 +1077,10 @@ The default for this flag is 'none', which sets no size limit.
             .starts_for_each_pattern(
                 args.is_present("starts-for-each-pattern"),
             )
-            .unicode_word_boundary(args.is_present("unicode-word-boundary"));
+            .unicode_word_boundary(args.is_present("unicode-word-boundary"))
+            .specialize_start_states(
+                args.is_present("specialize-start-states"),
+            );
         if let Some(quits) = args.value_of_lossy("quit") {
             for ch in quits.chars() {
                 if !ch.is_ascii() {
@@ -1381,6 +1414,36 @@ Will cause the lazy DFA to quit whenever it sees one of 'a', 'b' or 'c'.
             app = app.arg(switch("quit").help(SHORT).long_help(LONG));
         }
         {
+            const SHORT: &str = "Enable start state specialization.";
+            const LONG: &str = "\
+Enable start state specialization.
+
+When start states are specialized, an implementor of a search routine using
+a lazy DFA can tell when the search has entered a starting state. When start
+states aren't specialized, then it is impossible to know whether the search has
+entered a start state.
+
+Ideally, this option wouldn't need to exist and we could always specialize
+start states. The problem is that start states can be quite active. This in
+turn means that an efficient search routine is likely to ping-pong between a
+heavily optimized hot loop that handles most states and to a less optimized
+specialized handling of start states. This causes branches to get heavily
+mispredicted and overall can materially decrease throughput. Therefore,
+specializing start states should only be enabled when it is needed.
+
+Knowing whether a search is in a start state is typically useful when a
+prefilter is active for the search. A prefilter is typically only run when in
+a start state and a prefilter can greatly accelerate a search. Therefore, the
+possible cost of specializing start states is worth it in this case. Otherwise,
+if you have no prefilter, there is likely no reason to specialize start states.
+
+This is disabled by default.
+";
+            app = app.arg(
+                switch("specialize-start-states").help(SHORT).long_help(LONG),
+            );
+        }
+        {
             const SHORT: &str = "Set the DFA cache capacity, in bytes.";
             const LONG: &str = "\
 Set the DFA cache capacity, in bytes.
@@ -1461,6 +1524,9 @@ technique would likely be superior.
                 args.is_present("starts-for-each-pattern"),
             )
             .unicode_word_boundary(args.is_present("unicode-word-boundary"))
+            .specialize_start_states(
+                args.is_present("specialize-start-states"),
+            )
             .skip_cache_capacity_check(
                 args.is_present("skip-cache-capacity-check"),
             );

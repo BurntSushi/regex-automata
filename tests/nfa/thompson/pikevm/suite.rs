@@ -83,7 +83,31 @@ fn run_test(
         },
         "captures" => {
             match test.search_kind() {
-                ret::SearchKind::Earliest => TestResult::skip(),
+                ret::SearchKind::Earliest => {
+                    let it = re
+                        .captures_earliest_iter(cache, test.input())
+                        .take(test.match_limit().unwrap_or(std::usize::MAX))
+                        .map(|caps| {
+                            // We wouldn't get a non-matching captures in an
+                            // iterator.
+                            assert!(caps.is_match());
+                            let testcaps = caps.iter().map(|m| {
+                                m.map(|m| ret::Span {
+                                    start: m.start(),
+                                    end: m.end(),
+                                })
+                            });
+                            // This unwrap is OK because we know captures is
+                            // a match, and all matches always have the first
+                            // group set.
+                            ret::Captures::new(
+                                caps.pattern().unwrap().as_usize(),
+                                testcaps,
+                            )
+                            .unwrap()
+                        });
+                    TestResult::captures(it)
+                }
                 ret::SearchKind::Leftmost => {
                     let it = re
                         .captures_leftmost_iter(cache, test.input())
@@ -102,14 +126,38 @@ fn run_test(
                             // a match, and all matches always have the first
                             // group set.
                             ret::Captures::new(
-                                caps.pattern().as_usize(),
+                                caps.pattern().unwrap().as_usize(),
                                 testcaps,
                             )
                             .unwrap()
                         });
                     TestResult::captures(it)
                 }
-                ret::SearchKind::Overlapping => TestResult::skip(),
+                ret::SearchKind::Overlapping => {
+                    let it = re
+                        .captures_overlapping_iter(cache, test.input())
+                        .take(test.match_limit().unwrap_or(std::usize::MAX))
+                        .map(|caps| {
+                            // We wouldn't get a non-matching captures in an
+                            // iterator.
+                            assert!(caps.is_match());
+                            let testcaps = caps.iter().map(|m| {
+                                m.map(|m| ret::Span {
+                                    start: m.start(),
+                                    end: m.end(),
+                                })
+                            });
+                            // This unwrap is OK because we know captures is
+                            // a match, and all matches always have the first
+                            // group set.
+                            ret::Captures::new(
+                                caps.pattern().unwrap().as_usize(),
+                                testcaps,
+                            )
+                            .unwrap()
+                        });
+                    TestResult::captures(it)
+                }
             }
         }
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),

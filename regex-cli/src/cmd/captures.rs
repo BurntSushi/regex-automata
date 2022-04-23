@@ -205,13 +205,24 @@ fn search_pikevm(
     }
     match captures.kind() {
         config::SearchKind::Earliest => {
-            todo!()
+            for caps in vm.captures_earliest_iter(cache, haystack) {
+                let pid = caps.pattern().unwrap();
+                for (group_index, m) in caps.iter().enumerate() {
+                    if m.is_some() {
+                        counts[pid][group_index] += 1;
+                    }
+                }
+                if captures.matches() {
+                    write_thompson_captures(vm.nfa(), &caps, buf);
+                }
+            }
         }
         config::SearchKind::Leftmost => {
             for caps in vm.captures_leftmost_iter(cache, haystack) {
+                let pid = caps.pattern().unwrap();
                 for (group_index, m) in caps.iter().enumerate() {
                     if m.is_some() {
-                        counts[caps.pattern()][group_index] += 1;
+                        counts[pid][group_index] += 1;
                     }
                 }
                 if captures.matches() {
@@ -220,7 +231,17 @@ fn search_pikevm(
             }
         }
         config::SearchKind::Overlapping => {
-            todo!()
+            for caps in vm.captures_overlapping_iter(cache, haystack) {
+                let pid = caps.pattern().unwrap();
+                for (group_index, m) in caps.iter().enumerate() {
+                    if m.is_some() {
+                        counts[pid][group_index] += 1;
+                    }
+                }
+                if captures.matches() {
+                    write_thompson_captures(vm.nfa(), &caps, buf);
+                }
+            }
         }
     }
     Ok(counts)
@@ -272,15 +293,14 @@ fn write_thompson_captures(
 ) {
     use std::fmt::Write;
 
-    write!(buf, "{:?}: {{", caps.pattern()).unwrap();
+    let pid = caps.pattern().unwrap();
+    write!(buf, "{:?}: {{", pid).unwrap();
     for (group_index, m) in caps.iter().enumerate() {
         if group_index > 0 {
             write!(buf, ", ").unwrap();
         }
         write!(buf, "{}", group_index).unwrap();
-        if let Some(name) =
-            nfa.capture_index_to_name(caps.pattern(), group_index)
-        {
+        if let Some(name) = nfa.capture_index_to_name(pid, group_index) {
             write!(buf, "/{}", name).unwrap();
         }
         match m {

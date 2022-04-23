@@ -12,7 +12,7 @@ constant overhead associated with them.
 * Scrutinize whether the SparseTransitions and Transition types should have
 their representations expose. The State enum is already totally exposed...
 
-* Provid a more elementary API for 'start_state_forward'.
+* Provide a more elementary API for 'start_state_forward'.
 See: https://github.com/rust-lang/regex/issues/852
 
 * There is an issue where the minimum cache capacity required by the lazy DFA
@@ -20,6 +20,11 @@ is likely too big. This in turn could result in NOT using the lazy DFA even
 if it would be okay. We should either fix the minimum to be closer to the
 actual minimum or maybe not require a minimum? (The problem is that I think the
 minimum is there to avoid runtime panics in degenerate cases...)
+  * Calling this fixed. I did two things. 1) I fixed a bug in the minimum
+  cache capacity calculation where state heap usage (for NFA IDs) was double
+  counters. 2) I also reduced minimum state size from 5 to 4, which is the
+  actual real minimum needed (I think). OK, turns out (2) doesn't work because
+  5 states is the real minimum.
 
 * There's likely some SIMD we can do to improve parts of the PikeVM.
 Specifically, the Sparse state. Maybe PCMPESTI can finally be useful?

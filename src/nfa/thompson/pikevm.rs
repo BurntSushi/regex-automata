@@ -241,52 +241,38 @@ impl PikeVM {
     pub fn nfa(&self) -> &NFA {
         &self.nfa
     }
+}
 
+impl PikeVM {
     pub fn is_match(&self, cache: &mut Cache, haystack: &[u8]) -> bool {
-        // TODO: Fix this. We should need to allocate any captures.
-        let mut caps = self.create_captures();
-        self.find_leftmost(cache, haystack, &mut caps).is_some()
+        let mut caps = Captures::empty(self.nfa.clone());
+        self.find_leftmost(cache, haystack, &mut caps);
+        caps.is_match()
     }
 
-    // BREADCRUMBS:
-    //
-    // 2) Consider the case of using a PikeVM with an NFA that has Capture
-    // states, but where we don't want to track capturing groups (other than
-    // group 0). This potentially saves a lot of copying around and what not. I
-    // believe the current regex crate does this, for example. The interesting
-    // bit here is how to handle the case of multiple patterns... It looks like
-    // we might need a new state to differentiate "capture group" and "pattern
-    // match offsets." Hmm..?
-    //
-    // 3) Permit the caller to specify a pattern ID to run an anchored-only
-    // search on. This is done I guess?
-    //
-    // 4) How to do overlapping? The way multi-regex support works in the regex
-    // crate currently is to run the PikeVM until either we reach the end of
-    // the haystack or when we know all regexes have matched. The latter case
-    // is probably quite rare, so the common case is likely that we're always
-    // searching the entire input. The question is: can we emulate that with
-    // our typical 'overlapping' APIs on DFAs? I believe we can. If so, then
-    // all we need to do is provide an overlapping API on the PikeVM that
-    // roughly matches the ones we provide on DFAs. For those APIs, the only
-    // thing they need over non-overlapping APIs is "caller state." For DFAs,
-    // the caller state is simple: it contains the last state visited and the
-    // last match reported. For the PikeVM (and NFAs in general), the "last
-    // state" is actually a *set* of NFA states. So I think what happens here
-    // is that we can just force the `Cache` to subsume this role. We'll still
-    // need some additional state to track the last match reported though.
-    // Because when two or more patterns match at the same location, we need a
-    // way to know to iterate over them. Although maybe it's not match index we
-    // need, but the state index of the last NFA state processed in the cache.
-    // Then we just pick up where we left off. There might be another match
-    // state, in which case, we report it.
+    pub fn find_earliest(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        caps: &mut Captures,
+    ) {
+        self.find_earliest_at(
+            cache,
+            None,
+            None,
+            haystack,
+            0,
+            haystack.len(),
+            caps,
+        )
+    }
 
     pub fn find_leftmost(
         &self,
         cache: &mut Cache,
         haystack: &[u8],
         caps: &mut Captures,
-    ) -> Option<MultiMatch> {
+    ) {
         self.find_leftmost_at(
             cache,
             None,
@@ -294,6 +280,25 @@ impl PikeVM {
             haystack,
             0,
             haystack.len(),
+            caps,
+        )
+    }
+
+    pub fn find_overlapping(
+        &self,
+        cache: &mut Cache,
+        haystack: &[u8],
+        state: &mut OverlappingState,
+        caps: &mut Captures,
+    ) {
+        self.find_overlapping_at(
+            cache,
+            None,
+            None,
+            haystack,
+            0,
+            haystack.len(),
+            state,
             caps,
         )
     }
@@ -322,12 +327,28 @@ impl PikeVM {
         FindOverlappingMatches::new(self, cache, haystack)
     }
 
+    pub fn captures_earliest_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> CapturesEarliestMatches<'r, 'c, 't> {
+        CapturesEarliestMatches::new(self, cache, haystack)
+    }
+
     pub fn captures_leftmost_iter<'r, 'c, 't>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'t [u8],
     ) -> CapturesLeftmostMatches<'r, 'c, 't> {
         CapturesLeftmostMatches::new(self, cache, haystack)
+    }
+
+    pub fn captures_overlapping_iter<'r, 'c, 't>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'t [u8],
+    ) -> CapturesOverlappingMatches<'r, 'c, 't> {
+        CapturesOverlappingMatches::new(self, cache, haystack)
     }
 
     pub fn find_earliest_at(
@@ -339,7 +360,7 @@ impl PikeVM {
         start: usize,
         end: usize,
         caps: &mut Captures,
-    ) -> Option<MultiMatch> {
+    ) {
         self.find_fwd(true, cache, pre, pattern_id, haystack, start, end, caps)
     }
 
@@ -352,12 +373,30 @@ impl PikeVM {
         start: usize,
         end: usize,
         caps: &mut Captures,
-    ) -> Option<MultiMatch> {
+    ) {
         self.find_fwd(
             false, cache, pre, pattern_id, haystack, start, end, caps,
         )
     }
 
+    pub fn find_overlapping_at(
+        &self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        pattern_id: Option<PatternID>,
+        haystack: &[u8],
+        start: usize,
+        end: usize,
+        state: &mut OverlappingState,
+        caps: &mut Captures,
+    ) {
+        self.find_overlapping_fwd(
+            cache, pre, pattern_id, haystack, start, end, state, caps,
+        )
+    }
+}
+
+impl PikeVM {
     fn find_fwd(
         &self,
         earliest: bool,
@@ -368,7 +407,7 @@ impl PikeVM {
         start: usize,
         end: usize,
         caps: &mut Captures,
-    ) -> Option<MultiMatch> {
+    ) {
         // Why do we even care about this? Well, in our 'Captures'
         // representation, we use usize::MAX as a sentinel to indicate "no
         // match." This isn't problematic so long as our haystack doesn't have
@@ -380,6 +419,8 @@ impl PikeVM {
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
+        caps.set_pattern(None);
+        cache.clear(caps.slot_len());
 
         let match_kind = self.config.get_match_kind();
         let anchored = self.config.get_anchored()
@@ -394,24 +435,21 @@ impl PikeVM {
             None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
-        let mut at = start;
-        let mut matched_pid = None;
 
-        caps.set_pattern(None);
-        cache.clear(caps.slots().len());
         let Cache {
             ref mut stack,
             ref mut scratch_caps,
             ref mut clist,
             ref mut nlist,
         } = cache;
-        'LOOP: while at <= end {
+        let mut at = start;
+        while at <= end {
             if clist.set.is_empty() {
-                if matched_pid.is_some() || (anchored && at > start) {
+                if caps.is_match() || (anchored && at > start) {
                     break;
                 }
             }
-            if clist.set.is_empty() || (!anchored && matched_pid.is_none()) {
+            if clist.set.is_empty() || (!anchored && !caps.is_match()) {
                 self.epsilon_closure(
                     stack,
                     clist,
@@ -421,43 +459,18 @@ impl PikeVM {
                     at,
                 );
             }
-
-            instrument!(|c| c.record_state_set(&clist.list));
-            for sid in clist.list.drain(..) {
-                let thread_caps =
-                    &mut clist.caps[sid].slots[..caps.slots().len()];
-                let pid = match self.step(
-                    stack,
-                    nlist,
-                    thread_caps,
-                    sid,
-                    haystack,
-                    at,
-                ) {
-                    None => continue,
-                    Some(pid) => pid,
-                };
-                caps.set_pattern(Some(pid));
-                caps.slots_mut().copy_from_slice(thread_caps);
-                matched_pid = Some(pid);
-                if earliest {
-                    break 'LOOP;
-                } else if !match_kind.continue_past_first_match() {
-                    break;
-                }
+            if self.steps(stack, clist, nlist, haystack, at, caps) && earliest
+            {
+                break;
             }
             at += 1;
             core::mem::swap(clist, nlist);
             nlist.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
-        matched_pid.map(|pid| {
-            let m = caps.get(0).unwrap();
-            MultiMatch::new(pid, m.start(), m.end())
-        })
     }
 
-    fn find_overlapping_at(
+    fn find_overlapping_fwd(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
@@ -465,52 +478,44 @@ impl PikeVM {
         haystack: &[u8],
         start: usize,
         end: usize,
+        state: &mut OverlappingState,
         caps: &mut Captures,
-        caller_state: &mut OverlappingState,
-    ) -> Option<MultiMatch> {
-        // Why do we even care about this? Well, in our 'Captures'
-        // representation, we use usize::MAX as a sentinel to indicate "no
-        // match." This isn't problematic so long as our haystack doesn't have
-        // a maximal length. Byte slices are guaranteed by Rust to have a
-        // length that fits into isize, and so this assert should always pass.
-        // But we put it here to make our assumption explicit.
+    ) {
+        // NOTE: See 'find_fwd' for some commentary on this routine. We don't
+        // duplicate the comments here to avoid them getting out of sync.
+
         assert!(
             haystack.len() < core::usize::MAX,
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
+        caps.set_pattern(None);
+        if state.step_index.is_none() {
+            cache.clear(caps.slot_len());
+        }
 
         let match_kind = self.config.get_match_kind();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || pattern_id.is_some();
         let start_id = match pattern_id {
-            // We always use the anchored starting state here, even if doing an
-            // unanchored search. The "unanchored" part of it is implemented
-            // in the loop below, by computing the epsilon closure from the
-            // anchored starting state whenever the current state set list is
-            // empty.
             None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
-        let mut at = start;
 
-        caps.set_pattern(None);
-        if caller_state.step_index.is_none() {
-            cache.clear(caps.slots().len());
-        }
         let Cache {
             ref mut stack,
             ref mut scratch_caps,
             ref mut clist,
             ref mut nlist,
         } = cache;
-        'LOOP: while at <= end {
+        let mut at = start;
+        while at <= end {
             if anchored && clist.set.is_empty() && at > start {
                 break;
             }
-            if caller_state.step_index.is_none()
-                && !caller_state.matched
+            if state.step_index.is_none()
+                && !state.matched
                 && (clist.set.is_empty() || !anchored)
             {
                 self.epsilon_closure(
@@ -522,28 +527,10 @@ impl PikeVM {
                     at,
                 );
             }
-
-            instrument!(|c| c.record_state_set(&clist.list));
-            let index = caller_state.step_index.take().unwrap_or(0);
-            for (i, &sid) in clist.list.iter().enumerate().skip(index) {
-                let thread_caps =
-                    &mut clist.caps[sid].slots[..caps.slots().len()];
-                let pid = match self.step(
-                    stack,
-                    nlist,
-                    thread_caps,
-                    sid,
-                    haystack,
-                    at,
-                ) {
-                    None => continue,
-                    Some(pid) => pid,
-                };
-                caps.set_pattern(Some(pid));
-                caps.slots_mut().copy_from_slice(thread_caps);
-                caller_state.step_index = Some(i.checked_add(1).unwrap());
-                caller_state.matched = !match_kind.continue_past_first_match();
-                break 'LOOP;
+            if self.steps_overlapping(
+                stack, clist, nlist, haystack, at, state, caps,
+            ) {
+                break;
             }
             at += 1;
             core::mem::swap(clist, nlist);
@@ -551,11 +538,63 @@ impl PikeVM {
             nlist.list.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
-        caps.get_match()
     }
-}
 
-impl PikeVM {
+    #[inline(always)]
+    fn steps(
+        &self,
+        stack: &mut Vec<FollowEpsilon>,
+        clist: &mut Threads,
+        nlist: &mut Threads,
+        haystack: &[u8],
+        at: usize,
+        caps: &mut Captures,
+    ) -> bool {
+        let mut matched = false;
+        instrument!(|c| c.record_state_set(&clist.list));
+        for sid in clist.list.drain(..) {
+            let slots = &mut clist.caps[sid].slots[..caps.slot_len()];
+            let pid = match self.step(stack, nlist, slots, sid, haystack, at) {
+                None => continue,
+                Some(pid) => pid,
+            };
+            matched = true;
+            copy_to_captures(pid, slots, caps);
+            if !self.config.get_match_kind().continue_past_first_match() {
+                break;
+            }
+        }
+        matched
+    }
+
+    #[inline(always)]
+    fn steps_overlapping(
+        &self,
+        stack: &mut Vec<FollowEpsilon>,
+        clist: &mut Threads,
+        nlist: &mut Threads,
+        haystack: &[u8],
+        at: usize,
+        state: &mut OverlappingState,
+        caps: &mut Captures,
+    ) -> bool {
+        instrument!(|c| c.record_state_set(&clist.list));
+        let index = state.step_index.take().unwrap_or(0);
+        for (i, &sid) in clist.list.iter().enumerate().skip(index) {
+            let slots = &mut clist.caps[sid].slots[..caps.slot_len()];
+            let pid = match self.step(stack, nlist, slots, sid, haystack, at) {
+                None => continue,
+                Some(pid) => pid,
+            };
+            copy_to_captures(pid, slots, caps);
+            state.step_index = Some(i.checked_add(1).unwrap());
+            state.matched =
+                !self.config.get_match_kind().continue_past_first_match();
+            return true;
+        }
+        false
+    }
+
     #[inline(always)]
     fn step(
         &self,
@@ -575,30 +614,32 @@ impl PikeVM {
             | State::Capture { .. } => None,
             State::ByteRange { ref trans } => {
                 if trans.matches(haystack, at) {
+                    // OK because 'at <= haystack.len() < usize::MAX', so
+                    // adding 1 will never wrap.
+                    let at = at.wrapping_add(1);
                     self.epsilon_closure(
                         stack,
                         nlist,
                         thread_caps,
                         trans.next,
                         haystack,
-                        // OK because 'at <= haystack.len() < usize::MAX', so
-                        // adding 1 will never wrap.
-                        at.wrapping_add(1),
+                        at,
                     );
                 }
                 None
             }
             State::Sparse(ref sparse) => {
                 if let Some(next) = sparse.matches(haystack, at) {
+                    // OK because 'at <= haystack.len() < usize::MAX', so
+                    // adding 1 will never wrap.
+                    let at = at.wrapping_add(1);
                     self.epsilon_closure(
                         stack,
                         nlist,
                         thread_caps,
                         next,
                         haystack,
-                        // OK because 'at <= haystack.len() < usize::MAX', so
-                        // adding 1 will never wrap.
-                        at.wrapping_add(1),
+                        at,
                     );
                 }
                 None
@@ -730,7 +771,7 @@ impl PikeVM {
 pub struct FindEarliestMatches<'r, 'c, 't> {
     vm: &'r PikeVM,
     cache: &'c mut Cache,
-    // scanner: Option<prefilter::Scanner<'r>>,
+    captures: Captures,
     text: &'t [u8],
     last_end: usize,
     last_match: Option<usize>,
@@ -742,7 +783,15 @@ impl<'r, 'c, 't> FindEarliestMatches<'r, 'c, 't> {
         cache: &'c mut Cache,
         text: &'t [u8],
     ) -> FindEarliestMatches<'r, 'c, 't> {
-        FindEarliestMatches { vm, cache, text, last_end: 0, last_match: None }
+        let captures = Captures::new_for_matches_only(vm.nfa().clone());
+        FindEarliestMatches {
+            vm,
+            cache,
+            captures,
+            text,
+            last_end: 0,
+            last_match: None,
+        }
     }
 }
 
@@ -753,16 +802,16 @@ impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
         if self.last_end > self.text.len() {
             return None;
         }
-        let mut caps = self.vm.create_captures();
-        let m = self.vm.find_earliest_at(
+        self.vm.find_earliest_at(
             self.cache,
             None,
             None,
             self.text,
             self.last_end,
             self.text.len(),
-            &mut caps,
-        )?;
+            &mut self.captures,
+        );
+        let m = self.captures.get_match()?;
         Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
     }
 }
@@ -783,7 +832,6 @@ pub struct FindLeftmostMatches<'r, 'c, 't> {
     vm: &'r PikeVM,
     cache: &'c mut Cache,
     captures: Captures,
-    // scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
     last_match: Option<usize>,
@@ -795,8 +843,7 @@ impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
         cache: &'c mut Cache,
         text: &'t [u8],
     ) -> FindLeftmostMatches<'r, 'c, 't> {
-        let mut captures = vm.create_captures();
-        captures.only_match_slots();
+        let captures = Captures::new_for_matches_only(vm.nfa().clone());
         FindLeftmostMatches {
             vm,
             cache,
@@ -809,15 +856,13 @@ impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
 }
 
 impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
-    // type Item = Captures;
     type Item = MultiMatch;
 
-    // fn next(&mut self) -> Option<Captures> {
     fn next(&mut self) -> Option<MultiMatch> {
         if self.last_end > self.text.len() {
             return None;
         }
-        let m = self.vm.find_leftmost_at(
+        self.vm.find_leftmost_at(
             self.cache,
             None,
             None,
@@ -825,7 +870,8 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
             self.last_end,
             self.text.len(),
             &mut self.captures,
-        )?;
+        );
+        let m = self.captures.get_match()?;
         Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
     }
 }
@@ -834,11 +880,10 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
 pub struct FindOverlappingMatches<'r, 'c, 't> {
     vm: &'r PikeVM,
     cache: &'c mut Cache,
+    state: OverlappingState,
     captures: Captures,
-    // scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
-    state: OverlappingState,
 }
 
 impl<'r, 'c, 't> FindOverlappingMatches<'r, 'c, 't> {
@@ -847,15 +892,15 @@ impl<'r, 'c, 't> FindOverlappingMatches<'r, 'c, 't> {
         cache: &'c mut Cache,
         text: &'t [u8],
     ) -> FindOverlappingMatches<'r, 'c, 't> {
-        let mut captures = vm.create_captures();
-        captures.only_match_slots();
+        let state = OverlappingState::start();
+        let captures = Captures::new_for_matches_only(vm.nfa().clone());
         FindOverlappingMatches {
             vm,
             cache,
+            state,
             captures,
             text,
             last_end: 0,
-            state: OverlappingState::start(),
         }
     }
 }
@@ -867,17 +912,66 @@ impl<'r, 'c, 't> Iterator for FindOverlappingMatches<'r, 'c, 't> {
         if self.last_end > self.text.len() {
             return None;
         }
-        let m = self.vm.find_overlapping_at(
+        self.vm.find_overlapping_at(
             self.cache,
             None,
             None,
             self.text,
             self.last_end,
             self.text.len(),
-            &mut self.captures,
             &mut self.state,
-        )?;
+            &mut self.captures,
+        );
+        let m = self.captures.get_match()?;
         Some(handle_iter_match_overlapping!(self, m))
+    }
+}
+
+#[derive(Debug)]
+pub struct CapturesEarliestMatches<'r, 'c, 't> {
+    vm: &'r PikeVM,
+    cache: &'c mut Cache,
+    text: &'t [u8],
+    last_end: usize,
+    last_match: Option<usize>,
+}
+
+impl<'r, 'c, 't> CapturesEarliestMatches<'r, 'c, 't> {
+    fn new(
+        vm: &'r PikeVM,
+        cache: &'c mut Cache,
+        text: &'t [u8],
+    ) -> CapturesEarliestMatches<'r, 'c, 't> {
+        CapturesEarliestMatches {
+            vm,
+            cache,
+            text,
+            last_end: 0,
+            last_match: None,
+        }
+    }
+}
+
+impl<'r, 'c, 't> Iterator for CapturesEarliestMatches<'r, 'c, 't> {
+    type Item = Captures;
+
+    fn next(&mut self) -> Option<Captures> {
+        if self.last_end > self.text.len() {
+            return None;
+        }
+        let mut caps = self.vm.create_captures();
+        self.vm.find_earliest_at(
+            self.cache,
+            None,
+            None,
+            self.text,
+            self.last_end,
+            self.text.len(),
+            &mut caps,
+        );
+        let m = caps.get_match()?;
+        handle_iter_match!(self, m, self.vm.config.get_utf8());
+        Some(caps)
     }
 }
 
@@ -896,7 +990,6 @@ impl<'r, 'c, 't> Iterator for FindOverlappingMatches<'r, 'c, 't> {
 pub struct CapturesLeftmostMatches<'r, 'c, 't> {
     vm: &'r PikeVM,
     cache: &'c mut Cache,
-    // scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
     last_end: usize,
     last_match: Option<usize>,
@@ -926,7 +1019,7 @@ impl<'r, 'c, 't> Iterator for CapturesLeftmostMatches<'r, 'c, 't> {
             return None;
         }
         let mut caps = self.vm.create_captures();
-        let m = self.vm.find_leftmost_at(
+        self.vm.find_leftmost_at(
             self.cache,
             None,
             None,
@@ -934,8 +1027,61 @@ impl<'r, 'c, 't> Iterator for CapturesLeftmostMatches<'r, 'c, 't> {
             self.last_end,
             self.text.len(),
             &mut caps,
-        )?;
+        );
+        let m = caps.get_match()?;
         handle_iter_match!(self, m, self.vm.config.get_utf8());
+        Some(caps)
+    }
+}
+
+#[derive(Debug)]
+pub struct CapturesOverlappingMatches<'r, 'c, 't> {
+    vm: &'r PikeVM,
+    cache: &'c mut Cache,
+    state: OverlappingState,
+    text: &'t [u8],
+    last_end: usize,
+    last_match: Option<usize>,
+}
+
+impl<'r, 'c, 't> CapturesOverlappingMatches<'r, 'c, 't> {
+    fn new(
+        vm: &'r PikeVM,
+        cache: &'c mut Cache,
+        text: &'t [u8],
+    ) -> CapturesOverlappingMatches<'r, 'c, 't> {
+        let state = OverlappingState::start();
+        CapturesOverlappingMatches {
+            vm,
+            cache,
+            state,
+            text,
+            last_end: 0,
+            last_match: None,
+        }
+    }
+}
+
+impl<'r, 'c, 't> Iterator for CapturesOverlappingMatches<'r, 'c, 't> {
+    type Item = Captures;
+
+    fn next(&mut self) -> Option<Captures> {
+        if self.last_end > self.text.len() {
+            return None;
+        }
+        let mut caps = self.vm.create_captures();
+        self.vm.find_overlapping_at(
+            self.cache,
+            None,
+            None,
+            self.text,
+            self.last_end,
+            self.text.len(),
+            &mut self.state,
+            &mut caps,
+        );
+        let m = caps.get_match()?;
+        handle_iter_match_overlapping!(self, m);
         Some(caps)
     }
 }
@@ -966,8 +1112,6 @@ enum FollowEpsilon {
     Capture { slot: usize, pos: Slot },
 }
 
-type Slots = Box<[Option<NonMaxUsize>]>;
-
 type Slot = Option<NonMaxUsize>;
 
 #[derive(Clone, Debug)]
@@ -980,7 +1124,7 @@ struct Threads {
 
 #[derive(Clone, Debug)]
 struct Thread {
-    slots: Slots,
+    slots: Box<[Option<NonMaxUsize>]>,
 }
 
 impl Cache {
@@ -1034,6 +1178,13 @@ impl Thread {
     fn new(nfa: &NFA) -> Thread {
         let slots = vec![None; nfa.capture_slot_len()].into_boxed_slice();
         Thread { slots }
+    }
+}
+
+fn copy_to_captures(pid: PatternID, slots: &mut [Slot], caps: &mut Captures) {
+    caps.set_pattern(Some(pid));
+    for (i, &slot) in slots.iter().enumerate() {
+        caps.set_slot(i, slot.map(|s| s.get()));
     }
 }
 

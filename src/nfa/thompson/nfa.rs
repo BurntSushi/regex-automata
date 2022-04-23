@@ -112,15 +112,37 @@ use crate::{
 /// let mut caps = vm.create_captures();
 ///
 /// let expected = Some(MultiMatch::must(0, 0, 8));
-/// let found = vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
-/// assert_eq!(expected, found);
+/// vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
+/// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
 /// # Example: resolving capturing groups
 ///
-/// TODO
+/// This example shows how to parse some simple dates and extract the
+/// components of each date via capturing groups.
+///
+/// ```
+/// use regex_automata::nfa::thompson::{Captures, NFA, pikevm::PikeVM};
+///
+/// let nfa = NFA::new(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})")?;
+/// let vm = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = vm.create_cache();
+/// let mut caps = vm.create_captures();
+///
+/// let haystack = "2012-03-14, 2013-01-01 and 2014-07-05";
+/// let all: Vec<Captures> = vm.captures_leftmost_iter(
+///     &mut cache, haystack.as_bytes()
+/// ).collect();
+/// // There should be a total of 3 matches.
+/// assert_eq!(3, all.len());
+/// // The year from the second match is '2013'.
+/// let m = all[1].get_group_by_name("y").unwrap();
+/// assert_eq!("2013", &haystack[m.start()..m.end()]);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone)]
 pub struct NFA(
     // We make NFAs reference counted primarily for two reasons. First is that
@@ -153,8 +175,8 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 0, 8));
-    /// let found = vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
-    /// assert_eq!(expected, found);
+    /// vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
+    /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -178,8 +200,8 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(1, 0, 3));
-    /// let found = vm.find_leftmost(&mut cache, b"foo12345bar", &mut caps);
-    /// assert_eq!(expected, found);
+    /// vm.find_leftmost(&mut cache, b"foo12345bar", &mut caps);
+    /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -200,10 +222,10 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 0, 0));
-    /// let found = vm.find_leftmost(&mut cache, b"", &mut caps);
-    /// assert_eq!(expected, found);
-    /// let found = vm.find_leftmost(&mut cache, b"foo", &mut caps);
-    /// assert_eq!(expected, found);
+    /// vm.find_leftmost(&mut cache, b"", &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    /// vm.find_leftmost(&mut cache, b"foo", &mut caps);
+    /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -244,10 +266,10 @@ impl NFA {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let found = vm.find_leftmost(&mut cache, b"", &mut caps);
-    /// assert_eq!(None, found);
-    /// let found = vm.find_leftmost(&mut cache, b"foo", &mut caps);
-    /// assert_eq!(None, found);
+    /// vm.find_leftmost(&mut cache, b"", &mut caps);
+    /// assert!(!caps.is_match());
+    /// vm.find_leftmost(&mut cache, b"foo", &mut caps);
+    /// assert!(!caps.is_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -277,8 +299,8 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 1, 4));
-    /// let found = vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
-    /// assert_eq!(expected, found);
+    /// vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
+    /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -312,8 +334,8 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 1, 5));
-    /// let found = vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
-    /// assert_eq!(expected, found);
+    /// vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
+    /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -2049,32 +2071,6 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 pub struct Captures {
     nfa: NFA,
     pid: Option<PatternID>,
-    // TODO: There are other choices for this representation. At minimum, we
-    // MUST have the ability to detect presence/absence, because in a match,
-    // not all capturing groups may participate in it. For example,
-    // in '(?P<a>\d)|(?P<b>\s)', 'a' and 'b' are mutually exclusive and we need
-    // to be able to say: "'a' did not match but 'b' did."
-    //
-    // 1) We could say that 'usize::MAX' never happens, and treat it as a
-    // sentinel. I'm not sure if I'm comfortable with this. We could make the
-    // failure mode explicit by panicking if 'haystack.len() == usize::MAX'.
-    //
-    // 2) Like (1), but use 'Vec<Option<NonZeroUsize>>' and then doing
-    // arithmetic to correct it on access... Which is kind of a bummer.
-    //
-    // 3) We could use Vec<usize> and add a bitset keeping track of which
-    // slots are active. This would use less memory, but would require more
-    // book-keeping.
-    //
-    // 4) Stick with Vec<Option<usize>>. It uses twice the memory of Vec<usize>
-    // sadly.
-    //
-    // 5) We could use '*const u8' as a pointer into the haystack. It's
-    // word-sized, can be NULL and would let us compute offsets all in safe
-    // Rust. But, that's the rub: we'd have to "compute" offsets, just like if
-    // we used Vec<Option<NonZeroUsize>>. So if we have to compute stuff, we
-    // might as well just go with the NonZeroUsize approach.
-    // slots: Vec<Option<usize>>,
     slots: Vec<Option<NonMaxUsize>>,
 }
 
@@ -2084,106 +2080,97 @@ impl Captures {
         Captures { nfa, pid: None, slots: vec![None; slots] }
     }
 
+    pub fn new_for_matches_only(nfa: NFA) -> Captures {
+        // This is OK because we know there are at least this many slots,
+        // and NFA construction guarantees that the number of slots fits
+        // into a usize.
+        let slots = nfa.pattern_len().checked_mul(2).unwrap();
+        Captures { nfa, pid: None, slots: vec![None; slots] }
+    }
+
+    pub fn empty(nfa: NFA) -> Captures {
+        Captures { nfa, pid: None, slots: vec![] }
+    }
+
     pub fn is_match(&self) -> bool {
         self.pid.is_some()
     }
 
-    pub fn pattern(&self) -> PatternID {
-        self.pid.expect("can only be called after a successful match")
+    pub fn pattern(&self) -> Option<PatternID> {
+        self.pid
     }
 
     pub fn get_match(&self) -> Option<MultiMatch> {
         let pid = self.pid?;
-        let m = self.get(0)?;
+        let m = self.get_group(0)?;
         Some(MultiMatch::new(pid, m.start(), m.end()))
     }
 
-    pub fn get(&self, group_index: usize) -> Option<Match> {
-        let pid = self.pattern();
-        let (slot_start, slot_end) = self.nfa.slots(pid, group_index);
+    pub fn get_group(&self, index: usize) -> Option<Match> {
+        let pid = self.pattern()?;
+        let (slot_start, slot_end) = self.nfa.slots(pid, index);
         let start = self.slots[slot_start]?;
         let end = self.slots[slot_end]?;
         Some(Match::new(start.get(), end.get()))
     }
 
-    pub fn get_name(&self, name: &str) -> Option<Match> {
-        let index = self.nfa.capture_name_to_index(self.pattern(), name)?;
-        self.get(index)
+    pub fn get_group_by_name(&self, name: &str) -> Option<Match> {
+        let index = self.nfa.capture_name_to_index(self.pattern()?, name)?;
+        self.get_group(index)
     }
 
-    pub fn reset(&mut self) {
+    pub fn iter(&self) -> CapturesPatternIter<'_> {
+        let names = self
+            .pattern()
+            .map(|pid| self.nfa.pattern_capture_names(pid).enumerate());
+        CapturesPatternIter { caps: self, names }
+    }
+
+    pub fn clear(&mut self) {
         self.pid = None;
         for slot in self.slots.iter_mut() {
             *slot = None;
         }
     }
 
-    pub fn no_slots(&mut self) {
-        self.slots.clear();
-    }
-
-    pub fn only_match_slots(&mut self) {
-        if self.nfa.capture_slot_len() == 0 {
-            return;
-        }
-        // This is OK because we know there are at least this many slots,
-        // and NFA construction guarantees that the number of slots fits
-        // into a usize.
-        let pattern_slots = self.nfa.pattern_len().checked_mul(2).unwrap();
-        self.slots.resize(pattern_slots, None);
-    }
-
-    pub fn all_slots(&mut self) {
-        self.slots.resize(self.nfa.capture_slot_len(), None);
-    }
-
     pub fn set_pattern(&mut self, pid: Option<PatternID>) {
         self.pid = pid;
     }
 
-    pub fn set_slot(&mut self, slot: usize, at: usize) {
+    pub fn group_len(&self) -> usize {
+        let pid = match self.pattern() {
+            None => return 0,
+            Some(pid) => pid,
+        };
+        self.nfa.pattern_capture_count(pid)
+    }
+
+    pub fn get_slot(&mut self, slot: usize) -> Option<usize> {
+        self.slots[slot].map(|s| s.get())
+    }
+
+    pub fn set_slot(&mut self, slot: usize, at: Option<usize>) {
         // OK because length of a slice must fit into an isize.
-        self.slots[slot] = Some(NonMaxUsize::new(at).unwrap());
+        self.slots[slot] = at.and_then(NonMaxUsize::new);
     }
 
-    pub fn clear_slot(&mut self, slot: usize) {
-        self.slots[slot] = None;
-    }
-
-    // TODO: Gotta figure out how to get rid of this so we don't expose our
-    // representation... Will probably need to introduce a layer of abstraction
-    // in the Pike VM?
-    pub(crate) fn slots(&self) -> &[Option<NonMaxUsize>] {
-        &self.slots
-    }
-
-    pub(crate) fn slots_mut(&mut self) -> &mut [Option<NonMaxUsize>] {
-        &mut self.slots
-    }
-
-    pub fn len(&self) -> usize {
-        self.nfa.pattern_capture_count(self.pattern())
-    }
-
-    pub fn iter(&self) -> CapturesPatternIter<'_> {
-        let pid = self.pattern();
-        let names = self.nfa.pattern_capture_names(pid).enumerate();
-        CapturesPatternIter { caps: self, names }
+    pub fn slot_len(&self) -> usize {
+        self.slots.len()
     }
 }
 
 #[derive(Debug)]
 pub struct CapturesPatternIter<'a> {
     caps: &'a Captures,
-    names: core::iter::Enumerate<PatternCaptureNames<'a>>,
+    names: Option<core::iter::Enumerate<PatternCaptureNames<'a>>>,
 }
 
 impl<'a> Iterator for CapturesPatternIter<'a> {
     type Item = Option<Match>;
 
     fn next(&mut self) -> Option<Option<Match>> {
-        let (group_index, _) = self.names.next()?;
-        Some(self.caps.get(group_index))
+        let (group_index, _) = self.names.as_mut()?.next()?;
+        Some(self.caps.get_group(group_index))
     }
 }
 
@@ -2201,8 +2188,8 @@ mod tests {
         let mut find = |input, start, end| {
             vm.find_leftmost_at(
                 &mut cache, None, None, input, start, end, &mut caps,
-            )
-            .map(|m| m.end())
+            );
+            caps.get_match().map(|m| m.end())
         };
 
         assert_eq!(Some(0), find(b"", 0, 0));
@@ -2222,8 +2209,8 @@ mod tests {
         let mut find = |input, start, end| {
             vm.find_leftmost_at(
                 &mut cache, None, None, input, start, end, &mut caps,
-            )
-            .map(|m| m.end())
+            );
+            caps.get_match().map(|m| m.end())
         };
 
         assert_eq!(None, find(b"", 0, 0));
