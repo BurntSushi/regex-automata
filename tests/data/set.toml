@@ -1,3 +1,5 @@
+# Basic multi-regex tests.
+
 [[tests]]
 name = "basic10"
 regexes = ["a", "a"]
@@ -282,6 +284,8 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
+# These test cases where one of the regexes matches the empty string.
+
 [[tests]]
 name = "empty10"
 regexes = ["", "a"]
@@ -490,6 +494,8 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
+# These test cases where there are no matches.
+
 [[tests]]
 name = "nomatch10"
 regexes = ["a", "a"]
@@ -521,3 +527,75 @@ input = "notrooted"
 matches = []
 match_kind = "all"
 search_kind = "overlapping"
+
+# These test multi-regex searches with capture groups.
+
+[[tests]]
+name = "caps-010"
+regexes = ['^(\w+) (\w+)$', '^(\S+) (\S+)$']
+input = "Bruce Springsteen"
+matches = [
+  { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
+  { id = 1, spans = [[0, 17], [0, 5], [6, 17]] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+unicode = false
+
+[[tests]]
+name = "caps-020"
+regexes = ['^(\w+) (\w+)$', '^[A-Z](\S+) [A-Z](\S+)$']
+input = "Bruce Springsteen"
+matches = [
+  { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
+  { id = 1, spans = [[0, 17], [1, 5], [7, 17]] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+unicode = false
+
+[[tests]]
+name = "caps-030"
+regexes = ['^(\w+) (\w+)$', '^([A-Z])(\S+) ([A-Z])(\S+)$']
+input = "Bruce Springsteen"
+matches = [
+  { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
+  { id = 1, spans = [[0, 17], [0, 1], [1, 5], [6, 7], [7, 17]] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+unicode = false
+
+[[tests]]
+name = "caps-110"
+regexes = ['(\w+) (\w+)', '(\S+) (\S+)']
+input = "Bruce Springsteen"
+matches = [
+  { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
+]
+match_kind = "leftmost-first"
+search_kind = "leftmost"
+unicode = false
+
+[[tests]]
+name = "caps-120"
+regexes = ['(\w+) (\w+)', '(\S+) (\S+)']
+input = "&ruce $pringsteen"
+matches = [
+  { id = 1, spans = [[0, 17], [0, 5], [6, 17]] },
+]
+match_kind = "leftmost-first"
+search_kind = "leftmost"
+unicode = false
+
+[[tests]]
+name = "caps-121"
+regexes = ['(\w+) (\w+)', '(\S+) (\S+)']
+input = "&ruce $pringsteen Foo Bar"
+matches = [
+  { id = 1, spans = [[0, 17], [0, 5], [6, 17]] },
+  { id = 0, spans = [[18, 25], [18, 21], [22, 25]] },
+]
+match_kind = "leftmost-first"
+search_kind = "leftmost"
+unicode = false

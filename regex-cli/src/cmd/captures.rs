@@ -201,7 +201,7 @@ fn search_pikevm(
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; vm.nfa().pattern_len()];
     for pid in vm.nfa().patterns() {
-        counts[pid] = vec![0; vm.nfa().pattern_capture_count(pid)];
+        counts[pid] = vec![0; vm.nfa().pattern_capture_len(pid)];
     }
     match captures.kind() {
         config::SearchKind::Earliest => {

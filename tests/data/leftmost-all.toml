@@ -1,5 +1,5 @@
 [[tests]]
-name = "basic-alt"
+name = "alt"
 regex = 'foo|foobar'
 input = "foobar"
 matches = [[0, 6]]
@@ -7,7 +7,7 @@ match_kind = "all"
 search_kind = "leftmost"
 
 [[tests]]
-name = "basic-multi"
+name = "multi"
 regexes = ['foo', 'foobar']
 input = "foobar"
 matches = [

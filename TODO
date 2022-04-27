@@ -8,6 +8,10 @@ benchmarked.
 determinization, even though it makes determinization substantially faster.
 This might be because of its use of sparse NFA states, which have a lower
 constant overhead associated with them.
+  * IDEA: Maybe the "shrinking" part of this isn't really helping as much as
+  I think, and it really is just the sparse states. So... Is there a way to
+  use the faster shrinking strategy while making use of sparse states? That
+  could be a really huge win.
 
 * Scrutinize whether the SparseTransitions and Transition types should have
 their representations expose. The State enum is already totally exposed...

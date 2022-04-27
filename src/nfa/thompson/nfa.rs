@@ -35,7 +35,7 @@ use crate::{
 /// 1. Detection of a match.
 /// 2. Location of a match, including both the start and end offset, in a
 /// single pass of the haystack.
-/// 3. Resolves capturing groups.
+/// 3. Location of matching capturing groups.
 /// 4. Handles multiple patterns, including (1)-(3) when multiple patterns are
 /// present.
 ///
@@ -649,6 +649,11 @@ impl NFA {
     /// If either the pattern ID or the capture index is invalid, then this
     /// panics.
     ///
+    /// This also panics for all inputs if captures are not enabled for this
+    /// NFA or are not present for the given pattern. To check whether captures
+    /// are both enabled for the NFA and are present for a specific pattern,
+    /// use [`NFA::pattern_capture_len`].
+    ///
     /// # Example
     ///
     /// This example shows that the starting slots for the first capturing
@@ -667,7 +672,7 @@ impl NFA {
     /// ```
     #[inline]
     pub fn slot(&self, pid: PatternID, capture_index: usize) -> usize {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
+        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
         self.0.slot(pid, capture_index)
     }
 
@@ -691,6 +696,11 @@ impl NFA {
     ///
     /// If either the pattern ID or the capture index is invalid, then this
     /// panics.
+    ///
+    /// This also panics for all inputs if captures are not enabled for this
+    /// NFA or are not present for the given pattern. To check whether captures
+    /// are both enabled for the NFA and are present for a specific pattern,
+    /// use [`NFA::pattern_capture_len`].
     ///
     /// # Example
     ///
@@ -718,7 +728,6 @@ impl NFA {
         pid: PatternID,
         capture_index: usize,
     ) -> (usize, usize) {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
         let start = self.0.slot(pid, capture_index);
         // This will never wrap because NFA construction guarantees that all
         // slot values fit in a usize at construction time.
@@ -732,6 +741,11 @@ impl NFA {
     /// # Panics
     ///
     /// If the given pattern ID is invalid, then this panics.
+    ///
+    /// This also panics for all inputs if captures are not enabled for this
+    /// NFA or are not present for the given pattern. To check whether captures
+    /// are both enabled for the NFA and are present for a specific pattern,
+    /// use [`NFA::pattern_capture_len`].
     ///
     /// # Example
     ///
@@ -748,21 +762,19 @@ impl NFA {
     /// let (pid0, pid1) = (PatternID::must(0), PatternID::must(1));
     ///
     /// let nfa = NFA::new_many(&[
-    ///     r"a(?P<inner>\w+)z(?P<trailing>\s+)",
-    ///     r"a(?P<inner>\d+)z",
+    ///     r"a(?P<quux>\w+)z(?P<foo>\s+)",
+    ///     r"a(?P<foo>\d+)z",
     /// ])?;
-    /// let inner0 = nfa.capture_name_to_index(pid0, "inner");
+    /// assert_eq!(Some(2), nfa.capture_name_to_index(pid0, "foo"));
     /// // Recall that capture index 0 is always unnamed and refers to the
     /// // entire pattern. So the first capturing group present in the pattern
     /// // itself always starts at index 1.
-    /// assert_eq!(Some(1), inner0);
-    /// let inner1 = nfa.capture_name_to_index(pid1, "inner");
-    /// assert_eq!(inner0, inner1);
+    /// assert_eq!(Some(1), nfa.capture_name_to_index(pid1, "foo"));
     ///
     /// // And if a name does not exist for a particular pattern, None is
     /// // returned.
-    /// assert!(nfa.capture_name_to_index(pid0, "trailing").is_some());
-    /// assert!(nfa.capture_name_to_index(pid1, "trailing").is_none());
+    /// assert!(nfa.capture_name_to_index(pid0, "quux").is_some());
+    /// assert!(nfa.capture_name_to_index(pid1, "quux").is_none());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -772,33 +784,214 @@ impl NFA {
         pid: PatternID,
         name: &str,
     ) -> Option<usize> {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
-        self.0.capture_name_to_index[pid].get(name).cloned()
+        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
+        let indices = &self.0.capture_name_to_index[pid];
+        indices.get(name).cloned()
     }
 
+    /// Return the capture name for the given index and given pattern. If the
+    /// corresponding group does not have a name, then this returns `None`.
+    ///
+    /// # Panics
+    ///
+    /// If the pattern ID is invalid, then this panics.
+    ///
+    /// If the group index is invalid for the given pattern, then this panics.
+    /// A group `index` is valid for a pattern `pid` in an `nfa` if and only if
+    /// `index < nfa.pattern_capture_len(pid)`.
+    ///
+    /// This also panics for all inputs if captures are not enabled for this
+    /// NFA or are not present for the given pattern. To check whether captures
+    /// are both enabled for the NFA and are present for a specific pattern,
+    /// use [`NFA::pattern_capture_len`].
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find the capture group name for the given
+    /// pattern and group index.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let (pid0, pid1) = (PatternID::must(0), PatternID::must(1));
+    ///
+    /// let nfa = NFA::new_many(&[
+    ///     r"a(?P<foo>\w+)z(\s+)x(\d+)",
+    ///     r"a(\d+)z(?P<foo>\s+)",
+    /// ])?;
+    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 0));
+    /// assert_eq!(Some("foo"), nfa.capture_index_to_name(pid0, 1));
+    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 2));
+    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 3));
+    ///
+    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 0));
+    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 1));
+    /// assert_eq!(Some("foo"), nfa.capture_index_to_name(pid1, 2));
+    /// // N.B. a call to 'nfa.capture_index_to_name(pid1, 3)' would panic,
+    /// // because the second pattern has only three capturing groups (with the
+    /// // first corresponding to the unnamed capturing group present in every
+    /// // pattern).
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn capture_index_to_name(
         &self,
         pid: PatternID,
         group_index: usize,
     ) -> Option<&str> {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
-        self.0.capture_index_to_name[pid][group_index].as_deref()
+        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
+        let pattern_names = &self.0.capture_index_to_name[pid];
+        pattern_names.get(group_index).expect("invalid group index").as_deref()
     }
 
+    /// Return the number of capture groups in a pattern.
+    ///
+    /// When [`Config::captures`] is enabled when building an NFA, every
+    /// pattern will always have at least 1 capture group. This capture group
+    /// corresponds to an unnamed and implicit group spanning the entire
+    /// pattern. When `Config::captures` is disabled, then this routine returns
+    /// `0` for every valid pattern ID.
+    ///
+    /// # Panics
+    ///
+    /// If the pattern ID is invalid, then this panics.
+    ///
+    /// # Example
+    ///
+    /// This example shows how the values returned by this routine may vary
+    /// for different patterns and NFA configurations.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new(r"(a)(b)(c)")?;
+    /// // There are 3 explicit groups in the pattern's concrete syntax and
+    /// // 1 unnamed and implicit group spanning the entire pattern.
+    /// assert_eq!(4, nfa.pattern_capture_len(PatternID::ZERO));
+    ///
+    /// let nfa = NFA::new(r"abc")?;
+    /// // There is just the unnamed implicit group.
+    /// assert_eq!(1, nfa.pattern_capture_len(PatternID::ZERO));
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build(r"abc")?;
+    /// // We disabled capturing groups, so there are none.
+    /// assert_eq!(0, nfa.pattern_capture_len(PatternID::ZERO));
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build(r"(a)(b)(c)")?;
+    /// // We disabled capturing groups, so there are none, even if there are
+    /// // explicit groups in the concrete syntax.
+    /// assert_eq!(0, nfa.pattern_capture_len(PatternID::ZERO));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn pattern_capture_count(&self, pid: PatternID) -> usize {
-        self.0.capture_index_to_name[pid].len()
+    pub fn pattern_capture_len(&self, pid: PatternID) -> usize {
+        // We use an explicit assert here because 'capture_index_to_name'
+        // is empty if capturing groups are disabled. But we want to return
+        // answers in such cases for valid patterns. So we assume that if we
+        // have a valid pattern ID (i.e., this assert passes) but is missing
+        // from 'capture_index_to_name', then the length must be 0.
+        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
+        self.0
+            .capture_index_to_name
+            .get(pid.as_usize())
+            .map(|names| names.len())
+            .unwrap_or(0)
     }
 
+    /// Return an iterator of all capture groups and their names (if present)
+    /// for a particular pattern.
+    ///
+    /// # Panics
+    ///
+    /// If the given pattern ID is invalid, then this panics.
+    ///
+    /// This also panics for all inputs if captures are not enabled for this
+    /// NFA or are not present for the given pattern. To check whether captures
+    /// are both enabled for the NFA and are present for a specific pattern,
+    /// use [`NFA::pattern_capture_len`].
+    ///
+    /// # Example
+    ///
+    /// This example shows how to get a list of all capture group names for
+    /// a particular pattern.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new(r"(a)(?P<foo>b)(c)(d)(?P<bar>e)")?;
+    /// // The first is the implicit group that is always unnammed. The next
+    /// // 5 groups are the explicit groups found in the concrete syntax above.
+    /// let expected = vec![None, None, Some("foo"), None, None, Some("bar")];
+    /// let got: Vec<Option<&str>> =
+    ///     nfa.pattern_capture_names(PatternID::ZERO).collect();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn pattern_capture_names(
         &self,
         pid: PatternID,
     ) -> PatternCaptureNames<'_> {
+        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
         PatternCaptureNames { it: self.0.capture_index_to_name[pid].iter() }
     }
 
+    /// Return an iterator of all capture groups for all patterns in this NFA.
+    /// Each item yield is a triple of the group's pattern ID, index in the
+    /// pattern and the group's name, if present.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to get a list of all capture groups found in
+    /// one NFA, potentially spanning multiple patterns.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new_many(&[
+    ///     r"(?P<foo>a)",
+    ///     r"a",
+    ///     r"(a)",
+    /// ])?;
+    /// let expected = vec![
+    ///     (PatternID::must(0), 0, None),
+    ///     (PatternID::must(0), 1, Some("foo")),
+    ///     (PatternID::must(1), 0, None),
+    ///     (PatternID::must(2), 0, None),
+    ///     (PatternID::must(2), 1, None),
+    /// ];
+    /// let got: Vec<(PatternID, usize, Option<&str>)> =
+    ///     nfa.all_capture_names().collect();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Unlike other capturing group related routines, this routine doesn't
+    /// panic even if captures aren't enabled on this NFA:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build_many(&[
+    ///         r"(?P<foo>a)",
+    ///         r"a",
+    ///         r"(a)",
+    ///     ])?;
+    /// // When captures aren't enabled, there's nothing to return.
+    /// assert_eq!(0, nfa.all_capture_names().count());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn all_capture_names(&self) -> AllCaptureNames<'_> {
         AllCaptureNames {
@@ -2048,6 +2241,12 @@ impl<'a> Iterator for AllCaptureNames<'a> {
     type Item = (PatternID, usize, Option<&'a str>);
 
     fn next(&mut self) -> Option<(PatternID, usize, Option<&'a str>)> {
+        // If the NFA has no captures, then we never have anything to yield. We
+        // need to consider this case explicitly (at time of writing) because
+        // 'pattern_capture_names' will panic if captures aren't enabled.
+        if self.nfa.0.capture_index_to_name.is_empty() {
+            return None;
+        }
         if self.current_pid.is_none() {
             self.current_pid = Some(self.pids.next()?);
         }
@@ -2142,7 +2341,7 @@ impl Captures {
             None => return 0,
             Some(pid) => pid,
         };
-        self.nfa.pattern_capture_count(pid)
+        self.nfa.pattern_capture_len(pid)
     }
 
     pub fn get_slot(&mut self, slot: usize) -> Option<usize> {

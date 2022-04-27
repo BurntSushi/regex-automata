@@ -279,3 +279,11 @@ name = "match-line-100"
 regex = '(?m)^.+$'
 input = "aa\naaaaaaaaaaaaaaaaaaa\n"
 matches = [[0, 2], [3, 22]]
+
+[[tests]]
+name = "match-line-200"
+regex = '(?m)^.+$'
+input = "aa\naaaaaaaaaaaaaaaaaaa\n"
+matches = [[0, 2], [3, 22]]
+unicode = false
+utf8 = false

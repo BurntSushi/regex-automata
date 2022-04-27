@@ -78,6 +78,7 @@ fn find_fwd(
     }
 
     if let Some(ref mut pre) = pre {
+        // Prefilter search shouldn't go past the given bounds.
         let haystack = &haystack[..end];
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
@@ -266,6 +267,7 @@ fn find_fwd(
         if sid.is_tagged() {
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
+                    // Prefilter search shouldn't go past the given bounds.
                     let haystack = &haystack[..end];
                     if pre.is_effective(at) {
                         match pre.next_candidate(haystack, at).into_option() {
@@ -366,7 +368,7 @@ fn find_rev(
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
     if start == end {
-        return Ok(eoi_rev(dfa, cache, haystack, start, sid)?.or(last_match));
+        return Ok(eoi_rev(dfa, cache, haystack, start, sid)?);
     }
 
     let mut at = end - 1;
@@ -379,7 +381,7 @@ fn find_rev(
     loop {
         if sid.is_tagged() {
             sid = dfa
-                .next_state(cache, sid, haystack[at as usize])
+                .next_state(cache, sid, haystack[at])
                 .map_err(|_| gave_up(at))?;
         } else {
             // SAFETY: See comments in 'find_fwd' for a safety argument.
@@ -517,31 +519,17 @@ pub(crate) fn find_overlapping_fwd(
     haystack: &[u8],
     start: usize,
     end: usize,
-    caller_state: &mut OverlappingState,
+    state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     // Searching with a pattern ID is always anchored, so we should only ever
     // use a prefilter when no pattern ID is given.
     if pre.is_some() && pattern_id.is_none() {
         find_overlapping_fwd_imp(
-            pre,
-            dfa,
-            cache,
-            pattern_id,
-            haystack,
-            start,
-            end,
-            caller_state,
+            pre, dfa, cache, pattern_id, haystack, start, end, state,
         )
     } else {
         find_overlapping_fwd_imp(
-            None,
-            dfa,
-            cache,
-            pattern_id,
-            haystack,
-            start,
-            end,
-            caller_state,
+            None, dfa, cache, pattern_id, haystack, start, end, state,
         )
     }
 }
@@ -563,16 +551,16 @@ fn find_overlapping_fwd_imp(
     haystack: &[u8],
     mut start: usize,
     end: usize,
-    caller_state: &mut OverlappingState,
+    state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     assert!(start <= end);
     assert!(start <= haystack.len());
     assert!(end <= haystack.len());
 
-    let mut sid = match caller_state.id() {
+    let mut sid = match state.id() {
         None => init_fwd(dfa, cache, pattern_id, haystack, start, end)?,
         Some(sid) => {
-            if let Some(last) = caller_state.last_match() {
+            if let Some(last) = state.last_match() {
                 let match_count = dfa.match_count(cache, sid);
                 if last.match_index < match_count {
                     let m = HalfMatch {
@@ -602,16 +590,16 @@ fn find_overlapping_fwd_imp(
             // at all or will immediately stop due to being in a dead state.
             // (Once in a dead state it is impossible to leave it.)
             //
-            // Therefore, the only case we need to consider is when
-            // caller_state is a match state. In this case, since our machines
-            // support the ability to delay a match by a certain number of
-            // bytes (to support look-around), it follows that we actually
-            // consumed that many additional bytes on our previous search. When
-            // the caller resumes their search to find subsequent matches, they
-            // will use the ending location from the previous match as the next
-            // starting point, which is `match_offset` bytes PRIOR to where
-            // we scanned to on the previous search. Therefore, we need to
-            // compensate by bumping `start` up by `MATCH_OFFSET` bytes.
+            // Therefore, the only case we need to consider is when state
+            // is a match state. In this case, since our machines support
+            // the ability to delay a match by a certain number of bytes (to
+            // support look-around), it follows that we actually consumed that
+            // many additional bytes on our previous search. When the caller
+            // resumes their search to find subsequent matches, they will use
+            // the ending location from the previous match as the next starting
+            // point, which is `match_offset` bytes PRIOR to where we scanned
+            // to on the previous search. Therefore, we need to compensate by
+            // bumping `start` up by `MATCH_OFFSET` bytes.
             //
             // Incidentally, since MATCH_OFFSET is non-zero, this also makes
             // dealing with empty matches convenient. Namely, callers needn't
@@ -628,24 +616,27 @@ fn find_overlapping_fwd_imp(
     // have a use case for something faster, feel free to file an issue.
     let mut at = start;
     while at < end {
-        let byte = haystack[at];
-        sid = dfa.next_state(cache, sid, byte).map_err(|_| gave_up(at))?;
+        sid = dfa
+            .next_state(cache, sid, haystack[at])
+            .map_err(|_| gave_up(at))?;
         if sid.is_tagged() {
-            caller_state.set_id(sid);
+            state.set_id(sid);
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
+                    // Prefilter search shouldn't go past the given bounds.
                     let haystack = &haystack[..end];
                     if pre.is_effective(at) {
                         match pre.next_candidate(haystack, at).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
+                                continue;
                             }
                         }
                     }
                 }
             } else if sid.is_match() {
-                caller_state
+                state
                     .set_last_match(StateMatch { match_index: 1, offset: at });
                 return Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, sid, 0),
@@ -654,7 +645,10 @@ fn find_overlapping_fwd_imp(
             } else if sid.is_dead() {
                 return Ok(None);
             } else if sid.is_quit() {
-                return Err(MatchError::Quit { byte, offset: at });
+                return Err(MatchError::Quit {
+                    byte: haystack[at],
+                    offset: at,
+                });
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");
@@ -664,9 +658,9 @@ fn find_overlapping_fwd_imp(
     }
 
     let result = eoi_fwd(dfa, cache, haystack, end, &mut sid);
-    caller_state.set_id(sid);
+    state.set_id(sid);
     if let Ok(Some(ref last_match)) = result {
-        caller_state.set_last_match(StateMatch {
+        state.set_last_match(StateMatch {
             // '1' is always correct here since if we get to this point, this
             // always corresponds to the first (index '0') match discovered at
             // this position. So the next match to report at this position (if
@@ -788,11 +782,4 @@ fn eoi_rev(
 #[inline(always)]
 fn gave_up(offset: usize) -> MatchError {
     MatchError::GaveUp { offset }
-}
-
-/// A convenience routine for constructing a "gave up" match error from a
-/// signed offset.
-#[inline(always)]
-fn gave_upi(offset: isize) -> MatchError {
-    MatchError::GaveUp { offset: offset as usize }
 }

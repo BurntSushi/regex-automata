@@ -1181,7 +1181,7 @@ impl Thread {
     }
 }
 
-fn copy_to_captures(pid: PatternID, slots: &mut [Slot], caps: &mut Captures) {
+fn copy_to_captures(pid: PatternID, slots: &[Slot], caps: &mut Captures) {
     caps.set_pattern(Some(pid));
     for (i, &slot) in slots.iter().enumerate() {
         caps.set_slot(i, slot.map(|s| s.get()));
