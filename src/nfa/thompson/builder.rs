@@ -1,6 +1,6 @@
 use core::{convert::TryFrom, mem};
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{collections::BTreeSet, sync::Arc, vec::Vec};
 
 use crate::{
     nfa::thompson::{
@@ -249,7 +249,7 @@ impl State {
 /// let range = builder.add_range(Transition {
 ///     // We don't know the state ID of the 'next' state yet, so we just fill
 ///     // in a dummy 'ZERO' value.
-///     start: b'a', end: b'z', next: StateID::ZERO
+///     start: b'a', end: b'z', next: StateID::ZERO,
 /// })?;
 /// // This state will point back to 'range', but also enable us to move ahead.
 /// // That is, this implements the '+' repetition operator. We add 'range' and
@@ -316,6 +316,21 @@ pub struct Builder {
     /// The first capture group for each pattern is always unnamed and is thus
     /// always None.
     captures: Vec<Vec<Option<Arc<str>>>>,
+    /// A map from pattern ID to a set of group names added for that pattern.
+    /// This is used to detect duplicate capture group names and return an error
+    /// if one is found.
+    ///
+    /// Why go out of our way to disallow duplicate group names? Well, because
+    /// their behavior is not fully specified in the regex crate proper, and
+    /// the NFA itself doesn't really expect them. Technically speaking, if
+    /// duplicate group names found their way into the NFA, nothing would
+    /// blow up. But their behavior would be odd. For example, in the case of
+    /// a duplicate group name, only the most recent group with the name would
+    /// be addressable. Normally, you would expect the most recently *matching*
+    /// group name to be addressable. But this requires extra infrastructure,
+    /// and in general, the regex crate prefers that users implement it
+    /// themselves to make the cost a bit more explicit.
+    group_names: Vec<BTreeSet<Arc<str>>>,
     /// The total number of slots required to represent capturing groups in the
     /// NFA. This builder doesn't use this for anything other than validating
     /// that we don't have any capture indices that are too big. (It's likely
@@ -348,6 +363,7 @@ impl Builder {
         self.states.clear();
         self.start_pattern.clear();
         self.captures.clear();
+        self.group_names.clear();
         self.slots = 0;
         self.memory_states = 0;
     }
@@ -443,7 +459,9 @@ impl Builder {
                 State::CaptureStart { pattern_id, capture_index, next } => {
                     // We can't remove this empty state because of the side
                     // effect of capturing an offset for this capture slot.
-                    let slot = nfa.slot(pattern_id, capture_index);
+                    let slot = nfa
+                        .slot(pattern_id, capture_index)
+                        .expect("invalid capture index");
                     remap[sid] = nfa.add(nfa::State::Capture { next, slot });
                 }
                 State::CaptureEnd { pattern_id, capture_index, next } => {
@@ -454,6 +472,7 @@ impl Builder {
                     // are initially added.
                     let slot = nfa
                         .slot(pattern_id, capture_index)
+                        .expect("invalid capture index")
                         .checked_add(1)
                         .unwrap();
                     remap[sid] = nfa.add(nfa::State::Capture { next, slot });
@@ -769,6 +788,139 @@ impl Builder {
     /// added. Moreover, if any capturing states are added, then at least one
     /// pair of capturing states must be present for _every_ pattern added to
     /// this builder. Otherwise, an error will be returned.
+    ///
+    /// An error is also returned if the given capturing group name already
+    /// exists for the current pattern.
+    ///
+    /// Finally, this returns an error if a name is given but the capture
+    /// index is `0`. Currently, the 0th capture index must always correspond
+    /// to the unnamed capturing group for the entire pattern.
+    ///
+    /// # Example
+    ///
+    /// This example shows that an error occurs when one tries to add multiple
+    /// capturing groups with the same name to the same pattern.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::Builder, util::id::StateID};
+    ///
+    /// let name = Some(std::sync::Arc::from("foo"));
+    /// let mut builder = Builder::new();
+    /// builder.start_pattern()?;
+    /// // 0th capture group must always be unnamed.
+    /// builder.add_capture_start(StateID::ZERO, 0, None)?;
+    /// // OK
+    /// let result = builder.add_capture_start(StateID::ZERO, 1, name.clone());
+    /// assert!(result.is_ok());
+    /// // Not OK
+    /// let result = builder.add_capture_start(StateID::ZERO, 2, name.clone());
+    /// assert!(result.is_err());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// However, adding multiple capturing groups with the same name to
+    /// distinct patterns is okay:
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use regex_automata::{
+    ///     nfa::thompson::{pikevm::PikeVM, Builder, Captures, Transition},
+    ///     util::id::{PatternID, StateID},
+    ///     Match,
+    /// };
+    ///
+    /// // Hand-compile the patterns '(?P<foo>[a-z])' and '(?P<foo>[A-Z])'.
+    /// let mut builder = Builder::new();
+    /// // We compile them to support an unanchored search, which requires
+    /// // adding an implicit '(?s-u:.)*?' prefix before adding either pattern.
+    /// let unanchored_prefix = builder.add_union_reverse(vec![])?;
+    /// let any = builder.add_range(Transition {
+    ///     start: b'\x00', end: b'\xFF', next: StateID::ZERO,
+    /// })?;
+    /// builder.patch(unanchored_prefix, any)?;
+    /// builder.patch(any, unanchored_prefix)?;
+    ///
+    /// // Compile an alternation that permits matching multiple patterns.
+    /// let alt = builder.add_union(vec![])?;
+    /// builder.patch(unanchored_prefix, alt)?;
+    ///
+    /// // Compile '(?P<foo>[a-z]+)'.
+    /// builder.start_pattern()?;
+    /// let start0 = builder.add_capture_start(StateID::ZERO, 0, None)?;
+    /// // N.B. 0th capture group must always be unnamed.
+    /// let foo_start0 = builder.add_capture_start(
+    ///     StateID::ZERO, 1, Some(Arc::from("foo")),
+    /// )?;
+    /// let lowercase = builder.add_range(Transition {
+    ///     start: b'a', end: b'z', next: StateID::ZERO,
+    /// })?;
+    /// let foo_end0 = builder.add_capture_end(StateID::ZERO, 1)?;
+    /// let end0 = builder.add_capture_end(StateID::ZERO, 0)?;
+    /// let match0 = builder.add_match()?;
+    /// builder.patch(start0, foo_start0)?;
+    /// builder.patch(foo_start0, lowercase)?;
+    /// builder.patch(lowercase, foo_end0)?;
+    /// builder.patch(foo_end0, end0)?;
+    /// builder.patch(end0, match0)?;
+    /// builder.finish_pattern(start0)?;
+    ///
+    /// // Compile '(?P<foo>[A-Z]+)'.
+    /// builder.start_pattern()?;
+    /// let start1 = builder.add_capture_start(StateID::ZERO, 0, None)?;
+    /// // N.B. 0th capture group must always be unnamed.
+    /// let foo_start1 = builder.add_capture_start(
+    ///     StateID::ZERO, 1, Some(Arc::from("foo")),
+    /// )?;
+    /// let uppercase = builder.add_range(Transition {
+    ///     start: b'A', end: b'Z', next: StateID::ZERO,
+    /// })?;
+    /// let foo_end1 = builder.add_capture_end(StateID::ZERO, 1)?;
+    /// let end1 = builder.add_capture_end(StateID::ZERO, 0)?;
+    /// let match1 = builder.add_match()?;
+    /// builder.patch(start1, foo_start1)?;
+    /// builder.patch(foo_start1, uppercase)?;
+    /// builder.patch(uppercase, foo_end1)?;
+    /// builder.patch(foo_end1, end1)?;
+    /// builder.patch(end1, match1)?;
+    /// builder.finish_pattern(start1)?;
+    ///
+    /// // Now add the patterns to our alternation that we started above.
+    /// builder.patch(alt, start0)?;
+    /// builder.patch(alt, start1)?;
+    ///
+    /// // Finally build the NFA. The first argument is the anchored starting
+    /// // state (the pattern alternation) where as the second is the
+    /// // unanchored starting state (the unanchored prefix).
+    /// let nfa = builder.build(alt, unanchored_prefix)?;
+    ///
+    /// // Now build a Pike VM from our NFA and access the 'foo' capture
+    /// // group regardless of which pattern matched, since it is defined
+    /// // for both patterns.
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = vm.create_cache();
+    /// let caps: Vec<Captures> =
+    ///     vm.captures_leftmost_iter(&mut cache, b"0123aAaAA").collect();
+    /// assert_eq!(5, caps.len());
+    ///
+    /// assert_eq!(Some(PatternID::must(0)), caps[0].pattern());
+    /// assert_eq!(Some(Match::new(4, 5)), caps[0].get_group_by_name("foo"));
+    ///
+    /// assert_eq!(Some(PatternID::must(1)), caps[1].pattern());
+    /// assert_eq!(Some(Match::new(5, 6)), caps[1].get_group_by_name("foo"));
+    ///
+    /// assert_eq!(Some(PatternID::must(0)), caps[2].pattern());
+    /// assert_eq!(Some(Match::new(6, 7)), caps[2].get_group_by_name("foo"));
+    ///
+    /// assert_eq!(Some(PatternID::must(1)), caps[3].pattern());
+    /// assert_eq!(Some(Match::new(7, 8)), caps[3].get_group_by_name("foo"));
+    ///
+    /// assert_eq!(Some(PatternID::must(1)), caps[4].pattern());
+    /// assert_eq!(Some(Match::new(8, 9)), caps[4].get_group_by_name("foo"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn add_capture_start(
         &mut self,
         next: StateID,
@@ -780,6 +932,9 @@ impl Builder {
         // memory, but it should overall be very little compared to what we're
         // otherwise using.
 
+        if capture_index == 0 && name.is_some() {
+            return Err(Error::first_capture_must_be_unnamed());
+        }
         let pid = self.current_pattern_id();
         let capture_index = match usize::try_from(capture_index) {
             Err(_) => {
@@ -797,14 +952,21 @@ impl Builder {
                 return Err(Error::invalid_capture_index(capture_index));
             }
             self.captures.push(vec![]);
+            self.group_names.push(BTreeSet::new());
         }
+        // In the case where 'capture_index < self.captures[pid].len()', it
+        // means that we are adding a duplicate capture group. This is somewhat
+        // weird, but permissible because the capture group itself can be
+        // repeated in the syntax. For example, '([a-z]){4}' will produce 4
+        // capture groups. In practice, only the last will be set at search
+        // time when a match occurs. For duplicates, we don't need to push
+        // anything other than a CaptureStart NFA state.
         if capture_index >= self.captures[pid].len() {
-            // We require that capturing groups are added in correspondence
-            // to their index. So no discontinuous indices. This is likely
-            // overly strict, but also makes it simpler to provide guarantees
-            // about our capturing group data.
-            if capture_index > self.captures[pid].len() {
-                return Err(Error::invalid_capture_index(capture_index));
+            // We also require that the name not be duplicative if one is set.
+            if let Some(ref name) = name {
+                if !self.group_names[pid].insert(Arc::clone(name)) {
+                    return Err(Error::duplicate_capture_name(pid, &name));
+                }
             }
             self.captures[pid].push(name);
             // We check that 'slots' remains valid, since slots could in theory
@@ -1030,3 +1192,8 @@ impl Builder {
         Ok(())
     }
 }
+
+#[cfg(feature = "std")]
+type Set<T> = std::collections::HashSet<T>;
+#[cfg(not(feature = "std"))]
+type Set<T> = alloc::collections::BTreeSet<T>;

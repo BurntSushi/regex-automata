@@ -56,6 +56,10 @@ enum ErrorKind {
         /// The invalid index that was given.
         index: usize,
     },
+    /// An error that occurs when one tries to provide a name for the capture
+    /// group at index 0. This capturing group must currently always be
+    /// unnamed.
+    FirstCaptureMustBeUnnamed,
     /// An error that occurs when an NFA contains a Unicode word boundary, but
     /// where the crate was compiled without the necessary data for dealing
     /// with Unicode word boundaries.
@@ -67,6 +71,19 @@ enum ErrorKind {
     /// captures enabled. Currently, this isn't supported, but we probably
     /// should support it at some point.
     UnsupportedCaptures,
+    /// An error that occurs when duplicate capture group names for the same
+    /// pattern are added to the NFA builder.
+    ///
+    /// NOTE: This error can never occur if you're using regex-syntax, since
+    /// the parser itself will reject patterns with duplicate capture group
+    /// names. This error can only occur when the builder is used to hand
+    /// construct NFAs.
+    DuplicateCaptureName {
+        /// The pattern in which the duplicate capture group name was found.
+        pattern: PatternID,
+        /// The duplicate name.
+        name: String,
+    },
 }
 
 impl Error {
@@ -96,6 +113,10 @@ impl Error {
         Error { kind: ErrorKind::InvalidCaptureIndex { index } }
     }
 
+    pub(crate) fn first_capture_must_be_unnamed() -> Error {
+        Error { kind: ErrorKind::FirstCaptureMustBeUnnamed }
+    }
+
     pub(crate) fn unicode_word_unavailable() -> Error {
         Error { kind: ErrorKind::UnicodeWordUnavailable }
     }
@@ -106,6 +127,18 @@ impl Error {
 
     pub(crate) fn unsupported_captures() -> Error {
         Error { kind: ErrorKind::UnsupportedCaptures }
+    }
+
+    pub(crate) fn duplicate_capture_name(
+        pattern: PatternID,
+        name: &str,
+    ) -> Error {
+        Error {
+            kind: ErrorKind::DuplicateCaptureName {
+                pattern,
+                name: name.to_string(),
+            },
+        }
     }
 }
 
@@ -118,9 +151,11 @@ impl std::error::Error for Error {
             ErrorKind::TooManyStates { .. } => None,
             ErrorKind::ExceededSizeLimit { .. } => None,
             ErrorKind::InvalidCaptureIndex { .. } => None,
+            ErrorKind::FirstCaptureMustBeUnnamed => None,
             ErrorKind::UnicodeWordUnavailable => None,
             ErrorKind::MissingCaptures => None,
             ErrorKind::UnsupportedCaptures => None,
+            ErrorKind::DuplicateCaptureName { .. } => None,
         }
     }
 }
@@ -151,6 +186,10 @@ impl core::fmt::Display for Error {
                 "capture group index {} is invalid (too big or discontinuous)",
                 index,
             ),
+            ErrorKind::FirstCaptureMustBeUnnamed => write!(
+                f,
+                "first capture group (at index 0) must always be unnamed",
+            ),
             ErrorKind::UnicodeWordUnavailable => write!(
                 f,
                 "crate has been compiled without Unicode word boundary \
@@ -166,6 +205,12 @@ impl core::fmt::Display for Error {
                 f,
                 "currently captures must be disabled when compiling \
                  a reverse NFA",
+            ),
+            ErrorKind::DuplicateCaptureName { pattern, ref name } => write!(
+                f,
+                "duplicate capture group name '{}' found for pattern {}",
+                name,
+                pattern.as_usize(),
             ),
         }
     }

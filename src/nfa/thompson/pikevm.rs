@@ -1,24 +1,3 @@
-// BREADCRUMBS: I think the time has finally come to sketch out the public
-// API for the PikeVM. We aren't going to document it yet though, because once
-// the API is sketched out, I want to work on optimizing the impl and that may
-// change the API.
-//
-// Current question on my mind: should we really have a billion iterators for
-// everything? It the iterator logic is just subtle enough that they are
-// convenient to have. But it would be nice if there was a slightly less
-// convenient way to iterate without actually needing to define iterator
-// types for everything. For example, the 'find_earliest_iter' group of
-// routines seems unlikely to be used frequently, if ever. But it's useful
-// to have 'find_earliest' at least. So we do just live with the asymmetry
-// in the API if we drop the iterator? Bite the bullet and keep the iterator?
-// Or something else?
-//
-// For the PikeVM, do we have 'find' iterators AND 'captures' iterators?
-// The latter has to allocate a 'Captures' on each iteration, so maybe 'find'
-// is a bit faster. (Plus 'find' shouldn't in theory need to track captures,
-// although we haven't implemented that yet. Maybe do that next.) Probably
-// should benchmark it I guess. Ug.
-
 use core::cell::RefCell;
 
 use alloc::{

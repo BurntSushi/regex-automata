@@ -27,6 +27,13 @@ use crate::{
 /// An NFA may be used directly for searching, for analysis or to build
 /// a deterministic finite automaton (DFA).
 ///
+/// # Cheap clones
+///
+/// Since an NFA is a core data type in this crate that many other regex
+/// engines are based on top of, it is convenient to give ownership of an NFA
+/// to said regex engines. Because of this, an NFA uses reference counting
+/// internally. Therefore, it is cheap to clone and it is encouraged to do so.
+///
 /// # Capabilities
 ///
 /// Using an NFA for searching provides the most amount of "power" of any
@@ -41,7 +48,18 @@ use crate::{
 ///
 /// # Capturing Groups
 ///
-/// TODO
+/// Groups refer to parenthesized expressions inside a regex pattern. They look
+/// like this, where `exp` is an arbitrary regex:
+///
+/// * `(exp)` - An unnamed capturing group.
+/// * `(?P<name>exp) - A named capturing group.
+/// * `(?:exp)` - A non-capturing group.
+/// * `(?i:exp)` - A non-capturing group that sets flags.
+///
+/// Only the first two forms are said to be _capturing_, which means that the
+/// last position at which they match is reportable. The [`Captures`] type
+/// provides convenient access to the match positions of capturing groups,
+/// which includes looking up capturing groups by their name.
 ///
 /// # Byte oriented
 ///
@@ -73,13 +91,13 @@ use crate::{
 /// is that, in a DFA, for every state, an input symbol unambiguously refers
 /// to a single transition _and_ that an input symbol is required for each
 /// transition. At a practical level, this permits DFA implementations to be
-/// implemented at their core with a small constant number of CPU instructions.
-/// In practice, this makes them quite a bit faster than NFAs _in general_.
-/// Namely, in order to execute a search for any Thompson NFA, one needs to
-/// keep track of a _set_ of states, and execute the possible transitions on
-/// all of those states for each input symbol. Overall, this results in much
-/// more overhead. To a first approximation, one can expect DFA searches to be
-/// about an order of magnitude faster.
+/// implemented at their core with a small constant number of CPU instructions
+/// for each byte of input searched. In practice, this makes them quite a bit
+/// faster than NFAs _in general_. Namely, in order to execute a search for any
+/// Thompson NFA, one needs to keep track of a _set_ of states, and execute
+/// the possible transitions on all of those states for each input symbol.
+/// Overall, this results in much more overhead. To a first approximation, one
+/// can expect DFA searches to be about an order of magnitude faster.
 ///
 /// So why use an NFA at all? The main advantage of an NFA is that it takes
 /// linear time (in the size of the pattern string after repetitions have been
@@ -106,8 +124,7 @@ use crate::{
 /// ```
 /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
 ///
-/// let nfa = NFA::new("foo[0-9]+")?;
-/// let vm = PikeVM::new_from_nfa(nfa)?;
+/// let vm = PikeVM::new(r"foo[0-9]+")?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
 ///
@@ -126,10 +143,8 @@ use crate::{
 /// ```
 /// use regex_automata::nfa::thompson::{Captures, NFA, pikevm::PikeVM};
 ///
-/// let nfa = NFA::new(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})")?;
-/// let vm = PikeVM::new_from_nfa(nfa)?;
+/// let vm = PikeVM::new(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})")?;
 /// let mut cache = vm.create_cache();
-/// let mut caps = vm.create_captures();
 ///
 /// let haystack = "2012-03-14, 2013-01-01 and 2014-07-05";
 /// let all: Vec<Captures> = vm.captures_leftmost_iter(
@@ -140,6 +155,27 @@ use crate::{
 /// // The year from the second match is '2013'.
 /// let m = all[1].get_group_by_name("y").unwrap();
 /// assert_eq!("2013", &haystack[m.start()..m.end()]);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// This example shows that only the last match of a capturing group is
+/// reported, even if it had to match multiple times for an overall match
+/// to occur.
+///
+/// ```
+/// use regex_automata::nfa::thompson::{Captures, NFA, pikevm::PikeVM};
+///
+/// let vm = PikeVM::new(r"([a-z]){4}")?;
+/// let mut cache = vm.create_cache();
+/// let mut caps = vm.create_captures();
+///
+/// let haystack = b"quux";
+/// vm.find_leftmost(&mut cache, haystack, &mut caps);
+/// assert!(caps.is_match());
+/// let m = caps.get_group(1).unwrap();
+/// assert_eq!(3, m.start());
+/// assert_eq!(4, m.end());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -170,8 +206,7 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
     ///
-    /// let nfa = NFA::new("foo[0-9]+")?;
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let vm = PikeVM::new(r"foo[0-9]+")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 0, 8));
@@ -195,8 +230,7 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
     ///
-    /// let nfa = NFA::new_many(&["[0-9]+", "[a-z]+"])?;
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let vm = PikeVM::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(1, 0, 3));
@@ -217,8 +251,7 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
     ///
-    /// let nfa = NFA::always_match();
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let vm = PikeVM::new_from_nfa(NFA::always_match())?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 0, 0));
@@ -262,8 +295,7 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
     ///
-    /// let nfa = NFA::never_match();
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let vm = PikeVM::new_from_nfa(NFA::never_match())?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find_leftmost(&mut cache, b"", &mut caps);
@@ -292,10 +324,9 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
     ///
-    /// let nfa = NFA::compiler()
-    ///     .configure(NFA::config().utf8(false))
+    /// let vm = PikeVM::builder()
+    ///     .thompson(NFA::config().utf8(false))
     ///     .build(r"[a-z]+")?;
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 1, 4));
@@ -316,7 +347,7 @@ impl NFA {
     /// # Example
     ///
     /// This example shows how to build an NFA that is permitted to both
-    /// search through and match invalid UTF-8. With the additional syntax
+    /// search through and match invalid UTF-8. Without the additional syntax
     /// configuration here, compilation of `(?-u:.)` would fail because it is
     /// permitted to match invalid UTF-8.
     ///
@@ -326,11 +357,10 @@ impl NFA {
     ///     MultiMatch, SyntaxConfig
     /// };
     ///
-    /// let nfa = NFA::compiler()
+    /// let vm = PikeVM::builder()
     ///     .syntax(SyntaxConfig::new().utf8(false))
-    ///     .configure(NFA::config().utf8(false))
+    ///     .thompson(NFA::config().utf8(false))
     ///     .build(r"[a-z]+(?-u:.)")?;
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(MultiMatch::must(0, 1, 5));
@@ -644,15 +674,13 @@ impl NFA {
     /// is the default), the capture index of `0` is valid for all patterns in
     /// the NFA.
     ///
-    /// # Panics
-    ///
     /// If either the pattern ID or the capture index is invalid, then this
-    /// panics.
+    /// returns None.
     ///
-    /// This also panics for all inputs if captures are not enabled for this
-    /// NFA or are not present for the given pattern. To check whether captures
-    /// are both enabled for the NFA and are present for a specific pattern,
-    /// use [`NFA::pattern_capture_len`].
+    /// This also returns None for all inputs if captures are not enabled for
+    /// this NFA or are not present for the given pattern. To check whether
+    /// captures are both enabled for the NFA and are present for a specific
+    /// pattern, use [`NFA::pattern_capture_len`].
     ///
     /// # Example
     ///
@@ -671,8 +699,7 @@ impl NFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn slot(&self, pid: PatternID, capture_index: usize) -> usize {
-        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
+    pub fn slot(&self, pid: PatternID, capture_index: usize) -> Option<usize> {
         self.0.slot(pid, capture_index)
     }
 
@@ -692,15 +719,13 @@ impl NFA {
     /// Note that this is like [`NFA::slot`], except that it also returns the
     /// ending slot value for convenience.
     ///
-    /// # Panics
-    ///
     /// If either the pattern ID or the capture index is invalid, then this
-    /// panics.
+    /// returns None.
     ///
-    /// This also panics for all inputs if captures are not enabled for this
-    /// NFA or are not present for the given pattern. To check whether captures
-    /// are both enabled for the NFA and are present for a specific pattern,
-    /// use [`NFA::pattern_capture_len`].
+    /// This also returns None for all inputs if captures are not enabled for
+    /// this NFA or are not present for the given pattern. To check whether
+    /// captures are both enabled for the NFA and are present for a specific
+    /// pattern, use [`NFA::pattern_capture_len`].
     ///
     /// # Example
     ///
@@ -717,7 +742,7 @@ impl NFA {
     /// );
     ///
     /// // Also, the start and end slot values are never equivalent.
-    /// let (start, end) = nfa.slots(PatternID::ZERO, 0);
+    /// let (start, end) = nfa.slots(PatternID::ZERO, 0).unwrap();
     /// assert_ne!(start, end);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -727,25 +752,24 @@ impl NFA {
         &self,
         pid: PatternID,
         capture_index: usize,
-    ) -> (usize, usize) {
-        let start = self.0.slot(pid, capture_index);
-        // This will never wrap because NFA construction guarantees that all
-        // slot values fit in a usize at construction time.
-        (start, start.wrapping_add(1))
+    ) -> Option<(usize, usize)> {
+        self.0.slot(pid, capture_index).map(|start| {
+            // This will never wrap because NFA construction guarantees that
+            // all slot values fit in a usize at construction time.
+            (start, start.wrapping_add(1))
+        })
     }
 
     /// Return the capture group index corresponding to the given name in the
     /// given pattern. If no such capture group name exists in the given
     /// pattern, then this returns `None`.
     ///
-    /// # Panics
+    /// If the given pattern ID is invalid, then this returns `None`.
     ///
-    /// If the given pattern ID is invalid, then this panics.
-    ///
-    /// This also panics for all inputs if captures are not enabled for this
-    /// NFA or are not present for the given pattern. To check whether captures
-    /// are both enabled for the NFA and are present for a specific pattern,
-    /// use [`NFA::pattern_capture_len`].
+    /// This also returns `None` for all inputs if captures are not enabled for
+    /// this NFA or are not present for the given pattern. To check whether
+    /// captures are both enabled for the NFA and are present for a specific
+    /// pattern, use [`NFA::pattern_capture_len`].
     ///
     /// # Example
     ///
@@ -785,25 +809,23 @@ impl NFA {
         name: &str,
     ) -> Option<usize> {
         assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
-        let indices = &self.0.capture_name_to_index[pid];
+        let indices = self.0.capture_name_to_index.get(pid.as_usize())?;
         indices.get(name).cloned()
     }
 
     /// Return the capture name for the given index and given pattern. If the
     /// corresponding group does not have a name, then this returns `None`.
     ///
-    /// # Panics
+    /// If the pattern ID is invalid, then this returns `None`.
     ///
-    /// If the pattern ID is invalid, then this panics.
+    /// If the group index is invalid for the given pattern, then this returns
+    /// `None`. A group `index` is valid for a pattern `pid` in an `nfa` if and
+    /// only if `index < nfa.pattern_capture_len(pid)`.
     ///
-    /// If the group index is invalid for the given pattern, then this panics.
-    /// A group `index` is valid for a pattern `pid` in an `nfa` if and only if
-    /// `index < nfa.pattern_capture_len(pid)`.
-    ///
-    /// This also panics for all inputs if captures are not enabled for this
-    /// NFA or are not present for the given pattern. To check whether captures
-    /// are both enabled for the NFA and are present for a specific pattern,
-    /// use [`NFA::pattern_capture_len`].
+    /// This also returns `None` for all inputs if captures are not enabled for
+    /// this NFA or are not present for the given pattern. To check whether
+    /// captures are both enabled for the NFA and are present for a specific
+    /// pattern, use [`NFA::pattern_capture_len`].
     ///
     /// # Example
     ///
@@ -827,10 +849,8 @@ impl NFA {
     /// assert_eq!(None, nfa.capture_index_to_name(pid1, 0));
     /// assert_eq!(None, nfa.capture_index_to_name(pid1, 1));
     /// assert_eq!(Some("foo"), nfa.capture_index_to_name(pid1, 2));
-    /// // N.B. a call to 'nfa.capture_index_to_name(pid1, 3)' would panic,
-    /// // because the second pattern has only three capturing groups (with the
-    /// // first corresponding to the unnamed capturing group present in every
-    /// // pattern).
+    /// // '3' is not a valid capture index for the second pattern.
+    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 3));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -840,9 +860,9 @@ impl NFA {
         pid: PatternID,
         group_index: usize,
     ) -> Option<&str> {
-        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
-        let pattern_names = &self.0.capture_index_to_name[pid];
-        pattern_names.get(group_index).expect("invalid group index").as_deref()
+        let pattern_names =
+            self.0.capture_index_to_name.get(pid.as_usize())?;
+        pattern_names.get(group_index)?.as_deref()
     }
 
     /// Return the number of capture groups in a pattern.
@@ -851,11 +871,9 @@ impl NFA {
     /// pattern will always have at least 1 capture group. This capture group
     /// corresponds to an unnamed and implicit group spanning the entire
     /// pattern. When `Config::captures` is disabled, then this routine returns
-    /// `0` for every valid pattern ID.
+    /// `0` for every pattern ID.
     ///
-    /// # Panics
-    ///
-    /// If the pattern ID is invalid, then this panics.
+    /// If the pattern ID is invalid, then this returns `None`.
     ///
     /// # Example
     ///
@@ -891,12 +909,6 @@ impl NFA {
     /// ```
     #[inline]
     pub fn pattern_capture_len(&self, pid: PatternID) -> usize {
-        // We use an explicit assert here because 'capture_index_to_name'
-        // is empty if capturing groups are disabled. But we want to return
-        // answers in such cases for valid patterns. So we assume that if we
-        // have a valid pattern ID (i.e., this assert passes) but is missing
-        // from 'capture_index_to_name', then the length must be 0.
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
         self.0
             .capture_index_to_name
             .get(pid.as_usize())
@@ -907,14 +919,13 @@ impl NFA {
     /// Return an iterator of all capture groups and their names (if present)
     /// for a particular pattern.
     ///
-    /// # Panics
+    /// If the given pattern ID is invalid, then the iterator yields no
+    /// elements.
     ///
-    /// If the given pattern ID is invalid, then this panics.
-    ///
-    /// This also panics for all inputs if captures are not enabled for this
-    /// NFA or are not present for the given pattern. To check whether captures
-    /// are both enabled for the NFA and are present for a specific pattern,
-    /// use [`NFA::pattern_capture_len`].
+    /// The iterator returned also yields no elements for all inputs if
+    /// captures are not enabled for this NFA or are not present for the given
+    /// pattern. To check whether captures are both enabled for the NFA and are
+    /// present for a specific pattern, use [`NFA::pattern_capture_len`].
     ///
     /// # Example
     ///
@@ -932,6 +943,9 @@ impl NFA {
     ///     nfa.pattern_capture_names(PatternID::ZERO).collect();
     /// assert_eq!(expected, got);
     ///
+    /// // Using an invalid pattern ID will result in nothing yielded.
+    /// assert_eq!(0, nfa.pattern_capture_names(PatternID::must(999)).count());
+    ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
@@ -939,8 +953,14 @@ impl NFA {
         &self,
         pid: PatternID,
     ) -> PatternCaptureNames<'_> {
-        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
-        PatternCaptureNames { it: self.0.capture_index_to_name[pid].iter() }
+        PatternCaptureNames {
+            it: self
+                .0
+                .capture_index_to_name
+                .get(pid.as_usize())
+                .map(|indices| indices.iter())
+                .unwrap_or([].iter()),
+        }
     }
 
     /// Return an iterator of all capture groups for all patterns in this NFA.
@@ -1397,8 +1417,14 @@ impl Inner {
     ///
     /// Capture indices are relative to the pattern. e.g., When captures are
     /// enabled, every pattern has a capture at index `0`.
-    pub(super) fn slot(&self, pid: PatternID, capture_index: usize) -> usize {
-        self.capture_to_slots[pid][capture_index]
+    pub(super) fn slot(
+        &self,
+        pid: PatternID,
+        capture_index: usize,
+    ) -> Option<usize> {
+        self.capture_to_slots.get(pid.as_usize()).and_then(|pattern_slots| {
+            pattern_slots.get(capture_index).copied()
+        })
     }
 
     /// Add the given state to this NFA after allocating a fresh identifier for
@@ -1518,6 +1544,15 @@ impl Inner {
                 self.capture_slot_len =
                     cmp::max(self.capture_slot_len, next_slot_group);
                 if let Some(ref name) = group_name {
+                    // The NFA builder returns an error if a duplicate capture
+                    // group name is inserted, so we can assert that it doesn't
+                    // happen here.
+                    assert!(
+                        !self.capture_name_to_index[pid].contains_key(&*name),
+                        "duplicate group name '{}' found for pattern {}",
+                        name,
+                        pid.as_usize(),
+                    );
                     self.capture_name_to_index[pid]
                         .insert(Arc::clone(name), cap_idx);
                     // Since we're using a hash/btree map, these are more
@@ -1684,9 +1719,10 @@ pub enum State {
     /// These transitions are treated as epsilon transitions with no additional
     /// effects in DFAs.
     ///
-    /// 'slot' in this context refers to the specific capture group offset that
-    /// is being recorded. Each capturing group has two slots corresponding to
-    /// the start and end of the matching portion of that group.
+    /// 'slot' in this context refers to the specific capture group slot
+    /// offset that is being recorded. Each capturing group has two slots
+    /// corresponding to the start and end of the matching portion of that
+    /// group.
     Capture { next: StateID, slot: usize },
     /// A state that cannot be transitioned out of. This is useful for cases
     /// where you want to prevent matching from occurring. For example, if your
@@ -2266,6 +2302,90 @@ impl<'a> Iterator for AllCaptureNames<'a> {
     }
 }
 
+/// The span offsets of capturing groups after a match has been found.
+///
+/// This type represents the primary output of NFA-based regex engines like
+/// the [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM). When a match occurs,
+/// it will at minimum contain the [`PatternID`] of the pattern that matched.
+/// Depending upon how it was constructed, it may also contain the start/end
+/// offsets of the entire match of the pattern and the start/end offsets of
+/// each capturing group that participated in the match.
+///
+/// Values of this type are always created for a specific NFA. It is
+/// unspecified behavior to use a `Captures` value in a search with any NFA
+/// other than the one it was created for.
+///
+/// # Constructors
+///
+/// There are three constructors for this type that control what kind of
+/// information is available upon a match:
+///
+/// * [`Captures::new`]: Will store overall pattern match offsets in addition
+/// to the offsets of capturing groups that participated in the match.
+/// * [`Captures::new_for_matches_only`]: Will store only the overall pattern
+/// match offsets. The offsets of capturing groups (even ones that participated
+/// in the match) are not available.
+/// * [`Captures::empty`]: Will only store the pattern ID that matched. No
+/// match offsets are available at all.
+///
+/// If you aren't sure which to choose, then pick the first one. The first one
+/// is what the convenience routine,
+/// [`PikeVM::create_captures`](crate::nfa::thompson::pikevm::PikeVM::create_captures),
+/// will use automatically.
+///
+/// The main difference between these choices is performance. Namely, if you
+/// ask for _less_ information, then the execution of an NFA search may be able
+/// to run more quickly.
+///
+/// # Notes
+///
+/// It is worth pointing out that while this type is necessary to use if you
+/// want to use one of the NFA regex engines provided by this crate, it is
+/// _not_ necessary to use this type if you want to build your own NFA-based
+/// regex engine. That is, the implementation of this type does not use any
+/// private implementation details of `NFA`.
+///
+/// # Example
+///
+/// This example shows how to parse a simple date and extract the components of
+/// the date via capturing groups:
+///
+/// ```
+/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+///
+/// let vm = PikeVM::new(r"^(\d{4})-(\d{2})-(\d{2})$")?;
+/// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+///
+/// let haystack = "2010-03-14";
+/// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+/// assert!(caps.is_match());
+/// assert_eq!(Some(Match::new(0, 4)), caps.get_group(1));
+/// assert_eq!(Some(Match::new(5, 7)), caps.get_group(2));
+/// assert_eq!(Some(Match::new(8, 10)), caps.get_group(3));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Example: named capturing groups
+///
+/// This example is like the one above, but leverages the ability to name
+/// capturing groups in order to make the code a bit clearer:
+///
+/// ```
+/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+///
+/// let vm = PikeVM::new(r"^(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})$")?;
+/// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+///
+/// let haystack = "2010-03-14";
+/// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+/// assert!(caps.is_match());
+/// assert_eq!(Some(Match::new(0, 4)), caps.get_group_by_name("y"));
+/// assert_eq!(Some(Match::new(5, 7)), caps.get_group_by_name("m"));
+/// assert_eq!(Some(Match::new(8, 10)), caps.get_group_by_name("d"));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct Captures {
     nfa: NFA,
@@ -2274,11 +2394,92 @@ pub struct Captures {
 }
 
 impl Captures {
+    /// Create new storage for the offsets of all matching capturing groups.
+    ///
+    /// Note that
+    /// [`PikeVM::create_captures`](crate::nfa::thompson::pikevm::PikeVM::create_captures),
+    /// is a convenience routine that calls this specific constructor. The
+    /// `PikeVM::create_captures` routine can be useful to avoid needing to
+    /// import the `Captures` type explicitly. The PikeVM will also handle
+    /// providing the correct NFA to this constructor.
+    ///
+    /// This routine provides the most information, but also requires the NFA
+    /// search routines to do the most work.
+    ///
+    /// It is unspecified behavior to use the returned `Captures` value in
+    /// a search with any NFA other than the one that is provided to this
+    /// constructor.
+    ///
+    /// # Example
+    ///
+    /// This example shows that all capturing groups---but only ones that
+    /// participated in a match---are available to query after a match has
+    /// been found:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
+    ///     Match, MultiMatch,
+    /// };
+    ///
+    /// let vm = PikeVM::new(
+    ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
+    /// )?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = Captures::new(vm.nfa().clone());
+    ///
+    /// let haystack = "ABC123";
+    /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 6)), caps.get_match());
+    /// // The 'lower' group didn't match, so it won't have any offsets.
+    /// assert_eq!(None, caps.get_group_by_name("lower"));
+    /// assert_eq!(Some(Match::new(0, 3)), caps.get_group_by_name("upper"));
+    /// assert_eq!(Some(Match::new(3, 6)), caps.get_group_by_name("digits"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(nfa: NFA) -> Captures {
         let slots = nfa.capture_slot_len();
         Captures { nfa, pid: None, slots: vec![None; slots] }
     }
 
+    /// Create new storage for only the full match spans of a pattern. This
+    /// does not include any capturing group offsets.
+    ///
+    /// It is unspecified behavior to use the returned `Captures` value in
+    /// a search with any NFA other than the one that is provided to this
+    /// constructor.
+    ///
+    /// # Example
+    ///
+    /// This example shows that only overall match offsets are reported when
+    /// this constructor is used. Accessing any capturing groups other than
+    /// the 0th will always return `None`.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
+    ///     MultiMatch,
+    /// };
+    ///
+    /// let vm = PikeVM::new(
+    ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
+    /// )?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = Captures::new_for_matches_only(vm.nfa().clone());
+    ///
+    /// let haystack = "ABC123";
+    /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 6)), caps.get_match());
+    /// // We didn't ask for capturing group offsets, so they aren't available.
+    /// assert_eq!(None, caps.get_group_by_name("lower"));
+    /// assert_eq!(None, caps.get_group_by_name("upper"));
+    /// assert_eq!(None, caps.get_group_by_name("digits"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new_for_matches_only(nfa: NFA) -> Captures {
         // This is OK because we know there are at least this many slots,
         // and NFA construction guarantees that the number of slots fits
@@ -2287,37 +2488,295 @@ impl Captures {
         Captures { nfa, pid: None, slots: vec![None; slots] }
     }
 
+    /// Create new storage for only tracking which pattern matched. No offsets
+    /// are stored at all.
+    ///
+    /// It is unspecified behavior to use the returned `Captures` value in
+    /// a search with any NFA other than the one that is provided to this
+    /// constructor.
+    ///
+    /// # Example
+    ///
+    /// This example shows that only the pattern that matched can be accessed
+    /// from a `Captures` value created via this constructor.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
+    ///     PatternID,
+    /// };
+    ///
+    /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = Captures::empty(vm.nfa().clone());
+    ///
+    /// vm.find_leftmost(&mut cache, b"aABCz", &mut caps);
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(PatternID::must(0)), caps.pattern());
+    /// // We didn't ask for any offsets, so they aren't available.
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// vm.find_leftmost(&mut cache, &b"aABCz"[1..], &mut caps);
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
+    /// // We didn't ask for any offsets, so they aren't available.
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn empty(nfa: NFA) -> Captures {
         Captures { nfa, pid: None, slots: vec![] }
     }
 
+    /// Returns true if and only if this capturing group represents a match.
+    ///
+    /// This is a convenience routine for `caps.pattern().is_some()`.
+    ///
+    /// # Example
+    ///
+    /// When using the PikeVM (for example), the lightest weight way of
+    /// detecting whether a match exists is to create capturing groups that
+    /// only track the ID of the pattern that match (if any):
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{Captures, pikevm::PikeVM}};
+    ///
+    /// let vm = PikeVM::new(r"[a-z]+")?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = Captures::empty(vm.nfa().clone());
+    ///
+    /// vm.find_leftmost(&mut cache, b"aABCz", &mut caps);
+    /// assert!(caps.is_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn is_match(&self) -> bool {
         self.pid.is_some()
     }
 
+    /// Returns the identifier of the pattern that matched when this
+    /// capturing group represents a match. If no match was found, then this
+    /// always returns `None`.
+    ///
+    /// This returns a pattern ID in precisely the cases in which `is_match`
+    /// returns `true`.
+    ///
+    /// # Example
+    ///
+    /// When using the PikeVM (for example), the lightest weight way of
+    /// detecting which pattern matched is to create capturing groups that only
+    /// track the ID of the pattern that match (if any):
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{Captures, pikevm::PikeVM},
+    ///     PatternID,
+    /// };
+    ///
+    /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = Captures::empty(vm.nfa().clone());
+    ///
+    /// vm.find_leftmost(&mut cache, b"ABC", &mut caps);
+    /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
+    /// // Recall that offsets are only available when using a non-empty
+    /// // Captures value. So even though a match occurred, this returns None!
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn pattern(&self) -> Option<PatternID> {
         self.pid
     }
 
+    /// Returns the pattern ID and the span of the match, if one occurred.
+    ///
+    /// This always returns `None` when `Captures` was created with
+    /// [`Captures::empty`], even if a match was found.
+    ///
+    /// If this routine returns a non-`None` value, then `is_match` is
+    /// guaranteed to return `true` and `pattern` is also guaranteed to return
+    /// a non-`None` value.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to get the full match from a search:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, MultiMatch};
+    ///
+    /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"ABC", &mut caps);
+    /// assert_eq!(Some(MultiMatch::must(1, 0, 3)), caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn get_match(&self) -> Option<MultiMatch> {
-        let pid = self.pid?;
+        let pid = self.pattern()?;
         let m = self.get_group(0)?;
         Some(MultiMatch::new(pid, m.start(), m.end()))
     }
 
+    /// Returns the span of a capturing group match corresponding to the group
+    /// index given, only if both the overall pattern matched and the capturing
+    /// group participated in that match.
+    ///
+    /// This returns `None` if `index` is invalid. `index` is valid if and
+    /// only if it's less than [`Captures::group_len`].
+    ///
+    /// This always returns `None` when `Captures` was created with
+    /// [`Captures::empty`], even if a match was found. This also always
+    /// returns `None` for any `index > 0` when `Captures` was created with
+    /// [`Captures::new_for_matches_only`].
+    ///
+    /// If this routine returns a non-`None` value, then `is_match` is
+    /// guaranteed to return `true`, `pattern` is guaranteed to return a
+    /// non-`None` value and `get_match` is guaranteed to return a non-`None`
+    /// value.
+    ///
+    /// Note that for NFAs built by a [`Compiler`] with capturing groups
+    /// enabled, the 0th capture group will always return the same span as
+    /// the span returned by `get_match`. This is because the 0th capture
+    /// group always corresponds to the entirety of the pattern's match.
+    /// (It is similarly always unnamed because it is implicit.) This isn't
+    /// necessarily true of all NFAs however, since NFAs can be hand-compiled
+    /// via a [`Builder`], which isn't technically forced to make the 0th
+    /// capturing group always correspond to the entire match.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to get the capturing groups, by index, from a
+    /// match:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, MultiMatch};
+    ///
+    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 17)), caps.get_match());
+    /// assert_eq!(Some(Match::new(0, 5)), caps.get_group(1));
+    /// assert_eq!(Some(Match::new(6, 17)), caps.get_group(2));
+    /// // Looking for a non-existent capturing group will return None:
+    /// assert_eq!(None, caps.get_group(3));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn get_group(&self, index: usize) -> Option<Match> {
         let pid = self.pattern()?;
-        let (slot_start, slot_end) = self.nfa.slots(pid, index);
-        let start = self.slots[slot_start]?;
-        let end = self.slots[slot_end]?;
+        let (slot_start, slot_end) = self.nfa.slots(pid, index)?;
+        let start = self.slots.get(slot_start).copied()??;
+        let end = self.slots.get(slot_end).copied()??;
         Some(Match::new(start.get(), end.get()))
     }
 
+    /// Returns the span of a capturing group match corresponding to the group
+    /// name given, only if both the overall pattern matched and the capturing
+    /// group participated in that match.
+    ///
+    /// This returns `None` if `name` does not correspond to a valid capturing
+    /// group for the pattern that matched.
+    ///
+    /// This always returns `None` when `Captures` was created with
+    /// [`Captures::empty`], even if a match was found. This also always
+    /// returns `None` for any `index > 0` when `Captures` was created with
+    /// [`Captures::new_for_matches_only`].
+    ///
+    /// If this routine returns a non-`None` value, then `is_match` is
+    /// guaranteed to return `true`, `pattern` is guaranteed to return a
+    /// non-`None` value and `get_match` is guaranteed to return a non-`None`
+    /// value.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to get the capturing groups, by name, from a
+    /// match:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, MultiMatch};
+    ///
+    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// assert_eq!(Some(MultiMatch::must(0, 0, 17)), caps.get_match());
+    /// assert_eq!(Some(Match::new(0, 5)), caps.get_group_by_name("first"));
+    /// assert_eq!(Some(Match::new(6, 17)), caps.get_group_by_name("last"));
+    /// // Looking for a non-existent capturing group will return None:
+    /// assert_eq!(None, caps.get_group_by_name("middle"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn get_group_by_name(&self, name: &str) -> Option<Match> {
         let index = self.nfa.capture_name_to_index(self.pattern()?, name)?;
         self.get_group(index)
     }
 
+    /// Returns an iterator of possible spans for every capturing group in the
+    /// matching pattern.
+    ///
+    /// If this `Captures` value does not correspond to a match, then the
+    /// iterator returned yields no elements.
+    ///
+    /// Note that the iterator returned yields elements of type
+    /// `Option<Match>`. An element is present if and only if it corresponds to
+    /// a capturing group that participated in a match.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to collect all capturing groups:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::new(
+    ///     // Matches first/last names, with an optional middle name.
+    ///     r"^(?P<first>\pL+)\s+(?:(?P<middle>\pL+)\s+)?(?P<last>\pL+)$",
+    /// )?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"Harry James Potter", &mut caps);
+    /// assert!(caps.is_match());
+    /// let groups: Vec<Option<Match>> = caps.iter().collect();
+    /// assert_eq!(groups, vec![
+    ///     Some(Match::new(0, 18)),
+    ///     Some(Match::new(0, 5)),
+    ///     Some(Match::new(6, 11)),
+    ///     Some(Match::new(12, 18)),
+    /// ]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// This example uses the same regex as the previous example, but with a
+    /// haystack that omits the middle name. This results in a capturing group
+    /// that is present in the elements yielded by the iterator but without a
+    /// match:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::new(
+    ///     // Matches first/last names, with an optional middle name.
+    ///     r"^(?P<first>\pL+)\s+(?:(?P<middle>\pL+)\s+)?(?P<last>\pL+)$",
+    /// )?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"Harry Potter", &mut caps);
+    /// assert!(caps.is_match());
+    /// let groups: Vec<Option<Match>> = caps.iter().collect();
+    /// assert_eq!(groups, vec![
+    ///     Some(Match::new(0, 12)),
+    ///     Some(Match::new(0, 5)),
+    ///     None,
+    ///     Some(Match::new(6, 12)),
+    /// ]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn iter(&self) -> CapturesPatternIter<'_> {
         let names = self
             .pattern()
@@ -2325,17 +2784,34 @@ impl Captures {
         CapturesPatternIter { caps: self, names }
     }
 
-    pub fn clear(&mut self) {
-        self.pid = None;
-        for slot in self.slots.iter_mut() {
-            *slot = None;
-        }
-    }
-
-    pub fn set_pattern(&mut self, pid: Option<PatternID>) {
-        self.pid = pid;
-    }
-
+    /// Return the total number of capturing groups for the matching pattern.
+    ///
+    /// If this `Captures` value does not correspond to a match, then this
+    /// always returns `0`.
+    ///
+    /// This always returns the same number of elements yielded by
+    /// [`Captures::iter`].
+    ///
+    /// # Example
+    ///
+    /// This example shows how to count the total number of capturing groups
+    /// associated with a pattern. Notice that it includes groups that did not
+    /// participate in a match (just like `Captures::iter` does).
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::new(
+    ///     // Matches first/last names, with an optional middle name.
+    ///     r"^(?P<first>\pL+)\s+(?:(?P<middle>\pL+)\s+)?(?P<last>\pL+)$",
+    /// )?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"Harry Potter", &mut caps);
+    /// assert_eq!(4, caps.group_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn group_len(&self) -> usize {
         let pid = match self.pattern() {
             None => return 0,
@@ -2343,21 +2819,209 @@ impl Captures {
         };
         self.nfa.pattern_capture_len(pid)
     }
+}
 
+/// Lower level "slot" oriented APIs. One does not typically need to use these
+/// when executing a search. They are instead mostly intended for folks that
+/// are writing their own NFA regex engine while reusing this `Captures` type.
+impl Captures {
+    /// Clear this `Captures` value.
+    ///
+    /// After clearing, all slots inside this `Captures` value will be set to
+    /// `None`. Similarly, any pattern ID that it was previously associated
+    /// with (for a match) is erased.
+    ///
+    /// It is not usually necessary to call this routine. Namely, a `Captures`
+    /// value only provides high level access to the capturing groups of the
+    /// pattern that matched, and only low level access to individual slots.
+    /// Thus, even if slots corresponding to groups that aren't associated with
+    /// the matching pattern are set, then it won't impact the higher level
+    /// APIs.
+    ///
+    /// # Example
+    ///
+    /// This example shows what happens when a `Captures` value is cleared.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    ///
+    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// assert!(caps.is_match());
+    /// let slots: Vec<Option<usize>> =
+    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    /// // Note that the following ordering is not considered an API guarantee.
+    /// // The only valid way of mapping a capturing group index to a slot
+    /// // index is with the NFA::slot or NFA::slots routines.
+    /// assert_eq!(slots, vec![
+    ///     Some(0),
+    ///     Some(17),
+    ///     Some(0),
+    ///     Some(5),
+    ///     Some(6),
+    ///     Some(17),
+    /// ]);
+    ///
+    /// // Now clear the slots. Everything is gone and it is no longer a match.
+    /// caps.clear();
+    /// assert!(!caps.is_match());
+    /// let slots: Vec<Option<usize>> =
+    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    /// // Note that the following ordering is not considered an API guarantee.
+    /// // The only valid way of mapping a capturing group index to a slot
+    /// // index is with the NFA::slot or NFA::slots routines.
+    /// assert_eq!(slots, vec![
+    ///     None,
+    ///     None,
+    ///     None,
+    ///     None,
+    ///     None,
+    ///     None,
+    /// ]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn clear(&mut self) {
+        self.pid = None;
+        for slot in self.slots.iter_mut() {
+            *slot = None;
+        }
+    }
+
+    /// Set the pattern on this `Captures` value.
+    ///
+    /// When the pattern ID is `None`, then this `Captures` value does not
+    /// correspond to a match (`is_match` will return `false`). Otherwise, it
+    /// corresponds to a match.
+    ///
+    /// # Example
+    ///
+    /// This example shows that `set_pattern` merely overwrites the pattern ID.
+    /// It does not actually change the underlying slot values.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    ///
+    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// assert!(caps.is_match());
+    /// assert!(caps.pattern().is_some());
+    /// let slots: Vec<Option<usize>> =
+    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    /// // Note that the following ordering is not considered an API guarantee.
+    /// // The only valid way of mapping a capturing group index to a slot
+    /// // index is with the NFA::slot or NFA::slots routines.
+    /// assert_eq!(slots, vec![
+    ///     Some(0),
+    ///     Some(17),
+    ///     Some(0),
+    ///     Some(5),
+    ///     Some(6),
+    ///     Some(17),
+    /// ]);
+    ///
+    /// // Now set the pattern to None. Note that the slot values remain.
+    /// caps.set_pattern(None);
+    /// assert!(!caps.is_match());
+    /// assert!(!caps.pattern().is_some());
+    /// let slots: Vec<Option<usize>> =
+    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    /// // Note that the following ordering is not considered an API guarantee.
+    /// // The only valid way of mapping a capturing group index to a slot
+    /// // index is with the NFA::slot or NFA::slots routines.
+    /// assert_eq!(slots, vec![
+    ///     Some(0),
+    ///     Some(17),
+    ///     Some(0),
+    ///     Some(5),
+    ///     Some(6),
+    ///     Some(17),
+    /// ]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn set_pattern(&mut self, pid: Option<PatternID>) {
+        self.pid = pid;
+    }
+
+    /// Return the slot value corresponding to the given index.
+    ///
+    /// A "slot" represents one half of the offsets for a capturing group, and
+    /// the name comes from the [`State::Capture`] state of an NFA. All valid
+    /// `Captures` values must have both slots for a capturing group set to
+    /// `None` or both set to a non-`None` value.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the given `slot` is not valid. A `slot` is valid if
+    /// and only if `slot < caps.slot_len()`.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use the lower level slot API to access span
+    /// offsets in a `Captures` value. Recall that the way slot indices are
+    /// assigned to capturing groups is specifically an implementation detail.
+    /// The only way to map between them is through the [`NFA::slot`] or
+    /// [`NFA::slots`] routines.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
+    ///
+    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let (slot_start, slot_end) =
+    ///     vm.nfa().slots(PatternID::ZERO, 0).unwrap();
+    ///
+    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(0), caps.get_slot(slot_start));
+    /// assert_eq!(Some(17), caps.get_slot(slot_end));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn get_slot(&mut self, slot: usize) -> Option<usize> {
         self.slots[slot].map(|s| s.get())
     }
 
+    /// Set the slot value corresponding to the given index to the given
+    /// offset.
+    ///
+    /// A "slot" represents one half of the offsets for a capturing group, and
+    /// the name comes from the [`State::Capture`] state of an NFA. All valid
+    /// `Captures` values must have both slots for a capturing group set to
+    /// `None` or both set to a non-`None` value.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the given `slot` is not valid. A `slot` is valid if
+    /// and only if `slot < caps.slot_len()`.
     pub fn set_slot(&mut self, slot: usize, at: Option<usize>) {
         // OK because length of a slice must fit into an isize.
         self.slots[slot] = at.and_then(NonMaxUsize::new);
     }
 
+    /// Return the total number of slots used for all patterns that this
+    /// `Captures` value can hold.
+    ///
+    /// This value is equivalent to the sum of all capturing groups across all
+    /// patterns from the originating NFA.
     pub fn slot_len(&self) -> usize {
         self.slots.len()
     }
 }
 
+/// An iterator over all capturing groups in a `Captures` value.
+///
+/// This iterator includes capturing groups that did not participate in a
+/// match. See the [`Captures::iter`] method documentation for more details
+/// and examples.
+///
+/// The lifetime parameter `'a` refers to the lifetime of the underlying
+/// `Captures` value.
 #[derive(Debug)]
 pub struct CapturesPatternIter<'a> {
     caps: &'a Captures,
@@ -2380,8 +3044,7 @@ mod tests {
 
     #[test]
     fn always_match() {
-        let nfa = NFA::always_match();
-        let vm = PikeVM::new_from_nfa(nfa).unwrap();
+        let vm = PikeVM::new_from_nfa(NFA::always_match()).unwrap();
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
         let mut find = |input, start, end| {
@@ -2401,8 +3064,7 @@ mod tests {
 
     #[test]
     fn never_match() {
-        let nfa = NFA::never_match();
-        let vm = PikeVM::new_from_nfa(nfa).unwrap();
+        let vm = PikeVM::new_from_nfa(NFA::never_match()).unwrap();
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
         let mut find = |input, start, end| {
