@@ -32,3 +32,8 @@ minimum is there to avoid runtime panics in degenerate cases...)
 
 * There's likely some SIMD we can do to improve parts of the PikeVM.
 Specifically, the Sparse state. Maybe PCMPESTI can finally be useful?
+
+* Rename Match to Span, MultiMatch to Match and keep HalfMatch as-is (since
+it does include a pattern ID).
+
+* Prefilters. See top of src/util/prefilter.rs for more in depth thoughts.

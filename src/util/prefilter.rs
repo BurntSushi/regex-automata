@@ -80,6 +80,97 @@ use crate::Match;
 // It seems like we are forever doomed to having to embed the prefilter into
 // the state machine traversal itself. But maybe there is a simpler way to do
 // it than what I'm doing now...
+//
+// ... more time passes ...
+//
+// OK, so the above strongly argues that we need to build prefilter support
+// into every regex engine. (I have not thought of a better way.) If so,
+// then we need to think about what we actually want. That is, what are our
+// requirements.
+//
+// * Prefilter searches should have very low latency. Striving for the lowest
+// possible latency is not plausible. That is, if a prefilter is inside the
+// regex engine, then the lowest latency thing is probably to specialize every
+// regex engine for every prefilter. But the code bloat from this would be
+// spectacular. Instead, we sacrifice some latency by using a dyn Prefilter.
+//
+// * Prefilter searches should accept a haystack and a context, just like all
+// regex engines. Any reported offsets should be valid with respect to the
+// haystack.
+//
+// * Prefilter searches should NOT be limited to "prefix" searches. We want
+// to support suffix searches and, to the extent possible, inner literal
+// searches too.
+//
+// * For prefix searches, it is tempting to find a way to avoid repeating the
+// word of matching the prefix via the regex engine once a candidate is found.
+// But handling this correctly---particularly in the presence of capturing
+// groups---seems quite tricky. This also seems tricky to handle if the prefix
+// consists of multiple distinct literals. In such a case, I imagine each
+// literal would need to map to its own distinct starting state. This might be
+// pretty easy to pull off with a DFA, but is trickier with an NFA since you
+// can't just jump into the middle of an NFA. You might have a bunch of states
+// built up by that point, in addition to capturing group offsets. In theory,
+// it's pre-computable though... We should keep an open mind for at least
+// making this work for the DFA though, since I think that really only actually
+// needs a LiteralID |--> StateID mapping.
+//
+// * Suffix searches are tricky to pull off because they can easily lead
+// to quadratic behavior if your reverse search keeps visiting parts of
+// the haystack you've already seen. The regex crate has this optimization
+// currently, and it uses an alternative lazy DFA API that reports the position
+// at which the reverse search failed. Using this information, we can prevent
+// the reverse search from going too far backwards. Our revised lazy DFA search
+// API doesn't expose this feature, but we could pretty easily write our own
+// (safe) search routine for this since the low level DFA transition APIs are
+// made available.
+//
+// * The inner searches are the hardest but awesomest. Going to avoid thinking
+// too deeply about them right now, probably because as far as prefilters
+// are concerned, I think that if we can do a suffix literal search, then we
+// should be fine with inner searches too. The main idea is avoiding quadratic
+// behavior. Another thing to think about here is whether we can do additional
+// analysis to avoid search time shenanigans, i.e., when we know we won't
+// revisit any text, e.g., if the inner literal doesn't match the prefix-regex
+// of the pattern.
+//
+// ... more time passes ...
+//
+// OK, maybe the trick here is that prefilters are actually only limited to
+// "simple" prefix accelerated searches. And anything else that's more
+// complicated is really just a "meta" regex engine. Because the non-prefix
+// prefilters described above can't really be implemented inside of each
+// regex engine, since they require special handling. e.g., Running different
+// parts in reverse or splitting the FSM into two parts.
+//
+// This entire enterprise also really wants an NFA reverse search that supports
+// all options. Otherwise, the literal optimizations that require running a
+// regex engine reverse will only be limited to the DFA engines, which in turn
+// means that Unicode word boundaries will disqualify those optimizations
+// entirely. And since Unicode word boundaries aren't supported by the faster
+// regex engines, it's all that more important to make sure we can accelerate
+// them with whatever tricks we have.
+//
+// So what's next here? Do we finally take a detour and write our literal
+// extraction routines and then work from there? Perhaps.
+//
+// And how do we handle the *prefix* prefilters in the APIs of the regex
+// engines. We have a few different approaches thus far:
+//
+// * The `dfa` module bakes prefilters into the DFA as a type parameter. This
+// was principally done so that prefilters were supportable in no_std mode,
+// where an Arc<dyn Prefilter> might not be available. We *could* ask for a
+// &dyn Prefilter (or some such) at every search call instead.
+// * The `hybrid::dfa` module asks for a prefilter at every search call. The
+// thinking here is that using lazy DFAs directly (instead of the regex API)
+// is low level enough that you want to be able to explicitly control the
+// prefilter scanner.
+// * The `hybrid::regex` API stores the prefilter as part of the Regex and
+// automatically handles the creation of prefilter scanners for each search
+// call.
+//
+// Is there a One True Way of handling prefilters? Or are we doomed to support
+// all three approaches..? Sigh.
 
 /// A candidate is the result of running a prefilter on a haystack at a
 /// particular position. The result is one of no match, a confirmed match or
