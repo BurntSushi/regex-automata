@@ -37,3 +37,10 @@ Specifically, the Sparse state. Maybe PCMPESTI can finally be useful?
 it does include a pattern ID).
 
 * Prefilters. See top of src/util/prefilter.rs for more in depth thoughts.
+
+* On the topic of prefilters, we should beef up the memchr crate with a few
+other things:
+  * Expose the memmem prefilter, so that regex engines can use it directly
+  without caring whether the full needle matches or not.
+  * Move the byteset scanning to memchr, and maybe use PCMPESTRI?
+  * Move the is_ascii code?

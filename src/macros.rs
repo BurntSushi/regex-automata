@@ -20,8 +20,8 @@ macro_rules! trace {
 // come up with any good ideas. The recursive call to 'next' is particularly
 // troublesome.
 //
-// This requires that 'self' correspond to the receive of a type that implements
-// Iterator, and that:
+// This requires that 'self' correspond to the receiver of a type that
+// implements Iterator, and that:
 //
 //   self.last_end be a usize indicating the beginning of the next search.
 //   self.text be a &[u8] corresponding to the bytes to search.

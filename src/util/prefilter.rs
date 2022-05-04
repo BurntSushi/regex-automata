@@ -152,7 +152,10 @@ use crate::Match;
 // them with whatever tricks we have.
 //
 // So what's next here? Do we finally take a detour and write our literal
-// extraction routines and then work from there? Perhaps.
+// extraction routines and then work from there? Perhaps. Or maybe we should
+// just run with what we have instead of trying to invent new literal
+// extraction routines now. That is, let's try to get regex-automata merged
+// into regex first. But...
 //
 // And how do we handle the *prefix* prefilters in the APIs of the regex
 // engines. We have a few different approaches thus far:
@@ -171,6 +174,120 @@ use crate::Match;
 //
 // Is there a One True Way of handling prefilters? Or are we doomed to support
 // all three approaches..? Sigh.
+//
+// What if we just require that the prefilter be set in the builder? We can
+// let the 'dfa' module be a special little snowflake because of no_std, but
+// everything else should be configurable with the builder. If so, should we
+// apply this to hybrid::dfa too? Such that the caller can't pass in a scanner?
+// Hmmm, no, probably not. Because higher level iterators might want to use
+// the same scanner across one search. Bummer.
+//
+// So I guess the rule here is that "regex level APIs" can have prefilters set
+// via their builders, but the rest need it passed as an explicit parameter.
+//
+// No, wait, that doesn't work either... Because the PikeVM is a "regex level
+// API," but there is no lower level API. So its lowest level 'find' routines
+// want a prefilter given to them too. So we could ask for a prefilter in the
+// builder but then ask for a scanner explicitly in the lower level routines,
+// but that's weird because it means the prefilter given in the builder isn't
+// used in the lower level routines.
+//
+// So maybe we just require a prefilter to be passed in explicitly
+// everywhere. But that's a bummer, because it means things like
+// hybrid::regex::Regex::find_leftmost_iter can *never* use a prefilter...
+//
+// Oh interesting, for hybrid::regex::Regex, we permit setting a prefilter
+// on the Regex object, but expose nothing for setting the scanner on an
+// individual search. Indeed, the iterator impls use internal routines that
+// permit explicitly setting a scanner. Which means that callers can't actually
+// implement their own iterators correctly... Welp, the same is true for
+// dfa::regex::Regex too.
+//
+// So maybe the simplest thing to do is to just demand prefilters for the
+// lowest level '*_at' routines. That's the most explicit and consistent
+// approach. It works for everything, including dfa::regex::Regex.
+//
+// ... AHHHH but no! This means the iterators provided by the crate can never
+// use a prefilter because our iterators veer towards the simple APIs. Maybe
+// that's okay? In order to use a prefilter with an iterator you have to roll
+// your own? Really? Either that, or we make the iterator constructors accept
+// a prefilter.
+//
+// What if we got rid of iterators and "higher level" APIs altogether? I guess
+// that would "fix" the problem too. The problem is that, because of the
+// possibility of zero-width matches, writing the iterator is itself a little
+// tricky. It would remove a lot of code from the crate and simplify the APIs
+// quite a bit though... Ug.
+//
+// Now I guess I've come full circle. We should just bake the prefilter into
+// the regex objects themselves. If callers really need to control the scanner
+// passed into the search routine, they can drop down a level and assemble the
+// DFAs themselves. They won't be able to do this for the PikeVM though. That's
+// the issue.
+//
+// Unless we handle passing the prefilter to the higher level APIs and allow
+// the caller to specify the scanner in the lower level APIs, thus ignoring
+// the prefilter baked into the regex. If we do that though, we need to expose
+// a convenience routine or some such for returning a scanner from the regex
+// object so that it can be passed to the lower level APIs.
+//
+// I suppose another option here is to split Regex objects in two. One half is
+// only the higher level APIs while the other half is only the lower level APIs
+// with no iterators. But that feels pretty annoying to me. And what would the
+// PikeVM look like? I guess the PikeVM would be the lower level API, and
+// nfa::thompson::pikevm::Regex would be the higher level API? And I guess for
+// the DFA-based regex engines, we just lop off the '*_at' routines entirely,
+// and say that the DFAs themselves are the lower level API? I don't know, this
+// just seems silly. Why lop off the '*_at' APIs at all?
+//
+// OK, here's a thing: so far, I've been focusing on each regex engine as
+// their own individual units. I haven't been thinking too much about the end
+// goal, which is that the regex engines can all be combined into on giant
+// "meta" regex engine. That meta regex engine is going to mix and match stuff
+// and probably won't use the higher level Regex objects at all. And almost
+// certainly won't use the iterators either I think. If that's true, then the
+// PikeVM at least really MUST expose a way to pass down a prefilter at search
+// time. I guess otherwise the meta regex engine will have to stuff prefilters
+// down into all of the regex objects?
+//
+// ... I think.
+//
+// Popping up a level here, what do iterators really want? Why do they care
+// about prefilters at all? The issue here is that a prefilter::Scanner bundles
+// some mutable state with an actual prefilter. That mutable state is used
+// to determine whether the prefilter should continue to be used or not, via
+// the 'is_effective' method. And so the thinking is that an iterator reflects
+// a "single search," even with multiple possible matches. So we keep the same
+// scanner state throughout the lifetime of the iterator. So if the prefilter
+// gets disabled early, it doesn't continually try to re-evaluate itself. It
+// gets disabled and stays disabled. So there is an inherent advantage to the
+// iterators. Although... Some benchmarks I've run (can't remember which) have
+// suggested that re-enabling the prefilter might actually be worth it, since
+// the disabling may no longer be the correct choice. Hard call.
+//
+// Also, if we don't couple the scanner together with the prefilter, then we're
+// adding YET ANOTHER parameter to the lower level search routines, which are
+// already busting at the seams.
+//
+// How much simpler would things get if we said, "nah there's no scanner, we
+// just always run the prefilter if one is present." Basically, commit to our
+// fate. It's worth noting that memmem and aho-corasick already have heuristics
+// in place to quit using their *own* prefilters. So maybe we shouldn't do it
+// ourselves too? This would remove the complication around iterators being
+// a special snowflake, but it also poses a risk: if we do wind up needing
+// something like a scanner to heuristically disable a prefilter, then we will
+// have built up an architecture around the idea that we don't need one. And
+// then it will be hard to retrofit.
+//
+// So maybe the PikeVM is kind of unique here in that it's trying to mix low
+// level with high level. The DFA-based regex engines aren't so bad because
+// callers can always build their own forward/reverse DFAs and piece things
+// together that way. Not ideal, but not the end of the world. Certainly
+// nowhere as difficult as building your own PikeVM. So maybe the answer
+// really is that the PikeVM is low-level APIs only, and then we add a
+// nfa::thompson::pikevm::regex module that gives the higher level niceties.
+//
+// I guess the same will be true for the backtracker as well. And onepass.
 
 /// A candidate is the result of running a prefilter on a haystack at a
 /// particular position. The result is one of no match, a confirmed match or
