@@ -32,6 +32,8 @@ minimum is there to avoid runtime panics in degenerate cases...)
 
 * There's likely some SIMD we can do to improve parts of the PikeVM.
 Specifically, the Sparse state. Maybe PCMPESTI can finally be useful?
+  * Actually I'm not sure this makes a lot of sense. The NFA only looks at
+  one byte at a time, and PCMPESTRI is about looking at many bytes at a time.
 
 * Rename Match to Span, MultiMatch to Match and keep HalfMatch as-is (since
 it does include a pattern ID).
