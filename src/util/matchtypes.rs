@@ -179,10 +179,8 @@ impl HalfMatch {
 pub struct Match {
     /// The pattern ID.
     pattern: PatternID,
-    /// The start offset of the match, inclusive.
-    start: usize,
-    /// The end offset of the match, exclusive.
-    end: usize,
+    /// The underlying match span.
+    span: Span,
 }
 
 impl Match {
@@ -193,8 +191,7 @@ impl Match {
     /// This panics if `end < start`.
     #[inline]
     pub fn new(pattern: PatternID, start: usize, end: usize) -> Match {
-        assert!(start <= end);
-        Match { pattern, start, end }
+        Match { pattern, span: Span::new(start, end) }
     }
 
     /// Create a new match from a pattern ID and a byte offset span.
@@ -225,19 +222,28 @@ impl Match {
     /// The starting position of the match.
     #[inline]
     pub fn start(&self) -> usize {
-        self.start
+        self.span().start()
     }
 
     /// The ending position of the match.
     #[inline]
     pub fn end(&self) -> usize {
-        self.end
+        self.span().end()
     }
 
     /// Returns the match location as a range.
     #[inline]
     pub fn range(&self) -> core::ops::Range<usize> {
-        self.start..self.end
+        self.span().range()
+    }
+
+    /// Returns the span for this match.
+    #[inline]
+    fn span(&self) -> &Span {
+        // Should we export this method? Returning an &Span makes sense if
+        // we keep our match types non-Copy. But if we do make Span satisfy
+        // Copy, then we should probably just return Span.
+        &self.span
     }
 
     /// Returns true if and only if this match is empty. That is, when
@@ -247,7 +253,7 @@ impl Match {
     /// the patterns used to build the Aho-Corasick automaton.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.start == self.end
+        self.span().is_empty()
     }
 }
 
