@@ -819,7 +819,7 @@ impl DFA {
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
     ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
-    ///     HalfMatch,
+    ///     HalfMatch, Match,
     /// };
     ///
     /// #[derive(Debug)]
@@ -836,7 +836,10 @@ impl DFA {
     ///         // the prefilter will skip right over the match.
     ///         match haystack.iter().position(|&b| b == b'z') {
     ///             None => Candidate::None,
-    ///             Some(i) => Candidate::PossibleStartOfMatch(at + i),
+    ///             Some(i) => {
+    ///                 let start = at + i;
+    ///                 Candidate::PossibleMatch(Match::new(start, start + 1))
+    ///             }
     ///         }
     ///     }
     ///

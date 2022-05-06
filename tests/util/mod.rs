@@ -1,4 +1,7 @@
-use regex_automata::util::prefilter::{self, Candidate, Prefilter};
+use regex_automata::{
+    util::prefilter::{self, Candidate, Prefilter},
+    Match,
+};
 
 #[derive(Clone, Debug)]
 pub struct SubstringPrefilter(bstr::Finder<'static>);
@@ -19,7 +22,11 @@ impl Prefilter for SubstringPrefilter {
     ) -> Candidate {
         self.0
             .find(&haystack[at..])
-            .map(|i| Candidate::PossibleStartOfMatch(at + i))
+            .map(|i| {
+                let start = at + i;
+                let end = start + self.0.needle().len();
+                Candidate::PossibleMatch(Match::new(start, end))
+            })
             .unwrap_or(Candidate::None)
     }
 

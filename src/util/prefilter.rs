@@ -294,14 +294,20 @@ use crate::Match;
 //
 // I guess the same will be true for the backtracker as well. And onepass.
 
+// DREAM: When writing the prefilter APIs below, I mostly looked at what the
+// regex crate was already doing in order to get regex-automata merged into
+// the regex crate expeditiously. However, I would very much like to improve
+// how prefilters are done, especially for the multi-regex case. I suspect the
+// interface for that will look quite a bit different, since you really want
+// the prefilter to report for which patterns there was a match. For now, we
+// just require that the prefilter report match spans.
+
 #[derive(Clone, Debug)]
 pub enum Candidate {
     None,
     Match(Match),
-    PossibleStartOfMatch(usize),
+    PossibleMatch(Match),
 }
-
-// foo[A-Z]+, foobar[0-9]+
 
 impl Candidate {
     /// Convert this candidate into an option.
@@ -316,7 +322,7 @@ impl Candidate {
         match self {
             Candidate::None => None,
             Candidate::Match(ref m) => Some(m.start()),
-            Candidate::PossibleStartOfMatch(start) => Some(start),
+            Candidate::PossibleMatch(ref m) => Some(m.start()),
         }
     }
 }
@@ -444,7 +450,7 @@ pub struct None {
 
 impl Prefilter for None {
     fn next_candidate(&self, _: &mut State, _: &[u8], at: usize) -> Candidate {
-        Candidate::PossibleStartOfMatch(at)
+        Candidate::PossibleMatch(Match::new(at, at))
     }
 
     fn heap_bytes(&self) -> usize {

@@ -1297,7 +1297,7 @@ pub unsafe trait Automaton {
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
     ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
-    ///     HalfMatch,
+    ///     HalfMatch, Match,
     /// };
     ///
     /// #[derive(Debug)]
@@ -1314,7 +1314,10 @@ pub unsafe trait Automaton {
     ///         // the prefilter will skip right over the match.
     ///         match haystack.iter().position(|&b| b == b'z') {
     ///             None => Candidate::None,
-    ///             Some(i) => Candidate::PossibleStartOfMatch(at + i),
+    ///             Some(i) => {
+    ///                 let start = at + i;
+    ///                 Candidate::PossibleMatch(Match::new(start, start + 1))
+    ///             }
     ///         }
     ///     }
     ///
