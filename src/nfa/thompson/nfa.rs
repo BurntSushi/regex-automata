@@ -13,7 +13,7 @@ use crate::{
         decode_last_utf8, decode_utf8,
         id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
         is_word_byte, is_word_char_fwd, is_word_char_rev,
-        matchtypes::{Match, MultiMatch},
+        matchtypes::{MultiMatch, Span},
         nonmax::NonMaxUsize,
     },
 };
@@ -2351,7 +2351,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// the date via capturing groups:
 ///
 /// ```
-/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Span};
 ///
 /// let vm = PikeVM::new(r"^(\d{4})-(\d{2})-(\d{2})$")?;
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -2359,9 +2359,9 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// let haystack = "2010-03-14";
 /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
 /// assert!(caps.is_match());
-/// assert_eq!(Some(Match::new(0, 4)), caps.get_group(1));
-/// assert_eq!(Some(Match::new(5, 7)), caps.get_group(2));
-/// assert_eq!(Some(Match::new(8, 10)), caps.get_group(3));
+/// assert_eq!(Some(Span::new(0, 4)), caps.get_group(1));
+/// assert_eq!(Some(Span::new(5, 7)), caps.get_group(2));
+/// assert_eq!(Some(Span::new(8, 10)), caps.get_group(3));
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -2372,7 +2372,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// capturing groups in order to make the code a bit clearer:
 ///
 /// ```
-/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Span};
 ///
 /// let vm = PikeVM::new(r"^(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})$")?;
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -2380,9 +2380,9 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// let haystack = "2010-03-14";
 /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
 /// assert!(caps.is_match());
-/// assert_eq!(Some(Match::new(0, 4)), caps.get_group_by_name("y"));
-/// assert_eq!(Some(Match::new(5, 7)), caps.get_group_by_name("m"));
-/// assert_eq!(Some(Match::new(8, 10)), caps.get_group_by_name("d"));
+/// assert_eq!(Some(Span::new(0, 4)), caps.get_group_by_name("y"));
+/// assert_eq!(Some(Span::new(5, 7)), caps.get_group_by_name("m"));
+/// assert_eq!(Some(Span::new(8, 10)), caps.get_group_by_name("d"));
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -2419,7 +2419,7 @@ impl Captures {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
-    ///     Match, MultiMatch,
+    ///     Span, MultiMatch,
     /// };
     ///
     /// let vm = PikeVM::new(
@@ -2434,8 +2434,8 @@ impl Captures {
     /// assert_eq!(Some(MultiMatch::must(0, 0, 6)), caps.get_match());
     /// // The 'lower' group didn't match, so it won't have any offsets.
     /// assert_eq!(None, caps.get_group_by_name("lower"));
-    /// assert_eq!(Some(Match::new(0, 3)), caps.get_group_by_name("upper"));
-    /// assert_eq!(Some(Match::new(3, 6)), caps.get_group_by_name("digits"));
+    /// assert_eq!(Some(Span::new(0, 3)), caps.get_group_by_name("upper"));
+    /// assert_eq!(Some(Span::new(3, 6)), caps.get_group_by_name("digits"));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -2651,26 +2651,26 @@ impl Captures {
     /// match:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, MultiMatch};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, MultiMatch};
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(MultiMatch::must(0, 0, 17)), caps.get_match());
-    /// assert_eq!(Some(Match::new(0, 5)), caps.get_group(1));
-    /// assert_eq!(Some(Match::new(6, 17)), caps.get_group(2));
+    /// assert_eq!(Some(Span::new(0, 5)), caps.get_group(1));
+    /// assert_eq!(Some(Span::new(6, 17)), caps.get_group(2));
     /// // Looking for a non-existent capturing group will return None:
     /// assert_eq!(None, caps.get_group(3));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn get_group(&self, index: usize) -> Option<Match> {
+    pub fn get_group(&self, index: usize) -> Option<Span> {
         let pid = self.pattern()?;
         let (slot_start, slot_end) = self.nfa.slots(pid, index)?;
         let start = self.slots.get(slot_start).copied()??;
         let end = self.slots.get(slot_end).copied()??;
-        Some(Match::new(start.get(), end.get()))
+        Some(Span::new(start.get(), end.get()))
     }
 
     /// Returns the span of a capturing group match corresponding to the group
@@ -2696,21 +2696,21 @@ impl Captures {
     /// match:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, MultiMatch};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, MultiMatch};
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(MultiMatch::must(0, 0, 17)), caps.get_match());
-    /// assert_eq!(Some(Match::new(0, 5)), caps.get_group_by_name("first"));
-    /// assert_eq!(Some(Match::new(6, 17)), caps.get_group_by_name("last"));
+    /// assert_eq!(Some(Span::new(0, 5)), caps.get_group_by_name("first"));
+    /// assert_eq!(Some(Span::new(6, 17)), caps.get_group_by_name("last"));
     /// // Looking for a non-existent capturing group will return None:
     /// assert_eq!(None, caps.get_group_by_name("middle"));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn get_group_by_name(&self, name: &str) -> Option<Match> {
+    pub fn get_group_by_name(&self, name: &str) -> Option<Span> {
         let index = self.nfa.capture_name_to_index(self.pattern()?, name)?;
         self.get_group(index)
     }
@@ -2722,7 +2722,7 @@ impl Captures {
     /// iterator returned yields no elements.
     ///
     /// Note that the iterator returned yields elements of type
-    /// `Option<Match>`. An element is present if and only if it corresponds to
+    /// `Option<Span>`. An element is present if and only if it corresponds to
     /// a capturing group that participated in a match.
     ///
     /// # Example
@@ -2730,7 +2730,7 @@ impl Captures {
     /// This example shows how to collect all capturing groups:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
     /// let vm = PikeVM::new(
     ///     // Matches first/last names, with an optional middle name.
@@ -2740,12 +2740,12 @@ impl Captures {
     ///
     /// vm.find_leftmost(&mut cache, b"Harry James Potter", &mut caps);
     /// assert!(caps.is_match());
-    /// let groups: Vec<Option<Match>> = caps.iter().collect();
+    /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
-    ///     Some(Match::new(0, 18)),
-    ///     Some(Match::new(0, 5)),
-    ///     Some(Match::new(6, 11)),
-    ///     Some(Match::new(12, 18)),
+    ///     Some(Span::new(0, 18)),
+    ///     Some(Span::new(0, 5)),
+    ///     Some(Span::new(6, 11)),
+    ///     Some(Span::new(12, 18)),
     /// ]);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2757,7 +2757,7 @@ impl Captures {
     /// match:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
     /// let vm = PikeVM::new(
     ///     // Matches first/last names, with an optional middle name.
@@ -2767,12 +2767,12 @@ impl Captures {
     ///
     /// vm.find_leftmost(&mut cache, b"Harry Potter", &mut caps);
     /// assert!(caps.is_match());
-    /// let groups: Vec<Option<Match>> = caps.iter().collect();
+    /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
-    ///     Some(Match::new(0, 12)),
-    ///     Some(Match::new(0, 5)),
+    ///     Some(Span::new(0, 12)),
+    ///     Some(Span::new(0, 5)),
     ///     None,
-    ///     Some(Match::new(6, 12)),
+    ///     Some(Span::new(6, 12)),
     /// ]);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2799,7 +2799,7 @@ impl Captures {
     /// participate in a match (just like `Captures::iter` does).
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
     /// let vm = PikeVM::new(
     ///     // Matches first/last names, with an optional middle name.
@@ -3029,9 +3029,9 @@ pub struct CapturesPatternIter<'a> {
 }
 
 impl<'a> Iterator for CapturesPatternIter<'a> {
-    type Item = Option<Match>;
+    type Item = Option<Span>;
 
-    fn next(&mut self) -> Option<Option<Match>> {
+    fn next(&mut self) -> Option<Option<Span>> {
         let (group_index, _) = self.names.as_mut()?.next()?;
         Some(self.caps.get_group(group_index))
     }

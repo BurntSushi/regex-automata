@@ -1297,7 +1297,7 @@ pub unsafe trait Automaton {
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
     ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
-    ///     HalfMatch, Match,
+    ///     HalfMatch, Span,
     /// };
     ///
     /// #[derive(Debug)]
@@ -1316,7 +1316,7 @@ pub unsafe trait Automaton {
     ///             None => Candidate::None,
     ///             Some(i) => {
     ///                 let start = at + i;
-    ///                 Candidate::PossibleMatch(Match::new(start, start + 1))
+    ///                 Candidate::PossibleMatch(Span::new(start, start + 1))
     ///             }
     ///         }
     ///     }

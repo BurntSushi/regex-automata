@@ -581,7 +581,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 
     /// Returns an iterator over all non-overlapping "earliest" matches.
     ///
-    /// Match positions are reported as soon as a match is known to occur, even
+    /// Span positions are reported as soon as a match is known to occur, even
     /// if the standard leftmost match would be longer.
     ///
     /// # Panics
@@ -967,7 +967,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 
     /// Returns an iterator over all non-overlapping "earliest" matches.
     ///
-    /// Match positions are reported as soon as a match is known to occur, even
+    /// Span positions are reported as soon as a match is known to occur, even
     /// if the standard leftmost match would be longer.
     ///
     /// # Errors

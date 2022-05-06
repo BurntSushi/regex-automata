@@ -828,7 +828,7 @@ impl Builder {
     /// use regex_automata::{
     ///     nfa::thompson::{pikevm::PikeVM, Builder, Captures, Transition},
     ///     util::id::{PatternID, StateID},
-    ///     Match,
+    ///     Span,
     /// };
     ///
     /// // Hand-compile the patterns '(?P<foo>[a-z])' and '(?P<foo>[A-Z])'.
@@ -905,19 +905,19 @@ impl Builder {
     /// assert_eq!(5, caps.len());
     ///
     /// assert_eq!(Some(PatternID::must(0)), caps[0].pattern());
-    /// assert_eq!(Some(Match::new(4, 5)), caps[0].get_group_by_name("foo"));
+    /// assert_eq!(Some(Span::new(4, 5)), caps[0].get_group_by_name("foo"));
     ///
     /// assert_eq!(Some(PatternID::must(1)), caps[1].pattern());
-    /// assert_eq!(Some(Match::new(5, 6)), caps[1].get_group_by_name("foo"));
+    /// assert_eq!(Some(Span::new(5, 6)), caps[1].get_group_by_name("foo"));
     ///
     /// assert_eq!(Some(PatternID::must(0)), caps[2].pattern());
-    /// assert_eq!(Some(Match::new(6, 7)), caps[2].get_group_by_name("foo"));
+    /// assert_eq!(Some(Span::new(6, 7)), caps[2].get_group_by_name("foo"));
     ///
     /// assert_eq!(Some(PatternID::must(1)), caps[3].pattern());
-    /// assert_eq!(Some(Match::new(7, 8)), caps[3].get_group_by_name("foo"));
+    /// assert_eq!(Some(Span::new(7, 8)), caps[3].get_group_by_name("foo"));
     ///
     /// assert_eq!(Some(PatternID::must(1)), caps[4].pattern());
-    /// assert_eq!(Some(Match::new(8, 9)), caps[4].get_group_by_name("foo"));
+    /// assert_eq!(Some(Span::new(8, 9)), caps[4].get_group_by_name("foo"));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

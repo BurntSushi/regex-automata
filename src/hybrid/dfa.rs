@@ -819,7 +819,7 @@ impl DFA {
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
     ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
-    ///     HalfMatch, Match,
+    ///     HalfMatch, Span,
     /// };
     ///
     /// #[derive(Debug)]
@@ -838,7 +838,7 @@ impl DFA {
     ///             None => Candidate::None,
     ///             Some(i) => {
     ///                 let start = at + i;
-    ///                 Candidate::PossibleMatch(Match::new(start, start + 1))
+    ///                 Candidate::PossibleMatch(Span::new(start, start + 1))
     ///             }
     ///         }
     ///     }

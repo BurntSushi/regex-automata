@@ -54,23 +54,23 @@ impl Default for MatchKind {
 ///
 /// Every match guarantees that `start <= end`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Match {
+pub struct Span {
     /// The start offset of the match, inclusive.
     start: usize,
     /// The end offset of the match, exclusive.
     end: usize,
 }
 
-impl Match {
+impl Span {
     /// Create a new match from a byte offset span.
     ///
     /// # Panics
     ///
     /// This panics if `end < start`.
     #[inline]
-    pub fn new(start: usize, end: usize) -> Match {
+    pub fn new(start: usize, end: usize) -> Span {
         assert!(start <= end);
-        Match { start, end }
+        Span { start, end }
     }
 
     /// The starting position of the match.

@@ -31,7 +31,7 @@ pub use crate::util::id::PatternID;
 pub use crate::util::syntax::SyntaxConfig;
 pub use crate::util::{
     bytes::{DeserializeError, SerializeError},
-    matchtypes::{HalfMatch, Match, MatchError, MatchKind, MultiMatch},
+    matchtypes::{HalfMatch, MatchError, MatchKind, MultiMatch, Span},
 };
 
 #[macro_use]

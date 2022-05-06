@@ -1,6 +1,6 @@
 use regex_automata::{
     util::prefilter::{self, Candidate, Prefilter},
-    Match,
+    Span,
 };
 
 #[derive(Clone, Debug)]
@@ -25,7 +25,7 @@ impl Prefilter for SubstringPrefilter {
             .map(|i| {
                 let start = at + i;
                 let end = start + self.0.needle().len();
-                Candidate::PossibleMatch(Match::new(start, end))
+                Candidate::PossibleMatch(Span::new(start, end))
             })
             .unwrap_or(Candidate::None)
     }

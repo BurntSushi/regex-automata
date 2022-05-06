@@ -3,7 +3,7 @@ use core::{
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
-use crate::Match;
+use crate::Span;
 
 // TODO: Putting a Box<dyn Prefilter> into something else (like a Regex), makes
 // cloning difficult. I believe Aho-Corasick resolves this with some machinery.
@@ -53,7 +53,7 @@ use crate::Match;
 // when a prefilter is present.
 //
 // This does unfortunately mean that we have to change all of the regex engines
-// to report the position at which it stopped a search. So, Option<Match> has
+// to report the position at which it stopped a search. So, Option<Span> has
 // to become SearchResult, where SearchResult is an enum. That's... annoying.
 // But, frightfully, seems worth it.
 //
@@ -305,8 +305,8 @@ use crate::Match;
 #[derive(Clone, Debug)]
 pub enum Candidate {
     None,
-    Match(Match),
-    PossibleMatch(Match),
+    Match(Span),
+    PossibleMatch(Span),
 }
 
 impl Candidate {
@@ -450,7 +450,7 @@ pub struct None {
 
 impl Prefilter for None {
     fn next_candidate(&self, _: &mut State, _: &[u8], at: usize) -> Candidate {
-        Candidate::PossibleMatch(Match::new(at, at))
+        Candidate::PossibleMatch(Span::new(at, at))
     }
 
     fn heap_bytes(&self) -> usize {
