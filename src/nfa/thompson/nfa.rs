@@ -13,7 +13,7 @@ use crate::{
         decode_last_utf8, decode_utf8,
         id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
         is_word_byte, is_word_char_fwd, is_word_char_rev,
-        matchtypes::{MultiMatch, Span},
+        matchtypes::{Match, Span},
         nonmax::NonMaxUsize,
     },
 };
@@ -122,13 +122,13 @@ use crate::{
 /// search using the Pike VM.
 ///
 /// ```
-/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
 ///
 /// let vm = PikeVM::new(r"foo[0-9]+")?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
 ///
-/// let expected = Some(MultiMatch::must(0, 0, 8));
+/// let expected = Some(Match::must(0, 0, 8));
 /// vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
@@ -204,12 +204,12 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
     /// let vm = PikeVM::new(r"foo[0-9]+")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(MultiMatch::must(0, 0, 8));
+    /// let expected = Some(Match::must(0, 0, 8));
     /// vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -228,12 +228,12 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
     /// let vm = PikeVM::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(MultiMatch::must(1, 0, 3));
+    /// let expected = Some(Match::must(1, 0, 3));
     /// vm.find_leftmost(&mut cache, b"foo12345bar", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -249,12 +249,12 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
     /// let vm = PikeVM::new_from_nfa(NFA::always_match())?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(MultiMatch::must(0, 0, 0));
+    /// let expected = Some(Match::must(0, 0, 0));
     /// vm.find_leftmost(&mut cache, b"", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     /// vm.find_leftmost(&mut cache, b"foo", &mut caps);
@@ -293,7 +293,7 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
     /// let vm = PikeVM::new_from_nfa(NFA::never_match())?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -322,14 +322,14 @@ impl NFA {
     /// through invalid UTF-8.
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
     /// let vm = PikeVM::builder()
     ///     .thompson(NFA::config().utf8(false))
     ///     .build(r"[a-z]+")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(MultiMatch::must(0, 1, 4));
+    /// let expected = Some(Match::must(0, 1, 4));
     /// vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -354,7 +354,7 @@ impl NFA {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::{NFA, pikevm::PikeVM},
-    ///     MultiMatch, SyntaxConfig
+    ///     Match, SyntaxConfig
     /// };
     ///
     /// let vm = PikeVM::builder()
@@ -363,7 +363,7 @@ impl NFA {
     ///     .build(r"[a-z]+(?-u:.)")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(MultiMatch::must(0, 1, 5));
+    /// let expected = Some(Match::must(0, 1, 5));
     /// vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -2419,7 +2419,7 @@ impl Captures {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
-    ///     Span, MultiMatch,
+    ///     Span, Match,
     /// };
     ///
     /// let vm = PikeVM::new(
@@ -2431,7 +2431,7 @@ impl Captures {
     /// let haystack = "ABC123";
     /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
     /// assert!(caps.is_match());
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 6)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0, 6)), caps.get_match());
     /// // The 'lower' group didn't match, so it won't have any offsets.
     /// assert_eq!(None, caps.get_group_by_name("lower"));
     /// assert_eq!(Some(Span::new(0, 3)), caps.get_group_by_name("upper"));
@@ -2460,7 +2460,7 @@ impl Captures {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
-    ///     MultiMatch,
+    ///     Match,
     /// };
     ///
     /// let vm = PikeVM::new(
@@ -2472,7 +2472,7 @@ impl Captures {
     /// let haystack = "ABC123";
     /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
     /// assert!(caps.is_match());
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 6)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0, 6)), caps.get_match());
     /// // We didn't ask for capturing group offsets, so they aren't available.
     /// assert_eq!(None, caps.get_group_by_name("lower"));
     /// assert_eq!(None, caps.get_group_by_name("upper"));
@@ -2603,20 +2603,20 @@ impl Captures {
     /// This example shows how to get the full match from a search:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, MultiMatch};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
     /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find_leftmost(&mut cache, b"ABC", &mut caps);
-    /// assert_eq!(Some(MultiMatch::must(1, 0, 3)), caps.get_match());
+    /// assert_eq!(Some(Match::must(1, 0, 3)), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn get_match(&self) -> Option<MultiMatch> {
+    pub fn get_match(&self) -> Option<Match> {
         let pid = self.pattern()?;
         let m = self.get_group(0)?;
-        Some(MultiMatch::new(pid, m.start(), m.end()))
+        Some(Match::new(pid, m.start(), m.end()))
     }
 
     /// Returns the span of a capturing group match corresponding to the group
@@ -2651,13 +2651,13 @@ impl Captures {
     /// match:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, MultiMatch};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, Match};
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 17)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
     /// assert_eq!(Some(Span::new(0, 5)), caps.get_group(1));
     /// assert_eq!(Some(Span::new(6, 17)), caps.get_group(2));
     /// // Looking for a non-existent capturing group will return None:
@@ -2696,13 +2696,13 @@ impl Captures {
     /// match:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, MultiMatch};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, Match};
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 17)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
     /// assert_eq!(Some(Span::new(0, 5)), caps.get_group_by_name("first"));
     /// assert_eq!(Some(Span::new(6, 17)), caps.get_group_by_name("last"));
     /// // Looking for a non-existent capturing group will return None:

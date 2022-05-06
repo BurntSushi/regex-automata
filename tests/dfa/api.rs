@@ -3,7 +3,7 @@ use std::error::Error;
 use regex_automata::{
     dfa::{dense, regex::Regex, Automaton, OverlappingState},
     nfa::thompson,
-    HalfMatch, MatchError, MatchKind, MultiMatch,
+    HalfMatch, Match, MatchError, MatchKind,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -121,8 +121,8 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
     let re = Regex::new(r"a[0-9]+")
         .unwrap()
         .with_prefilter(SubstringPrefilter::new("a"));
-    assert_eq!(re.find_leftmost(b"za123"), Some(MultiMatch::must(0, 1, 5)));
-    assert_eq!(re.find_leftmost(b"a123"), Some(MultiMatch::must(0, 0, 4)));
+    assert_eq!(re.find_leftmost(b"za123"), Some(Match::must(0, 1, 5)));
+    assert_eq!(re.find_leftmost(b"a123"), Some(Match::must(0, 0, 4)));
     let re = re.with_prefilter(BunkPrefilter::new());
     assert_eq!(re.find_leftmost(b"za123"), None);
     // This checks that the prefilter is used when first starting the search,

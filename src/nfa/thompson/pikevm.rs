@@ -10,7 +10,7 @@ use crate::{
     nfa::thompson::{self, Captures, Error, State, NFA},
     util::{
         id::{PatternID, StateID},
-        matchtypes::{MatchKind, MultiMatch},
+        matchtypes::{Match, MatchKind},
         nonmax::NonMaxUsize,
         prefilter::{self, Prefilter},
         sparse_set::SparseSet,
@@ -738,7 +738,7 @@ impl PikeVM {
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// infallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found. If the underlying search returns an error, then this panics.
 ///
 /// The lifetime variables are as follows:
@@ -775,9 +775,9 @@ impl<'r, 'c, 't> FindEarliestMatches<'r, 'c, 't> {
 }
 
 impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
-    type Item = MultiMatch;
+    type Item = Match;
 
-    fn next(&mut self) -> Option<MultiMatch> {
+    fn next(&mut self) -> Option<Match> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -798,7 +798,7 @@ impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// infallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found. If the underlying search returns an error, then this panics.
 ///
 /// The lifetime variables are as follows:
@@ -835,9 +835,9 @@ impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
 }
 
 impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
-    type Item = MultiMatch;
+    type Item = Match;
 
-    fn next(&mut self) -> Option<MultiMatch> {
+    fn next(&mut self) -> Option<Match> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -885,9 +885,9 @@ impl<'r, 'c, 't> FindOverlappingMatches<'r, 'c, 't> {
 }
 
 impl<'r, 'c, 't> Iterator for FindOverlappingMatches<'r, 'c, 't> {
-    type Item = MultiMatch;
+    type Item = Match;
 
-    fn next(&mut self) -> Option<MultiMatch> {
+    fn next(&mut self) -> Option<Match> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -957,7 +957,7 @@ impl<'r, 'c, 't> Iterator for CapturesEarliestMatches<'r, 'c, 't> {
 /// An iterator over all non-overlapping leftmost matches, with their capturing
 /// groups, for a particular infallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found. If the underlying search returns an error, then this panics.
 ///
 /// The lifetime variables are as follows:

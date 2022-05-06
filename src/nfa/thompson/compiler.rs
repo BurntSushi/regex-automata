@@ -110,7 +110,7 @@ impl Config {
     /// ```ignore
     /// use regex_automata::{
     ///     nfa::thompson::{pikevm::PikeVM, NFA},
-    ///     MultiMatch,
+    ///     Match,
     /// };
     ///
     /// let haystack = b"\xFFabc\xFF";
@@ -131,7 +131,7 @@ impl Config {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(MultiMatch::must(0, 1, 4));
+    /// let expected = Some(Match::must(0, 1, 4));
     /// vm.find_leftmost(&mut cache, &*haystack, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -402,7 +402,7 @@ mutably both inside and outside the closure at the same time.
 /// ```
 /// use regex_automata::{
 ///     nfa::thompson::{NFA, pikevm::PikeVM},
-///     MultiMatch,
+///     Match,
 /// };
 ///
 /// let config = NFA::config().nfa_size_limit(Some(1_000));
@@ -411,7 +411,7 @@ mutably both inside and outside the closure at the same time.
 /// let vm = PikeVM::new_from_nfa(nfa)?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
-/// let expected = Some(MultiMatch::must(0, 3, 4));
+/// let expected = Some(Match::must(0, 3, 4));
 /// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
@@ -426,7 +426,7 @@ mutably both inside and outside the closure at the same time.
 /// ```
 /// use regex_automata::{
 ///     nfa::thompson::{NFA, pikevm::PikeVM},
-///     MultiMatch,
+///     Match,
 /// };
 /// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
 ///
@@ -443,7 +443,7 @@ mutably both inside and outside the closure at the same time.
 /// let vm = PikeVM::new_from_nfa(nfa)?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
-/// let expected = Some(MultiMatch::must(0, 3, 4));
+/// let expected = Some(Match::must(0, 3, 4));
 /// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
@@ -496,7 +496,7 @@ impl Compiler {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
     /// let config = NFA::config().nfa_size_limit(Some(1_000));
     /// let nfa = NFA::compiler().configure(config).build(r"(?-u)\w")?;
@@ -504,7 +504,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(MultiMatch::must(0, 3, 4));
+    /// let expected = Some(Match::must(0, 3, 4));
     /// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -522,7 +522,7 @@ impl Compiler {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
     /// let config = NFA::config().nfa_size_limit(Some(1_000));
     /// let nfa = NFA::compiler().configure(config).build_many(&[
@@ -533,7 +533,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(MultiMatch::must(1, 1, 2));
+    /// let expected = Some(Match::must(1, 1, 2));
     /// vm.find_leftmost(&mut cache, b"!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -568,7 +568,7 @@ impl Compiler {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     /// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
     ///
     /// let hir = Hir::class(Class::Bytes(ClassBytes::new(vec![
@@ -584,7 +584,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(MultiMatch::must(0, 3, 4));
+    /// let expected = Some(Match::must(0, 3, 4));
     /// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -603,7 +603,7 @@ impl Compiler {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, MultiMatch};
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     /// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
     ///
     /// let hirs = &[
@@ -625,7 +625,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(MultiMatch::must(1, 1, 2));
+    /// let expected = Some(Match::must(1, 1, 2));
     /// vm.find_leftmost(&mut cache, b"!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///

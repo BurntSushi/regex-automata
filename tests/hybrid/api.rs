@@ -3,7 +3,7 @@ use std::{error::Error, sync::Arc};
 use regex_automata::{
     hybrid::{dfa::DFA, regex::Regex, OverlappingState},
     nfa::thompson,
-    HalfMatch, MatchError, MultiMatch,
+    HalfMatch, Match, MatchError,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -186,11 +186,11 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
     let mut cache = re.create_cache();
     assert_eq!(
         re.find_leftmost(&mut cache, b"za123"),
-        Some(MultiMatch::must(0, 1, 5))
+        Some(Match::must(0, 1, 5))
     );
     assert_eq!(
         re.find_leftmost(&mut cache, b"a123"),
-        Some(MultiMatch::must(0, 0, 4))
+        Some(Match::must(0, 0, 4))
     );
 
     let re = Regex::builder()

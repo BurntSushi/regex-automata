@@ -27,7 +27,7 @@ macro_rules! trace {
 //   self.text be a &[u8] corresponding to the bytes to search.
 //   self.last_match be a Option<usize> that is the end of the last match.
 //
-// 'match' should correspond to an expression with type 'MultiMatch' and
+// 'match' should correspond to an expression with type 'Match' and
 // 'utf8' should be a boolean indicating whether we should behave as if we are
 // searching valid UTF-8.
 macro_rules! handle_iter_match {

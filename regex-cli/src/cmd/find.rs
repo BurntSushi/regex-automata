@@ -773,7 +773,7 @@ fn write_api_match(m: regex::bytes::Match, buf: &mut String) {
     writeln!(buf, "[{:?}, {:?})", m.start(), m.end()).unwrap();
 }
 
-fn write_multi_match(m: automata::MultiMatch, buf: &mut String) {
+fn write_multi_match(m: automata::Match, buf: &mut String) {
     use std::fmt::Write;
 
     writeln!(buf, "{:?}: [{:?}, {:?})", m.pattern(), m.start(), m.end())

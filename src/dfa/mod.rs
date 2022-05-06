@@ -32,14 +32,14 @@ This example shows how to compile a regex using the default configuration
 and then use it to find matches in a byte string:
 
 ```
-use regex_automata::{MultiMatch, dfa::regex::Regex};
+use regex_automata::{Match, dfa::regex::Regex};
 
 let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(0, 0, 10),
-    MultiMatch::must(0, 11, 21),
+    Match::must(0, 0, 10),
+    Match::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -51,14 +51,14 @@ simultaneously. You can use this support with standard leftmost-first style
 searching to find non-overlapping matches:
 
 ```
-use regex_automata::{MultiMatch, dfa::regex::Regex};
+use regex_automata::{Match, dfa::regex::Regex};
 
 let re = Regex::new_many(&[r"\w+", r"\S+"])?;
 let text = b"@foo bar";
-let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(1, 0, 4),
-    MultiMatch::must(0, 5, 8),
+    Match::must(1, 0, 4),
+    Match::must(0, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -66,7 +66,7 @@ assert_eq!(matches, vec![
 Or use overlapping style searches to find all possible occurrences:
 
 ```
-use regex_automata::{MatchKind, MultiMatch, dfa::{dense, regex::Regex}};
+use regex_automata::{MatchKind, Match, dfa::{dense, regex::Regex}};
 
 // N.B. For overlapping searches, we need the underlying DFA to report all
 // possible matches.
@@ -74,13 +74,13 @@ let re = Regex::builder()
     .dense(dense::Config::new().match_kind(MatchKind::All))
     .build_many(&[r"\w{3}", r"\S{3}"])?;
 let text = b"@foo bar";
-let matches: Vec<MultiMatch> = re.find_overlapping_iter(text).collect();
+let matches: Vec<Match> = re.find_overlapping_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(1, 0, 3),
-    MultiMatch::must(0, 1, 4),
-    MultiMatch::must(1, 1, 4),
-    MultiMatch::must(0, 5, 8),
-    MultiMatch::must(1, 5, 8),
+    Match::must(1, 0, 3),
+    Match::must(0, 1, 4),
+    Match::must(1, 1, 4),
+    Match::must(0, 5, 8),
+    Match::must(1, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -96,14 +96,14 @@ Using sparse DFAs is as easy as using `Regex::new_sparse` instead of
 `Regex::new`:
 
 ```
-use regex_automata::{MultiMatch, dfa::regex::Regex};
+use regex_automata::{Match, dfa::regex::Regex};
 
 let re = Regex::new_sparse(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(0, 0, 10),
-    MultiMatch::must(0, 11, 21),
+    Match::must(0, 0, 10),
+    Match::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -112,7 +112,7 @@ If you already have dense DFAs for some reason, they can be converted to sparse
 DFAs and used to build a new `Regex`. For example:
 
 ```
-use regex_automata::{MultiMatch, dfa::regex::Regex};
+use regex_automata::{Match, dfa::regex::Regex};
 
 let dense_re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 let sparse_re = Regex::builder().build_from_dfas(
@@ -120,10 +120,10 @@ let sparse_re = Regex::builder().build_from_dfas(
     dense_re.reverse().to_sparse()?,
 );
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<MultiMatch> = sparse_re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = sparse_re.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(0, 0, 10),
-    MultiMatch::must(0, 11, 21),
+    Match::must(0, 0, 10),
+    Match::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -136,7 +136,7 @@ bit contrived, this same technique can be used in your program to
 deserialize a DFA at start up time or by memory mapping a file.
 
 ```
-use regex_automata::{MultiMatch, dfa::{dense, regex::Regex}};
+use regex_automata::{Match, dfa::{dense, regex::Regex}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both the forward and reverse DFAs, see note below
@@ -150,10 +150,10 @@ let re2 = Regex::builder().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<MultiMatch> = re2.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re2.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(0, 0, 10),
-    MultiMatch::must(0, 11, 21),
+    Match::must(0, 0, 10),
+    Match::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -183,7 +183,7 @@ valid DFA.
 The same process can be achieved with sparse DFAs as well:
 
 ```
-use regex_automata::{MultiMatch, dfa::{sparse, regex::Regex}};
+use regex_automata::{Match, dfa::{sparse, regex::Regex}};
 
 let re1 = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 // serialize both
@@ -197,10 +197,10 @@ let re2 = Regex::builder().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<MultiMatch> = re2.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re2.find_leftmost_iter(text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(0, 0, 10),
-    MultiMatch::must(0, 11, 21),
+    Match::must(0, 0, 10),
+    Match::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 use crate::{
     dfa::automaton::{Automaton, OverlappingState},
     util::prefilter::{self, Prefilter},
-    MatchError, MultiMatch,
+    Match, MatchError,
 };
 #[cfg(feature = "alloc")]
 use crate::{
@@ -122,7 +122,7 @@ define_regex_type!(
     /// haystack `abc`.
     ///
     /// ```
-    /// use regex_automata::{dfa::{self, dense}, MatchKind, MultiMatch};
+    /// use regex_automata::{dfa::{self, dense}, MatchKind, Match};
     ///
     /// let pattern = r"[a-z]+";
     /// let haystack = "abc".as_bytes();
@@ -134,14 +134,14 @@ define_regex_type!(
     ///
     /// // "earliest" searching isn't impacted by greediness
     /// let mut it = re.find_earliest_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 1, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 2, 3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1, 2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// // "leftmost" searching supports greediness (and non-greediness)
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// // For overlapping, we want "all" match kind semantics.
@@ -152,9 +152,9 @@ define_regex_type!(
     /// // In the overlapping search, we find all three possible matches
     /// // starting at the beginning of the haystack.
     /// let mut it = re.find_overlapping_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -212,9 +212,9 @@ define_regex_type!(
     /// which may produce an error at search time, then there are fallible
     /// equivalents of all search routines. For example, for `find_leftmost`,
     /// its fallible analog is [`try_find_leftmost`](Regex::try_find_leftmost).
-    /// The routines prefixed with `try_` return `Result<Option<MultiMatch>,
+    /// The routines prefixed with `try_` return `Result<Option<Match>,
     /// MatchError>`, where as the infallible routines simply return
-    /// `Option<MultiMatch>`.
+    /// `Option<Match>`.
     ///
     /// # Example
     ///
@@ -254,11 +254,11 @@ impl Regex {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::must(0, 3, 14)),
+    ///     Some(Match::must(0, 3, 14)),
     ///     re.find_leftmost(b"zzzfoo12345barzzz"),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -273,17 +273,17 @@ impl Regex {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new_many(&["[a-z]+", "[0-9]+"])?;
     ///
     /// let mut it = re.find_leftmost_iter(b"abc 1 foo 4567 0 quux");
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(1, 4, 5)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 6, 9)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(1, 10, 14)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(1, 15, 16)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 17, 21)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
+    /// assert_eq!(Some(Match::must(1, 4, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 6, 9)), it.next());
+    /// assert_eq!(Some(Match::must(1, 10, 14)), it.next());
+    /// assert_eq!(Some(Match::must(1, 15, 16)), it.next());
+    /// assert_eq!(Some(Match::must(0, 17, 21)), it.next());
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -303,11 +303,11 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new_sparse("foo[0-9]+bar")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::must(0, 3, 14)),
+    ///     Some(Match::must(0, 3, 14)),
     ///     re.find_leftmost(b"zzzfoo12345barzzz"),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -325,17 +325,17 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new_many_sparse(&["[a-z]+", "[0-9]+"])?;
     ///
     /// let mut it = re.find_leftmost_iter(b"abc 1 foo 4567 0 quux");
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(1, 4, 5)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 6, 9)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(1, 10, 14)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(1, 15, 16)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 17, 21)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
+    /// assert_eq!(Some(Match::must(1, 4, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 6, 9)), it.next());
+    /// assert_eq!(Some(Match::must(1, 10, 14)), it.next());
+    /// assert_eq!(Some(Match::must(1, 15, 16)), it.next());
+    /// assert_eq!(Some(Match::must(0, 17, 21)), it.next());
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -362,19 +362,19 @@ impl Regex {
     /// position of a UTF-8 encoded codepoint.
     ///
     /// ```
-    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, Match};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 0)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 1, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 2, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 3, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 4, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 5, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2, 2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 3, 3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4, 4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5, 5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -397,7 +397,7 @@ impl Regex {
     /// use regex_automata::{
     ///     dfa::regex::Regex,
     ///     nfa::thompson,
-    ///     MultiMatch, SyntaxConfig,
+    ///     Match, SyntaxConfig,
     /// };
     ///
     /// let re = Regex::builder()
@@ -406,7 +406,7 @@ impl Regex {
     ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
-    /// let expected = Some(MultiMatch::must(0, 1, 9));
+    /// let expected = Some(Match::must(0, 1, 9));
     /// let got = re.find_leftmost(haystack);
     /// assert_eq!(expected, got);
     ///
@@ -468,24 +468,24 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// // Normally, the leftmost first match would greedily consume as many
     /// // decimal digits as it could. But a match is detected as soon as one
     /// // digit is seen.
     /// let re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::must(0, 0, 4)),
+    ///     Some(Match::must(0, 0, 4)),
     ///     re.find_earliest(b"foo12345"),
     /// );
     ///
     /// // Normally, the end of the leftmost first match here would be 3,
     /// // but the "earliest" match semantics detect a match earlier.
     /// let re = Regex::new("abc|a")?;
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), re.find_earliest(b"abc"));
+    /// assert_eq!(Some(Match::must(0, 0, 1)), re.find_earliest(b"abc"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn find_earliest(&self, haystack: &[u8]) -> Option<MultiMatch> {
+    pub fn find_earliest(&self, haystack: &[u8]) -> Option<Match> {
         self.find_earliest_at(haystack, 0, haystack.len())
     }
 
@@ -504,12 +504,12 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// // Greediness is applied appropriately when compared to find_earliest.
     /// let re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(
-    ///     Some(MultiMatch::must(0, 3, 11)),
+    ///     Some(Match::must(0, 3, 11)),
     ///     re.find_leftmost(b"zzzfoo12345zzz"),
     /// );
     ///
@@ -518,10 +518,10 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // earliest match that prefers earlier parts of the pattern over latter
     /// // parts.
     /// let re = Regex::new("abc|a")?;
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 3)), re.find_leftmost(b"abc"));
+    /// assert_eq!(Some(Match::must(0, 0, 3)), re.find_leftmost(b"abc"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn find_leftmost(&self, haystack: &[u8]) -> Option<MultiMatch> {
+    pub fn find_leftmost(&self, haystack: &[u8]) -> Option<Match> {
         self.find_leftmost_at(haystack, 0, haystack.len())
     }
 
@@ -548,7 +548,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// regexes.
     ///
     /// ```
-    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, MultiMatch};
+    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, Match};
     ///
     /// let re = Regex::builder()
     ///     .dense(dfa::dense::Config::new().match_kind(MatchKind::All))
@@ -556,7 +556,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// let haystack = "@foo".as_bytes();
     /// let mut state = dfa::OverlappingState::start();
     ///
-    /// let expected = Some(MultiMatch::must(1, 0, 4));
+    /// let expected = Some(Match::must(1, 0, 4));
     /// let got = re.find_overlapping(haystack, &mut state);
     /// assert_eq!(expected, got);
     ///
@@ -565,7 +565,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // pattern is returned after the second. This is because the second
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
-    /// let expected = Some(MultiMatch::must(0, 1, 4));
+    /// let expected = Some(Match::must(0, 1, 4));
     /// let got = re.find_overlapping(haystack, &mut state);
     /// assert_eq!(expected, got);
     ///
@@ -575,7 +575,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: &[u8],
         state: &mut OverlappingState,
-    ) -> Option<MultiMatch> {
+    ) -> Option<Match> {
         self.find_overlapping_at(haystack, 0, haystack.len(), state)
     }
 
@@ -598,7 +598,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// This example shows how to run an "earliest" iterator.
     ///
     /// ```
-    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, Match};
     ///
     /// let re = Regex::new("[0-9]+")?;
     /// let haystack = "123".as_bytes();
@@ -607,9 +607,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // match, but since "earliest" detects matches earlier, we get
     /// // three matches.
     /// let mut it = re.find_earliest_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 1, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 2, 3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1, 2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -638,15 +638,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new("foo[0-9]+")?;
     /// let text = b"foo1 foo12 foo123";
-    /// let matches: Vec<MultiMatch> = re.find_leftmost_iter(text).collect();
+    /// let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
     /// assert_eq!(matches, vec![
-    ///     MultiMatch::must(0, 0, 4),
-    ///     MultiMatch::must(0, 5, 10),
-    ///     MultiMatch::must(0, 11, 17),
+    ///     Match::must(0, 0, 4),
+    ///     Match::must(0, 5, 10),
+    ///     Match::must(0, 11, 17),
     /// ]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -679,7 +679,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// regexes.
     ///
     /// ```
-    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, MultiMatch};
+    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, Match};
     ///
     /// let re = Regex::builder()
     ///     .dense(dfa::dense::Config::new().match_kind(MatchKind::All))
@@ -687,8 +687,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// let haystack = "@foo".as_bytes();
     ///
     /// let mut it = re.find_overlapping_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(1, 0, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 1, 4)), it.next());
+    /// assert_eq!(Some(Match::must(1, 0, 4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1, 4)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -773,7 +773,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-    ) -> Option<MultiMatch> {
+    ) -> Option<Match> {
         self.try_find_earliest_at(haystack, start, end).unwrap()
     }
 
@@ -810,7 +810,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-    ) -> Option<MultiMatch> {
+    ) -> Option<Match> {
         self.try_find_leftmost_at(haystack, start, end).unwrap()
     }
 
@@ -850,7 +850,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         start: usize,
         end: usize,
         state: &mut OverlappingState,
-    ) -> Option<MultiMatch> {
+    ) -> Option<Match> {
         self.try_find_overlapping_at(haystack, start, end, state).unwrap()
     }
 }
@@ -911,7 +911,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn try_find_earliest(
         &self,
         haystack: &[u8],
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         self.try_find_earliest_at(haystack, 0, haystack.len())
     }
 
@@ -933,7 +933,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn try_find_leftmost(
         &self,
         haystack: &[u8],
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         self.try_find_leftmost_at(haystack, 0, haystack.len())
     }
 
@@ -961,7 +961,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: &[u8],
         state: &mut OverlappingState,
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         self.try_find_overlapping_at(haystack, 0, haystack.len(), state)
     }
 
@@ -1126,7 +1126,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         self.try_find_earliest_at_imp(
             self.scanner().as_mut(),
             haystack,
@@ -1143,7 +1143,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
         // Since this is the usual way that automata are used, this helps
@@ -1169,7 +1169,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             "forward and reverse search must match same pattern"
         );
         assert!(start.offset() <= end.offset());
-        Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
+        Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -1205,7 +1205,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         self.try_find_leftmost_at_imp(
             self.scanner().as_mut(),
             haystack,
@@ -1222,7 +1222,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         haystack: &[u8],
         start: usize,
         end: usize,
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
         // Since this is the usual way that automata are used, this helps
@@ -1250,7 +1250,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             "forward and reverse search must match same pattern",
         );
         assert!(start.offset() <= end.offset());
-        Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
+        Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
     }
 
     /// Search for the first overlapping match within a given range of
@@ -1293,7 +1293,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         start: usize,
         end: usize,
         state: &mut OverlappingState,
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         self.try_find_overlapping_at_imp(
             self.scanner().as_mut(),
             haystack,
@@ -1313,7 +1313,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         start: usize,
         end: usize,
         state: &mut OverlappingState,
-    ) -> Result<Option<MultiMatch>, MatchError> {
+    ) -> Result<Option<Match>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
         // Since this is the usual way that automata are used, this helps
@@ -1349,7 +1349,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             .expect("reverse search must match if forward search does");
         assert!(start.offset() <= end.offset());
         assert_eq!(start.pattern(), end.pattern());
-        Ok(Some(MultiMatch::new(end.pattern(), start.offset(), end.offset())))
+        Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
     }
 }
 
@@ -1399,7 +1399,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{MultiMatch, dfa::regex::Regex};
+    /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
     /// assert_eq!(3, re.pattern_count());
@@ -1433,7 +1433,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 /// An iterator over all non-overlapping earliest matches for a particular
 /// infallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found. If the underlying search returns an error, then this panics.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
@@ -1459,9 +1459,9 @@ impl<'r, 't, A: Automaton, P: Prefilter> FindEarliestMatches<'r, 't, A, P> {
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for FindEarliestMatches<'r, 't, A, P>
 {
-    type Item = MultiMatch;
+    type Item = Match;
 
-    fn next(&mut self) -> Option<MultiMatch> {
+    fn next(&mut self) -> Option<Match> {
         next_unwrap(self.0.next())
     }
 }
@@ -1469,7 +1469,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// infallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found. If the underlying search returns an error, then this panics.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
@@ -1495,9 +1495,9 @@ impl<'r, 't, A: Automaton, P: Prefilter> FindLeftmostMatches<'r, 't, A, P> {
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for FindLeftmostMatches<'r, 't, A, P>
 {
-    type Item = MultiMatch;
+    type Item = Match;
 
-    fn next(&mut self) -> Option<MultiMatch> {
+    fn next(&mut self) -> Option<Match> {
         next_unwrap(self.0.next())
     }
 }
@@ -1505,7 +1505,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// An iterator over all overlapping matches for a particular infallible
 /// search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found. If the underlying search returns an error, then this panics.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
@@ -1531,9 +1531,9 @@ impl<'r, 't, A: Automaton, P: Prefilter> FindOverlappingMatches<'r, 't, A, P> {
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for FindOverlappingMatches<'r, 't, A, P>
 {
-    type Item = MultiMatch;
+    type Item = Match;
 
-    fn next(&mut self) -> Option<MultiMatch> {
+    fn next(&mut self) -> Option<Match> {
         next_unwrap(self.0.next())
     }
 }
@@ -1541,7 +1541,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// An iterator over all non-overlapping earliest matches for a particular
 /// fallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
@@ -1578,9 +1578,9 @@ impl<'r, 't, A: Automaton, P: Prefilter> TryFindEarliestMatches<'r, 't, A, P> {
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for TryFindEarliestMatches<'r, 't, A, P>
 {
-    type Item = Result<MultiMatch, MatchError>;
+    type Item = Result<Match, MatchError>;
 
-    fn next(&mut self) -> Option<Result<MultiMatch, MatchError>> {
+    fn next(&mut self) -> Option<Result<Match, MatchError>> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -1597,7 +1597,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// fallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
@@ -1634,9 +1634,9 @@ impl<'r, 't, A: Automaton, P: Prefilter> TryFindLeftmostMatches<'r, 't, A, P> {
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for TryFindLeftmostMatches<'r, 't, A, P>
 {
-    type Item = Result<MultiMatch, MatchError>;
+    type Item = Result<Match, MatchError>;
 
-    fn next(&mut self) -> Option<Result<MultiMatch, MatchError>> {
+    fn next(&mut self) -> Option<Result<Match, MatchError>> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -1652,7 +1652,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 
 /// An iterator over all overlapping matches for a particular fallible search.
 ///
-/// The iterator yields a [`MultiMatch`] value until no more matches could be
+/// The iterator yields a [`Match`] value until no more matches could be
 /// found.
 ///
 /// `A` is the type used to represent the underlying DFAs used by the regex,
@@ -1691,9 +1691,9 @@ impl<'r, 't, A: Automaton, P: Prefilter>
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
     for TryFindOverlappingMatches<'r, 't, A, P>
 {
-    type Item = Result<MultiMatch, MatchError>;
+    type Item = Result<Match, MatchError>;
 
-    fn next(&mut self) -> Option<Result<MultiMatch, MatchError>> {
+    fn next(&mut self) -> Option<Result<Match, MatchError>> {
         if self.last_end > self.text.len() {
             return None;
         }
@@ -1750,19 +1750,19 @@ impl Config {
     /// In this first snippet, we show the results when UTF-8 mode is disabled.
     ///
     /// ```
-    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, Match};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 0)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 1, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 2, 2)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 3, 3)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 4, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 5, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2, 2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 3, 3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4, 4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5, 5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1773,17 +1773,17 @@ impl Config {
     /// otherwise split the encoding of `☃` are not returned.
     ///
     /// ```
-    /// use regex_automata::{dfa::regex::Regex, MultiMatch};
+    /// use regex_automata::{dfa::regex::Regex, Match};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(true))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
     /// let mut it = re.find_leftmost_iter(haystack);
-    /// assert_eq!(Some(MultiMatch::must(0, 0, 0)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 1, 1)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 4, 4)), it.next());
-    /// assert_eq!(Some(MultiMatch::must(0, 5, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4, 4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5, 5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1870,7 +1870,7 @@ impl Config {
 ///
 /// ```
 /// use regex_automata::{
-///     dfa::regex::Regex, nfa::thompson, MultiMatch, SyntaxConfig
+///     dfa::regex::Regex, nfa::thompson, Match, SyntaxConfig
 /// };
 ///
 /// let re = Regex::builder()
@@ -1879,7 +1879,7 @@ impl Config {
 ///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
-/// let expected = Some(MultiMatch::must(0, 1, 9));
+/// let expected = Some(Match::must(0, 1, 9));
 /// let got = re.find_leftmost(haystack);
 /// assert_eq!(expected, got);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
@@ -2076,9 +2076,7 @@ impl Default for Builder {
 }
 
 #[inline(always)]
-fn next_unwrap(
-    item: Option<Result<MultiMatch, MatchError>>,
-) -> Option<MultiMatch> {
+fn next_unwrap(item: Option<Result<Match, MatchError>>) -> Option<Match> {
     match item {
         None => None,
         Some(Ok(m)) => Some(m),

@@ -176,7 +176,7 @@ impl HalfMatch {
 ///
 /// Every multi match guarantees that `start <= end`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct MultiMatch {
+pub struct Match {
     /// The pattern ID.
     pattern: PatternID,
     /// The start offset of the match, inclusive.
@@ -185,21 +185,21 @@ pub struct MultiMatch {
     end: usize,
 }
 
-impl MultiMatch {
+impl Match {
     /// Create a new match from a pattern ID and a byte offset span.
     ///
     /// # Panics
     ///
     /// This panics if `end < start`.
     #[inline]
-    pub fn new(pattern: PatternID, start: usize, end: usize) -> MultiMatch {
+    pub fn new(pattern: PatternID, start: usize, end: usize) -> Match {
         assert!(start <= end);
-        MultiMatch { pattern, start, end }
+        Match { pattern, start, end }
     }
 
     /// Create a new match from a pattern ID and a byte offset span.
     ///
-    /// This is like [`MultiMatch::new`], but accepts a `usize` instead of a
+    /// This is like [`Match::new`], but accepts a `usize` instead of a
     /// [`PatternID`]. This panics if the given `usize` is not representable
     /// as a `PatternID`.
     ///
@@ -207,8 +207,8 @@ impl MultiMatch {
     ///
     /// This panics if `end < start` or if `pattern > PatternID::MAX`.
     #[inline]
-    pub fn must(pattern: usize, start: usize, end: usize) -> MultiMatch {
-        MultiMatch::new(PatternID::new(pattern).unwrap(), start, end)
+    pub fn must(pattern: usize, start: usize, end: usize) -> Match {
+        Match::new(PatternID::new(pattern).unwrap(), start, end)
     }
 
     /// Returns the ID of the pattern that matched.

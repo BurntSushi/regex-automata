@@ -26,17 +26,17 @@ This example shows how to compile a regex using the default configuration
 and then use it to find matches in a byte string:
 
 ```
-use regex_automata::{hybrid::regex::Regex, MultiMatch};
+use regex_automata::{hybrid::regex::Regex, Match};
 
 let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let mut cache = re.create_cache();
 
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<MultiMatch> =
+let matches: Vec<Match> =
     re.find_leftmost_iter(&mut cache, text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(0, 0, 10),
-    MultiMatch::must(0, 11, 21),
+    Match::must(0, 0, 10),
+    Match::must(0, 11, 21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -48,17 +48,17 @@ simultaneously. You can use this support with standard leftmost-first style
 searching to find non-overlapping matches:
 
 ```
-use regex_automata::{hybrid::regex::Regex, MultiMatch};
+use regex_automata::{hybrid::regex::Regex, Match};
 
 let re = Regex::new_many(&[r"\w+", r"\S+"])?;
 let mut cache = re.create_cache();
 
 let text = b"@foo bar";
-let matches: Vec<MultiMatch> =
+let matches: Vec<Match> =
     re.find_leftmost_iter(&mut cache, text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(1, 0, 4),
-    MultiMatch::must(0, 5, 8),
+    Match::must(1, 0, 4),
+    Match::must(0, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -66,7 +66,7 @@ assert_eq!(matches, vec![
 Or use overlapping style searches to find all possible occurrences:
 
 ```
-use regex_automata::{hybrid::{dfa, regex::Regex}, MatchKind, MultiMatch};
+use regex_automata::{hybrid::{dfa, regex::Regex}, MatchKind, Match};
 
 // N.B. For overlapping searches, we need the underlying lazy DFA to report all
 // possible matches.
@@ -76,14 +76,14 @@ let re = Regex::builder()
 let mut cache = re.create_cache();
 
 let text = b"@foo bar";
-let matches: Vec<MultiMatch> =
+let matches: Vec<Match> =
     re.find_overlapping_iter(&mut cache, text).collect();
 assert_eq!(matches, vec![
-    MultiMatch::must(1, 0, 3),
-    MultiMatch::must(0, 1, 4),
-    MultiMatch::must(1, 1, 4),
-    MultiMatch::must(0, 5, 8),
-    MultiMatch::must(1, 5, 8),
+    Match::must(1, 0, 3),
+    Match::must(0, 1, 4),
+    Match::must(1, 1, 4),
+    Match::must(0, 5, 8),
+    Match::must(1, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
