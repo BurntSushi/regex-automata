@@ -16,7 +16,7 @@ See the [parent module](crate::hybrid) for examples.
 
 use core::borrow::Borrow;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     hybrid::{
@@ -155,7 +155,7 @@ use crate::{
 pub struct Regex {
     /// An optional prefilter that is passed down to the lazy DFA search
     /// routines when present. By default, no prefilter is set.
-    pre: Option<Box<dyn Prefilter>>,
+    pre: Option<Arc<dyn Prefilter>>,
     /// The forward lazy DFA. This can only find the end of a match.
     forward: DFA,
     /// The reverse lazy DFA. This can only find the start of a match.
@@ -1404,13 +1404,8 @@ impl Regex {
     /// object.
     ///
     /// If this regex doesn't have a prefilter, then `None` is returned.
-    pub fn prefilter(&self) -> Option<&dyn Prefilter> {
+    fn prefilter(&self) -> Option<&dyn Prefilter> {
         self.pre.as_ref().map(|x| &**x)
-    }
-
-    /// Attach the given prefilter to this regex.
-    pub fn set_prefilter(&mut self, pre: Option<Box<dyn Prefilter>>) {
-        self.pre = pre;
     }
 
     /// Convenience function for returning a prefilter scanner.
@@ -1962,12 +1957,13 @@ impl Config {
 pub struct Builder {
     config: Config,
     dfa: dfa::Builder,
+    pre: Option<Arc<dyn Prefilter>>,
 }
 
 impl Builder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> Builder {
-        Builder { config: Config::default(), dfa: DFA::builder() }
+        Builder { config: Config::default(), dfa: DFA::builder(), pre: None }
     }
 
     /// Build a regex from the given pattern.
@@ -2003,8 +1999,9 @@ impl Builder {
         // The congruous method on DFA-backed regexes is exposed, but it's
         // not clear this builder is useful here since lazy DFAs can't be
         // serialized and there is only one type of them.
+        let pre = self.pre.clone();
         let utf8 = self.config.get_utf8();
-        Regex { pre: None, forward, reverse, utf8 }
+        Regex { pre, forward, reverse, utf8 }
     }
 
     /// Apply the given regex configuration options to this builder.
@@ -2043,6 +2040,15 @@ impl Builder {
     /// be heuristically supported or settings how the behavior of the cache.
     pub fn dfa(&mut self, config: dfa::Config) -> &mut Builder {
         self.dfa.configure(config);
+        self
+    }
+
+    /// Attach the given prefilter to this regex.
+    pub fn prefilter(
+        &mut self,
+        pre: Option<Arc<dyn Prefilter>>,
+    ) -> &mut Builder {
+        self.pre = pre;
         self
     }
 }

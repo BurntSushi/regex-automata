@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 
 use regex_automata::{
     hybrid::{dfa::DFA, regex::Regex, OverlappingState},
@@ -160,8 +160,8 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
 // correct results.
 #[test]
 fn prefilter_works() -> Result<(), Box<dyn Error>> {
-    let mut re = Regex::new(r"a[0-9]+").unwrap();
-    re.set_prefilter(Some(Box::new(SubstringPrefilter::new("a"))));
+    let pre = Arc::new(SubstringPrefilter::new("a"));
+    let re = Regex::builder().prefilter(Some(pre)).build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
 
     let text = b"foo abc foo a1a2a3 foo a123 bar aa456";
@@ -180,10 +180,10 @@ fn prefilter_works() -> Result<(), Box<dyn Error>> {
 // reports false negatives.
 #[test]
 fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
-    let mut re = Regex::new(r"a[0-9]+").unwrap();
+    let re = Regex::builder()
+        .prefilter(Some(Arc::new(SubstringPrefilter::new("a"))))
+        .build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
-
-    re.set_prefilter(Some(Box::new(SubstringPrefilter::new("a"))));
     assert_eq!(
         re.find_leftmost(&mut cache, b"za123"),
         Some(MultiMatch::must(0, 1, 5))
@@ -192,7 +192,11 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
         re.find_leftmost(&mut cache, b"a123"),
         Some(MultiMatch::must(0, 0, 4))
     );
-    re.set_prefilter(Some(Box::new(BunkPrefilter::new())));
+
+    let re = Regex::builder()
+        .prefilter(Some(Arc::new(BunkPrefilter::new())))
+        .build(r"a[0-9]+")?;
+    let mut cache = re.create_cache();
     assert_eq!(re.find_leftmost(&mut cache, b"za123"), None);
     // This checks that the prefilter is used when first starting the search,
     // instead of waiting until at least one transition has occurred.
