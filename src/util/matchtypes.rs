@@ -53,7 +53,7 @@ impl Default for MatchKind {
 /// A match records the start and end offsets of the match in the haystack.
 ///
 /// Every match guarantees that `start <= end`.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Span {
     /// The start offset of the match, inclusive.
     start: usize,
@@ -99,6 +99,66 @@ impl Span {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.start == self.end
+    }
+
+    /*
+    /// Return a new span with the given offset added to each bound.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `end < start` after adding the given offset to the
+    /// start bound.
+    #[inline]
+    pub fn add(&self, offset: usize) -> Span {
+        Span::new(self.start + offset, self.end + offset)
+    }
+
+    /// Return a new span with the given offset added to the start bound.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `end < start` after adding the given offset to the
+    /// start bound.
+    #[inline]
+    pub fn add_start(&self, offset: usize) -> Span {
+        Span::new(self.start + offset, self.end)
+    }
+
+    /// Return a new span with the given offset added to the end bound.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `end < start` after adding the given offset to the
+    /// end bound.
+    #[inline]
+    pub fn add_end(&self, offset: usize) -> Span {
+        Span::new(self.start, self.end + offset)
+    }
+    */
+}
+
+impl core::ops::Index<Span> for [u8] {
+    type Output = [u8];
+
+    #[inline]
+    fn index(&self, index: Span) -> &[u8] {
+        &self[index.range()]
+    }
+}
+
+impl core::ops::IndexMut<Span> for [u8] {
+    #[inline]
+    fn index_mut(&mut self, index: Span) -> &mut [u8] {
+        &mut self[index.range()]
+    }
+}
+
+impl core::ops::Index<Span> for str {
+    type Output = str;
+
+    #[inline]
+    fn index(&self, index: Span) -> &str {
+        &self[index.range()]
     }
 }
 

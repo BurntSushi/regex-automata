@@ -1308,14 +1308,14 @@ pub unsafe trait Automaton {
     ///         &self,
     ///         _: &mut State,
     ///         haystack: &[u8],
-    ///         at: usize,
+    ///         span: Span,
     ///     ) -> Candidate {
     ///         // Try changing b'z' to b'q' and observe this test fail since
     ///         // the prefilter will skip right over the match.
-    ///         match haystack.iter().position(|&b| b == b'z') {
+    ///         match haystack[span].iter().position(|&b| b == b'z') {
     ///             None => Candidate::None,
     ///             Some(i) => {
-    ///                 let start = at + i;
+    ///                 let start = span.start() + i;
     ///                 Candidate::PossibleMatch(Span::new(start, start + 1))
     ///             }
     ///         }
@@ -1328,8 +1328,8 @@ pub unsafe trait Automaton {
     ///
     /// let dfa = dense::DFA::new("z[0-9]{3}")?;
     /// let haystack = "foobar z123 q123".as_bytes();
-    /// // A scanner executes a prefilter while tracking some state that helps
-    /// // determine whether a prefilter is still "effective" or not.
+    /// // A scanner executes a prefilter while tracking some state that may
+    /// // disable the prefilter automatically if it isn't deemed "effective."
     /// let mut scanner = Scanner::new(&ZPrefilter);
     ///
     /// let expected = Some(HalfMatch::must(0, 11));

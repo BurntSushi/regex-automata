@@ -46,3 +46,11 @@ other things:
   without caring whether the full needle matches or not.
   * Move the byteset scanning to memchr, and maybe use PCMPESTRI?
   * Move the is_ascii code?
+
+* I guess make Span impl Copy and probably make it impl Index and IndexMut,
+just like we do for grep_matcher::Match.
+  * OK, I guess this is strictly done, but do we know modify all of the '*_at'
+  APIs to take spans instead of 'start: usize, end: usize'? One big bummer
+  here is that code would really benefit from using range syntax in some
+  places. We could make that work, but... with generics. Which complicates
+  things. Sigh.

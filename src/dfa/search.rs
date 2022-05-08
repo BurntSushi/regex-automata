@@ -5,7 +5,7 @@ use crate::{
     },
     util::{
         id::{PatternID, StateID},
-        matchtypes::HalfMatch,
+        matchtypes::{HalfMatch, Span},
         prefilter, MATCH_OFFSET,
     },
     MatchError,
@@ -64,19 +64,18 @@ fn find_fwd<A: Automaton + ?Sized>(
     let mut sid = init_fwd(dfa, pattern_id, haystack, start, end)?;
     let (mut last_match, mut at) = (None, start);
     if let Some(ref mut pre) = pre {
-        // We don't want our prefilter search to go past the given bounds.
-        let haystack = &haystack[..end];
+        let span = Span::new(at, end);
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
         if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
-            return Ok(pre.find(haystack, at).into_option().map(|offset| {
+            return Ok(pre.find(haystack, span).into_option().map(|offset| {
                 HalfMatch { pattern: PatternID::ZERO, offset }
             }));
         } else if pre.is_effective(at) {
-            match pre.find(haystack, at).into_option() {
+            match pre.find(haystack, span).into_option() {
                 None => return Ok(None),
                 Some(i) => {
                     at = i;
@@ -162,10 +161,9 @@ fn find_fwd<A: Automaton + ?Sized>(
         if dfa.is_special_state(sid) {
             if dfa.is_start_state(sid) {
                 if let Some(ref mut pre) = pre {
-                    // Prefilter search shouldn't go past the given bounds.
-                    let haystack = &haystack[..end];
                     if pre.is_effective(at) {
-                        match pre.find(haystack, at).into_option() {
+                        let span = Span::new(at, end);
+                        match pre.find(haystack, span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
@@ -492,10 +490,9 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             state.set_id(sid);
             if dfa.is_start_state(sid) {
                 if let Some(ref mut pre) = pre {
-                    // Prefilter search shouldn't go past the given bounds.
-                    let haystack = &haystack[..end];
                     if pre.is_effective(at) {
-                        match pre.find(haystack, at).into_option() {
+                        let span = Span::new(at, end);
+                        match pre.find(haystack, span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;

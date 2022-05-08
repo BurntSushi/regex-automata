@@ -18,12 +18,12 @@ impl Prefilter for SubstringPrefilter {
         &self,
         _state: &mut prefilter::State,
         haystack: &[u8],
-        at: usize,
+        span: Span,
     ) -> Candidate {
         self.0
-            .find(&haystack[at..])
+            .find(&haystack[span])
             .map(|i| {
-                let start = at + i;
+                let start = span.start() + i;
                 let end = start + self.0.needle().len();
                 Candidate::PossibleMatch(Span::new(start, end))
             })
@@ -53,7 +53,7 @@ impl Prefilter for BunkPrefilter {
         &self,
         _state: &mut prefilter::State,
         _haystack: &[u8],
-        _at: usize,
+        _span: Span,
     ) -> Candidate {
         Candidate::None
     }
