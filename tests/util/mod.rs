@@ -14,7 +14,7 @@ impl SubstringPrefilter {
 
 impl Prefilter for SubstringPrefilter {
     #[inline]
-    fn next_candidate(
+    fn find(
         &self,
         _state: &mut prefilter::State,
         haystack: &[u8],
@@ -30,7 +30,7 @@ impl Prefilter for SubstringPrefilter {
             .unwrap_or(Candidate::None)
     }
 
-    fn heap_bytes(&self) -> usize {
+    fn memory_usage(&self) -> usize {
         self.0.needle().len()
     }
 }
@@ -49,7 +49,7 @@ impl BunkPrefilter {
 
 impl Prefilter for BunkPrefilter {
     #[inline]
-    fn next_candidate(
+    fn find(
         &self,
         _state: &mut prefilter::State,
         _haystack: &[u8],
@@ -58,7 +58,7 @@ impl Prefilter for BunkPrefilter {
         Candidate::None
     }
 
-    fn heap_bytes(&self) -> usize {
+    fn memory_usage(&self) -> usize {
         0
     }
 }

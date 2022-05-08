@@ -72,11 +72,11 @@ fn find_fwd<A: Automaton + ?Sized>(
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
         if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
-            return Ok(pre.next_candidate(haystack, at).into_option().map(
-                |offset| HalfMatch { pattern: PatternID::ZERO, offset },
-            ));
+            return Ok(pre.find(haystack, at).into_option().map(|offset| {
+                HalfMatch { pattern: PatternID::ZERO, offset }
+            }));
         } else if pre.is_effective(at) {
-            match pre.next_candidate(haystack, at).into_option() {
+            match pre.find(haystack, at).into_option() {
                 None => return Ok(None),
                 Some(i) => {
                     at = i;
@@ -165,7 +165,7 @@ fn find_fwd<A: Automaton + ?Sized>(
                     // Prefilter search shouldn't go past the given bounds.
                     let haystack = &haystack[..end];
                     if pre.is_effective(at) {
-                        match pre.next_candidate(haystack, at).into_option() {
+                        match pre.find(haystack, at).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
@@ -495,7 +495,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                     // Prefilter search shouldn't go past the given bounds.
                     let haystack = &haystack[..end];
                     if pre.is_effective(at) {
-                        match pre.next_candidate(haystack, at).into_option() {
+                        match pre.find(haystack, at).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;

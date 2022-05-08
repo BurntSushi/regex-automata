@@ -327,18 +327,11 @@ impl Candidate {
     }
 }
 
-/// A prefilter describes the behavior of fast literal scanners for quickly
-/// skipping past bytes in the haystack that we know cannot possibly
-/// participate in a match.
 pub trait Prefilter: Debug + Send + Sync + RefUnwindSafe + UnwindSafe {
-    fn next_candidate(
-        &self,
-        state: &mut State,
-        haystack: &[u8],
-        at: usize,
-    ) -> Candidate;
+    fn find(&self, state: &mut State, haystack: &[u8], at: usize)
+        -> Candidate;
 
-    fn heap_bytes(&self) -> usize;
+    fn memory_usage(&self) -> usize;
 
     fn reports_false_positives(&self) -> bool {
         true
@@ -347,18 +340,18 @@ pub trait Prefilter: Debug + Send + Sync + RefUnwindSafe + UnwindSafe {
 
 impl<'a, P: Prefilter + ?Sized> Prefilter for &'a P {
     #[inline]
-    fn next_candidate(
+    fn find(
         &self,
         state: &mut State,
         haystack: &[u8],
         at: usize,
     ) -> Candidate {
-        (**self).next_candidate(state, haystack, at)
+        (**self).find(state, haystack, at)
     }
 
     #[inline]
-    fn heap_bytes(&self) -> usize {
-        (**self).heap_bytes()
+    fn memory_usage(&self) -> usize {
+        (**self).memory_usage()
     }
 
     #[inline]
@@ -387,12 +380,8 @@ impl<'p> Scanner<'p> {
         self.prefilter.reports_false_positives()
     }
 
-    pub(crate) fn next_candidate(
-        &mut self,
-        bytes: &[u8],
-        at: usize,
-    ) -> Candidate {
-        self.prefilter.next_candidate(&mut self.state, bytes, at)
+    pub(crate) fn find(&mut self, bytes: &[u8], at: usize) -> Candidate {
+        self.prefilter.find(&mut self.state, bytes, at)
     }
 }
 
@@ -449,11 +438,11 @@ pub struct None {
 }
 
 impl Prefilter for None {
-    fn next_candidate(&self, _: &mut State, _: &[u8], at: usize) -> Candidate {
+    fn find(&self, _: &mut State, _: &[u8], at: usize) -> Candidate {
         Candidate::PossibleMatch(Span::new(at, at))
     }
 
-    fn heap_bytes(&self) -> usize {
+    fn memory_usage(&self) -> usize {
         0
     }
 }

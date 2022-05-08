@@ -826,7 +826,7 @@ impl DFA {
     /// pub struct ZPrefilter;
     ///
     /// impl Prefilter for ZPrefilter {
-    ///     fn next_candidate(
+    ///     fn find(
     ///         &self,
     ///         _: &mut State,
     ///         haystack: &[u8],
@@ -843,7 +843,7 @@ impl DFA {
     ///         }
     ///     }
     ///
-    ///     fn heap_bytes(&self) -> usize {
+    ///     fn memory_usage(&self) -> usize {
     ///         0
     ///     }
     /// }
