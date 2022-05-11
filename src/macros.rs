@@ -32,6 +32,11 @@ macro_rules! trace {
 // searching valid UTF-8.
 macro_rules! handle_iter_match {
     ($self:ident, $match:expr, $utf8:expr) => {{
+        // fn handle_empty(
+        // end: usize,
+        // last_end: &mut usize,
+        // last_match: &mut Option<usize>,
+        // next: impl FnMut() ->
         let (m, utf8) = ($match, $utf8);
         if m.is_empty() {
             // This is an empty match. To ensure we make progress, start

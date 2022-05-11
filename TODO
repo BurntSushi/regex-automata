@@ -54,3 +54,9 @@ just like we do for grep_matcher::Match.
   here is that code would really benefit from using range syntax in some
   places. We could make that work, but... with generics. Which complicates
   things. Sigh.
+
+* See this discussion about shift DFAs:
+  * https://twitter.com/pervognsen/status/1523896138260107264
+  * How can we best use them? We should certainly be able to find a place
+  for them somewhere. One of the more compelling bits is as a prefilter
+  for when literal prefixes can't be found.

@@ -1,6 +1,186 @@
 use crate::util::id::PatternID;
 
-/// The kind of match semantics to use for a DFA.
+pub struct Search<T> {
+    haystack: T,
+    span: Span,
+    pattern: Option<PatternID>,
+    earliest: bool,
+}
+
+impl<T: AsRef<[u8]>> Search<T> {
+    /// Create a new search configuration for the given haystack.
+    #[inline]
+    pub fn new(haystack: T) -> Search<T> {
+        let span = Span::new(0, haystack.as_ref().len());
+        Search { haystack, span, pattern: None, earliest: false }
+    }
+
+    /// Set the span for this search.
+    ///
+    /// This routine does not panic if the span given is not a valid range for
+    /// this search's haystack. If this search is run with an invalid range,
+    /// then the most likely outcome is that the actual execution will panic.
+    #[inline]
+    pub fn span(self, span: Span) -> Search<T> {
+        Search { span, ..self }
+    }
+
+    /// Like `Search::span`, but accepts any range instead.
+    ///
+    /// This routine does not panic if the span given is not a valid range for
+    /// this search's haystack. If this search is run with an invalid range,
+    /// then the most likely outcome is that the actual execution will panic.
+    ///
+    /// # Panics
+    ///
+    /// This routine will panic if the given range could not be converted to a
+    /// valid [`core::ops::Range`]. For example, this would panic when given
+    /// `0..=usize::MAX` since it cannot be represented using a half-open
+    /// interval.
+    #[inline]
+    pub fn range<R: core::ops::RangeBounds<usize>>(
+        self,
+        range: R,
+    ) -> Search<T> {
+        use core::ops::Bound;
+
+        // It's a little weird to convert ranges into spans, and then spans
+        // back into ranges when we actually slice the haystack. Because
+        // of that process, we always represent everything as a `Range`.
+        // Therefore, handling things like m..=n is a little awkward. (We would
+        // use core::ops::Range inside of Span if we could, but it isn't Copy
+        // and it's too inconvenient for a Span to not by Copy.)
+        let start = match range.start_bound() {
+            Bound::Included(&i) => i,
+            // Can this case ever happen? Range syntax doesn't support it...
+            Bound::Excluded(&i) => i.checked_add(1).unwrap(),
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&i) => i.checked_add(1).unwrap(),
+            Bound::Excluded(&i) => i,
+            Bound::Unbounded => 0,
+        };
+        self.span(Span::new(start, end))
+    }
+
+    /// Set the pattern to search for, if supported.
+    ///
+    /// When given, the an anchored search for only the specified pattern will
+    /// be executed. If not given, then the search will look for any pattern
+    /// that matches. (Whether that search is anchored or not depends on the
+    /// configuration of your regex engine and, ultimately, the pattern
+    /// itself.)
+    ///
+    /// If a pattern ID is given and a regex engine doesn't support searching
+    /// by a specific pattern, then the regex engine must panic.
+    #[inline]
+    pub fn pattern(self, pattern: Option<PatternID>) -> Search<T> {
+        Search { pattern, ..self }
+    }
+
+    /// Whether to execute an "earliest" search or not.
+    ///
+    /// When running a non-overlapping search, an "earliest" search will return
+    /// the match location as early as possible. For example, given a pattern
+    /// of `foo[0-9]+` and a haystack of `foo12345`, a normal leftmost search
+    /// will return `foo12345` as a match. But an "earliest" search for regex
+    /// engines that support "earliest" semantics will return `foo1` as a
+    /// match, since as soon as the first digit following `foo` is seen, it is
+    /// known to have found a match.
+    ///
+    /// Note that "earliest" semantics generally depend on the regex engine.
+    /// Different regex engines may determine there is a match at different
+    /// points. So there is no guarantee that "earliest" matches will always
+    /// return the same offsets for all regex engines. The "earliest" notion
+    /// is really about when the particular regex engine determines there is
+    /// a match. This is often useful for implementing "did a match occur or
+    /// not" predicates, but sometimes the offset is useful as well.
+    ///
+    /// This is disabled by default.
+    #[inline]
+    pub fn earliest(self, yes: bool) -> Search<T> {
+        Search { earliest: yes, ..self }
+    }
+
+    /// Return the haystack for this search as bytes.
+    #[inline]
+    pub fn bytes(&self) -> &[u8] {
+        self.haystack.as_ref()
+    }
+
+    /// Return a borrow of the underlying haystack.
+    #[inline]
+    pub fn haystack(&self) -> &T {
+        &self.haystack
+    }
+
+    /// Consume this search and return the haystack inside of it.
+    #[inline]
+    pub fn into_haystack(self) -> T {
+        self.haystack
+    }
+
+    /// Set the span for this search configuration.
+    ///
+    /// This is like the [`Search::span`] method, except this mutates the
+    /// span in place.
+    #[inline]
+    pub fn set_span(&mut self, span: Span) {
+        self.span = span;
+    }
+
+    /// Set the starting offset for the span for this search configuration.
+    ///
+    /// This is a convenience routine for only mutating the start of a span
+    /// without having to set the entire span.
+    ///
+    /// # Panics
+    ///
+    /// This panics if this would result in the span having a starting offset
+    /// that follows its ending offset.
+    #[inline]
+    pub fn set_start(&mut self, start: usize) {
+        self.span.set_start(start);
+    }
+
+    /// Set the ending offset for the span for this search configuration.
+    ///
+    /// This is a convenience routine for only mutating the end of a span
+    /// without having to set the entire span.
+    ///
+    /// # Panics
+    ///
+    /// This panics if this would result in the span having a starting offset
+    /// that follows its ending offset.
+    #[inline]
+    pub fn set_end(&mut self, end: usize) {
+        self.span.set_end(end);
+    }
+
+    /// Return the span for this search configuration.
+    ///
+    /// If one was not explicitly set, then the span corresponds to the entire
+    /// range of the haystack.
+    #[inline]
+    pub fn get_span(&self) -> Span {
+        self.span
+    }
+
+    /// Return the pattern ID for this search configuration, if one was set.
+    #[inline]
+    pub fn get_pattern(&self) -> Option<PatternID> {
+        self.pattern
+    }
+
+    /// Return whether this search should execute in "earliest" mode.
+    #[inline]
+    pub fn get_earliest(&self) -> bool {
+        self.earliest
+    }
+}
+
+/// The kind of match semantics to use for a regex pattern.
 ///
 /// The default match kind is `LeftmostFirst`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,6 +279,30 @@ impl Span {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.start == self.end
+    }
+
+    /// Set the starting offset for this span.
+    ///
+    /// # Panics
+    ///
+    /// This panics if this would result in the span having a starting offset
+    /// that follows its ending offset.
+    #[inline]
+    pub fn set_start(&mut self, start: usize) {
+        assert!(start <= self.end);
+        self.start = start;
+    }
+
+    /// Set the ending offset for this span.
+    ///
+    /// # Panics
+    ///
+    /// This panics if this would result in the span having a starting offset
+    /// that follows its ending offset.
+    #[inline]
+    pub fn set_end(&mut self, end: usize) {
+        assert!(self.start <= end);
+        self.end = end;
     }
 
     /*

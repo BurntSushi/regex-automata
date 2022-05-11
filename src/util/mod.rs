@@ -12,6 +12,7 @@ pub(crate) mod bytes;
 #[cfg(feature = "alloc")]
 pub(crate) mod determinize;
 pub mod id;
+pub mod iter;
 #[cfg(feature = "alloc")]
 pub(crate) mod lazy;
 pub(crate) mod matchtypes;
@@ -73,7 +74,6 @@ impl fmt::Debug for DebugByte {
 /// Generally speaking, this should only be called on `text` when it is
 /// permitted to assume that it is valid UTF-8 and where either `i >=
 /// text.len()` or where `text[i]` is a leading byte of a UTF-8 sequence.
-#[inline(always)]
 pub(crate) fn next_utf8(text: &[u8], i: usize) -> usize {
     let b = match text.get(i) {
         None => return i.checked_add(1).unwrap(),
