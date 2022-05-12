@@ -43,12 +43,29 @@ pub struct TryFind<'h, F> {
     utf8: bool,
 }
 
-impl<'h, F> TryFind<'h, F>
+impl<'h, 'c, F> TryFind<'h, F>
 where
-    F: FnMut(&'h [u8], usize, usize) -> Result<Option<Match>, MatchError>,
+    F: FnMut(&'h [u8], usize, usize) -> Result<Option<Match>, MatchError> + 'c,
 {
     pub fn new(haystack: &'h [u8], find: F) -> TryFind<'h, F> {
         TryFind { find, haystack, start: 0, last_match: None, utf8: true }
+    }
+
+    pub fn boxed(
+        haystack: &'h [u8],
+        find: F,
+    ) -> TryFind<
+        'h,
+        Box<
+            dyn FnMut(
+                    &'h [u8],
+                    usize,
+                    usize,
+                ) -> Result<Option<Match>, MatchError>
+                + 'c,
+        >,
+    > {
+        TryFind::new(haystack, Box::new(find))
     }
 
     pub fn utf8(self, yes: bool) -> TryFind<'h, F> {

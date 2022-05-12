@@ -1677,12 +1677,12 @@ impl<'r: 'c, 'h, 'c> TryFindLeftmostMatches<'h, 'c> {
         text: &'h [u8],
     ) -> TryFindLeftmostMatches<'h, 'c> {
         let mut scanner = re.scanner();
-        let it = crate::util::iter::TryFind::new(
+        let it = crate::util::iter::TryFind::boxed(
             text,
-            Box::new(move |haystack, start, end| {
+            move |haystack, start, end| {
                 let pre = scanner.as_mut();
                 re.try_find_leftmost_at_imp(pre, cache, haystack, start, end)
-            }) as Box<dyn FnMut(_, _, _) -> _ + 'c>,
+            },
         )
         .utf8(re.utf8);
         TryFindLeftmostMatches { it }
