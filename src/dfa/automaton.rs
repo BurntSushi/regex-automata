@@ -2,8 +2,8 @@ use crate::{
     dfa::search,
     util::{
         id::{PatternID, StateID},
-        matchtypes::{HalfMatch, MatchError},
         prefilter,
+        search::{HalfMatch, MatchError},
     },
 };
 

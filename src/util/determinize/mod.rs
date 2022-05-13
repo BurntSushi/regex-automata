@@ -48,7 +48,7 @@ use crate::{
     util::{
         alphabet,
         id::StateID,
-        matchtypes::MatchKind,
+        search::MatchKind,
         sparse_set::{SparseSet, SparseSets},
         start::Start,
     },

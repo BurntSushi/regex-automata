@@ -16,8 +16,8 @@ pub(crate) mod determinize;
 pub(crate) mod escape;
 #[cfg(feature = "alloc")]
 pub(crate) mod lazy;
-pub(crate) mod matchtypes;
 pub(crate) mod nonmax;
+pub(crate) mod search;
 #[cfg(feature = "alloc")]
 pub(crate) mod sparse_set;
 pub(crate) mod start;

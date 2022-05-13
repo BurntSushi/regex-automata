@@ -11,8 +11,8 @@ use crate::{
     util::{
         alphabet::{self, ByteClassSet},
         id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
-        matchtypes::{Match, Span},
         nonmax::NonMaxUsize,
+        search::{Match, Span},
         utf8,
     },
 };

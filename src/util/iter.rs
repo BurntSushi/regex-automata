@@ -1,6 +1,6 @@
 use crate::util::{
-    matchtypes::{Match, MatchError, Search},
     prefilter,
+    search::{Match, MatchError, Search},
 };
 
 /// An iterator over all non-overlapping matches for a fallible search.

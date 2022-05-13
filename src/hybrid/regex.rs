@@ -27,8 +27,8 @@ use crate::{
     nfa::thompson,
     util::{
         iter,
-        matchtypes::{Match, MatchError, MatchKind, Search},
         prefilter::{self, Prefilter},
+        search::{Match, MatchError, MatchKind, Search},
     },
 };
 

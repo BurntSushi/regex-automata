@@ -5,8 +5,8 @@ use crate::{
     },
     util::{
         id::{PatternID, StateID},
-        matchtypes::{HalfMatch, Span, MATCH_OFFSET},
         prefilter,
+        search::{HalfMatch, Span, MATCH_OFFSET},
     },
     MatchError,
 };

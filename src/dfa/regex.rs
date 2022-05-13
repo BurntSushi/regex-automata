@@ -27,7 +27,7 @@ use crate::{
 use crate::{
     dfa::{dense, error::Error, sparse},
     nfa::thompson,
-    util::matchtypes::MatchKind,
+    util::search::MatchKind,
 };
 
 // When the alloc feature is enabled, the regex type sets its A type parameter

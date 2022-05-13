@@ -11,7 +11,7 @@ use crate::{
         alphabet::{self, ByteSet},
         determinize::{State, StateBuilderEmpty, StateBuilderNFA},
         id::{PatternID, StateID},
-        matchtypes::MatchKind,
+        search::MatchKind,
         sparse_set::{SparseSet, SparseSets},
         start::Start,
     },

@@ -10,9 +10,9 @@ use crate::{
     nfa::thompson::{self, Captures, Error, State, NFA},
     util::{
         id::{PatternID, StateID},
-        matchtypes::{Match, MatchKind},
         nonmax::NonMaxUsize,
         prefilter::{self, Prefilter},
+        search::{Match, MatchKind},
         sparse_set::SparseSet,
     },
 };
