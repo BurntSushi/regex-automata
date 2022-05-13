@@ -63,9 +63,9 @@ use crate::{
     util::{
         alphabet::ByteClasses,
         bytes::{self, DeserializeError, Endian, SerializeError},
+        escape::DebugByte,
         id::{PatternID, StateID},
         start::Start,
-        DebugByte,
     },
 };
 

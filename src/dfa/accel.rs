@@ -449,7 +449,7 @@ impl Accel {
         assert!(
             !self.contains(byte),
             "accelerator already contains {:?}",
-            crate::util::DebugByte(byte)
+            crate::util::escape::DebugByte(byte)
         );
         self.bytes[self.len() + 1] = byte;
         self.bytes[0] += 1;
@@ -499,7 +499,7 @@ impl core::fmt::Debug for Accel {
         write!(f, "Accel(")?;
         let mut set = f.debug_set();
         for &b in self.needles() {
-            set.entry(&crate::util::DebugByte(b));
+            set.entry(&crate::util::escape::DebugByte(b));
         }
         set.finish()?;
         write!(f, ")")

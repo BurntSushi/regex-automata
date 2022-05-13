@@ -117,3 +117,27 @@ regex = "a"
 input = "aaba"
 matches = [[0, 1], [1, 2]]
 anchored = true
+
+[[tests]]
+name = "nonempty-followedby-empty"
+regex = 'abc|.*?'
+input = "abczzz"
+matches = [[0, 3], [4, 4], [5, 5], [6, 6]]
+
+[[tests]]
+name = "nonempty-followedby-oneempty"
+regex = 'abc|.*?'
+input = "abcz"
+matches = [[0, 3], [4, 4]]
+
+[[tests]]
+name = "nonempty-followedby-onemixed"
+regex = 'abc|.*?'
+input = "abczabc"
+matches = [[0, 3], [4, 7]]
+
+[[tests]]
+name = "nonempty-followedby-twomixed"
+regex = 'abc|.*?'
+input = "abczzabc"
+matches = [[0, 3], [4, 4], [5, 8]]

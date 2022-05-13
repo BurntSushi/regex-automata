@@ -2006,7 +2006,7 @@ impl Transition {
 
 impl fmt::Debug for Transition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use crate::util::DebugByte;
+        use crate::util::escape::DebugByte;
 
         let Transition { start, end, next } = *self;
         if self.start == self.end {

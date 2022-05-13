@@ -26,7 +26,8 @@ use crate::{
     },
     nfa::thompson,
     util::{
-        matchtypes::{Match, MatchError, MatchKind},
+        iter,
+        matchtypes::{Match, MatchError, MatchKind, Search},
         prefilter::{self, Prefilter},
     },
 };
@@ -628,13 +629,14 @@ impl Regex {
     /// ]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn find_leftmost_iter<'r: 'c, 'h, 'c>(
+    pub fn find_leftmost_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h [u8],
-        // ) -> FindLeftmostMatches<'r, 'c, 't> {
     ) -> FindLeftmostMatches<'h, 'c> {
-        FindLeftmostMatches::new(self, cache, haystack)
+        FindLeftmostMatches(
+            self.try_matches_iter(cache, haystack).infallible(),
+        )
     }
 
     /// Returns an iterator over all overlapping matches in the given haystack.
@@ -679,12 +681,14 @@ impl Regex {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn find_overlapping_iter<'r, 'c, 't>(
+    pub fn find_overlapping_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindOverlappingMatches<'r, 'c, 't> {
-        FindOverlappingMatches::new(self, cache, haystack)
+        haystack: &'h [u8],
+    ) -> FindOverlappingMatches<'h, 'c> {
+        FindOverlappingMatches(
+            self.try_overlapping_matches_iter(cache, haystack).infallible(),
+        )
     }
 }
 
@@ -1012,13 +1016,12 @@ impl Regex {
     ///
     /// The infallible (panics on error) version of this routine is
     /// [`find_leftmost_iter`](Regex::find_leftmost_iter).
-    pub fn try_find_leftmost_iter<'r: 'c, 'h, 'c>(
+    pub fn try_find_leftmost_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h [u8],
-        // ) -> TryFindLeftmostMatches<'r, 'c, 't> {
     ) -> TryFindLeftmostMatches<'h, 'c> {
-        TryFindLeftmostMatches::new(self, cache, haystack)
+        TryFindLeftmostMatches(self.try_matches_iter(cache, haystack))
     }
 
     /// Returns an iterator over all overlapping matches in the given haystack.
@@ -1041,12 +1044,14 @@ impl Regex {
     ///
     /// The infallible (panics on error) version of this routine is
     /// [`find_overlapping_iter`](Regex::find_overlapping_iter).
-    pub fn try_find_overlapping_iter<'r, 'c, 't>(
+    pub fn try_find_overlapping_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> TryFindOverlappingMatches<'r, 'c, 't> {
-        TryFindOverlappingMatches::new(self, cache, haystack)
+        haystack: &'h [u8],
+    ) -> TryFindOverlappingMatches<'h, 'c> {
+        TryFindOverlappingMatches(
+            self.try_overlapping_matches_iter(cache, haystack),
+        )
     }
 }
 
@@ -1245,6 +1250,58 @@ impl Regex {
             start,
             end,
             state,
+        )
+    }
+}
+
+type TryMatchesClosure<'h, 'c> = Box<
+    dyn FnMut(&Search<&'h [u8]>) -> Result<Option<Match>, MatchError> + 'c,
+>;
+
+impl Regex {
+    fn try_matches_iter<'r: 'c, 'c, 'h>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'h [u8],
+    ) -> iter::TryMatches<TryMatchesClosure<'h, 'c>, &'h [u8]> {
+        let mut scanner = self.scanner();
+        iter::TryMatches::boxed(
+            Search::new(haystack).utf8(self.utf8),
+            move |search| {
+                let pre = scanner.as_mut();
+                let span = search.get_span();
+                self.try_find_leftmost_at_imp(
+                    pre,
+                    cache,
+                    search.bytes(),
+                    span.start(),
+                    span.end(),
+                )
+            },
+        )
+    }
+
+    fn try_overlapping_matches_iter<'r: 'c, 'c, 'h>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'h [u8],
+    ) -> iter::TryOverlappingMatches<TryMatchesClosure<'h, 'c>, &'h [u8]> {
+        let mut scanner = self.scanner();
+        let mut state = OverlappingState::start();
+        iter::TryOverlappingMatches::boxed(
+            Search::new(haystack).utf8(self.utf8),
+            move |search| {
+                let pre = scanner.as_mut();
+                let span = search.get_span();
+                self.try_find_overlapping_at_imp(
+                    pre,
+                    cache,
+                    search.bytes(),
+                    span.start(),
+                    span.end(),
+                    &mut state,
+                )
+            },
         )
     }
 }
@@ -1448,96 +1505,60 @@ impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
     }
 }
 
-/*
-/// An iterator over all non-overlapping leftmost matches for a particular
-/// infallible search.
+/// An iterator over all non-overlapping matches for an infallible search.
 ///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
+/// The iterator yields a [`Match`] value until no more matches could be found.
+/// If the underlying regex engine returns an error, then a panic occurs.
 ///
-/// The lifetime variables are as follows:
+/// The lifetime parameters are as follows:
 ///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'c` is the lifetime of the mutable cache used during search.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Debug)]
-pub struct FindLeftmostMatches<'r, 'c, 't>(TryFindLeftmostMatches<'r, 'c, 't>);
-
-impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
-    fn new(
-        re: &'r Regex,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> FindLeftmostMatches<'r, 'c, 't> {
-        FindLeftmostMatches(TryFindLeftmostMatches::new(re, cache, text))
-    }
-}
-
-impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
-    type Item = Match;
-
-    fn next(&mut self) -> Option<Match> {
-        next_unwrap(self.0.next())
-    }
-}
-*/
-
-pub struct FindLeftmostMatches<'h, 'r>(TryFindLeftmostMatches<'h, 'r>);
-
-impl<'r: 'c, 'h, 'c> FindLeftmostMatches<'h, 'c> {
-    fn new(
-        re: &'r Regex,
-        cache: &'c mut Cache,
-        text: &'h [u8],
-    ) -> FindLeftmostMatches<'h, 'c> {
-        FindLeftmostMatches(TryFindLeftmostMatches::new(re, cache, text))
-    }
-}
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
+///
+/// This iterator can be created with the [`Regex::find_leftmost_iter`]
+/// method.
+pub struct FindLeftmostMatches<'h, 'c>(
+    iter::Matches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+);
 
 impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {
     type Item = Match;
 
+    #[inline]
     fn next(&mut self) -> Option<Match> {
-        next_unwrap(self.0.next())
+        self.0.next()
     }
 }
 
-/// An iterator over all overlapping matches for a particular infallible
-/// search.
+/// An iterator over all overlapping matches for an infallible search.
 ///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
+/// The iterator yields a [`Match`] value until no more matches could be found.
+/// If the underlying regex engine returns an error, then a panic occurs.
 ///
-/// The lifetime variables are as follows:
+/// The lifetime parameters are as follows:
 ///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'c` is the lifetime of the mutable cache used during search.
-/// * `'t` is the lifetime of the text being searched.
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
+///
+/// This iterator can be created with the [`Regex::find_overlapping_iter`]
+/// method.
 #[derive(Debug)]
-pub struct FindOverlappingMatches<'r, 'c, 't>(
-    TryFindOverlappingMatches<'r, 'c, 't>,
+pub struct FindOverlappingMatches<'h, 'c>(
+    iter::OverlappingMatches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
 );
 
-impl<'r, 'c, 't> FindOverlappingMatches<'r, 'c, 't> {
-    fn new(
-        re: &'r Regex,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> FindOverlappingMatches<'r, 'c, 't> {
-        FindOverlappingMatches(TryFindOverlappingMatches::new(re, cache, text))
-    }
-}
-
-impl<'r, 'c, 't> Iterator for FindOverlappingMatches<'r, 'c, 't> {
+impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
     type Item = Match;
 
+    #[inline]
     fn next(&mut self) -> Option<Match> {
-        next_unwrap(self.0.next())
+        self.0.next()
     }
 }
 
-/// An iterator over all non-overlapping earliest matches for a particular
-/// fallible search.
+/// An iterator over all non-overlapping earliest matches for a fallible search.
 ///
 /// The iterator yields a [`Match`] value until no more matches could be
 /// found.
@@ -1593,165 +1614,56 @@ impl<'r, 'c, 't> Iterator for TryFindEarliestMatches<'r, 'c, 't> {
     }
 }
 
-/*
-/// An iterator over all non-overlapping leftmost matches for a particular
-/// fallible search.
+/// An iterator over all non-overlapping matches for a fallible search.
 ///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found.
+/// The iterator yields a `Result<Match, MatchError>` value until no more
+/// matches could be found.
 ///
-/// The lifetime variables are as follows:
+/// The lifetime parameters are as follows:
 ///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'c` is the lifetime of the mutable cache used during search.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Debug)]
-pub struct TryFindLeftmostMatches<'r, 'c, 't> {
-    re: &'r Regex,
-    cache: &'c mut Cache,
-    scanner: Option<prefilter::Scanner<'r>>,
-    text: &'t [u8],
-    last_end: usize,
-    last_match: Option<usize>,
-}
-
-impl<'r, 'c, 't> TryFindLeftmostMatches<'r, 'c, 't> {
-    fn new(
-        re: &'r Regex,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> TryFindLeftmostMatches<'r, 'c, 't> {
-        let scanner = re.scanner();
-        TryFindLeftmostMatches {
-            re,
-            cache,
-            scanner,
-            text,
-            last_end: 0,
-            last_match: None,
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for TryFindLeftmostMatches<'r, 'c, 't> {
-    type Item = Result<Match, MatchError>;
-
-    fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        let result = self.re.try_find_leftmost_at_imp(
-            self.scanner.as_mut(),
-            self.cache,
-            self.text,
-            self.last_end,
-            self.text.len(),
-        );
-        Some(Ok(handle_iter_match_fallible!(self, result, self.re.utf8)))
-    }
-}
-*/
-
-pub struct TryFindLeftmostMatches<'h, 'c> {
-    it: crate::util::iter::TryFind<
-        'h,
-        Box<
-            dyn FnMut(
-                    &'h [u8],
-                    usize,
-                    usize,
-                ) -> Result<Option<Match>, MatchError>
-                + 'c,
-        >,
-    >,
-}
-
-// BREADCRUMBS: The lifetimes below look quite suspicious. Regex and Cache
-// having the same lifetime feels wrong. Maybe we need a 'r where 'r: 'c, but
-// where 'r actually isn't used?
-
-impl<'r: 'c, 'h, 'c> TryFindLeftmostMatches<'h, 'c> {
-    fn new(
-        re: &'r Regex,
-        cache: &'c mut Cache,
-        text: &'h [u8],
-    ) -> TryFindLeftmostMatches<'h, 'c> {
-        let mut scanner = re.scanner();
-        let it = crate::util::iter::TryFind::boxed(
-            text,
-            move |haystack, start, end| {
-                let pre = scanner.as_mut();
-                re.try_find_leftmost_at_imp(pre, cache, haystack, start, end)
-            },
-        )
-        .utf8(re.utf8);
-        TryFindLeftmostMatches { it }
-    }
-}
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
+///
+/// This iterator can be created with the [`Regex::try_find_leftmost_iter`]
+/// method.
+pub struct TryFindLeftmostMatches<'h, 'c>(
+    iter::TryMatches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+);
 
 impl<'h, 'c> Iterator for TryFindLeftmostMatches<'h, 'c> {
     type Item = Result<Match, MatchError>;
 
-    #[inline(always)]
+    #[inline]
     fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        self.it.next()
+        self.0.next()
     }
 }
 
-/// An iterator over all overlapping matches for a particular fallible search.
+/// An iterator over all overlapping matches for a fallible search.
 ///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found.
+/// The iterator yields a `Result<Match, MatchError>` value until no more
+/// matches could be found.
 ///
-/// The lifetime variables are as follows:
+/// The lifetime parameters are as follows:
 ///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'c` is the lifetime of the mutable cache used during search.
-/// * `'t` is the lifetime of the text being searched.
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
+///
+/// This iterator can be created with the [`Regex::try_find_overlapping_iter`]
+/// method.
 #[derive(Debug)]
-pub struct TryFindOverlappingMatches<'r, 'c, 't> {
-    re: &'r Regex,
-    cache: &'c mut Cache,
-    scanner: Option<prefilter::Scanner<'r>>,
-    text: &'t [u8],
-    last_end: usize,
-    state: OverlappingState,
-}
+pub struct TryFindOverlappingMatches<'h, 'c>(
+    iter::TryOverlappingMatches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+);
 
-impl<'r, 'c, 't> TryFindOverlappingMatches<'r, 'c, 't> {
-    fn new(
-        re: &'r Regex,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> TryFindOverlappingMatches<'r, 'c, 't> {
-        let scanner = re.scanner();
-        TryFindOverlappingMatches {
-            re,
-            cache,
-            scanner,
-            text,
-            last_end: 0,
-            state: OverlappingState::start(),
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for TryFindOverlappingMatches<'r, 'c, 't> {
+impl<'h, 'c> Iterator for TryFindOverlappingMatches<'h, 'c> {
     type Item = Result<Match, MatchError>;
 
+    #[inline]
     fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        let result = self.re.try_find_overlapping_at_imp(
-            self.scanner.as_mut(),
-            self.cache,
-            self.text,
-            self.last_end,
-            self.text.len(),
-            &mut self.state,
-        );
-        Some(Ok(handle_iter_match_overlapping_fallible!(self, result)))
+        self.0.next()
     }
 }
 

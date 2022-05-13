@@ -7,6 +7,14 @@ match_kind = "leftmost-first"
 search_kind = "overlapping"
 
 [[tests]]
+name = "repetition-plus-leftmost-first-110"
+regex = '☃+'
+input = "☃☃☃"
+matches = [[0, 3], [0, 6], [0, 9]]
+match_kind = "leftmost-first"
+search_kind = "overlapping"
+
+[[tests]]
 name = "repetition-plus-all-100"
 regex = 'a+'
 input = "aaa"
@@ -148,3 +156,31 @@ input = "abc"
 matches = [[0, 0], [1, 1], [1, 2], [3, 3]]
 match_kind = "all"
 search_kind = "overlapping"
+
+[[tests]]
+# See: https://github.com/rust-lang/regex/issues/484
+name = "iter1-bytes"
+regex = ''
+input = "☃"
+matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
+utf8 = false
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+# See: https://github.com/rust-lang/regex/issues/484
+name = "iter1-utf8"
+regex = ''
+input = "☃"
+matches = [[0, 0], [3, 3]]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "iter1-incomplete-utf8"
+regex = ''
+input = '\xE2\x98'  # incomplete snowman
+matches = [[0, 0], [2, 2]]
+match_kind = "all"
+search_kind = "overlapping"
+unescape = true

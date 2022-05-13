@@ -598,11 +598,6 @@ fn find_overlapping_fwd_imp(
             // point, which is `match_offset` bytes PRIOR to where we scanned
             // to on the previous search. Therefore, we need to compensate by
             // bumping `start` up by `MATCH_OFFSET` bytes.
-            //
-            // Incidentally, since MATCH_OFFSET is non-zero, this also makes
-            // dealing with empty matches convenient. Namely, callers needn't
-            // special case them when implementing an iterator. Instead, this
-            // ensures that forward progress is always made.
             start += MATCH_OFFSET;
             sid
         }

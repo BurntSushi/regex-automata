@@ -2,8 +2,6 @@
 TODO
 */
 
-use core::{ascii, fmt, str};
-
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
@@ -11,6 +9,7 @@ pub mod alphabet;
 pub(crate) mod bytes;
 #[cfg(feature = "alloc")]
 pub(crate) mod determinize;
+pub(crate) mod escape;
 pub mod id;
 pub mod iter;
 #[cfg(feature = "alloc")]
@@ -42,27 +41,6 @@ pub(crate) mod syntax;
 /// the full Unicode-aware word boundary detection into an automaton is quite
 /// tricky.)
 pub(crate) const MATCH_OFFSET: usize = 1;
-
-/// A type that wraps a single byte with a convenient fmt::Debug impl that
-/// escapes the byte.
-pub(crate) struct DebugByte(pub u8);
-
-impl fmt::Debug for DebugByte {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // 10 bytes is enough to cover any output from ascii::escape_default.
-        let mut bytes = [0u8; 10];
-        let mut len = 0;
-        for (i, mut b) in ascii::escape_default(self.0).enumerate() {
-            // capitalize \xab to \xAB
-            if i >= 2 && b'a' <= b && b <= b'f' {
-                b -= 32;
-            }
-            bytes[len] = b;
-            len += 1;
-        }
-        write!(f, "{}", str::from_utf8(&bytes[..len]).unwrap())
-    }
-}
 
 /// Returns the smallest possible index of the next valid UTF-8 sequence
 /// starting after `i`.
@@ -117,7 +95,7 @@ pub(crate) fn decode_utf8(bytes: &[u8]) -> Option<Result<char, u8>> {
         Some(1) => return Some(Ok(bytes[0] as char)),
         Some(len) => len,
     };
-    match str::from_utf8(&bytes[..len]) {
+    match core::str::from_utf8(&bytes[..len]) {
         Ok(s) => Some(Ok(s.chars().next().unwrap())),
         Err(_) => Some(Err(bytes[0])),
     }
@@ -165,6 +143,27 @@ fn utf8_len(byte: u8) -> Option<usize> {
         Some(4)
     } else {
         None
+    }
+}
+
+/// Returns true if and only if the given offset in the given bytes falls on a
+/// valid UTF-8 encoded codepoint boundary.
+///
+/// If `bytes` is not valid UTF-8, then the behavior of this routine is
+/// unspecified.
+pub(crate) fn is_char_boundary(bytes: &[u8], i: usize) -> bool {
+    match bytes.get(i) {
+        // The position at the end of the bytes always represents an empty
+        // string, which is a valid boundary. But anything after that doesn't
+        // make much sense to valid a boundary.
+        None => i == bytes.len(),
+        // Other than ASCII (where the most significant bit is never set),
+        // valid starting bytes always have their most significant two bits
+        // set, where as continuation bytes never have their second most
+        // significant bit set. Therefore, this only returns true when bytes[i]
+        // corresponds to a byte that begins a valid UTF-8 encoding of a
+        // Unicode scalar value.
+        Some(&b) => b <= 0b0111_1111 || b >= 0b1100_0000,
     }
 }
 

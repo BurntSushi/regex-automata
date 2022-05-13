@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use crate::util::{
     bytes::{DeserializeError, SerializeError},
-    DebugByte,
+    escape::DebugByte,
 };
 
 /// Unit represents a single unit of input for DFA based regex engines.

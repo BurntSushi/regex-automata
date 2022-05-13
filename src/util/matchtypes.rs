@@ -1,10 +1,12 @@
 use crate::util::id::PatternID;
 
+#[derive(Clone)]
 pub struct Search<T> {
     haystack: T,
     span: Span,
     pattern: Option<PatternID>,
     earliest: bool,
+    utf8: bool,
 }
 
 impl<T: AsRef<[u8]>> Search<T> {
@@ -12,7 +14,7 @@ impl<T: AsRef<[u8]>> Search<T> {
     #[inline]
     pub fn new(haystack: T) -> Search<T> {
         let span = Span::new(0, haystack.as_ref().len());
-        Search { haystack, span, pattern: None, earliest: false }
+        Search { haystack, span, pattern: None, earliest: false, utf8: true }
     }
 
     /// Set the span for this search.
@@ -103,6 +105,11 @@ impl<T: AsRef<[u8]>> Search<T> {
         Search { earliest: yes, ..self }
     }
 
+    #[inline]
+    pub fn utf8(self, yes: bool) -> Search<T> {
+        Search { utf8: yes, ..self }
+    }
+
     /// Return the haystack for this search as bytes.
     #[inline]
     pub fn bytes(&self) -> &[u8] {
@@ -134,11 +141,6 @@ impl<T: AsRef<[u8]>> Search<T> {
     ///
     /// This is a convenience routine for only mutating the start of a span
     /// without having to set the entire span.
-    ///
-    /// # Panics
-    ///
-    /// This panics if this would result in the span having a starting offset
-    /// that follows its ending offset.
     #[inline]
     pub fn set_start(&mut self, start: usize) {
         self.span.set_start(start);
@@ -148,14 +150,31 @@ impl<T: AsRef<[u8]>> Search<T> {
     ///
     /// This is a convenience routine for only mutating the end of a span
     /// without having to set the entire span.
-    ///
-    /// # Panics
-    ///
-    /// This panics if this would result in the span having a starting offset
-    /// that follows its ending offset.
     #[inline]
     pub fn set_end(&mut self, end: usize) {
         self.span.set_end(end);
+    }
+
+    /// Step the search ahead by one "unit."
+    ///
+    /// A unit is either a byte (when [`Search::utf8`] is disabled) or a
+    /// UTF-8 encoding of a Unicode scalar value (when `Search::utf8` is
+    /// enabled). The latter moves ahead at most 4 bytes, depending on the
+    /// length of next encoded codepoint.
+    ///
+    /// Stepping this search may cause the start offset to be greater than the
+    /// end offset, thus resulting in [`Search::is_done`] returning `true`.
+    ///
+    /// # Panics
+    ///
+    /// This panics if this would otherwise overflow a `usize`.
+    #[inline]
+    pub fn step(&mut self) {
+        self.set_start(if self.utf8 {
+            crate::util::next_utf8(self.bytes(), self.get_span().start())
+        } else {
+            self.get_span().start().checked_add(1).unwrap()
+        });
     }
 
     /// Return the span for this search configuration.
@@ -178,53 +197,45 @@ impl<T: AsRef<[u8]>> Search<T> {
     pub fn get_earliest(&self) -> bool {
         self.earliest
     }
-}
 
-/// The kind of match semantics to use for a regex pattern.
-///
-/// The default match kind is `LeftmostFirst`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MatchKind {
-    /// Report all possible matches.
-    All,
-    /// Report only the leftmost matches. When multiple leftmost matches exist,
-    /// report the match corresponding to the part of the regex that appears
-    /// first in the syntax.
-    LeftmostFirst,
-    /// Hints that destructuring should not be exhaustive.
+    /// Return whether this search should execute in "UTF-8" mode.
+    #[inline]
+    pub fn get_utf8(&self) -> bool {
+        self.utf8
+    }
+
+    /// Return true if and only if this search can never return any other
+    /// matches.
     ///
-    /// This enum may grow additional variants, so this makes sure clients
-    /// don't count on exhaustive matching. (Otherwise, adding a new variant
-    /// could break existing code.)
-    #[doc(hidden)]
-    __Nonexhaustive,
-    // There is prior art in RE2 that shows that we should be able to add
-    // LeftmostLongest too. The tricky part of it is supporting ungreedy
-    // repetitions. Instead of treating all NFA states as having equivalent
-    // priority (as in 'All') or treating all NFA states as having distinct
-    // priority based on order (as in 'LeftmostFirst'), we instead group NFA
-    // states into sets, and treat members of each set as having equivalent
-    // priority, but having greater priority than all following members
-    // of different sets.
-    //
-    // However, it's not clear whether it's really worth adding this. After
-    // all, leftmost-longest can be emulated when using literals by using
-    // leftmost-first and sorting the literals by length in descending order.
-    // However, this won't work for arbitrary regexes. e.g., `\w|\w\w` will
-    // always match `a` in `ab` when using leftmost-first, but leftmost-longest
-    // would match `ab`.
-}
+    /// For example, if the start position of this search is greater than the
+    /// end position of the search.
+    #[inline]
+    pub fn is_done(&self) -> bool {
+        self.get_span().start() > self.get_span().end()
+    }
 
-impl MatchKind {
-    #[cfg(feature = "alloc")]
-    pub(crate) fn continue_past_first_match(&self) -> bool {
-        *self == MatchKind::All
+    /// Returns true if and only if the given offset in this search's haystack
+    /// falls on a valid UTF-8 encoded codepoint boundary.
+    ///
+    /// If the haystack is not valid UTF-8, then the behavior of this routine
+    /// is unspecified.
+    #[inline]
+    pub fn is_char_boundary(&self, offset: usize) -> bool {
+        crate::util::is_char_boundary(self.bytes(), offset)
     }
 }
 
-impl Default for MatchKind {
-    fn default() -> MatchKind {
-        MatchKind::LeftmostFirst
+impl<T: AsRef<[u8]>> core::fmt::Debug for Search<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        use crate::util::escape::DebugHaystack;
+
+        f.debug_struct("Search")
+            .field("span", &self.span)
+            .field("pattern", &self.pattern)
+            .field("earliest", &self.earliest)
+            .field("utf8", &self.utf8)
+            .field("haystack", &DebugHaystack(self.bytes()))
+            .finish()
     }
 }
 
@@ -243,13 +254,8 @@ pub struct Span {
 
 impl Span {
     /// Create a new match from a byte offset span.
-    ///
-    /// # Panics
-    ///
-    /// This panics if `end < start`.
     #[inline]
     pub fn new(start: usize, end: usize) -> Span {
-        assert!(start <= end);
         Span { start, end }
     }
 
@@ -274,34 +280,22 @@ impl Span {
     /// Returns true if and only if this match is empty. That is, when
     /// `start() == end()`.
     ///
-    /// An empty match can only be returned when the empty string was among
-    /// the patterns used to build the Aho-Corasick automaton.
+    /// An empty match can only be returned when the empty string matches the
+    /// corresponding regex.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
 
     /// Set the starting offset for this span.
-    ///
-    /// # Panics
-    ///
-    /// This panics if this would result in the span having a starting offset
-    /// that follows its ending offset.
     #[inline]
     pub fn set_start(&mut self, start: usize) {
-        assert!(start <= self.end);
         self.start = start;
     }
 
     /// Set the ending offset for this span.
-    ///
-    /// # Panics
-    ///
-    /// This panics if this would result in the span having a starting offset
-    /// that follows its ending offset.
     #[inline]
     pub fn set_end(&mut self, end: usize) {
-        assert!(self.start <= end);
         self.end = end;
     }
 
@@ -363,6 +357,54 @@ impl core::ops::Index<Span> for str {
     #[inline]
     fn index(&self, index: Span) -> &str {
         &self[index.range()]
+    }
+}
+
+/// The kind of match semantics to use for a regex pattern.
+///
+/// The default match kind is `LeftmostFirst`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MatchKind {
+    /// Report all possible matches.
+    All,
+    /// Report only the leftmost matches. When multiple leftmost matches exist,
+    /// report the match corresponding to the part of the regex that appears
+    /// first in the syntax.
+    LeftmostFirst,
+    /// Hints that destructuring should not be exhaustive.
+    ///
+    /// This enum may grow additional variants, so this makes sure clients
+    /// don't count on exhaustive matching. (Otherwise, adding a new variant
+    /// could break existing code.)
+    #[doc(hidden)]
+    __Nonexhaustive,
+    // There is prior art in RE2 that shows that we should be able to add
+    // LeftmostLongest too. The tricky part of it is supporting ungreedy
+    // repetitions. Instead of treating all NFA states as having equivalent
+    // priority (as in 'All') or treating all NFA states as having distinct
+    // priority based on order (as in 'LeftmostFirst'), we instead group NFA
+    // states into sets, and treat members of each set as having equivalent
+    // priority, but having greater priority than all following members
+    // of different sets.
+    //
+    // However, it's not clear whether it's really worth adding this. After
+    // all, leftmost-longest can be emulated when using literals by using
+    // leftmost-first and sorting the literals by length in descending order.
+    // However, this won't work for arbitrary regexes. e.g., `\w|\w\w` will
+    // always match `a` in `ab` when using leftmost-first, but leftmost-longest
+    // would match `ab`.
+}
+
+impl MatchKind {
+    #[cfg(feature = "alloc")]
+    pub(crate) fn continue_past_first_match(&self) -> bool {
+        *self == MatchKind::All
+    }
+}
+
+impl Default for MatchKind {
+    fn default() -> MatchKind {
+        MatchKind::LeftmostFirst
     }
 }
 
