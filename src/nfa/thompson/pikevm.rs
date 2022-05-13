@@ -30,11 +30,7 @@ macro_rules! instrument {
     ($fun:expr) => {
         #[cfg(feature = "instrument-pikevm")]
         {
-            // Apparently I need to write an explicit type here otherwise
-            // inference for the closure fails and using the macro becomes
-            // tedious. There's no particular reason to use a dyn FnMut here,
-            // but how else do we name the type? Anyway, this worked and this
-            // is just for debugging/perf-profiling.
+            // let fun: impl FnMut(&mut Counters) = $fun;
             let mut fun: &mut dyn FnMut(&mut Counters) = &mut $fun;
             COUNTERS.with(|c: &RefCell<Counters>| fun(&mut *c.borrow_mut()));
         }
