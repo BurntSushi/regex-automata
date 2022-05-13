@@ -10,11 +10,10 @@ use crate::{
     },
     util::{
         alphabet::{self, ByteClassSet},
-        decode_last_utf8, decode_utf8,
         id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
-        is_word_byte, is_word_char_fwd, is_word_char_rev,
         matchtypes::{Match, Span},
         nonmax::NonMaxUsize,
+        utf8,
     },
 };
 
@@ -2078,8 +2077,8 @@ impl Look {
             Look::StartText => at == 0,
             Look::EndText => at == haystack.len(),
             Look::WordBoundaryUnicode => {
-                let word_before = is_word_char_rev(haystack, at);
-                let word_after = is_word_char_fwd(haystack, at);
+                let word_before = utf8::is_word_char_rev(haystack, at);
+                let word_after = utf8::is_word_char_fwd(haystack, at);
                 word_before != word_after
             }
             Look::WordBoundaryUnicodeNegate => {
@@ -2112,27 +2111,29 @@ impl Look {
                 // represents a valid UTF-8 boundary. It also makes sense. For
                 // example, you'd want \b\w+\b to match 'abc' in '\xFFabc\xFF'.
                 let word_before = at > 0
-                    && match decode_last_utf8(&haystack[..at]) {
+                    && match utf8::decode_last(&haystack[..at]) {
                         None | Some(Err(_)) => return false,
-                        Some(Ok(_)) => is_word_char_rev(haystack, at),
+                        Some(Ok(_)) => utf8::is_word_char_rev(haystack, at),
                     };
                 let word_after = at < haystack.len()
-                    && match decode_utf8(&haystack[at..]) {
+                    && match utf8::decode(&haystack[at..]) {
                         None | Some(Err(_)) => return false,
-                        Some(Ok(_)) => is_word_char_fwd(haystack, at),
+                        Some(Ok(_)) => utf8::is_word_char_fwd(haystack, at),
                     };
                 word_before == word_after
             }
             Look::WordBoundaryAscii => {
-                let word_before = at > 0 && is_word_byte(haystack[at - 1]);
+                let word_before =
+                    at > 0 && utf8::is_word_byte(haystack[at - 1]);
                 let word_after =
-                    at < haystack.len() && is_word_byte(haystack[at]);
+                    at < haystack.len() && utf8::is_word_byte(haystack[at]);
                 word_before != word_after
             }
             Look::WordBoundaryAsciiNegate => {
-                let word_before = at > 0 && is_word_byte(haystack[at - 1]);
+                let word_before =
+                    at > 0 && utf8::is_word_byte(haystack[at - 1]);
                 let word_after =
-                    at < haystack.len() && is_word_byte(haystack[at]);
+                    at < haystack.len() && utf8::is_word_byte(haystack[at]);
                 word_before == word_after
             }
         }
@@ -2202,7 +2203,7 @@ impl Look {
                 // to do this dance at most once per regex.
                 //
                 // FIXME: Is this correct for \B?
-                let iswb = is_word_byte;
+                let iswb = utf8::is_word_byte;
                 // This unwrap is OK because we guard every use of 'asu8' with
                 // a check that the input is <= 255.
                 let asu8 = |b: u16| u8::try_from(b).unwrap();

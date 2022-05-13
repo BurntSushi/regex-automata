@@ -6,8 +6,8 @@ use crate::{
     nfa::thompson,
     util::{
         id::PatternID,
-        matchtypes::{HalfMatch, MatchError, Span},
-        prefilter, MATCH_OFFSET,
+        matchtypes::{HalfMatch, MatchError, Span, MATCH_OFFSET},
+        prefilter,
     },
 };
 

@@ -3,6 +3,7 @@ use core::convert::TryFrom;
 use crate::util::{
     bytes::{DeserializeError, SerializeError},
     escape::DebugByte,
+    utf8,
 };
 
 /// Unit represents a single unit of input for DFA based regex engines.
@@ -95,7 +96,7 @@ impl Unit {
 
     #[cfg(feature = "alloc")]
     pub fn is_word_byte(&self) -> bool {
-        self.as_u8().map_or(false, crate::util::is_word_byte)
+        self.as_u8().map_or(false, utf8::is_word_byte)
     }
 }
 

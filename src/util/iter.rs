@@ -1,5 +1,4 @@
 use crate::util::{
-    is_char_boundary,
     matchtypes::{Match, MatchError, Search},
     prefilter,
 };

@@ -43,7 +43,7 @@ macro_rules! handle_iter_match {
             // the next search at the smallest possible starting position
             // of the next match following this one.
             $self.last_end = if utf8 {
-                crate::util::next_utf8($self.text, m.end())
+                crate::util::utf8::next($self.text, m.end())
             } else {
                 m.end() + 1
             };

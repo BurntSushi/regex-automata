@@ -1,3 +1,5 @@
+use crate::util::utf8;
+
 /// Represents the four possible starting configurations of a DFA search.
 ///
 /// The starting configuration is determined by inspecting the the beginning of
@@ -67,7 +69,7 @@ impl Start {
             Start::Text
         } else if bytes[start - 1] == b'\n' {
             Start::Line
-        } else if crate::util::is_word_byte(bytes[start - 1]) {
+        } else if utf8::is_word_byte(bytes[start - 1]) {
             Start::WordByte
         } else {
             Start::NonWordByte
@@ -93,7 +95,7 @@ impl Start {
             Start::Text
         } else if bytes[end] == b'\n' {
             Start::Line
-        } else if crate::util::is_word_byte(bytes[end]) {
+        } else if utf8::is_word_byte(bytes[end]) {
             Start::WordByte
         } else {
             Start::NonWordByte

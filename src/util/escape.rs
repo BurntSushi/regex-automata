@@ -1,3 +1,5 @@
+use crate::util::utf8;
+
 /// A type that wraps a single byte with a convenient fmt::Debug impl that
 /// escapes the byte.
 pub(crate) struct DebugByte(pub(crate) u8);
@@ -30,7 +32,7 @@ impl<'a> core::fmt::Debug for DebugHaystack<'a> {
         write!(f, "\"")?;
         // This is a sad re-implementation of a similar impl found in bstr.
         let mut bytes = self.0;
-        while let Some(result) = crate::util::decode_utf8(bytes) {
+        while let Some(result) = utf8::decode(bytes) {
             let ch = match result {
                 Ok(ch) => ch,
                 Err(byte) => {
