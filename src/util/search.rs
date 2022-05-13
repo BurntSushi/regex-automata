@@ -19,6 +19,66 @@ use crate::util::{id::PatternID, utf8};
 /// tricky.)
 pub(crate) const MATCH_OFFSET: usize = 1;
 
+// TODO: These were docs on a 'find' method before 'Search' supplanted it. They
+// look useful as holistic docs for explaining the various parameters.
+//
+// * `pre` is a prefilter scanner that, when given, is used whenever the
+// DFA enters its starting state. This is meant to speed up searches where
+// one or a small number of literal prefixes are known.
+// * `pattern_id` specifies a specific pattern in the DFA to run an
+// anchored search for. If not given, then a search for any pattern is
+// performed. For lazy DFAs, [`Config::starts_for_each_pattern`] must be
+// enabled to use this functionality.
+// * `start` and `end` permit searching a specific region of the haystack
+// `bytes`. This is useful when implementing an iterator over matches
+// within the same haystack, which cannot be done correctly by simply
+// providing a subslice of `bytes`. (Because the existence of look-around
+// operations such as `\b`, `^` and `$` need to take the surrounding
+// context into account. This cannot be done if the haystack doesn't
+// contain it.)
+//
+// TODO: More docs, with an example:
+// ```
+// use regex_automata::{hybrid::{dfa, regex}, MatchKind, Match};
+//
+// let pattern = r"[a-z]+";
+// let haystack = "abc".as_bytes();
+//
+// // With leftmost-first semantics, we test "earliest" and "leftmost".
+// let re = regex::Builder::new()
+//     .dfa(dfa::Config::new().match_kind(MatchKind::LeftmostFirst))
+//     .build(pattern)?;
+// let mut cache = re.create_cache();
+//
+// // "earliest" searching isn't impacted by greediness
+// let mut it = re.find_earliest_iter(&mut cache, haystack);
+// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
+// assert_eq!(Some(Match::must(0, 1, 2)), it.next());
+// assert_eq!(Some(Match::must(0, 2, 3)), it.next());
+// assert_eq!(None, it.next());
+//
+// // "leftmost" searching supports greediness (and non-greediness)
+// let mut it = re.find_leftmost_iter(&mut cache, haystack);
+// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
+// assert_eq!(None, it.next());
+//
+// // For overlapping, we want "all" match kind semantics.
+// let re = regex::Builder::new()
+//     .dfa(dfa::Config::new().match_kind(MatchKind::All))
+//     .build(pattern)?;
+// let mut cache = re.create_cache();
+//
+// // In the overlapping search, we find all three possible matches
+// // starting at the beginning of the haystack.
+// let mut it = re.find_overlapping_iter(&mut cache, haystack);
+// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
+// assert_eq!(Some(Match::must(0, 0, 2)), it.next());
+// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
+// assert_eq!(None, it.next());
+//
+// # Ok::<(), Box<dyn std::error::Error>>(())
+// ```
+
 #[derive(Clone)]
 pub struct Search<T> {
     haystack: T,
@@ -129,6 +189,18 @@ impl<T: AsRef<[u8]>> Search<T> {
         Search { utf8: yes, ..self }
     }
 
+    /// Return this search with its type parameter fixed to `&[u8]`.
+    #[inline]
+    pub fn as_ref(&self) -> Search<&[u8]> {
+        Search {
+            haystack: self.bytes(),
+            span: self.span,
+            pattern: self.pattern,
+            earliest: self.earliest,
+            utf8: self.utf8,
+        }
+    }
+
     /// Return the haystack for this search as bytes.
     #[inline]
     pub fn bytes(&self) -> &[u8] {
@@ -145,6 +217,22 @@ impl<T: AsRef<[u8]>> Search<T> {
     #[inline]
     pub fn into_haystack(self) -> T {
         self.haystack
+    }
+
+    /// Return the start position of this search.
+    ///
+    /// This is a convenience routine for `search.get_span().start()`.
+    #[inline]
+    pub fn start(&self) -> usize {
+        self.get_span().start()
+    }
+
+    /// Return the end position of this search.
+    ///
+    /// This is a convenience routine for `search.get_span().end()`.
+    #[inline]
+    pub fn end(&self) -> usize {
+        self.get_span().end()
     }
 
     /// Set the span for this search configuration.

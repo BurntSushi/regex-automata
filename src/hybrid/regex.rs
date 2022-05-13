@@ -47,12 +47,11 @@ use crate::{
 /// [`set_prefilter`](Regex::set_prefilter) method. By default, no prefilter is
 /// enabled.
 ///
-/// # Earliest vs Leftmost vs Overlapping
+/// # Leftmost vs Overlapping
 ///
-/// The search routines exposed on a `Regex` reflect three different ways
-/// of searching:
+/// The search routines exposed on a `Regex` reflect two different approaches
+/// to searching:
 ///
-/// * "earliest" means to stop as soon as a match has been detected.
 /// * "leftmost" means to continue matching until the underlying
 ///   automaton cannot advance. This reflects "standard" searching you
 ///   might be used to in other regex engines. e.g., This permits
@@ -76,18 +75,11 @@ use crate::{
 /// let pattern = r"[a-z]+";
 /// let haystack = "abc".as_bytes();
 ///
-/// // With leftmost-first semantics, we test "earliest" and "leftmost".
+/// // For leftmost searching, we want "leftmost-first" match kind semantics.
 /// let re = regex::Builder::new()
 ///     .dfa(dfa::Config::new().match_kind(MatchKind::LeftmostFirst))
 ///     .build(pattern)?;
 /// let mut cache = re.create_cache();
-///
-/// // "earliest" searching isn't impacted by greediness
-/// let mut it = re.find_earliest_iter(&mut cache, haystack);
-/// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
-/// assert_eq!(Some(Match::must(0, 1, 2)), it.next());
-/// assert_eq!(Some(Match::must(0, 2, 3)), it.next());
-/// assert_eq!(None, it.next());
 ///
 /// // "leftmost" searching supports greediness (and non-greediness)
 /// let mut it = re.find_leftmost_iter(&mut cache, haystack);
@@ -392,6 +384,7 @@ impl Regex {
         self.try_is_match(cache, haystack).unwrap()
     }
 
+    /*
     /// Returns the first position at which a match is found.
     ///
     /// This routine stops scanning input in precisely the same circumstances
@@ -441,6 +434,7 @@ impl Regex {
     ) -> Option<Match> {
         self.try_find_earliest(cache, haystack).unwrap()
     }
+    */
 
     /// Returns the start and end offset of the leftmost match. If no match
     /// exists, then `None` is returned.
@@ -460,7 +454,6 @@ impl Regex {
     /// ```
     /// use regex_automata::{Match, hybrid::regex::Regex};
     ///
-    /// // Greediness is applied appropriately when compared to find_earliest.
     /// let re = Regex::new("foo[0-9]+")?;
     /// let mut cache = re.create_cache();
     /// assert_eq!(
@@ -550,6 +543,7 @@ impl Regex {
         self.try_find_overlapping(cache, haystack, state).unwrap()
     }
 
+    /*
     /// Returns an iterator over all non-overlapping "earliest" matches.
     ///
     /// Span positions are reported as soon as a match is known to occur, even
@@ -594,6 +588,7 @@ impl Regex {
     ) -> FindEarliestMatches<'r, 'c, 't> {
         FindEarliestMatches::new(self, cache, haystack)
     }
+    */
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
     /// given bytes. If no match exists, then the iterator yields no elements.
@@ -726,13 +721,12 @@ impl Regex {
     pub fn is_match_at(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<&[u8]>,
     ) -> bool {
-        self.try_is_match_at(cache, haystack, start, end).unwrap()
+        self.try_is_match_at(cache, search).unwrap()
     }
 
+    /*
     /// Returns the first position at which a match is found.
     ///
     /// This routine stops scanning input in precisely the same circumstances
@@ -771,6 +765,7 @@ impl Regex {
     ) -> Option<Match> {
         self.try_find_earliest_at(cache, haystack, start, end).unwrap()
     }
+    */
 
     /// Returns the same as `find_leftmost`, but starts the search at the given
     /// offset.
@@ -800,11 +795,9 @@ impl Regex {
     pub fn find_leftmost_at(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<&[u8]>,
     ) -> Option<Match> {
-        self.try_find_leftmost_at(cache, haystack, start, end).unwrap()
+        self.try_find_leftmost_at(cache, search).unwrap()
     }
 
     /// Search for the first overlapping match within a given range of
@@ -841,13 +834,10 @@ impl Regex {
     pub fn find_overlapping_at(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<&[u8]>,
         state: &mut OverlappingState,
     ) -> Option<Match> {
-        self.try_find_overlapping_at(cache, haystack, start, end, state)
-            .unwrap()
+        self.try_find_overlapping_at(cache, search, state).unwrap()
     }
 }
 
@@ -887,9 +877,10 @@ impl Regex {
         cache: &mut Cache,
         haystack: &[u8],
     ) -> Result<bool, MatchError> {
-        self.try_is_match_at(cache, haystack, 0, haystack.len())
+        self.try_is_match_at(cache, &Search::new(haystack))
     }
 
+    /*
     /// Returns the first position at which a match is found.
     ///
     /// This routine stops scanning input in precisely the same circumstances
@@ -917,6 +908,7 @@ impl Regex {
     ) -> Result<Option<Match>, MatchError> {
         self.try_find_earliest_at(cache, haystack, 0, haystack.len())
     }
+    */
 
     /// Returns the start and end offset of the leftmost match. If no match
     /// exists, then `None` is returned.
@@ -939,7 +931,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: &[u8],
     ) -> Result<Option<Match>, MatchError> {
-        self.try_find_leftmost_at(cache, haystack, 0, haystack.len())
+        self.try_find_leftmost_at(cache, &Search::new(haystack))
     }
 
     /// Search for the first overlapping match in `haystack`.
@@ -969,9 +961,10 @@ impl Regex {
         haystack: &[u8],
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
-        self.try_find_overlapping_at(cache, haystack, 0, haystack.len(), state)
+        self.try_find_overlapping_at(cache, &Search::new(haystack), state)
     }
 
+    /*
     /// Returns an iterator over all non-overlapping "earliest" matches.
     ///
     /// Span positions are reported as soon as a match is known to occur, even
@@ -997,6 +990,7 @@ impl Regex {
     ) -> TryFindEarliestMatches<'r, 'c, 't> {
         TryFindEarliestMatches::new(self, cache, haystack)
     }
+    */
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
     /// given bytes. If no match exists, then the iterator yields no elements.
@@ -1090,22 +1084,18 @@ impl Regex {
     pub fn try_is_match_at(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<&[u8]>,
     ) -> Result<bool, MatchError> {
         self.forward()
             .find_leftmost_fwd_at(
                 &mut cache.forward,
                 self.scanner().as_mut(),
-                None,
-                haystack,
-                start,
-                end,
+                search,
             )
             .map(|x| x.is_some())
     }
 
+    /*
     /// Returns the first position at which a match is found.
     ///
     /// This routine stops scanning input in precisely the same circumstances
@@ -1154,6 +1144,7 @@ impl Regex {
             end,
         )
     }
+    */
 
     /// Returns the start and end offset of the leftmost match. If no match
     /// exists, then `None` is returned.
@@ -1187,17 +1178,9 @@ impl Regex {
     pub fn try_find_leftmost_at(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<&[u8]>,
     ) -> Result<Option<Match>, MatchError> {
-        self.try_find_leftmost_at_imp(
-            self.scanner().as_mut(),
-            cache,
-            haystack,
-            start,
-            end,
-        )
+        self.try_find_leftmost_at_imp(cache, self.scanner().as_mut(), search)
     }
 
     /// Search for the first overlapping match within a given range of
@@ -1238,17 +1221,13 @@ impl Regex {
     pub fn try_find_overlapping_at(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<&[u8]>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
         self.try_find_overlapping_at_imp(
-            self.scanner().as_mut(),
             cache,
-            haystack,
-            start,
-            end,
+            self.scanner().as_mut(),
+            search,
             state,
         )
     }
@@ -1270,13 +1249,7 @@ impl Regex {
             move |search| {
                 let pre = scanner.as_mut();
                 let span = search.get_span();
-                self.try_find_leftmost_at_imp(
-                    pre,
-                    cache,
-                    search.bytes(),
-                    span.start(),
-                    span.end(),
-                )
+                self.try_find_leftmost_at_imp(cache, pre, search)
             },
         )
     }
@@ -1294,12 +1267,7 @@ impl Regex {
                 let pre = scanner.as_mut();
                 let span = search.get_span();
                 self.try_find_overlapping_at_imp(
-                    pre,
-                    cache,
-                    search.bytes(),
-                    span.start(),
-                    span.end(),
-                    &mut state,
+                    cache, pre, search, &mut state,
                 )
             },
         )
@@ -1308,55 +1276,15 @@ impl Regex {
 
 impl Regex {
     #[inline(always)]
-    fn try_find_earliest_at_imp(
+    pub fn try_find_leftmost_at_imp(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        pre: Option<&mut prefilter::Scanner>,
+        search: &Search<&[u8]>,
     ) -> Result<Option<Match>, MatchError> {
         let (fdfa, rdfa) = (self.forward(), self.reverse());
         let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
-        let end = match fdfa
-            .find_earliest_fwd_at(fcache, pre, None, haystack, start, end)?
-        {
-            None => return Ok(None),
-            Some(end) => end,
-        };
-        // N.B. The only time we need to tell the reverse searcher the pattern
-        // to match is in the overlapping case, since it's ambiguous. In the
-        // earliest case, I have tentatively convinced myself that it isn't
-        // necessary and the reverse search will always find the same pattern
-        // to match as the forward search. But I lack a rigorous proof. Why not
-        // just provide the pattern anyway? Well, if it is needed, then leaving
-        // it out gives us a chance to find a witness.
-        let start = rdfa
-            .find_earliest_rev_at(rcache, None, haystack, start, end.offset())?
-            .expect("reverse search must match if forward search does");
-        assert_eq!(
-            start.pattern(),
-            end.pattern(),
-            "forward and reverse search must match same pattern",
-        );
-        assert!(start.offset() <= end.offset());
-        Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
-    }
-
-    #[inline(always)]
-    fn try_find_leftmost_at_imp(
-        &self,
-        pre: Option<&mut prefilter::Scanner>,
-        cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<Match>, MatchError> {
-        let (fdfa, rdfa) = (self.forward(), self.reverse());
-        let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
-        let end = match fdfa
-            .find_leftmost_fwd_at(fcache, pre, None, haystack, start, end)?
-        {
+        let end = match fdfa.find_leftmost_fwd_at(fcache, pre, search)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -1367,8 +1295,9 @@ impl Regex {
         // to match as the forward search. But I lack a rigorous proof. Why not
         // just provide the pattern anyway? Well, if it is needed, then leaving
         // it out gives us a chance to find a witness.
+        let revsearch = search.clone().range(search.start()..end.offset());
         let start = rdfa
-            .find_leftmost_rev_at(rcache, None, haystack, start, end.offset())?
+            .find_leftmost_rev_at(rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
@@ -1382,34 +1311,43 @@ impl Regex {
     #[inline(always)]
     fn try_find_overlapping_at_imp(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         cache: &mut Cache,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        pre: Option<&mut prefilter::Scanner>,
+        search: &Search<&[u8]>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
         let (fdfa, rdfa) = (self.forward(), self.reverse());
         let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
-        let end = match fdfa.find_overlapping_fwd_at(
-            fcache, pre, None, haystack, start, end, state,
-        )? {
-            None => return Ok(None),
-            Some(end) => end,
-        };
+        let end =
+            match fdfa.find_overlapping_fwd_at(fcache, pre, search, state)? {
+                None => return Ok(None),
+                Some(end) => end,
+            };
         // Unlike the leftmost cases, the reverse overlapping search may match
         // a different pattern than the forward search. See test failures when
         // using `None` instead of `Some(end.pattern())` below. Thus, we must
         // run our reverse search using the pattern that matched in the forward
         // direction.
+        let revsearch = search
+            .clone()
+            .pattern(Some(end.pattern()))
+            // Used to be 0..end.offset()... why? Ah! Because for the
+            // overlapping iterator, we always set the 'start' of the search
+            // to the end of the last match. But! Since it's an overlapping
+            // search, the next match reported might have a starting offset
+            // earlier than the start of the search. So we permit the reverse
+            // search to go... all the way back to the beginning of the
+            // haystack?
+            //
+            // That doesn't seem right to me. If the user specified a start
+            // bound, then we shouldn't report any matches prior to that. So
+            // maybe the overlapping search needs to keep track of its offset
+            // as part of 'OverlappingState'. And then the caller doesn't
+            // update their search bounds on subsequent calls? That seems a
+            // little weird, but maybe that's okay? Think on this.
+            .range(..end.offset());
         let start = rdfa
-            .find_leftmost_rev_at(
-                rcache,
-                Some(end.pattern()),
-                haystack,
-                0,
-                end.offset(),
-            )?
+            .find_leftmost_rev_at(rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
@@ -1473,6 +1411,7 @@ impl Regex {
     }
 }
 
+/*
 /// An iterator over all non-overlapping earliest matches for a particular
 /// infallible search.
 ///
@@ -1504,6 +1443,7 @@ impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
         next_unwrap(self.0.next())
     }
 }
+*/
 
 /// An iterator over all non-overlapping matches for an infallible search.
 ///
@@ -1558,6 +1498,7 @@ impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
     }
 }
 
+/*
 /// An iterator over all non-overlapping earliest matches for a fallible search.
 ///
 /// The iterator yields a [`Match`] value until no more matches could be
@@ -1613,6 +1554,7 @@ impl<'r, 'c, 't> Iterator for TryFindEarliestMatches<'r, 'c, 't> {
         Some(Ok(handle_iter_match_fallible!(self, result, self.re.utf8)))
     }
 }
+*/
 
 /// An iterator over all non-overlapping matches for a fallible search.
 ///

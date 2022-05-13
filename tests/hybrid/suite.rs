@@ -4,7 +4,8 @@ use regex_automata::{
         regex::{self, Regex},
     },
     nfa::thompson,
-    MatchKind, SyntaxConfig,
+    util::iter,
+    MatchKind, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -153,13 +154,18 @@ fn run_test(
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let it = re
-                    .find_earliest_iter(cache, test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
+                let it = iter::TryMatches::new(
+                    Search::new(test.input().as_bytes())
+                        .earliest(true)
+                        .utf8(test.utf8()),
+                    move |search| re.try_find_leftmost_at(cache, search),
+                )
+                .infallible()
+                .take(test.match_limit().unwrap_or(std::usize::MAX))
+                .map(|m| ret::Match {
+                    id: m.pattern().as_usize(),
+                    span: ret::Span { start: m.start(), end: m.end() },
+                });
                 TestResult::matches(it)
             }
             ret::SearchKind::Leftmost => {

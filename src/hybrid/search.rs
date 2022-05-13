@@ -7,78 +7,60 @@ use crate::{
     util::{
         id::PatternID,
         prefilter,
-        search::{HalfMatch, MatchError, Span, MATCH_OFFSET},
+        search::{HalfMatch, MatchError, Search, Span, MATCH_OFFSET},
     },
 };
 
 #[inline(never)]
-pub(crate) fn find_earliest_fwd(
-    pre: Option<&mut prefilter::Scanner>,
+pub(crate) fn find_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    pre: Option<&mut prefilter::Scanner>,
+    search: &Search<&[u8]>,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    // Searching with a pattern ID is always anchored, so we should never use
-    // a prefilter.
-    if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, true, dfa, cache, pattern_id, haystack, start, end)
-    } else {
-        find_fwd(None, true, dfa, cache, pattern_id, haystack, start, end)
+    if search.is_done() {
+        return Ok(None);
     }
-}
-
-#[inline(never)]
-pub(crate) fn find_leftmost_fwd(
-    pre: Option<&mut prefilter::Scanner>,
-    dfa: &DFA,
-    cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
-) -> Result<Option<HalfMatch>, MatchError> {
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
-    if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, false, dfa, cache, pattern_id, haystack, start, end)
+    if pre.is_some() && search.get_pattern().is_none() {
+        if search.get_earliest() {
+            find_fwd_imp(dfa, cache, pre, search, true)
+        } else {
+            find_fwd_imp(dfa, cache, pre, search, false)
+        }
     } else {
-        find_fwd(None, false, dfa, cache, pattern_id, haystack, start, end)
+        if search.get_earliest() {
+            find_fwd_imp(dfa, cache, None, search, true)
+        } else {
+            find_fwd_imp(dfa, cache, None, search, false)
+        }
     }
 }
 
 #[inline(always)]
-fn find_fwd(
-    mut pre: Option<&mut prefilter::Scanner>,
-    earliest: bool,
+fn find_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    mut pre: Option<&mut prefilter::Scanner>,
+    search: &Search<&[u8]>,
+    earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    assert!(start <= end);
-    assert!(start <= haystack.len());
-    assert!(end <= haystack.len());
-
-    let mut sid = init_fwd(dfa, cache, pattern_id, haystack, start, end)?;
+    let mut sid = init_fwd(dfa, cache, search)?;
     let mut last_match = None;
-    let mut at = start;
+    let mut at = search.start();
     // This could just be a closure, but then I think it would be unsound
     // because it would need to be safe to invoke. This way, the lack of safety
     // is clearer in the code below.
     macro_rules! next_unchecked {
         ($sid:expr, $at:expr) => {{
-            let byte = *haystack.get_unchecked($at);
+            let byte = *search.bytes().get_unchecked($at);
             dfa.next_state_untagged_unchecked(cache, $sid, byte)
         }};
     }
 
     if let Some(ref mut pre) = pre {
-        let span = Span::new(at, end);
+        let span = Span::new(at, search.end());
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
@@ -86,11 +68,11 @@ fn find_fwd(
         // In that case, any match must be the 0th pattern.
         if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
             // TODO: This looks wrong? Shouldn't offset be the END of a match?
-            return Ok(pre.find(haystack, span).into_option().map(|offset| {
-                HalfMatch { pattern: PatternID::ZERO, offset }
-            }));
+            return Ok(pre.find(search.bytes(), span).into_option().map(
+                |offset| HalfMatch { pattern: PatternID::ZERO, offset },
+            ));
         } else if pre.is_effective(at) {
-            match pre.find(haystack, span).into_option() {
+            match pre.find(search.bytes(), span).into_option() {
                 None => return Ok(None),
                 Some(i) => {
                     at = i;
@@ -98,10 +80,10 @@ fn find_fwd(
             }
         }
     }
-    while at < end {
+    while at < search.end() {
         if sid.is_tagged() {
             sid = dfa
-                .next_state(cache, sid, haystack[at])
+                .next_state(cache, sid, search.bytes()[at])
                 .map_err(|_| gave_up(at))?;
         } else {
             // SAFETY: There are two safety invariants we need to uphold
@@ -199,9 +181,9 @@ fn find_fwd(
             //
             // NOTE: I used 'OpenSubtitles2018.raw.sample.en' for 'bigfile'.
             let mut prev_sid = sid;
-            while at < end {
+            while at < search.end() {
                 prev_sid = unsafe { next_unchecked!(sid, at) };
-                if prev_sid.is_tagged() || at + 3 >= end {
+                if prev_sid.is_tagged() || at + 3 >= search.end() {
                     core::mem::swap(&mut prev_sid, &mut sid);
                     break;
                 }
@@ -227,7 +209,7 @@ fn find_fwd(
                 at += 1;
 
                 if prev_sid == sid {
-                    while at + 4 < end {
+                    while at + 4 < search.end() {
                         let next = unsafe { next_unchecked!(sid, at) };
                         if sid != next {
                             break;
@@ -259,7 +241,7 @@ fn find_fwd(
             // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(cache, prev_sid, haystack[at])
+                    .next_state(cache, prev_sid, search.bytes()[at])
                     .map_err(|_| gave_up(at))?;
             }
         }
@@ -267,8 +249,8 @@ fn find_fwd(
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
-                        let span = Span::new(at, end);
-                        match pre.find(haystack, span).into_option() {
+                        let span = Span::new(at, search.end());
+                        match pre.find(search.bytes(), span).into_option() {
                             // TODO: This looks like a bug to me. We should
                             // return 'Ok(last_match)', i.e., treat it like a
                             // dead state. But don't 'fix' it until we can
@@ -306,7 +288,7 @@ fn find_fwd(
                     return Ok(last_match);
                 }
                 return Err(MatchError::Quit {
-                    byte: haystack[at],
+                    byte: search.bytes()[at],
                     offset: at,
                 });
             } else {
@@ -316,48 +298,33 @@ fn find_fwd(
         }
         at += 1;
     }
-    Ok(eoi_fwd(dfa, cache, haystack, end, &mut sid)?.or(last_match))
+    Ok(eoi_fwd(dfa, cache, search, &mut sid)?.or(last_match))
 }
 
 #[inline(never)]
-pub(crate) fn find_earliest_rev(
+pub(crate) fn find_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<&[u8]>,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(true, dfa, cache, pattern_id, haystack, start, end)
-}
-
-#[inline(never)]
-pub(crate) fn find_leftmost_rev(
-    dfa: &DFA,
-    cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
-) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(false, dfa, cache, pattern_id, haystack, start, end)
+    if search.is_done() {
+        return Ok(None);
+    }
+    if search.get_earliest() {
+        find_rev_imp(dfa, cache, search, true)
+    } else {
+        find_rev_imp(dfa, cache, search, false)
+    }
 }
 
 #[inline(always)]
-fn find_rev(
-    earliest: bool,
+fn find_rev_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<&[u8]>,
+    earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    assert!(start <= end);
-    assert!(start <= haystack.len());
-    assert!(end <= haystack.len());
-
-    let mut sid = init_rev(dfa, cache, pattern_id, haystack, start, end)?;
+    let mut sid = init_rev(dfa, cache, search)?;
     let mut last_match = None;
     // In reverse search, the loop below can't handle the case of searching an
     // empty slice. Ideally we could write something congruent to the forward
@@ -365,21 +332,21 @@ fn find_rev(
     // an unsigned offset, 'at >= 0' is trivially always true. We could avoid
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
-    if start == end {
-        return Ok(eoi_rev(dfa, cache, haystack, start, sid)?);
+    if search.start() == search.end() {
+        return Ok(eoi_rev(dfa, cache, search, sid)?);
     }
 
-    let mut at = end - 1;
+    let mut at = search.end() - 1;
     macro_rules! next_unchecked {
         ($sid:expr, $at:expr) => {{
-            let byte = *haystack.get_unchecked($at);
+            let byte = *search.bytes().get_unchecked($at);
             dfa.next_state_untagged_unchecked(cache, $sid, byte)
         }};
     }
     loop {
         if sid.is_tagged() {
             sid = dfa
-                .next_state(cache, sid, haystack[at])
+                .next_state(cache, sid, search.bytes()[at])
                 .map_err(|_| gave_up(at))?;
         } else {
             // SAFETY: See comments in 'find_fwd' for a safety argument.
@@ -405,9 +372,11 @@ fn find_rev(
             //
             // NOTE: I used 'OpenSubtitles2018.raw.sample.en' for 'bigfile'.
             let mut prev_sid = sid;
-            while at >= start {
+            while at >= search.start() {
                 prev_sid = unsafe { next_unchecked!(sid, at) };
-                if prev_sid.is_tagged() || at <= start.saturating_add(3) {
+                if prev_sid.is_tagged()
+                    || at <= search.start().saturating_add(3)
+                {
                     core::mem::swap(&mut prev_sid, &mut sid);
                     break;
                 }
@@ -433,7 +402,7 @@ fn find_rev(
                 at -= 1;
 
                 if prev_sid == sid {
-                    while at > start.saturating_add(3) {
+                    while at > search.start().saturating_add(3) {
                         let next = unsafe { next_unchecked!(sid, at) };
                         if sid != next {
                             break;
@@ -465,7 +434,7 @@ fn find_rev(
             // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(cache, prev_sid, haystack[at])
+                    .next_state(cache, prev_sid, search.bytes()[at])
                     .map_err(|_| gave_up(at))?;
             }
         }
@@ -492,7 +461,7 @@ fn find_rev(
                     return Ok(last_match);
                 }
                 return Err(MatchError::Quit {
-                    byte: haystack[at],
+                    byte: search.bytes()[at],
                     offset: at,
                 });
             } else {
@@ -500,35 +469,31 @@ fn find_rev(
                 unreachable!("sid being unknown is a bug");
             }
         }
-        if at == start {
+        if at == search.start() {
             break;
         }
         at -= 1;
     }
-    Ok(eoi_rev(dfa, cache, haystack, start, sid)?.or(last_match))
+    Ok(eoi_rev(dfa, cache, search, sid)?.or(last_match))
 }
 
 #[inline(never)]
 pub(crate) fn find_overlapping_fwd(
-    pre: Option<&mut prefilter::Scanner>,
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    pre: Option<&mut prefilter::Scanner>,
+    search: &Search<&[u8]>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    // Searching with a pattern ID is always anchored, so we should only ever
-    // use a prefilter when no pattern ID is given.
-    if pre.is_some() && pattern_id.is_none() {
-        find_overlapping_fwd_imp(
-            pre, dfa, cache, pattern_id, haystack, start, end, state,
-        )
+    if search.is_done() {
+        return Ok(None);
+    }
+    // Searching with a pattern ID is always anchored, so we should never use
+    // a prefilter.
+    if pre.is_some() && search.get_pattern().is_none() {
+        find_overlapping_fwd_imp(dfa, cache, pre, search, state)
     } else {
-        find_overlapping_fwd_imp(
-            None, dfa, cache, pattern_id, haystack, start, end, state,
-        )
+        find_overlapping_fwd_imp(dfa, cache, None, search, state)
     }
 }
 
@@ -542,21 +507,15 @@ pub(crate) fn find_overlapping_fwd(
 /// start-of-match handling for forward searches.
 #[inline(always)]
 fn find_overlapping_fwd_imp(
-    mut pre: Option<&mut prefilter::Scanner>,
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    mut start: usize,
-    end: usize,
+    mut pre: Option<&mut prefilter::Scanner>,
+    search: &Search<&[u8]>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    assert!(start <= end);
-    assert!(start <= haystack.len());
-    assert!(end <= haystack.len());
-
+    let mut start = search.start();
     let mut sid = match state.id() {
-        None => init_fwd(dfa, cache, pattern_id, haystack, start, end)?,
+        None => init_fwd(dfa, cache, search)?,
         Some(sid) => {
             if let Some(last) = state.last_match() {
                 let match_count = dfa.match_count(cache, sid);
@@ -608,17 +567,17 @@ fn find_overlapping_fwd_imp(
     // counts, and thus, throughput is perhaps not as important. But if you
     // have a use case for something faster, feel free to file an issue.
     let mut at = start;
-    while at < end {
+    while at < search.end() {
         sid = dfa
-            .next_state(cache, sid, haystack[at])
+            .next_state(cache, sid, search.bytes()[at])
             .map_err(|_| gave_up(at))?;
         if sid.is_tagged() {
             state.set_id(sid);
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
-                        let span = Span::new(at, end);
-                        match pre.find(haystack, span).into_option() {
+                        let span = Span::new(at, search.end());
+                        match pre.find(search.bytes(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
@@ -638,7 +597,7 @@ fn find_overlapping_fwd_imp(
                 return Ok(None);
             } else if sid.is_quit() {
                 return Err(MatchError::Quit {
-                    byte: haystack[at],
+                    byte: search.bytes()[at],
                     offset: at,
                 });
             } else {
@@ -649,7 +608,7 @@ fn find_overlapping_fwd_imp(
         at += 1;
     }
 
-    let result = eoi_fwd(dfa, cache, haystack, end, &mut sid);
+    let result = eoi_fwd(dfa, cache, search, &mut sid);
     state.set_id(sid);
     if let Ok(Some(ref last_match)) = result {
         state.set_last_match(StateMatch {
@@ -668,14 +627,18 @@ fn find_overlapping_fwd_imp(
 fn init_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<&[u8]>,
 ) -> Result<LazyStateID, MatchError> {
+    // TODO: Update start_state_forward to accept a Search
     let sid = dfa
-        .start_state_forward(cache, pattern_id, haystack, start, end)
-        .map_err(|_| gave_up(start))?;
+        .start_state_forward(
+            cache,
+            search.get_pattern(),
+            search.bytes(),
+            search.start(),
+            search.end(),
+        )
+        .map_err(|_| gave_up(search.start()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     assert!(!sid.is_match());
@@ -686,14 +649,17 @@ fn init_fwd(
 fn init_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<&[u8]>,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
-        .start_state_reverse(cache, pattern_id, haystack, start, end)
-        .map_err(|_| gave_up(end))?;
+        .start_state_reverse(
+            cache,
+            search.get_pattern(),
+            search.bytes(),
+            search.start(),
+            search.end(),
+        )
+        .map_err(|_| gave_up(search.end()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     assert!(!sid.is_match());
@@ -704,17 +670,18 @@ fn init_rev(
 fn eoi_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    haystack: &[u8],
-    end: usize,
+    search: &Search<&[u8]>,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    match haystack.get(end) {
+    match search.bytes().get(search.end()) {
         Some(&b) => {
-            *sid = dfa.next_state(cache, *sid, b).map_err(|_| gave_up(end))?;
+            *sid = dfa
+                .next_state(cache, *sid, b)
+                .map_err(|_| gave_up(search.end()))?;
             if sid.is_match() {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, *sid, 0),
-                    offset: end,
+                    offset: search.end(),
                 }))
             } else {
                 Ok(None)
@@ -723,11 +690,11 @@ fn eoi_fwd(
         None => {
             *sid = dfa
                 .next_eoi_state(cache, *sid)
-                .map_err(|_| gave_up(haystack.len()))?;
+                .map_err(|_| gave_up(search.bytes().len()))?;
             if sid.is_match() {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, *sid, 0),
-                    offset: haystack.len(),
+                    offset: search.bytes().len(),
                 }))
             } else {
                 Ok(None)
@@ -740,25 +707,25 @@ fn eoi_fwd(
 fn eoi_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    haystack: &[u8],
-    start: usize,
+    search: &Search<&[u8]>,
     state: LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    if start > 0 {
+    if search.start() > 0 {
         let sid = dfa
-            .next_state(cache, state, haystack[start - 1])
-            .map_err(|_| gave_up(start))?;
+            .next_state(cache, state, search.bytes()[search.start() - 1])
+            .map_err(|_| gave_up(search.start()))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
                 pattern: dfa.match_pattern(cache, sid, 0),
-                offset: start,
+                offset: search.start(),
             }))
         } else {
             Ok(None)
         }
     } else {
-        let sid =
-            dfa.next_eoi_state(cache, state).map_err(|_| gave_up(start))?;
+        let sid = dfa
+            .next_eoi_state(cache, state)
+            .map_err(|_| gave_up(search.start()))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
                 pattern: dfa.match_pattern(cache, sid, 0),
