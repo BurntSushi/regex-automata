@@ -51,9 +51,9 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // Notice that we make the same amount of progress in each search! That's
     // because the cache is reused and already has states to handle the first
     // 46 bytes.
-    assert_eq!(dfa.find_leftmost_fwd(&mut cache, &haystack), Err(err.clone()));
+    assert_eq!(dfa.try_find_fwd(&mut cache, &haystack), Err(err.clone()));
     assert_eq!(
-        dfa.find_overlapping_fwd(
+        dfa.try_find_overlapping_fwd(
             &mut cache,
             &haystack,
             &mut OverlappingState::start()
@@ -63,20 +63,20 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
 
     let haystack = "β".repeat(101).into_bytes();
     let err = MatchError::GaveUp { offset: 0 };
-    assert_eq!(dfa.find_leftmost_fwd(&mut cache, &haystack), Err(err));
+    assert_eq!(dfa.try_find_fwd(&mut cache, &haystack), Err(err));
     // no need to test that other find routines quit, since we did that above
 
     // OK, if we reset the cache, then we should be able to create more states
     // and make more progress with searching for betas.
     cache.reset(&dfa);
     let err = MatchError::GaveUp { offset: 29 };
-    assert_eq!(dfa.find_leftmost_fwd(&mut cache, &haystack), Err(err));
+    assert_eq!(dfa.try_find_fwd(&mut cache, &haystack), Err(err));
 
     // ... switching back to ASCII still makes progress since it just needs to
     // set transitions on existing states!
     let haystack = "a".repeat(101).into_bytes();
     let err = MatchError::GaveUp { offset: 14 };
-    assert_eq!(dfa.find_leftmost_fwd(&mut cache, &haystack), Err(err));
+    assert_eq!(dfa.try_find_fwd(&mut cache, &haystack), Err(err));
 
     Ok(())
 }
@@ -90,11 +90,11 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
     let mut cache = dfa.create_cache();
 
     assert_eq!(
-        dfa.find_leftmost_fwd(&mut cache, b"abcxyz"),
+        dfa.try_find_fwd(&mut cache, b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
-        dfa.find_overlapping_fwd(
+        dfa.try_find_overlapping_fwd(
             &mut cache,
             b"abcxyz",
             &mut OverlappingState::start()
@@ -115,7 +115,7 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
     let mut cache = dfa.create_cache();
 
     assert_eq!(
-        dfa.find_leftmost_rev(&mut cache, b"abcxyz"),
+        dfa.try_find_rev(&mut cache, b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
 
@@ -143,7 +143,7 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
     let dfa = DFA::builder().configure(config).build(r"\b")?;
     let mut cache = dfa.create_cache();
     let expected = HalfMatch::must(0, 1);
-    assert_eq!(dfa.find_leftmost_fwd(&mut cache, b" a"), Ok(Some(expected)));
+    assert_eq!(dfa.try_find_fwd(&mut cache, b" a"), Ok(Some(expected)));
     Ok(())
 }
 
@@ -156,10 +156,8 @@ fn prefilter_works() -> Result<(), Box<dyn Error>> {
     let mut cache = re.create_cache();
 
     let text = b"foo abc foo a1a2a3 foo a123 bar aa456";
-    let matches: Vec<(usize, usize)> = re
-        .find_leftmost_iter(&mut cache, text)
-        .map(|m| (m.start(), m.end()))
-        .collect();
+    let matches: Vec<(usize, usize)> =
+        re.find_iter(&mut cache, text).map(|m| (m.start(), m.end())).collect();
     assert_eq!(
         matches,
         vec![(12, 14), (14, 16), (16, 18), (23, 27), (33, 37),]
@@ -175,22 +173,16 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
         .prefilter(Some(Arc::new(SubstringPrefilter::new("a"))))
         .build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
-    assert_eq!(
-        re.find_leftmost(&mut cache, b"za123"),
-        Some(Match::must(0, 1, 5))
-    );
-    assert_eq!(
-        re.find_leftmost(&mut cache, b"a123"),
-        Some(Match::must(0, 0, 4))
-    );
+    assert_eq!(re.find(&mut cache, b"za123"), Some(Match::must(0, 1, 5)));
+    assert_eq!(re.find(&mut cache, b"a123"), Some(Match::must(0, 0, 4)));
 
     let re = Regex::builder()
         .prefilter(Some(Arc::new(BunkPrefilter::new())))
         .build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
-    assert_eq!(re.find_leftmost(&mut cache, b"za123"), None);
+    assert_eq!(re.find(&mut cache, b"za123"), None);
     // This checks that the prefilter is used when first starting the search,
     // instead of waiting until at least one transition has occurred.
-    assert_eq!(re.find_leftmost(&mut cache, b"a123"), None);
+    assert_eq!(re.find(&mut cache, b"a123"), None);
     Ok(())
 }

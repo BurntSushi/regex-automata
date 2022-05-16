@@ -1949,7 +1949,13 @@ impl SparseTransitions {
         //   regex-cli find nfa thompson pikevm -b "@$smallishru" '\b\w+\b'
         //
         // I could not observe any improvement, and in fact, things seemed to
-        // be a bit slower.
+        // be a bit slower. I can see an improvement in at least one benchmark:
+        //
+        //   allcpssmall=all-codepoints-utf8-10x
+        //   regex-cli find nfa thompson pikevm @$allcpssmall '\pL{100}'
+        //
+        // Where total search time goes from 3.2s to 2.4s when using binary
+        // search.
         self.transitions
             .binary_search_by(|t| {
                 if t.end < byte {

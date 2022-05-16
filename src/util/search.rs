@@ -127,10 +127,8 @@ impl<T: AsRef<[u8]>> Search<T> {
 
         // It's a little weird to convert ranges into spans, and then spans
         // back into ranges when we actually slice the haystack. Because
-        // of that process, we always represent everything as a `Range`.
-        // Therefore, handling things like m..=n is a little awkward. (We would
-        // use core::ops::Range inside of Span if we could, but it isn't Copy
-        // and it's too inconvenient for a Span to not by Copy.)
+        // of that process, we always represent everything as a half-open
+        // internal. Therefore, handling things like m..=n is a little awkward.
         let start = match range.start_bound() {
             Bound::Included(&i) => i,
             // Can this case ever happen? Range syntax doesn't support it...
@@ -140,7 +138,7 @@ impl<T: AsRef<[u8]>> Search<T> {
         let end = match range.end_bound() {
             Bound::Included(&i) => i.checked_add(1).unwrap(),
             Bound::Excluded(&i) => i,
-            Bound::Unbounded => 0,
+            Bound::Unbounded => self.bytes().len(),
         };
         self.span(Span::new(start, end))
     }
@@ -277,11 +275,16 @@ impl<T: AsRef<[u8]>> Search<T> {
     /// This panics if this would otherwise overflow a `usize`.
     #[inline]
     pub fn step(&mut self) {
-        self.set_start(if self.utf8 {
-            utf8::next(self.bytes(), self.get_span().start())
+        if self.utf8 {
+            self.set_start(utf8::next(self.bytes(), self.get_span().start()));
         } else {
-            self.get_span().start().checked_add(1).unwrap()
-        });
+            self.step_one();
+        }
+    }
+
+    #[inline]
+    pub fn step_one(&mut self) {
+        self.set_start(self.get_span().start().checked_add(1).unwrap());
     }
 
     /// Return the span for this search configuration.
@@ -291,6 +294,15 @@ impl<T: AsRef<[u8]>> Search<T> {
     #[inline]
     pub fn get_span(&self) -> Span {
         self.span
+    }
+
+    /// Return the span as a range for this search configuration.
+    ///
+    /// If one was not explicitly set, then the span corresponds to the entire
+    /// range of the haystack.
+    #[inline]
+    pub fn get_range(&self) -> core::ops::Range<usize> {
+        self.get_span().range()
     }
 
     /// Return the pattern ID for this search configuration, if one was set.

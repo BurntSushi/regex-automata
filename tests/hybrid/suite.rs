@@ -154,11 +154,14 @@ fn run_test(
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
+                let mut scanner = re.scanner();
                 let it = iter::TryMatches::new(
                     Search::new(test.input().as_bytes())
                         .earliest(true)
                         .utf8(test.utf8()),
-                    move |search| re.try_find_leftmost_at(cache, search),
+                    move |search| {
+                        re.try_search(cache, scanner.as_mut(), search)
+                    },
                 )
                 .infallible()
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
@@ -170,7 +173,7 @@ fn run_test(
             }
             ret::SearchKind::Leftmost => {
                 let it = re
-                    .find_leftmost_iter(cache, test.input())
+                    .find_iter(cache, test.input())
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| ret::Match {
                         id: m.pattern().as_usize(),

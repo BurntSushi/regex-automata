@@ -629,15 +629,8 @@ fn init_fwd(
     cache: &mut Cache,
     search: &Search<&[u8]>,
 ) -> Result<LazyStateID, MatchError> {
-    // TODO: Update start_state_forward to accept a Search
     let sid = dfa
-        .start_state_forward(
-            cache,
-            search.get_pattern(),
-            search.bytes(),
-            search.start(),
-            search.end(),
-        )
+        .start_state_forward(cache, search)
         .map_err(|_| gave_up(search.start()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
@@ -652,13 +645,7 @@ fn init_rev(
     search: &Search<&[u8]>,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
-        .start_state_reverse(
-            cache,
-            search.get_pattern(),
-            search.bytes(),
-            search.start(),
-            search.end(),
-        )
+        .start_state_reverse(cache, search)
         .map_err(|_| gave_up(search.end()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.

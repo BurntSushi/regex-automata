@@ -10,9 +10,10 @@ use crate::{
     nfa::thompson::{self, Captures, Error, State, NFA},
     util::{
         id::{PatternID, StateID},
+        iter,
         nonmax::NonMaxUsize,
         prefilter::{self, Prefilter},
-        search::{Match, MatchKind},
+        search::{Match, MatchError, MatchKind, Search},
         sparse_set::SparseSet,
     },
 };
@@ -290,12 +291,30 @@ impl PikeVM {
         FindEarliestMatches::new(self, cache, haystack)
     }
 
-    pub fn find_leftmost_iter<'r, 'c, 't>(
+    pub fn find_leftmost_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindLeftmostMatches<'r, 'c, 't> {
-        FindLeftmostMatches::new(self, cache, haystack)
+        haystack: &'h [u8],
+    ) -> FindLeftmostMatches<'h, 'c> {
+        let search = Search::new(haystack);
+        let mut caps = Captures::new_for_matches_only(self.nfa().clone());
+        let it = iter::TryMatches::boxed(
+            search.utf8(self.config.get_utf8()),
+            move |search| {
+                self.find_leftmost_at(
+                    cache,
+                    None,
+                    None,
+                    search.bytes(),
+                    search.start(),
+                    search.end(),
+                    &mut caps,
+                );
+                Ok(caps.get_match())
+            },
+        )
+        .infallible();
+        FindLeftmostMatches(it)
     }
 
     pub fn find_overlapping_iter<'r, 'c, 't>(
@@ -735,6 +754,10 @@ impl PikeVM {
     }
 }
 
+type TryMatchesClosure<'h, 'c> = Box<
+    dyn FnMut(&Search<&'h [u8]>) -> Result<Option<Match>, MatchError> + 'c,
+>;
+
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// infallible search.
 ///
@@ -795,6 +818,7 @@ impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
     }
 }
 
+/*
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// infallible search.
 ///
@@ -852,6 +876,21 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
         );
         let m = self.captures.get_match()?;
         Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
+    }
+}
+*/
+
+#[derive(Debug)]
+pub struct FindLeftmostMatches<'h, 'c>(
+    iter::Matches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+);
+
+impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {
+    type Item = Match;
+
+    #[inline]
+    fn next(&mut self) -> Option<Match> {
+        self.0.next()
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::util::utf8;
+use crate::util::{search::Search, utf8};
 
 /// Represents the four possible starting configurations of a DFA search.
 ///
@@ -54,22 +54,18 @@ impl Start {
     /// Returns the starting state configuration for the given search
     /// parameters. If the given offset range is not valid, then this panics.
     #[inline(always)]
-    pub(crate) fn from_position_fwd(
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Start {
+    pub(crate) fn from_position_fwd(search: &Search<&[u8]>) -> Start {
         assert!(
-            bytes.get(start..end).is_some(),
+            search.bytes().get(search.get_range()).is_some(),
             "{}..{} is invalid",
-            start,
-            end
+            search.start(),
+            search.end(),
         );
-        if start == 0 {
+        if search.start() == 0 {
             Start::Text
-        } else if bytes[start - 1] == b'\n' {
+        } else if search.bytes()[search.start() - 1] == b'\n' {
             Start::Line
-        } else if utf8::is_word_byte(bytes[start - 1]) {
+        } else if utf8::is_word_byte(search.bytes()[search.start() - 1]) {
             Start::WordByte
         } else {
             Start::NonWordByte
@@ -80,22 +76,18 @@ impl Start {
     /// given search parameters. If the given offset range is not valid, then
     /// this panics.
     #[inline(always)]
-    pub(crate) fn from_position_rev(
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Start {
+    pub(crate) fn from_position_rev(search: &Search<&[u8]>) -> Start {
         assert!(
-            bytes.get(start..end).is_some(),
+            search.bytes().get(search.get_range()).is_some(),
             "{}..{} is invalid",
-            start,
-            end
+            search.start(),
+            search.end(),
         );
-        if end == bytes.len() {
+        if search.end() == search.bytes().len() {
             Start::Text
-        } else if bytes[end] == b'\n' {
+        } else if search.bytes()[search.end()] == b'\n' {
             Start::Line
-        } else if utf8::is_word_byte(bytes[end]) {
+        } else if utf8::is_word_byte(search.bytes()[search.end()]) {
             Start::WordByte
         } else {
             Start::NonWordByte

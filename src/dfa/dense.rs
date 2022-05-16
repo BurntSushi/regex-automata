@@ -38,6 +38,7 @@ use crate::{
         alphabet::{self, ByteClasses},
         bytes::{self, DeserializeError, Endian, SerializeError},
         id::{PatternID, StateID},
+        search::Search,
         start::Start,
     },
 };
@@ -2900,7 +2901,9 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         start: usize,
         end: usize,
     ) -> StateID {
-        let index = Start::from_position_fwd(bytes, start, end);
+        // TODO: Ask for a Search instead of making one.
+        let search = Search::new(bytes).range(start..end);
+        let index = Start::from_position_fwd(&search);
         self.st.start(index, pattern_id)
     }
 
@@ -2912,7 +2915,9 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         start: usize,
         end: usize,
     ) -> StateID {
-        let index = Start::from_position_rev(bytes, start, end);
+        // TODO: Ask for a Search instead of making one.
+        let search = Search::new(bytes).range(start..end);
+        let index = Start::from_position_rev(&search);
         self.st.start(index, pattern_id)
     }
 
