@@ -801,7 +801,7 @@ impl Regex {
         self.try_search_imp(cache, pre, search)
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn try_search_imp(
         &self,
         cache: &mut Cache,
@@ -1006,7 +1006,7 @@ impl Regex {
         let mut scanner = self.scanner();
         iter::TryMatches::boxed(search.utf8(self.utf8), move |search| {
             let pre = scanner.as_mut();
-            self.try_search_fwd_back(cache, pre, search)
+            self.try_search(cache, pre, search)
         })
     }
 

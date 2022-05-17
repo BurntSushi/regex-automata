@@ -333,12 +333,31 @@ impl PikeVM {
         CapturesEarliestMatches::new(self, cache, haystack)
     }
 
-    pub fn captures_leftmost_iter<'r, 'c, 't>(
+    pub fn captures_leftmost_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> CapturesLeftmostMatches<'r, 'c, 't> {
-        CapturesLeftmostMatches::new(self, cache, haystack)
+        haystack: &'h [u8],
+    ) -> CapturesLeftmostMatches<'h, 'c> {
+        let search = Search::new(haystack);
+        let caps = Arc::new(RefCell::new(self.create_captures()));
+        let it =
+            iter::TryMatches::boxed(search.utf8(self.config.get_utf8()), {
+                let caps = Arc::clone(&caps);
+                move |search| {
+                    self.find_leftmost_at(
+                        cache,
+                        None,
+                        None,
+                        search.bytes(),
+                        search.start(),
+                        search.end(),
+                        &mut *caps.borrow_mut(),
+                    );
+                    Ok(caps.borrow().get_match())
+                }
+            })
+            .infallible();
+        CapturesLeftmostMatches { caps, it }
     }
 
     pub fn captures_overlapping_iter<'r, 'c, 't>(
@@ -992,6 +1011,7 @@ impl<'r, 'c, 't> Iterator for CapturesEarliestMatches<'r, 'c, 't> {
     }
 }
 
+/*
 /// An iterator over all non-overlapping leftmost matches, with their capturing
 /// groups, for a particular infallible search.
 ///
@@ -1048,6 +1068,22 @@ impl<'r, 'c, 't> Iterator for CapturesLeftmostMatches<'r, 'c, 't> {
         let m = caps.get_match()?;
         handle_iter_match!(self, m, self.vm.config.get_utf8());
         Some(caps)
+    }
+}
+*/
+
+#[derive(Debug)]
+pub struct CapturesLeftmostMatches<'h, 'c> {
+    caps: Arc<RefCell<Captures>>,
+    it: iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
+}
+
+impl<'h, 'c> Iterator for CapturesLeftmostMatches<'h, 'c> {
+    type Item = Captures;
+
+    #[inline]
+    fn next(&mut self) -> Option<Captures> {
+        self.it.next().map(|_| self.caps.borrow().clone())
     }
 }
 
