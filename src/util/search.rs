@@ -80,19 +80,20 @@ pub(crate) const MATCH_OFFSET: usize = 1;
 // ```
 
 #[derive(Clone)]
-pub struct Search<T> {
-    haystack: T,
+pub struct Search<'h> {
+    haystack: &'h [u8],
     span: Span,
     pattern: Option<PatternID>,
     earliest: bool,
     utf8: bool,
 }
 
-impl<T: AsRef<[u8]>> Search<T> {
+impl<'h> Search<'h> {
     /// Create a new search configuration for the given haystack.
     #[inline]
-    pub fn new(haystack: T) -> Search<T> {
-        let span = Span::new(0, haystack.as_ref().len());
+    pub fn new<H: ?Sized + AsRef<[u8]>>(haystack: &'h H) -> Search<'h> {
+        let haystack = haystack.as_ref();
+        let span = Span::new(0, haystack.len());
         Search { haystack, span, pattern: None, earliest: false, utf8: true }
     }
 
@@ -102,7 +103,7 @@ impl<T: AsRef<[u8]>> Search<T> {
     /// this search's haystack. If this search is run with an invalid range,
     /// then the most likely outcome is that the actual execution will panic.
     #[inline]
-    pub fn span(self, span: Span) -> Search<T> {
+    pub fn span(self, span: Span) -> Search<'h> {
         Search { span, ..self }
     }
 
@@ -122,7 +123,7 @@ impl<T: AsRef<[u8]>> Search<T> {
     pub fn range<R: core::ops::RangeBounds<usize>>(
         self,
         range: R,
-    ) -> Search<T> {
+    ) -> Search<'h> {
         use core::ops::Bound;
 
         // It's a little weird to convert ranges into spans, and then spans
@@ -154,7 +155,7 @@ impl<T: AsRef<[u8]>> Search<T> {
     /// If a pattern ID is given and a regex engine doesn't support searching
     /// by a specific pattern, then the regex engine must panic.
     #[inline]
-    pub fn pattern(self, pattern: Option<PatternID>) -> Search<T> {
+    pub fn pattern(self, pattern: Option<PatternID>) -> Search<'h> {
         Search { pattern, ..self }
     }
 
@@ -178,42 +179,24 @@ impl<T: AsRef<[u8]>> Search<T> {
     ///
     /// This is disabled by default.
     #[inline]
-    pub fn earliest(self, yes: bool) -> Search<T> {
+    pub fn earliest(self, yes: bool) -> Search<'h> {
         Search { earliest: yes, ..self }
     }
 
     #[inline]
-    pub fn utf8(self, yes: bool) -> Search<T> {
+    pub fn utf8(self, yes: bool) -> Search<'h> {
         Search { utf8: yes, ..self }
-    }
-
-    /// Return this search with its type parameter fixed to `&[u8]`.
-    #[inline]
-    pub fn as_ref(&self) -> Search<&[u8]> {
-        Search {
-            haystack: self.bytes(),
-            span: self.span,
-            pattern: self.pattern,
-            earliest: self.earliest,
-            utf8: self.utf8,
-        }
     }
 
     /// Return the haystack for this search as bytes.
     #[inline]
     pub fn bytes(&self) -> &[u8] {
-        self.haystack.as_ref()
+        self.haystack
     }
 
     /// Return a borrow of the underlying haystack.
     #[inline]
-    pub fn haystack(&self) -> &T {
-        &self.haystack
-    }
-
-    /// Consume this search and return the haystack inside of it.
-    #[inline]
-    pub fn into_haystack(self) -> T {
+    pub fn haystack(&self) -> &[u8] {
         self.haystack
     }
 
@@ -344,7 +327,7 @@ impl<T: AsRef<[u8]>> Search<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> core::fmt::Debug for Search<T> {
+impl<'h> core::fmt::Debug for Search<'h> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         use crate::util::escape::DebugHaystack;
 

@@ -19,20 +19,20 @@ use crate::util::{
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This type serves as the common implementation for the class of
 /// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
-pub struct TryMatches<F, H> {
+pub struct TryMatches<'h, F> {
     /// The regex engine execution function.
     finder: F,
     /// The search configuration.
-    search: Search<H>,
+    search: Search<'h>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
     last_match_end: Option<usize>,
 }
 
-impl<'c, F, H: AsRef<[u8]>> TryMatches<F, H>
+impl<'c, 'h, F> TryMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c,
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
@@ -40,7 +40,7 @@ where
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(search: Search<H>, finder: F) -> TryMatches<F, H> {
+    pub fn new(search: Search<'h>, finder: F) -> TryMatches<'h, F> {
         TryMatches { finder, search, last_match_end: None }
     }
 
@@ -50,11 +50,11 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Search<H>,
+        search: Search<'h>,
         finder: F,
     ) -> TryMatches<
-        Box<dyn FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c>,
-        H,
+        'h,
+        Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>,
     > {
         TryMatches::new(search, Box::new(finder))
     }
@@ -62,7 +62,7 @@ where
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic.
-    pub fn infallible(self) -> Matches<F, H> {
+    pub fn infallible(self) -> Matches<'h, F> {
         Matches(self)
     }
 
@@ -126,33 +126,56 @@ where
 
     #[cold]
     #[inline(never)]
-    fn handle_empty2(
+    fn handle_overlapping_empty_match(
         &mut self,
         mut m: Match,
     ) -> Option<Result<Match, MatchError>> {
         assert!(m.is_empty());
-        // Since an empty match doesn't advance the search position on its own,
-        // we have to do it ourselves.
-        // self.search.step();
-        // But! We never permit an empty match to match at the ending position
-        // of the previous match. This makes intuitive sense and matches the
+        // This is an optimization that makes matching the empty string a bit
+        // faster by avoiding extra calls to the regex engine. Namely, instead
+        // of forcing the regex engine to detect and skip empty matches that
+        // split codepoints, we detect when an empty match occurs and move
+        // forward in the haystack by one codepoint.
+        //
+        // This helps even in the pure ASCII case, since otherwise we'll
+        // wind up finding the same empty match as the previous search,
+        // and only then do we discard it and try the search again after
+        // incrementing the starting position. So even in the ASCII case, this
+        // cuts the number of calls to the regex engine in half, which can be
+        // substantial for pathological cases like the empty regex that match
+        // at every position.
+        self.search.step();
+        // We never permit an empty match to match at the ending position of
+        // the previous match. This makes intuitive sense and matches the
         // presiding behavior of most general purpose regex engines. So if
         // the match we have overlaps with the previous one, then we just run
         // another search and report that.
+        //
+        // We only need to handle this case for empty matches because it's
+        // the only way to get an overlapping match in a leftmost search. Any
+        // non-empty match will have an end position at least one past the
+        // start position, which means it can't overlap with a previous match
+        // (but may be adjacent).
+        //
+        // Intuitively, this is also required to make forward progress. If we
+        // didn't handle this case specifically, then an empty match would
+        // result in setting the next search's start position to the same
+        // as the previous search's start position. Thus, it would never
+        // terminate.
         if Some(m.end()) == self.last_match_end {
-            self.search.step_one();
             m = match (self.finder)(&self.search).transpose()? {
                 Err(err) => return Some(Err(err)),
                 Ok(m) => m,
             };
+            self.search.set_start(m.end());
         }
         Some(Ok(m))
     }
 }
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for TryMatches<F, H>
+impl<'c, 'h, F> Iterator for TryMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c,
 {
     type Item = Result<Match, MatchError>;
 
@@ -162,19 +185,19 @@ where
             Err(err) => return Some(Err(err)),
             Ok(m) => m,
         };
+        self.search.set_start(m.end());
         if m.is_empty() {
-            m = match self.handle_empty2(m)? {
+            m = match self.handle_overlapping_empty_match(m)? {
                 Err(err) => return Some(Err(err)),
                 Ok(m) => m,
             };
         }
-        self.search.set_start(m.end());
         self.last_match_end = Some(m.end());
         Some(Ok(m))
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryMatches<F, H> {
+impl<'h, F> core::fmt::Debug for TryMatches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TryMatches")
             .field("finder", &"<closure>")
@@ -199,11 +222,11 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryMatches<F, H> {
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This type serves as the common implementation for the class of
 /// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
-pub struct Matches<F, H>(TryMatches<F, H>);
+pub struct Matches<'h, F>(TryMatches<'h, F>);
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for Matches<F, H>
+impl<'c, 'h, F> Iterator for Matches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c,
 {
     type Item = Match;
 
@@ -220,7 +243,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for Matches<F, H> {
+impl<'h, F> core::fmt::Debug for Matches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_tuple("Matches").field(&self.0).finish()
     }
@@ -335,20 +358,20 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for Matches<F, H> {
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This type serves as the common implementation for the class of
 /// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
-pub struct TryCaptures<F, H> {
+pub struct TryCaptures<'h, F> {
     /// The regex engine execution function.
     finder: F,
     /// The search configuration.
-    search: Search<H>,
+    search: Search<'h>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
     last_match_end: Option<usize>,
 }
 
-impl<'c, F, H: AsRef<[u8]>> TryCaptures<F, H>
+impl<'c, 'h, F> TryCaptures<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<thompson::Captures, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<thompson::Captures, MatchError> + 'c,
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
@@ -356,7 +379,7 @@ where
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(search: Search<H>, finder: F) -> TryCaptures<F, H> {
+    pub fn new(search: Search<'h>, finder: F) -> TryCaptures<'h, F> {
         TryCaptures { finder, search, last_match_end: None }
     }
 
@@ -366,14 +389,14 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Search<H>,
+        search: Search<'h>,
         finder: F,
     ) -> TryCaptures<
+        'h,
         Box<
-            dyn FnMut(&Search<H>) -> Result<thompson::Captures, MatchError>
+            dyn FnMut(&Search<'h>) -> Result<thompson::Captures, MatchError>
                 + 'c,
         >,
-        H,
     > {
         TryCaptures::new(search, Box::new(finder))
     }
@@ -381,7 +404,7 @@ where
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic.
-    pub fn infallible(self) -> Captures<F, H> {
+    pub fn infallible(self) -> Captures<'h, F> {
         Captures(self)
     }
 
@@ -448,9 +471,9 @@ where
     }
 }
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for TryCaptures<F, H>
+impl<'c, 'h, F> Iterator for TryCaptures<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<thompson::Captures, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<thompson::Captures, MatchError> + 'c,
 {
     type Item = Result<thompson::Captures, MatchError>;
 
@@ -478,7 +501,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryCaptures<F, H> {
+impl<'h, F> core::fmt::Debug for TryCaptures<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TryCaptures")
             .field("finder", &"<closure>")
@@ -503,11 +526,11 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryCaptures<F, H> {
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This type serves as the common implementation for the class of
 /// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
-pub struct Captures<F, H>(TryCaptures<F, H>);
+pub struct Captures<'h, F>(TryCaptures<'h, F>);
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for Captures<F, H>
+impl<'c, 'h, F> Iterator for Captures<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<thompson::Captures, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<thompson::Captures, MatchError> + 'c,
 {
     type Item = thompson::Captures;
 
@@ -524,7 +547,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for Captures<F, H> {
+impl<'h, F> core::fmt::Debug for Captures<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_tuple("Captures").field(&self.0).finish()
     }
@@ -545,14 +568,14 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for Captures<F, H> {
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This type serves as the common implementation for the class of
 /// "overlapping matches" iterator, and is thus a bit more unwieldy to use.
-pub struct TryOverlappingMatches<F, H> {
+pub struct TryOverlappingMatches<'h, F> {
     finder: F,
-    search: Search<H>,
+    search: Search<'h>,
 }
 
-impl<'c, F, H: AsRef<[u8]>> TryOverlappingMatches<F, H>
+impl<'c, 'h, F> TryOverlappingMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c,
 {
     /// Create a new fallible overlapping matches iterator.
     ///
@@ -560,7 +583,7 @@ where
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter or an overlapping's search's caller provided state.
-    pub fn new(search: Search<H>, finder: F) -> TryOverlappingMatches<F, H> {
+    pub fn new(search: Search<'h>, finder: F) -> TryOverlappingMatches<'h, F> {
         TryOverlappingMatches { finder, search }
     }
 
@@ -570,11 +593,11 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Search<H>,
+        search: Search<'h>,
         finder: F,
     ) -> TryOverlappingMatches<
-        Box<dyn FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c>,
-        H,
+        'h,
+        Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>,
     > {
         TryOverlappingMatches::new(search, Box::new(finder))
     }
@@ -582,7 +605,7 @@ where
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic.
-    pub fn infallible(self) -> OverlappingMatches<F, H> {
+    pub fn infallible(self) -> OverlappingMatches<'h, F> {
         OverlappingMatches(self)
     }
 
@@ -623,9 +646,9 @@ where
     }
 }
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for TryOverlappingMatches<F, H>
+impl<'c, 'h, F> Iterator for TryOverlappingMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c,
 {
     type Item = Result<Match, MatchError>;
 
@@ -649,7 +672,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryOverlappingMatches<F, H> {
+impl<'h, F> core::fmt::Debug for TryOverlappingMatches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TryOverlappingMatches")
             .field("finder", &"<closure>")
@@ -673,11 +696,11 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryOverlappingMatches<F, H> {
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This type serves as the common implementation for the class of
 /// "overlapping matches" iterator, and is thus a bit more unwieldy to use.
-pub struct OverlappingMatches<F, H>(TryOverlappingMatches<F, H>);
+pub struct OverlappingMatches<'h, F>(TryOverlappingMatches<'h, F>);
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for OverlappingMatches<F, H>
+impl<'c, 'h, F> Iterator for OverlappingMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c,
 {
     type Item = Match;
 
@@ -695,7 +718,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for OverlappingMatches<F, H> {
+impl<'h, F> core::fmt::Debug for OverlappingMatches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_tuple("OverlappingMatches").field(&self.0).finish()
     }
@@ -721,20 +744,20 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for OverlappingMatches<F, H> {
 /// bounds of a match, this iterator does not respect the [`Search::utf8`]
 /// setting. Namely, if the underlying regex engine reports an empty match
 /// that falls on an invalid UTF-8 boundary, then this iterator will yield it.
-pub struct TryHalfMatches<F, H> {
+pub struct TryHalfMatches<'h, F> {
     /// The regex engine execution function.
     finder: F,
     /// The search configuration.
-    search: Search<H>,
+    search: Search<'h>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
     last_match_end: Option<usize>,
 }
 
-impl<'c, F, H: AsRef<[u8]>> TryHalfMatches<F, H>
+impl<'c, 'h, F> TryHalfMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
@@ -742,7 +765,7 @@ where
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(search: Search<H>, finder: F) -> TryHalfMatches<F, H> {
+    pub fn new(search: Search<'h>, finder: F) -> TryHalfMatches<'h, F> {
         TryHalfMatches { finder, search, last_match_end: None }
     }
 
@@ -752,14 +775,14 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Search<H>,
+        search: Search<'h>,
         finder: F,
     ) -> TryHalfMatches<
+        'h,
         Box<
-            dyn FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError>
+            dyn FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError>
                 + 'c,
         >,
-        H,
     > {
         TryHalfMatches::new(search, Box::new(finder))
     }
@@ -767,7 +790,7 @@ where
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic.
-    pub fn infallible(self) -> HalfMatches<F, H> {
+    pub fn infallible(self) -> HalfMatches<'h, F> {
         HalfMatches(self)
     }
 
@@ -798,9 +821,9 @@ where
     }
 }
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for TryHalfMatches<F, H>
+impl<'c, 'h, F> Iterator for TryHalfMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     type Item = Result<HalfMatch, MatchError>;
 
@@ -825,7 +848,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryHalfMatches<F, H> {
+impl<'h, F> core::fmt::Debug for TryHalfMatches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TryHalfMatches")
             .field("finder", &"<closure>")
@@ -855,11 +878,11 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryHalfMatches<F, H> {
 /// bounds of a match, this iterator does not respect the [`Search::utf8`]
 /// setting. Namely, if the underlying regex engine reports an empty match
 /// that falls on an invalid UTF-8 boundary, then this iterator will yield it.
-pub struct HalfMatches<F, H>(TryHalfMatches<F, H>);
+pub struct HalfMatches<'h, F>(TryHalfMatches<'h, F>);
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for HalfMatches<F, H>
+impl<'c, 'h, F> Iterator for HalfMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     type Item = HalfMatch;
 
@@ -876,7 +899,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for HalfMatches<F, H> {
+impl<'h, F> core::fmt::Debug for HalfMatches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_tuple("Matches").field(&self.0).finish()
     }
@@ -902,14 +925,14 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for HalfMatches<F, H> {
 /// bounds of a match, this iterator does not respect the [`Search::utf8`]
 /// setting. Namely, if the underlying regex engine reports an empty match
 /// that falls on an invalid UTF-8 boundary, then this iterator will yield it.
-pub struct TryOverlappingHalfMatches<F, H> {
+pub struct TryOverlappingHalfMatches<'h, F> {
     finder: F,
-    search: Search<H>,
+    search: Search<'h>,
 }
 
-impl<'c, F, H: AsRef<[u8]>> TryOverlappingHalfMatches<F, H>
+impl<'c, 'h, F> TryOverlappingHalfMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     /// Create a new fallible overlapping matches iterator.
     ///
@@ -918,9 +941,9 @@ where
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter or an overlapping's search's caller provided state.
     pub fn new(
-        search: Search<H>,
+        search: Search<'h>,
         finder: F,
-    ) -> TryOverlappingHalfMatches<F, H> {
+    ) -> TryOverlappingHalfMatches<'h, F> {
         TryOverlappingHalfMatches { finder, search }
     }
 
@@ -930,14 +953,14 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Search<H>,
+        search: Search<'h>,
         finder: F,
     ) -> TryOverlappingHalfMatches<
+        'h,
         Box<
-            dyn FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError>
+            dyn FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError>
                 + 'c,
         >,
-        H,
     > {
         TryOverlappingHalfMatches::new(search, Box::new(finder))
     }
@@ -945,14 +968,14 @@ where
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic.
-    pub fn infallible(self) -> OverlappingHalfMatches<F, H> {
+    pub fn infallible(self) -> OverlappingHalfMatches<'h, F> {
         OverlappingHalfMatches(self)
     }
 }
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for TryOverlappingHalfMatches<F, H>
+impl<'c, 'h, F> Iterator for TryOverlappingHalfMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     type Item = Result<HalfMatch, MatchError>;
 
@@ -970,7 +993,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryOverlappingHalfMatches<F, H> {
+impl<'h, F> core::fmt::Debug for TryOverlappingHalfMatches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TryOverlappingHalfMatches")
             .field("finder", &"<closure>")
@@ -999,11 +1022,11 @@ impl<F, H: AsRef<[u8]>> core::fmt::Debug for TryOverlappingHalfMatches<F, H> {
 /// bounds of a match, this iterator does not respect the [`Search::utf8`]
 /// setting. Namely, if the underlying regex engine reports an empty match
 /// that falls on an invalid UTF-8 boundary, then this iterator will yield it.
-pub struct OverlappingHalfMatches<F, H>(TryOverlappingHalfMatches<F, H>);
+pub struct OverlappingHalfMatches<'h, F>(TryOverlappingHalfMatches<'h, F>);
 
-impl<'c, F, H: AsRef<[u8]>> Iterator for OverlappingHalfMatches<F, H>
+impl<'c, 'h, F> Iterator for OverlappingHalfMatches<'h, F>
 where
-    F: FnMut(&Search<H>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Search<'h>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     type Item = HalfMatch;
 
@@ -1021,7 +1044,7 @@ where
     }
 }
 
-impl<F, H: AsRef<[u8]>> core::fmt::Debug for OverlappingHalfMatches<F, H> {
+impl<'h, F> core::fmt::Debug for OverlappingHalfMatches<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_tuple("OverlappingHalfMatches").field(&self.0).finish()
     }

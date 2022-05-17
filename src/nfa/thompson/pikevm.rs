@@ -754,9 +754,8 @@ impl PikeVM {
     }
 }
 
-type TryMatchesClosure<'h, 'c> = Box<
-    dyn FnMut(&Search<&'h [u8]>) -> Result<Option<Match>, MatchError> + 'c,
->;
+type TryMatchesClosure<'h, 'c> =
+    Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>;
 
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// infallible search.
@@ -882,7 +881,7 @@ impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
 
 #[derive(Debug)]
 pub struct FindLeftmostMatches<'h, 'c>(
-    iter::Matches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+    iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
 );
 
 impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {

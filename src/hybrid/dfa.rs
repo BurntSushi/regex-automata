@@ -800,13 +800,13 @@ impl DFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn try_search_fwd<H: AsRef<[u8]>>(
+    pub fn try_search_fwd(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<H>,
+        search: &Search<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_fwd(self, cache, pre, &search.as_ref())
+        search::find_fwd(self, cache, pre, search)
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -834,12 +834,12 @@ impl DFA {
     ///
     /// It also panics if the given haystack range is not valid.
     #[inline]
-    pub fn try_search_rev<H: AsRef<[u8]>>(
+    pub fn try_search_rev(
         &self,
         cache: &mut Cache,
-        search: &Search<H>,
+        search: &Search<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_rev(self, cache, &search.as_ref())
+        search::find_rev(self, cache, search)
     }
 
     /// Executes an overlapping forward search and returns the end position of
@@ -883,14 +883,14 @@ impl DFA {
     ///
     /// It also panics if the given haystack range is not valid.
     #[inline]
-    pub fn try_search_overlapping_fwd<H: AsRef<[u8]>>(
+    pub fn try_search_overlapping_fwd(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<H>,
+        search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_fwd(self, cache, pre, &search.as_ref(), state)
+        search::find_overlapping_fwd(self, cache, pre, search, state)
     }
 }
 
@@ -1297,7 +1297,7 @@ impl DFA {
     pub fn start_state_forward(
         &self,
         cache: &mut Cache,
-        search: &Search<&[u8]>,
+        search: &Search<'_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_fwd(search);
         let sid = LazyRef::new(self, cache)
@@ -1341,7 +1341,7 @@ impl DFA {
     pub fn start_state_reverse(
         &self,
         cache: &mut Cache,
-        search: &Search<&[u8]>,
+        search: &Search<'_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_rev(search);
         let sid = LazyRef::new(self, cache)

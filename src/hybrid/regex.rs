@@ -28,7 +28,7 @@ use crate::{
     util::{
         iter,
         prefilter::{self, Prefilter},
-        search::{Match, MatchError, MatchKind, Search},
+        search::{Match, MatchError, MatchKind, Search, Span},
     },
 };
 
@@ -623,7 +623,8 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let search = Search::new(haystack).utf8(self.utf8).earliest(true);
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.utf8).earliest(true);
         self.try_search(cache, self.scanner().as_mut(), &search)
             .map(|m| m.is_some())
     }
@@ -791,23 +792,23 @@ impl Regex {
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
     #[inline]
-    pub fn try_search<H: AsRef<[u8]>>(
+    pub fn try_search(
         &self,
         cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner<'_>>,
-        search: &Search<H>,
+        search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        self.try_search_imp2(cache, pre, &search.as_ref())
+        self.try_search_imp(cache, pre, search)
     }
 
-    #[inline(always)]
-    fn try_search_imp2(
+    #[inline(never)]
+    fn try_search_imp(
         &self,
         cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner<'_>>,
-        search: &Search<&[u8]>,
+        search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        let mut m = match self.try_search_imp(cache, pre, search)? {
+        let mut m = match self.try_search_fwd_back(cache, pre, search)? {
             None => return Ok(None),
             Some(m) => m,
         };
@@ -817,7 +818,14 @@ impl Regex {
         let mut search = search.clone();
         while m.is_empty() && !search.is_char_boundary(m.end()) {
             search.step_one();
-            m = match self.try_search_imp(cache, None, &search)? {
+            // TODO: It's not quite clear how convince the borrow checker
+            // to let me pass the prefilter down. Maybe we should be using
+            // '&mut Option<Scanner>' instead? It's not a big deal for this
+            // specific code block since this is handling a pathological case
+            // involving empty matches, but it seems like not being able to use
+            // a prefilter more than once is bad for composition. I think with
+            // a '&mut Option<Scanner>' I can re-borrow it.
+            m = match self.try_search_fwd_back(cache, None, &search)? {
                 None => return Ok(None),
                 Some(m) => m,
             };
@@ -825,13 +833,14 @@ impl Regex {
         Ok(Some(m))
     }
 
-    /// A non-generic version to avoid monomorphization costs.
+    /// This search routine runs the regex engine forwards to find the end
+    /// of a match, and then backwards to find the start of the match.
     #[inline(always)]
-    fn try_search_imp(
+    fn try_search_fwd_back(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner<'_>>,
-        search: &Search<&[u8]>,
+        search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
         // appear to have a bit more latency due to the 'search.as_ref()' call.
@@ -854,8 +863,10 @@ impl Regex {
         // search, since it could be enabled for the forward search. In the
         // reverse case, to satisfy "leftmost" criteria, we need to match as
         // much as we can.
-        let revsearch =
-            search.clone().earliest(false).range(search.start()..end.offset());
+        let revsearch = search
+            .clone()
+            .earliest(false)
+            .span(Span::new(search.start(), end.offset()));
         let start = search::find_rev(rdfa, rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         assert_eq!(
@@ -908,15 +919,14 @@ impl Regex {
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
     #[inline]
-    pub fn try_search_overlapping<H: AsRef<[u8]>>(
+    pub fn try_search_overlapping(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<H>,
+        search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
-        let search = search.as_ref();
-        self.try_search_overlapping_imp(cache, pre, &search, state)
+        self.try_search_overlapping_imp(cache, pre, search, state)
     }
 
     /// A non-generic version to avoid monomorphization costs.
@@ -925,7 +935,7 @@ impl Regex {
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<&[u8]>,
+        search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
         let (fdfa, rdfa) = (self.forward(), self.reverse());
@@ -984,28 +994,27 @@ impl Regex {
     }
 }
 
-type TryMatchesClosure<'h, 'c> = Box<
-    dyn FnMut(&Search<&'h [u8]>) -> Result<Option<Match>, MatchError> + 'c,
->;
+type TryMatchesClosure<'h, 'c> =
+    Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>;
 
 impl Regex {
     fn try_matches_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        search: Search<&'h [u8]>,
-    ) -> iter::TryMatches<TryMatchesClosure<'h, 'c>, &'h [u8]> {
+        search: Search<'h>,
+    ) -> iter::TryMatches<'h, TryMatchesClosure<'h, 'c>> {
         let mut scanner = self.scanner();
         iter::TryMatches::boxed(search.utf8(self.utf8), move |search| {
             let pre = scanner.as_mut();
-            self.try_search_imp2(cache, pre, search)
+            self.try_search_fwd_back(cache, pre, search)
         })
     }
 
     fn try_overlapping_matches_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        search: Search<&'h [u8]>,
-    ) -> iter::TryOverlappingMatches<TryMatchesClosure<'h, 'c>, &'h [u8]> {
+        search: Search<'h>,
+    ) -> iter::TryOverlappingMatches<'h, TryMatchesClosure<'h, 'c>> {
         let mut scanner = self.scanner();
         let mut state = OverlappingState::start();
         iter::TryOverlappingMatches::boxed(
@@ -1082,7 +1091,7 @@ impl Regex {
 /// method.
 #[derive(Debug)]
 pub struct FindLeftmostMatches<'h, 'c>(
-    iter::Matches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+    iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
 );
 
 impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {
@@ -1109,7 +1118,7 @@ impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {
 /// method.
 #[derive(Debug)]
 pub struct FindOverlappingMatches<'h, 'c>(
-    iter::OverlappingMatches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+    iter::OverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
 );
 
 impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
@@ -1136,7 +1145,7 @@ impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
 /// method.
 #[derive(Debug)]
 pub struct TryFindLeftmostMatches<'h, 'c>(
-    iter::TryMatches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+    iter::TryMatches<'h, TryMatchesClosure<'h, 'c>>,
 );
 
 impl<'h, 'c> Iterator for TryFindLeftmostMatches<'h, 'c> {
@@ -1163,7 +1172,7 @@ impl<'h, 'c> Iterator for TryFindLeftmostMatches<'h, 'c> {
 /// method.
 #[derive(Debug)]
 pub struct TryFindOverlappingMatches<'h, 'c>(
-    iter::TryOverlappingMatches<TryMatchesClosure<'h, 'c>, &'h [u8]>,
+    iter::TryOverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
 );
 
 impl<'h, 'c> Iterator for TryFindOverlappingMatches<'h, 'c> {
@@ -1582,12 +1591,8 @@ mod tests {
         // position of '2', but in the current implementation, the
         // below gives us a match span of 0..3! Whoa!
         search.set_start(2);
-        let m = re.try_search_overlapping(
-            &mut cache,
-            None,
-            &search.as_ref(),
-            &mut state,
-        );
+        let m =
+            re.try_search_overlapping(&mut cache, None, &search, &mut state);
         println!("{:?}", m);
     }
 }

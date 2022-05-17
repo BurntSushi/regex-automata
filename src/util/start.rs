@@ -54,7 +54,7 @@ impl Start {
     /// Returns the starting state configuration for the given search
     /// parameters. If the given offset range is not valid, then this panics.
     #[inline(always)]
-    pub(crate) fn from_position_fwd(search: &Search<&[u8]>) -> Start {
+    pub(crate) fn from_position_fwd(search: &Search<'_>) -> Start {
         assert!(
             search.bytes().get(search.get_range()).is_some(),
             "{}..{} is invalid",
@@ -76,7 +76,7 @@ impl Start {
     /// given search parameters. If the given offset range is not valid, then
     /// this panics.
     #[inline(always)]
-    pub(crate) fn from_position_rev(search: &Search<&[u8]>) -> Start {
+    pub(crate) fn from_position_rev(search: &Search<'_>) -> Start {
         assert!(
             search.bytes().get(search.get_range()).is_some(),
             "{}..{} is invalid",

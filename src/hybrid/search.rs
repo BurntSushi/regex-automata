@@ -16,7 +16,7 @@ pub(crate) fn find_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     pre: Option<&mut prefilter::Scanner>,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
         return Ok(None);
@@ -43,7 +43,7 @@ fn find_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
     mut pre: Option<&mut prefilter::Scanner>,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_fwd(dfa, cache, search)?;
@@ -305,7 +305,7 @@ fn find_fwd_imp(
 pub(crate) fn find_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
         return Ok(None);
@@ -321,7 +321,7 @@ pub(crate) fn find_rev(
 fn find_rev_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_rev(dfa, cache, search)?;
@@ -482,7 +482,7 @@ pub(crate) fn find_overlapping_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     pre: Option<&mut prefilter::Scanner>,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
@@ -510,7 +510,7 @@ fn find_overlapping_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
     mut pre: Option<&mut prefilter::Scanner>,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut start = search.start();
@@ -627,14 +627,14 @@ fn find_overlapping_fwd_imp(
 fn init_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
         .start_state_forward(cache, search)
         .map_err(|_| gave_up(search.start()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
-    assert!(!sid.is_match());
+    debug_assert!(!sid.is_match());
     Ok(sid)
 }
 
@@ -642,14 +642,14 @@ fn init_fwd(
 fn init_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
         .start_state_reverse(cache, search)
         .map_err(|_| gave_up(search.end()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
-    assert!(!sid.is_match());
+    debug_assert!(!sid.is_match());
     Ok(sid)
 }
 
@@ -657,7 +657,7 @@ fn init_rev(
 fn eoi_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     match search.bytes().get(search.end()) {
@@ -694,7 +694,7 @@ fn eoi_fwd(
 fn eoi_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<&[u8]>,
+    search: &Search<'_>,
     state: LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.start() > 0 {
