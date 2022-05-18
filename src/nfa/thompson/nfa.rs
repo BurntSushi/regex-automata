@@ -2592,6 +2592,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     pub fn pattern(&self) -> Option<PatternID> {
         self.pid
     }
@@ -2620,6 +2621,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     pub fn get_match(&self) -> Option<Match> {
         let pid = self.pattern()?;
         let m = self.get_group(0)?;
@@ -2672,6 +2674,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     pub fn get_group(&self, index: usize) -> Option<Span> {
         let pid = self.pattern()?;
         let (slot_start, slot_end) = self.nfa.slots(pid, index)?;

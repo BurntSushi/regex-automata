@@ -143,7 +143,7 @@ where
         // cuts the number of calls to the regex engine in half, which can be
         // substantial for pathological cases like the empty regex that match
         // at every position.
-        self.search.step();
+        // self.search.step();
         // We never permit an empty match to match at the ending position of
         // the previous match. This makes intuitive sense and matches the
         // presiding behavior of most general purpose regex engines. So if
@@ -162,7 +162,7 @@ where
         // as the previous search's start position. Thus, it would never
         // terminate.
         if Some(m.end()) == self.last_match_end {
-            // self.search.step_one();
+            self.search.step_byte();
             m = match (self.finder)(&self.search).transpose()? {
                 Err(err) => return Some(Err(err)),
                 Ok(m) => m,

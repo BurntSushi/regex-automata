@@ -259,14 +259,19 @@ impl<'h> Search<'h> {
     #[inline]
     pub fn step(&mut self) {
         if self.utf8 {
-            self.set_start(utf8::next(self.bytes(), self.get_span().start()));
+            self.step_char()
         } else {
-            self.step_one();
+            self.step_byte();
         }
     }
 
     #[inline]
-    pub fn step_one(&mut self) {
+    pub fn step_char(&mut self) {
+        self.set_start(utf8::next(self.bytes(), self.get_span().start()));
+    }
+
+    #[inline]
+    pub fn step_byte(&mut self) {
         self.set_start(self.get_span().start().checked_add(1).unwrap());
     }
 

@@ -817,7 +817,7 @@ impl Regex {
         }
         let mut search = search.clone();
         while m.is_empty() && !search.is_char_boundary(m.end()) {
-            search.step_one();
+            search.step_byte();
             // TODO: It's not quite clear how convince the borrow checker
             // to let me pass the prefilter down. Maybe we should be using
             // '&mut Option<Scanner>' instead? It's not a big deal for this
