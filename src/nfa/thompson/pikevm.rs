@@ -225,43 +225,21 @@ impl PikeVM {
 
 impl PikeVM {
     pub fn is_match(&self, cache: &mut Cache, haystack: &[u8]) -> bool {
+        let search =
+            Search::new(haystack).earliest(true).utf8(self.config.get_utf8());
         let mut caps = Captures::empty(self.nfa.clone());
-        self.find_leftmost(cache, haystack, &mut caps);
+        self.search(cache, None, &search, &mut caps);
         caps.is_match()
     }
 
-    pub fn find_earliest(
+    pub fn find(
         &self,
         cache: &mut Cache,
         haystack: &[u8],
         caps: &mut Captures,
     ) {
-        self.find_earliest_at(
-            cache,
-            None,
-            None,
-            haystack,
-            0,
-            haystack.len(),
-            caps,
-        )
-    }
-
-    pub fn find_leftmost(
-        &self,
-        cache: &mut Cache,
-        haystack: &[u8],
-        caps: &mut Captures,
-    ) {
-        self.find_leftmost_at(
-            cache,
-            None,
-            None,
-            haystack,
-            0,
-            haystack.len(),
-            caps,
-        )
+        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        self.search(cache, None, &search, caps)
     }
 
     pub fn find_overlapping(
@@ -271,158 +249,121 @@ impl PikeVM {
         state: &mut OverlappingState,
         caps: &mut Captures,
     ) {
-        self.find_overlapping_at(
-            cache,
-            None,
-            None,
-            haystack,
-            0,
-            haystack.len(),
-            state,
-            caps,
-        )
+        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        self.search_overlapping(cache, None, &search, state, caps)
     }
 
-    pub fn find_earliest_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindEarliestMatches<'r, 'c, 't> {
-        FindEarliestMatches::new(self, cache, haystack)
-    }
-
-    pub fn find_leftmost_iter<'r: 'c, 'c, 'h>(
+    pub fn find_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h [u8],
     ) -> FindLeftmostMatches<'h, 'c> {
-        let search = Search::new(haystack);
+        let search = Search::new(haystack).utf8(self.config.get_utf8());
         let mut caps = Captures::new_for_matches_only(self.nfa().clone());
-        let it = iter::TryMatches::boxed(
-            search.utf8(self.config.get_utf8()),
-            move |search| {
-                self.find_leftmost_at(
-                    cache,
-                    None,
-                    None,
-                    search.bytes(),
-                    search.start(),
-                    search.end(),
-                    &mut caps,
-                );
-                Ok(caps.get_match())
-            },
-        )
+        let it = iter::TryMatches::boxed(search, move |search| {
+            self.search(cache, None, search, &mut caps);
+            Ok(caps.get_match())
+        })
         .infallible();
         FindLeftmostMatches(it)
     }
 
-    pub fn find_overlapping_iter<'r, 'c, 't>(
+    pub fn find_overlapping_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> FindOverlappingMatches<'r, 'c, 't> {
-        FindOverlappingMatches::new(self, cache, haystack)
+        haystack: &'h [u8],
+    ) -> FindOverlappingMatches<'h, 'c> {
+        // FindOverlappingMatches::new(self, cache, haystack)
+        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        let mut state = OverlappingState::start();
+        let mut caps = Captures::new_for_matches_only(self.nfa().clone());
+        let it = iter::TryOverlappingMatches::boxed(search, move |search| {
+            self.search_overlapping(
+                cache, None, search, &mut state, &mut caps,
+            );
+            Ok(caps.get_match())
+        })
+        .infallible();
+        FindOverlappingMatches(it)
     }
 
-    pub fn captures_earliest_iter<'r, 'c, 't>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> CapturesEarliestMatches<'r, 'c, 't> {
-        CapturesEarliestMatches::new(self, cache, haystack)
-    }
-
-    pub fn captures_leftmost_iter<'r: 'c, 'c, 'h>(
+    pub fn captures_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h [u8],
     ) -> CapturesLeftmostMatches<'h, 'c> {
-        let search = Search::new(haystack);
+        let search = Search::new(haystack).utf8(self.config.get_utf8());
         let caps = Arc::new(RefCell::new(self.create_captures()));
-        let it =
-            iter::TryMatches::boxed(search.utf8(self.config.get_utf8()), {
-                let caps = Arc::clone(&caps);
-                move |search| {
-                    self.find_leftmost_at(
-                        cache,
-                        None,
-                        None,
-                        search.bytes(),
-                        search.start(),
-                        search.end(),
-                        &mut *caps.borrow_mut(),
-                    );
-                    Ok(caps.borrow().get_match())
-                }
-            })
-            .infallible();
+        let it = iter::TryMatches::boxed(search, {
+            let caps = Arc::clone(&caps);
+            move |search| {
+                self.search(cache, None, search, &mut *caps.borrow_mut());
+                Ok(caps.borrow().get_match())
+            }
+        })
+        .infallible();
         CapturesLeftmostMatches { caps, it }
     }
 
-    pub fn captures_overlapping_iter<'r, 'c, 't>(
+    pub fn captures_overlapping_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'t [u8],
-    ) -> CapturesOverlappingMatches<'r, 'c, 't> {
-        CapturesOverlappingMatches::new(self, cache, haystack)
+        haystack: &'h [u8],
+    ) -> CapturesOverlappingMatches<'h, 'c> {
+        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        let mut state = OverlappingState::start();
+        let caps = Arc::new(RefCell::new(self.create_captures()));
+        let it = iter::TryOverlappingMatches::boxed(search, {
+            let caps = Arc::clone(&caps);
+            move |search| {
+                self.search_overlapping(
+                    cache,
+                    None,
+                    search,
+                    &mut state,
+                    &mut *caps.borrow_mut(),
+                );
+                Ok(caps.borrow().get_match())
+            }
+        })
+        .infallible();
+        CapturesOverlappingMatches { caps, it }
     }
 
-    pub fn find_earliest_at(
+    pub fn search(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        mut pre: Option<&mut prefilter::Scanner>,
+        search: &Search<'_>,
         caps: &mut Captures,
     ) {
-        self.find_fwd(true, cache, pre, pattern_id, haystack, start, end, caps)
+        // self.search_imp(cache, pre, search, caps)
+        search
+            .find(|search| {
+                self.search_imp(cache, pre.as_deref_mut(), search, caps);
+                Ok(caps.get_match())
+            })
+            .unwrap();
     }
 
-    pub fn find_leftmost_at(
+    pub fn search_overlapping(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
-        caps: &mut Captures,
-    ) {
-        self.find_fwd(
-            false, cache, pre, pattern_id, haystack, start, end, caps,
-        )
-    }
-
-    pub fn find_overlapping_at(
-        &self,
-        cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
         state: &mut OverlappingState,
         caps: &mut Captures,
     ) {
-        self.find_overlapping_fwd(
-            cache, pre, pattern_id, haystack, start, end, state, caps,
-        )
+        self.search_overlapping_imp(cache, pre, search, state, caps)
     }
 }
 
 impl PikeVM {
-    fn find_fwd(
+    fn search_imp(
         &self,
-        earliest: bool,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
         caps: &mut Captures,
     ) {
         // Why do we even care about this? Well, in our 'Captures'
@@ -432,7 +373,7 @@ impl PikeVM {
         // length that fits into isize, and so this assert should always pass.
         // But we put it here to make our assumption explicit.
         assert!(
-            haystack.len() < core::usize::MAX,
+            search.haystack().len() < core::usize::MAX,
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
@@ -442,8 +383,8 @@ impl PikeVM {
         let match_kind = self.config.get_match_kind();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
-            || pattern_id.is_some();
-        let start_id = match pattern_id {
+            || search.get_pattern().is_some();
+        let start_id = match search.get_pattern() {
             // We always use the anchored starting state here, even if doing an
             // unanchored search. The "unanchored" part of it is implemented
             // in the loop below, by computing the epsilon closure from the
@@ -459,10 +400,10 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = start;
-        while at <= end {
+        let mut at = search.start();
+        while at <= search.end() {
             if clist.set.is_empty() {
-                if caps.is_match() || (anchored && at > start) {
+                if caps.is_match() || (anchored && at > search.start()) {
                     break;
                 }
             }
@@ -472,13 +413,14 @@ impl PikeVM {
                     clist,
                     scratch_caps,
                     start_id,
-                    haystack,
+                    search.haystack(),
                     at,
                 );
             }
-            if self.steps(stack, clist, nlist, haystack, at, caps) && earliest
-            {
-                break;
+            if self.steps(stack, clist, nlist, search.haystack(), at, caps) {
+                if search.get_earliest() {
+                    break;
+                }
             }
             at += 1;
             core::mem::swap(clist, nlist);
@@ -487,14 +429,11 @@ impl PikeVM {
         instrument!(|c| c.eprint(&self.nfa));
     }
 
-    fn find_overlapping_fwd(
+    fn search_overlapping_imp(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        haystack: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
         state: &mut OverlappingState,
         caps: &mut Captures,
     ) {
@@ -502,7 +441,7 @@ impl PikeVM {
         // duplicate the comments here to avoid them getting out of sync.
 
         assert!(
-            haystack.len() < core::usize::MAX,
+            search.haystack().len() < core::usize::MAX,
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
@@ -514,8 +453,8 @@ impl PikeVM {
         let match_kind = self.config.get_match_kind();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
-            || pattern_id.is_some();
-        let start_id = match pattern_id {
+            || search.get_pattern().is_some();
+        let start_id = match search.get_pattern() {
             None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
@@ -526,9 +465,9 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = start;
-        while at <= end {
-            if anchored && clist.set.is_empty() && at > start {
+        let mut at = search.start();
+        while at <= search.end() {
+            if anchored && clist.set.is_empty() && at > search.start() {
                 break;
             }
             if state.step_index.is_none()
@@ -540,12 +479,18 @@ impl PikeVM {
                     clist,
                     scratch_caps,
                     start_id,
-                    haystack,
+                    search.haystack(),
                     at,
                 );
             }
             if self.steps_overlapping(
-                stack, clist, nlist, haystack, at, state, caps,
+                stack,
+                clist,
+                nlist,
+                search.haystack(),
+                at,
+                state,
+                caps,
             ) {
                 break;
             }
@@ -776,128 +721,19 @@ impl PikeVM {
 type TryMatchesClosure<'h, 'c> =
     Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>;
 
-/// An iterator over all non-overlapping leftmost matches for a particular
-/// infallible search.
+/// An iterator over all non-overlapping matches for an infallible search.
 ///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
+/// The iterator yields a [`Match`] value until no more matches could be found.
+/// If the underlying regex engine returns an error, then a panic occurs.
 ///
-/// The lifetime variables are as follows:
+/// The lifetime parameters are as follows:
 ///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'c` is the lifetime of the mutable cache used during search.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Debug)]
-pub struct FindEarliestMatches<'r, 'c, 't> {
-    vm: &'r PikeVM,
-    cache: &'c mut Cache,
-    captures: Captures,
-    text: &'t [u8],
-    last_end: usize,
-    last_match: Option<usize>,
-}
-
-impl<'r, 'c, 't> FindEarliestMatches<'r, 'c, 't> {
-    fn new(
-        vm: &'r PikeVM,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> FindEarliestMatches<'r, 'c, 't> {
-        let captures = Captures::new_for_matches_only(vm.nfa().clone());
-        FindEarliestMatches {
-            vm,
-            cache,
-            captures,
-            text,
-            last_end: 0,
-            last_match: None,
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for FindEarliestMatches<'r, 'c, 't> {
-    type Item = Match;
-
-    fn next(&mut self) -> Option<Match> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        self.vm.find_earliest_at(
-            self.cache,
-            None,
-            None,
-            self.text,
-            self.last_end,
-            self.text.len(),
-            &mut self.captures,
-        );
-        let m = self.captures.get_match()?;
-        Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
-    }
-}
-
-/*
-/// An iterator over all non-overlapping leftmost matches for a particular
-/// infallible search.
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
 ///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
-///
-/// The lifetime variables are as follows:
-///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'c` is the lifetime of the mutable cache used during search.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Debug)]
-pub struct FindLeftmostMatches<'r, 'c, 't> {
-    vm: &'r PikeVM,
-    cache: &'c mut Cache,
-    captures: Captures,
-    text: &'t [u8],
-    last_end: usize,
-    last_match: Option<usize>,
-}
-
-impl<'r, 'c, 't> FindLeftmostMatches<'r, 'c, 't> {
-    fn new(
-        vm: &'r PikeVM,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> FindLeftmostMatches<'r, 'c, 't> {
-        let captures = Captures::new_for_matches_only(vm.nfa().clone());
-        FindLeftmostMatches {
-            vm,
-            cache,
-            captures,
-            text,
-            last_end: 0,
-            last_match: None,
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for FindLeftmostMatches<'r, 'c, 't> {
-    type Item = Match;
-
-    fn next(&mut self) -> Option<Match> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        self.vm.find_leftmost_at(
-            self.cache,
-            None,
-            None,
-            self.text,
-            self.last_end,
-            self.text.len(),
-            &mut self.captures,
-        );
-        let m = self.captures.get_match()?;
-        Some(handle_iter_match!(self, m, self.vm.config.get_utf8()))
-    }
-}
-*/
-
+/// This iterator can be created with the [`PikeVM::find_iter`]
+/// method.
 #[derive(Debug)]
 pub struct FindLeftmostMatches<'h, 'c>(
     iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
@@ -912,170 +748,58 @@ impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {
     }
 }
 
+/// An iterator over all overlapping matches for an infallible search.
+///
+/// The iterator yields a [`Match`] value until no more matches could be found.
+/// If the underlying regex engine returns an error, then a panic occurs.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
+///
+/// This iterator can be created with the [`PikeVM::find_overlapping_iter`]
+/// method.
 #[derive(Debug)]
-pub struct FindOverlappingMatches<'r, 'c, 't> {
-    vm: &'r PikeVM,
-    cache: &'c mut Cache,
-    state: OverlappingState,
-    captures: Captures,
-    text: &'t [u8],
-    last_end: usize,
-}
+pub struct FindOverlappingMatches<'h, 'c>(
+    iter::OverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
+);
 
-impl<'r, 'c, 't> FindOverlappingMatches<'r, 'c, 't> {
-    fn new(
-        vm: &'r PikeVM,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> FindOverlappingMatches<'r, 'c, 't> {
-        let state = OverlappingState::start();
-        let captures = Captures::new_for_matches_only(vm.nfa().clone());
-        FindOverlappingMatches {
-            vm,
-            cache,
-            state,
-            captures,
-            text,
-            last_end: 0,
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for FindOverlappingMatches<'r, 'c, 't> {
+impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
     type Item = Match;
 
+    #[inline]
     fn next(&mut self) -> Option<Match> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        self.vm.find_overlapping_at(
-            self.cache,
-            None,
-            None,
-            self.text,
-            self.last_end,
-            self.text.len(),
-            &mut self.state,
-            &mut self.captures,
-        );
-        let m = self.captures.get_match()?;
-        Some(handle_iter_match_overlapping!(self, m))
+        self.0.next()
     }
 }
 
-#[derive(Debug)]
-pub struct CapturesEarliestMatches<'r, 'c, 't> {
-    vm: &'r PikeVM,
-    cache: &'c mut Cache,
-    text: &'t [u8],
-    last_end: usize,
-    last_match: Option<usize>,
-}
-
-impl<'r, 'c, 't> CapturesEarliestMatches<'r, 'c, 't> {
-    fn new(
-        vm: &'r PikeVM,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> CapturesEarliestMatches<'r, 'c, 't> {
-        CapturesEarliestMatches {
-            vm,
-            cache,
-            text,
-            last_end: 0,
-            last_match: None,
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for CapturesEarliestMatches<'r, 'c, 't> {
-    type Item = Captures;
-
-    fn next(&mut self) -> Option<Captures> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        let mut caps = self.vm.create_captures();
-        self.vm.find_earliest_at(
-            self.cache,
-            None,
-            None,
-            self.text,
-            self.last_end,
-            self.text.len(),
-            &mut caps,
-        );
-        let m = caps.get_match()?;
-        handle_iter_match!(self, m, self.vm.config.get_utf8());
-        Some(caps)
-    }
-}
-
-/*
 /// An iterator over all non-overlapping leftmost matches, with their capturing
-/// groups, for a particular infallible search.
+/// groups, for a particular search.
 ///
-/// The iterator yields a [`Match`] value until no more matches could be
+/// The iterator yields a [`Captures`] value until no more matches could be
 /// found. If the underlying search returns an error, then this panics.
 ///
-/// The lifetime variables are as follows:
+/// The lifetime parameters are as follows:
 ///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'c` is the lifetime of the mutable cache used during search.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Debug)]
-pub struct CapturesLeftmostMatches<'r, 'c, 't> {
-    vm: &'r PikeVM,
-    cache: &'c mut Cache,
-    text: &'t [u8],
-    last_end: usize,
-    last_match: Option<usize>,
-}
-
-impl<'r, 'c, 't> CapturesLeftmostMatches<'r, 'c, 't> {
-    fn new(
-        vm: &'r PikeVM,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> CapturesLeftmostMatches<'r, 'c, 't> {
-        CapturesLeftmostMatches {
-            vm,
-            cache,
-            text,
-            last_end: 0,
-            last_match: None,
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for CapturesLeftmostMatches<'r, 'c, 't> {
-    type Item = Captures;
-
-    fn next(&mut self) -> Option<Captures> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        let mut caps = self.vm.create_captures();
-        self.vm.find_leftmost_at(
-            self.cache,
-            None,
-            None,
-            self.text,
-            self.last_end,
-            self.text.len(),
-            &mut caps,
-        );
-        let m = caps.get_match()?;
-        handle_iter_match!(self, m, self.vm.config.get_utf8());
-        Some(caps)
-    }
-}
-*/
-
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
+///
+/// This iterator can be created with the [`Regex::captures_iter`]
+/// method.
 #[derive(Debug)]
 pub struct CapturesLeftmostMatches<'h, 'c> {
-    caps: Arc<RefCell<Captures>>,
     it: iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
+    /// In order to avoid re-implementing our own iterator, we store the
+    /// capturing groups here and inside the iterator's closure. Once the
+    /// closure executes, we clone the capturing group and return it.
+    ///
+    /// If this sounds like it hurts perf, it probably does, but you aren't
+    /// using this iterator if you care about perf because it allocates a
+    /// fresh set of capturing groups on each iteration.
+    caps: Arc<RefCell<Captures>>,
 }
 
 impl<'h, 'c> Iterator for CapturesLeftmostMatches<'h, 'c> {
@@ -1087,55 +811,32 @@ impl<'h, 'c> Iterator for CapturesLeftmostMatches<'h, 'c> {
     }
 }
 
+/// An iterator over all overlapping leftmost matches, with their capturing
+/// groups, for a particular search.
+///
+/// The iterator yields a [`Captures`] value until no more matches could be
+/// found.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'c` represents the lifetime of the regex cache. The lifetime of the
+/// regex object itself must outlive `'c`.
+///
+/// This iterator can be created with the [`Regex::captures_overlapping_iter`]
+/// method.
 #[derive(Debug)]
-pub struct CapturesOverlappingMatches<'r, 'c, 't> {
-    vm: &'r PikeVM,
-    cache: &'c mut Cache,
-    state: OverlappingState,
-    text: &'t [u8],
-    last_end: usize,
-    last_match: Option<usize>,
+pub struct CapturesOverlappingMatches<'h, 'c> {
+    it: iter::OverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
+    caps: Arc<RefCell<Captures>>,
 }
 
-impl<'r, 'c, 't> CapturesOverlappingMatches<'r, 'c, 't> {
-    fn new(
-        vm: &'r PikeVM,
-        cache: &'c mut Cache,
-        text: &'t [u8],
-    ) -> CapturesOverlappingMatches<'r, 'c, 't> {
-        let state = OverlappingState::start();
-        CapturesOverlappingMatches {
-            vm,
-            cache,
-            state,
-            text,
-            last_end: 0,
-            last_match: None,
-        }
-    }
-}
-
-impl<'r, 'c, 't> Iterator for CapturesOverlappingMatches<'r, 'c, 't> {
+impl<'h, 'c> Iterator for CapturesOverlappingMatches<'h, 'c> {
     type Item = Captures;
 
+    #[inline]
     fn next(&mut self) -> Option<Captures> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        let mut caps = self.vm.create_captures();
-        self.vm.find_overlapping_at(
-            self.cache,
-            None,
-            None,
-            self.text,
-            self.last_end,
-            self.text.len(),
-            &mut self.state,
-            &mut caps,
-        );
-        let m = caps.get_match()?;
-        handle_iter_match_overlapping!(self, m);
-        Some(caps)
+        self.it.next().map(|_| self.caps.borrow().clone())
     }
 }
 

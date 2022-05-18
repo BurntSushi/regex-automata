@@ -15,7 +15,7 @@ use automata::{
     dfa::{self, Automaton},
     hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
-    PatternID,
+    PatternID, Search,
 };
 
 const ABOUT_SHORT: &'static str = "\
@@ -192,6 +192,17 @@ fn search_api_regex(
     Ok(counts)
 }
 
+// TODO: Currently this code (and in find) doesn't support --no-utf8-iter. Not
+// quite sure how best to do this. Right now, --no-utf8-iter is a property
+// of the regex engine. That is, the PikeVM (or lazy regex or dense regex)
+// are what know whether to do UTF-8 iteration or not, and that property is
+// internal to them. That is, it isn't exposed. Maybe we should expose the
+// configuration of everything. The `Config` types are already public and
+// already have public accessors.
+//
+// Exposing `Config` is probably an independently good idea, but is that how we
+// should solve this particular problem? Not sure.
+
 fn search_pikevm(
     vm: &PikeVM,
     cache: &mut pikevm::Cache,
@@ -205,11 +216,44 @@ fn search_pikevm(
     }
     match captures.kind() {
         config::SearchKind::Earliest => {
-            for caps in vm.captures_earliest_iter(cache, haystack) {
-                let pid = caps.pattern().unwrap();
-                for (group_index, m) in caps.iter().enumerate() {
-                    if m.is_some() {
-                        counts[pid][group_index] += 1;
+            // The PikeVM has no 'earliest' captures iter, and using the
+            // generic iterators is a little strained since they don't support
+            // 'Captures' directly. So we just hand-write our own iterator.
+            let mut search = Search::new(haystack).earliest(true);
+            let mut caps = vm.create_captures();
+            let mut last_match_end: Option<usize> = None;
+            loop {
+                vm.search(cache, None, &search, &mut caps);
+                let m = match caps.get_match() {
+                    None => break,
+                    Some(m) => m,
+                };
+                search.set_start(m.end());
+                if m.is_empty() {
+                    // After every empty match, we forcefully step forward,
+                    // since we know we'll otherwise run the search again
+                    // at the same bounds, get the same result and then hit
+                    // the 'last_match_end == Some(m.end())' case below. So
+                    // doing this step for all empty matches isn't needed for
+                    // correctness, but it avoids an additional search call in
+                    // some common cases (e.g., for the empty regex).
+                    search.step_byte();
+                    // If we see an empty match that overlaps with the previous
+                    // match, we skip this one and continue searching at the
+                    // next byte.
+                    //
+                    // Because of the optimization above, this case is only
+                    // triggered when a non-empty match is followed by an empty
+                    // match.
+                    if last_match_end == Some(m.end()) {
+                        continue;
+                    }
+                }
+                last_match_end = Some(m.end());
+
+                for (group_index, subm) in caps.iter().enumerate() {
+                    if subm.is_some() {
+                        counts[m.pattern()][group_index] += 1;
                     }
                 }
                 if captures.matches() {
@@ -218,7 +262,7 @@ fn search_pikevm(
             }
         }
         config::SearchKind::Leftmost => {
-            for caps in vm.captures_leftmost_iter(cache, haystack) {
+            for caps in vm.captures_iter(cache, haystack) {
                 let pid = caps.pattern().unwrap();
                 for (group_index, m) in caps.iter().enumerate() {
                     if m.is_some() {

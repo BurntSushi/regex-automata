@@ -808,29 +808,9 @@ impl Regex {
         mut pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        let mut m = match self.try_search_fwd_back(cache, pre, search)? {
-            None => return Ok(None),
-            Some(m) => m,
-        };
-        if !search.get_utf8() || !m.is_empty() {
-            return Ok(Some(m));
-        }
-        let mut search = search.clone();
-        while m.is_empty() && !search.is_char_boundary(m.end()) {
-            search.step_byte();
-            // TODO: It's not quite clear how convince the borrow checker
-            // to let me pass the prefilter down. Maybe we should be using
-            // '&mut Option<Scanner>' instead? It's not a big deal for this
-            // specific code block since this is handling a pathological case
-            // involving empty matches, but it seems like not being able to use
-            // a prefilter more than once is bad for composition. I think with
-            // a '&mut Option<Scanner>' I can re-borrow it.
-            m = match self.try_search_fwd_back(cache, None, &search)? {
-                None => return Ok(None),
-                Some(m) => m,
-            };
-        }
-        Ok(Some(m))
+        search.find(|search| {
+            self.try_search_fwd_back(cache, pre.as_deref_mut(), search)
+        })
     }
 
     /// This search routine runs the regex engine forwards to find the end

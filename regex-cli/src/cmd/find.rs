@@ -684,12 +684,19 @@ fn search_pikevm(
     haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
-    let mut count = 0;
     let mut counts = vec![0u64; vm.nfa().pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
-            for m in vm.find_earliest_iter(cache, haystack) {
-                count += 1;
+            let mut caps = vm.create_captures();
+            let mut it = iter::TryMatches::new(
+                Search::new(haystack).earliest(true),
+                move |search| {
+                    vm.search(cache, None, search, &mut caps);
+                    Ok(caps.get_match())
+                },
+            );
+            for result in it {
+                let m = result?;
                 counts[m.pattern()] += 1;
                 if find.matches() {
                     write_multi_match(m, buf);
@@ -697,8 +704,7 @@ fn search_pikevm(
             }
         }
         config::SearchKind::Leftmost => {
-            for m in vm.find_leftmost_iter(cache, haystack) {
-                count += 1;
+            for m in vm.find_iter(cache, haystack) {
                 counts[m.pattern()] += 1;
                 if find.matches() {
                     write_multi_match(m, buf);
@@ -707,7 +713,6 @@ fn search_pikevm(
         }
         config::SearchKind::Overlapping => {
             for m in vm.find_overlapping_iter(cache, haystack) {
-                count += 1;
                 counts[m.pattern()] += 1;
                 if find.matches() {
                     write_multi_match(m, buf);

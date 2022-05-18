@@ -330,6 +330,29 @@ impl<'h> Search<'h> {
     pub fn is_char_boundary(&self, offset: usize) -> bool {
         utf8::is_boundary(self.bytes(), offset)
     }
+
+    #[inline]
+    pub fn find<F>(&self, mut find: F) -> Result<Option<Match>, MatchError>
+    where
+        F: FnMut(&Search<'_>) -> Result<Option<Match>, MatchError>,
+    {
+        let mut m = match find(self)? {
+            None => return Ok(None),
+            Some(m) => m,
+        };
+        if !self.get_utf8() || !m.is_empty() {
+            return Ok(Some(m));
+        }
+        let mut search = self.clone();
+        while m.is_empty() && !search.is_char_boundary(m.end()) {
+            search.step_byte();
+            m = match find(&search)? {
+                None => return Ok(None),
+                Some(m) => m,
+            };
+        }
+        Ok(Some(m))
+    }
 }
 
 impl<'h> core::fmt::Debug for Search<'h> {

@@ -3,7 +3,8 @@ use regex_automata::{
         self,
         pikevm::{self, PikeVM},
     },
-    MatchKind, SyntaxConfig,
+    util::iter,
+    MatchKind, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -51,18 +52,27 @@ fn run_test(
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let it = re
-                    .find_earliest_iter(cache, test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
+                let mut caps = re.create_captures();
+                let it = iter::TryMatches::new(
+                    Search::new(test.input().as_bytes())
+                        .earliest(true)
+                        .utf8(test.utf8()),
+                    move |search| {
+                        re.search(cache, None, search, &mut caps);
+                        Ok(caps.get_match())
+                    },
+                )
+                .infallible()
+                .take(test.match_limit().unwrap_or(std::usize::MAX))
+                .map(|m| ret::Match {
+                    id: m.pattern().as_usize(),
+                    span: ret::Span { start: m.start(), end: m.end() },
+                });
                 TestResult::matches(it)
             }
             ret::SearchKind::Leftmost => {
                 let it = re
-                    .find_leftmost_iter(cache, test.input())
+                    .find_iter(cache, test.input())
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| ret::Match {
                         id: m.pattern().as_usize(),
@@ -84,6 +94,7 @@ fn run_test(
         "captures" => {
             match test.search_kind() {
                 ret::SearchKind::Earliest => {
+                    /*
                     let it = re
                         .captures_earliest_iter(cache, test.input())
                         .take(test.match_limit().unwrap_or(std::usize::MAX))
@@ -107,10 +118,31 @@ fn run_test(
                             .unwrap()
                         });
                     TestResult::captures(it)
+                    */
+                    /*
+                    let mut caps = re.create_captures();
+                    let it = iter::TryMatches::new(
+                        Search::new(test.input().as_bytes())
+                            .earliest(true)
+                            .utf8(test.utf8()),
+                        move |search| {
+                            re.search(cache, None, search, &mut caps);
+                            Ok(caps.get_match())
+                        },
+                    )
+                    .infallible()
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
+                    TestResult::matches(it)
+                    */
+                    TestResult::skip()
                 }
                 ret::SearchKind::Leftmost => {
                     let it = re
-                        .captures_leftmost_iter(cache, test.input())
+                        .captures_iter(cache, test.input())
                         .take(test.match_limit().unwrap_or(std::usize::MAX))
                         .map(|caps| {
                             // We wouldn't get a non-matching captures in an
