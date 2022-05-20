@@ -2433,7 +2433,7 @@ impl Captures {
     ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
     /// )?;
     /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::new(vm.nfa().clone());
+    /// let mut caps = Captures::new(vm.get_nfa().clone());
     ///
     /// let haystack = "ABC123";
     /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
@@ -2474,7 +2474,7 @@ impl Captures {
     ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
     /// )?;
     /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::new_for_matches_only(vm.nfa().clone());
+    /// let mut caps = Captures::new_for_matches_only(vm.get_nfa().clone());
     ///
     /// let haystack = "ABC123";
     /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
@@ -2515,7 +2515,7 @@ impl Captures {
     ///
     /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
     /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::empty(vm.nfa().clone());
+    /// let mut caps = Captures::empty(vm.get_nfa().clone());
     ///
     /// vm.find_leftmost(&mut cache, b"aABCz", &mut caps);
     /// assert!(caps.is_match());
@@ -2550,7 +2550,7 @@ impl Captures {
     ///
     /// let vm = PikeVM::new(r"[a-z]+")?;
     /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::empty(vm.nfa().clone());
+    /// let mut caps = Captures::empty(vm.get_nfa().clone());
     ///
     /// vm.find_leftmost(&mut cache, b"aABCz", &mut caps);
     /// assert!(caps.is_match());
@@ -2582,7 +2582,7 @@ impl Captures {
     ///
     /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
     /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::empty(vm.nfa().clone());
+    /// let mut caps = Captures::empty(vm.get_nfa().clone());
     ///
     /// vm.find_leftmost(&mut cache, b"ABC", &mut caps);
     /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
@@ -2984,7 +2984,7 @@ impl Captures {
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     /// let (slot_start, slot_end) =
-    ///     vm.nfa().slots(PatternID::ZERO, 0).unwrap();
+    ///     vm.get_nfa().slots(PatternID::ZERO, 0).unwrap();
     ///
     /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
     /// assert!(caps.is_match());
@@ -3050,26 +3050,25 @@ impl<'a> Iterator for CapturesPatternIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nfa::thompson::pikevm::PikeVM;
+    use crate::{nfa::thompson::pikevm::PikeVM, Search};
 
     #[test]
     fn always_match() {
         let vm = PikeVM::new_from_nfa(NFA::always_match()).unwrap();
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
-        let mut find = |input, start, end| {
-            vm.find_leftmost_at(
-                &mut cache, None, None, input, start, end, &mut caps,
-            );
+        let mut find = |haystack, start, end| {
+            let search = Search::new(haystack).range(start..end);
+            vm.search(&mut cache, None, &search, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 
-        assert_eq!(Some(0), find(b"", 0, 0));
-        assert_eq!(Some(0), find(b"a", 0, 1));
-        assert_eq!(Some(1), find(b"a", 1, 1));
-        assert_eq!(Some(0), find(b"ab", 0, 2));
-        assert_eq!(Some(1), find(b"ab", 1, 2));
-        assert_eq!(Some(2), find(b"ab", 2, 2));
+        assert_eq!(Some(0), find("", 0, 0));
+        assert_eq!(Some(0), find("a", 0, 1));
+        assert_eq!(Some(1), find("a", 1, 1));
+        assert_eq!(Some(0), find("ab", 0, 2));
+        assert_eq!(Some(1), find("ab", 1, 2));
+        assert_eq!(Some(2), find("ab", 2, 2));
     }
 
     #[test]
@@ -3077,19 +3076,18 @@ mod tests {
         let vm = PikeVM::new_from_nfa(NFA::never_match()).unwrap();
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
-        let mut find = |input, start, end| {
-            vm.find_leftmost_at(
-                &mut cache, None, None, input, start, end, &mut caps,
-            );
+        let mut find = |haystack, start, end| {
+            let search = Search::new(haystack).range(start..end);
+            vm.search(&mut cache, None, &search, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 
-        assert_eq!(None, find(b"", 0, 0));
-        assert_eq!(None, find(b"a", 0, 1));
-        assert_eq!(None, find(b"a", 1, 1));
-        assert_eq!(None, find(b"ab", 0, 2));
-        assert_eq!(None, find(b"ab", 1, 2));
-        assert_eq!(None, find(b"ab", 2, 2));
+        assert_eq!(None, find("", 0, 0));
+        assert_eq!(None, find("a", 0, 1));
+        assert_eq!(None, find("a", 1, 1));
+        assert_eq!(None, find("ab", 0, 2));
+        assert_eq!(None, find("ab", 1, 2));
+        assert_eq!(None, find("ab", 2, 2));
     }
 
     #[test]

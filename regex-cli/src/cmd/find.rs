@@ -684,7 +684,7 @@ fn search_pikevm(
     haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
-    let mut counts = vec![0u64; vm.nfa().pattern_len()];
+    let mut counts = vec![0u64; vm.get_nfa().pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
             let mut caps = vm.create_captures();

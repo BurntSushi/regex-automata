@@ -150,7 +150,9 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
         for (pid, groups) in counts.iter().enumerate() {
             let pid = PatternID::must(pid);
             let nicecaps = format_capture_counts(groups, |i| {
-                vm.nfa().capture_index_to_name(pid, i).map(|n| n.to_string())
+                vm.get_nfa()
+                    .capture_index_to_name(pid, i)
+                    .map(|n| n.to_string())
             });
             table.add(&format!("counts({})", pid.as_usize()), nicecaps);
         }
@@ -210,16 +212,18 @@ fn search_pikevm(
     haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
-    let mut counts = vec![vec![]; vm.nfa().pattern_len()];
-    for pid in vm.nfa().patterns() {
-        counts[pid] = vec![0; vm.nfa().pattern_capture_len(pid)];
+    let mut counts = vec![vec![]; vm.get_nfa().pattern_len()];
+    for pid in vm.get_nfa().patterns() {
+        counts[pid] = vec![0; vm.get_nfa().pattern_capture_len(pid)];
     }
     match captures.kind() {
         config::SearchKind::Earliest => {
             // The PikeVM has no 'earliest' captures iter, and using the
             // generic iterators is a little strained since they don't support
             // 'Captures' directly. So we just hand-write our own iterator.
-            let mut search = Search::new(haystack).earliest(true);
+            let mut search = Search::new(haystack)
+                .earliest(true)
+                .utf8(vm.get_config().get_utf8());
             let mut caps = vm.create_captures();
             let mut last_match_end: Option<usize> = None;
             loop {
@@ -257,7 +261,7 @@ fn search_pikevm(
                     }
                 }
                 if captures.matches() {
-                    write_thompson_captures(vm.nfa(), &caps, buf);
+                    write_thompson_captures(vm.get_nfa(), &caps, buf);
                 }
             }
         }
@@ -270,7 +274,7 @@ fn search_pikevm(
                     }
                 }
                 if captures.matches() {
-                    write_thompson_captures(vm.nfa(), &caps, buf);
+                    write_thompson_captures(vm.get_nfa(), &caps, buf);
                 }
             }
         }
@@ -283,7 +287,7 @@ fn search_pikevm(
                     }
                 }
                 if captures.matches() {
-                    write_thompson_captures(vm.nfa(), &caps, buf);
+                    write_thompson_captures(vm.get_nfa(), &caps, buf);
                 }
             }
         }

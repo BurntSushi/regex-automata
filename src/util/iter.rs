@@ -399,6 +399,7 @@ where
         OverlappingMatches(self)
     }
 
+    /*
     /// If the given empty match is invalid, then throw it away and keep
     /// executing the underlying finder until a valid match is returned.
     ///
@@ -434,6 +435,7 @@ where
         }
         Some(Ok(m))
     }
+    */
 }
 
 impl<'c, 'h, F> Iterator for TryOverlappingMatches<'h, F>
@@ -452,12 +454,6 @@ where
             Ok(m) => m,
         };
         self.search.set_start(m.end());
-        if m.is_empty() {
-            m = match self.skip_invalid_empty_matches(m)? {
-                Err(err) => return Some(Err(err)),
-                Ok(m) => m,
-            };
-        }
         Some(Ok(m))
     }
 }

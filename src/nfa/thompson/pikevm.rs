@@ -49,7 +49,7 @@ thread_local! {
     static COUNTERS: RefCell<Counters> = RefCell::new(Counters::empty());
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     anchored: Option<bool>,
     match_kind: Option<MatchKind>,
@@ -89,7 +89,7 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
-    pub(crate) fn overwrite(self, o: Config) -> Config {
+    pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             anchored: o.anchored.or(self.anchored),
             match_kind: o.match_kind.or(self.match_kind),
@@ -145,7 +145,7 @@ impl Builder {
                 return Err(Error::unicode_word_unavailable());
             }
         }
-        Ok(PikeVM { config: self.config, nfa })
+        Ok(PikeVM { config: self.config.clone(), nfa })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {
@@ -211,14 +211,18 @@ impl PikeVM {
     }
 
     pub fn create_cache(&self) -> Cache {
-        Cache::new(self.nfa())
+        Cache::new(self.get_nfa())
     }
 
     pub fn create_captures(&self) -> Captures {
-        Captures::new(self.nfa().clone())
+        Captures::new(self.get_nfa().clone())
     }
 
-    pub fn nfa(&self) -> &NFA {
+    pub fn get_config(&self) -> &Config {
+        &self.config
+    }
+
+    pub fn get_nfa(&self) -> &NFA {
         &self.nfa
     }
 }
@@ -259,7 +263,7 @@ impl PikeVM {
         haystack: &'h [u8],
     ) -> FindLeftmostMatches<'h, 'c> {
         let search = Search::new(haystack).utf8(self.config.get_utf8());
-        let mut caps = Captures::new_for_matches_only(self.nfa().clone());
+        let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
         let it = iter::TryMatches::boxed(search, move |search| {
             self.search(cache, None, search, &mut caps);
             Ok(caps.get_match())
@@ -273,10 +277,9 @@ impl PikeVM {
         cache: &'c mut Cache,
         haystack: &'h [u8],
     ) -> FindOverlappingMatches<'h, 'c> {
-        // FindOverlappingMatches::new(self, cache, haystack)
         let search = Search::new(haystack).utf8(self.config.get_utf8());
         let mut state = OverlappingState::start();
-        let mut caps = Captures::new_for_matches_only(self.nfa().clone());
+        let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
         let it = iter::TryOverlappingMatches::boxed(search, move |search| {
             self.search_overlapping(
                 cache, None, search, &mut state, &mut caps,
@@ -337,7 +340,6 @@ impl PikeVM {
         search: &Search<'_>,
         caps: &mut Captures,
     ) {
-        // self.search_imp(cache, pre, search, caps)
         search
             .find(|search| {
                 self.search_imp(cache, pre.as_deref_mut(), search, caps);
@@ -349,12 +351,23 @@ impl PikeVM {
     pub fn search_overlapping(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
+        mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
         state: &mut OverlappingState,
         caps: &mut Captures,
     ) {
-        self.search_overlapping_imp(cache, pre, search, state, caps)
+        search
+            .find(|search| {
+                self.search_overlapping_imp(
+                    cache,
+                    pre.as_deref_mut(),
+                    search,
+                    state,
+                    caps,
+                );
+                Ok(caps.get_match())
+            })
+            .unwrap();
     }
 }
 

@@ -781,7 +781,10 @@ all the time.
         thompson: &Thompson,
     ) -> pikevm::Builder {
         let mut builder = pikevm::PikeVM::builder();
-        builder.configure(self.config).syntax(syntax.0).thompson(thompson.0);
+        builder
+            .configure(self.config.clone())
+            .syntax(syntax.0)
+            .thompson(thompson.0);
         builder
     }
 
