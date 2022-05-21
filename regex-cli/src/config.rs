@@ -687,7 +687,7 @@ groups (such as a search with the PikeVM).
         exprs: &[H],
     ) -> anyhow::Result<thompson::NFA> {
         thompson::Compiler::new()
-            .configure(self.0)
+            .configure(self.0.clone())
             .build_many_from_hir(exprs)
             .context("failed to compile Thompson NFA")
     }
@@ -784,7 +784,7 @@ all the time.
         builder
             .configure(self.config.clone())
             .syntax(syntax.0)
-            .thompson(thompson.0);
+            .thompson(thompson.0.clone());
         builder
     }
 
@@ -1216,7 +1216,7 @@ This mode cannot be toggled inside the regex.
         builder
             .configure(self.config)
             .syntax(syntax.0)
-            .thompson(thompson.0)
+            .thompson(thompson.0.clone())
             .dense(dense.config);
         builder
     }
@@ -1566,7 +1566,7 @@ technique would likely be superior.
         nfa: thompson::NFA,
     ) -> anyhow::Result<hybrid::dfa::DFA> {
         hybrid::dfa::Builder::new()
-            .configure(self.config)
+            .configure(self.config.clone())
             .build_from_nfa(nfa)
             .context("failed to build lazy DFA")
     }
@@ -1639,10 +1639,10 @@ This mode cannot be toggled inside the regex.
     ) -> hybrid::regex::Builder {
         let mut builder = hybrid::regex::Builder::new();
         builder
-            .configure(self.config)
+            .configure(self.config.clone())
             .syntax(syntax.0)
-            .thompson(thompson.0)
-            .dfa(hybrid.config);
+            .thompson(thompson.0.clone())
+            .dfa(hybrid.config.clone());
         builder
     }
 

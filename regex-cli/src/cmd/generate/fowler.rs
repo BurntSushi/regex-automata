@@ -56,11 +56,6 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-// BREADCRUMBS: It would be nice to use original repetition.dat and split it
-// out in this program to repetition and repetition-expensive. Well you know
-// what? We can keep them in the same repetition.toml file, but just change
-// the test names!
-
 fn convert(
     mut group_name: &str,
     src: &mut dyn Read,

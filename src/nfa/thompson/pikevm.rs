@@ -228,56 +228,65 @@ impl PikeVM {
 }
 
 impl PikeVM {
-    pub fn is_match(&self, cache: &mut Cache, haystack: &[u8]) -> bool {
-        let search =
-            Search::new(haystack).earliest(true).utf8(self.config.get_utf8());
+    pub fn is_match<H: AsRef<[u8]>>(
+        &self,
+        cache: &mut Cache,
+        haystack: H,
+    ) -> bool {
+        let search = Search::new(haystack.as_ref())
+            .earliest(true)
+            .utf8(self.config.get_utf8());
         let mut caps = Captures::empty(self.nfa.clone());
         self.search(cache, None, &search, &mut caps);
         caps.is_match()
     }
 
-    pub fn find(
+    pub fn find<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
+        haystack: H,
         caps: &mut Captures,
     ) {
-        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
         self.search(cache, None, &search, caps)
     }
 
-    pub fn find_overlapping(
+    pub fn find_overlapping<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
-        haystack: &[u8],
+        haystack: H,
         state: &mut OverlappingState,
         caps: &mut Captures,
     ) {
-        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
         self.search_overlapping(cache, None, &search, state, caps)
     }
 
-    pub fn find_iter<'r: 'c, 'c, 'h>(
+    pub fn find_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h [u8],
-    ) -> FindLeftmostMatches<'h, 'c> {
-        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        haystack: &'h H,
+    ) -> FindMatches<'h, 'c> {
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
         let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
         let it = iter::TryMatches::boxed(search, move |search| {
             self.search(cache, None, search, &mut caps);
             Ok(caps.get_match())
         })
         .infallible();
-        FindLeftmostMatches(it)
+        FindMatches(it)
     }
 
-    pub fn find_overlapping_iter<'r: 'c, 'c, 'h>(
+    pub fn find_overlapping_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h [u8],
+        haystack: &'h H,
     ) -> FindOverlappingMatches<'h, 'c> {
-        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
         let mut state = OverlappingState::start();
         let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
         let it = iter::TryOverlappingMatches::boxed(search, move |search| {
@@ -290,12 +299,13 @@ impl PikeVM {
         FindOverlappingMatches(it)
     }
 
-    pub fn captures_iter<'r: 'c, 'c, 'h>(
+    pub fn captures_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h [u8],
-    ) -> CapturesLeftmostMatches<'h, 'c> {
-        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        haystack: &'h H,
+    ) -> CapturesMatches<'h, 'c> {
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
         let caps = Arc::new(RefCell::new(self.create_captures()));
         let it = iter::TryMatches::boxed(search, {
             let caps = Arc::clone(&caps);
@@ -305,15 +315,21 @@ impl PikeVM {
             }
         })
         .infallible();
-        CapturesLeftmostMatches { caps, it }
+        CapturesMatches { caps, it }
     }
 
-    pub fn captures_overlapping_iter<'r: 'c, 'c, 'h>(
+    pub fn captures_overlapping_iter<
+        'r: 'c,
+        'c,
+        'h,
+        H: AsRef<[u8]> + ?Sized,
+    >(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h [u8],
+        haystack: &'h H,
     ) -> CapturesOverlappingMatches<'h, 'c> {
-        let search = Search::new(haystack).utf8(self.config.get_utf8());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
         let mut state = OverlappingState::start();
         let caps = Arc::new(RefCell::new(self.create_captures()));
         let it = iter::TryOverlappingMatches::boxed(search, {
@@ -748,11 +764,9 @@ type TryMatchesClosure<'h, 'c> =
 /// This iterator can be created with the [`PikeVM::find_iter`]
 /// method.
 #[derive(Debug)]
-pub struct FindLeftmostMatches<'h, 'c>(
-    iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
-);
+pub struct FindMatches<'h, 'c>(iter::Matches<'h, TryMatchesClosure<'h, 'c>>);
 
-impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {
+impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
     type Item = Match;
 
     #[inline]
@@ -803,7 +817,7 @@ impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
 /// This iterator can be created with the [`Regex::captures_iter`]
 /// method.
 #[derive(Debug)]
-pub struct CapturesLeftmostMatches<'h, 'c> {
+pub struct CapturesMatches<'h, 'c> {
     it: iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
     /// In order to avoid re-implementing our own iterator, we store the
     /// capturing groups here and inside the iterator's closure. Once the
@@ -815,7 +829,7 @@ pub struct CapturesLeftmostMatches<'h, 'c> {
     caps: Arc<RefCell<Captures>>,
 }
 
-impl<'h, 'c> Iterator for CapturesLeftmostMatches<'h, 'c> {
+impl<'h, 'c> Iterator for CapturesMatches<'h, 'c> {
     type Item = Captures;
 
     #[inline]

@@ -331,34 +331,6 @@ impl<'h> Search<'h> {
         utf8::is_boundary(self.bytes(), offset)
     }
 
-    // BREADCRUMBS:
-    //
-    // Add 'search' iterators to all our regex engines. Yeah, it's another two
-    // iterators, but it vastly improves flexibility. Makes it much easier to
-    // write 'earliest' iterators, for example. What does a PikeVM 'search'
-    // iterator look like though? What if you want captures? We don't want to
-    // add FOUR more iterator types... Maybe just leave well enough alone...
-    //
-    // Then start exposing 'Config' types everywhere. This will be quite
-    // annoying to do for DFAs though because of their serialization support.
-    // Yuck. Maybe not... But then how do we pass configuration down that we
-    // want iteration to be aware of UTF-8 in the CLI tool? It's just not
-    // elegant if the config isn't exposed on the regex engine. Normally we'd
-    // just use the iterator built into the regex, but we don't expose
-    // iterators for 'earliest' searching because we deemed that to be bloating
-    // the API too much. So we could expose 'search' iterators, but then we're
-    // back to the problem in the first paragraph: too many iterators.
-    //
-    // Another option is to just not do earliest searches via the CLI tool,
-    // but the point of the CLI tool is really to expose everything for easy
-    // access.
-    //
-    // Crazy idea: what if we permitted to set "last match" on a 'Search'? And
-    // asked the regex engine to handle it? That would make manual iteration
-    // a little easier, but manual iteration still has to set "last match"
-    // because we pass a '&Search' to the regex engine. So that seems not
-    // worth it...
-
     /// This executes the regex search via the closure given, but skips any
     /// empty matches that split a codepoint when this search's "utf8" option
     /// is enabled.

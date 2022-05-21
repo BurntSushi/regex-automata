@@ -152,7 +152,9 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
 #[test]
 fn prefilter_works() -> Result<(), Box<dyn Error>> {
     let pre = Arc::new(SubstringPrefilter::new("a"));
-    let re = Regex::builder().prefilter(Some(pre)).build(r"a[0-9]+")?;
+    let re = Regex::builder()
+        .configure(Regex::config().prefilter(Some(pre)))
+        .build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
 
     let text = b"foo abc foo a1a2a3 foo a123 bar aa456";
@@ -169,15 +171,17 @@ fn prefilter_works() -> Result<(), Box<dyn Error>> {
 // reports false negatives.
 #[test]
 fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
+    let pre = Arc::new(SubstringPrefilter::new("a"));
     let re = Regex::builder()
-        .prefilter(Some(Arc::new(SubstringPrefilter::new("a"))))
+        .configure(Regex::config().prefilter(Some(pre)))
         .build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
     assert_eq!(re.find(&mut cache, b"za123"), Some(Match::must(0, 1, 5)));
     assert_eq!(re.find(&mut cache, b"a123"), Some(Match::must(0, 0, 4)));
 
+    let pre = Arc::new(BunkPrefilter::new());
     let re = Regex::builder()
-        .prefilter(Some(Arc::new(BunkPrefilter::new())))
+        .configure(Regex::config().prefilter(Some(pre)))
         .build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
     assert_eq!(re.find(&mut cache, b"za123"), None);

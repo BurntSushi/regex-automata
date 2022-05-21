@@ -34,9 +34,12 @@ minimum is there to avoid runtime panics in degenerate cases...)
 Specifically, the Sparse state. Maybe PCMPESTI can finally be useful?
   * Actually I'm not sure this makes a lot of sense. The NFA only looks at
   one byte at a time, and PCMPESTRI is about looking at many bytes at a time.
+  * This is also difficult because we'd really want PCMPESTRI to get inlined,
+  which means most/all of the NFA matching would need to be parameterized over
+  whether SIMD is available or not.
 
 * Rename Match to Span, MultiMatch to Match and keep HalfMatch as-is (since
-it does include a pattern ID).
+it does include a pattern ID). DONE.
 
 * Prefilters. See top of src/util/prefilter.rs for more in depth thoughts.
 

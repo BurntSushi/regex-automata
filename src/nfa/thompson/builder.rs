@@ -283,7 +283,7 @@ impl State {
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
 /// let expected = Some(Match::must(0, 0, 3));
-/// vm.find_leftmost(&mut cache, b"foo0", &mut caps);
+/// vm.find(&mut cache, "foo0", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -901,7 +901,7 @@ impl Builder {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let caps: Vec<Captures> =
-    ///     vm.captures_leftmost_iter(&mut cache, b"0123aAaAA").collect();
+    ///     vm.captures_iter(&mut cache, "0123aAaAA").collect();
     /// assert_eq!(5, caps.len());
     ///
     /// assert_eq!(Some(PatternID::must(0)), caps[0].pattern());

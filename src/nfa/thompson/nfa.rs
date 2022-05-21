@@ -128,7 +128,7 @@ use crate::{
 /// let mut caps = vm.create_captures();
 ///
 /// let expected = Some(Match::must(0, 0, 8));
-/// vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
+/// vm.find(&mut cache, b"foo12345", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -146,7 +146,7 @@ use crate::{
 /// let mut cache = vm.create_cache();
 ///
 /// let haystack = "2012-03-14, 2013-01-01 and 2014-07-05";
-/// let all: Vec<Captures> = vm.captures_leftmost_iter(
+/// let all: Vec<Captures> = vm.captures_iter(
 ///     &mut cache, haystack.as_bytes()
 /// ).collect();
 /// // There should be a total of 3 matches.
@@ -170,7 +170,7 @@ use crate::{
 /// let mut caps = vm.create_captures();
 ///
 /// let haystack = b"quux";
-/// vm.find_leftmost(&mut cache, haystack, &mut caps);
+/// vm.find(&mut cache, haystack, &mut caps);
 /// assert!(caps.is_match());
 /// let m = caps.get_group(1).unwrap();
 /// assert_eq!(3, m.start());
@@ -209,7 +209,7 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(Match::must(0, 0, 8));
-    /// vm.find_leftmost(&mut cache, b"foo12345", &mut caps);
+    /// vm.find(&mut cache, b"foo12345", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -233,7 +233,7 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(Match::must(1, 0, 3));
-    /// vm.find_leftmost(&mut cache, b"foo12345bar", &mut caps);
+    /// vm.find(&mut cache, b"foo12345bar", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -254,9 +254,9 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(Match::must(0, 0, 0));
-    /// vm.find_leftmost(&mut cache, b"", &mut caps);
+    /// vm.find(&mut cache, b"", &mut caps);
     /// assert_eq!(expected, caps.get_match());
-    /// vm.find_leftmost(&mut cache, b"foo", &mut caps);
+    /// vm.find(&mut cache, b"foo", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -297,9 +297,9 @@ impl NFA {
     /// let vm = PikeVM::new_from_nfa(NFA::never_match())?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"", &mut caps);
+    /// vm.find(&mut cache, b"", &mut caps);
     /// assert!(!caps.is_match());
-    /// vm.find_leftmost(&mut cache, b"foo", &mut caps);
+    /// vm.find(&mut cache, b"foo", &mut caps);
     /// assert!(!caps.is_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -329,7 +329,7 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(Match::must(0, 1, 4));
-    /// vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
+    /// vm.find(&mut cache, b"\xFFabc\xFF", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -363,7 +363,7 @@ impl NFA {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// let expected = Some(Match::must(0, 1, 5));
-    /// vm.find_leftmost(&mut cache, b"\xFFabc\xFF", &mut caps);
+    /// vm.find(&mut cache, b"\xFFabc\xFF", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2364,7 +2364,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
 ///
 /// let haystack = "2010-03-14";
-/// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+/// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
 /// assert!(caps.is_match());
 /// assert_eq!(Some(Span::new(0, 4)), caps.get_group(1));
 /// assert_eq!(Some(Span::new(5, 7)), caps.get_group(2));
@@ -2385,7 +2385,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
 ///
 /// let haystack = "2010-03-14";
-/// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+/// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
 /// assert!(caps.is_match());
 /// assert_eq!(Some(Span::new(0, 4)), caps.get_group_by_name("y"));
 /// assert_eq!(Some(Span::new(5, 7)), caps.get_group_by_name("m"));
@@ -2436,7 +2436,7 @@ impl Captures {
     /// let mut caps = Captures::new(vm.get_nfa().clone());
     ///
     /// let haystack = "ABC123";
-    /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+    /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(Match::must(0, 0, 6)), caps.get_match());
     /// // The 'lower' group didn't match, so it won't have any offsets.
@@ -2477,7 +2477,7 @@ impl Captures {
     /// let mut caps = Captures::new_for_matches_only(vm.get_nfa().clone());
     ///
     /// let haystack = "ABC123";
-    /// vm.find_leftmost(&mut cache, haystack.as_bytes(), &mut caps);
+    /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(Match::must(0, 0, 6)), caps.get_match());
     /// // We didn't ask for capturing group offsets, so they aren't available.
@@ -2517,13 +2517,13 @@ impl Captures {
     /// let mut cache = vm.create_cache();
     /// let mut caps = Captures::empty(vm.get_nfa().clone());
     ///
-    /// vm.find_leftmost(&mut cache, b"aABCz", &mut caps);
+    /// vm.find(&mut cache, "aABCz", &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(PatternID::must(0)), caps.pattern());
     /// // We didn't ask for any offsets, so they aren't available.
     /// assert_eq!(None, caps.get_match());
     ///
-    /// vm.find_leftmost(&mut cache, &b"aABCz"[1..], &mut caps);
+    /// vm.find(&mut cache, &"aABCz"[1..], &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
     /// // We didn't ask for any offsets, so they aren't available.
@@ -2552,7 +2552,7 @@ impl Captures {
     /// let mut cache = vm.create_cache();
     /// let mut caps = Captures::empty(vm.get_nfa().clone());
     ///
-    /// vm.find_leftmost(&mut cache, b"aABCz", &mut caps);
+    /// vm.find(&mut cache, "aABCz", &mut caps);
     /// assert!(caps.is_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2584,7 +2584,7 @@ impl Captures {
     /// let mut cache = vm.create_cache();
     /// let mut caps = Captures::empty(vm.get_nfa().clone());
     ///
-    /// vm.find_leftmost(&mut cache, b"ABC", &mut caps);
+    /// vm.find(&mut cache, "ABC", &mut caps);
     /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
     /// // Recall that offsets are only available when using a non-empty
     /// // Captures value. So even though a match occurred, this returns None!
@@ -2616,7 +2616,7 @@ impl Captures {
     /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"ABC", &mut caps);
+    /// vm.find(&mut cache, "ABC", &mut caps);
     /// assert_eq!(Some(Match::must(1, 0, 3)), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2665,7 +2665,7 @@ impl Captures {
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
     /// assert_eq!(Some(Span::new(0, 5)), caps.get_group(1));
     /// assert_eq!(Some(Span::new(6, 17)), caps.get_group(2));
@@ -2711,7 +2711,7 @@ impl Captures {
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
     /// assert_eq!(Some(Span::new(0, 5)), caps.get_group_by_name("first"));
     /// assert_eq!(Some(Span::new(6, 17)), caps.get_group_by_name("last"));
@@ -2748,7 +2748,7 @@ impl Captures {
     /// )?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"Harry James Potter", &mut caps);
+    /// vm.find(&mut cache, "Harry James Potter", &mut caps);
     /// assert!(caps.is_match());
     /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
@@ -2775,7 +2775,7 @@ impl Captures {
     /// )?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"Harry Potter", &mut caps);
+    /// vm.find(&mut cache, "Harry Potter", &mut caps);
     /// assert!(caps.is_match());
     /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
@@ -2817,7 +2817,7 @@ impl Captures {
     /// )?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"Harry Potter", &mut caps);
+    /// vm.find(&mut cache, "Harry Potter", &mut caps);
     /// assert_eq!(4, caps.group_len());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2858,7 +2858,7 @@ impl Captures {
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert!(caps.is_match());
     /// let slots: Vec<Option<usize>> =
     ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
@@ -2917,7 +2917,7 @@ impl Captures {
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert!(caps.is_match());
     /// assert!(caps.pattern().is_some());
     /// let slots: Vec<Option<usize>> =
@@ -2986,7 +2986,7 @@ impl Captures {
     /// let (slot_start, slot_end) =
     ///     vm.get_nfa().slots(PatternID::ZERO, 0).unwrap();
     ///
-    /// vm.find_leftmost(&mut cache, b"Bruce Springsteen", &mut caps);
+    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(0), caps.get_slot(slot_start));
     /// assert_eq!(Some(17), caps.get_slot(slot_end));

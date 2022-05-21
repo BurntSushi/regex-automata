@@ -146,9 +146,8 @@ use crate::{
 /// ```
 #[derive(Debug)]
 pub struct Regex {
-    /// An optional prefilter that is passed down to the lazy DFA search
-    /// routines when present. By default, no prefilter is set.
-    pre: Option<Arc<dyn Prefilter>>,
+    /// The config for this regex.
+    config: Config,
     /// The forward lazy DFA. This can only find the end of a match.
     forward: DFA,
     /// The reverse lazy DFA. This can only find the start of a match.
@@ -162,9 +161,6 @@ pub struct Regex {
     /// we might wind up finding the "leftmost" starting position of a totally
     /// different pattern!
     reverse: DFA,
-    /// Whether iterators on this type should advance by one codepoint or one
-    /// byte when an empty match is seen.
-    utf8: bool,
 }
 
 /// Convenience routines for regex and cache construction.
@@ -526,9 +522,9 @@ impl Regex {
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> FindLeftmostMatches<'h, 'c> {
+    ) -> FindMatches<'h, 'c> {
         let search = Search::new(haystack.as_ref());
-        FindLeftmostMatches(self.try_matches_iter(cache, search).infallible())
+        FindMatches(self.try_matches_iter(cache, search).infallible())
     }
 
     /// Returns an iterator over all overlapping matches in the given haystack.
@@ -623,9 +619,14 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.utf8).earliest(true);
-        self.try_search(cache, self.scanner().as_mut(), &search)
+        // Not only can we do an "earliest" search, but we can avoid doing a
+        // reverse scan too.
+        let search = Search::new(haystack.as_ref())
+            .utf8(self.get_config().get_utf8())
+            .earliest(true);
+        let dfa = self.forward();
+        let cache = &mut cache.forward;
+        search::find_fwd(dfa, cache, self.scanner().as_mut(), &search)
             .map(|m| m.is_some())
     }
 
@@ -651,7 +652,8 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let search = Search::new(haystack.as_ref()).utf8(self.utf8);
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         self.try_search(cache, self.scanner().as_mut(), &search)
     }
 
@@ -684,7 +686,8 @@ impl Regex {
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
         let mut scanner = self.scanner();
-        let search = Search::new(haystack.as_ref()).utf8(self.utf8);
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         self.try_search_overlapping(cache, scanner.as_mut(), &search, state)
     }
 
@@ -711,9 +714,9 @@ impl Regex {
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> TryFindLeftmostMatches<'h, 'c> {
+    ) -> TryFindMatches<'h, 'c> {
         let search = Search::new(haystack.as_ref());
-        TryFindLeftmostMatches(self.try_matches_iter(cache, search))
+        TryFindMatches(self.try_matches_iter(cache, search))
     }
 
     /// Returns an iterator over all overlapping matches in the given haystack.
@@ -909,9 +912,26 @@ impl Regex {
         self.try_search_overlapping_imp(cache, pre, search, state)
     }
 
-    /// A non-generic version to avoid monomorphization costs.
-    #[inline(never)]
+    #[inline(always)]
     fn try_search_overlapping_imp(
+        &self,
+        cache: &mut Cache,
+        mut pre: Option<&mut prefilter::Scanner>,
+        search: &Search<'_>,
+        state: &mut OverlappingState,
+    ) -> Result<Option<Match>, MatchError> {
+        search.find(|search| {
+            self.try_search_overlapping_fwd_back(
+                cache,
+                pre.as_deref_mut(),
+                search,
+                state,
+            )
+        })
+    }
+
+    #[inline(always)]
+    fn try_search_overlapping_fwd_back(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
@@ -984,10 +1004,13 @@ impl Regex {
         search: Search<'h>,
     ) -> iter::TryMatches<'h, TryMatchesClosure<'h, 'c>> {
         let mut scanner = self.scanner();
-        iter::TryMatches::boxed(search.utf8(self.utf8), move |search| {
-            let pre = scanner.as_mut();
-            self.try_search(cache, pre, search)
-        })
+        iter::TryMatches::boxed(
+            search.utf8(self.get_config().get_utf8()),
+            move |search| {
+                let pre = scanner.as_mut();
+                self.try_search(cache, pre, search)
+            },
+        )
     }
 
     fn try_overlapping_matches_iter<'r: 'c, 'c, 'h>(
@@ -998,7 +1021,7 @@ impl Regex {
         let mut scanner = self.scanner();
         let mut state = OverlappingState::start();
         iter::TryOverlappingMatches::boxed(
-            search.utf8(self.utf8),
+            search.utf8(self.get_config().get_utf8()),
             move |search| {
                 let pre = scanner.as_mut();
                 self.try_search_overlapping_imp(cache, pre, search, &mut state)
@@ -1010,6 +1033,11 @@ impl Regex {
 /// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl Regex {
+    /// Return the config for this regex.
+    pub fn get_config(&self) -> &Config {
+        &self.config
+    }
+
     /// Return the underlying lazy DFA responsible for forward matching.
     ///
     /// This is useful for accessing the underlying lazy DFA and using it
@@ -1045,14 +1073,10 @@ impl Regex {
         self.forward().pattern_count()
     }
 
-    /// Return this regex's prefilter, if one exists.
-    pub fn prefilter(&self) -> Option<&dyn Prefilter> {
-        self.pre.as_ref().map(|x| &**x)
-    }
-
-    /// Create and return a prefilter scanner if this regex has a prefilter.
+    /// Create and return a prefilter scanner if this regex's configuration has
+    /// a prefilter.
     pub fn scanner(&self) -> Option<prefilter::Scanner> {
-        self.prefilter().map(prefilter::Scanner::new)
+        self.get_config().get_prefilter().map(prefilter::Scanner::new)
     }
 }
 
@@ -1070,11 +1094,9 @@ impl Regex {
 /// This iterator can be created with the [`Regex::find_iter`]
 /// method.
 #[derive(Debug)]
-pub struct FindLeftmostMatches<'h, 'c>(
-    iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
-);
+pub struct FindMatches<'h, 'c>(iter::Matches<'h, TryMatchesClosure<'h, 'c>>);
 
-impl<'h, 'c> Iterator for FindLeftmostMatches<'h, 'c> {
+impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
     type Item = Match;
 
     #[inline]
@@ -1124,11 +1146,11 @@ impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
 /// This iterator can be created with the [`Regex::try_find_iter`]
 /// method.
 #[derive(Debug)]
-pub struct TryFindLeftmostMatches<'h, 'c>(
+pub struct TryFindMatches<'h, 'c>(
     iter::TryMatches<'h, TryMatchesClosure<'h, 'c>>,
 );
 
-impl<'h, 'c> Iterator for TryFindLeftmostMatches<'h, 'c> {
+impl<'h, 'c> Iterator for TryFindMatches<'h, 'c> {
     type Item = Result<Match, MatchError>;
 
     #[inline]
@@ -1267,9 +1289,10 @@ impl Cache {
 ///
 /// A regex configuration is a simple data object that is typically used with
 /// [`Builder::configure`].
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     utf8: Option<bool>,
+    pre: Option<Option<Arc<dyn Prefilter>>>,
 }
 
 impl Config {
@@ -1350,6 +1373,16 @@ impl Config {
         self
     }
 
+    /// Attach the given prefilter to this configuration.
+    ///
+    /// The given prefilter is automatically applied to every search done by
+    /// a `Regex`, except for the lower level routines that accept a prefilter
+    /// parameter from the caller.
+    pub fn prefilter(mut self, pre: Option<Arc<dyn Prefilter>>) -> Config {
+        self.pre = Some(pre);
+        self
+    }
+
     /// Returns true if and only if this configuration has UTF-8 mode enabled.
     ///
     /// When UTF-8 mode is enabled and an empty match is seen, the iterators on
@@ -1360,12 +1393,19 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
+    pub fn get_prefilter(&self) -> Option<&dyn Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_deref()
+    }
+
     /// Overwrite the default configuration such that the options in `o` are
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
-    pub(crate) fn overwrite(self, o: Config) -> Config {
-        Config { utf8: o.utf8.or(self.utf8) }
+    pub(crate) fn overwrite(&self, o: Config) -> Config {
+        Config {
+            utf8: o.utf8.or(self.utf8),
+            pre: o.pre.or_else(|| self.pre.clone()),
+        }
     }
 }
 
@@ -1476,9 +1516,8 @@ impl Builder {
         // The congruous method on DFA-backed regexes is exposed, but it's
         // not clear this builder is useful here since lazy DFAs can't be
         // serialized and there is only one type of them.
-        let pre = self.pre.clone();
-        let utf8 = self.config.get_utf8();
-        Regex { pre, forward, reverse, utf8 }
+        let config = self.config.clone();
+        Regex { config, forward, reverse }
     }
 
     /// Apply the given regex configuration options to this builder.
@@ -1517,19 +1556,6 @@ impl Builder {
     /// be heuristically supported or settings how the behavior of the cache.
     pub fn dfa(&mut self, config: dfa::Config) -> &mut Builder {
         self.dfa.configure(config);
-        self
-    }
-
-    /// Attach the given prefilter to this regex.
-    ///
-    /// The given prefilter is automatically applied to every search done by
-    /// a `Regex`, except for the lower level routines that accept a prefilter
-    /// parameter from the caller.
-    pub fn prefilter(
-        &mut self,
-        pre: Option<Arc<dyn Prefilter>>,
-    ) -> &mut Builder {
-        self.pre = pre;
         self
     }
 }

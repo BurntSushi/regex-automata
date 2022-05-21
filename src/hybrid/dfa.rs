@@ -111,16 +111,12 @@ const SENTINEL_STATES: usize = 3;
 /// ```
 #[derive(Clone, Debug)]
 pub struct DFA {
+    config: Config,
     nfa: thompson::NFA,
     stride2: usize,
     classes: ByteClasses,
     quitset: ByteSet,
-    specialize_start_states: bool,
-    anchored: bool,
-    match_kind: MatchKind,
-    starts_for_each_pattern: bool,
     cache_capacity: usize,
-    minimum_cache_clear_count: Option<usize>,
 }
 
 impl DFA {
@@ -379,8 +375,13 @@ impl DFA {
         self.nfa.pattern_len()
     }
 
+    /// Returns this lazy DFA's configuration.
+    pub fn get_config(&self) -> &Config {
+        &self.config
+    }
+
     /// Returns a reference to the underlying NFA.
-    pub fn nfa(&self) -> &thompson::NFA {
+    pub fn get_nfa(&self) -> &thompson::NFA {
         &self.nfa
     }
 
@@ -1566,7 +1567,7 @@ impl Cache {
             starts: alloc::vec![],
             states: alloc::vec![],
             states_to_id: StateMap::new(),
-            sparses: SparseSets::new(dfa.nfa.states().len()),
+            sparses: SparseSets::new(dfa.get_nfa().states().len()),
             stack: alloc::vec![],
             scratch_state_builder: StateBuilderEmpty::new(),
             state_saver: StateSaver::none(),
@@ -1716,8 +1717,8 @@ impl<'i, 'c> Lazy<'i, 'c> {
         let stride2 = self.dfa.stride2();
         let empty_builder = self.get_state_builder();
         let builder = determinize::next(
-            &self.dfa.nfa,
-            self.dfa.match_kind,
+            self.dfa.get_nfa(),
+            self.dfa.get_config().get_match_kind(),
             &mut self.cache.sparses,
             &mut self.cache.stack,
             &self.cache.states[current.as_usize_untagged() >> stride2],
@@ -1759,14 +1760,16 @@ impl<'i, 'c> Lazy<'i, 'c> {
         let nfa_start_id = match pattern_id {
             Some(pid) => {
                 assert!(
-                    self.dfa.starts_for_each_pattern,
+                    self.dfa.get_config().get_starts_for_each_pattern(),
                     "attempted to search for a specific pattern \
                      without enabling starts_for_each_pattern",
                 );
-                self.dfa.nfa.start_pattern(pid)
+                self.dfa.get_nfa().start_pattern(pid)
             }
-            None if self.dfa.anchored => self.dfa.nfa.start_anchored(),
-            None => self.dfa.nfa.start_unanchored(),
+            None if self.dfa.get_config().get_anchored() => {
+                self.dfa.get_nfa().start_anchored()
+            }
+            None => self.dfa.get_nfa().start_unanchored(),
         };
 
         let id = self.cache_start_one(nfa_start_id, start)?;
@@ -1794,7 +1797,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         determinize::set_lookbehind_from_start(&start, &mut builder_matches);
         self.cache.sparses.set1.clear();
         determinize::epsilon_closure(
-            &self.dfa.nfa,
+            &self.dfa.get_nfa(),
             nfa_start_id,
             builder_matches.look_have(),
             &mut self.cache.stack,
@@ -1802,18 +1805,11 @@ impl<'i, 'c> Lazy<'i, 'c> {
         );
         let mut builder = builder_matches.into_nfa();
         determinize::add_nfa_states(
-            &self.dfa.nfa,
+            &self.dfa.get_nfa(),
             &self.cache.sparses.set1,
             &mut builder,
         );
-        // BREADCRUMBS: Holy moly, this can have a HUUUUGE impact on perf
-        // in some cases. Take \w{50} for example. By treating start states
-        // as "special," it causes the DFA search code to constantly bail
-        // out of its hot inner loop, and this in turn reduces throughput
-        // and dramatically increases branch misses. So we REALLY don't want
-        // to treat start states as special unless we really want to (i.e.,
-        // we have a prefix). So this definitely needs to be a config knob...
-        let tag_starts = self.dfa.specialize_start_states;
+        let tag_starts = self.dfa.get_config().get_specialize_start_states();
         self.add_builder_state(builder, |id| {
             if tag_starts {
                 id.to_start()
@@ -1950,7 +1946,9 @@ impl<'i, 'c> Lazy<'i, 'c> {
         // enough. (The original lazy DFA implementation in the 'regex' crate
         // had this heuristic, since the lazy DFA was coupled with the search
         // routines.)
-        if let Some(min_count) = self.dfa.minimum_cache_clear_count {
+        if let Some(min_count) =
+            self.dfa.get_config().get_minimum_cache_clear_count()
+        {
             if self.cache.clear_count >= min_count {
                 return Err(CacheError::too_many_cache_clears());
             }
@@ -1972,7 +1970,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         // If a new DFA is used, it might have a different number of NFA
         // states, so we need to make sure our sparse sets have the appropriate
         // size.
-        self.cache.sparses.resize(self.dfa.nfa.states().len());
+        self.cache.sparses.resize(self.dfa.get_nfa().states().len());
         self.cache.clear_count = 0;
     }
 
@@ -2044,7 +2042,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
     /// initial memory.
     fn init_cache(&mut self) {
         let mut starts_len = Start::count();
-        if self.dfa.starts_for_each_pattern {
+        if self.dfa.get_config().get_starts_for_each_pattern() {
             starts_len += Start::count() * self.dfa.pattern_count();
         }
         self.cache
@@ -2158,7 +2156,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
             None => start_index,
             Some(pid) => {
                 assert!(
-                    self.dfa.starts_for_each_pattern,
+                    self.dfa.get_config().get_starts_for_each_pattern(),
                     "attempted to search for a specific pattern \
                      without enabling starts_for_each_pattern",
                 );
@@ -2388,7 +2386,7 @@ impl StateSaver {
 /// count with [`Config::minimum_cache_clear_count`] can in turn cause a search
 /// to return an error. See the corresponding configuration options for more
 /// details on when those error conditions arise.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     // As with other configuration types in this crate, we put all our knobs
     // in options so that we can distinguish between "default" and "not set."
@@ -3354,7 +3352,7 @@ impl Config {
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
-    fn overwrite(self, o: Config) -> Config {
+    fn overwrite(&self, o: Config) -> Config {
         Config {
             anchored: o.anchored.or(self.anchored),
             match_kind: o.match_kind.or(self.match_kind),
@@ -3569,18 +3567,12 @@ impl Builder {
         }
         let stride2 = classes.stride2();
         Ok(DFA {
+            config: self.config.clone(),
             nfa,
             stride2,
             classes,
             quitset,
-            specialize_start_states: self.config.get_specialize_start_states(),
-            anchored: self.config.get_anchored(),
-            match_kind: self.config.get_match_kind(),
-            starts_for_each_pattern: self.config.get_starts_for_each_pattern(),
             cache_capacity,
-            minimum_cache_clear_count: self
-                .config
-                .get_minimum_cache_clear_count(),
         })
     }
 

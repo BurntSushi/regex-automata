@@ -83,46 +83,9 @@ where
     ///
     /// Note that we mark this cold and forcefully prevent inlining because
     /// handling empty matches like this is extremely rare and does require
-    /// quite a bit of code. Keeping this code out of the main iterator
-    /// function keeps it smaller and more amenable to inlining itself.
-    #[cold]
-    #[inline(never)]
-    fn handle_empty(
-        &mut self,
-        mut m: Match,
-    ) -> Option<Result<Match, MatchError>> {
-        assert!(m.is_empty());
-        // Since an empty match doesn't advance the search position on its own,
-        // we have to do it ourselves.
-        self.search.step();
-        // But! We never permit an empty match to match at the ending position
-        // of the previous match. This makes intuitive sense and matches the
-        // presiding behavior of most general purpose regex engines. So if
-        // the match we have overlaps with the previous one, then we just run
-        // another search and report that.
-        if Some(m.end()) == self.last_match_end {
-            if self.search.is_done() {
-                return None;
-            }
-            m = match (self.finder)(&self.search).transpose()? {
-                Err(err) => return Some(Err(err)),
-                Ok(m) => m,
-            };
-            self.search.set_start(m.end());
-            // This is not striclty necessary, but if we got an empty match
-            // here, then the next call to 'self.finder' should always return
-            // the same result as it previously did, which will cause us to
-            // enter this branch again. But if we advance the search by a step
-            // here---which is what we'll always ultimately wind up doing
-            // anyway---then we can avoid an extra 'self.finder' call on the
-            // next iteration.
-            if m.is_empty() {
-                self.search.step();
-            }
-        }
-        Some(Ok(m))
-    }
-
+    /// quite a bit of code, comparatively. Keeping this code out of the main
+    /// iterator function keeps it smaller and more amenable to inlining
+    /// itself.
     #[cold]
     #[inline(never)]
     fn handle_overlapping_empty_match(
@@ -130,20 +93,6 @@ where
         mut m: Match,
     ) -> Option<Result<Match, MatchError>> {
         assert!(m.is_empty());
-        // This is an optimization that makes matching the empty string a bit
-        // faster by avoiding extra calls to the regex engine. Namely, instead
-        // of forcing the regex engine to detect and skip empty matches that
-        // split codepoints, we detect when an empty match occurs and move
-        // forward in the haystack by one codepoint.
-        //
-        // This helps even in the pure ASCII case, since otherwise we'll
-        // wind up finding the same empty match as the previous search,
-        // and only then do we discard it and try the search again after
-        // incrementing the starting position. So even in the ASCII case, this
-        // cuts the number of calls to the regex engine in half, which can be
-        // substantial for pathological cases like the empty regex that match
-        // at every position.
-        // self.search.step();
         // We never permit an empty match to match at the ending position of
         // the previous match. This makes intuitive sense and matches the
         // presiding behavior of most general purpose regex engines. So if
@@ -249,100 +198,6 @@ impl<'h, F> core::fmt::Debug for Matches<'h, F> {
     }
 }
 
-// BREADCRUMBS: It really just seems like the Captures iterator doesn't belong
-// here. First of all, it's tied to a specific breed of regex engine (currently
-// a Thompson NFA). Second of all, iterating over 'Captures' values is not
-// terribly efficient. It's fine for a super high level API in something like
-// the regex crate, but do we really need to provide it in this crate..?
-//
-// OK, so let's say we don't. And someone wants to loop over all matches via
-// the PikeVM but with capturing groups. Great. So they call PikeVM and pass
-// in a '&mut Captures'. And... how do they deal with empty matches?
-//
-// That's the perennial problem. That's a big reason why these iterator helpers
-// exist in the first place. Is there any way we can solve the sub-problem
-// of dealing with empty matches via a smaller logical component than an
-// iterator? Then folks using the lower level '&mut Captures' API could just
-// use that...
-//
-// The main issue is that dealing with empty matches *really* wants to both
-// be able to control how the cursor is advanced and whether a match result
-// should be accepted.
-//
-// But there is perhaps an easier way to think about this. We can remove the
-// need to care about how we advance (just always adding 1) at the cost of
-// perf in some degenerate cases, which is maybe OK. In that case, the logical
-// implementation looks something like this:
-//
-// prelude:
-//   let (start, end) = (0, haystack.len());
-//   let last_match = None;
-// loop:
-//   let m = next_match(start..end);
-//   while m.is_empty()
-//     && (Some(m.end()) == last_match
-//       || (utf8mode && !is_char_boundary(end))) {
-//     start += 1;
-//     m = next_match(start..end);
-//   }
-//   start = m.end();
-//   last_match = m.end();
-//   yield m
-//
-// Maybe we can just write a simple 'next' higher-order function?
-//
-// Or... what if we really do just handle these cases in the "regex" APIs?
-// That is, the code that is responsible for returning a Match is also
-// responsible for respecting UTF-8..? The major problem there though is that
-// it doesn't prevent the overlapping matches since it doesn't know about the
-// previous match. So I think that piece always has to be a property of
-// iteration unfortunately. But, if we make the regex engine always avoid
-// splitting codepoints, even for empty matches, then iteration itself can
-// be simpler and not worry about UTF-8 at all. So in that case, iteration
-// would look like this I think?
-//
-// prelude:
-//   let (start, end) = (0, haystack.len());
-//   let last_match = None;
-// loop:
-//   let m = next_match(start..end);
-//   if m.is_empty() && Some(m.end()) == last_match {
-//     start += 1;
-//     m = next_match(start..end);
-//   }
-//   start = m.end();
-//   last_match = m.end();
-//   yield m
-//
-// Which isn't a ton simpler, although it does avoid needing to thread down a
-// "UTF-8" parameter and avoids a loop, since when we get an overlapping match,
-// all we need to do is start the next search at +1, which guarantees it won't
-// overlap with the previous. And it does kind of seem like UTF-8-ness should
-// be part of the regex engine anyway. The only reason it isn't currently is
-// because I had always seen it as hard.
-//
-// But the way we would do it in the regex engine is basically exactly how
-// we would do it above: if we get an empty match, we check if it splits a
-// codepoint and if so, increment start position by 1 and try again.
-//
-// The other bummer is that this would mean BOTH the iterators and the regex
-// find routines would have a 'm.is_empty()' check. Probably not a huge deal
-// and is likely very branch-predictor friendly, given that empty matches are
-// themselves rare. (And in general, we don't care too much about the perf of
-// empty matches, because they are typically useless.)
-//
-// It also occurs to me that this might actually alter the leftmost-first match
-// semantics in some way. That is, avoiding the splitting of the codepoint
-// for an empty match can't be done in the DFA (without implementing some
-// kind of crazy look-around), which means that we are skipping over that
-// match at a higher level, which in turn means we might not be skipping over
-// that match in the same way that the regex engine *would* if it could. If
-// that's true, then we should be able to come with an example where the higher
-// level skipping logic is inconsistent with leftmost-first matching... After
-// thinking on it and trying some examples, I don't believe it's possible
-// to get inconsistent matches. Namely, if an empty match is reported, it's
-// because no earlier match is possible and also no longer match is possible.
-
 /// An iterator over all overlapping matches for a fallible search.
 ///
 /// The iterator yields a `Result<Match, MatchError>` value until no more
@@ -398,44 +253,6 @@ where
     pub fn infallible(self) -> OverlappingMatches<'h, F> {
         OverlappingMatches(self)
     }
-
-    /*
-    /// If the given empty match is invalid, then throw it away and keep
-    /// executing the underlying finder until a valid match is returned.
-    ///
-    /// The only way an empty match is invalid is if it splits a UTF-8 encoding
-    /// of a Unicode scalar value when the search has [`Search::utf8`] enabled.
-    /// Otherwise, all empty matches are valid.
-    ///
-    /// The handling of empty matches is otherwise much simpler than it is for
-    /// non-overlapping searches, since overlapping empty matches are perfectly
-    /// fine. We just need to throw away matches that split a codepoint.
-    ///
-    /// Why not do this in the regex engine? An easy way of doing it in the
-    /// regex engine itself eludes me. In particular, some regex engines can
-    /// only report one half of a match, and thus can't actually know whether
-    /// they're reporting an empty match or not and thus cannot special case
-    /// it.
-    #[cold]
-    #[inline(never)]
-    fn skip_invalid_empty_matches(
-        &mut self,
-        mut m: Match,
-    ) -> Option<Result<Match, MatchError>> {
-        assert!(m.is_empty());
-        if !self.search.get_utf8() {
-            return Some(Ok(m));
-        }
-        while m.is_empty() && !self.search.is_char_boundary(m.end()) {
-            m = match (self.finder)(&self.search).transpose()? {
-                Err(err) => return Some(Err(err)),
-                Ok(m) => m,
-            };
-            self.search.set_start(m.end());
-        }
-        Some(Ok(m))
-    }
-    */
 }
 
 impl<'c, 'h, F> Iterator for TryOverlappingMatches<'h, F>
@@ -596,9 +413,14 @@ where
         // Since we both need to make progress *and* prevent overlapping
         // matches, we discard this match and advance the search by 1.
         //
-        // Why not use 'self.search.step()' here? Well, that accounts for
-        // UTF-8, which this iterator cannot handle in the general case because
-        // we cannot detect every empty match.
+        // Note that we do not prevent this iterator from returning an offset
+        // that splits a codepoint. Our other iterators that detect this work
+        // with the full match offsets and so know only to check this case when
+        // an empty match is found. But here, all we have is one half of the
+        // match, which means we don't know if it's empty or not.
+        //
+        // We could prevent *any* match from being returned if it splits a
+        // codepoint, but that seems like it's going too far.
         self.search.set_start(self.search.start().checked_add(1).unwrap());
         if self.search.is_done() {
             return None;

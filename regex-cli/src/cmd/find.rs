@@ -644,7 +644,9 @@ fn search_hybrid_regex(
     match find.kind() {
         config::SearchKind::Earliest => {
             let mut it = iter::TryMatches::new(
-                Search::new(haystack).earliest(true),
+                Search::new(haystack)
+                    .earliest(true)
+                    .utf8(re.get_config().get_utf8()),
                 move |search| re.try_search(cache, None, search),
             );
             for result in it {
@@ -689,7 +691,9 @@ fn search_pikevm(
         config::SearchKind::Earliest => {
             let mut caps = vm.create_captures();
             let mut it = iter::TryMatches::new(
-                Search::new(haystack).earliest(true),
+                Search::new(haystack)
+                    .earliest(true)
+                    .utf8(vm.get_config().get_utf8()),
                 move |search| {
                     vm.search(cache, None, search, &mut caps);
                     Ok(caps.get_match())

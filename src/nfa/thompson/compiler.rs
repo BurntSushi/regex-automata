@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The configuration used for a Thompson NFA compiler.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     reverse: Option<bool>,
     utf8: Option<bool>,
@@ -120,7 +120,7 @@ impl Config {
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
     /// // No match is found, because UTF-8 mode is enabled by default.
-    /// vm.find_leftmost(&mut cache, &*haystack, &mut caps);
+    /// vm.find(&mut cache, &*haystack, &mut caps);
     /// assert!(!caps.is_match());
     ///
     /// // ...but disabling UTF-8 mode permits us to build an NFA that will
@@ -132,7 +132,7 @@ impl Config {
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
     /// let expected = Some(Match::must(0, 1, 4));
-    /// vm.find_leftmost(&mut cache, &*haystack, &mut caps);
+    /// vm.find(&mut cache, &*haystack, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -327,7 +327,7 @@ impl Config {
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
-    pub(crate) fn overwrite(self, o: Config) -> Config {
+    pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             reverse: o.reverse.or(self.reverse),
             utf8: o.utf8.or(self.utf8),
@@ -412,7 +412,7 @@ mutably both inside and outside the closure at the same time.
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
 /// let expected = Some(Match::must(0, 3, 4));
-/// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
+/// vm.find(&mut cache, "!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -444,7 +444,7 @@ mutably both inside and outside the closure at the same time.
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
 /// let expected = Some(Match::must(0, 3, 4));
-/// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
+/// vm.find(&mut cache, "!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -505,7 +505,7 @@ impl Compiler {
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
     /// let expected = Some(Match::must(0, 3, 4));
-    /// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
+    /// vm.find(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -534,7 +534,7 @@ impl Compiler {
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
     /// let expected = Some(Match::must(1, 1, 2));
-    /// vm.find_leftmost(&mut cache, b"!A! !A!", &mut caps);
+    /// vm.find(&mut cache, "!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -585,7 +585,7 @@ impl Compiler {
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
     /// let expected = Some(Match::must(0, 3, 4));
-    /// vm.find_leftmost(&mut cache, b"!@#A#@!", &mut caps);
+    /// vm.find(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -626,7 +626,7 @@ impl Compiler {
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
     /// let expected = Some(Match::must(1, 1, 2));
-    /// vm.find_leftmost(&mut cache, b"!A! !A!", &mut caps);
+    /// vm.find(&mut cache, "!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
