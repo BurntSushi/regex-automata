@@ -6,76 +6,70 @@ use crate::{
     util::{
         id::{PatternID, StateID},
         prefilter,
-        search::{HalfMatch, Span, MATCH_OFFSET},
+        search::{HalfMatch, Search, Span, MATCH_OFFSET},
     },
     MatchError,
 };
 
 #[inline(never)]
-pub fn find_earliest_fwd<A: Automaton + ?Sized>(
-    pre: Option<&mut prefilter::Scanner>,
+pub fn find_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    pre: Option<&mut prefilter::Scanner>,
+    search: &Search<'_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    // Searching with a pattern ID is always anchored, so we should never use
-    // a prefilter.
-    if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, true, dfa, pattern_id, haystack, start, end)
-    } else {
-        find_fwd(None, true, dfa, pattern_id, haystack, start, end)
+    if search.is_done() {
+        return Ok(None);
     }
-}
-
-#[inline(never)]
-pub fn find_leftmost_fwd<A: Automaton + ?Sized>(
-    pre: Option<&mut prefilter::Scanner>,
-    dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
-) -> Result<Option<HalfMatch>, MatchError> {
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
-    if pre.is_some() && pattern_id.is_none() {
-        find_fwd(pre, false, dfa, pattern_id, haystack, start, end)
+    if pre.is_some() && search.get_pattern().is_none() {
+        if search.get_earliest() {
+            find_fwd_imp(dfa, pre, search, true)
+        } else {
+            find_fwd_imp(dfa, pre, search, false)
+        }
     } else {
-        find_fwd(None, false, dfa, pattern_id, haystack, start, end)
+        if search.get_earliest() {
+            find_fwd_imp(dfa, None, search, true)
+        } else {
+            find_fwd_imp(dfa, None, search, false)
+        }
     }
 }
 
 #[inline(always)]
-fn find_fwd<A: Automaton + ?Sized>(
-    mut pre: Option<&mut prefilter::Scanner>,
-    earliest: bool,
+fn find_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    mut pre: Option<&mut prefilter::Scanner>,
+    search: &Search<'_>,
+    earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    assert!(start <= end);
-    assert!(start <= haystack.len());
-    assert!(end <= haystack.len());
+    let mut sid = init_fwd(dfa, search)?;
+    let mut last_match = None;
+    let mut at = search.start();
+    // This could just be a closure, but then I think it would be unsound
+    // because it would need to be safe to invoke. This way, the lack of safety
+    // is clearer in the code below.
+    macro_rules! next_unchecked {
+        ($sid:expr, $at:expr) => {{
+            let byte = *search.haystack().get_unchecked($at);
+            dfa.next_state_unchecked($sid, byte)
+        }};
+    }
 
-    let mut sid = init_fwd(dfa, pattern_id, haystack, start, end)?;
-    let (mut last_match, mut at) = (None, start);
     if let Some(ref mut pre) = pre {
-        let span = Span::new(at, end);
+        let span = Span::new(at, search.end());
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
         if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
-            return Ok(pre.find(haystack, span).into_option().map(|offset| {
-                HalfMatch { pattern: PatternID::ZERO, offset }
-            }));
+            return Ok(pre.find(search.haystack(), span).into_option().map(
+                |offset| HalfMatch { pattern: PatternID::ZERO, offset },
+            ));
         } else if pre.is_effective(at) {
-            match pre.find(haystack, span).into_option() {
+            match pre.find(search.haystack(), span).into_option() {
                 None => return Ok(None),
                 Some(i) => {
                     at = i;
@@ -83,12 +77,7 @@ fn find_fwd<A: Automaton + ?Sized>(
             }
         }
     }
-    macro_rules! next_unchecked {
-        ($sid:expr, $at:expr) => {{
-            dfa.next_state_unchecked($sid, *haystack.get_unchecked($at))
-        }};
-    }
-    while at < end {
+    while at < search.end() {
         // SAFETY: There are two safety invariants we need to uphold here in
         // the loops below: that 'sid' and 'prev_sid' are valid state IDs
         // for this DFA, and that 'at' is a valid index into 'haystack'.
@@ -103,9 +92,9 @@ fn find_fwd<A: Automaton + ?Sized>(
         // this extra work to make the search loop fast. The same reasoning and
         // benchmarks apply here.
         let mut prev_sid = sid;
-        while at < end {
+        while at < search.end() {
             prev_sid = unsafe { next_unchecked!(sid, at) };
-            if dfa.is_special_state(prev_sid) || at + 3 >= end {
+            if dfa.is_special_state(prev_sid) || at + 3 >= search.end() {
                 core::mem::swap(&mut prev_sid, &mut sid);
                 break;
             }
@@ -131,7 +120,7 @@ fn find_fwd<A: Automaton + ?Sized>(
             at += 1;
 
             if prev_sid == sid {
-                while at + 4 < end {
+                while at + 4 < search.end() {
                     let next = unsafe { next_unchecked!(sid, at) };
                     if sid != next {
                         break;
@@ -162,8 +151,8 @@ fn find_fwd<A: Automaton + ?Sized>(
             if dfa.is_start_state(sid) {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
-                        let span = Span::new(at, end);
-                        match pre.find(haystack, span).into_option() {
+                        let span = Span::new(at, search.end());
+                        match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
@@ -178,7 +167,8 @@ fn find_fwd<A: Automaton + ?Sized>(
                     }
                 } else if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_fwd(needles, haystack, at).unwrap_or(end);
+                    at = accel::find_fwd(needles, search.haystack(), at)
+                        .unwrap_or(search.end());
                     continue;
                 }
             } else if dfa.is_match_state(sid) {
@@ -189,12 +179,14 @@ fn find_fwd<A: Automaton + ?Sized>(
                 }
                 if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_fwd(needles, haystack, at).unwrap_or(end);
+                    at = accel::find_fwd(needles, search.haystack(), at)
+                        .unwrap_or(search.end());
                     continue;
                 }
             } else if dfa.is_accel_state(sid) {
                 let needs = dfa.accelerator(sid);
-                at = accel::find_fwd(needs, haystack, at).unwrap_or(end);
+                at = accel::find_fwd(needs, search.haystack(), at)
+                    .unwrap_or(search.end());
                 continue;
             } else if dfa.is_dead_state(sid) {
                 return Ok(last_match);
@@ -204,74 +196,63 @@ fn find_fwd<A: Automaton + ?Sized>(
                     return Ok(last_match);
                 }
                 return Err(MatchError::Quit {
-                    byte: haystack[at],
+                    byte: search.haystack()[at],
                     offset: at,
                 });
             }
         }
         at += 1;
     }
-    Ok(eoi_fwd(dfa, haystack, end, &mut sid)?.or(last_match))
+    Ok(eoi_fwd(dfa, search, &mut sid)?.or(last_match))
 }
 
 #[inline(never)]
-pub fn find_earliest_rev<A: Automaton + ?Sized>(
+pub fn find_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<'_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(true, dfa, pattern_id, haystack, start, end)
-}
-
-#[inline(never)]
-pub fn find_leftmost_rev<A: Automaton + ?Sized>(
-    dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
-) -> Result<Option<HalfMatch>, MatchError> {
-    find_rev(false, dfa, pattern_id, haystack, start, end)
+    if search.is_done() {
+        return Ok(None);
+    }
+    if search.get_earliest() {
+        find_rev_imp(dfa, search, true)
+    } else {
+        find_rev_imp(dfa, search, false)
+    }
 }
 
 #[inline(always)]
-fn find_rev<A: Automaton + ?Sized>(
-    earliest: bool,
+fn find_rev_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<'_>,
+    earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    assert!(start <= end);
-    assert!(start <= haystack.len());
-    assert!(end <= haystack.len());
-
-    let mut sid = init_rev(dfa, pattern_id, haystack, start, end)?;
+    let mut sid = init_rev(dfa, search)?;
     // In reverse search, the loop below can't handle the case of searching an
     // empty slice. Ideally we could write something congruent to the forward
     // search, i.e., 'while at >= start', but 'start' might be 0. Since we use
     // an unsigned offset, 'at >= 0' is trivially always true. We could avoid
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
-    if start == end {
-        return Ok(eoi_rev(dfa, haystack, start, sid)?);
+    if search.start() == search.end() {
+        return Ok(eoi_rev(dfa, search, sid)?);
     }
 
-    let (mut last_match, mut at) = (None, end - 1);
+    let mut last_match = None;
+    let mut at = search.end() - 1;
     macro_rules! next_unchecked {
         ($sid:expr, $at:expr) => {{
-            dfa.next_state_unchecked($sid, *haystack.get_unchecked($at))
+            let byte = *search.haystack().get_unchecked($at);
+            dfa.next_state_unchecked($sid, byte)
         }};
     }
     loop {
         // SAFETY: See comments in 'find_fwd' for a safety argument.
         let mut prev_sid = sid;
-        while at >= start {
+        while at >= search.start() {
             prev_sid = unsafe { next_unchecked!(sid, at) };
-            if dfa.is_special_state(prev_sid) || at <= start.saturating_add(3)
+            if dfa.is_special_state(prev_sid)
+                || at <= search.start().saturating_add(3)
             {
                 core::mem::swap(&mut prev_sid, &mut sid);
                 break;
@@ -298,7 +279,7 @@ fn find_rev<A: Automaton + ?Sized>(
             at -= 1;
 
             if prev_sid == sid {
-                while at > start.saturating_add(3) {
+                while at > search.start().saturating_add(3) {
                     let next = unsafe { next_unchecked!(sid, at) };
                     if sid != next {
                         break;
@@ -329,9 +310,9 @@ fn find_rev<A: Automaton + ?Sized>(
             if dfa.is_start_state(sid) {
                 if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_rev(needles, haystack, at)
+                    at = accel::find_rev(needles, search.haystack(), at)
                         .map(|i| i + 1)
-                        .unwrap_or(start);
+                        .unwrap_or(search.start());
                 }
             } else if dfa.is_match_state(sid) {
                 last_match = Some(HalfMatch {
@@ -348,9 +329,9 @@ fn find_rev<A: Automaton + ?Sized>(
                 }
                 if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_rev(needles, haystack, at)
+                    at = accel::find_rev(needles, search.haystack(), at)
                         .map(|i| i + 1)
-                        .unwrap_or(start);
+                        .unwrap_or(search.start());
                 }
             } else if dfa.is_accel_state(sid) {
                 let needles = dfa.accelerator(sid);
@@ -361,9 +342,9 @@ fn find_rev<A: Automaton + ?Sized>(
                 // byte values. However, there might be an EOI transition. So
                 // we set 'at' to the end of the haystack, which will cause
                 // this loop to stop and fall down into the EOI transition.
-                at = accel::find_rev(needles, haystack, at)
+                at = accel::find_rev(needles, search.haystack(), at)
                     .map(|i| i + 1)
-                    .unwrap_or(start);
+                    .unwrap_or(search.start());
             } else if dfa.is_dead_state(sid) {
                 return Ok(last_match);
             } else {
@@ -372,39 +353,35 @@ fn find_rev<A: Automaton + ?Sized>(
                     return Ok(last_match);
                 }
                 return Err(MatchError::Quit {
-                    byte: haystack[at],
+                    byte: search.haystack()[at],
                     offset: at,
                 });
             }
         }
-        if at == start {
+        if at == search.start() {
             break;
         }
         at -= 1;
     }
-    Ok(eoi_rev(dfa, haystack, start, sid)?.or(last_match))
+    Ok(eoi_rev(dfa, search, sid)?.or(last_match))
 }
 
 #[inline(never)]
 pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
-    pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    pre: Option<&mut prefilter::Scanner>,
+    search: &Search<'_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
+    if search.is_done() {
+        return Ok(None);
+    }
     // Searching with a pattern ID is always anchored, so we should only ever
     // use a prefilter when no pattern ID is given.
-    if pre.is_some() && pattern_id.is_none() {
-        find_overlapping_fwd_imp(
-            pre, dfa, pattern_id, haystack, start, end, state,
-        )
+    if pre.is_some() && search.get_pattern().is_none() {
+        find_overlapping_fwd_imp(dfa, pre, search, state)
     } else {
-        find_overlapping_fwd_imp(
-            None, dfa, pattern_id, haystack, start, end, state,
-        )
+        find_overlapping_fwd_imp(dfa, None, search, state)
     }
 }
 
@@ -418,20 +395,14 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
 /// start-of-match handling for forward searches.
 #[inline(always)]
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
-    mut pre: Option<&mut prefilter::Scanner>,
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    mut start: usize,
-    end: usize,
+    mut pre: Option<&mut prefilter::Scanner>,
+    search: &Search<'_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    assert!(start <= end);
-    assert!(start <= haystack.len());
-    assert!(end <= haystack.len());
-
+    let mut at = search.start();
     let mut sid = match state.id() {
-        None => init_fwd(dfa, pattern_id, haystack, start, end)?,
+        None => init_fwd(dfa, search)?,
         Some(sid) => {
             if let Some(last) = state.last_match() {
                 let match_count = dfa.match_count(sid);
@@ -474,7 +445,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             // dealing with empty matches convenient. Namely, callers needn't
             // special case them when implementing an iterator. Instead, this
             // ensures that forward progress is always made.
-            start += MATCH_OFFSET;
+            at += MATCH_OFFSET;
             sid
         }
     };
@@ -483,16 +454,15 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     // it seems like most find_overlapping searches will have higher match
     // counts, and thus, throughput is perhaps not as important. But if you
     // have a use case for something faster, feel free to file an issue.
-    let mut at = start;
-    while at < end {
-        sid = dfa.next_state(sid, haystack[at]);
+    while at < search.end() {
+        sid = dfa.next_state(sid, search.haystack()[at]);
         if dfa.is_special_state(sid) {
             state.set_id(sid);
             if dfa.is_start_state(sid) {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
-                        let span = Span::new(at, end);
-                        match pre.find(haystack, span).into_option() {
+                        let span = Span::new(at, search.end());
+                        match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
@@ -502,7 +472,8 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                     }
                 } else if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_fwd(needles, haystack, at).unwrap_or(end);
+                    at = accel::find_fwd(needles, search.haystack(), at)
+                        .unwrap_or(search.end());
                     continue;
                 }
             } else if dfa.is_match_state(sid) {
@@ -521,14 +492,15 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                 // byte values. However, there might be an EOI transition. So
                 // we set 'at' to the end of the haystack, which will cause
                 // this loop to stop and fall down into the EOI transition.
-                at = accel::find_fwd(needs, haystack, at).unwrap_or(end);
+                at = accel::find_fwd(needs, search.haystack(), at)
+                    .unwrap_or(search.end());
                 continue;
             } else if dfa.is_dead_state(sid) {
                 return Ok(None);
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
                 return Err(MatchError::Quit {
-                    byte: haystack[at],
+                    byte: search.haystack()[at],
                     offset: at,
                 });
             }
@@ -536,7 +508,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
         at += 1;
     }
 
-    let result = eoi_fwd(dfa, haystack, end, &mut sid);
+    let result = eoi_fwd(dfa, search, &mut sid);
     state.set_id(sid);
     if let Ok(Some(ref last_match)) = result {
         state.set_last_match(StateMatch {
@@ -550,12 +522,9 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
 #[inline(always)]
 fn init_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<'_>,
 ) -> Result<StateID, MatchError> {
-    let state = dfa.start_state_forward(pattern_id, haystack, start, end);
+    let state = dfa.start_state_forward(search);
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     assert!(!dfa.is_match_state(state));
@@ -565,12 +534,9 @@ fn init_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn init_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    pattern_id: Option<PatternID>,
-    haystack: &[u8],
-    start: usize,
-    end: usize,
+    search: &Search<'_>,
 ) -> Result<StateID, MatchError> {
-    let state = dfa.start_state_reverse(pattern_id, haystack, start, end);
+    let state = dfa.start_state_reverse(search);
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     assert!(!dfa.is_match_state(state));
@@ -580,17 +546,16 @@ fn init_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn eoi_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    haystack: &[u8],
-    end: usize,
+    search: &Search<'_>,
     sid: &mut StateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    match haystack.get(end) {
+    match search.haystack().get(search.end()) {
         Some(&b) => {
             *sid = dfa.next_state(*sid, b);
             if dfa.is_match_state(*sid) {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(*sid, 0),
-                    offset: end,
+                    offset: search.end(),
                 }))
             } else {
                 Ok(None)
@@ -601,7 +566,7 @@ fn eoi_fwd<A: Automaton + ?Sized>(
             if dfa.is_match_state(*sid) {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(*sid, 0),
-                    offset: end,
+                    offset: search.end(),
                 }))
             } else {
                 Ok(None)
@@ -613,16 +578,15 @@ fn eoi_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    haystack: &[u8],
-    start: usize,
+    search: &Search<'_>,
     sid: StateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    if start > 0 {
-        let sid = dfa.next_state(sid, haystack[start - 1]);
+    if search.start() > 0 {
+        let sid = dfa.next_state(sid, search.haystack()[search.start() - 1]);
         if dfa.is_match_state(sid) {
             Ok(Some(HalfMatch {
                 pattern: dfa.match_pattern(sid, 0),
-                offset: start,
+                offset: search.start(),
             }))
         } else {
             Ok(None)

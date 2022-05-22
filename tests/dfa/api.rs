@@ -16,10 +16,6 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
         .build("[[:word:]]+$")?;
 
     assert_eq!(
-        dfa.find_earliest_fwd(b"abcxyz"),
-        Err(MatchError::Quit { byte: b'x', offset: 3 })
-    );
-    assert_eq!(
         dfa.find_leftmost_fwd(b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
@@ -39,10 +35,6 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
         .thompson(thompson::Config::new().reverse(true))
         .build("^[[:word:]]+")?;
 
-    assert_eq!(
-        dfa.find_earliest_rev(b"abcxyz"),
-        Err(MatchError::Quit { byte: b'x', offset: 3 })
-    );
     assert_eq!(
         dfa.find_leftmost_rev(b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })

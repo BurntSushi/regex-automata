@@ -142,14 +142,16 @@ impl Config {
     /// message).
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Search};
     ///
     /// let haystack = "aba".as_bytes();
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"^a")?;
-    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 2, 3)?;
+    /// let got = dfa.find_leftmost_fwd_at(
+    ///     None, &Search::new(haystack).range(2..3),
+    /// )?;
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
     /// let expected = None;
@@ -158,7 +160,9 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 2, 3)?;
+    /// let got = dfa.find_leftmost_fwd_at(
+    ///     None, &Search::new(haystack).range(2..3),
+    /// )?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
     /// let expected = Some(HalfMatch::must(0, 3));
@@ -167,7 +171,9 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 1, 3)?;
+    /// let got = dfa.find_leftmost_fwd_at(
+    ///     None, &Search::new(haystack).range(1..3),
+    /// )?;
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
     /// // is found.
@@ -177,7 +183,9 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"a")?;
-    /// let got = dfa.find_leftmost_fwd_at(None, None, haystack, 1, 3)?;
+    /// let got = dfa.find_leftmost_fwd_at(
+    ///     None, &Search::new(haystack).range(1..3),
+    /// )?;
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
     /// // prefix allows the search to match 'a'.
@@ -324,7 +332,10 @@ impl Config {
     /// you, so it's usually not necessary to do this yourself.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, MatchKind};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch, MatchKind, Search,
+    /// };
     ///
     /// let haystack = "123foobar456".as_bytes();
     /// let pattern = r"[a-z]+";
@@ -347,7 +358,7 @@ impl Config {
     /// // requires building the reverse automaton with starts_for_each_pattern
     /// // enabled. Indeed, this is what Regex does internally.
     /// let got_rev = dfa_rev.find_leftmost_rev_at(
-    ///     None, haystack, 0, got_fwd.offset(),
+    ///     &Search::new(haystack).range(..got_fwd.offset()),
     /// )?.unwrap();
     /// assert_eq!(expected_fwd, got_fwd);
     /// assert_eq!(expected_rev, got_rev);
@@ -400,7 +411,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, PatternID,
+    ///     HalfMatch, PatternID, Search,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -413,7 +424,7 @@ impl Config {
     /// // use its default unanchored starting state.
     /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
-    ///     None, None, haystack, 0, haystack.len(),
+    ///     None, &Search::new(haystack),
     /// )?);
     /// // But now if we explicitly specify the pattern to search ('0' being
     /// // the only pattern in the DFA), then it will use the starting state
@@ -421,14 +432,15 @@ impl Config {
     /// // pattern doesn't have a match at the beginning of the haystack, we
     /// // find nothing.
     /// assert_eq!(None, dfa.find_leftmost_fwd_at(
-    ///     None, Some(PatternID::must(0)), haystack, 0, haystack.len(),
+    ///     None, &Search::new(haystack).pattern(Some(PatternID::must(0))),
     /// )?);
     /// // And finally, an anchored search is not the same as putting a '^' at
     /// // beginning of the pattern. An anchored search can only match at the
     /// // beginning of the *search*, which we can change:
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
-    ///     None, Some(PatternID::must(0)), haystack, 5, haystack.len(),
-    /// )?);
+    /// let search = Search::new(haystack)
+    ///     .pattern(Some(PatternID::must(0)))
+    ///     .range(5..);
+    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(None, &search)?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -661,14 +673,14 @@ impl Config {
     /// shows how to check whether a state is a start state or not.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, Search};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().specialize_start_states(true))
     ///     .build(r"[a-z]+")?;
     ///
     /// let haystack = "123 foobar 4567".as_bytes();
-    /// let sid = dfa.start_state_forward(None, haystack, 0, haystack.len());
+    /// let sid = dfa.start_state_forward(&Search::new(haystack));
     /// // The ID returned by 'start_state_forward' will always be tagged as
     /// // a start state when start state specialization is enabled.
     /// assert!(dfa.is_special_state(sid));
@@ -682,12 +694,12 @@ impl Config {
     /// is not tagged and `sid.is_start()` returns false.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, Search};
     ///
     /// let dfa = DFA::new(r"[a-z]+")?;
     ///
-    /// let haystack = "123 foobar 4567".as_bytes();
-    /// let sid = dfa.start_state_forward(None, haystack, 0, haystack.len());
+    /// let haystack = "123 foobar 4567";
+    /// let sid = dfa.start_state_forward(&Search::new(haystack));
     /// // Start states are not special in the default configuration!
     /// assert!(!dfa.is_special_state(sid));
     /// assert!(!dfa.is_start_state(sid));
@@ -1417,9 +1429,9 @@ impl<T: AsRef<[u32]>> DFA<T> {
     ///
     /// When a DFA has starting states for each pattern, then a search with the
     /// DFA can be configured to only look for anchored matches of a specific
-    /// pattern. Specifically, APIs like [`Automaton::find_earliest_fwd_at`]
+    /// pattern. Specifically, APIs like [`Automaton::find_leftmost_fwd_at`]
     /// can accept a non-None `pattern_id` if and only if this method returns
-    /// true. Otherwise, calling `find_earliest_fwd_at` will panic.
+    /// true. Otherwise, calling `find_leftmost_fwd_at` will panic.
     ///
     /// Note that if the DFA has no patterns, this always returns false.
     pub fn has_starts_for_each_pattern(&self) -> bool {
@@ -2894,31 +2906,15 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn start_state_forward(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID {
-        // TODO: Ask for a Search instead of making one.
-        let search = Search::new(bytes).range(start..end);
+    fn start_state_forward(&self, search: &Search<'_>) -> StateID {
         let index = Start::from_position_fwd(&search);
-        self.st.start(index, pattern_id)
+        self.st.start(index, search.get_pattern())
     }
 
     #[inline]
-    fn start_state_reverse(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID {
-        // TODO: Ask for a Search instead of making one.
-        let search = Search::new(bytes).range(start..end);
+    fn start_state_reverse(&self, search: &Search<'_>) -> StateID {
         let index = Start::from_position_rev(&search);
-        self.st.start(index, pattern_id)
+        self.st.start(index, search.get_pattern())
     }
 
     #[inline(always)]

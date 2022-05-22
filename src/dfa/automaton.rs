@@ -3,7 +3,7 @@ use crate::{
     util::{
         id::{PatternID, StateID},
         prefilter,
-        search::{HalfMatch, MatchError},
+        search::{HalfMatch, MatchError, Search},
     },
 };
 
@@ -118,16 +118,14 @@ pub unsafe trait Automaton {
     /// by using the `next_state` method.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, Search};
     ///
     /// let dfa = dense::DFA::new(r"[a-z]+r")?;
     /// let haystack = "bar".as_bytes();
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(
-    ///     None, haystack, 0, haystack.len(),
-    /// );
+    /// let mut state = dfa.start_state_forward(&Search::new(haystack));
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -195,16 +193,14 @@ pub unsafe trait Automaton {
     /// and then finishing the search with the final EOI transition.
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, Search};
     ///
     /// let dfa = dense::DFA::new(r"[a-z]+r")?;
     /// let haystack = "bar".as_bytes();
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(
-    ///     None, haystack, 0, haystack.len(),
-    /// );
+    /// let mut state = dfa.start_state_forward(&Search::new(haystack));
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -249,13 +245,7 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_forward(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID;
+    fn start_state_forward(&self, search: &Search<'_>) -> StateID;
 
     /// Return the ID of the start state for this DFA when executing a reverse
     /// search.
@@ -285,13 +275,7 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_reverse(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID;
+    fn start_state_reverse(&self, search: &Search<'_>) -> StateID;
 
     /// Returns true if and only if the given identifier corresponds to a
     /// "special" state. A special state is one or more of the following:
@@ -322,7 +306,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchError, PatternID,
+    ///     HalfMatch, MatchError, PatternID, Search,
     /// };
     ///
     /// fn find_leftmost_first<A: Automaton>(
@@ -333,9 +317,7 @@ pub unsafe trait Automaton {
     ///     // initial bytes of the haystack. Note that start states can never
     ///     // be match states (since DFAs in this crate delay matches by 1
     ///     // byte), so we don't need to check if the start state is a match.
-    ///     let mut state = dfa.start_state_forward(
-    ///         None, haystack, 0, haystack.len(),
-    ///     );
+    ///     let mut state = dfa.start_state_forward(&Search::new(haystack));
     ///     let mut last_match = None;
     ///     // Walk all the bytes in the haystack. We can quit early if we see
     ///     // a dead or a quit state. The former means the automaton will
@@ -561,9 +543,8 @@ pub unsafe trait Automaton {
     ///
     /// ```
     /// use regex_automata::{
-    ///     MatchError, PatternID,
-    ///     dfa::{Automaton, dense::DFA},
-    ///     HalfMatch,
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch, MatchError, PatternID, Search,
     /// };
     ///
     /// fn find_byte(slice: &[u8], at: usize, byte: u8) -> Option<usize> {
@@ -580,9 +561,7 @@ pub unsafe trait Automaton {
     ///     // See the Automaton::is_special_state example for similar code
     ///     // with more comments.
     ///
-    ///     let mut state = dfa.start_state_forward(
-    ///         None, haystack, 0, haystack.len(),
-    ///     );
+    ///     let mut state = dfa.start_state_forward(&Search::new(haystack));
     ///     let mut last_match = None;
     ///     let mut pos = 0;
     ///     while pos < haystack.len() {
@@ -638,8 +617,8 @@ pub unsafe trait Automaton {
     /// // enable start state specialization, or else it won't be possible to
     /// // detect start states during a search. ('is_start_state' would always
     /// // return false.)
-    /// let dfa = DFA::builder()
-    ///     .configure(DFA::config().specialize_start_states(true))
+    /// let dfa = dense::DFA::builder()
+    ///     .configure(dense::DFA::config().specialize_start_states(true))
     ///     .build(r"Z[a-z]+")?;
     /// let haystack = "123 foobar Zbaz quux".as_bytes();
     /// let mat = find_leftmost_first(&dfa, haystack, Some(b'Z'))?.unwrap();
@@ -785,10 +764,7 @@ pub unsafe trait Automaton {
     /// other.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     MatchKind,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, dense}, MatchKind, Search};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
@@ -799,9 +775,7 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(
-    ///     None, haystack, 0, haystack.len(),
-    /// );
+    /// let mut state = dfa.start_state_forward(&Search::new(haystack));
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -894,134 +868,9 @@ pub unsafe trait Automaton {
     /// assert_eq!(accelerator, &[b'a', b'b', b'c']);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     fn accelerator(&self, _id: StateID) -> &[u8] {
         &[]
-    }
-
-    /// Executes a forward search and returns the end position of the first
-    /// match that is found as early as possible. If no match exists, then
-    /// `None` is returned.
-    ///
-    /// This routine stops scanning input as soon as the search observes a
-    /// match state. This is useful for implementing boolean `is_match`-like
-    /// routines, where as little work is done as possible.
-    ///
-    /// See [`Automaton::find_earliest_fwd_at`] for additional functionality,
-    /// such as providing a prefilter, a specific pattern to match and the
-    /// bounds of the search within the haystack. This routine is meant as
-    /// a convenience for common cases where the additional functionality is
-    /// not needed.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFAs generated by this crate, this only occurs in a non-default
-    /// configuration where quit bytes are used or Unicode word boundaries are
-    /// heuristically enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// # Example
-    ///
-    /// This example shows how to use this method with a
-    /// [`dense::DFA`](crate::dfa::dense::DFA). In particular, it demonstrates
-    /// how the position returned might differ from what one might expect when
-    /// executing a traditional leftmost search.
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     HalfMatch,
-    /// };
-    ///
-    /// let dfa = dense::DFA::new("foo[0-9]+")?;
-    /// // Normally, the end of the leftmost first match here would be 8,
-    /// // corresponding to the end of the input. But the "earliest" semantics
-    /// // this routine cause it to stop as soon as a match is known, which
-    /// // occurs once 'foo[0-9]' has matched.
-    /// let expected = HalfMatch::must(0, 4);
-    /// assert_eq!(Some(expected), dfa.find_earliest_fwd(b"foo12345")?);
-    ///
-    /// let dfa = dense::DFA::new("abc|a")?;
-    /// // Normally, the end of the leftmost first match here would be 3,
-    /// // but the shortest match semantics detect a match earlier.
-    /// let expected = HalfMatch::must(0, 1);
-    /// assert_eq!(Some(expected), dfa.find_earliest_fwd(b"abc")?);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    fn find_earliest_fwd(
-        &self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_earliest_fwd_at(None, None, bytes, 0, bytes.len())
-    }
-
-    /// Executes a reverse search and returns the start position of the first
-    /// match that is found as early as possible. If no match exists, then
-    /// `None` is returned.
-    ///
-    /// This routine stops scanning input as soon as the search observes a
-    /// match state.
-    ///
-    /// Note that while it is not technically necessary to build a reverse
-    /// automaton to use a reverse search, it is likely that you'll want to do
-    /// so. Namely, the typical use of a reverse search is to find the starting
-    /// location of a match once its end is discovered from a forward search. A
-    /// reverse DFA automaton can be built by configuring the intermediate NFA
-    /// to be reversed via
-    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse).
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFAs generated by this crate, this only occurs in a non-default
-    /// configuration where quit bytes are used or Unicode word boundaries are
-    /// heuristically enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// # Example
-    ///
-    /// This example shows how to use this method with a
-    /// [`dense::DFA`](crate::dfa::dense::DFA). In particular, it demonstrates
-    /// how the position returned might differ from what one might expect when
-    /// executing a traditional leftmost reverse search.
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson,
-    ///     dfa::{Automaton, dense},
-    ///     HalfMatch,
-    /// };
-    ///
-    /// let dfa = dense::Builder::new()
-    ///     .thompson(thompson::Config::new().reverse(true))
-    ///     .build("[a-z]+[0-9]+")?;
-    /// // Normally, the end of the leftmost first match here would be 0,
-    /// // corresponding to the beginning of the input. But the "earliest"
-    /// // semantics of this routine cause it to stop as soon as a match is
-    /// // known, which occurs once '[a-z][0-9]+' has matched.
-    /// let expected = HalfMatch::must(0, 2);
-    /// assert_eq!(Some(expected), dfa.find_earliest_rev(b"foo12345")?);
-    ///
-    /// let dfa = dense::Builder::new()
-    ///     .thompson(thompson::Config::new().reverse(true))
-    ///     .build("abc|c")?;
-    /// // Normally, the end of the leftmost first match here would be 0,
-    /// // but the shortest match semantics detect a match earlier.
-    /// let expected = HalfMatch::must(0, 2);
-    /// assert_eq!(Some(expected), dfa.find_earliest_rev(b"abc")?);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    fn find_earliest_rev(
-        &self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_earliest_rev_at(None, bytes, 0, bytes.len())
     }
 
     /// Executes a forward search and returns the end position of the leftmost
@@ -1093,9 +942,9 @@ pub unsafe trait Automaton {
     #[inline]
     fn find_leftmost_fwd(
         &self,
-        bytes: &[u8],
+        haystack: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_leftmost_fwd_at(None, None, bytes, 0, bytes.len())
+        self.find_leftmost_fwd_at(None, &Search::new(haystack))
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -1165,9 +1014,9 @@ pub unsafe trait Automaton {
     #[inline]
     fn find_leftmost_rev(
         &self,
-        bytes: &[u8],
+        haystack: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_leftmost_rev_at(None, bytes, 0, bytes.len())
+        self.find_leftmost_rev_at(&Search::new(haystack))
     }
 
     /// Executes an overlapping forward search and returns the end position of
@@ -1236,40 +1085,18 @@ pub unsafe trait Automaton {
     #[inline]
     fn find_overlapping_fwd(
         &self,
-        bytes: &[u8],
+        haystack: &[u8],
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.find_overlapping_fwd_at(None, None, bytes, 0, bytes.len(), state)
+        let search = Search::new(haystack);
+        self.find_overlapping_fwd_at(None, &Search::new(haystack), state)
     }
 
-    /// Executes a forward search and returns the end position of the first
-    /// match that is found as early as possible. If no match exists, then
-    /// `None` is returned.
+    /// Executes a forward search and returns the end position of the leftmost
+    /// match that is found. If no match exists, then `None` is returned.
     ///
-    /// This routine stops scanning input as soon as the search observes a
-    /// match state. This is useful for implementing boolean `is_match`-like
-    /// routines, where as little work is done as possible.
-    ///
-    /// This is like [`Automaton::find_earliest_fwd`], except it provides some
-    /// additional control over how the search is executed:
-    ///
-    /// * `pre` is a prefilter scanner that, when given, is used whenever the
-    /// DFA enters its starting state. This is meant to speed up searches where
-    /// one or a small number of literal prefixes are known.
-    /// * `pattern_id` specifies a specific pattern in the DFA to run an
-    /// anchored search for. If not given, then a search for any pattern is
-    /// performed. For DFAs built by this crate,
-    /// [`dense::Config::starts_for_each_pattern`](crate::dfa::dense::Config::starts_for_each_pattern)
-    /// must be enabled to use this functionality.
-    /// * `start` and `end` permit searching a specific region of the haystack
-    /// `bytes`. This is useful when implementing an iterator over matches
-    /// within the same haystack, which cannot be done correctly by simply
-    /// providing a subslice of `bytes`. (Because the existence of look-around
-    /// operations such as `\b`, `^` and `$` need to take the surrounding
-    /// context into account. This cannot be done if the haystack doesn't
-    /// contain it.)
-    ///
-    /// The examples below demonstrate each of these additional parameters.
+    /// This is like [`Automaton::find_leftmost_fwd`], except it provides some
+    /// additional control over how the search is executed.
     ///
     /// # Errors
     ///
@@ -1283,10 +1110,8 @@ pub unsafe trait Automaton {
     ///
     /// # Panics
     ///
-    /// This routine must panic if a `pattern_id` is given and the underlying
+    /// This routine must panic if a pattern ID is given and the underlying
     /// DFA does not support specific pattern searches.
-    ///
-    /// It must also panic if the given haystack range is not valid.
     ///
     /// # Example: prefilter
     ///
@@ -1297,7 +1122,7 @@ pub unsafe trait Automaton {
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
     ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
-    ///     HalfMatch, Span,
+    ///     HalfMatch, Span, Search,
     /// };
     ///
     /// #[derive(Debug)]
@@ -1333,12 +1158,9 @@ pub unsafe trait Automaton {
     /// let mut scanner = Scanner::new(&ZPrefilter);
     ///
     /// let expected = Some(HalfMatch::must(0, 11));
-    /// let got = dfa.find_earliest_fwd_at(
+    /// let got = dfa.find_leftmost_fwd_at(
     ///     Some(&mut scanner),
-    ///     None,
-    ///     haystack,
-    ///     0,
-    ///     haystack.len(),
+    ///     &Search::new(haystack),
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -1353,8 +1175,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch,
-    ///     PatternID,
+    ///     HalfMatch, PatternID, Search,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1367,25 +1188,14 @@ pub unsafe trait Automaton {
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.find_earliest_fwd_at(
-    ///     None,
-    ///     None,
-    ///     haystack,
-    ///     0,
-    ///     haystack.len(),
-    /// )?;
+    /// let got = dfa.find_leftmost_fwd_at(None, &Search::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
+    /// let search = Search::new(haystack).pattern(Some(PatternID::must(1)));
     /// let expected = Some(HalfMatch::must(1, 6));
-    /// let got = dfa.find_earliest_fwd_at(
-    ///     None,
-    ///     Some(PatternID::must(1)),
-    ///     haystack,
-    ///     0,
-    ///     haystack.len(),
-    /// )?;
+    /// let got = dfa.find_leftmost_fwd_at(None, &search)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1397,10 +1207,7 @@ pub unsafe trait Automaton {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Search};
     ///
     /// // N.B. We disable Unicode here so that we use a simple ASCII word
     /// // boundary. Alternatively, we could enable heuristic support for
@@ -1412,117 +1219,29 @@ pub unsafe trait Automaton {
     /// // larger context and assumes that `123` is surrounded by word
     /// // boundaries. And of course, the match position is reported relative
     /// // to the sub-slice as well, which means we get `3` instead of `6`.
+    /// let search = Search::new(&haystack[3..6]);
     /// let expected = Some(HalfMatch::must(0, 3));
-    /// let got = dfa.find_earliest_fwd_at(
-    ///     None,
-    ///     None,
-    ///     &haystack[3..6],
-    ///     0,
-    ///     haystack[3..6].len(),
-    /// )?;
+    /// let got = dfa.find_leftmost_fwd_at(None, &search)?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we provide the bounds of the search within the context of the
     /// // entire haystack, then the search can take the surrounding context
     /// // into account. (And if we did find a match, it would be reported
     /// // as a valid offset into `haystack` instead of its sub-slice.)
+    /// let search = Search::new(haystack).range(3..6);
     /// let expected = None;
-    /// let got = dfa.find_earliest_fwd_at(
-    ///     None,
-    ///     None,
-    ///     haystack,
-    ///     3,
-    ///     6,
-    /// )?;
+    /// let got = dfa.find_leftmost_fwd_at(None, &search)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    fn find_earliest_fwd_at(
-        &self,
-        pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_earliest_fwd(pre, self, pattern_id, bytes, start, end)
-    }
-
-    /// Executes a reverse search and returns the start position of the first
-    /// match that is found as early as possible. If no match exists, then
-    /// `None` is returned.
-    ///
-    /// This routine stops scanning input as soon as the search observes a
-    /// match state.
-    ///
-    /// This is like [`Automaton::find_earliest_rev`], except it provides some
-    /// additional control over how the search is executed. See the
-    /// documentation of [`Automaton::find_earliest_fwd_at`] for more details
-    /// on the additional parameters along with examples of their usage.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFAs generated by this crate, this only occurs in a non-default
-    /// configuration where quit bytes are used or Unicode word boundaries are
-    /// heuristically enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// # Panics
-    ///
-    /// This routine must panic if a `pattern_id` is given and the underlying
-    /// DFA does not support specific pattern searches.
-    ///
-    /// It must also panic if the given haystack range is not valid.
-    #[inline]
-    fn find_earliest_rev_at(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_earliest_rev(self, pattern_id, bytes, start, end)
-    }
-
-    /// Executes a forward search and returns the end position of the leftmost
-    /// match that is found. If no match exists, then `None` is returned.
-    ///
-    /// This is like [`Automaton::find_leftmost_fwd`], except it provides some
-    /// additional control over how the search is executed. See the
-    /// documentation of [`Automaton::find_earliest_fwd_at`] for more details
-    /// on the additional parameters along with examples of their usage.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFAs generated by this crate, this only occurs in a non-default
-    /// configuration where quit bytes are used or Unicode word boundaries are
-    /// heuristically enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// # Panics
-    ///
-    /// This routine must panic if a `pattern_id` is given and the underlying
-    /// DFA does not support specific pattern searches.
-    ///
-    /// It must also panic if the given haystack range is not valid.
-    #[inline]
     fn find_leftmost_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_leftmost_fwd(pre, self, pattern_id, bytes, start, end)
+        search::find_fwd(self, pre, search)
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -1531,7 +1250,7 @@ pub unsafe trait Automaton {
     ///
     /// This is like [`Automaton::find_leftmost_rev`], except it provides some
     /// additional control over how the search is executed. See the
-    /// documentation of [`Automaton::find_earliest_fwd_at`] for more details
+    /// documentation of [`Automaton::find_leftmost_fwd_at`] for more details
     /// on the additional parameters along with examples of their usage.
     ///
     /// # Errors
@@ -1553,12 +1272,9 @@ pub unsafe trait Automaton {
     #[inline]
     fn find_leftmost_rev_at(
         &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_leftmost_rev(self, pattern_id, bytes, start, end)
+        search::find_rev(self, search)
     }
 
     /// Executes an overlapping forward search and returns the end position of
@@ -1572,7 +1288,7 @@ pub unsafe trait Automaton {
     ///
     /// This is like [`Automaton::find_overlapping_fwd`], except it provides
     /// some additional control over how the search is executed. See the
-    /// documentation of [`Automaton::find_earliest_fwd_at`] for more details
+    /// documentation of [`Automaton::find_leftmost_fwd_at`] for more details
     /// on the additional parameters along with examples of their usage.
     ///
     /// When using this routine to implement an iterator of overlapping
@@ -1606,15 +1322,10 @@ pub unsafe trait Automaton {
     fn find_overlapping_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_fwd(
-            pre, self, pattern_id, bytes, start, end, state,
-        )
+        search::find_overlapping_fwd(self, pre, search, state)
     }
 }
 
@@ -1639,25 +1350,13 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn start_state_forward(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID {
-        (**self).start_state_forward(pattern_id, bytes, start, end)
+    fn start_state_forward(&self, search: &Search<'_>) -> StateID {
+        (**self).start_state_forward(search)
     }
 
     #[inline]
-    fn start_state_reverse(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID {
-        (**self).start_state_reverse(pattern_id, bytes, start, end)
+    fn start_state_reverse(&self, search: &Search<'_>) -> StateID {
+        (**self).start_state_reverse(search)
     }
 
     #[inline]
@@ -1711,22 +1410,6 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn find_earliest_fwd(
-        &self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).find_earliest_fwd(bytes)
-    }
-
-    #[inline]
-    fn find_earliest_rev(
-        &self,
-        bytes: &[u8],
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).find_earliest_rev(bytes)
-    }
-
-    #[inline]
     fn find_leftmost_fwd(
         &self,
         bytes: &[u8],
@@ -1752,63 +1435,30 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn find_earliest_fwd_at(
-        &self,
-        pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).find_earliest_fwd_at(pre, pattern_id, bytes, start, end)
-    }
-
-    #[inline]
-    fn find_earliest_rev_at(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).find_earliest_rev_at(pattern_id, bytes, start, end)
-    }
-
-    #[inline]
     fn find_leftmost_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).find_leftmost_fwd_at(pre, pattern_id, bytes, start, end)
+        (**self).find_leftmost_fwd_at(pre, search)
     }
 
     #[inline]
     fn find_leftmost_rev_at(
         &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).find_leftmost_rev_at(pattern_id, bytes, start, end)
+        (**self).find_leftmost_rev_at(search)
     }
 
     #[inline]
     fn find_overlapping_fwd_at(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
+        search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self)
-            .find_overlapping_fwd_at(pre, pattern_id, bytes, start, end, state)
+        (**self).find_overlapping_fwd_at(pre, search, state)
     }
 }
 
@@ -1922,4 +1572,25 @@ pub(crate) fn fmt_state_indicator<A: Automaton>(
         write!(f, "  ")?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    // A basic test ensuring that our Automaton trait is object safe. (This is
+    // the main reason why we don't define the search routines as generic over
+    // AsRef<[u8]>.)
+    #[test]
+    fn object_safe() {
+        use crate::{
+            dfa::{dense, Automaton},
+            HalfMatch,
+        };
+
+        let dfa = dense::DFA::new("abc").unwrap();
+        let dfa: &dyn Automaton = &dfa;
+        assert_eq!(
+            Ok(Some(HalfMatch::must(0, 6))),
+            dfa.find_leftmost_fwd(b"xyzabcxyz"),
+        );
+    }
 }

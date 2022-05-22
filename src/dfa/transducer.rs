@@ -1,6 +1,6 @@
 use crate::{
     dfa::{automaton::Automaton, dense, sparse},
-    util::id::StateID,
+    util::{id::StateID, search::Search},
 };
 
 impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {
@@ -8,7 +8,7 @@ impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {
 
     #[inline]
     fn start(&self) -> StateID {
-        self.start_state_forward(None, &[], 0, 0)
+        self.start_state_forward(&Search::new(""))
     }
 
     #[inline]
@@ -43,7 +43,7 @@ impl<T: AsRef<[u8]>> fst::Automaton for sparse::DFA<T> {
 
     #[inline]
     fn start(&self) -> StateID {
-        self.start_state_forward(None, &[], 0, 0)
+        self.start_state_forward(&Search::new(""))
     }
 
     #[inline]

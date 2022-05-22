@@ -798,7 +798,7 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        mut pre: Option<&mut prefilter::Scanner<'_>>,
+        pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
         self.try_search_imp(cache, pre, search)
@@ -954,6 +954,7 @@ impl Regex {
         let revsearch = search
             .clone()
             .pattern(Some(end.pattern()))
+            .earliest(false)
             // Used to be 0..end.offset()... why? Ah! Because for the
             // overlapping iterator, we always set the 'start' of the search
             // to the end of the last match. But! Since it's an overlapping

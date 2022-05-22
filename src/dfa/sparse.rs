@@ -14,7 +14,7 @@ example, this configures a sparse DFA to do an overlapping search:
 ```
 use regex_automata::{
     dfa::{Automaton, OverlappingState, dense},
-    HalfMatch, MatchKind,
+    HalfMatch, MatchKind, Search,
 };
 
 let dense_re = dense::Builder::new()
@@ -28,13 +28,14 @@ let mut state = OverlappingState::start();
 
 // First, 'Sam' will match.
 let end1 = sparse_re.find_overlapping_fwd_at(
-    None, None, haystack, 0, haystack.len(), &mut state,
+    None, &Search::new(haystack), &mut state,
 )?;
 assert_eq!(end1, Some(HalfMatch::must(0, 3)));
 
 // And now 'Samwise' will match.
 let end2 = sparse_re.find_overlapping_fwd_at(
-    None, None, haystack, 3, haystack.len(), &mut state,
+    // FIXME: We shouldn't need to adjust the range here.
+    None, &Search::new(haystack).range(3..), &mut state,
 )?;
 assert_eq!(end2, Some(HalfMatch::must(0, 7)));
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1190,31 +1191,15 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn start_state_forward(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID {
-        // TODO: Ask for a Search instead of making one.
-        let search = Search::new(bytes).range(start..end);
+    fn start_state_forward(&self, search: &Search<'_>) -> StateID {
         let index = Start::from_position_fwd(&search);
-        self.starts.start(index, pattern_id)
+        self.starts.start(index, search.get_pattern())
     }
 
     #[inline]
-    fn start_state_reverse(
-        &self,
-        pattern_id: Option<PatternID>,
-        bytes: &[u8],
-        start: usize,
-        end: usize,
-    ) -> StateID {
-        // TODO: Ask for a Search instead of making one.
-        let search = Search::new(bytes).range(start..end);
+    fn start_state_reverse(&self, search: &Search<'_>) -> StateID {
         let index = Start::from_position_rev(&search);
-        self.starts.start(index, pattern_id)
+        self.starts.start(index, search.get_pattern())
     }
 
     #[inline]

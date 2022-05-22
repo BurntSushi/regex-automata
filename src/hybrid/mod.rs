@@ -31,9 +31,8 @@ use regex_automata::{hybrid::regex::Regex, Match};
 let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let mut cache = re.create_cache();
 
-let text = b"2018-12-24 2016-10-08";
-let matches: Vec<Match> =
-    re.find_leftmost_iter(&mut cache, text).collect();
+let haystack = "2018-12-24 2016-10-08";
+let matches: Vec<Match> = re.find_iter(&mut cache, haystack).collect();
 assert_eq!(matches, vec![
     Match::must(0, 0, 10),
     Match::must(0, 11, 21),
@@ -53,9 +52,8 @@ use regex_automata::{hybrid::regex::Regex, Match};
 let re = Regex::new_many(&[r"\w+", r"\S+"])?;
 let mut cache = re.create_cache();
 
-let text = b"@foo bar";
-let matches: Vec<Match> =
-    re.find_leftmost_iter(&mut cache, text).collect();
+let haystack = "@foo bar";
+let matches: Vec<Match> = re.find_iter(&mut cache, haystack).collect();
 assert_eq!(matches, vec![
     Match::must(1, 0, 4),
     Match::must(0, 5, 8),

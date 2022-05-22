@@ -54,7 +54,7 @@ fn find_fwd_imp(
     // is clearer in the code below.
     macro_rules! next_unchecked {
         ($sid:expr, $at:expr) => {{
-            let byte = *search.bytes().get_unchecked($at);
+            let byte = *search.haystack().get_unchecked($at);
             dfa.next_state_untagged_unchecked(cache, $sid, byte)
         }};
     }
@@ -68,11 +68,11 @@ fn find_fwd_imp(
         // In that case, any match must be the 0th pattern.
         if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
             // TODO: This looks wrong? Shouldn't offset be the END of a match?
-            return Ok(pre.find(search.bytes(), span).into_option().map(
+            return Ok(pre.find(search.haystack(), span).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
         } else if pre.is_effective(at) {
-            match pre.find(search.bytes(), span).into_option() {
+            match pre.find(search.haystack(), span).into_option() {
                 None => return Ok(None),
                 Some(i) => {
                     at = i;
@@ -83,7 +83,7 @@ fn find_fwd_imp(
     while at < search.end() {
         if sid.is_tagged() {
             sid = dfa
-                .next_state(cache, sid, search.bytes()[at])
+                .next_state(cache, sid, search.haystack()[at])
                 .map_err(|_| gave_up(at))?;
         } else {
             // SAFETY: There are two safety invariants we need to uphold
@@ -241,7 +241,7 @@ fn find_fwd_imp(
             // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(cache, prev_sid, search.bytes()[at])
+                    .next_state(cache, prev_sid, search.haystack()[at])
                     .map_err(|_| gave_up(at))?;
             }
         }
@@ -250,7 +250,7 @@ fn find_fwd_imp(
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
                         let span = Span::new(at, search.end());
-                        match pre.find(search.bytes(), span).into_option() {
+                        match pre.find(search.haystack(), span).into_option() {
                             // TODO: This looks like a bug to me. We should
                             // return 'Ok(last_match)', i.e., treat it like a
                             // dead state. But don't 'fix' it until we can
@@ -288,7 +288,7 @@ fn find_fwd_imp(
                     return Ok(last_match);
                 }
                 return Err(MatchError::Quit {
-                    byte: search.bytes()[at],
+                    byte: search.haystack()[at],
                     offset: at,
                 });
             } else {
@@ -325,7 +325,6 @@ fn find_rev_imp(
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_rev(dfa, cache, search)?;
-    let mut last_match = None;
     // In reverse search, the loop below can't handle the case of searching an
     // empty slice. Ideally we could write something congruent to the forward
     // search, i.e., 'while at >= start', but 'start' might be 0. Since we use
@@ -336,17 +335,18 @@ fn find_rev_imp(
         return Ok(eoi_rev(dfa, cache, search, sid)?);
     }
 
+    let mut last_match = None;
     let mut at = search.end() - 1;
     macro_rules! next_unchecked {
         ($sid:expr, $at:expr) => {{
-            let byte = *search.bytes().get_unchecked($at);
+            let byte = *search.haystack().get_unchecked($at);
             dfa.next_state_untagged_unchecked(cache, $sid, byte)
         }};
     }
     loop {
         if sid.is_tagged() {
             sid = dfa
-                .next_state(cache, sid, search.bytes()[at])
+                .next_state(cache, sid, search.haystack()[at])
                 .map_err(|_| gave_up(at))?;
         } else {
             // SAFETY: See comments in 'find_fwd' for a safety argument.
@@ -434,7 +434,7 @@ fn find_rev_imp(
             // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
                 sid = dfa
-                    .next_state(cache, prev_sid, search.bytes()[at])
+                    .next_state(cache, prev_sid, search.haystack()[at])
                     .map_err(|_| gave_up(at))?;
             }
         }
@@ -461,7 +461,7 @@ fn find_rev_imp(
                     return Ok(last_match);
                 }
                 return Err(MatchError::Quit {
-                    byte: search.bytes()[at],
+                    byte: search.haystack()[at],
                     offset: at,
                 });
             } else {
@@ -513,7 +513,7 @@ fn find_overlapping_fwd_imp(
     search: &Search<'_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    let mut start = search.start();
+    let mut at = search.start();
     let mut sid = match state.id() {
         None => init_fwd(dfa, cache, search)?,
         Some(sid) => {
@@ -557,7 +557,7 @@ fn find_overlapping_fwd_imp(
             // point, which is `match_offset` bytes PRIOR to where we scanned
             // to on the previous search. Therefore, we need to compensate by
             // bumping `start` up by `MATCH_OFFSET` bytes.
-            start += MATCH_OFFSET;
+            at += MATCH_OFFSET;
             sid
         }
     };
@@ -566,10 +566,9 @@ fn find_overlapping_fwd_imp(
     // it seems like most find_overlapping searches will have higher match
     // counts, and thus, throughput is perhaps not as important. But if you
     // have a use case for something faster, feel free to file an issue.
-    let mut at = start;
     while at < search.end() {
         sid = dfa
-            .next_state(cache, sid, search.bytes()[at])
+            .next_state(cache, sid, search.haystack()[at])
             .map_err(|_| gave_up(at))?;
         if sid.is_tagged() {
             state.set_id(sid);
@@ -577,7 +576,7 @@ fn find_overlapping_fwd_imp(
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
                         let span = Span::new(at, search.end());
-                        match pre.find(search.bytes(), span).into_option() {
+                        match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
                                 at = i;
@@ -597,7 +596,7 @@ fn find_overlapping_fwd_imp(
                 return Ok(None);
             } else if sid.is_quit() {
                 return Err(MatchError::Quit {
-                    byte: search.bytes()[at],
+                    byte: search.haystack()[at],
                     offset: at,
                 });
             } else {
@@ -660,7 +659,7 @@ fn eoi_fwd(
     search: &Search<'_>,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    match search.bytes().get(search.end()) {
+    match search.haystack().get(search.end()) {
         Some(&b) => {
             *sid = dfa
                 .next_state(cache, *sid, b)
@@ -677,11 +676,11 @@ fn eoi_fwd(
         None => {
             *sid = dfa
                 .next_eoi_state(cache, *sid)
-                .map_err(|_| gave_up(search.bytes().len()))?;
+                .map_err(|_| gave_up(search.haystack().len()))?;
             if sid.is_match() {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, *sid, 0),
-                    offset: search.bytes().len(),
+                    offset: search.haystack().len(),
                 }))
             } else {
                 Ok(None)
@@ -699,7 +698,7 @@ fn eoi_rev(
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.start() > 0 {
         let sid = dfa
-            .next_state(cache, state, search.bytes()[search.start() - 1])
+            .next_state(cache, state, search.haystack()[search.start() - 1])
             .map_err(|_| gave_up(search.start()))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
