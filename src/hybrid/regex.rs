@@ -802,15 +802,15 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        mut pre: Option<&mut prefilter::Scanner<'_>>,
+        pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        let mut m = match self.try_search_fwd_back(cache, pre, search)? {
+        let m = match self.try_search_fwd_back(cache, pre, search)? {
             None => return Ok(None),
             Some(m) => m,
         };
         if m.is_empty() {
-            search.clone().skip_empty_utf8_splits(m, |search| {
+            search.skip_empty_utf8_splits(m, |search| {
                 self.try_search_fwd_back(cache, None, search)
             })
         } else {
@@ -907,18 +907,18 @@ impl Regex {
     pub fn try_search_overlapping(
         &self,
         cache: &mut Cache,
-        mut pre: Option<&mut prefilter::Scanner>,
+        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
-        let mut m = match self
+        let m = match self
             .try_search_overlapping_fwd_back(cache, pre, search, state)?
         {
             None => return Ok(None),
             Some(m) => m,
         };
         if m.is_empty() {
-            search.clone().skip_empty_utf8_splits(m, |search| {
+            search.skip_empty_utf8_splits(m, |search| {
                 self.try_search_overlapping_fwd_back(
                     cache, None, search, state,
                 )

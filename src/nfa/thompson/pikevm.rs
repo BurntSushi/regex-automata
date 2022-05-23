@@ -218,16 +218,19 @@ impl PikeVM {
         Captures::new(self.get_nfa().clone())
     }
 
+    #[inline]
     pub fn get_config(&self) -> &Config {
         &self.config
     }
 
+    #[inline]
     pub fn get_nfa(&self) -> &NFA {
         &self.nfa
     }
 }
 
 impl PikeVM {
+    #[inline]
     pub fn is_match<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
@@ -241,6 +244,7 @@ impl PikeVM {
         caps.is_match()
     }
 
+    #[inline]
     pub fn find<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
@@ -252,6 +256,7 @@ impl PikeVM {
         self.search(cache, None, &search, caps)
     }
 
+    #[inline]
     pub fn find_overlapping<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
@@ -264,6 +269,7 @@ impl PikeVM {
         self.search_overlapping(cache, None, &search, state, caps)
     }
 
+    #[inline]
     pub fn find_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
@@ -280,6 +286,7 @@ impl PikeVM {
         FindMatches(it)
     }
 
+    #[inline]
     pub fn find_overlapping_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
@@ -299,6 +306,7 @@ impl PikeVM {
         FindOverlappingMatches(it)
     }
 
+    #[inline]
     pub fn captures_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
@@ -318,6 +326,7 @@ impl PikeVM {
         CapturesMatches { caps, it }
     }
 
+    #[inline]
     pub fn captures_overlapping_iter<
         'r: 'c,
         'c,
@@ -349,6 +358,7 @@ impl PikeVM {
         CapturesOverlappingMatches { caps, it }
     }
 
+    #[inline]
     pub fn search(
         &self,
         cache: &mut Cache,
@@ -356,14 +366,22 @@ impl PikeVM {
         search: &Search<'_>,
         caps: &mut Captures,
     ) {
-        search
-            .find(|search| {
-                self.search_imp(cache, pre.as_deref_mut(), search, caps);
-                Ok(caps.get_match())
-            })
-            .unwrap();
+        self.search_imp(cache, pre, search, caps);
+        let m = match caps.get_match() {
+            None => return,
+            Some(m) => m,
+        };
+        if m.is_empty() {
+            search
+                .skip_empty_utf8_splits(m, |search| {
+                    self.search_imp(cache, None, search, caps);
+                    Ok(caps.get_match())
+                })
+                .unwrap();
+        }
     }
 
+    #[inline]
     pub fn search_overlapping(
         &self,
         cache: &mut Cache,
@@ -372,18 +390,21 @@ impl PikeVM {
         state: &mut OverlappingState,
         caps: &mut Captures,
     ) {
-        search
-            .find(|search| {
-                self.search_overlapping_imp(
-                    cache,
-                    pre.as_deref_mut(),
-                    search,
-                    state,
-                    caps,
-                );
-                Ok(caps.get_match())
-            })
-            .unwrap();
+        self.search_overlapping_imp(cache, pre, search, state, caps);
+        let m = match caps.get_match() {
+            None => return,
+            Some(m) => m,
+        };
+        if m.is_empty() {
+            search
+                .skip_empty_utf8_splits(m, |search| {
+                    self.search_overlapping_imp(
+                        cache, None, search, state, caps,
+                    );
+                    Ok(caps.get_match())
+                })
+                .unwrap();
+        }
     }
 }
 

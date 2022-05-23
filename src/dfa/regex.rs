@@ -813,15 +813,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline]
     pub fn try_search(
         &self,
-        mut pre: Option<&mut prefilter::Scanner>,
+        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        let mut m = match self.try_search_fwd_back(pre, search)? {
+        let m = match self.try_search_fwd_back(pre, search)? {
             None => return Ok(None),
             Some(m) => m,
         };
         if m.is_empty() {
-            search.clone().skip_empty_utf8_splits(m, |search| {
+            search.skip_empty_utf8_splits(m, |search| {
                 self.try_search_fwd_back(None, search)
             })
         } else {
@@ -908,17 +908,17 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline]
     pub fn try_search_overlapping(
         &self,
-        mut pre: Option<&mut prefilter::Scanner<'_>>,
+        pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
-        let mut m =
+        let m =
             match self.try_search_overlapping_fwd_back(pre, search, state)? {
                 None => return Ok(None),
                 Some(m) => m,
             };
         if m.is_empty() {
-            search.clone().skip_empty_utf8_splits(m, |search| {
+            search.skip_empty_utf8_splits(m, |search| {
                 self.try_search_overlapping_fwd_back(None, search, state)
             })
         } else {

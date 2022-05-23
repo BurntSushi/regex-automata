@@ -331,50 +331,39 @@ impl<'h> Search<'h> {
         utf8::is_boundary(self.bytes(), offset)
     }
 
-    /// This executes the regex search via the closure given, but skips any
-    /// empty matches that split a codepoint when this search's "utf8" option
-    /// is enabled.
+    /// This skips any empty matches that split a codepoint when this search's
+    /// "utf8" option is enabled. The match given should be the initial match
+    /// found, and 'find' should be a closure that can execute a regex search.
     ///
     /// We don't export this routine because it could be quite confusing. Folks
     /// might use this to call another regex engine's find routine that already
     /// calls this internally. Plus, its implementation can be written entirely
     /// using existing public APIs.
-    #[inline]
-    pub(crate) fn find<F>(
-        &self,
-        mut find: F,
-    ) -> Result<Option<Match>, MatchError>
-    where
-        F: FnMut(&Search<'_>) -> Result<Option<Match>, MatchError>,
-    {
-        let mut m = match find(self)? {
-            None => return Ok(None),
-            Some(m) => m,
-        };
-        if m.is_empty() {
-            self.clone().skip_empty_utf8_splits(m, find)
-        } else {
-            Ok(Some(m))
-        }
-    }
-
+    ///
+    /// N.B. This is written as a non-inlineable cold function that accepts
+    /// a pre-existing match because it generally leads to better codegen in
+    /// my experience. Namely, we could write a routine that doesn't accept
+    /// a pre-existing match and just does the initial search for you. But
+    /// doing it this way forcefully separates the hot path from the handling
+    /// of pathological cases. That is, one can guard calls to this with
+    /// 'm.is_empty()', even though it isn't necessary for correctness.
     #[cold]
     #[inline(never)]
     pub(crate) fn skip_empty_utf8_splits<F>(
-        mut self,
+        &self,
         mut m: Match,
         mut find: F,
     ) -> Result<Option<Match>, MatchError>
     where
         F: FnMut(&Search<'_>) -> Result<Option<Match>, MatchError>,
     {
-        assert!(m.is_empty());
-        if !self.get_utf8() {
+        if !self.get_utf8() || !m.is_empty() {
             return Ok(Some(m));
         }
-        while m.is_empty() && !self.is_char_boundary(m.end()) {
-            self.step_byte();
-            m = match find(&self)? {
+        let mut search = self.clone();
+        while m.is_empty() && !search.is_char_boundary(m.end()) {
+            search.step_byte();
+            m = match find(&search)? {
                 None => return Ok(None),
                 Some(m) => m,
             };
