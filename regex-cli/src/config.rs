@@ -1214,7 +1214,7 @@ This mode cannot be toggled inside the regex.
     ) -> dfa::regex::Builder {
         let mut builder = dfa::regex::Builder::new();
         builder
-            .configure(self.config)
+            .configure(self.config.clone())
             .syntax(syntax.0)
             .thompson(thompson.0.clone())
             .dense(dense.config);

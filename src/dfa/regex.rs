@@ -20,7 +20,10 @@ use alloc::vec::Vec;
 
 use crate::{
     dfa::automaton::{Automaton, OverlappingState},
-    util::prefilter::{self, Prefilter},
+    util::{
+        iter,
+        prefilter::{self, Prefilter},
+    },
     Match, MatchError,
 };
 #[cfg(feature = "alloc")]
@@ -43,19 +46,19 @@ macro_rules! define_regex_type {
         #[cfg(feature = "alloc")]
         $(#[$doc])*
         pub struct Regex<A = dense::OwnedDFA, P = prefilter::None> {
+            config: Config,
             prefilter: Option<P>,
             forward: A,
             reverse: A,
-            utf8: bool,
         }
 
         #[cfg(not(feature = "alloc"))]
         $(#[$doc])*
         pub struct Regex<A, P = prefilter::None> {
+            config: Config,
             prefilter: Option<P>,
             forward: A,
             reverse: A,
-            utf8: bool,
         }
     };
 }
@@ -133,7 +136,7 @@ define_regex_type!(
     ///     .build(pattern)?;
     ///
     /// // "leftmost" searching supports greediness (and non-greediness)
-    /// let mut it = re.find_leftmost_iter(haystack);
+    /// let mut it = re.find_iter(haystack);
     /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
     /// assert_eq!(None, it.next());
     ///
@@ -199,15 +202,14 @@ define_regex_type!(
     /// In non-default configurations, the DFAs generated in this module may
     /// return an error during a search. (Currently, the only way this happens
     /// is if quit bytes are added or Unicode word boundaries are heuristically
-    /// enabled, both of which are turned off by default.) For convenience, the
-    /// main search routines, like [`find_leftmost`](Regex::find_leftmost),
-    /// will panic if an error occurs. However, if you need to use DFAs
-    /// which may produce an error at search time, then there are fallible
-    /// equivalents of all search routines. For example, for `find_leftmost`,
-    /// its fallible analog is [`try_find_leftmost`](Regex::try_find_leftmost).
-    /// The routines prefixed with `try_` return `Result<Option<Match>,
-    /// MatchError>`, where as the infallible routines simply return
-    /// `Option<Match>`.
+    /// enabled, both of which are turned off by default.) For convenience,
+    /// the main search routines, like [`find`](Regex::find), will panic if
+    /// an error occurs. However, if you need to use DFAs which may produce
+    /// an error at search time, then there are fallible equivalents of all
+    /// search routines. For example, for `find`, its fallible analog is
+    /// [`try_find`](Regex::try_find). The routines prefixed with `try_` return
+    /// `Result<Option<Match>, MatchError>`, where as the infallible routines
+    /// simply return `Option<Match>`.
     ///
     /// # Example
     ///
@@ -228,7 +230,7 @@ define_regex_type!(
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
     /// let expected = MatchError::Quit { byte: 0x0A, offset: 3 };
-    /// let got = re.try_find_leftmost(haystack).unwrap_err();
+    /// let got = re.try_find(haystack).unwrap_err();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -252,7 +254,7 @@ impl Regex {
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// assert_eq!(
     ///     Some(Match::must(0, 3, 14)),
-    ///     re.find_leftmost(b"zzzfoo12345barzzz"),
+    ///     re.find(b"zzzfoo12345barzzz"),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -270,7 +272,7 @@ impl Regex {
     ///
     /// let re = Regex::new_many(&["[a-z]+", "[0-9]+"])?;
     ///
-    /// let mut it = re.find_leftmost_iter(b"abc 1 foo 4567 0 quux");
+    /// let mut it = re.find_iter(b"abc 1 foo 4567 0 quux");
     /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
     /// assert_eq!(Some(Match::must(1, 4, 5)), it.next());
     /// assert_eq!(Some(Match::must(0, 6, 9)), it.next());
@@ -301,7 +303,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     /// let re = Regex::new_sparse("foo[0-9]+bar")?;
     /// assert_eq!(
     ///     Some(Match::must(0, 3, 14)),
-    ///     re.find_leftmost(b"zzzfoo12345barzzz"),
+    ///     re.find(b"zzzfoo12345barzzz"),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -322,7 +324,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     ///
     /// let re = Regex::new_many_sparse(&["[a-z]+", "[0-9]+"])?;
     ///
-    /// let mut it = re.find_leftmost_iter(b"abc 1 foo 4567 0 quux");
+    /// let mut it = re.find_iter(b"abc 1 foo 4567 0 quux");
     /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
     /// assert_eq!(Some(Match::must(1, 4, 5)), it.next());
     /// assert_eq!(Some(Match::must(0, 6, 9)), it.next());
@@ -361,7 +363,7 @@ impl Regex {
     ///     .configure(Regex::config().utf8(false))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
-    /// let mut it = re.find_leftmost_iter(haystack);
+    /// let mut it = re.find_iter(haystack);
     /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
     /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
     /// assert_eq!(Some(Match::must(0, 2, 2)), it.next());
@@ -400,7 +402,7 @@ impl Regex {
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 1, 9));
-    /// let got = re.find_leftmost(haystack);
+    /// let got = re.find(haystack);
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -452,8 +454,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// only occurs in non-default configurations where quit bytes are used or
     /// Unicode word boundaries are heuristically enabled.
     ///
-    /// The fallible version of this routine is
-    /// [`try_find_leftmost`](Regex::try_find_leftmost).
+    /// The fallible version of this routine is [`try_find`](Regex::try_find).
     ///
     /// # Example
     ///
@@ -464,7 +465,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// let re = Regex::new("foo[0-9]+")?;
     /// assert_eq!(
     ///     Some(Match::must(0, 3, 11)),
-    ///     re.find_leftmost(b"zzzfoo12345zzz"),
+    ///     re.find(b"zzzfoo12345zzz"),
     /// );
     ///
     /// // Even though a match is found after reading the first byte (`a`),
@@ -472,12 +473,12 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// // earliest match that prefers earlier parts of the pattern over latter
     /// // parts.
     /// let re = Regex::new("abc|a")?;
-    /// assert_eq!(Some(Match::must(0, 0, 3)), re.find_leftmost(b"abc"));
+    /// assert_eq!(Some(Match::must(0, 0, 3)), re.find(b"abc"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find_leftmost<H: AsRef<[u8]>>(&self, haystack: H) -> Option<Match> {
-        self.try_find_leftmost(haystack.as_ref()).unwrap()
+    pub fn find<H: AsRef<[u8]>>(&self, haystack: H) -> Option<Match> {
+        self.try_find(haystack.as_ref()).unwrap()
     }
 
     /// Search for the first overlapping match in `haystack`.
@@ -547,7 +548,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// are used or Unicode word boundaries are heuristically enabled.
     ///
     /// The fallible version of this routine is
-    /// [`try_find_leftmost_iter`](Regex::try_find_leftmost_iter).
+    /// [`try_find_iter`](Regex::try_find_iter).
     ///
     /// # Example
     ///
@@ -556,7 +557,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     ///
     /// let re = Regex::new("foo[0-9]+")?;
     /// let text = b"foo1 foo12 foo123";
-    /// let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
+    /// let matches: Vec<Match> = re.find_iter(text).collect();
     /// assert_eq!(matches, vec![
     ///     Match::must(0, 0, 4),
     ///     Match::must(0, 5, 10),
@@ -565,11 +566,13 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find_leftmost_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         haystack: &'h H,
-    ) -> FindLeftmostMatches<'r, 'h, A, P> {
-        FindLeftmostMatches::new(self, haystack.as_ref())
+    ) -> FindMatches<'h, 'r> {
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        FindMatches(self.try_matches_iter(search).infallible())
     }
 
     /// Returns an iterator over all overlapping matches in the given haystack.
@@ -612,8 +615,12 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn find_overlapping_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         haystack: &'h H,
-    ) -> FindOverlappingMatches<'r, 'h, A, P> {
-        FindOverlappingMatches::new(self, haystack.as_ref())
+    ) -> FindOverlappingMatches<'h, 'r> {
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        FindOverlappingMatches(
+            self.try_overlapping_matches_iter(search).infallible(),
+        )
     }
 }
 
@@ -652,10 +659,11 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.utf8).earliest(true);
+        let search = Search::new(haystack.as_ref())
+            .utf8(self.get_config().get_utf8())
+            .earliest(true);
         self.forward()
-            .find_leftmost_fwd_at(self.scanner().as_mut(), &search)
+            .try_search_fwd(self.scanner().as_mut(), &search)
             .map(|x| x.is_some())
     }
 
@@ -673,14 +681,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// exists or not.
     ///
     /// The infallible (panics on error) version of this routine is
-    /// [`find_leftmost`](Regex::find_leftmost).
+    /// [`find`](Regex::find).
     #[inline]
-    pub fn try_find_leftmost<H: AsRef<[u8]>>(
+    pub fn try_find<H: AsRef<[u8]>>(
         &self,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
         let mut scanner = self.scanner();
-        let search = Search::new(haystack.as_ref()).utf8(self.utf8);
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         self.try_search(scanner.as_mut(), &search)
     }
 
@@ -711,7 +720,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
         let mut scanner = self.scanner();
-        let search = Search::new(haystack.as_ref()).utf8(self.utf8);
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         self.try_search_overlapping(scanner.as_mut(), &search, state)
     }
 
@@ -731,13 +741,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// exists or not.
     ///
     /// The infallible (panics on error) version of this routine is
-    /// [`find_leftmost_iter`](Regex::find_leftmost_iter).
+    /// [`find_iter`](Regex::find_iter).
     #[inline]
-    pub fn try_find_leftmost_iter<'r, 't>(
+    pub fn try_find_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
-        haystack: &'t [u8],
-    ) -> TryFindLeftmostMatches<'r, 't, A, P> {
-        TryFindLeftmostMatches::new(self, haystack)
+        haystack: &'h H,
+    ) -> TryFindMatches<'h, 'r> {
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        TryFindMatches(self.try_matches_iter(search))
     }
 
     /// Returns an iterator over all overlapping matches in the given haystack.
@@ -760,11 +772,13 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// The infallible (panics on error) version of this routine is
     /// [`find_overlapping_iter`](Regex::find_overlapping_iter).
     #[inline]
-    pub fn try_find_overlapping_iter<'r, 't>(
+    pub fn try_find_overlapping_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
-        haystack: &'t [u8],
-    ) -> TryFindOverlappingMatches<'r, 't, A, P> {
-        TryFindOverlappingMatches::new(self, haystack)
+        haystack: &'h H,
+    ) -> TryFindOverlappingMatches<'h, 'r> {
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        TryFindOverlappingMatches(self.try_overlapping_matches_iter(search))
     }
 }
 
@@ -796,22 +810,29 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     ///
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find_leftmost_at`](Regex::find_leftmost_at).
     #[inline]
     pub fn try_search(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
+        mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        self.try_search_imp(pre, search)
+        let mut m = match self.try_search_fwd_back(pre, search)? {
+            None => return Ok(None),
+            Some(m) => m,
+        };
+        if m.is_empty() {
+            search.clone().skip_empty_utf8_splits(m, |search| {
+                self.try_search_fwd_back(None, search)
+            })
+        } else {
+            Ok(Some(m))
+        }
     }
 
     /// The implementation of leftmost searching, where a prefilter scanner
     /// may be given.
-    #[inline]
-    fn try_search_imp(
+    #[inline(always)]
+    fn try_search_fwd_back(
         &self,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search,
@@ -821,7 +842,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // Since this is the usual way that automata are used, this helps
         // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
-        let end = match (&fwd).find_leftmost_fwd_at(pre, search)? {
+        let end = match (&fwd).try_search_fwd(pre, search)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -842,7 +863,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             .earliest(false)
             .span(Span::new(search.start(), end.offset()));
         let start = (&rev)
-            .find_leftmost_rev_at(&revsearch)?
+            .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");
         assert_eq!(
             start.pattern(),
@@ -884,24 +905,32 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     ///
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find_overlapping_at`](Regex::find_overlapping_at).
     #[inline]
     pub fn try_search_overlapping(
         &self,
-        pre: Option<&mut prefilter::Scanner<'_>>,
+        mut pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
-        self.try_find_overlapping_at_imp(pre, search, state)
+        let mut m =
+            match self.try_search_overlapping_fwd_back(pre, search, state)? {
+                None => return Ok(None),
+                Some(m) => m,
+            };
+        if m.is_empty() {
+            search.clone().skip_empty_utf8_splits(m, |search| {
+                self.try_search_overlapping_fwd_back(None, search, state)
+            })
+        } else {
+            Ok(Some(m))
+        }
     }
 
     /// The implementation of overlapping search at a given range in
     /// `haystack`, where `scanner` is a prefilter (if active) and `state` is
     /// the current state of the search.
     #[inline]
-    fn try_find_overlapping_at_imp(
+    fn try_search_overlapping_fwd_back(
         &self,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
@@ -921,10 +950,11 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // "overlapping searches require that the reverse DFA is \
         // compiled with the 'starts_for_each_pattern' option",
         // );
-        let end = match (&fwd).find_overlapping_fwd_at(pre, search, state)? {
-            None => return Ok(None),
-            Some(end) => end,
-        };
+        let end =
+            match (&fwd).try_search_overlapping_fwd(pre, search, state)? {
+                None => return Ok(None),
+                Some(end) => end,
+            };
         // Unlike the leftmost cases, the reverse overlapping search may match
         // a different pattern than the forward search. See test failures when
         // using `None` instead of `Some(end.pattern())` below. Thus, we must
@@ -937,7 +967,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             // FIXME: Same problem as in the lazy DFA overlapping search.
             .range(..end.offset());
         let start = (&rev)
-            .find_leftmost_rev_at(&revsearch)?
+            .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");
         assert!(start.offset() <= end.offset());
         assert_eq!(start.pattern(), end.pattern());
@@ -945,26 +975,59 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 }
 
+type TryMatchesClosure<'h, 'c> =
+    Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>;
+
+impl<A: Automaton, P: Prefilter> Regex<A, P> {
+    fn try_matches_iter<'r, 'h>(
+        &'r self,
+        search: Search<'h>,
+    ) -> iter::TryMatches<'h, TryMatchesClosure<'h, 'r>> {
+        let mut scanner = self.scanner();
+        iter::TryMatches::boxed(search, move |search| {
+            let pre = scanner.as_mut();
+            self.try_search(pre, search)
+        })
+    }
+
+    fn try_overlapping_matches_iter<'r, 'h>(
+        &'r self,
+        search: Search<'h>,
+    ) -> iter::TryOverlappingMatches<'h, TryMatchesClosure<'h, 'r>> {
+        let mut scanner = self.scanner();
+        let mut state = OverlappingState::start();
+        iter::TryOverlappingMatches::boxed(search, move |search| {
+            let pre = scanner.as_mut();
+            self.try_search_overlapping(pre, search, &mut state)
+        })
+    }
+}
+
 /// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
+    /// Return the config for this regex.
+    pub fn get_config(&self) -> &Config {
+        &self.config
+    }
+
     /// Attach the given prefilter to this regex.
     pub fn with_prefilter<Q: Prefilter>(self, prefilter: Q) -> Regex<A, Q> {
         Regex {
+            config: self.config.clone(),
             prefilter: Some(prefilter),
             forward: self.forward,
             reverse: self.reverse,
-            utf8: self.utf8,
         }
     }
 
     /// Remove any prefilter from this regex.
     pub fn without_prefilter(self) -> Regex<A> {
         Regex {
+            config: self.config.clone(),
             prefilter: None,
             forward: self.forward,
             reverse: self.reverse,
-            utf8: self.utf8,
         }
     }
 
@@ -1016,12 +1079,114 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         }
     }
 
-    /// Convenience function for returning a prefilter scanner.
-    fn scanner(&self) -> Option<prefilter::Scanner> {
+    /// Create and return a prefilter scanner if this regex's configuration has
+    /// a prefilter.
+    pub fn scanner(&self) -> Option<prefilter::Scanner> {
         self.prefilter().map(prefilter::Scanner::new)
     }
 }
 
+/// An iterator over all non-overlapping matches for an infallible search.
+///
+/// The iterator yields a [`Match`] value until no more matches could be found.
+/// If the underlying regex engine returns an error, then a panic occurs.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'r` represents the lifetime of the regex object itself.
+///
+/// This iterator can be created with the [`Regex::find_iter`] method.
+#[derive(Debug)]
+pub struct FindMatches<'h, 'c>(iter::Matches<'h, TryMatchesClosure<'h, 'c>>);
+
+impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
+    type Item = Match;
+
+    #[inline]
+    fn next(&mut self) -> Option<Match> {
+        self.0.next()
+    }
+}
+
+/// An iterator over all overlapping matches for an infallible search.
+///
+/// The iterator yields a [`Match`] value until no more matches could be found.
+/// If the underlying regex engine returns an error, then a panic occurs.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'r` represents the lifetime of the regex object itself.
+///
+/// This iterator can be created with the [`Regex::find_overlapping_iter`]
+/// method.
+#[derive(Debug)]
+pub struct FindOverlappingMatches<'h, 'c>(
+    iter::OverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
+);
+
+impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
+    type Item = Match;
+
+    #[inline]
+    fn next(&mut self) -> Option<Match> {
+        self.0.next()
+    }
+}
+
+/// An iterator over all non-overlapping matches for a fallible search.
+///
+/// The iterator yields a `Result<Match, MatchError>` value until no more
+/// matches could be found.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'r` represents the lifetime of the regex object itself.
+///
+/// This iterator can be created with the [`Regex::try_find_iter`] method.
+#[derive(Debug)]
+pub struct TryFindMatches<'h, 'c>(
+    iter::TryMatches<'h, TryMatchesClosure<'h, 'c>>,
+);
+
+impl<'h, 'c> Iterator for TryFindMatches<'h, 'c> {
+    type Item = Result<Match, MatchError>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Result<Match, MatchError>> {
+        self.0.next()
+    }
+}
+
+/// An iterator over all overlapping matches for a fallible search.
+///
+/// The iterator yields a `Result<Match, MatchError>` value until no more
+/// matches could be found.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'h` represents the lifetime of the haystack being searched.
+/// * `'r` represents the lifetime of the regex object itself.
+///
+/// This iterator can be created with the [`Regex::try_find_overlapping_iter`]
+/// method.
+#[derive(Debug)]
+pub struct TryFindOverlappingMatches<'h, 'c>(
+    iter::TryOverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
+);
+
+impl<'h, 'c> Iterator for TryFindOverlappingMatches<'h, 'c> {
+    type Item = Result<Match, MatchError>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Result<Match, MatchError>> {
+        self.0.next()
+    }
+}
+
+/*
 /// An iterator over all non-overlapping leftmost matches for a particular
 /// infallible search.
 ///
@@ -1035,21 +1200,16 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 /// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
-pub struct FindLeftmostMatches<'r, 't, A, P>(
-    TryFindLeftmostMatches<'r, 't, A, P>,
-);
+pub struct FindMatches<'r, 't, A, P>(TryFindMatches<'r, 't, A, P>);
 
-impl<'r, 't, A: Automaton, P: Prefilter> FindLeftmostMatches<'r, 't, A, P> {
-    fn new(
-        re: &'r Regex<A, P>,
-        text: &'t [u8],
-    ) -> FindLeftmostMatches<'r, 't, A, P> {
-        FindLeftmostMatches(TryFindLeftmostMatches::new(re, text))
+impl<'r, 't, A: Automaton, P: Prefilter> FindMatches<'r, 't, A, P> {
+    fn new(re: &'r Regex<A, P>, text: &'t [u8]) -> FindMatches<'r, 't, A, P> {
+        FindMatches(TryFindMatches::new(re, text))
     }
 }
 
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
-    for FindLeftmostMatches<'r, 't, A, P>
+    for FindMatches<'r, 't, A, P>
 {
     type Item = Match;
 
@@ -1107,7 +1267,7 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
 /// * `'r` is the lifetime of the regular expression itself.
 /// * `'t` is the lifetime of the text being searched.
 #[derive(Clone, Debug)]
-pub struct TryFindLeftmostMatches<'r, 't, A, P> {
+pub struct TryFindMatches<'r, 't, A, P> {
     re: &'r Regex<A, P>,
     scanner: Option<prefilter::Scanner<'r>>,
     text: &'t [u8],
@@ -1115,24 +1275,18 @@ pub struct TryFindLeftmostMatches<'r, 't, A, P> {
     last_match: Option<usize>,
 }
 
-impl<'r, 't, A: Automaton, P: Prefilter> TryFindLeftmostMatches<'r, 't, A, P> {
+impl<'r, 't, A: Automaton, P: Prefilter> TryFindMatches<'r, 't, A, P> {
     fn new(
         re: &'r Regex<A, P>,
         text: &'t [u8],
-    ) -> TryFindLeftmostMatches<'r, 't, A, P> {
+    ) -> TryFindMatches<'r, 't, A, P> {
         let scanner = re.scanner();
-        TryFindLeftmostMatches {
-            re,
-            scanner,
-            text,
-            last_end: 0,
-            last_match: None,
-        }
+        TryFindMatches { re, scanner, text, last_end: 0, last_match: None }
     }
 }
 
 impl<'r, 't, A: Automaton, P: Prefilter> Iterator
-    for TryFindLeftmostMatches<'r, 't, A, P>
+    for TryFindMatches<'r, 't, A, P>
 {
     type Item = Result<Match, MatchError>;
 
@@ -1203,13 +1357,14 @@ impl<'r, 't, A: Automaton, P: Prefilter> Iterator
         Some(Ok(handle_iter_match_overlapping_fallible!(self, result)))
     }
 }
+*/
 
 /// The configuration used for compiling a DFA-backed regex.
 ///
 /// A regex configuration is a simple data object that is typically used with
 /// [`Builder::configure`].
 #[cfg(feature = "alloc")]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     utf8: Option<bool>,
 }
@@ -1252,7 +1407,7 @@ impl Config {
     ///     .configure(Regex::config().utf8(false))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
-    /// let mut it = re.find_leftmost_iter(haystack);
+    /// let mut it = re.find_iter(haystack);
     /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
     /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
     /// assert_eq!(Some(Match::must(0, 2, 2)), it.next());
@@ -1275,7 +1430,7 @@ impl Config {
     ///     .configure(Regex::config().utf8(true))
     ///     .build(r"")?;
     /// let haystack = "a☃z".as_bytes();
-    /// let mut it = re.find_leftmost_iter(haystack);
+    /// let mut it = re.find_iter(haystack);
     /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
     /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
     /// assert_eq!(Some(Match::must(0, 4, 4)), it.next());
@@ -1303,7 +1458,7 @@ impl Config {
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
-    pub(crate) fn overwrite(self, o: Config) -> Config {
+    pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config { utf8: o.utf8.or(self.utf8) }
     }
 }
@@ -1376,7 +1531,7 @@ impl Config {
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
 /// let expected = Some(Match::must(0, 1, 9));
-/// let got = re.find_leftmost(haystack);
+/// let got = re.find(haystack);
 /// assert_eq!(expected, got);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
 /// // but the subsequent `.*` does not! Disabling UTF-8
@@ -1472,13 +1627,12 @@ impl Builder {
     /// * It should have anchored start states compiled for each pattern.
     /// * Otherwise, its configuration should match the forward DFA.
     ///
-    /// If these conditions are satisfied, then behavior of searches is
+    /// If these conditions aren't satisfied, then the behavior of searches is
     /// unspecified.
     ///
     /// Note that when using this constructor, only the configuration from
-    /// [`Config`] is applied. The only configuration settings on this builder
-    /// only apply when the builder owns the construction of the DFAs
-    /// themselves.
+    /// [`Config`] is applied. Since this routine provides the DFAs to the
+    /// builder, there is no opportunity to apply other configuration options.
     ///
     /// # Example
     ///
@@ -1520,8 +1674,8 @@ impl Builder {
         forward: A,
         reverse: A,
     ) -> Regex<A> {
-        let utf8 = self.config.get_utf8();
-        Regex { prefilter: None, forward, reverse, utf8 }
+        let config = self.config.clone();
+        Regex { config, prefilter: None, forward, reverse }
     }
 
     /// Apply the given regex configuration options to this builder.

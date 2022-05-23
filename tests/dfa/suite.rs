@@ -1,7 +1,8 @@
 use regex_automata::{
     dfa::{self, dense, regex::Regex, sparse, Automaton},
     nfa::thompson,
-    MatchKind, SyntaxConfig,
+    util::iter,
+    MatchKind, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -205,12 +206,24 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
         "is_match" => TestResult::matched(re.is_match(test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                // FIXME
-                TestResult::skip()
+                let mut scanner = re.scanner();
+                let it = iter::TryMatches::new(
+                    Search::new(test.input().as_bytes())
+                        .earliest(true)
+                        .utf8(test.utf8()),
+                    move |search| re.try_search(scanner.as_mut(), search),
+                )
+                .infallible()
+                .take(test.match_limit().unwrap_or(std::usize::MAX))
+                .map(|m| ret::Match {
+                    id: m.pattern().as_usize(),
+                    span: ret::Span { start: m.start(), end: m.end() },
+                });
+                TestResult::matches(it)
             }
             ret::SearchKind::Leftmost => {
                 let it = re
-                    .find_leftmost_iter(test.input())
+                    .find_iter(test.input())
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| ret::Match {
                         id: m.pattern().as_usize(),

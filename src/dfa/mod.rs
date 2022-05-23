@@ -36,7 +36,7 @@ use regex_automata::{Match, dfa::regex::Regex};
 
 let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re.find_iter(text).collect();
 assert_eq!(matches, vec![
     Match::must(0, 0, 10),
     Match::must(0, 11, 21),
@@ -55,7 +55,7 @@ use regex_automata::{Match, dfa::regex::Regex};
 
 let re = Regex::new_many(&[r"\w+", r"\S+"])?;
 let text = b"@foo bar";
-let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re.find_iter(text).collect();
 assert_eq!(matches, vec![
     Match::must(1, 0, 4),
     Match::must(0, 5, 8),
@@ -100,7 +100,7 @@ use regex_automata::{Match, dfa::regex::Regex};
 
 let re = Regex::new_sparse(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<Match> = re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re.find_iter(text).collect();
 assert_eq!(matches, vec![
     Match::must(0, 0, 10),
     Match::must(0, 11, 21),
@@ -120,7 +120,7 @@ let sparse_re = Regex::builder().build_from_dfas(
     dense_re.reverse().to_sparse()?,
 );
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<Match> = sparse_re.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = sparse_re.find_iter(text).collect();
 assert_eq!(matches, vec![
     Match::must(0, 0, 10),
     Match::must(0, 11, 21),
@@ -150,7 +150,7 @@ let re2 = Regex::builder().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<Match> = re2.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re2.find_iter(text).collect();
 assert_eq!(matches, vec![
     Match::must(0, 0, 10),
     Match::must(0, 11, 21),
@@ -197,7 +197,7 @@ let re2 = Regex::builder().build_from_dfas(fwd, rev);
 
 // we can use it like normal
 let text = b"2018-12-24 2016-10-08";
-let matches: Vec<Match> = re2.find_leftmost_iter(text).collect();
+let matches: Vec<Match> = re2.find_iter(text).collect();
 assert_eq!(matches, vec![
     Match::must(0, 0, 10),
     Match::must(0, 11, 21),

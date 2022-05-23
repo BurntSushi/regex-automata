@@ -27,13 +27,13 @@ let haystack = b"Samwise";
 let mut state = OverlappingState::start();
 
 // First, 'Sam' will match.
-let end1 = sparse_re.find_overlapping_fwd_at(
+let end1 = sparse_re.try_search_overlapping_fwd(
     None, &Search::new(haystack), &mut state,
 )?;
 assert_eq!(end1, Some(HalfMatch::must(0, 3)));
 
 // And now 'Samwise' will match.
-let end2 = sparse_re.find_overlapping_fwd_at(
+let end2 = sparse_re.try_search_overlapping_fwd(
     // FIXME: We shouldn't need to adjust the range here.
     None, &Search::new(haystack).range(3..), &mut state,
 )?;
@@ -116,7 +116,7 @@ const VERSION: u32 = 2;
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 /// let expected = HalfMatch::must(0, 8);
-/// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+/// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
@@ -159,7 +159,7 @@ impl DFA<Vec<u8>> {
     /// let dfa = sparse::DFA::new("foo[0-9]+bar")?;
     ///
     /// let expected = HalfMatch::must(0, 11);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new(pattern: &str) -> Result<DFA<Vec<u8>>, Error> {
@@ -187,7 +187,7 @@ impl DFA<Vec<u8>> {
     ///
     /// let dfa = sparse::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let expected = HalfMatch::must(1, 3);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new_many<P: AsRef<str>>(
@@ -214,8 +214,8 @@ impl DFA<Vec<u8>> {
     /// let dfa = sparse::DFA::always_match()?;
     ///
     /// let expected = HalfMatch::must(0, 0);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"")?);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn always_match() -> Result<DFA<Vec<u8>>, Error> {
@@ -230,8 +230,8 @@ impl DFA<Vec<u8>> {
     /// use regex_automata::dfa::{Automaton, sparse};
     ///
     /// let dfa = sparse::DFA::never_match()?;
-    /// assert_eq!(None, dfa.find_leftmost_fwd(b"")?);
-    /// assert_eq!(None, dfa.find_leftmost_fwd(b"foo")?);
+    /// assert_eq!(None, dfa.try_find_fwd(b"")?);
+    /// assert_eq!(None, dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn never_match() -> Result<DFA<Vec<u8>>, Error> {
@@ -506,7 +506,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "alloc")]
@@ -551,7 +551,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "alloc")]
@@ -603,7 +603,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "alloc")]
@@ -663,7 +663,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_little_endian(
@@ -713,7 +713,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_big_endian(
@@ -770,7 +770,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_native_endian(
@@ -832,7 +832,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_len(&self) -> usize {
@@ -913,7 +913,7 @@ impl<'a> DFA<&'a [u8]> {
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&bytes)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -996,7 +996,7 @@ impl<'a> DFA<&'a [u8]> {
     ///
     /// let dfa = get_foo();
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Ok(Some(expected)), dfa.find_leftmost_fwd(b"foo12345"));
+    /// assert_eq!(Ok(Some(expected)), dfa.try_find_fwd(b"foo12345"));
     /// ```
     ///
     /// Alternatively, consider using
@@ -1056,7 +1056,7 @@ impl<'a> DFA<&'a [u8]> {
     /// let dfa: DFA<&[u8]> = unsafe { DFA::from_bytes_unchecked(&bytes)?.0 };
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub unsafe fn from_bytes_unchecked(

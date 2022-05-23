@@ -16,11 +16,14 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
         .build("[[:word:]]+$")?;
 
     assert_eq!(
-        dfa.find_leftmost_fwd(b"abcxyz"),
+        dfa.try_find_fwd(b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
-        dfa.find_overlapping_fwd(b"abcxyz", &mut OverlappingState::start()),
+        dfa.try_find_overlapping_fwd(
+            b"abcxyz",
+            &mut OverlappingState::start()
+        ),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
 
@@ -36,7 +39,7 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
         .build("^[[:word:]]+")?;
 
     assert_eq!(
-        dfa.find_leftmost_rev(b"abcxyz"),
+        dfa.try_find_rev(b"abcxyz"),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
 
@@ -85,7 +88,7 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
     }
     let dfa = dense::Builder::new().configure(config).build(r"\b")?;
     let expected = HalfMatch::must(0, 1);
-    assert_eq!(dfa.find_leftmost_fwd(b" a"), Ok(Some(expected)));
+    assert_eq!(dfa.try_find_fwd(b" a"), Ok(Some(expected)));
     Ok(())
 }
 
@@ -98,7 +101,7 @@ fn prefilter_works() -> Result<(), Box<dyn Error>> {
         .with_prefilter(SubstringPrefilter::new("a"));
     let text = b"foo abc foo a1a2a3 foo a123 bar aa456";
     let matches: Vec<(usize, usize)> =
-        re.find_leftmost_iter(text).map(|m| (m.start(), m.end())).collect();
+        re.find_iter(text).map(|m| (m.start(), m.end())).collect();
     assert_eq!(
         matches,
         vec![(12, 14), (14, 16), (16, 18), (23, 27), (33, 37),]
@@ -113,12 +116,12 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
     let re = Regex::new(r"a[0-9]+")
         .unwrap()
         .with_prefilter(SubstringPrefilter::new("a"));
-    assert_eq!(re.find_leftmost(b"za123"), Some(Match::must(0, 1, 5)));
-    assert_eq!(re.find_leftmost(b"a123"), Some(Match::must(0, 0, 4)));
+    assert_eq!(re.find(b"za123"), Some(Match::must(0, 1, 5)));
+    assert_eq!(re.find(b"a123"), Some(Match::must(0, 0, 4)));
     let re = re.with_prefilter(BunkPrefilter::new());
-    assert_eq!(re.find_leftmost(b"za123"), None);
+    assert_eq!(re.find(b"za123"), None);
     // This checks that the prefilter is used when first starting the search,
     // instead of waiting until at least one transition has occurred.
-    assert_eq!(re.find_leftmost(b"a123"), None);
+    assert_eq!(re.find(b"a123"), None);
     Ok(())
 }

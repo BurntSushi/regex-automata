@@ -149,7 +149,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"^a")?;
-    /// let got = dfa.find_leftmost_fwd_at(
+    /// let got = dfa.try_search_fwd(
     ///     None, &Search::new(haystack).range(2..3),
     /// )?;
     /// // No match is found because 2 is not the beginning of the haystack,
@@ -160,7 +160,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.find_leftmost_fwd_at(
+    /// let got = dfa.try_search_fwd(
     ///     None, &Search::new(haystack).range(2..3),
     /// )?;
     /// // An anchored search can still match anywhere in the haystack, it just
@@ -171,7 +171,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.find_leftmost_fwd_at(
+    /// let got = dfa.try_search_fwd(
     ///     None, &Search::new(haystack).range(1..3),
     /// )?;
     /// // No match is found since we start searching at offset 1 which
@@ -183,7 +183,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"a")?;
-    /// let got = dfa.find_leftmost_fwd_at(
+    /// let got = dfa.try_search_fwd(
     ///     None, &Search::new(haystack).range(1..3),
     /// )?;
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
@@ -305,7 +305,7 @@ impl Config {
     /// let mut state = OverlappingState::start();
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
-    /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
+    /// let got = dfa.try_find_overlapping_fwd(haystack, &mut state)?;
     /// assert_eq!(expected, got);
     ///
     /// // The first pattern also matches at the same position, so re-running
@@ -314,7 +314,7 @@ impl Config {
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
-    /// let got = dfa.find_overlapping_fwd(haystack, &mut state)?;
+    /// let got = dfa.try_find_overlapping_fwd(haystack, &mut state)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -349,7 +349,7 @@ impl Config {
     ///     .build(pattern)?;
     /// let expected_fwd = HalfMatch::must(0, 9);
     /// let expected_rev = HalfMatch::must(0, 3);
-    /// let got_fwd = dfa_fwd.find_leftmost_fwd(haystack)?.unwrap();
+    /// let got_fwd = dfa_fwd.try_find_fwd(haystack)?.unwrap();
     /// // Here we don't specify the pattern to search for since there's only
     /// // one pattern and we're doing a leftmost search. But if this were an
     /// // overlapping search, you'd need to specify the pattern that matched
@@ -357,7 +357,7 @@ impl Config {
     /// // starting position of a match of some other pattern.) That in turn
     /// // requires building the reverse automaton with starts_for_each_pattern
     /// // enabled. Indeed, this is what Regex does internally.
-    /// let got_rev = dfa_rev.find_leftmost_rev_at(
+    /// let got_rev = dfa_rev.try_search_rev(
     ///     &Search::new(haystack).range(..got_fwd.offset()),
     /// )?.unwrap();
     /// assert_eq!(expected_fwd, got_fwd);
@@ -423,7 +423,7 @@ impl Config {
     /// // pattern ID. Since the DFA was built as an unanchored machine, it
     /// // use its default unanchored starting state.
     /// let expected = HalfMatch::must(0, 11);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(
     ///     None, &Search::new(haystack),
     /// )?);
     /// // But now if we explicitly specify the pattern to search ('0' being
@@ -431,7 +431,7 @@ impl Config {
     /// // for that specific pattern which is always anchored. Since the
     /// // pattern doesn't have a match at the beginning of the haystack, we
     /// // find nothing.
-    /// assert_eq!(None, dfa.find_leftmost_fwd_at(
+    /// assert_eq!(None, dfa.try_search_fwd(
     ///     None, &Search::new(haystack).pattern(Some(PatternID::must(0))),
     /// )?);
     /// // And finally, an anchored search is not the same as putting a '^' at
@@ -440,7 +440,7 @@ impl Config {
     /// let search = Search::new(haystack)
     ///     .pattern(Some(PatternID::must(0)))
     ///     .range(5..);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd_at(None, &search)?);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(None, &search)?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -536,7 +536,7 @@ impl Config {
     /// // character, so no error occurs.
     /// let haystack = "foo 123 ☃".as_bytes();
     /// let expected = Some(HalfMatch::must(0, 7));
-    /// let got = dfa.find_leftmost_fwd(haystack)?;
+    /// let got = dfa.try_find_fwd(haystack)?;
     /// assert_eq!(expected, got);
     ///
     /// // Notice that this search fails, even though the snowman character
@@ -546,7 +546,7 @@ impl Config {
     /// // the trailing \b matches.
     /// let haystack = "foo 123☃".as_bytes();
     /// let expected = MatchError::Quit { byte: 0xE2, offset: 7 };
-    /// let got = dfa.find_leftmost_fwd(haystack);
+    /// let got = dfa.try_find_fwd(haystack);
     /// assert_eq!(Err(expected), got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -619,7 +619,7 @@ impl Config {
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
     /// let expected = MatchError::Quit { byte: 0x0A, offset: 3 };
-    /// let got = dfa.find_leftmost_fwd(haystack).unwrap_err();
+    /// let got = dfa.try_find_fwd(haystack).unwrap_err();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -752,7 +752,7 @@ impl Config {
     ///     .configure(dense::Config::new().dfa_size_limit(Some(4_000_000)))
     ///     .build(r"\w{20}")?;
     /// let haystack = "A".repeat(20).into_bytes();
-    /// assert!(dfa.find_leftmost_fwd(&haystack)?.is_some());
+    /// assert!(dfa.try_find_fwd(&haystack)?.is_some());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -810,7 +810,7 @@ impl Config {
     ///     )
     ///     .build(r"\w{20}")?;
     /// let haystack = "A".repeat(20).into_bytes();
-    /// assert!(dfa.find_leftmost_fwd(&haystack)?.is_some());
+    /// assert!(dfa.try_find_fwd(&haystack)?.is_some());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -992,7 +992,7 @@ impl Config {
 ///
 /// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";
 /// let expected = Some(HalfMatch::must(0, 10));
-/// let got = dfa.find_leftmost_fwd(haystack)?;
+/// let got = dfa.try_find_fwd(haystack)?;
 /// assert_eq!(expected, got);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1063,7 +1063,7 @@ impl Builder {
     ///     .build(r"[0-9]+")?;
     /// let dfa = dense::Builder::new().build_from_nfa(&nfa)?;
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.find_leftmost_fwd(haystack)?;
+    /// let got = dfa.try_find_fwd(haystack)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1236,7 +1236,7 @@ pub(crate) type OwnedDFA = DFA<Vec<u32>>;
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 /// let expected = HalfMatch::must(0, 8);
-/// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+/// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
@@ -1292,7 +1292,7 @@ impl OwnedDFA {
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+bar")?;
     /// let expected = HalfMatch::must(0, 11);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new(pattern: &str) -> Result<OwnedDFA, Error> {
@@ -1312,7 +1312,7 @@ impl OwnedDFA {
     ///
     /// let dfa = dense::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let expected = HalfMatch::must(1, 3);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345bar")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<OwnedDFA, Error> {
@@ -1332,8 +1332,8 @@ impl OwnedDFA {
     /// let dfa = dense::DFA::always_match()?;
     ///
     /// let expected = HalfMatch::must(0, 0);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"")?);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn always_match() -> Result<OwnedDFA, Error> {
@@ -1349,8 +1349,8 @@ impl OwnedDFA {
     /// use regex_automata::dfa::{Automaton, dense};
     ///
     /// let dfa = dense::DFA::never_match()?;
-    /// assert_eq!(None, dfa.find_leftmost_fwd(b"")?);
-    /// assert_eq!(None, dfa.find_leftmost_fwd(b"foo")?);
+    /// assert_eq!(None, dfa.try_find_fwd(b"")?);
+    /// assert_eq!(None, dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn never_match() -> Result<OwnedDFA, Error> {
@@ -1429,9 +1429,9 @@ impl<T: AsRef<[u32]>> DFA<T> {
     ///
     /// When a DFA has starting states for each pattern, then a search with the
     /// DFA can be configured to only look for anchored matches of a specific
-    /// pattern. Specifically, APIs like [`Automaton::find_leftmost_fwd_at`]
-    /// can accept a non-None `pattern_id` if and only if this method returns
-    /// true. Otherwise, calling `find_leftmost_fwd_at` will panic.
+    /// pattern. Specifically, APIs like [`Automaton::try_search_fwd`] can
+    /// accept a non-None `pattern_id` if and only if this method returns true.
+    /// Otherwise, calling `try_search_fwd` will panic.
     ///
     /// Note that if the DFA has no patterns, this always returns false.
     pub fn has_starts_for_each_pattern(&self) -> bool {
@@ -1556,7 +1556,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let sparse = dense.to_sparse()?;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), sparse.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), sparse.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "alloc")]
@@ -1599,7 +1599,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "alloc")]
@@ -1642,7 +1642,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "alloc")]
@@ -1692,7 +1692,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "alloc")]
@@ -1753,7 +1753,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_little_endian(
@@ -1803,7 +1803,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_big_endian(
@@ -1860,7 +1860,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_native_endian(
@@ -1899,7 +1899,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -1983,7 +1983,7 @@ impl<'a> DFA<&'a [u32]> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&bytes)?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -2007,7 +2007,7 @@ impl<'a> DFA<&'a [u32]> {
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&bytes[pad..])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -2107,7 +2107,7 @@ impl<'a> DFA<&'a [u32]> {
     ///
     /// let dfa = get_foo();
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Ok(Some(expected)), dfa.find_leftmost_fwd(b"foo12345"));
+    /// assert_eq!(Ok(Some(expected)), dfa.try_find_fwd(b"foo12345"));
     /// ```
     ///
     /// Alternatively, consider using
@@ -2157,7 +2157,7 @@ impl<'a> DFA<&'a [u32]> {
     /// let dfa: DFA<&[u32]> = unsafe { DFA::from_bytes_unchecked(&bytes)?.0 };
     ///
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_fwd(b"foo12345")?);
+    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub unsafe fn from_bytes_unchecked(
@@ -4576,7 +4576,7 @@ mod tests {
         let (buf, _) = dfa.to_bytes_native_endian();
         let dfa: DFA<&[u32]> = DFA::from_bytes(&buf).unwrap().0;
 
-        assert_eq!(None, dfa.find_leftmost_fwd(b"foo12345").unwrap());
+        assert_eq!(None, dfa.try_find_fwd(b"foo12345").unwrap());
     }
 
     #[test]
@@ -4589,7 +4589,7 @@ mod tests {
 
         assert_eq!(
             Some(HalfMatch::must(0, 0)),
-            dfa.find_leftmost_fwd(b"foo12345").unwrap()
+            dfa.try_find_fwd(b"foo12345").unwrap()
         );
     }
 }

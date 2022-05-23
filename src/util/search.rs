@@ -351,13 +351,30 @@ impl<'h> Search<'h> {
             None => return Ok(None),
             Some(m) => m,
         };
-        if !self.get_utf8() || !m.is_empty() {
+        if m.is_empty() {
+            self.clone().skip_empty_utf8_splits(m, find)
+        } else {
+            Ok(Some(m))
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn skip_empty_utf8_splits<F>(
+        mut self,
+        mut m: Match,
+        mut find: F,
+    ) -> Result<Option<Match>, MatchError>
+    where
+        F: FnMut(&Search<'_>) -> Result<Option<Match>, MatchError>,
+    {
+        assert!(m.is_empty());
+        if !self.get_utf8() {
             return Ok(Some(m));
         }
-        let mut search = self.clone();
-        while m.is_empty() && !search.is_char_boundary(m.end()) {
-            search.step_byte();
-            m = match find(&search)? {
+        while m.is_empty() && !self.is_char_boundary(m.end()) {
+            self.step_byte();
+            m = match find(&self)? {
                 None => return Ok(None),
                 Some(m) => m,
             };

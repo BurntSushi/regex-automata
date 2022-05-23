@@ -74,7 +74,7 @@ impl Config {
     ///     .thompson(NFA::config().captures(false).reverse(true))
     ///     .build("baz[0-9]+")?;
     /// let expected = HalfMatch::must(0, 3);
-    /// assert_eq!(Some(expected), dfa.find_leftmost_rev(b"foobaz12345bar")?);
+    /// assert_eq!(Some(expected), dfa.try_find_rev(b"foobaz12345bar")?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

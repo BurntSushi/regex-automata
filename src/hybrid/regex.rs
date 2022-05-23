@@ -523,7 +523,8 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'h, 'c> {
-        let search = Search::new(haystack.as_ref());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         FindMatches(self.try_matches_iter(cache, search).infallible())
     }
 
@@ -575,7 +576,8 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindOverlappingMatches<'h, 'c> {
-        let search = Search::new(haystack.as_ref());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         FindOverlappingMatches(
             self.try_overlapping_matches_iter(cache, search).infallible(),
         )
@@ -715,7 +717,8 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> TryFindMatches<'h, 'c> {
-        let search = Search::new(haystack.as_ref());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         TryFindMatches(self.try_matches_iter(cache, search))
     }
 
@@ -750,7 +753,8 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> TryFindOverlappingMatches<'h, 'c> {
-        let search = Search::new(haystack.as_ref());
+        let search =
+            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         TryFindOverlappingMatches(
             self.try_overlapping_matches_iter(cache, search),
         )
@@ -798,22 +802,20 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner<'_>>,
-        search: &Search<'_>,
-    ) -> Result<Option<Match>, MatchError> {
-        self.try_search_imp(cache, pre, search)
-    }
-
-    #[inline(always)]
-    fn try_search_imp(
-        &self,
-        cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        search.find(|search| {
-            self.try_search_fwd_back(cache, pre.as_deref_mut(), search)
-        })
+        let mut m = match self.try_search_fwd_back(cache, pre, search)? {
+            None => return Ok(None),
+            Some(m) => m,
+        };
+        if m.is_empty() {
+            search.clone().skip_empty_utf8_splits(m, |search| {
+                self.try_search_fwd_back(cache, None, search)
+            })
+        } else {
+            Ok(Some(m))
+        }
     }
 
     /// This search routine runs the regex engine forwards to find the end
@@ -905,29 +907,25 @@ impl Regex {
     pub fn try_search_overlapping(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
-        state: &mut OverlappingState,
-    ) -> Result<Option<Match>, MatchError> {
-        self.try_search_overlapping_imp(cache, pre, search, state)
-    }
-
-    #[inline(always)]
-    fn try_search_overlapping_imp(
-        &self,
-        cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
         state: &mut OverlappingState,
     ) -> Result<Option<Match>, MatchError> {
-        search.find(|search| {
-            self.try_search_overlapping_fwd_back(
-                cache,
-                pre.as_deref_mut(),
-                search,
-                state,
-            )
-        })
+        let mut m = match self
+            .try_search_overlapping_fwd_back(cache, pre, search, state)?
+        {
+            None => return Ok(None),
+            Some(m) => m,
+        };
+        if m.is_empty() {
+            search.clone().skip_empty_utf8_splits(m, |search| {
+                self.try_search_overlapping_fwd_back(
+                    cache, None, search, state,
+                )
+            })
+        } else {
+            Ok(Some(m))
+        }
     }
 
     #[inline(always)]
@@ -1005,13 +1003,10 @@ impl Regex {
         search: Search<'h>,
     ) -> iter::TryMatches<'h, TryMatchesClosure<'h, 'c>> {
         let mut scanner = self.scanner();
-        iter::TryMatches::boxed(
-            search.utf8(self.get_config().get_utf8()),
-            move |search| {
-                let pre = scanner.as_mut();
-                self.try_search(cache, pre, search)
-            },
-        )
+        iter::TryMatches::boxed(search, move |search| {
+            let pre = scanner.as_mut();
+            self.try_search(cache, pre, search)
+        })
     }
 
     fn try_overlapping_matches_iter<'r: 'c, 'c, 'h>(
@@ -1021,13 +1016,10 @@ impl Regex {
     ) -> iter::TryOverlappingMatches<'h, TryMatchesClosure<'h, 'c>> {
         let mut scanner = self.scanner();
         let mut state = OverlappingState::start();
-        iter::TryOverlappingMatches::boxed(
-            search.utf8(self.get_config().get_utf8()),
-            move |search| {
-                let pre = scanner.as_mut();
-                self.try_search_overlapping_imp(cache, pre, search, &mut state)
-            },
-        )
+        iter::TryOverlappingMatches::boxed(search, move |search| {
+            let pre = scanner.as_mut();
+            self.try_search_overlapping(cache, pre, search, &mut state)
+        })
     }
 }
 

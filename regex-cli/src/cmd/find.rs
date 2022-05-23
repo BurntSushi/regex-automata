@@ -474,61 +474,44 @@ fn search_dfa_automaton<A: Automaton>(
     let mut at = 0;
     match find.kind() {
         config::SearchKind::Earliest => {
-            while at < haystack.len() {
-                let result = dfa.find_earliest_fwd(&haystack[at..])?;
-                let end = match result {
-                    None => break,
-                    Some(end) => end,
-                };
-                // Always advance one byte, in the case of an zero-width match.
-                at = cmp::max(at + 1, at + end.offset());
-                counts[end.pattern()] += 1;
+            let mut it = iter::TryHalfMatches::new(
+                Search::new(haystack).earliest(true),
+                move |search| dfa.try_search_fwd(None, search),
+            );
+            for result in it {
+                let m = result?;
+                counts[m.pattern()] += 1;
                 if find.matches() {
-                    write_half_match(end, buf);
+                    write_half_match(m, buf);
                 }
             }
         }
         config::SearchKind::Leftmost => {
-            while at < haystack.len() {
-                let result = dfa.find_leftmost_fwd(&haystack[at..])?;
-                let end = match result {
-                    None => break,
-                    Some(end) => end,
-                };
-                // Always advance one byte, in the case of an zero-width match.
-                at = cmp::max(at + 1, at + end.offset());
-                counts[end.pattern()] += 1;
+            let mut it = iter::TryHalfMatches::new(
+                Search::new(haystack),
+                move |search| dfa.try_search_fwd(None, search),
+            );
+            for result in it {
+                let m = result?;
+                counts[m.pattern()] += 1;
                 if find.matches() {
-                    write_half_match(end, buf);
+                    write_half_match(m, buf);
                 }
             }
         }
         config::SearchKind::Overlapping => {
             let mut state = dfa::OverlappingState::start();
-            while at < haystack.len() {
-                let result = dfa.find_overlapping_fwd_at(
-                    None,
-                    None,
-                    haystack,
-                    at,
-                    haystack.len(),
-                    &mut state,
-                )?;
-                let end = match result {
-                    None => {
-                        break;
-                    }
-                    Some(end) => end,
-                };
-                // Unlike the non-overlapping case, we're OK with empty matches
-                // at this level. In particular, the overlapping search
-                // algorithm is itself responsible for ensuring that progress
-                // is always made. (The starting position of the search is
-                // incremented by 1 whenever a non-None state ID is given.)
-                at = end.offset();
-                counts[end.pattern()] += 1;
+            let mut it = iter::TryOverlappingHalfMatches::new(
+                Search::new(haystack),
+                move |search| {
+                    dfa.try_search_overlapping_fwd(None, search, &mut state)
+                },
+            );
+            for result in it {
+                let m = result?;
+                counts[m.pattern()] += 1;
                 if find.matches() {
-                    write_half_match(end, buf);
+                    write_half_match(m, buf);
                 }
             }
         }
@@ -545,7 +528,14 @@ fn search_dfa_regex<A: Automaton>(
     let mut counts = vec![0u64; re.pattern_count()];
     match find.kind() {
         config::SearchKind::Earliest => {
-            for result in re.try_find_earliest_iter(haystack) {
+            let mut pre = re.scanner();
+            let mut it = iter::TryMatches::new(
+                Search::new(haystack)
+                    .earliest(true)
+                    .utf8(re.get_config().get_utf8()),
+                move |search| re.try_search(pre.as_mut(), search),
+            );
+            for result in it {
                 let m = result?;
                 counts[m.pattern()] += 1;
                 if find.matches() {
@@ -554,7 +544,7 @@ fn search_dfa_regex<A: Automaton>(
             }
         }
         config::SearchKind::Leftmost => {
-            for result in re.try_find_leftmost_iter(haystack) {
+            for result in re.try_find_iter(haystack) {
                 let m = result?;
                 counts[m.pattern()] += 1;
                 if find.matches() {
@@ -643,11 +633,12 @@ fn search_hybrid_regex(
     let mut counts = vec![0u64; re.pattern_count()];
     match find.kind() {
         config::SearchKind::Earliest => {
+            let mut pre = re.scanner();
             let mut it = iter::TryMatches::new(
                 Search::new(haystack)
                     .earliest(true)
                     .utf8(re.get_config().get_utf8()),
-                move |search| re.try_search(cache, None, search),
+                move |search| re.try_search(cache, pre.as_mut(), search),
             );
             for result in it {
                 let m = result?;

@@ -37,5 +37,5 @@ fn minimize_sets_correct_match_states() {
         .configure(dense::Config::new().anchored(true).minimize(true))
         .build(pattern)
         .unwrap();
-    assert_eq!(Ok(None), dfa.find_leftmost_fwd(b"\xE2"));
+    assert_eq!(Ok(None), dfa.try_find_fwd(b"\xE2"));
 }
