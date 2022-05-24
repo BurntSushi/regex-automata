@@ -56,16 +56,16 @@ impl Start {
     #[inline(always)]
     pub(crate) fn from_position_fwd(search: &Search<'_>) -> Start {
         assert!(
-            search.bytes().get(search.get_range()).is_some(),
+            search.haystack().get(search.get_range()).is_some(),
             "{}..{} is invalid",
             search.start(),
             search.end(),
         );
         if search.start() == 0 {
             Start::Text
-        } else if search.bytes()[search.start() - 1] == b'\n' {
+        } else if search.haystack()[search.start() - 1] == b'\n' {
             Start::Line
-        } else if utf8::is_word_byte(search.bytes()[search.start() - 1]) {
+        } else if utf8::is_word_byte(search.haystack()[search.start() - 1]) {
             Start::WordByte
         } else {
             Start::NonWordByte
@@ -78,16 +78,16 @@ impl Start {
     #[inline(always)]
     pub(crate) fn from_position_rev(search: &Search<'_>) -> Start {
         assert!(
-            search.bytes().get(search.get_range()).is_some(),
+            search.haystack().get(search.get_range()).is_some(),
             "{}..{} is invalid",
             search.start(),
             search.end(),
         );
-        if search.end() == search.bytes().len() {
+        if search.end() == search.haystack().len() {
             Start::Text
-        } else if search.bytes()[search.end()] == b'\n' {
+        } else if search.haystack()[search.end()] == b'\n' {
             Start::Line
-        } else if utf8::is_word_byte(search.bytes()[search.end()]) {
+        } else if utf8::is_word_byte(search.haystack()[search.end()]) {
             Start::WordByte
         } else {
             Start::NonWordByte

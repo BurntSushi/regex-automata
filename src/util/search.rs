@@ -139,7 +139,7 @@ impl<'h> Search<'h> {
         let end = match range.end_bound() {
             Bound::Included(&i) => i.checked_add(1).unwrap(),
             Bound::Excluded(&i) => i,
-            Bound::Unbounded => self.bytes().len(),
+            Bound::Unbounded => self.haystack().len(),
         };
         self.span(Span::new(start, end))
     }
@@ -188,11 +188,11 @@ impl<'h> Search<'h> {
         Search { utf8: yes, ..self }
     }
 
-    /// Return the haystack for this search as bytes.
-    #[inline]
-    pub fn bytes(&self) -> &[u8] {
-        self.haystack
-    }
+    // /// Return the haystack for this search as bytes.
+    // #[inline]
+    // pub fn bytes(&self) -> &[u8] {
+    // self.haystack
+    // }
 
     /// Return a borrow of the underlying haystack.
     #[inline]
@@ -267,7 +267,7 @@ impl<'h> Search<'h> {
 
     #[inline]
     pub fn step_char(&mut self) {
-        self.set_start(utf8::next(self.bytes(), self.get_span().start()));
+        self.set_start(utf8::next(self.haystack(), self.get_span().start()));
     }
 
     #[inline]
@@ -328,7 +328,7 @@ impl<'h> Search<'h> {
     /// is unspecified.
     #[inline]
     pub fn is_char_boundary(&self, offset: usize) -> bool {
-        utf8::is_boundary(self.bytes(), offset)
+        utf8::is_boundary(self.haystack(), offset)
     }
 
     /// This skips any empty matches that split a codepoint when this search's
@@ -381,7 +381,7 @@ impl<'h> core::fmt::Debug for Search<'h> {
             .field("pattern", &self.pattern)
             .field("earliest", &self.earliest)
             .field("utf8", &self.utf8)
-            .field("haystack", &DebugHaystack(self.bytes()))
+            .field("haystack", &DebugHaystack(self.haystack()))
             .finish()
     }
 }
@@ -445,41 +445,6 @@ impl Span {
     pub fn set_end(&mut self, end: usize) {
         self.end = end;
     }
-
-    /*
-    /// Return a new span with the given offset added to each bound.
-    ///
-    /// # Panics
-    ///
-    /// This panics if `end < start` after adding the given offset to the
-    /// start bound.
-    #[inline]
-    pub fn add(&self, offset: usize) -> Span {
-        Span::new(self.start + offset, self.end + offset)
-    }
-
-    /// Return a new span with the given offset added to the start bound.
-    ///
-    /// # Panics
-    ///
-    /// This panics if `end < start` after adding the given offset to the
-    /// start bound.
-    #[inline]
-    pub fn add_start(&self, offset: usize) -> Span {
-        Span::new(self.start + offset, self.end)
-    }
-
-    /// Return a new span with the given offset added to the end bound.
-    ///
-    /// # Panics
-    ///
-    /// This panics if `end < start` after adding the given offset to the
-    /// end bound.
-    #[inline]
-    pub fn add_end(&self, offset: usize) -> Span {
-        Span::new(self.start, self.end + offset)
-    }
-    */
 }
 
 impl core::ops::Index<Span> for [u8] {
