@@ -998,7 +998,6 @@ impl Builder {
     ///
     /// Callers may provide a "dummy" state ID (typically [`StateID::ZERO`]),
     /// and then change it later with [`patch`](Builder::patch).
-    /// regex pattern.
     ///
     /// Note that unlike `start_pattern`/`finish_pattern`, capturing start and
     /// end states may be interleaved. Indeed, it is typical for many "start

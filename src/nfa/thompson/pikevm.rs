@@ -406,6 +406,17 @@ impl PikeVM {
                 .unwrap();
         }
     }
+
+    #[inline]
+    pub fn which_overlapping_matches(
+        &self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        search: &Search<'_>,
+        matches: &mut OverlappingMatches,
+    ) {
+        self.which_overlapping_imp(cache, pre, search, matches)
+    }
 }
 
 impl PikeVM {
@@ -552,11 +563,7 @@ impl PikeVM {
         instrument!(|c| c.eprint(&self.nfa));
     }
 
-    // BREADCRUMBS: Find a way to test this "which overlapping matches" routine
-    // using our test harness. It's going to be a bit tricky mostly in the
-    // schema design.
-
-    fn which_overlapping_matches_imp(
+    fn which_overlapping_imp(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,

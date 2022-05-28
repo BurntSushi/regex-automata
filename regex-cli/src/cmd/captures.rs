@@ -194,17 +194,6 @@ fn search_api_regex(
     Ok(counts)
 }
 
-// TODO: Currently this code (and in find) doesn't support --no-utf8-iter. Not
-// quite sure how best to do this. Right now, --no-utf8-iter is a property
-// of the regex engine. That is, the PikeVM (or lazy regex or dense regex)
-// are what know whether to do UTF-8 iteration or not, and that property is
-// internal to them. That is, it isn't exposed. Maybe we should expose the
-// configuration of everything. The `Config` types are already public and
-// already have public accessors.
-//
-// Exposing `Config` is probably an independently good idea, but is that how we
-// should solve this particular problem? Not sure.
-
 fn search_pikevm(
     vm: &PikeVM,
     cache: &mut pikevm::Cache,
