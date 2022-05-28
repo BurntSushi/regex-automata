@@ -1750,3 +1750,82 @@ Set the approximate size of the cache used by the DFA.
         Ok(re)
     }
 }
+
+#[derive(Debug)]
+pub struct RegexSetAPI {
+    size_limit: Option<usize>,
+    dfa_size_limit: Option<usize>,
+}
+
+impl RegexSetAPI {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str =
+                "Set the approximate size limit for a compiled regex set.";
+            const LONG: &str = "\
+Set the approximate size limit for a compiled regex set.
+";
+            app = app.arg(flag("size-limit").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str =
+                "Set the approximate size of the cache used by the DFA.";
+            const LONG: &str = "\
+Set the approximate size of the cache used by the DFA.
+";
+            app = app.arg(flag("dfa-size-limit").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<RegexSetAPI> {
+        let mut config =
+            RegexSetAPI { size_limit: None, dfa_size_limit: None };
+        if let Some(x) = args.value_of_lossy("size-limit") {
+            let limit = x.parse().context("failed to parse --size-limit")?;
+            config.size_limit = Some(limit);
+        }
+        if let Some(x) = args.value_of_lossy("dfa-size-limit") {
+            let limit =
+                x.parse().context("failed to parse --dfa-size-limit")?;
+            config.dfa_size_limit = Some(limit);
+        }
+        Ok(config)
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        api: &RegexSetAPI,
+        patterns: &Patterns,
+    ) -> anyhow::Result<regex::bytes::RegexSet> {
+        if syntax.0.get_utf8() {
+            anyhow::bail!(
+                "API-level regex set requires that \
+                 UTF-8 syntax mode be disabled",
+            );
+        }
+        let patterns = patterns.as_strings();
+        let (re, time) = util::timeitr(|| {
+            let mut b = regex::bytes::RegexSetBuilder::new(patterns);
+            b.case_insensitive(syntax.0.get_case_insensitive());
+            b.multi_line(syntax.0.get_multi_line());
+            b.dot_matches_new_line(syntax.0.get_dot_matches_new_line());
+            b.swap_greed(syntax.0.get_swap_greed());
+            b.ignore_whitespace(syntax.0.get_ignore_whitespace());
+            b.unicode(syntax.0.get_unicode());
+            b.octal(syntax.0.get_octal());
+            b.nest_limit(syntax.0.get_nest_limit());
+            if let Some(limit) = api.size_limit {
+                b.size_limit(limit);
+            }
+            if let Some(limit) = api.dfa_size_limit {
+                b.dfa_size_limit(limit);
+            }
+            b.build().map_err(anyhow::Error::from)
+        })?;
+        table.add("build API regexset time", time);
+        Ok(re)
+    }
+}

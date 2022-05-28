@@ -1,5 +1,6 @@
 mod captures;
 mod matches;
+mod which;
 
 use crate::{
     app::{self, App, Args},
@@ -20,12 +21,14 @@ pub fn define() -> App {
         .before_help(ABOUT_LONG)
         .subcommand(captures::define())
         .subcommand(matches::define())
+        .subcommand(which::define())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
         "captures" => captures::run(args),
         "matches" => matches::run(args),
+        "which" => which::run(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
