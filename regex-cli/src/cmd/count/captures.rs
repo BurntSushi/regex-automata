@@ -19,11 +19,11 @@ use automata::{
 };
 
 const ABOUT_SHORT: &'static str = "\
-Finds occurrences of a regex and its capturing groups in a haystack.
+Counts occurrences of a regex and its capturing groups in a haystack.
 ";
 
 const ABOUT_LONG: &'static str = "\
-Finds occurrences of a regex and its capturing groups in a haystack.
+Counts occurrences of a regex and its capturing groups in a haystack.
 ";
 
 pub fn define() -> App {

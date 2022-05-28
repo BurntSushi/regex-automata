@@ -17,7 +17,7 @@ use automata::{
 };
 
 const ABOUT: &'static str = "\
-Finds all occurrences of a regex in a file.
+Counts all occurrences of a regex in a file.
 
 This is principally useful for ad hoc benchmarking. It never prints any of the
 matches, and instead just counts the number of occurrences. Files are memory
@@ -26,8 +26,8 @@ such that searches take longer than a few tens of milliseconds.
 ";
 
 pub fn define() -> App {
-    app::command("find")
-        .about("Find the number of occurrences of a regex in a file.")
+    app::command("matches")
+        .about("Count the number of matches of a regex in a file.")
         .before_help(ABOUT)
         .subcommand(define_api())
         .subcommand(define_dfa())

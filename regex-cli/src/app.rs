@@ -57,6 +57,19 @@ pub type App = clap::App<'static, 'static>;
 /// Convenience type alias for the Clap argument result type that we use.
 pub type Args = clap::ArgMatches<'static>;
 
+/// Build the base of the root Clap application. Sub-commands are attached by
+/// the 'cmd' module.
+pub fn root() -> App {
+    clap::App::new("regex-cli")
+        .author(clap::crate_authors!())
+        .version(clap::crate_version!())
+        .about(ABOUT)
+        .template(TEMPLATE_ROOT)
+        .max_term_width(100)
+        .setting(clap::AppSettings::UnifiedHelpMessage)
+        .arg(switch("quiet").short("q").global(true).help("Show less output."))
+}
+
 /// Convenience function for creating a new Clap sub-command.
 ///
 /// This should be used for sub-commands that contain other sub-commands.
@@ -96,20 +109,4 @@ pub fn flag(name: &'static str) -> clap::Arg {
 /// that accepts no values. i.e., It is a boolean switch.
 pub fn switch(name: &'static str) -> clap::Arg {
     clap::Arg::with_name(name).long(name)
-}
-
-/// Build the main Clap application.
-pub fn root() -> App {
-    clap::App::new("regex-cli")
-        .author(clap::crate_authors!())
-        .version(clap::crate_version!())
-        .about(ABOUT)
-        .template(TEMPLATE_ROOT)
-        .max_term_width(100)
-        .setting(clap::AppSettings::UnifiedHelpMessage)
-        .arg(switch("quiet").short("q").global(true).help("Show less output."))
-        .subcommand(cmd::captures::define())
-        .subcommand(cmd::debug::define())
-        .subcommand(cmd::find::define())
-        .subcommand(cmd::generate::define())
 }
