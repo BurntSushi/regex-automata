@@ -854,12 +854,12 @@ impl Regex {
             .span(Span::new(search.start(), end.offset()));
         let start = search::find_rev(rdfa, rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
-        assert_eq!(
+        debug_assert_eq!(
             start.pattern(),
             end.pattern(),
             "forward and reverse search must match same pattern",
         );
-        assert!(start.offset() <= end.offset());
+        debug_assert!(start.offset() <= end.offset());
         Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
     }
 
@@ -983,12 +983,12 @@ impl Regex {
         let start = rdfa
             .try_search_rev(rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
-        assert_eq!(
+        debug_assert_eq!(
             start.pattern(),
             end.pattern(),
             "forward and reverse search must match same pattern",
         );
-        assert!(start.offset() <= end.offset());
+        debug_assert!(start.offset() <= end.offset());
         Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
     }
 }

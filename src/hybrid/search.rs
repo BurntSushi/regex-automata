@@ -521,6 +521,70 @@ fn find_overlapping_fwd_imp(
     search: &Search<'_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
+    // BREADCRUMBS: Consider 'ab|b' matched against 'ab'. Technically, the full
+    // set of overlapping matches is [ab, b]. But right now, we only report
+    // 'ab'. It's not clear that reporting 'b' is even possible. Consider: how
+    // would the reverse search know to stop matching after seeing the 'b'?
+    // It wouldn't. The only way to make something like this work is to split
+    // 'ab|b' into two patterns 'ab' and 'b'. Then, since you have distinct
+    // patterns, the pattern IDs force both matches to be reported and the
+    // reverse search knows which pattern it's looking for and thus knows to
+    // stop after seeing 'b'.
+    //
+    // So I think we need to somehow document this as a limitation. But it just
+    // turns out to be real weird when, for example, matching 'samwise|wise'
+    // against 'samwise' reports only [samwise], but matching 'samwise|wis'
+    // reports [samwise, wis]. Like, wat. So we can yield all overlapping
+    // matches... except for matches that end at the same location?
+    //
+    // Well... Unless... Our overlapping iterator only advanced by adding 1 to
+    // the previous starting position. (Well, the overlapping iterator needs to
+    // be pushed down into this routine.) If we did that, then we would indeed
+    // find 'wise' because 'samwise' would stop matching. So maybe that's all
+    // that's needed?
+    //
+    // And don't forget, it seems like matching '\w+' against 'bar' should
+    // yield [b, ba, bar, a, ar, r], yet right now it yields [b, ba, bar]. I
+    // guess that's also handled by the same trick above, ain't it?
+    //
+    // Turns out the "trick" above does not really have an obvious way to be
+    // implemented. How do you know when to increment the starting position,
+    // for example? Do you wait until you reach the EOI? Or until you find a
+    // match after the initial starting position?
+    //
+    // No, actually, I believe the answer here is that our overlapping search
+    // needs to be overlapping not only in the forwards direction, but in the
+    // reverse direction as well! Take 'ab|b' against 'ab' for example. The
+    // forward search will find 'ab'. A non-overlapping reverse search will
+    // only find 'ab', since it's instructed to go as far as possible. But an
+    // *overlapping* reverse search will find 'b' and 'ab'. Interestingly, the
+    // results will then be [b, ab], since the 'b' will be found first. This is
+    // QUITE weird. But you still get all of the results you want.
+    //
+    // This also fixes the 'samwise|wise' regex. The forward search on
+    // 'samwise' finds 'samwise', then a reverse overlapping search will find
+    // 'wise' and then 'samwise'.
+    //
+    // What about '\w+' against 'bar'? We get [b, a, ba, r, ar, bar]. Again,
+    // the ordering is quite weird.
+    //
+    // What if we collected results returned by the reverse overlapping search
+    // in-memory and then reversed them before yielding each? For '\w+' against
+    // 'bar', we'd get [b, ba, a, bar, ar, r]. Which is also still pretty
+    // weird, particularly since 'bar' follows 'a', despite 'bar' being more
+    // leftmost than 'a'.
+    //
+    // Can we even describe this ordering in a coherent way?
+    //
+    // Also, how does a search make progress? I think that we always start our
+    // search at the position following the end of the last search.
+    //
+    // What are the bounds of the reverse search? I think the bounds are just
+    // always the same: the start of the current context. The only thing that
+    // changes is the current position in the haystack at which to resume the
+    // search because conceptually, iteration is one giant search unlike for
+    // leftmost non-overlapping searches.
+
     let mut at = search.start();
     let mut sid = match state.id() {
         None => init_fwd(dfa, cache, search)?,

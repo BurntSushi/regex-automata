@@ -184,3 +184,12 @@ matches = [[0, 0], [2, 2]]
 match_kind = "all"
 search_kind = "overlapping"
 unescape = true
+
+# [[tests]]
+# name = "match-before-context-start"
+# regex = 'a+'
+# input = "aaaaa"
+# context = [2, 5]
+# matches = [[2, 3], [2, 4], [2, 5]]
+# match_kind = "all"
+# search_kind = "overlapping"

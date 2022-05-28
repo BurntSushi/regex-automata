@@ -552,6 +552,70 @@ impl PikeVM {
         instrument!(|c| c.eprint(&self.nfa));
     }
 
+    // BREADCRUMBS: Find a way to test this "which overlapping matches" routine
+    // using our test harness. It's going to be a bit tricky mostly in the
+    // schema design.
+
+    fn which_overlapping_matches_imp(
+        &self,
+        cache: &mut Cache,
+        pre: Option<&mut prefilter::Scanner>,
+        search: &Search<'_>,
+        matches: &mut OverlappingMatches,
+    ) {
+        assert!(
+            search.haystack().len() < core::usize::MAX,
+            "byte slice lengths must be less than usize MAX",
+        );
+        instrument!(|c| c.reset(&self.nfa));
+        cache.clear(0);
+
+        let match_kind = self.config.get_match_kind();
+        let anchored = self.config.get_anchored()
+            || self.nfa.is_always_start_anchored()
+            || search.get_pattern().is_some();
+        let start_id = match search.get_pattern() {
+            None => self.nfa.start_anchored(),
+            Some(pid) => self.nfa.start_pattern(pid),
+        };
+
+        let Cache {
+            ref mut stack,
+            ref mut scratch_caps,
+            ref mut clist,
+            ref mut nlist,
+        } = cache;
+        let mut at = search.start();
+        while at <= search.end() {
+            if anchored && clist.set.is_empty() && at > search.start() {
+                break;
+            }
+            // if !matches.any && (clist.set.is_empty() || !anchored) {
+            if clist.set.is_empty() || !anchored {
+                self.epsilon_closure(
+                    stack,
+                    clist,
+                    scratch_caps,
+                    start_id,
+                    search.haystack(),
+                    at,
+                );
+            }
+            self.steps_overlapping2(
+                stack,
+                clist,
+                nlist,
+                search.haystack(),
+                at,
+                matches,
+            );
+            at += 1;
+            core::mem::swap(clist, nlist);
+            nlist.set.clear();
+        }
+        instrument!(|c| c.eprint(&self.nfa));
+    }
+
     #[inline(always)]
     fn steps(
         &self,
@@ -605,6 +669,28 @@ impl PikeVM {
             return true;
         }
         false
+    }
+
+    #[inline(always)]
+    fn steps_overlapping2(
+        &self,
+        stack: &mut Vec<FollowEpsilon>,
+        clist: &mut Threads,
+        nlist: &mut Threads,
+        haystack: &[u8],
+        at: usize,
+        matches: &mut OverlappingMatches,
+    ) {
+        instrument!(|c| c.record_state_set(&clist.list));
+        for sid in clist.list.drain(..) {
+            let slots = &mut [];
+            let pid = match self.step(stack, nlist, slots, sid, haystack, at) {
+                None => continue,
+                Some(pid) => pid,
+            };
+            matches.any = true;
+            matches.which[pid] = true;
+        }
     }
 
     #[inline(always)]
@@ -885,6 +971,40 @@ impl<'h, 'c> Iterator for CapturesOverlappingMatches<'h, 'c> {
     #[inline]
     fn next(&mut self) -> Option<Captures> {
         self.it.next().map(|_| self.caps.borrow().clone())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OverlappingMatches {
+    any: bool,
+    which: Vec<bool>,
+}
+
+impl OverlappingMatches {
+    pub fn new(nfa: NFA) -> OverlappingMatches {
+        OverlappingMatches {
+            any: false,
+            which: vec![false; nfa.pattern_len()],
+        }
+    }
+
+    fn clear(&mut self) {
+        self.any = false;
+        for matched in self.which.iter_mut() {
+            *matched = false;
+        }
+    }
+
+    pub fn any(&self) -> bool {
+        self.any
+    }
+
+    pub fn matched(&self, pid: PatternID) -> bool {
+        self.which[pid]
+    }
+
+    pub fn len(&self) -> usize {
+        self.which.len()
     }
 }
 
