@@ -166,29 +166,23 @@ fn run_test(
                     TestResult::captures(it)
                 }
                 ret::SearchKind::Overlapping => {
-                    let it = re
-                        .captures_overlapping_iter(cache, test.input())
-                        .take(test.match_limit().unwrap_or(std::usize::MAX))
-                        .map(|caps| {
-                            // We wouldn't get a non-matching captures in an
-                            // iterator.
-                            assert!(caps.is_match());
-                            let testcaps = caps.iter().map(|m| {
-                                m.map(|m| ret::Span {
-                                    start: m.start(),
-                                    end: m.end(),
-                                })
-                            });
-                            // This unwrap is OK because we know captures is
-                            // a match, and all matches always have the first
-                            // group set.
-                            ret::Captures::new(
-                                caps.pattern().unwrap().as_usize(),
-                                testcaps,
-                            )
-                            .unwrap()
-                        });
-                    TestResult::captures(it)
+                    let mut matches =
+                        pikevm::OverlappingMatches::new(re.get_nfa().clone());
+                    let search = Search::new(test.input())
+                        .utf8(re.get_config().get_utf8());
+                    re.which_overlapping_matches(
+                        cache,
+                        None,
+                        &search,
+                        &mut matches,
+                    );
+                    let mut pids = vec![];
+                    for pid in re.get_nfa().patterns() {
+                        if matches.matched(pid) {
+                            pids.push(pid.as_usize());
+                        }
+                    }
+                    TestResult::which(pids)
                 }
             }
         }

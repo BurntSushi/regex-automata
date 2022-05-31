@@ -334,6 +334,7 @@ impl RegexTest {
                 ids.push(cap.id);
             }
         }
+        ids.sort();
         ids
     }
 
@@ -467,10 +468,11 @@ impl TestResult {
         TestResult { kind: TestResultKind::Match(yes) }
     }
 
-    /// Create a test result that indicates which out of possibly many globs
+    /// Create a test result that indicates which out of possibly many regexes
     /// matched the input. If `which` is empty, then this is equivalent to
     /// `TestResult::no_match()`.
-    pub fn which(which: Vec<usize>) -> TestResult {
+    pub fn which(mut which: Vec<usize>) -> TestResult {
+        which.sort();
         TestResult { kind: TestResultKind::Which(which) }
     }
 

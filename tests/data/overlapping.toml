@@ -1,3 +1,10 @@
+# NOTE: We define a number of tests where the *match* kind is 'leftmost-first'
+# but the *search* kind is 'overlapping'. This is a somewhat nonsensical
+# combination and can produce odd results. Nevertheless, those results should
+# be consistent so we test them here. (At the time of writing this note, I
+# hadn't yet decided whether to make 'leftmost-first' with 'overlapping' result
+# in unspecified behavior.)
+
 [[tests]]
 name = "repetition-plus-leftmost-first-100"
 regex = 'a+'
@@ -19,6 +26,14 @@ name = "repetition-plus-all-100"
 regex = 'a+'
 input = "aaa"
 matches = [[0, 1], [0, 2], [0, 3]]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
+name = "repetition-plus-all-110"
+regex = '☃+'
+input = "☃☃☃"
+matches = [[0, 3], [0, 6], [0, 9]]
 match_kind = "all"
 search_kind = "overlapping"
 
@@ -184,12 +199,3 @@ matches = [[0, 0], [2, 2]]
 match_kind = "all"
 search_kind = "overlapping"
 unescape = true
-
-# [[tests]]
-# name = "match-before-context-start"
-# regex = 'a+'
-# input = "aaaaa"
-# context = [2, 5]
-# matches = [[2, 3], [2, 4], [2, 5]]
-# match_kind = "all"
-# search_kind = "overlapping"

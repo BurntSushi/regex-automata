@@ -185,6 +185,10 @@ name = "basic100"
 regexes = [".*?", "a"]
 input = "zzza"
 matches = [
+  # NOTE: The match spans here are likely not correct, since '.*?' matches
+  # at many more positions than are reported here. Alas, our actual test
+  # implementation only cares about which patterns matched and not their spans
+  # currently.
   { id = 0, span = [0, 0] },
   { id = 0, span = [0, 1] },
   { id = 0, span = [0, 2] },
@@ -200,6 +204,10 @@ name = "basic101"
 regexes = [".*", "a"]
 input = "zzza"
 matches = [
+  # NOTE: The match spans here are likely not correct, since '.*' matches
+  # at many more positions than are reported here. Alas, our actual test
+  # implementation only cares about which patterns matched and not their spans
+  # currently.
   { id = 0, span = [0, 0] },
   { id = 0, span = [0, 1] },
   { id = 0, span = [0, 2] },
@@ -215,6 +223,10 @@ name = "basic102"
 regexes = [".*", "a"]
 input = "zzz"
 matches = [
+  # NOTE: The match spans here are likely not correct, since '.*' matches
+  # at many more positions than are reported here. Alas, our actual test
+  # implementation only cares about which patterns matched and not their spans
+  # currently.
   { id = 0, span = [0, 0] },
   { id = 0, span = [0, 1] },
   { id = 0, span = [0, 2] },
@@ -529,6 +541,12 @@ match_kind = "all"
 search_kind = "overlapping"
 
 # These test multi-regex searches with capture groups.
+#
+# NOTE: I wrote these tests in the course of developing a first class API for
+# overlapping capturing group matches, but ultimately removed that API because
+# the semantics for overlapping matches aren't totally clear. However, I've
+# left the tests because I believe the semantics for these patterns are clear
+# and because we can still test our "which patterns matched" APIs with them.
 
 [[tests]]
 name = "caps-010"
