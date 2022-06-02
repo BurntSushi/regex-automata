@@ -15,7 +15,7 @@ use automata::{
     dfa::{self, Automaton},
     hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
-    PatternID, Search,
+    MatchSet, PatternID, Search,
 };
 
 const ABOUT_SHORT: &'static str = "\
@@ -154,17 +154,10 @@ fn search_pikevm(
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
     let mut cache = vm.create_cache();
-    let mut matches = pikevm::OverlappingMatches::new(vm.get_nfa().clone());
+    let mut matset = MatchSet::new(vm.get_nfa().pattern_len());
     let search = Search::new(haystack).utf8(vm.get_config().get_utf8());
-    vm.which_overlapping_matches(&mut cache, None, &search, &mut matches);
-
-    let mut pids = vec![];
-    for pid in vm.get_nfa().patterns() {
-        if matches.matched(pid) {
-            pids.push(pid.as_usize());
-        }
-    }
-    Ok(pids)
+    vm.which_overlapping_matches(&mut cache, None, &search, &mut matset);
+    Ok(matset.iter().map(|pid| pid.as_usize()).collect())
 }
 
 fn format_capture_counts(

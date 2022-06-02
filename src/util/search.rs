@@ -675,6 +675,84 @@ impl Match {
     }
 }
 
+#[cfg(feature = "alloc")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MatchSet {
+    len: usize,
+    which: alloc::vec::Vec<bool>,
+}
+
+#[cfg(feature = "alloc")]
+impl MatchSet {
+    pub fn new(pattern_len: usize) -> MatchSet {
+        MatchSet { len: 0, which: alloc::vec![false; pattern_len] }
+    }
+
+    pub fn clear(&mut self) {
+        self.len = 0;
+        for matched in self.which.iter_mut() {
+            *matched = false;
+        }
+    }
+
+    pub fn contains(&self, pid: PatternID) -> bool {
+        self.which[pid]
+    }
+
+    pub fn insert(&mut self, pid: PatternID) {
+        if self.which[pid] {
+            return;
+        }
+        self.len += 1;
+        self.which[pid] = true;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.which.len()
+    }
+
+    pub fn iter(&self) -> MatchSetIter<'_> {
+        MatchSetIter { it: self.which.iter().enumerate() }
+    }
+}
+
+#[cfg(feature = "alloc")]
+#[derive(Debug)]
+pub struct MatchSetIter<'a> {
+    it: core::iter::Enumerate<core::slice::Iter<'a, bool>>,
+}
+
+#[cfg(feature = "alloc")]
+impl<'a> Iterator for MatchSetIter<'a> {
+    type Item = PatternID;
+
+    fn next(&mut self) -> Option<PatternID> {
+        while let Some((index, &yes)) = self.it.next() {
+            if yes {
+                // Even though 'index' can technically be greater than
+                // PatternID::MAX since any arbitrary 'usize' can be used to
+                // create a 'MatchSet', only valid 'PatternID' values can be
+                // inserted into the set. Thus, 'yes' is only true precisely
+                // when 'index' corresponds to a valid 'PatternID'.
+                return Some(PatternID::new_unchecked(index));
+            }
+        }
+        None
+    }
+}
+
 /// An error type indicating that a search stopped prematurely without finding
 /// a match.
 ///

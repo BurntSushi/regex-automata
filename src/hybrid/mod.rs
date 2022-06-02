@@ -40,7 +40,7 @@ assert_eq!(matches, vec![
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-# Example: searching with regex sets
+# Example: searching with multiple regexes
 
 The lazy DFAs in this module all fully support searching with multiple regexes
 simultaneously. You can use this support with standard leftmost-first style
@@ -57,31 +57,6 @@ let matches: Vec<Match> = re.find_iter(&mut cache, haystack).collect();
 assert_eq!(matches, vec![
     Match::must(1, 0, 4),
     Match::must(0, 5, 8),
-]);
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-Or use overlapping style searches to find all possible occurrences:
-
-```
-use regex_automata::{hybrid::{dfa, regex::Regex}, MatchKind, Match};
-
-// N.B. For overlapping searches, we need the underlying lazy DFA to report all
-// possible matches.
-let re = Regex::builder()
-    .dfa(dfa::Config::new().match_kind(MatchKind::All))
-    .build_many(&[r"\w{3}", r"\S{3}"])?;
-let mut cache = re.create_cache();
-
-let text = b"@foo bar";
-let matches: Vec<Match> =
-    re.find_overlapping_iter(&mut cache, text).collect();
-assert_eq!(matches, vec![
-    Match::must(1, 0, 3),
-    Match::must(0, 1, 4),
-    Match::must(1, 1, 4),
-    Match::must(0, 5, 8),
-    Match::must(1, 5, 8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

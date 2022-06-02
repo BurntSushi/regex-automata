@@ -13,7 +13,7 @@ use crate::{
         iter,
         nonmax::NonMaxUsize,
         prefilter::{self, Prefilter},
-        search::{Match, MatchError, MatchKind, Search},
+        search::{Match, MatchError, MatchKind, MatchSet, Search},
         sparse_set::SparseSet,
     },
 };
@@ -257,19 +257,6 @@ impl PikeVM {
     }
 
     #[inline]
-    pub fn find_overlapping<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        haystack: H,
-        state: &mut OverlappingState,
-        caps: &mut Captures,
-    ) {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
-        self.search_overlapping(cache, None, &search, state, caps)
-    }
-
-    #[inline]
     pub fn find_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
@@ -284,26 +271,6 @@ impl PikeVM {
         })
         .infallible();
         FindMatches(it)
-    }
-
-    #[inline]
-    pub fn find_overlapping_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'h H,
-    ) -> FindOverlappingMatches<'h, 'c> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
-        let mut state = OverlappingState::start();
-        let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
-        let it = iter::TryOverlappingMatches::boxed(search, move |search| {
-            self.search_overlapping(
-                cache, None, search, &mut state, &mut caps,
-            );
-            Ok(caps.get_match())
-        })
-        .infallible();
-        FindOverlappingMatches(it)
     }
 
     #[inline]
@@ -324,38 +291,6 @@ impl PikeVM {
         })
         .infallible();
         CapturesMatches { caps, it }
-    }
-
-    #[inline]
-    pub fn captures_overlapping_iter<
-        'r: 'c,
-        'c,
-        'h,
-        H: AsRef<[u8]> + ?Sized,
-    >(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'h H,
-    ) -> CapturesOverlappingMatches<'h, 'c> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
-        let mut state = OverlappingState::start();
-        let caps = Arc::new(RefCell::new(self.create_captures()));
-        let it = iter::TryOverlappingMatches::boxed(search, {
-            let caps = Arc::clone(&caps);
-            move |search| {
-                self.search_overlapping(
-                    cache,
-                    None,
-                    search,
-                    &mut state,
-                    &mut *caps.borrow_mut(),
-                );
-                Ok(caps.borrow().get_match())
-            }
-        })
-        .infallible();
-        CapturesOverlappingMatches { caps, it }
     }
 
     #[inline]
@@ -382,40 +317,14 @@ impl PikeVM {
     }
 
     #[inline]
-    pub fn search_overlapping(
-        &self,
-        cache: &mut Cache,
-        mut pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
-        state: &mut OverlappingState,
-        caps: &mut Captures,
-    ) {
-        self.search_overlapping_imp(cache, pre, search, state, caps);
-        let m = match caps.get_match() {
-            None => return,
-            Some(m) => m,
-        };
-        if m.is_empty() {
-            search
-                .skip_empty_utf8_splits(m, |search| {
-                    self.search_overlapping_imp(
-                        cache, None, search, state, caps,
-                    );
-                    Ok(caps.get_match())
-                })
-                .unwrap();
-        }
-    }
-
-    #[inline]
     pub fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matches: &mut OverlappingMatches,
+        matset: &mut MatchSet,
     ) {
-        self.which_overlapping_imp(cache, pre, search, matches)
+        self.which_overlapping_imp(cache, pre, search, matset)
     }
 }
 
@@ -490,85 +399,12 @@ impl PikeVM {
         instrument!(|c| c.eprint(&self.nfa));
     }
 
-    fn search_overlapping_imp(
-        &self,
-        cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
-        state: &mut OverlappingState,
-        caps: &mut Captures,
-    ) {
-        // NOTE: See 'find_fwd' for some commentary on this routine. We don't
-        // duplicate the comments here to avoid them getting out of sync.
-
-        assert!(
-            search.haystack().len() < core::usize::MAX,
-            "byte slice lengths must be less than usize MAX",
-        );
-        instrument!(|c| c.reset(&self.nfa));
-        caps.set_pattern(None);
-        if state.step_index.is_none() {
-            cache.clear(caps.slot_len());
-        }
-
-        let match_kind = self.config.get_match_kind();
-        let anchored = self.config.get_anchored()
-            || self.nfa.is_always_start_anchored()
-            || search.get_pattern().is_some();
-        let start_id = match search.get_pattern() {
-            None => self.nfa.start_anchored(),
-            Some(pid) => self.nfa.start_pattern(pid),
-        };
-
-        let Cache {
-            ref mut stack,
-            ref mut scratch_caps,
-            ref mut clist,
-            ref mut nlist,
-        } = cache;
-        let mut at = search.start();
-        while at <= search.end() {
-            if anchored && clist.set.is_empty() && at > search.start() {
-                break;
-            }
-            if state.step_index.is_none()
-                && !state.matched
-                && (clist.set.is_empty() || !anchored)
-            {
-                self.epsilon_closure(
-                    stack,
-                    clist,
-                    scratch_caps,
-                    start_id,
-                    search.haystack(),
-                    at,
-                );
-            }
-            if self.steps_overlapping(
-                stack,
-                clist,
-                nlist,
-                search.haystack(),
-                at,
-                state,
-                caps,
-            ) {
-                break;
-            }
-            at += 1;
-            core::mem::swap(clist, nlist);
-            nlist.set.clear();
-            nlist.list.clear();
-        }
-        instrument!(|c| c.eprint(&self.nfa));
-    }
-
     fn which_overlapping_imp(
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matches: &mut OverlappingMatches,
+        matset: &mut MatchSet,
     ) {
         assert!(
             search.haystack().len() < core::usize::MAX,
@@ -597,7 +433,6 @@ impl PikeVM {
             if anchored && clist.set.is_empty() && at > search.start() {
                 break;
             }
-            // if !matches.any && (clist.set.is_empty() || !anchored) {
             if clist.set.is_empty() || !anchored {
                 self.epsilon_closure(
                     stack,
@@ -608,14 +443,19 @@ impl PikeVM {
                     at,
                 );
             }
-            self.steps_overlapping2(
+            self.steps_overlapping(
                 stack,
                 clist,
                 nlist,
                 search.haystack(),
                 at,
-                matches,
+                matset,
             );
+            // If we found a match and filled our set, then there is no more
+            // additional info that we can provide. Thus, we can quit.
+            if matset.is_full() {
+                break;
+            }
             at += 1;
             core::mem::swap(clist, nlist);
             nlist.set.clear();
@@ -658,35 +498,7 @@ impl PikeVM {
         nlist: &mut Threads,
         haystack: &[u8],
         at: usize,
-        state: &mut OverlappingState,
-        caps: &mut Captures,
-    ) -> bool {
-        instrument!(|c| c.record_state_set(&clist.list));
-        let index = state.step_index.take().unwrap_or(0);
-        for (i, &sid) in clist.list.iter().enumerate().skip(index) {
-            let slots = &mut clist.caps[sid].slots[..caps.slot_len()];
-            let pid = match self.step(stack, nlist, slots, sid, haystack, at) {
-                None => continue,
-                Some(pid) => pid,
-            };
-            copy_to_captures(pid, slots, caps);
-            state.step_index = Some(i.checked_add(1).unwrap());
-            state.matched =
-                !self.config.get_match_kind().continue_past_first_match();
-            return true;
-        }
-        false
-    }
-
-    #[inline(always)]
-    fn steps_overlapping2(
-        &self,
-        stack: &mut Vec<FollowEpsilon>,
-        clist: &mut Threads,
-        nlist: &mut Threads,
-        haystack: &[u8],
-        at: usize,
-        matches: &mut OverlappingMatches,
+        matset: &mut MatchSet,
     ) {
         instrument!(|c| c.record_state_set(&clist.list));
         for sid in clist.list.drain(..) {
@@ -695,8 +507,7 @@ impl PikeVM {
                 None => continue,
                 Some(pid) => pid,
             };
-            matches.any = true;
-            matches.which[pid] = true;
+            matset.insert(pid);
         }
     }
 
@@ -889,33 +700,6 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
     }
 }
 
-/// An iterator over all overlapping matches for an infallible search.
-///
-/// The iterator yields a [`Match`] value until no more matches could be found.
-/// If the underlying regex engine returns an error, then a panic occurs.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'h` represents the lifetime of the haystack being searched.
-/// * `'c` represents the lifetime of the regex cache. The lifetime of the
-/// regex object itself must outlive `'c`.
-///
-/// This iterator can be created with the [`PikeVM::find_overlapping_iter`]
-/// method.
-#[derive(Debug)]
-pub struct FindOverlappingMatches<'h, 'c>(
-    iter::OverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
-);
-
-impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
-    type Item = Match;
-
-    #[inline]
-    fn next(&mut self) -> Option<Match> {
-        self.0.next()
-    }
-}
-
 /// An iterator over all non-overlapping leftmost matches, with their capturing
 /// groups, for a particular search.
 ///
@@ -949,81 +733,6 @@ impl<'h, 'c> Iterator for CapturesMatches<'h, 'c> {
     #[inline]
     fn next(&mut self) -> Option<Captures> {
         self.it.next().map(|_| self.caps.borrow().clone())
-    }
-}
-
-/// An iterator over all overlapping leftmost matches, with their capturing
-/// groups, for a particular search.
-///
-/// The iterator yields a [`Captures`] value until no more matches could be
-/// found.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'h` represents the lifetime of the haystack being searched.
-/// * `'c` represents the lifetime of the regex cache. The lifetime of the
-/// regex object itself must outlive `'c`.
-///
-/// This iterator can be created with the [`Regex::captures_overlapping_iter`]
-/// method.
-#[derive(Debug)]
-pub struct CapturesOverlappingMatches<'h, 'c> {
-    it: iter::OverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
-    caps: Arc<RefCell<Captures>>,
-}
-
-impl<'h, 'c> Iterator for CapturesOverlappingMatches<'h, 'c> {
-    type Item = Captures;
-
-    #[inline]
-    fn next(&mut self) -> Option<Captures> {
-        self.it.next().map(|_| self.caps.borrow().clone())
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OverlappingMatches {
-    any: bool,
-    which: Vec<bool>,
-}
-
-impl OverlappingMatches {
-    pub fn new(nfa: NFA) -> OverlappingMatches {
-        OverlappingMatches {
-            any: false,
-            which: vec![false; nfa.pattern_len()],
-        }
-    }
-
-    fn clear(&mut self) {
-        self.any = false;
-        for matched in self.which.iter_mut() {
-            *matched = false;
-        }
-    }
-
-    pub fn any(&self) -> bool {
-        self.any
-    }
-
-    pub fn matched(&self, pid: PatternID) -> bool {
-        self.which[pid]
-    }
-
-    pub fn len(&self) -> usize {
-        self.which.len()
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OverlappingState {
-    step_index: Option<usize>,
-    matched: bool,
-}
-
-impl OverlappingState {
-    pub fn start() -> OverlappingState {
-        OverlappingState { step_index: None, matched: false }
     }
 }
 

@@ -173,7 +173,7 @@ fn search_api_regex(
     let mut counts = vec![0; re.captures_len()];
     match captures.kind() {
         config::SearchKind::Earliest => {
-            anyhow::bail!("API 'Regex' only supports leftmost searching");
+            anyhow::bail!("earliest searches not supported");
         }
         config::SearchKind::Leftmost => {
             for caps in re.captures_iter(haystack) {
@@ -188,7 +188,7 @@ fn search_api_regex(
             }
         }
         config::SearchKind::Overlapping => {
-            anyhow::bail!("API 'Regex' only supports leftmost searching");
+            anyhow::bail!("overlapping searches not supported");
         }
     }
     Ok(counts)
@@ -268,17 +268,7 @@ fn search_pikevm(
             }
         }
         config::SearchKind::Overlapping => {
-            for caps in vm.captures_overlapping_iter(cache, haystack) {
-                let pid = caps.pattern().unwrap();
-                for (group_index, m) in caps.iter().enumerate() {
-                    if m.is_some() {
-                        counts[pid][group_index] += 1;
-                    }
-                }
-                if captures.matches() {
-                    write_thompson_captures(vm.get_nfa(), &caps, buf);
-                }
-            }
+            anyhow::bail!("overlapping searches not supported");
         }
     }
     Ok(counts)

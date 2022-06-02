@@ -5,7 +5,7 @@ use regex_automata::{
     },
     nfa::thompson,
     util::iter,
-    MatchKind, Search, SyntaxConfig,
+    MatchKind, MatchSet, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -182,14 +182,19 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let it = re
-                    .find_overlapping_iter(cache, test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
+                let patlen = re.forward().get_nfa().pattern_len();
+                let mut matset = MatchSet::new(patlen);
+                let search =
+                    Search::new(test.input()).utf8(re.get_config().get_utf8());
+                re.forward()
+                    .which_overlapping_matches(
+                        cache.as_parts_mut().0,
+                        None,
+                        &search,
+                        &mut matset,
+                    )
+                    .unwrap();
+                TestResult::which(matset.iter().map(|p| p.as_usize()))
             }
         },
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),

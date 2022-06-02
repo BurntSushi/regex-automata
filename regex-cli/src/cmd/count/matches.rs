@@ -447,7 +447,7 @@ fn search_api_regex(
     let mut count = 0;
     match find.kind() {
         config::SearchKind::Earliest => {
-            anyhow::bail!("API 'Regex' only supports leftmost searching");
+            anyhow::bail!("earliest searches not supported");
         }
         config::SearchKind::Leftmost => {
             for m in re.find_iter(haystack) {
@@ -458,7 +458,7 @@ fn search_api_regex(
             }
         }
         config::SearchKind::Overlapping => {
-            anyhow::bail!("API 'Regex' only supports leftmost searching");
+            anyhow::bail!("overlapping searches not supported");
         }
     }
     Ok(count)
@@ -553,13 +553,7 @@ fn search_dfa_regex<A: Automaton>(
             }
         }
         config::SearchKind::Overlapping => {
-            for result in re.try_find_overlapping_iter(haystack) {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
+            anyhow::bail!("overlapping searches not supported");
         }
     }
     Ok(counts)
@@ -658,13 +652,7 @@ fn search_hybrid_regex(
             }
         }
         config::SearchKind::Overlapping => {
-            for result in re.try_find_overlapping_iter(cache, haystack) {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
+            anyhow::bail!("overlapping searches not supported");
         }
     }
     Ok(counts)
@@ -707,12 +695,7 @@ fn search_pikevm(
             }
         }
         config::SearchKind::Overlapping => {
-            for m in vm.find_overlapping_iter(cache, haystack) {
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
+            anyhow::bail!("overlapping searches not supported");
         }
     }
     Ok(counts)

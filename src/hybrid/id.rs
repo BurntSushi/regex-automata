@@ -380,48 +380,26 @@ pub struct OverlappingState {
     /// automaton. We cannot use the actual ID, since any one automaton may
     /// have many start states, and which one is in use depends on several
     /// search-time factors.
-    id: Option<LazyStateID>,
-    /// Information associated with a match when `id` corresponds to a match
-    /// state.
-    last_match: Option<StateMatch>,
-}
-
-/// Internal state about the last match that occurred. This records both the
-/// offset of the match and the match index.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct StateMatch {
-    /// The index into the matching patterns for the current match state.
-    pub(crate) match_index: usize,
-    /// The offset in the haystack at which the match occurred. This is used
-    /// when reporting multiple matches at the same offset. That is, when
-    /// an overlapping search runs, the first thing it checks is whether it's
-    /// already in a match state, and if so, whether there are more patterns
-    /// to report as matches in that state. If so, it increments `match_index`
-    /// and returns the pattern and this offset. Once `match_index` exceeds the
-    /// number of matching patterns in the current state, the search continues.
-    pub(crate) offset: usize,
+    pub(crate) id: Option<LazyStateID>,
+    /// The position of the search.
+    ///
+    /// When `id` is None (i.e., we are starting a search), this is set to
+    /// the beginning of the search as given by the caller regardless of its
+    /// current value. Subsequent calls to an overlapping search pick up at
+    /// this offset.
+    pub(crate) at: usize,
+    /// The index into the matching patterns of the next match to report if the
+    /// current state is a match state. Note that this may be 1 greater than
+    /// the total number of matches to report for the current match state. (In
+    /// which case, no more matches should be reported at the current position
+    /// and the search should advance to the next position.)
+    pub(crate) next_match_index: Option<usize>,
 }
 
 impl OverlappingState {
     /// Create a new overlapping state that begins at the start state of any
     /// automaton.
     pub fn start() -> OverlappingState {
-        OverlappingState { id: None, last_match: None }
-    }
-
-    pub(crate) fn id(&self) -> Option<LazyStateID> {
-        self.id
-    }
-
-    pub(crate) fn set_id(&mut self, id: LazyStateID) {
-        self.id = Some(id);
-    }
-
-    pub(crate) fn last_match(&mut self) -> Option<&mut StateMatch> {
-        self.last_match.as_mut()
-    }
-
-    pub(crate) fn set_last_match(&mut self, last_match: StateMatch) {
-        self.last_match = Some(last_match);
+        OverlappingState { id: None, at: 0, next_match_index: None }
     }
 }

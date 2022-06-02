@@ -4,7 +4,7 @@ use regex_automata::{
         pikevm::{self, PikeVM},
     },
     util::iter,
-    MatchKind, Search, SyntaxConfig,
+    MatchKind, MatchSet, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -81,14 +81,16 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let it = re
-                    .find_overlapping_iter(cache, test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
+                let mut matset = MatchSet::new(re.get_nfa().pattern_len());
+                let search =
+                    Search::new(test.input()).utf8(re.get_config().get_utf8());
+                re.which_overlapping_matches(
+                    cache,
+                    None,
+                    &search,
+                    &mut matset,
+                );
+                TestResult::which(matset.iter().map(|p| p.as_usize()))
             }
         },
         "captures" => {
@@ -166,23 +168,16 @@ fn run_test(
                     TestResult::captures(it)
                 }
                 ret::SearchKind::Overlapping => {
-                    let mut matches =
-                        pikevm::OverlappingMatches::new(re.get_nfa().clone());
+                    let mut matset = MatchSet::new(re.get_nfa().pattern_len());
                     let search = Search::new(test.input())
                         .utf8(re.get_config().get_utf8());
                     re.which_overlapping_matches(
                         cache,
                         None,
                         &search,
-                        &mut matches,
+                        &mut matset,
                     );
-                    let mut pids = vec![];
-                    for pid in re.get_nfa().patterns() {
-                        if matches.matched(pid) {
-                            pids.push(pid.as_usize());
-                        }
-                    }
-                    TestResult::which(pids)
+                    TestResult::which(matset.iter().map(|p| p.as_usize()))
                 }
             }
         }

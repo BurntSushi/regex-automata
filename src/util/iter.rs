@@ -589,15 +589,12 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Result<HalfMatch, MatchError>> {
-        if self.search.is_done() {
-            return None;
-        }
-        let mut m = match (self.finder)(&self.search).transpose()? {
-            Err(err) => return Some(Err(err)),
-            Ok(m) => m,
-        };
-        self.search.set_start(m.offset());
-        Some(Ok(m))
+        // Overlapping search handles advancing forward after a match
+        // automatically. It owns that responsibility since it may need to
+        // report multiple matches at the same position. Therefore, we just
+        // need to call overlapping search until it says there are no more
+        // matches.
+        (self.finder)(&self.search).transpose()
     }
 }
 
