@@ -31,12 +31,14 @@ pub fn define() -> App {
         .about(ABOUT_SHORT)
         .before_help(ABOUT_LONG)
         .subcommand(define_api())
+        .subcommand(define_hybrid())
         .subcommand(define_nfa())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
         "api" => run_api(args),
+        "hybrid" => run_hybrid(args),
         "nfa" => run_nfa(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
@@ -55,6 +57,19 @@ fn define_api() -> App {
         .subcommand(regex)
 }
 
+fn define_hybrid() -> App {
+    let mut dfa = app::leaf("dfa").about("Search using a lazy DFA object.");
+    dfa = config::Input::define(dfa);
+    dfa = config::Patterns::define(dfa);
+    dfa = config::Syntax::define(dfa);
+    dfa = config::Thompson::define(dfa);
+    dfa = config::Hybrid::define(dfa);
+
+    app::command("hybrid")
+        .about("Search using a hybrid NFA/DFA object.")
+        .subcommand(dfa)
+}
+
 fn define_nfa() -> App {
     app::command("nfa")
         .about("Search using an NFA.")
@@ -68,7 +83,6 @@ fn define_nfa_thompson() -> App {
     pikevm = config::Syntax::define(pikevm);
     pikevm = config::Thompson::define(pikevm);
     pikevm = config::PikeVM::define(pikevm);
-    pikevm = config::Captures::define(pikevm);
 
     app::command("thompson")
         .about("Search using a Thompson NFA.")
@@ -97,6 +111,39 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
         let (pids, time) =
             util::timeitr(|| search_api_regex(&re, &*haystack))?;
         table.add("search time", time);
+        table.add("which", pids);
+        table.print(stdout())?;
+        Ok(())
+    })
+}
+
+fn run_hybrid(args: &Args) -> anyhow::Result<()> {
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "dfa" => run_hybrid_dfa(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
+    })
+}
+
+fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cdfa = config::Hybrid::get(args)?;
+    let input = config::Input::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+
+    let dfa =
+        cdfa.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+
+    let (mut cache, time) = util::timeit(|| dfa.create_cache());
+    table.add("create cache time", time);
+
+    input.with_mmap(|haystack| {
+        let (pids, time) =
+            util::timeitr(|| search_hybrid_dfa(&dfa, &mut cache, &*haystack))?;
+        table.add("search time", time);
+        table.add("cache clear count", cache.clear_count());
         table.add("which", pids);
         table.print(stdout())?;
         Ok(())
@@ -148,78 +195,24 @@ fn search_api_regex(
     Ok(re.matches(haystack).into_iter().collect())
 }
 
+fn search_hybrid_dfa<'i, 'c>(
+    dfa: &hybrid::dfa::DFA,
+    cache: &mut hybrid::dfa::Cache,
+    haystack: &[u8],
+) -> anyhow::Result<Vec<usize>> {
+    let mut matset = MatchSet::new(dfa.pattern_len());
+    let search = Search::new(haystack);
+    dfa.try_which_overlapping_matches(cache, None, &search, &mut matset)?;
+    Ok(matset.iter().map(|pid| pid.as_usize()).collect())
+}
+
 fn search_pikevm(
     vm: &PikeVM,
     cache: &mut pikevm::Cache,
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
-    let mut cache = vm.create_cache();
     let mut matset = MatchSet::new(vm.get_nfa().pattern_len());
-    let search = Search::new(haystack).utf8(vm.get_config().get_utf8());
-    vm.which_overlapping_matches(&mut cache, None, &search, &mut matset);
+    let search = Search::new(haystack);
+    vm.which_overlapping_matches(cache, None, &search, &mut matset);
     Ok(matset.iter().map(|pid| pid.as_usize()).collect())
-}
-
-fn format_capture_counts(
-    caps: &[u64],
-    mut get_name: impl FnMut(usize) -> Option<String>,
-) -> String {
-    use std::fmt::Write;
-
-    let mut buf = String::new();
-    write!(buf, "{{").unwrap();
-    for (group_index, &count) in caps.iter().enumerate() {
-        if group_index > 0 {
-            write!(buf, ", ").unwrap();
-        }
-        write!(buf, "{}", group_index).unwrap();
-        if let Some(name) = get_name(group_index) {
-            write!(buf, "/{}", name).unwrap();
-        }
-        write!(buf, ": {}", count).unwrap();
-    }
-    write!(buf, "}}").unwrap();
-    buf
-}
-
-fn write_api_captures(caps: &regex::bytes::Captures, buf: &mut String) {
-    use std::fmt::Write;
-
-    write!(buf, "0: {{").unwrap();
-    for (group_index, m) in caps.iter().enumerate() {
-        if group_index > 0 {
-            write!(buf, ", ").unwrap();
-        }
-        write!(buf, "{}", group_index).unwrap();
-        match m {
-            None => write!(buf, ": ()").unwrap(),
-            Some(m) => write!(buf, ": ({}, {})", m.start(), m.end()).unwrap(),
-        }
-    }
-    write!(buf, "}}\n").unwrap();
-}
-
-fn write_thompson_captures(
-    nfa: &automata::nfa::thompson::NFA,
-    caps: &automata::nfa::thompson::Captures,
-    buf: &mut String,
-) {
-    use std::fmt::Write;
-
-    let pid = caps.pattern().unwrap();
-    write!(buf, "{:?}: {{", pid).unwrap();
-    for (group_index, m) in caps.iter().enumerate() {
-        if group_index > 0 {
-            write!(buf, ", ").unwrap();
-        }
-        write!(buf, "{}", group_index).unwrap();
-        if let Some(name) = nfa.capture_index_to_name(pid, group_index) {
-            write!(buf, "/{}", name).unwrap();
-        }
-        match m {
-            None => write!(buf, ": ()").unwrap(),
-            Some(m) => write!(buf, ": ({}, {})", m.start(), m.end()).unwrap(),
-        }
-    }
-    write!(buf, "}}\n").unwrap();
 }

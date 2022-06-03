@@ -229,6 +229,23 @@ impl Regex {
         Builder::new()
     }
 
+    /// Create a new `Search` for the given haystack.
+    ///
+    /// The `Search` returned is configured to match the configuration of this
+    /// `Regex`. For example, if this `Regex` was built with [`Config::utf8`]
+    /// enabled, then the `Search` returned will also have its [`Search::utf8`]
+    /// knob enabled.
+    ///
+    /// This routine is useful when using the lower-level [`Regex::try_search`]
+    /// API.
+    #[inline]
+    pub fn create_search<'h, H: ?Sized + AsRef<[u8]>>(
+        &self,
+        haystack: &'h H,
+    ) -> Search<'h> {
+        Search::new(haystack).utf8(self.get_config().get_utf8())
+    }
+
     /// Create a new cache for this `Regex`.
     ///
     /// The cache returned should only be used for searches for this
@@ -405,8 +422,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'h, 'c> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        let search = self.create_search(haystack.as_ref());
         FindMatches(self.try_matches_iter(cache, search).infallible())
     }
 }
@@ -450,9 +466,7 @@ impl Regex {
     ) -> Result<bool, MatchError> {
         // Not only can we do an "earliest" search, but we can avoid doing a
         // reverse scan too.
-        let search = Search::new(haystack.as_ref())
-            .utf8(self.get_config().get_utf8())
-            .earliest(true);
+        let search = self.create_search(haystack.as_ref()).earliest(true);
         let dfa = self.forward();
         let cache = &mut cache.forward;
         search::find_fwd(dfa, cache, self.scanner().as_mut(), &search)
@@ -481,8 +495,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        let search = self.create_search(haystack.as_ref());
         self.try_search(cache, self.scanner().as_mut(), &search)
     }
 
@@ -510,8 +523,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> TryFindMatches<'h, 'c> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        let search = self.create_search(haystack.as_ref());
         TryFindMatches(self.try_matches_iter(cache, search))
     }
 }
@@ -599,7 +611,7 @@ impl Regex {
         // gives us a chance to find a witness. (Also, if we don't need to
         // specify the pattern, then we don't need to build the reverse DFA
         // with 'starts_for_each_pattern' enabled. It doesn't matter too much
-        // for the lazy DFA, but does make the overall DFA slower.)
+        // for the lazy DFA, but does make the overall DFA bigger.)
         //
         // We also need to be careful to disable 'earliest' for the reverse
         // search, since it could be enabled for the forward search. In the
@@ -670,15 +682,12 @@ impl Regex {
     /// use regex_automata::{Match, hybrid::regex::Regex};
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
-    /// assert_eq!(3, re.pattern_count());
+    /// assert_eq!(3, re.pattern_len());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn pattern_count(&self) -> usize {
-        assert_eq!(
-            self.forward().pattern_count(),
-            self.reverse().pattern_count()
-        );
-        self.forward().pattern_count()
+    pub fn pattern_len(&self) -> usize {
+        assert_eq!(self.forward().pattern_len(), self.reverse().pattern_len());
+        self.forward().pattern_len()
     }
 
     /// Create and return a prefilter scanner if this regex's configuration has
@@ -1054,12 +1063,7 @@ impl Builder {
         let reverse = self
             .dfa
             .clone()
-            .configure(
-                DFA::config()
-                    .anchored(true)
-                    .match_kind(MatchKind::All)
-                    .starts_for_each_pattern(true),
-            )
+            .configure(DFA::config().anchored(true).match_kind(MatchKind::All))
             .thompson(thompson::Config::new().reverse(true))
             .build_many(patterns)?;
         Ok(self.build_from_dfas(forward, reverse))

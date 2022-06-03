@@ -2,6 +2,7 @@ use regex_automata::{
     hybrid::{
         dfa::DFA,
         regex::{self, Regex},
+        OverlappingState,
     },
     nfa::thompson,
     util::iter,
@@ -15,12 +16,14 @@ use ret::{
 
 use crate::{suite, Result};
 
+const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
+
 /// Tests the default configuration of the hybrid NFA/DFA.
 #[test]
 fn default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         // Without NFA shrinking, this test blows the default cache capacity.
         .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
@@ -45,7 +48,7 @@ fn nfa_shrink() -> Result<()> {
     let mut builder = Regex::builder();
     builder.thompson(thompson::Config::new().shrink(true));
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), compiler(builder))
         .assert();
     Ok(())
@@ -57,7 +60,7 @@ fn starts_for_each_pattern() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dfa(DFA::config().starts_for_each_pattern(true));
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         // Without NFA shrinking, this test blows the default cache capacity.
         .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
@@ -75,7 +78,7 @@ fn no_byte_classes() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dfa(DFA::config().byte_classes(false));
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         // Without NFA shrinking, this test blows the default cache capacity.
         .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
@@ -94,7 +97,7 @@ fn no_cache_clearing() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dfa(DFA::config().minimum_cache_clear_count(Some(0)));
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         // Without NFA shrinking, this test blows the default cache capacity.
         .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
@@ -109,7 +112,7 @@ fn min_cache_capacity() -> Result<()> {
     builder
         .dfa(DFA::config().cache_capacity(0).skip_cache_capacity_check(true));
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), compiler(builder))
         .assert();
     Ok(())
@@ -154,15 +157,10 @@ fn run_test(
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let mut scanner = re.scanner();
-                let it = iter::TryMatches::new(
-                    Search::new(test.input().as_bytes())
-                        .earliest(true)
-                        .utf8(test.utf8()),
-                    move |search| {
-                        re.try_search(cache, scanner.as_mut(), search)
-                    },
-                )
+                let search = re.create_search(test.input()).earliest(true);
+                let it = iter::TryMatches::new(search, move |search| {
+                    re.try_search(cache, re.scanner().as_mut(), search)
+                })
                 .infallible()
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|m| ret::Match {
@@ -182,18 +180,34 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let patlen = re.forward().get_nfa().pattern_len();
-                let mut matset = MatchSet::new(patlen);
-                let search =
-                    Search::new(test.input()).utf8(re.get_config().get_utf8());
-                re.forward()
-                    .which_overlapping_matches(
-                        cache.as_parts_mut().0,
-                        None,
-                        &search,
-                        &mut matset,
-                    )
-                    .unwrap();
+                let search = re.create_search(test.input());
+                try_search_overlapping(re, cache, &search).unwrap()
+            }
+        },
+        "which" => match test.search_kind() {
+            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+                // There are no "which" APIs for standard searches. So this is
+                // technically redundant, but we produce a result anyway.
+                let mut pids: Vec<usize> = re
+                    .find_iter(cache, test.input())
+                    .map(|m| m.pattern().as_usize())
+                    .collect();
+                pids.sort();
+                pids.dedup();
+                TestResult::which(pids)
+            }
+            ret::SearchKind::Overlapping => {
+                let dfa = re.forward();
+                let cache = cache.as_parts_mut().0;
+                let mut matset = MatchSet::new(dfa.pattern_len());
+                let search = re.create_search(test.input());
+                dfa.try_which_overlapping_matches(
+                    cache,
+                    re.scanner().as_mut(),
+                    &search,
+                    &mut matset,
+                )
+                .unwrap();
                 TestResult::which(matset.iter().map(|p| p.as_usize()))
             }
         },
@@ -216,16 +230,25 @@ fn configure_regex_builder(
         ret::MatchKind::LeftmostLongest => return false,
     };
 
-    let dense_config = DFA::config()
+    let mut dfa_config = DFA::config()
         .anchored(test.anchored())
         .match_kind(match_kind)
         .unicode_word_boundary(true);
+    // When doing an overlapping search, we might try to find the start of
+    // each match with a custom search routine. In that case, we need to tell
+    // the reverse search (for the start offset) which pattern to look for.
+    // The only way that API is supposed is when anchored starting states are
+    // compiled for each pattern. This does technically also enable it for the
+    // forward DFA, but we're okay with that.
+    if test.search_kind() == ret::SearchKind::Overlapping {
+        dfa_config = dfa_config.starts_for_each_pattern(true);
+    }
     let regex_config = Regex::config().utf8(test.utf8());
     builder
         .configure(regex_config)
         .syntax(config_syntax(test))
         .thompson(config_thompson(test))
-        .dfa(dense_config);
+        .dfa(dfa_config);
     true
 }
 
@@ -240,4 +263,64 @@ fn config_syntax(test: &RegexTest) -> SyntaxConfig {
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
         .utf8(test.utf8())
+}
+
+/// Execute an overlapping search, and for each match found, also find its
+/// starting position. For a given pattern, at most one match with the same
+/// end offset is reported. Stated differently, for every match found, only
+/// the leftmost starting position for that match is reported. (To report
+/// literally all possible matches, we would need a reverse overlapping
+/// search, which isn't implemented yet.)
+///
+/// N.B. This routine used to be part of the crate API, but 1) it wasn't clear
+/// to me how useful it was and 2) it wasn't clear to me what its semantics
+/// should be. In particular, a potentially surprising footgun of this routine
+/// that it is worst case *quadratic* in the size of the haystack. Namely, it's
+/// possible to report a match at every position, and for every such position,
+/// scan all the way to the beginning of the haystack to find the starting
+/// position. Typical leftmost non-overlapping searches don't suffer from this
+/// because, well, matches can't overlap. So subsequent searches after a match
+/// is found don't revisit previously scanned parts of the haystack.
+///
+/// Nevertheless, we provide this routine in our test suite because it's
+/// useful to test the low level DFA overlapping search and our test suite
+/// is written in a way that requires starting offsets. (Although the test
+/// suite is likely incorrect in some cases, since we aren't reporting every
+/// possible match.)
+fn try_search_overlapping(
+    re: &Regex,
+    cache: &mut regex::Cache,
+    search: &Search<'_>,
+) -> Result<TestResult> {
+    let mut matches = vec![];
+    let mut pre = re.scanner();
+    let mut state = OverlappingState::start();
+    let (dfwd, drev) = (re.forward(), re.reverse());
+    let (cfwd, crev) = cache.as_parts_mut();
+    while let Some(end) = dfwd.try_search_overlapping_fwd(
+        cfwd,
+        pre.as_mut(),
+        search,
+        &mut state,
+    )? {
+        let revsearch = search
+            .clone()
+            .pattern(Some(end.pattern()))
+            .earliest(false)
+            .range(search.start()..end.offset());
+        let start = drev
+            .try_search_rev(crev, &revsearch)?
+            .expect("reverse search must match if forward search does");
+        let span = ret::Span { start: start.offset(), end: end.offset() };
+        // Some tests check that we don't yield matches that split a codepoint
+        // when UTF-8 mode is enabled, so skip those here.
+        if search.get_utf8()
+            && span.start == span.end
+            && !search.is_char_boundary(span.end)
+        {
+            continue;
+        }
+        matches.push(ret::Match { id: end.pattern().as_usize(), span });
+    }
+    Ok(TestResult::matches(matches))
 }

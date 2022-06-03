@@ -350,7 +350,6 @@ impl PikeVM {
         caps.set_pattern(None);
         cache.clear(caps.slot_len());
 
-        let match_kind = self.config.get_match_kind();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || search.get_pattern().is_some();
@@ -413,7 +412,6 @@ impl PikeVM {
         instrument!(|c| c.reset(&self.nfa));
         cache.clear(0);
 
-        let match_kind = self.config.get_match_kind();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || search.get_pattern().is_some();

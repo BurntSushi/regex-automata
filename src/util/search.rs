@@ -188,12 +188,6 @@ impl<'h> Search<'h> {
         Search { utf8: yes, ..self }
     }
 
-    // /// Return the haystack for this search as bytes.
-    // #[inline]
-    // pub fn bytes(&self) -> &[u8] {
-    // self.haystack
-    // }
-
     /// Return a borrow of the underlying haystack.
     #[inline]
     pub fn haystack(&self) -> &[u8] {

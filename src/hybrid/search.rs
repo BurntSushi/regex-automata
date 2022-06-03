@@ -74,7 +74,7 @@ fn find_fwd_imp(
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
-        if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
+        if dfa.pattern_len() == 1 && !pre.reports_false_positives() {
             // TODO: This looks wrong? Shouldn't offset be the END of a match?
             return Ok(pre.find(search.haystack(), span).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },

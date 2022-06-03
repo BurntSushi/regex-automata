@@ -3,7 +3,7 @@ use std::{error::Error, sync::Arc};
 use regex_automata::{
     hybrid::{dfa::DFA, regex::Regex, OverlappingState},
     nfa::thompson,
-    HalfMatch, Match, MatchError,
+    HalfMatch, Match, MatchError, Search,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -53,9 +53,10 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // 46 bytes.
     assert_eq!(dfa.try_find_fwd(&mut cache, &haystack), Err(err.clone()));
     assert_eq!(
-        dfa.try_find_overlapping_fwd(
+        dfa.try_search_overlapping_fwd(
             &mut cache,
-            &haystack,
+            None,
+            &Search::new(&haystack),
             &mut OverlappingState::start()
         ),
         Err(err.clone())
@@ -94,9 +95,10 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
-        dfa.try_find_overlapping_fwd(
+        dfa.try_search_overlapping_fwd(
             &mut cache,
-            b"abcxyz",
+            None,
+            &Search::new(b"abcxyz"),
             &mut OverlappingState::start()
         ),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
