@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use regex_automata::{
     nfa::thompson::{
         self,
@@ -12,7 +14,7 @@ use ret::{
     CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
-use crate::{suite, Result};
+use crate::{nfa::thompson::testify_captures, suite, Result};
 
 /// Tests the default configuration of the hybrid NFA/DFA.
 #[test]
@@ -96,75 +98,35 @@ fn run_test(
         "captures" => {
             match test.search_kind() {
                 ret::SearchKind::Earliest => {
-                    /*
-                    let it = re
-                        .captures_earliest_iter(cache, test.input())
-                        .take(test.match_limit().unwrap_or(std::usize::MAX))
-                        .map(|caps| {
-                            // We wouldn't get a non-matching captures in an
-                            // iterator.
-                            assert!(caps.is_match());
-                            let testcaps = caps.iter().map(|m| {
-                                m.map(|m| ret::Span {
-                                    start: m.start(),
-                                    end: m.end(),
-                                })
-                            });
-                            // This unwrap is OK because we know captures is
-                            // a match, and all matches always have the first
-                            // group set.
-                            ret::Captures::new(
-                                caps.pattern().unwrap().as_usize(),
-                                testcaps,
-                            )
-                            .unwrap()
-                        });
-                    TestResult::captures(it)
-                    */
-                    /*
-                    let mut caps = re.create_captures();
+                    // This is pretty messy. There is no 'earliest' iterator,
+                    // so we've got to roll our own. We do reuse the iterator
+                    // 'TryMatches' helper, but since those helpers don't
+                    // support capturing groups directly, we've got to smuggle
+                    // it through using a RefCell.
+                    let caps = Rc::new(RefCell::new(re.create_captures()));
                     let it = iter::TryMatches::new(
                         Search::new(test.input().as_bytes())
                             .earliest(true)
                             .utf8(test.utf8()),
-                        move |search| {
-                            re.search(cache, None, search, &mut caps);
-                            Ok(caps.get_match())
+                        {
+                            let caps = Rc::clone(&caps);
+                            move |search| {
+                                let caps = &mut *caps.borrow_mut();
+                                re.search(cache, None, search, caps);
+                                Ok(caps.get_match())
+                            }
                         },
                     )
                     .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                    TestResult::matches(it)
-                    */
-                    TestResult::skip()
+                    .map(|_| testify_captures(&caps.borrow()));
+                    TestResult::captures(it)
                 }
                 ret::SearchKind::Leftmost => {
                     let it = re
                         .captures_iter(cache, test.input())
                         .take(test.match_limit().unwrap_or(std::usize::MAX))
-                        .map(|caps| {
-                            // We wouldn't get a non-matching captures in an
-                            // iterator.
-                            assert!(caps.is_match());
-                            let testcaps = caps.iter().map(|m| {
-                                m.map(|m| ret::Span {
-                                    start: m.start(),
-                                    end: m.end(),
-                                })
-                            });
-                            // This unwrap is OK because we know captures is
-                            // a match, and all matches always have the first
-                            // group set.
-                            ret::Captures::new(
-                                caps.pattern().unwrap().as_usize(),
-                                testcaps,
-                            )
-                            .unwrap()
-                        });
+                        .map(|caps| testify_captures(&caps));
                     TestResult::captures(it)
                 }
                 ret::SearchKind::Overlapping => {
