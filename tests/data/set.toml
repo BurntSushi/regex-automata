@@ -164,6 +164,8 @@ name = "basic90"
 regexes = ["[a-z]+$", "foo"]
 input = "01234 foo"
 matches = [
+  { id = 0, span = [8, 9] },
+  { id = 0, span = [7, 9] },
   { id = 0, span = [6, 9] },
   { id = 1, span = [6, 9] },
 ]
@@ -185,14 +187,20 @@ name = "basic100"
 regexes = [".*?", "a"]
 input = "zzza"
 matches = [
-  # NOTE: The match spans here are likely not correct, since '.*?' matches
-  # at many more positions than are reported here. Alas, our actual test
-  # implementation only cares about which patterns matched and not their spans
-  # currently.
   { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
   { id = 0, span = [0, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [1, 2] },
   { id = 0, span = [0, 2] },
+  { id = 0, span = [3, 3] },
+  { id = 0, span = [2, 3] },
+  { id = 0, span = [1, 3] },
   { id = 0, span = [0, 3] },
+  { id = 0, span = [4, 4] },
+  { id = 0, span = [3, 4] },
+  { id = 0, span = [2, 4] },
+  { id = 0, span = [1, 4] },
   { id = 0, span = [0, 4] },
   { id = 1, span = [3, 4] },
 ]
@@ -204,14 +212,20 @@ name = "basic101"
 regexes = [".*", "a"]
 input = "zzza"
 matches = [
-  # NOTE: The match spans here are likely not correct, since '.*' matches
-  # at many more positions than are reported here. Alas, our actual test
-  # implementation only cares about which patterns matched and not their spans
-  # currently.
   { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
   { id = 0, span = [0, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [1, 2] },
   { id = 0, span = [0, 2] },
+  { id = 0, span = [3, 3] },
+  { id = 0, span = [2, 3] },
+  { id = 0, span = [1, 3] },
   { id = 0, span = [0, 3] },
+  { id = 0, span = [4, 4] },
+  { id = 0, span = [3, 4] },
+  { id = 0, span = [2, 4] },
+  { id = 0, span = [1, 4] },
   { id = 0, span = [0, 4] },
   { id = 1, span = [3, 4] },
 ]
@@ -223,13 +237,15 @@ name = "basic102"
 regexes = [".*", "a"]
 input = "zzz"
 matches = [
-  # NOTE: The match spans here are likely not correct, since '.*' matches
-  # at many more positions than are reported here. Alas, our actual test
-  # implementation only cares about which patterns matched and not their spans
-  # currently.
   { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
   { id = 0, span = [0, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [1, 2] },
   { id = 0, span = [0, 2] },
+  { id = 0, span = [3, 3] },
+  { id = 0, span = [2, 3] },
+  { id = 0, span = [1, 3] },
   { id = 0, span = [0, 3] },
 ]
 match_kind = "all"

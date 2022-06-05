@@ -394,12 +394,27 @@ pub struct OverlappingState {
     /// which case, no more matches should be reported at the current position
     /// and the search should advance to the next position.)
     pub(crate) next_match_index: Option<usize>,
+    /// This is set to true when a reverse overlapping search has entered its
+    /// EOI transitions.
+    ///
+    /// This isn't used in a forward search because it knows to stop once the
+    /// position exceeds the end of the search range. In a reverse search,
+    /// since we use unsigned offsets, we don't "know" once we've gone past
+    /// `0`. So the only way to detect it is with this extra flag. The reverse
+    /// overlapping search knows to terminate specifically after it has
+    /// reported all matches after following the EOI transition.
+    pub(crate) rev_eoi: bool,
 }
 
 impl OverlappingState {
     /// Create a new overlapping state that begins at the start state of any
     /// automaton.
     pub fn start() -> OverlappingState {
-        OverlappingState { id: None, at: 0, next_match_index: None }
+        OverlappingState {
+            id: None,
+            at: 0,
+            next_match_index: None,
+            rev_eoi: false,
+        }
     }
 }

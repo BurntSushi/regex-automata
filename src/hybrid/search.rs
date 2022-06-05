@@ -340,7 +340,7 @@ fn find_rev_imp(
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
     if search.start() == search.end() {
-        return Ok(eoi_rev(dfa, cache, search, sid)?);
+        return Ok(eoi_rev(dfa, cache, search, &mut sid)?);
     }
 
     let mut last_match = None;
@@ -482,7 +482,7 @@ fn find_rev_imp(
         }
         at -= 1;
     }
-    Ok(eoi_rev(dfa, cache, search, sid)?.or(last_match))
+    Ok(eoi_rev(dfa, cache, search, &mut sid)?.or(last_match))
 }
 
 #[inline(never)]
@@ -505,14 +505,6 @@ pub(crate) fn find_overlapping_fwd(
     }
 }
 
-/// The implementation for forward overlapping search.
-///
-/// We do not have a corresponding reverse overlapping search. We can actually
-/// reuse the existing non-overlapping reverse search to find start-of-match
-/// for overlapping results. (Because the start-of-match aspect already
-/// knows which pattern matched.) We might want a reverse overlapping search
-/// though if we want to support proper reverse searching instead of just
-/// start-of-match handling for forward searches.
 #[inline(always)]
 fn find_overlapping_fwd_imp(
     dfa: &DFA,
@@ -601,6 +593,101 @@ fn find_overlapping_fwd_imp(
     result
 }
 
+#[inline(never)]
+pub(crate) fn find_overlapping_rev(
+    dfa: &DFA,
+    cache: &mut Cache,
+    search: &Search<'_>,
+    state: &mut OverlappingState,
+) -> Result<Option<HalfMatch>, MatchError> {
+    if search.is_done() {
+        return Ok(None);
+    }
+    let mut sid = match state.id {
+        None => {
+            state.id = Some(init_rev(dfa, cache, search)?);
+            if search.start() == search.end() {
+                state.rev_eoi = true;
+            } else {
+                state.at = search.end() - 1;
+            }
+            state.id.unwrap()
+        }
+        Some(sid) => {
+            if let Some(match_index) = state.next_match_index {
+                let match_count = dfa.match_count(cache, sid);
+                if match_index < match_count {
+                    let m = HalfMatch {
+                        pattern: dfa.match_pattern(cache, sid, match_index),
+                        offset: state.at,
+                    };
+                    state.next_match_index = Some(match_index + 1);
+                    return Ok(Some(m));
+                }
+            }
+            // Once we've reported all matches at a given position, we need
+            // to advance the search to the next position. However, if we've
+            // already followed the EOI transition, then we know we're done
+            // with the search and there cannot be any more matches to report.
+            if state.rev_eoi {
+                return Ok(None);
+            } else if state.at == search.start() {
+                // At this point, we should follow the EOI transition. This
+                // will cause us the skip the main loop below and fall through
+                // to the final 'eoi_rev' transition.
+                state.rev_eoi = true;
+            } else {
+                // We haven't hit the end of the search yet, so move on.
+                state.at -= 1;
+            }
+            sid
+        }
+    };
+    while !state.rev_eoi {
+        sid = dfa
+            .next_state(cache, sid, search.haystack()[state.at])
+            .map_err(|_| gave_up(state.at))?;
+        if sid.is_tagged() {
+            state.id = Some(sid);
+            if sid.is_start() {
+                continue;
+            } else if sid.is_match() {
+                state.next_match_index = Some(1);
+                return Ok(Some(HalfMatch {
+                    pattern: dfa.match_pattern(cache, sid, 0),
+                    offset: state.at + MATCH_OFFSET,
+                }));
+            } else if sid.is_dead() {
+                return Ok(None);
+            } else if sid.is_quit() {
+                return Err(MatchError::Quit {
+                    byte: search.haystack()[state.at],
+                    offset: state.at,
+                });
+            } else {
+                debug_assert!(sid.is_unknown());
+                unreachable!("sid being unknown is a bug");
+            }
+        }
+        if state.at == search.start() {
+            break;
+        }
+        state.at -= 1;
+    }
+
+    state.rev_eoi = true;
+    let result = eoi_rev(dfa, cache, search, &mut sid);
+    state.id = Some(sid);
+    if let Ok(Some(ref last_match)) = result {
+        // '1' is always correct here since if we get to this point, this
+        // always corresponds to the first (index '0') match discovered at
+        // this position. So the next match to report at this position (if
+        // it exists) is at index '1'.
+        state.next_match_index = Some(1);
+    }
+    result
+}
+
 #[inline(always)]
 fn init_fwd(
     dfa: &DFA,
@@ -673,27 +760,27 @@ fn eoi_rev(
     dfa: &DFA,
     cache: &mut Cache,
     search: &Search<'_>,
-    state: LazyStateID,
+    sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.start() > 0 {
-        let sid = dfa
-            .next_state(cache, state, search.haystack()[search.start() - 1])
+        *sid = dfa
+            .next_state(cache, *sid, search.haystack()[search.start() - 1])
             .map_err(|_| gave_up(search.start()))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(cache, sid, 0),
+                pattern: dfa.match_pattern(cache, *sid, 0),
                 offset: search.start(),
             }))
         } else {
             Ok(None)
         }
     } else {
-        let sid = dfa
-            .next_eoi_state(cache, state)
+        *sid = dfa
+            .next_eoi_state(cache, *sid)
             .map_err(|_| gave_up(search.start()))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(cache, sid, 0),
+                pattern: dfa.match_pattern(cache, *sid, 0),
                 offset: 0,
             }))
         } else {

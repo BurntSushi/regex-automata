@@ -294,33 +294,42 @@ fn try_search_overlapping(
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut pre = re.scanner();
-    let mut state = OverlappingState::start();
-    let (dfwd, drev) = (re.forward(), re.reverse());
-    let (cfwd, crev) = cache.as_parts_mut();
-    while let Some(end) = dfwd.try_search_overlapping_fwd(
-        cfwd,
+    let mut fwd_state = OverlappingState::start();
+    let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
+    let (fwd_cache, rev_cache) = cache.as_parts_mut();
+    while let Some(end) = fwd_dfa.try_search_overlapping_fwd(
+        fwd_cache,
         pre.as_mut(),
         search,
-        &mut state,
+        &mut fwd_state,
     )? {
         let revsearch = search
             .clone()
             .pattern(Some(end.pattern()))
             .earliest(false)
             .range(search.start()..end.offset());
-        let start = drev
-            .try_search_rev(crev, &revsearch)?
-            .expect("reverse search must match if forward search does");
-        let span = ret::Span { start: start.offset(), end: end.offset() };
-        // Some tests check that we don't yield matches that split a codepoint
-        // when UTF-8 mode is enabled, so skip those here.
-        if search.get_utf8()
-            && span.start == span.end
-            && !search.is_char_boundary(span.end)
-        {
-            continue;
+        let mut rev_state = OverlappingState::start();
+        while let Some(start) = rev_dfa.try_search_overlapping_rev(
+            rev_cache,
+            &revsearch,
+            &mut rev_state,
+        )? {
+            // let start = rev_dfa
+            // .try_search_rev(rev_cache, &revsearch)?
+            // .expect("reverse search must match if forward search does");
+            let span = ret::Span { start: start.offset(), end: end.offset() };
+            // Some tests check that we don't yield matches that split a
+            // codepoint when UTF-8 mode is enabled, so skip those here.
+            if search.get_utf8()
+                && span.start == span.end
+                && !search.is_char_boundary(span.end)
+            {
+                continue;
+            }
+            let mat = ret::Match { id: end.pattern().as_usize(), span };
+            dbg!(&mat);
+            matches.push(mat);
         }
-        matches.push(ret::Match { id: end.pattern().as_usize(), span });
     }
     Ok(TestResult::matches(matches))
 }

@@ -857,6 +857,16 @@ impl DFA {
     }
 
     #[inline]
+    pub fn try_search_overlapping_rev(
+        &self,
+        cache: &mut Cache,
+        search: &Search<'_>,
+        state: &mut OverlappingState,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_overlapping_rev(self, cache, search, state)
+    }
+
+    #[inline]
     pub fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
