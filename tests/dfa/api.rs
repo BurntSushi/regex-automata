@@ -3,7 +3,7 @@ use std::error::Error;
 use regex_automata::{
     dfa::{dense, regex::Regex, Automaton, OverlappingState},
     nfa::thompson,
-    HalfMatch, Match, MatchError, MatchKind,
+    HalfMatch, Match, MatchError, Search,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -20,8 +20,9 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
         Err(MatchError::Quit { byte: b'x', offset: 3 })
     );
     assert_eq!(
-        dfa.try_find_overlapping_fwd(
-            b"abcxyz",
+        dfa.try_search_overlapping_fwd(
+            None,
+            &Search::new(b"abcxyz"),
             &mut OverlappingState::start()
         ),
         Err(MatchError::Quit { byte: b'x', offset: 3 })
@@ -53,28 +54,6 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
 #[should_panic]
 fn quit_panics() {
     dense::Config::new().unicode_word_boundary(true).quit(b'\xFF', false);
-}
-
-// Tests that if we attempt an overlapping search using a regex without a
-// reverse DFA compiled with 'starts_for_each_pattern', then we get a panic.
-#[test]
-#[should_panic]
-fn incorrect_config_overlapping_search_panics() {
-    let forward = dense::DFA::new(r"abca").unwrap();
-    let reverse = dense::Builder::new()
-        .configure(
-            dense::Config::new()
-                .anchored(true)
-                .match_kind(MatchKind::All)
-                .starts_for_each_pattern(false),
-        )
-        .thompson(thompson::Config::new().reverse(true))
-        .build(r"abca")
-        .unwrap();
-
-    let re = Regex::builder().build_from_dfas(forward, reverse);
-    let haystack = "bar abcabcabca abca foo".as_bytes();
-    re.find_overlapping(haystack, &mut OverlappingState::start());
 }
 
 // This tests an intesting case where even if the Unicode word boundary option

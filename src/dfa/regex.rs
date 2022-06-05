@@ -101,61 +101,6 @@ define_regex_type!(
     /// speed. Note however that its speed may be worse than a general purpose
     /// regex engine if you don't select a good [prefilter].
     ///
-    /// # Leftmost vs Overlapping
-    ///
-    /// The search routines exposed on a `Regex` reflect two different ways
-    /// of searching:
-    ///
-    /// * "leftmost" means to continue matching until the underlying
-    ///   automaton cannot advance. This reflects "standard" searching you
-    ///   might be used to in other regex engines. e.g., This permits
-    ///   non-greedy and greedy searching to work as you would expect.
-    /// * "overlapping" means to find all possible matches, even if they
-    ///   overlap.
-    ///
-    /// Generally speaking, when doing an overlapping search, you'll want to
-    /// build your regex DFAs with [`MatchKind::All`] semantics. Using
-    /// [`MatchKind::LeftmostFirst`] semantics with overlapping searches is
-    /// likely to lead to odd behavior since `LeftmostFirst` specifically omits
-    /// some matches that can never be reported due to its semantics.
-    ///
-    /// The following example shows the differences between how these different
-    /// types of searches impact looking for matches of `[a-z]+` in the
-    /// haystack `abc`.
-    ///
-    /// ```
-    /// use regex_automata::{dfa::{self, dense}, MatchKind, Match};
-    ///
-    /// let pattern = r"[a-z]+";
-    /// let haystack = "abc".as_bytes();
-    ///
-    /// // For leftmost searching, we want "leftmost-first" match kind
-    /// // semantics.
-    /// let re = dfa::regex::Builder::new()
-    ///     .dense(dense::Config::new().match_kind(MatchKind::LeftmostFirst))
-    ///     .build(pattern)?;
-    ///
-    /// // "leftmost" searching supports greediness (and non-greediness)
-    /// let mut it = re.find_iter(haystack);
-    /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// // For overlapping, we want "all" match kind semantics.
-    /// let re = dfa::regex::Builder::new()
-    ///     .dense(dense::Config::new().match_kind(MatchKind::All))
-    ///     .build(pattern)?;
-    ///
-    /// // In the overlapping search, we find all three possible matches
-    /// // starting at the beginning of the haystack.
-    /// let mut it = re.find_overlapping_iter(haystack);
-    /// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 0, 2)), it.next());
-    /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
     /// # Sparse DFAs
     ///
     /// Since a `Regex` is generic over the [`Automaton`] trait, it can be
@@ -481,61 +426,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         self.try_find(haystack.as_ref()).unwrap()
     }
 
-    /// Search for the first overlapping match in `haystack`.
-    ///
-    /// This routine is principally useful when searching for multiple patterns
-    /// on inputs where multiple patterns may match the same regions of text.
-    /// In particular, callers must preserve the automaton's search state from
-    /// prior calls so that the implementation knows where the last match
-    /// occurred and which pattern was reported.
-    ///
-    /// # Panics
-    ///
-    /// If the underlying DFAs return an error, then this routine panics. This
-    /// only occurs in non-default configurations where quit bytes are used or
-    /// Unicode word boundaries are heuristically enabled.
-    ///
-    /// The fallible version of this routine is
-    /// [`try_find_overlapping`](Regex::try_find_overlapping).
-    ///
-    /// # Example
-    ///
-    /// This example shows how to run an overlapping search with multiple
-    /// regexes.
-    ///
-    /// ```
-    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, Match};
-    ///
-    /// let re = Regex::builder()
-    ///     .dense(dfa::dense::Config::new().match_kind(MatchKind::All))
-    ///     .build_many(&[r"\w+$", r"\S+$"])?;
-    /// let haystack = "@foo".as_bytes();
-    /// let mut state = dfa::OverlappingState::start();
-    ///
-    /// let expected = Some(Match::must(1, 0, 4));
-    /// let got = re.find_overlapping(haystack, &mut state);
-    /// assert_eq!(expected, got);
-    ///
-    /// // The first pattern also matches at the same position, so re-running
-    /// // the search will yield another match. Notice also that the first
-    /// // pattern is returned after the second. This is because the second
-    /// // pattern begins its match before the first, is therefore an earlier
-    /// // match and is thus reported first.
-    /// let expected = Some(Match::must(0, 1, 4));
-    /// let got = re.find_overlapping(haystack, &mut state);
-    /// assert_eq!(expected, got);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn find_overlapping<H: AsRef<[u8]>>(
-        &self,
-        haystack: H,
-        state: &mut OverlappingState,
-    ) -> Option<Match> {
-        self.try_find_overlapping(haystack.as_ref(), state).unwrap()
-    }
-
     /// Returns an iterator over all non-overlapping leftmost matches in the
     /// given bytes. If no match exists, then the iterator yields no elements.
     ///
@@ -573,54 +463,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         let search =
             Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         FindMatches(self.try_matches_iter(search).infallible())
-    }
-
-    /// Returns an iterator over all overlapping matches in the given haystack.
-    ///
-    /// This routine is principally useful when searching for multiple patterns
-    /// on inputs where multiple patterns may match the same regions of text.
-    /// The iterator takes care of handling the overlapping state that must be
-    /// threaded through every search.
-    ///
-    /// # Panics
-    ///
-    /// If the underlying DFAs return an error during iteration, then iteration
-    /// panics. This only occurs in non-default configurations where quit bytes
-    /// are used or Unicode word boundaries are heuristically enabled.
-    ///
-    /// The fallible version of this routine is
-    /// [`try_find_overlapping_iter`](Regex::try_find_overlapping_iter).
-    ///
-    /// # Example
-    ///
-    /// This example shows how to run an overlapping search with multiple
-    /// regexes.
-    ///
-    /// ```
-    /// use regex_automata::{dfa::{self, regex::Regex}, MatchKind, Match};
-    ///
-    /// let re = Regex::builder()
-    ///     .dense(dfa::dense::Config::new().match_kind(MatchKind::All))
-    ///     .build_many(&[r"\w+$", r"\S+$"])?;
-    /// let haystack = "@foo".as_bytes();
-    ///
-    /// let mut it = re.find_overlapping_iter(haystack);
-    /// assert_eq!(Some(Match::must(1, 0, 4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1, 4)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn find_overlapping_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        haystack: &'h H,
-    ) -> FindOverlappingMatches<'h, 'r> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
-        FindOverlappingMatches(
-            self.try_overlapping_matches_iter(search).infallible(),
-        )
     }
 }
 
@@ -693,38 +535,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         self.try_search(scanner.as_mut(), &search)
     }
 
-    /// Search for the first overlapping match in `haystack`.
-    ///
-    /// This routine is principally useful when searching for multiple patterns
-    /// on inputs where multiple patterns may match the same regions of text.
-    /// In particular, callers must preserve the automaton's search state from
-    /// prior calls so that the implementation knows where the last match
-    /// occurred and which pattern was reported.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used or Unicode word boundaries are heuristically
-    /// enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find_overlapping`](Regex::find_overlapping).
-    #[inline]
-    pub fn try_find_overlapping<H: AsRef<[u8]>>(
-        &self,
-        haystack: H,
-        state: &mut OverlappingState,
-    ) -> Result<Option<Match>, MatchError> {
-        let mut scanner = self.scanner();
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
-        self.try_search_overlapping(scanner.as_mut(), &search, state)
-    }
-
     /// Returns an iterator over all non-overlapping leftmost matches in the
     /// given bytes. If no match exists, then the iterator yields no elements.
     ///
@@ -750,35 +560,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         let search =
             Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
         TryFindMatches(self.try_matches_iter(search))
-    }
-
-    /// Returns an iterator over all overlapping matches in the given haystack.
-    ///
-    /// This routine is principally useful when searching for multiple patterns
-    /// on inputs where multiple patterns may match the same regions of text.
-    /// The iterator takes care of handling the overlapping state that must be
-    /// threaded through every search.
-    ///
-    /// # Errors
-    ///
-    /// This iterator only yields errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used or Unicode word boundaries are heuristically
-    /// enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find_overlapping_iter`](Regex::find_overlapping_iter).
-    #[inline]
-    pub fn try_find_overlapping_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        haystack: &'h H,
-    ) -> TryFindOverlappingMatches<'h, 'r> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
-        TryFindOverlappingMatches(self.try_overlapping_matches_iter(search))
     }
 }
 
@@ -846,13 +627,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             None => return Ok(None),
             Some(end) => end,
         };
-        // N.B. The only time we need to tell the reverse searcher the pattern
-        // to match is in the overlapping case, since it's ambiguous. In the
-        // leftmost case, I have tentatively convinced myself that it isn't
-        // necessary and the reverse search will always find the same pattern
-        // to match as the forward search. But I lack a rigorous proof. Why not
-        // just provide the pattern anyway? Well, if it is needed, then leaving
-        // it out gives us a chance to find a witness.
+        // N.B. I have tentatively convinced myself that it isn't necessary
+        // to specify the specific pattern for the reverse search since the
+        // reverse search will always find the same pattern to match as the
+        // forward search. But I lack a rigorous proof. Why not just provide
+        // the pattern anyway? Well, if it is needed, then leaving it out
+        // gives us a chance to find a witness. (Also, if we don't need to
+        // specify the pattern, then we don't need to build the reverse DFA
+        // with 'starts_for_each_pattern' enabled. It doesn't matter too much
+        // for the lazy DFA, but does make the overall DFA bigger.)
         //
         // We also need to be careful to disable 'earliest' for the reverse
         // search, since it could be enabled for the forward search. In the
@@ -873,106 +656,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         assert!(start.offset() <= end.offset());
         Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
     }
-
-    /// Search for the first overlapping match within a given range of
-    /// `haystack`.
-    ///
-    /// This routine is principally useful when searching for multiple patterns
-    /// on inputs where multiple patterns may match the same regions of text.
-    /// In particular, callers must preserve the automaton's search state from
-    /// prior calls so that the implementation knows where the last match
-    /// occurred and which pattern was reported.
-    ///
-    /// # Searching a substring of the haystack
-    ///
-    /// Being an "at" search routine, this permits callers to search a
-    /// substring of `haystack` by specifying a range in `haystack`.
-    /// Why expose this as an API instead of just asking callers to use
-    /// `&input[start..end]`? The reason is that regex matching often wants
-    /// to take the surrounding context into account in order to handle
-    /// look-around (`^`, `$` and `\b`).
-    ///
-    /// This is useful when implementing an iterator over matches
-    /// within the same haystack, which cannot be done correctly by simply
-    /// providing a subslice of `haystack`.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used or Unicode word boundaries are heuristically
-    /// enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    #[inline]
-    pub fn try_search_overlapping(
-        &self,
-        pre: Option<&mut prefilter::Scanner<'_>>,
-        search: &Search<'_>,
-        state: &mut OverlappingState,
-    ) -> Result<Option<Match>, MatchError> {
-        let m =
-            match self.try_search_overlapping_fwd_back(pre, search, state)? {
-                None => return Ok(None),
-                Some(m) => m,
-            };
-        if m.is_empty() {
-            search.skip_empty_utf8_splits(m, |search| {
-                self.try_search_overlapping_fwd_back(None, search, state)
-            })
-        } else {
-            Ok(Some(m))
-        }
-    }
-
-    /// The implementation of overlapping search at a given range in
-    /// `haystack`, where `scanner` is a prefilter (if active) and `state` is
-    /// the current state of the search.
-    #[inline]
-    fn try_search_overlapping_fwd_back(
-        &self,
-        pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
-        state: &mut OverlappingState,
-    ) -> Result<Option<Match>, MatchError> {
-        // N.B. We use `&&A` here to call `Automaton` methods, which ensures
-        // that we always use the `impl Automaton for &A` for calling methods.
-        // Since this is the usual way that automata are used, this helps
-        // reduce the number of monomorphized copies of the search code.
-        let (fwd, rev) = (self.forward(), self.reverse());
-        // TODO: Decide whether it's worth making this assert work. It doesn't
-        // work currently because 'has_starts_for_each_pattern' isn't on the
-        // Automaton trait. Without this assert, we still get a panic, but it's
-        // a bit more inscrutable.
-        // assert!(
-        // rev.has_starts_for_each_pattern(),
-        // "overlapping searches require that the reverse DFA is \
-        // compiled with the 'starts_for_each_pattern' option",
-        // );
-        let end =
-            match (&fwd).try_search_overlapping_fwd(pre, search, state)? {
-                None => return Ok(None),
-                Some(end) => end,
-            };
-        // Unlike the leftmost cases, the reverse overlapping search may match
-        // a different pattern than the forward search. See test failures when
-        // using `None` instead of `Some(end.pattern())` below. Thus, we must
-        // run our reverse search using the pattern that matched in the forward
-        // direction.
-        let revsearch = search
-            .clone()
-            .pattern(Some(end.pattern()))
-            .earliest(false)
-            // FIXME: Same problem as in the lazy DFA overlapping search.
-            .range(..end.offset());
-        let start = (&rev)
-            .try_search_rev(&revsearch)?
-            .expect("reverse search must match if forward search does");
-        assert!(start.offset() <= end.offset());
-        assert_eq!(start.pattern(), end.pattern());
-        Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
-    }
 }
 
 type TryMatchesClosure<'h, 'c> =
@@ -989,23 +672,28 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             self.try_search(pre, search)
         })
     }
-
-    fn try_overlapping_matches_iter<'r, 'h>(
-        &'r self,
-        search: Search<'h>,
-    ) -> iter::TryOverlappingMatches<'h, TryMatchesClosure<'h, 'r>> {
-        let mut scanner = self.scanner();
-        let mut state = OverlappingState::start();
-        iter::TryOverlappingMatches::boxed(search, move |search| {
-            let pre = scanner.as_mut();
-            self.try_search_overlapping(pre, search, &mut state)
-        })
-    }
 }
 
 /// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
+    /// Create a new `Search` for the given haystack.
+    ///
+    /// The `Search` returned is configured to match the configuration of this
+    /// `Regex`. For example, if this `Regex` was built with [`Config::utf8`]
+    /// enabled, then the `Search` returned will also have its [`Search::utf8`]
+    /// knob enabled.
+    ///
+    /// This routine is useful when using the lower-level [`Regex::try_search`]
+    /// API.
+    #[inline]
+    pub fn create_search<'h, H: ?Sized + AsRef<[u8]>>(
+        &self,
+        haystack: &'h H,
+    ) -> Search<'h> {
+        Search::new(haystack).utf8(self.get_config().get_utf8())
+    }
+
     /// Return the config for this regex.
     pub fn get_config(&self) -> &Config {
         &self.config
@@ -1109,32 +797,6 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
     }
 }
 
-/// An iterator over all overlapping matches for an infallible search.
-///
-/// The iterator yields a [`Match`] value until no more matches could be found.
-/// If the underlying regex engine returns an error, then a panic occurs.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'h` represents the lifetime of the haystack being searched.
-/// * `'r` represents the lifetime of the regex object itself.
-///
-/// This iterator can be created with the [`Regex::find_overlapping_iter`]
-/// method.
-#[derive(Debug)]
-pub struct FindOverlappingMatches<'h, 'c>(
-    iter::OverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
-);
-
-impl<'h, 'c> Iterator for FindOverlappingMatches<'h, 'c> {
-    type Item = Match;
-
-    #[inline]
-    fn next(&mut self) -> Option<Match> {
-        self.0.next()
-    }
-}
-
 /// An iterator over all non-overlapping matches for a fallible search.
 ///
 /// The iterator yields a `Result<Match, MatchError>` value until no more
@@ -1159,205 +821,6 @@ impl<'h, 'c> Iterator for TryFindMatches<'h, 'c> {
         self.0.next()
     }
 }
-
-/// An iterator over all overlapping matches for a fallible search.
-///
-/// The iterator yields a `Result<Match, MatchError>` value until no more
-/// matches could be found.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'h` represents the lifetime of the haystack being searched.
-/// * `'r` represents the lifetime of the regex object itself.
-///
-/// This iterator can be created with the [`Regex::try_find_overlapping_iter`]
-/// method.
-#[derive(Debug)]
-pub struct TryFindOverlappingMatches<'h, 'c>(
-    iter::TryOverlappingMatches<'h, TryMatchesClosure<'h, 'c>>,
-);
-
-impl<'h, 'c> Iterator for TryFindOverlappingMatches<'h, 'c> {
-    type Item = Result<Match, MatchError>;
-
-    #[inline]
-    fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        self.0.next()
-    }
-}
-
-/*
-/// An iterator over all non-overlapping leftmost matches for a particular
-/// infallible search.
-///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
-///
-/// `A` is the type used to represent the underlying DFAs used by the regex,
-/// while `P` is the type of prefilter used, if any. The lifetime variables are
-/// as follows:
-///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Clone, Debug)]
-pub struct FindMatches<'r, 't, A, P>(TryFindMatches<'r, 't, A, P>);
-
-impl<'r, 't, A: Automaton, P: Prefilter> FindMatches<'r, 't, A, P> {
-    fn new(re: &'r Regex<A, P>, text: &'t [u8]) -> FindMatches<'r, 't, A, P> {
-        FindMatches(TryFindMatches::new(re, text))
-    }
-}
-
-impl<'r, 't, A: Automaton, P: Prefilter> Iterator
-    for FindMatches<'r, 't, A, P>
-{
-    type Item = Match;
-
-    fn next(&mut self) -> Option<Match> {
-        next_unwrap(self.0.next())
-    }
-}
-
-/// An iterator over all overlapping matches for a particular infallible
-/// search.
-///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
-///
-/// `A` is the type used to represent the underlying DFAs used by the regex,
-/// while `P` is the type of prefilter used, if any. The lifetime variables are
-/// as follows:
-///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Clone, Debug)]
-pub struct FindOverlappingMatches<'r, 't, A: Automaton, P>(
-    TryFindOverlappingMatches<'r, 't, A, P>,
-);
-
-impl<'r, 't, A: Automaton, P: Prefilter> FindOverlappingMatches<'r, 't, A, P> {
-    fn new(
-        re: &'r Regex<A, P>,
-        text: &'t [u8],
-    ) -> FindOverlappingMatches<'r, 't, A, P> {
-        FindOverlappingMatches(TryFindOverlappingMatches::new(re, text))
-    }
-}
-
-impl<'r, 't, A: Automaton, P: Prefilter> Iterator
-    for FindOverlappingMatches<'r, 't, A, P>
-{
-    type Item = Match;
-
-    fn next(&mut self) -> Option<Match> {
-        next_unwrap(self.0.next())
-    }
-}
-
-/// An iterator over all non-overlapping leftmost matches for a particular
-/// fallible search.
-///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found.
-///
-/// `A` is the type used to represent the underlying DFAs used by the regex,
-/// while `P` is the type of prefilter used, if any. The lifetime variables are
-/// as follows:
-///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Clone, Debug)]
-pub struct TryFindMatches<'r, 't, A, P> {
-    re: &'r Regex<A, P>,
-    scanner: Option<prefilter::Scanner<'r>>,
-    text: &'t [u8],
-    last_end: usize,
-    last_match: Option<usize>,
-}
-
-impl<'r, 't, A: Automaton, P: Prefilter> TryFindMatches<'r, 't, A, P> {
-    fn new(
-        re: &'r Regex<A, P>,
-        text: &'t [u8],
-    ) -> TryFindMatches<'r, 't, A, P> {
-        let scanner = re.scanner();
-        TryFindMatches { re, scanner, text, last_end: 0, last_match: None }
-    }
-}
-
-impl<'r, 't, A: Automaton, P: Prefilter> Iterator
-    for TryFindMatches<'r, 't, A, P>
-{
-    type Item = Result<Match, MatchError>;
-
-    fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        let result = self.re.try_search_imp(
-            self.scanner.as_mut(),
-            &Search::new(self.text).range(self.last_end..),
-        );
-        Some(Ok(handle_iter_match_fallible!(self, result, self.re.utf8)))
-    }
-}
-
-/// An iterator over all overlapping matches for a particular fallible search.
-///
-/// The iterator yields a [`Match`] value until no more matches could be
-/// found.
-///
-/// `A` is the type used to represent the underlying DFAs used by the regex,
-/// while `P` is the type of prefilter used, if any. The lifetime variables are
-/// as follows:
-///
-/// * `'r` is the lifetime of the regular expression itself.
-/// * `'t` is the lifetime of the text being searched.
-#[derive(Clone, Debug)]
-pub struct TryFindOverlappingMatches<'r, 't, A: Automaton, P> {
-    re: &'r Regex<A, P>,
-    scanner: Option<prefilter::Scanner<'r>>,
-    text: &'t [u8],
-    last_end: usize,
-    state: OverlappingState,
-}
-
-impl<'r, 't, A: Automaton, P: Prefilter>
-    TryFindOverlappingMatches<'r, 't, A, P>
-{
-    fn new(
-        re: &'r Regex<A, P>,
-        text: &'t [u8],
-    ) -> TryFindOverlappingMatches<'r, 't, A, P> {
-        let scanner = re.scanner();
-        TryFindOverlappingMatches {
-            re,
-            scanner,
-            text,
-            last_end: 0,
-            state: OverlappingState::start(),
-        }
-    }
-}
-
-impl<'r, 't, A: Automaton, P: Prefilter> Iterator
-    for TryFindOverlappingMatches<'r, 't, A, P>
-{
-    type Item = Result<Match, MatchError>;
-
-    fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        if self.last_end > self.text.len() {
-            return None;
-        }
-        let result = self.re.try_find_overlapping_at_imp(
-            self.scanner.as_mut(),
-            &Search::new(self.text).range(self.last_end..),
-            &mut self.state,
-        );
-        Some(Ok(handle_iter_match_overlapping_fallible!(self, result)))
-    }
-}
-*/
 
 /// The configuration used for compiling a DFA-backed regex.
 ///

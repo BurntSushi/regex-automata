@@ -1,8 +1,8 @@
 use regex_automata::{
-    dfa::{self, dense, regex::Regex, sparse, Automaton},
+    dfa::{self, dense, regex::Regex, sparse, Automaton, OverlappingState},
     nfa::thompson,
     util::iter,
-    MatchKind, Search, SyntaxConfig,
+    MatchKind, MatchSet, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -12,12 +12,14 @@ use ret::{
 
 use crate::{suite, Result};
 
+const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
+
 /// Runs the test suite with the default configuration.
 #[test]
 fn unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -30,7 +32,7 @@ fn unminimized_no_byte_class() -> Result<()> {
     builder.dense(dense::Config::new().byte_classes(false));
 
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -43,7 +45,7 @@ fn unminimized_nfa_shrink() -> Result<()> {
     builder.thompson(thompson::Config::new().shrink(true));
 
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -56,7 +58,7 @@ fn minimized_default() -> Result<()> {
     let mut builder = Regex::builder();
     builder.dense(dense::Config::new().minimize(true));
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
@@ -71,7 +73,7 @@ fn minimized_no_byte_class() -> Result<()> {
     builder.dense(dense::Config::new().minimize(true).byte_classes(false));
 
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
@@ -84,7 +86,7 @@ fn minimized_no_byte_class() -> Result<()> {
 fn sparse_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), sparse_compiler(builder))
         .assert();
     Ok(())
@@ -112,7 +114,7 @@ fn serialization_unminimized_default() -> Result<()> {
         })
     };
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), my_compiler(builder))
         .assert();
     Ok(())
@@ -140,7 +142,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
         })
     };
     TestRunner::new()?
-        .expand(&["is_match", "find"], |t| t.compiles())
+        .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), my_compiler(builder))
         .assert();
     Ok(())
@@ -232,14 +234,34 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let it = re
-                    .find_overlapping_iter(test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
+                let search = re.create_search(test.input());
+                try_search_overlapping(re, &search).unwrap()
+            }
+        },
+        "which" => match test.search_kind() {
+            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+                // There are no "which" APIs for standard searches. So this is
+                // technically redundant, but we produce a result anyway.
+                let mut pids: Vec<usize> = re
+                    .find_iter(test.input())
+                    .map(|m| m.pattern().as_usize())
+                    .collect();
+                pids.sort();
+                pids.dedup();
+                TestResult::which(pids)
+            }
+            ret::SearchKind::Overlapping => {
+                let dfa = re.forward();
+                // FIXME: s/pattern_count/pattern_len/g
+                let mut matset = MatchSet::new(dfa.pattern_count());
+                let search = re.create_search(test.input());
+                dfa.try_which_overlapping_matches(
+                    re.scanner().as_mut(),
+                    &search,
+                    &mut matset,
+                )
+                .unwrap();
+                TestResult::which(matset.iter().map(|p| p.as_usize()))
             }
         },
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
@@ -282,4 +304,46 @@ fn configure_regex_builder(
 /// Configuration of a Thompson NFA compiler from a regex test.
 fn config_thompson(test: &RegexTest) -> thompson::Config {
     thompson::Config::new().utf8(test.utf8())
+}
+
+fn try_search_overlapping<A: Automaton>(
+    re: &Regex<A>,
+    search: &Search<'_>,
+) -> Result<TestResult> {
+    let mut matches = vec![];
+    let mut pre = re.scanner();
+    let mut fwd_state = OverlappingState::start();
+    let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
+    while let Some(end) = fwd_dfa.try_search_overlapping_fwd(
+        pre.as_mut(),
+        search,
+        &mut fwd_state,
+    )? {
+        let revsearch = search
+            .clone()
+            .pattern(Some(end.pattern()))
+            .earliest(false)
+            .range(search.start()..end.offset());
+        let mut rev_state = OverlappingState::start();
+        while let Some(start) =
+            rev_dfa.try_search_overlapping_rev(&revsearch, &mut rev_state)?
+        {
+            // let start = rev_dfa
+            // .try_search_rev(rev_cache, &revsearch)?
+            // .expect("reverse search must match if forward search does");
+            let span = ret::Span { start: start.offset(), end: end.offset() };
+            // Some tests check that we don't yield matches that split a
+            // codepoint when UTF-8 mode is enabled, so skip those here.
+            if search.get_utf8()
+                && span.start == span.end
+                && !search.is_char_boundary(span.end)
+            {
+                continue;
+            }
+            let mat = ret::Match { id: end.pattern().as_usize(), span };
+            dbg!(&mat);
+            matches.push(mat);
+        }
+    }
+    Ok(TestResult::matches(matches))
 }

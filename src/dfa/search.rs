@@ -1,7 +1,7 @@
 use crate::{
     dfa::{
         accel,
-        automaton::{Automaton, OverlappingState, StateMatch},
+        automaton::{Automaton, OverlappingState},
     },
     util::{
         id::{PatternID, StateID},
@@ -235,7 +235,7 @@ fn find_rev_imp<A: Automaton + ?Sized>(
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
     if search.start() == search.end() {
-        return Ok(eoi_rev(dfa, search, sid)?);
+        return Ok(eoi_rev(dfa, search, &mut sid)?);
     }
 
     let mut last_match = None;
@@ -363,7 +363,7 @@ fn find_rev_imp<A: Automaton + ?Sized>(
         }
         at -= 1;
     }
-    Ok(eoi_rev(dfa, search, sid)?.or(last_match))
+    Ok(eoi_rev(dfa, search, &mut sid)?.or(last_match))
 }
 
 #[inline(never)]
@@ -385,14 +385,6 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     }
 }
 
-/// The implementation for forward overlapping search.
-///
-/// We do not have a corresponding reverse overlapping search. We can actually
-/// reuse the existing non-overlapping reverse search to find start-of-match
-/// for overlapping results. (Because the start-of-match aspect already
-/// knows which pattern matched.) We might want a reverse overlapping search
-/// though if we want to support proper reverse searching instead of just
-/// start-of-match handling for forward searches.
 #[inline(always)]
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
@@ -401,51 +393,26 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut at = search.start();
-    let mut sid = match state.id() {
-        None => init_fwd(dfa, search)?,
+    let mut sid = match state.id {
+        None => {
+            state.at = search.start();
+            init_fwd(dfa, search)?
+        }
         Some(sid) => {
-            if let Some(last) = state.last_match() {
+            if let Some(match_index) = state.next_match_index {
                 let match_count = dfa.match_count(sid);
-                if last.match_index < match_count {
+                if match_index < match_count {
                     let m = HalfMatch {
-                        pattern: dfa.match_pattern(sid, last.match_index),
-                        offset: last.offset,
+                        pattern: dfa.match_pattern(sid, match_index),
+                        offset: state.at,
                     };
-                    last.match_index += 1;
+                    state.next_match_index = Some(match_index + 1);
                     return Ok(Some(m));
                 }
             }
-
-            // This is a subtle but critical detail. If the caller provides a
-            // non-None state ID, then it must be the case that the state ID
-            // corresponds to one set by this function. The state ID therefore
-            // corresponds to a match state, a dead state or some other state.
-            // However, "some other" state _only_ occurs when the input has
-            // been exhausted because the only way to stop before then is to
-            // see a match or a dead/quit state.
-            //
-            // If the input is exhausted or if it's a dead state, then
-            // incrementing the starting position has no relevance on
-            // correctness, since the loop below will either not execute
-            // at all or will immediately stop due to being in a dead state.
-            // (Once in a dead state it is impossible to leave it.)
-            //
-            // Therefore, the only case we need to consider is when state
-            // is a match state. In this case, since our machines support
-            // the ability to delay a match by a certain number of bytes (to
-            // support look-around), it follows that we actually consumed that
-            // many additional bytes on our previous search. When the caller
-            // resumes their search to find subsequent matches, they will use
-            // the ending location from the previous match as the next starting
-            // point, which is `MATCH_OFFSET` bytes PRIOR to where we scanned
-            // to on the previous search. Therefore, we need to compensate by
-            // bumping `start` up by `MATCH_OFFSET` bytes.
-            //
-            // Incidentally, since MATCH_OFFSET is non-zero, this also makes
-            // dealing with empty matches convenient. Namely, callers needn't
-            // special case them when implementing an iterator. Instead, this
-            // ensures that forward progress is always made.
-            at += MATCH_OFFSET;
+            // Once we've reported all matches at a given position, we need to
+            // advance the search to the next position.
+            state.at += 1;
             sid
         }
     };
@@ -454,34 +421,34 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     // it seems like most find_overlapping searches will have higher match
     // counts, and thus, throughput is perhaps not as important. But if you
     // have a use case for something faster, feel free to file an issue.
-    while at < search.end() {
-        sid = dfa.next_state(sid, search.haystack()[at]);
+    while state.at < search.end() {
+        sid = dfa.next_state(sid, search.haystack()[state.at]);
         if dfa.is_special_state(sid) {
-            state.set_id(sid);
+            state.id = Some(sid);
             if dfa.is_start_state(sid) {
                 if let Some(ref mut pre) = pre {
-                    if pre.is_effective(at) {
-                        let span = Span::new(at, search.end());
+                    if pre.is_effective(state.at) {
+                        let span = Span::new(state.at, search.end());
                         match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
-                                at = i;
+                                state.at = i;
                                 continue;
                             }
                         }
                     }
                 } else if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_fwd(needles, search.haystack(), at)
-                        .unwrap_or(search.end());
+                    state.at =
+                        accel::find_fwd(needles, search.haystack(), state.at)
+                            .unwrap_or(search.end());
                     continue;
                 }
             } else if dfa.is_match_state(sid) {
-                state
-                    .set_last_match(StateMatch { match_index: 1, offset: at });
+                state.next_match_index = Some(1);
                 return Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(sid, 0),
-                    offset: at,
+                    offset: state.at,
                 }));
             } else if dfa.is_accel_state(sid) {
                 let needs = dfa.accelerator(sid);
@@ -492,7 +459,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                 // byte values. However, there might be an EOI transition. So
                 // we set 'at' to the end of the haystack, which will cause
                 // this loop to stop and fall down into the EOI transition.
-                at = accel::find_fwd(needs, search.haystack(), at)
+                state.at = accel::find_fwd(needs, search.haystack(), state.at)
                     .unwrap_or(search.end());
                 continue;
             } else if dfa.is_dead_state(sid) {
@@ -500,21 +467,131 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
                 return Err(MatchError::Quit {
-                    byte: search.haystack()[at],
-                    offset: at,
+                    byte: search.haystack()[state.at],
+                    offset: state.at,
                 });
             }
         }
-        at += 1;
+        state.at += 1;
     }
 
     let result = eoi_fwd(dfa, search, &mut sid);
-    state.set_id(sid);
+    state.id = Some(sid);
     if let Ok(Some(ref last_match)) = result {
-        state.set_last_match(StateMatch {
-            match_index: 1,
-            offset: last_match.offset(),
-        });
+        // '1' is always correct here since if we get to this point, this
+        // always corresponds to the first (index '0') match discovered at
+        // this position. So the next match to report at this position (if
+        // it exists) is at index '1'.
+        state.next_match_index = Some(1);
+    }
+    result
+}
+
+#[inline(never)]
+pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
+    dfa: &A,
+    search: &Search<'_>,
+    state: &mut OverlappingState,
+) -> Result<Option<HalfMatch>, MatchError> {
+    if search.is_done() {
+        return Ok(None);
+    }
+    let mut sid = match state.id {
+        None => {
+            state.id = Some(init_rev(dfa, search)?);
+            if search.start() == search.end() {
+                state.rev_eoi = true;
+            } else {
+                state.at = search.end() - 1;
+            }
+            state.id.unwrap()
+        }
+        Some(sid) => {
+            if let Some(match_index) = state.next_match_index {
+                let match_count = dfa.match_count(sid);
+                if match_index < match_count {
+                    let m = HalfMatch {
+                        pattern: dfa.match_pattern(sid, match_index),
+                        offset: state.at,
+                    };
+                    state.next_match_index = Some(match_index + 1);
+                    return Ok(Some(m));
+                }
+            }
+            // Once we've reported all matches at a given position, we need
+            // to advance the search to the next position. However, if we've
+            // already followed the EOI transition, then we know we're done
+            // with the search and there cannot be any more matches to report.
+            if state.rev_eoi {
+                return Ok(None);
+            } else if state.at == search.start() {
+                // At this point, we should follow the EOI transition. This
+                // will cause us the skip the main loop below and fall through
+                // to the final 'eoi_rev' transition.
+                state.rev_eoi = true;
+            } else {
+                // We haven't hit the end of the search yet, so move on.
+                state.at -= 1;
+            }
+            sid
+        }
+    };
+    while !state.rev_eoi {
+        sid = dfa.next_state(sid, search.haystack()[state.at]);
+        if dfa.is_special_state(sid) {
+            state.id = Some(sid);
+            if dfa.is_start_state(sid) {
+                if dfa.is_accel_state(sid) {
+                    let needles = dfa.accelerator(sid);
+                    state.at =
+                        accel::find_rev(needles, search.haystack(), state.at)
+                            .map(|i| i + 1)
+                            .unwrap_or(search.start());
+                }
+            } else if dfa.is_match_state(sid) {
+                state.next_match_index = Some(1);
+                return Ok(Some(HalfMatch {
+                    pattern: dfa.match_pattern(sid, 0),
+                    offset: state.at + MATCH_OFFSET,
+                }));
+            } else if dfa.is_accel_state(sid) {
+                let needles = dfa.accelerator(sid);
+                // If the accelerator returns nothing, why don't we quit the
+                // search? Well, if the accelerator doesn't find anything, that
+                // doesn't mean we don't have a match. It just means that we
+                // can't leave the current state given one of the 255 possible
+                // byte values. However, there might be an EOI transition. So
+                // we set 'at' to the end of the haystack, which will cause
+                // this loop to stop and fall down into the EOI transition.
+                state.at =
+                    accel::find_rev(needles, search.haystack(), state.at)
+                        .map(|i| i + 1)
+                        .unwrap_or(search.start());
+            } else if dfa.is_dead_state(sid) {
+                return Ok(None);
+            } else {
+                debug_assert!(dfa.is_quit_state(sid));
+                return Err(MatchError::Quit {
+                    byte: search.haystack()[state.at],
+                    offset: state.at,
+                });
+            }
+        }
+        if state.at == search.start() {
+            break;
+        }
+        state.at -= 1;
+    }
+
+    state.rev_eoi = true;
+    let result = eoi_rev(dfa, search, &mut sid);
+    state.id = Some(sid);
+    if let Ok(Some(ref last_match)) = result {
+        // '1' is always correct here since if we get to this point, this
+        // always corresponds to the first (index '0') match discovered at
+        // this position. So the next match to report at this position (if
+        // it exists) is at index '1'.
+        state.next_match_index = Some(1);
     }
     result
 }
@@ -579,23 +656,23 @@ fn eoi_fwd<A: Automaton + ?Sized>(
 fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
     search: &Search<'_>,
-    sid: StateID,
+    sid: &mut StateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.start() > 0 {
-        let sid = dfa.next_state(sid, search.haystack()[search.start() - 1]);
-        if dfa.is_match_state(sid) {
+        *sid = dfa.next_state(*sid, search.haystack()[search.start() - 1]);
+        if dfa.is_match_state(*sid) {
             Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(sid, 0),
+                pattern: dfa.match_pattern(*sid, 0),
                 offset: search.start(),
             }))
         } else {
             Ok(None)
         }
     } else {
-        let sid = dfa.next_eoi_state(sid);
-        if dfa.is_match_state(sid) {
+        *sid = dfa.next_eoi_state(*sid);
+        if dfa.is_match_state(*sid) {
             Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(sid, 0),
+                pattern: dfa.match_pattern(*sid, 0),
                 offset: 0,
             }))
         } else {
