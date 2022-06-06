@@ -755,7 +755,7 @@ struct Threads {
     set: SparseSet,
     list: Vec<StateID>,
     caps: Vec<Thread>,
-    current_slots: usize,
+    current_slot_len: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -773,16 +773,16 @@ impl Cache {
         }
     }
 
-    fn clear(&mut self, slot_count: usize) {
+    fn clear(&mut self, slot_len: usize) {
         self.stack.clear();
         self.clist.set.clear();
         self.clist.list.clear();
         self.nlist.set.clear();
         self.nlist.list.clear();
-        if slot_count != self.clist.current_slots {
-            self.clist.current_slots = slot_count;
-            self.nlist.current_slots = slot_count;
-            self.scratch_caps.resize(slot_count, None);
+        if slot_len != self.clist.current_slot_len {
+            self.clist.current_slot_len = slot_len;
+            self.nlist.current_slot_len = slot_len;
+            self.scratch_caps.resize(slot_len, None);
         }
     }
 }
@@ -793,20 +793,20 @@ impl Threads {
             set: SparseSet::new(0),
             list: Vec::with_capacity(nfa.states().len()),
             caps: vec![],
-            current_slots: 0,
+            current_slot_len: 0,
         };
         threads.resize(nfa);
         threads
     }
 
     fn resize(&mut self, nfa: &NFA) {
-        self.current_slots = nfa.capture_slot_len();
+        self.current_slot_len = nfa.capture_slot_len();
         self.set.resize(nfa.states().len());
         self.caps.resize(nfa.states().len(), Thread::new(nfa));
     }
 
     fn caps(&mut self, sid: StateID) -> &mut [Slot] {
-        &mut self.caps[sid].slots[..self.current_slots]
+        &mut self.caps[sid].slots[..self.current_slot_len]
     }
 }
 

@@ -342,7 +342,7 @@ impl DFA {
     ///
     /// # Example
     ///
-    /// This example shows the pattern count for a DFA that never matches:
+    /// This example shows the pattern length for a DFA that never matches:
     ///
     /// ```
     /// use regex_automata::hybrid::dfa::DFA;
@@ -1356,7 +1356,7 @@ impl DFA {
     /// necessarily always return `1` for all match states.
     ///
     /// A lazy DFA guarantees that [`DFA::match_pattern`] can be called with
-    /// indices up to (but not including) the count returned by this routine
+    /// indices up to (but not including) the length returned by this routine
     /// without panicking.
     ///
     /// If the given state is not a match state, then this may either panic

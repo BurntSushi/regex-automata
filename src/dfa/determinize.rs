@@ -271,18 +271,18 @@ impl<'a> Runner<'a> {
         let mut matches: BTreeMap<StateID, Vec<PatternID>> = BTreeMap::new();
         self.cache.clear();
         #[allow(unused_variables)]
-        let mut total_pat_count = 0;
+        let mut total_pat_len = 0;
         for (i, state) in self.builder_states.into_iter().enumerate() {
             if let Some(pat_ids) = state.match_pattern_ids() {
                 let id = self.dfa.from_index(i);
-                total_pat_count += pat_ids.len();
+                total_pat_len += pat_ids.len();
                 matches.insert(id, pat_ids);
             }
         }
         log! {
             use core::mem::size_of;
             let per_elem = size_of::<StateID>() + size_of::<Vec<PatternID>>();
-            let pats = total_pat_count * size_of::<PatternID>();
+            let pats = total_pat_len * size_of::<PatternID>();
             let mem = (matches.len() * per_elem) + pats;
             log::trace!("matches map built, memory usage: {}", mem);
         }

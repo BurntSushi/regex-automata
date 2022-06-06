@@ -251,10 +251,10 @@ impl DFA<Vec<u8>> {
         // of the transition table happens in two passes.
         //
         // In the first pass, we fill out the shell of each state, which
-        // includes the transition count, the input byte ranges and zero-filled
-        // space for the transitions and accelerators, if present. In this
-        // first pass, we also build up a map from the state identifier index
-        // of the dense DFA to the state identifier in this sparse DFA.
+        // includes the transition length, the input byte ranges and
+        // zero-filled space for the transitions and accelerators, if present.
+        // In this first pass, we also build up a map from the state identifier
+        // index of the dense DFA to the state identifier in this sparse DFA.
         //
         // In the second pass, we fill in the transitions based on the map
         // built in the first pass.
@@ -271,15 +271,15 @@ impl DFA<Vec<u8>> {
 
             remap[dfa.to_index(state.id())] =
                 StateID::new(pos).map_err(|_| Error::too_many_states())?;
-            // zero-filled space for the transition count
+            // zero-filled space for the transition length
             sparse.push(0);
             sparse.push(0);
 
-            let mut transition_count = 0;
+            let mut transition_len = 0;
             for (unit1, unit2, _) in state.sparse_transitions() {
                 match (unit1.as_u8(), unit2.as_u8()) {
                     (Some(b1), Some(b2)) => {
-                        transition_count += 1;
+                        transition_len += 1;
                         sparse.push(b1);
                         sparse.push(b2);
                     }
@@ -300,40 +300,40 @@ impl DFA<Vec<u8>> {
             // N.B. The loop above is not guaranteed to yield the EOI
             // transition, since it may point to a DEAD state. By putting
             // it here, we always write the EOI transition, and thus
-            // guarantee that our transition count is >0. Why do we always
+            // guarantee that our transition length is >0. Why do we always
             // need the EOI transition? Because in order to implement
             // Automaton::next_eoi_state, this lets us just ask for the last
             // transition. There are probably other/better ways to do this.
-            transition_count += 1;
+            transition_len += 1;
             sparse.push(0);
             sparse.push(0);
 
-            // Check some assumptions about transition count.
+            // Check some assumptions about transition length.
             assert_ne!(
-                transition_count, 0,
-                "transition count should be non-zero",
+                transition_len, 0,
+                "transition length should be non-zero",
             );
             assert!(
-                transition_count <= 257,
-                "expected transition count {} to be <= 257",
-                transition_count,
+                transition_len <= 257,
+                "expected transition length {} to be <= 257",
+                transition_len,
             );
 
-            // Fill in the transition count.
-            // Since transition count is always <= 257, we use the most
+            // Fill in the transition length.
+            // Since transition length is always <= 257, we use the most
             // significant bit to indicate whether this is a match state or
             // not.
             let ntrans = if dfa.is_match_state(state.id()) {
-                transition_count | (1 << 15)
+                transition_len | (1 << 15)
             } else {
-                transition_count
+                transition_len
             };
             bytes::NE::write_u16(ntrans, &mut sparse[pos..]);
 
             // zero-fill the actual transitions.
-            // Unwraps are OK since transition_count <= 257 and our minimum
+            // Unwraps are OK since transition_length <= 257 and our minimum
             // support usize size is 16-bits.
-            let zeros = usize::try_from(transition_count)
+            let zeros = usize::try_from(transition_len)
                 .unwrap()
                 .checked_mul(StateID::SIZE)
                 .unwrap();
@@ -361,7 +361,7 @@ impl DFA<Vec<u8>> {
                     // Will never fail since u32::MAX is invalid pattern ID.
                     // Thus, the number of pattern IDs is representable by a
                     // u32.
-                    plen.try_into().expect("pattern ID count fits in u32"),
+                    plen.try_into().expect("pattern ID length fits in u32"),
                     &mut sparse[pos..],
                 );
                 pos += size_of::<u32>();
@@ -389,7 +389,7 @@ impl DFA<Vec<u8>> {
             trans: Transitions {
                 sparse,
                 classes: dfa.byte_classes().clone(),
-                count: dfa.state_len(),
+                len: dfa.state_len(),
                 pattern_len: dfa.pattern_len(),
             },
             starts: StartTable::from_dense_dfa(dfa, &remap)?,
@@ -462,7 +462,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     ///
     /// Note that if the DFA is empty, this always returns false.
     pub fn has_starts_for_each_pattern(&self) -> bool {
-        self.starts.patterns > 0
+        self.starts.pattern_len > 0
     }
 }
 
@@ -1108,7 +1108,7 @@ impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
             }
             writeln!(f, "  {:?} => {:06?}", sty, start_id.as_usize())?;
         }
-        writeln!(f, "state count: {:?}", self.trans.count)?;
+        writeln!(f, "state length: {:?}", self.trans.len)?;
         writeln!(f, ")")?;
         Ok(())
     }
@@ -1268,7 +1268,7 @@ struct Transitions<T> {
     /// least one state---the dead state---even the empty DFA. In particular,
     /// the dead state always has ID 0 and is correspondingly always the first
     /// state. The dead state is never a match state.
-    count: usize,
+    len: usize,
     /// The total number of unique patterns represented by these match states.
     pattern_len: usize,
 }
@@ -1280,11 +1280,11 @@ impl<'a> Transitions<&'a [u8]> {
         let slice_start = slice.as_ptr() as usize;
 
         let (state_len, nr) =
-            bytes::try_read_u32_as_usize(&slice, "state count")?;
+            bytes::try_read_u32_as_usize(&slice, "state length")?;
         slice = &slice[nr..];
 
         let (pattern_len, nr) =
-            bytes::try_read_u32_as_usize(&slice, "pattern count")?;
+            bytes::try_read_u32_as_usize(&slice, "pattern length")?;
         slice = &slice[nr..];
 
         let (classes, nr) = ByteClasses::from_bytes(&slice)?;
@@ -1301,7 +1301,7 @@ impl<'a> Transitions<&'a [u8]> {
         let trans = Transitions {
             sparse,
             classes,
-            count: state_len,
+            len: state_len,
             pattern_len: pattern_len,
         };
         Ok((trans, slice.as_ptr() as usize - slice_start))
@@ -1324,11 +1324,11 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         }
         dst = &mut dst[..nwrite];
 
-        // write state count
-        E::write_u32(u32::try_from(self.count).unwrap(), dst);
+        // write state length
+        E::write_u32(u32::try_from(self.len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
-        // write pattern count
+        // write pattern length
         E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
@@ -1348,8 +1348,8 @@ impl<T: AsRef<[u8]>> Transitions<T> {
     /// Returns the number of bytes the serialized form of this transition
     /// table will use.
     fn write_to_len(&self) -> usize {
-        size_of::<u32>()   // state count
-        + size_of::<u32>() // pattern count
+        size_of::<u32>()   // state length
+        + size_of::<u32>() // pattern length
         + self.classes.write_to_len()
         + size_of::<u32>() // sparse transitions length
         + self.sparse().len()
@@ -1406,8 +1406,8 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         let mut verified: Seen = Seen::new();
         // We need to make sure that we decode the correct number of states.
         // Otherwise, an empty set of transitions would validate even if the
-        // recorded state count is non-empty.
-        let mut count = 0;
+        // recorded state length is non-empty.
+        let mut len = 0;
         // We can't use the self.states() iterator because it assumes the state
         // encodings are valid. It could panic if they aren't.
         let mut id = DEAD;
@@ -1423,7 +1423,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
             .map_err(|err| {
                 DeserializeError::state_id_error(err, "next state ID offset")
             })?;
-            count += 1;
+            len += 1;
 
             // Now check that all transitions in this state are correct.
             for i in 0..state.ntrans {
@@ -1435,9 +1435,9 @@ impl<T: AsRef<[u8]>> Transitions<T> {
                 verified.insert(id);
             }
         }
-        if count != self.count {
+        if len != self.len {
             return Err(DeserializeError::generic(
-                "mismatching sparse state count",
+                "mismatching sparse state length",
             ));
         }
         Ok(())
@@ -1448,7 +1448,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         Transitions {
             sparse: self.sparse(),
             classes: self.classes.clone(),
-            count: self.count,
+            len: self.len,
             pattern_len: self.pattern_len,
         }
     }
@@ -1459,7 +1459,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         Transitions {
             sparse: self.sparse().to_vec(),
             classes: self.classes.clone(),
-            count: self.count,
+            len: self.len,
             pattern_len: self.pattern_len,
         }
     }
@@ -1511,12 +1511,14 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         // Encoding format starts with a u16 that stores the total number of
         // transitions in this state.
         let (mut ntrans, _) =
-            bytes::try_read_u16_as_usize(state, "state transition count")?;
+            bytes::try_read_u16_as_usize(state, "state transition length")?;
         let is_match = ((1 << 15) & ntrans) != 0;
         ntrans &= !(1 << 15);
         state = &state[2..];
         if ntrans > 257 || ntrans == 0 {
-            return Err(DeserializeError::generic("invalid transition count"));
+            return Err(DeserializeError::generic(
+                "invalid transition length",
+            ));
         }
 
         // Each transition has two pieces: an inclusive range of bytes on which
@@ -1557,7 +1559,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         // encoded 32-bit integers.
         let (pattern_ids, state) = if is_match {
             let (npats, nr) =
-                bytes::try_read_u32_as_usize(state, "pattern ID count")?;
+                bytes::try_read_u32_as_usize(state, "pattern ID length")?;
             let state = &state[nr..];
 
             let pattern_ids_len =
@@ -1703,7 +1705,7 @@ struct StartTable<T> {
     /// The total number of patterns for which starting states are encoded.
     /// This may be zero for non-empty DFAs when the DFA was built without
     /// start states for each pattern.
-    patterns: usize,
+    pattern_len: usize,
 }
 
 #[cfg(feature = "alloc")]
@@ -1719,7 +1721,7 @@ impl StartTable<Vec<u8>> {
             .unwrap()
             .checked_mul(StateID::SIZE)
             .unwrap();
-        StartTable { table: vec![0; len], stride, patterns }
+        StartTable { table: vec![0; len], stride, pattern_len: patterns }
     }
 
     fn from_dense_dfa<T: AsRef<[u32]>>(
@@ -1754,7 +1756,7 @@ impl<'a> StartTable<&'a [u8]> {
             bytes::try_read_u32_as_usize(slice, "sparse start table stride")?;
         slice = &slice[nr..];
 
-        let (patterns, nr) = bytes::try_read_u32_as_usize(
+        let (pattern_len, nr) = bytes::try_read_u32_as_usize(
             slice,
             "sparse start table patterns",
         )?;
@@ -1765,13 +1767,13 @@ impl<'a> StartTable<&'a [u8]> {
                 "invalid sparse starting table stride",
             ));
         }
-        if patterns > PatternID::LIMIT {
+        if pattern_len > PatternID::LIMIT {
             return Err(DeserializeError::generic(
                 "sparse invalid number of patterns",
             ));
         }
         let pattern_table_size =
-            bytes::mul(stride, patterns, "sparse invalid pattern count")?;
+            bytes::mul(stride, pattern_len, "sparse invalid pattern length")?;
         // Our start states always start with a single stride of start states
         // for the entire automaton which permit it to match any pattern. What
         // follows it are an optional set of start states for each pattern.
@@ -1793,7 +1795,7 @@ impl<'a> StartTable<&'a [u8]> {
         let table_bytes = &slice[..table_bytes_len];
         slice = &slice[table_bytes_len..];
 
-        let sl = StartTable { table: table_bytes, stride, patterns };
+        let sl = StartTable { table: table_bytes, stride, pattern_len };
         Ok((sl, slice.as_ptr() as usize - slice_start))
     }
 }
@@ -1814,8 +1816,8 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         // write stride
         E::write_u32(u32::try_from(self.stride).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
-        // write pattern count
-        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        // write pattern length
+        E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
         // write start IDs
         dst.copy_from_slice(self.table());
@@ -1849,7 +1851,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         StartTable {
             table: self.table(),
             stride: self.stride,
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -1859,7 +1861,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         StartTable {
             table: self.table().to_vec(),
             stride: self.stride,
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -1875,7 +1877,11 @@ impl<T: AsRef<[u8]>> StartTable<T> {
             None => start_index,
             Some(pid) => {
                 let pid = pid.as_usize();
-                assert!(pid < self.patterns, "invalid pattern ID {:?}", pid);
+                assert!(
+                    pid < self.pattern_len,
+                    "invalid pattern ID {:?}",
+                    pid
+                );
                 self.stride
                     .checked_mul(pid)
                     .unwrap()
@@ -1930,7 +1936,11 @@ impl<T: AsMut<[u8]>> StartTable<T> {
             None => start_index,
             Some(pid) => {
                 let pid = pid.as_usize();
-                assert!(pid < self.patterns, "invalid pattern ID {:?}", pid);
+                assert!(
+                    pid < self.pattern_len,
+                    "invalid pattern ID {:?}",
+                    pid
+                );
                 self.stride
                     .checked_mul(pid)
                     .unwrap()
