@@ -27,6 +27,25 @@ match_kind = "all"
 search_kind = "overlapping"
 
 [[tests]]
+name = "greedy-dotstar-matches-everything-100"
+regexes = [".*"]
+input = "zzz"
+matches = [
+  { id = 0, span = [0, 0] },
+  { id = 0, span = [1, 1] },
+  { id = 0, span = [0, 1] },
+  { id = 0, span = [2, 2] },
+  { id = 0, span = [1, 2] },
+  { id = 0, span = [0, 2] },
+  { id = 0, span = [3, 3] },
+  { id = 0, span = [2, 3] },
+  { id = 0, span = [1, 3] },
+  { id = 0, span = [0, 3] },
+]
+match_kind = "all"
+search_kind = "overlapping"
+
+[[tests]]
 name = "repetition-plus-leftmost-first-100"
 regex = 'a+'
 input = "aaa"

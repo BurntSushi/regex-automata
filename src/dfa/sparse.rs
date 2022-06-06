@@ -261,11 +261,11 @@ impl DFA<Vec<u8>> {
 
         // The capacity given here reflects a minimum. (Well, the true minimum
         // is likely even bigger, but hopefully this saves a few reallocs.)
-        let mut sparse = Vec::with_capacity(StateID::SIZE * dfa.state_count());
+        let mut sparse = Vec::with_capacity(StateID::SIZE * dfa.state_len());
         // This maps state indices from the dense DFA to StateIDs in the sparse
         // DFA. We build out this map on the first pass, and then use it in the
         // second pass to back-fill our transitions.
-        let mut remap: Vec<StateID> = vec![DEAD; dfa.state_count()];
+        let mut remap: Vec<StateID> = vec![DEAD; dfa.state_len()];
         for state in dfa.states() {
             let pos = sparse.len();
 
@@ -389,8 +389,8 @@ impl DFA<Vec<u8>> {
             trans: Transitions {
                 sparse,
                 classes: dfa.byte_classes().clone(),
-                count: dfa.state_count(),
-                patterns: dfa.pattern_count(),
+                count: dfa.state_len(),
+                pattern_len: dfa.pattern_len(),
             },
             starts: StartTable::from_dense_dfa(dfa, &remap)?,
             special: dfa.special().remap(|id| remap[dfa.to_index(id)]),
@@ -1168,13 +1168,13 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn pattern_count(&self) -> usize {
-        self.trans.patterns
+    fn pattern_len(&self) -> usize {
+        self.trans.pattern_len
     }
 
     #[inline]
-    fn match_count(&self, id: StateID) -> usize {
-        self.trans.state(id).pattern_count()
+    fn match_len(&self, id: StateID) -> usize {
+        self.trans.state(id).pattern_len()
     }
 
     #[inline]
@@ -1184,7 +1184,7 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
         // that finds the pattern ID from the state machine, which requires
         // a bit of slicing/pointer-chasing. This optimization tends to only
         // matter when matches are frequent.
-        if self.trans.patterns == 1 {
+        if self.trans.pattern_len == 1 {
             return PatternID::ZERO;
         }
         self.trans.state(id).pattern_id(match_index)
@@ -1270,7 +1270,7 @@ struct Transitions<T> {
     /// state. The dead state is never a match state.
     count: usize,
     /// The total number of unique patterns represented by these match states.
-    patterns: usize,
+    pattern_len: usize,
 }
 
 impl<'a> Transitions<&'a [u8]> {
@@ -1279,11 +1279,11 @@ impl<'a> Transitions<&'a [u8]> {
     ) -> Result<(Transitions<&'a [u8]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr() as usize;
 
-        let (state_count, nr) =
+        let (state_len, nr) =
             bytes::try_read_u32_as_usize(&slice, "state count")?;
         slice = &slice[nr..];
 
-        let (pattern_count, nr) =
+        let (pattern_len, nr) =
             bytes::try_read_u32_as_usize(&slice, "pattern count")?;
         slice = &slice[nr..];
 
@@ -1301,8 +1301,8 @@ impl<'a> Transitions<&'a [u8]> {
         let trans = Transitions {
             sparse,
             classes,
-            count: state_count,
-            patterns: pattern_count,
+            count: state_len,
+            pattern_len: pattern_len,
         };
         Ok((trans, slice.as_ptr() as usize - slice_start))
     }
@@ -1329,7 +1329,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         dst = &mut dst[size_of::<u32>()..];
 
         // write pattern count
-        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
         // write byte class map
@@ -1449,7 +1449,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
             sparse: self.sparse(),
             classes: self.classes.clone(),
             count: self.count,
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -1460,7 +1460,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
             sparse: self.sparse().to_vec(),
             classes: self.classes.clone(),
             count: self.count,
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -1709,7 +1709,7 @@ struct StartTable<T> {
 #[cfg(feature = "alloc")]
 impl StartTable<Vec<u8>> {
     fn new(patterns: usize) -> StartTable<Vec<u8>> {
-        let stride = Start::count();
+        let stride = Start::len();
         // This is OK since the only way we're here is if a dense DFA could be
         // constructed successfully, which uses the same space.
         let len = stride
@@ -1730,12 +1730,12 @@ impl StartTable<Vec<u8>> {
         // as far as the starting state table is concerned, there are zero
         // patterns to account for. It will instead only store starting states
         // for the entire DFA.
-        let start_pattern_count = if dfa.has_starts_for_each_pattern() {
-            dfa.pattern_count()
+        let start_pattern_len = if dfa.has_starts_for_each_pattern() {
+            dfa.pattern_len()
         } else {
             0
         };
-        let mut sl = StartTable::new(start_pattern_count);
+        let mut sl = StartTable::new(start_pattern_len);
         for (old_start_id, sty, pid) in dfa.starts() {
             let new_start_id = remap[dfa.to_index(old_start_id)];
             sl.set_start(sty, pid, new_start_id);
@@ -1760,7 +1760,7 @@ impl<'a> StartTable<&'a [u8]> {
         )?;
         slice = &slice[nr..];
 
-        if stride != Start::count() {
+        if stride != Start::len() {
             return Err(DeserializeError::generic(
                 "invalid sparse starting table stride",
             ));
@@ -1775,13 +1775,13 @@ impl<'a> StartTable<&'a [u8]> {
         // Our start states always start with a single stride of start states
         // for the entire automaton which permit it to match any pattern. What
         // follows it are an optional set of start states for each pattern.
-        let start_state_count = bytes::add(
+        let start_state_len = bytes::add(
             stride,
             pattern_table_size,
             "sparse invalid 'any' pattern starts size",
         )?;
         let table_bytes_len = bytes::mul(
-            start_state_count,
+            start_state_len,
             StateID::SIZE,
             "sparse pattern table bytes length",
         )?;
@@ -2115,7 +2115,7 @@ impl<'a> State<'a> {
 
     /// Returns the total number of pattern IDs for this state. This is always
     /// zero when `is_match` is false.
-    fn pattern_count(&self) -> usize {
+    fn pattern_len(&self) -> usize {
         assert_eq!(0, self.pattern_ids.len() % 4);
         self.pattern_ids.len() / 4
     }

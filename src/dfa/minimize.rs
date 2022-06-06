@@ -158,7 +158,7 @@ impl<'a> Minimizer<'a> {
         // Create a map from DFA state ID to the representative ID of the
         // equivalence class to which it belongs. The representative ID of an
         // equivalence class of states is the minimum ID in that class.
-        let mut state_to_part = vec![DEAD; self.dfa.state_count()];
+        let mut state_to_part = vec![DEAD; self.dfa.state_len()];
         for p in &self.partitions {
             p.iter(|id| state_to_part[as_index(id)] = p.min());
         }
@@ -167,7 +167,7 @@ impl<'a> Minimizer<'a> {
         // create a map from equivalence IDs to the new IDs. Thus, the new
         // minimal ID of *any* state in the unminimized DFA can be obtained
         // with minimals_ids[state_to_part[old_id]].
-        let mut minimal_ids = vec![DEAD; self.dfa.state_count()];
+        let mut minimal_ids = vec![DEAD; self.dfa.state_len()];
         let mut new_index = 0;
         for state in self.dfa.states() {
             if state_to_part[as_index(state.id())] == state.id() {
@@ -184,7 +184,7 @@ impl<'a> Minimizer<'a> {
 
         // Re-map this DFA in place such that the only states remaining
         // correspond to the representative states of every equivalence class.
-        for id in (0..self.dfa.state_count()).map(as_state_id) {
+        for id in (0..self.dfa.state_len()).map(as_state_id) {
             // If this state isn't a representative for an equivalence class,
             // then we skip it since it won't appear in the minimal DFA.
             if state_to_part[as_index(id)] != id {
@@ -305,7 +305,7 @@ impl<'a> Minimizer<'a> {
         for state in dfa.states() {
             if dfa.is_match_state(state.id()) {
                 let mut pids = vec![];
-                for i in 0..dfa.match_count(state.id()) {
+                for i in 0..dfa.match_len(state.id()) {
                     pids.push(dfa.match_pattern(state.id(), i));
                 }
                 matching

@@ -146,8 +146,8 @@ impl State {
         self.repr().look_need()
     }
 
-    pub(crate) fn match_count(&self) -> usize {
-        self.repr().match_count()
+    pub(crate) fn match_len(&self) -> usize {
+        self.repr().match_len()
     }
 
     pub(crate) fn match_pattern(&self, index: usize) -> PatternID {
@@ -481,19 +481,19 @@ impl<'a> Repr<'a> {
     /// Returns the total number of match pattern IDs in this state.
     ///
     /// If this state is not a match state, then this always returns 0.
-    fn match_count(&self) -> usize {
+    fn match_len(&self) -> usize {
         if !self.is_match() {
             return 0;
         } else if !self.has_pattern_ids() {
             1
         } else {
-            self.encoded_pattern_count()
+            self.encoded_pattern_len()
         }
     }
 
     /// Returns the pattern ID for this match state at the given index.
     ///
-    /// If the given index is greater than or equal to `match_count()` for this
+    /// If the given index is greater than or equal to `match_len()` for this
     /// state, then this could panic or return incorrect results.
     fn match_pattern(&self, index: usize) -> PatternID {
         if !self.has_pattern_ids() {
@@ -560,7 +560,7 @@ impl<'a> Repr<'a> {
     /// Returns the offset into this state's representation where the pattern
     /// IDs end and the NFA state IDs begin.
     fn pattern_offset_end(&self) -> usize {
-        let encoded = self.encoded_pattern_count();
+        let encoded = self.encoded_pattern_len();
         if encoded == 0 {
             return 3;
         }
@@ -574,7 +574,7 @@ impl<'a> Repr<'a> {
     /// This may return 0 even when this is a match state, since the pattern
     /// ID `PatternID::ZERO` is not encoded when it's the only pattern ID in
     /// the match state (the overwhelming common case).
-    fn encoded_pattern_count(&self) -> usize {
+    fn encoded_pattern_len(&self) -> usize {
         if !self.has_pattern_ids() {
             return 0;
         }

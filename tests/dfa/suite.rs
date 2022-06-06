@@ -252,8 +252,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
             }
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
-                // FIXME: s/pattern_count/pattern_len/g
-                let mut matset = MatchSet::new(dfa.pattern_count());
+                let mut matset = MatchSet::new(dfa.pattern_len());
                 let search = re.create_search(test.input());
                 dfa.try_which_overlapping_matches(
                     re.scanner().as_mut(),
@@ -287,10 +286,19 @@ fn configure_regex_builder(
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
         .utf8(test.utf8());
-    let dense_config = dense::Config::new()
+    let mut dense_config = dense::Config::new()
         .anchored(test.anchored())
         .match_kind(match_kind)
         .unicode_word_boundary(true);
+    // When doing an overlapping search, we might try to find the start of each
+    // match with a custom search routine. In that case, we need to tell the
+    // reverse search (for the start offset) which pattern to look for. The
+    // only way that API works is when anchored starting states are compiled
+    // for each pattern. This does technically also enable it for the forward
+    // DFA, but we're okay with that.
+    if test.search_kind() == ret::SearchKind::Overlapping {
+        dense_config = dense_config.starts_for_each_pattern(true);
+    }
     let regex_config = Regex::config().utf8(test.utf8());
 
     builder
@@ -306,6 +314,29 @@ fn config_thompson(test: &RegexTest) -> thompson::Config {
     thompson::Config::new().utf8(test.utf8())
 }
 
+/// Execute an overlapping search, and for each match found, also find its
+/// overlapping starting positions.
+///
+/// N.B. This routine used to be part of the crate API, but 1) it wasn't clear
+/// to me how useful it was and 2) it wasn't clear to me what its semantics
+/// should be. In particular, a potentially surprising footgun of this routine
+/// that it is worst case *quadratic* in the size of the haystack. Namely, it's
+/// possible to report a match at every position, and for every such position,
+/// scan all the way to the beginning of the haystack to find the starting
+/// position. Typical leftmost non-overlapping searches don't suffer from this
+/// because, well, matches can't overlap. So subsequent searches after a match
+/// is found don't revisit previously scanned parts of the haystack.
+///
+/// Its semantics can be strange for other reasons too. For example, given
+/// the regex '.*' and the haystack 'zz', the full set of overlapping matches
+/// is: [0, 0], [1, 1], [0, 1], [2, 2], [1, 2], [0, 2]. The ordering of
+/// those matches is quite strange, but makes sense when you think about the
+/// implementation: an end offset is found left-to-right, and then one or more
+/// starting offsets are found right-to-left.
+///
+/// Nevertheless, we provide this routine in our test suite because it's
+/// useful to test the low level DFA overlapping search and our test suite
+/// is written in a way that requires starting offsets.
 fn try_search_overlapping<A: Automaton>(
     re: &Regex<A>,
     search: &Search<'_>,

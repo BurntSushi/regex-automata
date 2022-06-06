@@ -63,28 +63,6 @@ assert_eq!(matches, vec![
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Or use overlapping style searches to find all possible occurrences:
-
-```
-use regex_automata::{MatchKind, Match, dfa::{dense, regex::Regex}};
-
-// N.B. For overlapping searches, we need the underlying DFA to report all
-// possible matches.
-let re = Regex::builder()
-    .dense(dense::Config::new().match_kind(MatchKind::All))
-    .build_many(&[r"\w{3}", r"\S{3}"])?;
-let text = b"@foo bar";
-let matches: Vec<Match> = re.find_overlapping_iter(text).collect();
-assert_eq!(matches, vec![
-    Match::must(1, 0, 3),
-    Match::must(0, 1, 4),
-    Match::must(1, 1, 4),
-    Match::must(0, 5, 8),
-    Match::must(1, 5, 8),
-]);
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
 # Example: use sparse DFAs
 
 By default, compiling a regex will use dense DFAs internally. This uses more

@@ -27,8 +27,8 @@ use crate::{
 /// * A DFA can search for multiple patterns simultaneously. This
 /// means extra information is returned when a match occurs. Namely,
 /// a match is not just an offset, but an offset plus a pattern ID.
-/// [`Automaton::pattern_count`] returns the number of patterns compiled into
-/// the DFA, [`Automaton::match_count`] returns the total number of patterns
+/// [`Automaton::pattern_len`] returns the number of patterns compiled into
+/// the DFA, [`Automaton::match_len`] returns the total number of patterns
 /// that match in a particular state and [`Automaton::match_pattern`] permits
 /// iterating over the patterns that match in a particular state.
 /// * A DFA can have multiple start states, and the choice of which start
@@ -693,13 +693,13 @@ pub unsafe trait Automaton {
     ///
     /// # Example
     ///
-    /// This example shows the pattern count for a DFA that never matches:
+    /// This example shows the pattern length for a DFA that never matches:
     ///
     /// ```
     /// use regex_automata::dfa::{Automaton, dense::DFA};
     ///
     /// let dfa: DFA<Vec<u32>> = DFA::never_match()?;
-    /// assert_eq!(dfa.pattern_count(), 0);
+    /// assert_eq!(dfa.pattern_len(), 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -709,7 +709,7 @@ pub unsafe trait Automaton {
     /// use regex_automata::dfa::{Automaton, dense::DFA};
     ///
     /// let dfa: DFA<Vec<u32>> = DFA::always_match()?;
-    /// assert_eq!(dfa.pattern_count(), 1);
+    /// assert_eq!(dfa.pattern_len(), 1);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -719,10 +719,10 @@ pub unsafe trait Automaton {
     /// use regex_automata::dfa::{Automaton, dense::DFA};
     ///
     /// let dfa = DFA::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
-    /// assert_eq!(dfa.pattern_count(), 3);
+    /// assert_eq!(dfa.pattern_len(), 3);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn pattern_count(&self) -> usize;
+    fn pattern_len(&self) -> usize;
 
     /// Returns the total number of patterns that match in this state.
     ///
@@ -732,8 +732,8 @@ pub unsafe trait Automaton {
     /// If the DFA was compiled with one pattern, then this must necessarily
     /// always return `1` for all match states.
     ///
-    /// Implementations must guarantee that [`Automaton::match_pattern`] can
-    /// be called with indices up to (but not including) the count returned by
+    /// Implementations must guarantee that [`Automaton::match_pattern`] can be
+    /// called with indices up to (but not including) the length returned by
     /// this routine without panicking.
     ///
     /// # Panics
@@ -783,8 +783,8 @@ pub unsafe trait Automaton {
     /// state = dfa.next_eoi_state(state);
     ///
     /// assert!(dfa.is_match_state(state));
-    /// assert_eq!(dfa.match_count(state), 3);
-    /// // The following calls are guaranteed to not panic since `match_count`
+    /// assert_eq!(dfa.match_len(state), 3);
+    /// // The following calls are guaranteed to not panic since `match_len`
     /// // returned `3` above.
     /// assert_eq!(dfa.match_pattern(state, 0).as_usize(), 3);
     /// assert_eq!(dfa.match_pattern(state, 1).as_usize(), 0);
@@ -792,19 +792,19 @@ pub unsafe trait Automaton {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    fn match_count(&self, id: StateID) -> usize;
+    fn match_len(&self, id: StateID) -> usize;
 
     /// Returns the pattern ID corresponding to the given match index in the
     /// given state.
     ///
-    /// See [`Automaton::match_count`] for an example of how to use this
+    /// See [`Automaton::match_len`] for an example of how to use this
     /// method correctly. Note that if you know your DFA is compiled with a
     /// single pattern, then this routine is never necessary since it will
     /// always return a pattern ID of `0` for an index of `0` when `id`
     /// corresponds to a match state.
     ///
     /// Typically, this routine is used when implementing an overlapping
-    /// search, as the example for `Automaton::match_count` does.
+    /// search, as the example for `Automaton::match_len` does.
     ///
     /// # Panics
     ///
@@ -1391,13 +1391,13 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn pattern_count(&self) -> usize {
-        (**self).pattern_count()
+    fn pattern_len(&self) -> usize {
+        (**self).pattern_len()
     }
 
     #[inline]
-    fn match_count(&self, id: StateID) -> usize {
-        (**self).match_count(id)
+    fn match_len(&self, id: StateID) -> usize {
+        (**self).match_len(id)
     }
 
     #[inline]

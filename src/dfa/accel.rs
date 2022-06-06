@@ -185,20 +185,20 @@ impl<'a> Accels<&'a [AccelTy]> {
     ) -> Result<(Accels<&'a [AccelTy]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr() as usize;
 
-        let (count, _) =
-            bytes::try_read_u32_as_usize(slice, "accelerators count")?;
-        // The accelerator count is part of the accel_tys slice that
+        let (len, _) =
+            bytes::try_read_u32_as_usize(slice, "accelerators length")?;
+        // The accelerator length is part of the accel_tys slice that
         // we deserialize. This is perhaps a bit idiosyncratic. It would
-        // probably be better to split out the count into a real field.
+        // probably be better to split out the length into a real field.
 
-        let accel_tys_count = bytes::add(
-            bytes::mul(count, 2, "total number of accelerator accel_tys")?,
+        let accel_tys_len = bytes::add(
+            bytes::mul(len, 2, "total number of accelerator accel_tys")?,
             1,
             "total number of accel_tys",
         )?;
         let accel_tys_len = bytes::mul(
             ACCEL_TY_SIZE,
-            accel_tys_count,
+            accel_tys_len,
             "total number of bytes in accelerators",
         )?;
         bytes::check_slice_len(slice, accel_tys_len, "accelerators")?;
@@ -211,7 +211,7 @@ impl<'a> Accels<&'a [AccelTy]> {
         let accels = unsafe {
             core::slice::from_raw_parts(
                 accel_tys.as_ptr() as *const AccelTy,
-                accel_tys_count,
+                accel_tys_len,
             )
         };
         Ok((Accels { accels }, slice.as_ptr() as usize - slice_start))

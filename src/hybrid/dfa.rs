@@ -1407,8 +1407,8 @@ impl DFA {
     /// sid = dfa.next_eoi_state(&mut cache, sid)?;
     ///
     /// assert!(sid.is_match());
-    /// assert_eq!(dfa.match_count(&mut cache, sid), 3);
-    /// // The following calls are guaranteed to not panic since `match_count`
+    /// assert_eq!(dfa.match_len(&mut cache, sid), 3);
+    /// // The following calls are guaranteed to not panic since `match_len`
     /// // returned `3` above.
     /// assert_eq!(dfa.match_pattern(&mut cache, sid, 0).as_usize(), 3);
     /// assert_eq!(dfa.match_pattern(&mut cache, sid, 1).as_usize(), 0);
@@ -1417,22 +1417,22 @@ impl DFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn match_count(&self, cache: &Cache, id: LazyStateID) -> usize {
+    pub fn match_len(&self, cache: &Cache, id: LazyStateID) -> usize {
         assert!(id.is_match());
-        LazyRef::new(self, cache).get_cached_state(id).match_count()
+        LazyRef::new(self, cache).get_cached_state(id).match_len()
     }
 
     /// Returns the pattern ID corresponding to the given match index in the
     /// given state.
     ///
-    /// See [`DFA::match_count`] for an example of how to use this method
+    /// See [`DFA::match_len`] for an example of how to use this method
     /// correctly. Note that if you know your lazy DFA is configured with a
     /// single pattern, then this routine is never necessary since it will
     /// always return a pattern ID of `0` for an index of `0` when `id`
     /// corresponds to a match state.
     ///
     /// Typically, this routine is used when implementing an overlapping
-    /// search, as the example for `DFA::match_count` does.
+    /// search, as the example for `DFA::match_len` does.
     ///
     /// # Panics
     ///
@@ -2037,9 +2037,9 @@ impl<'i, 'c> Lazy<'i, 'c> {
     /// Primarily, this adds the three sentinel states and allocates some
     /// initial memory.
     fn init_cache(&mut self) {
-        let mut starts_len = Start::count();
+        let mut starts_len = Start::len();
         if self.dfa.get_config().get_starts_for_each_pattern() {
-            starts_len += Start::count() * self.dfa.pattern_len();
+            starts_len += Start::len() * self.dfa.pattern_len();
         }
         self.cache
             .starts
@@ -2157,7 +2157,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
                      without enabling starts_for_each_pattern",
                 );
                 let pid = pid.as_usize();
-                Start::count() + (Start::count() * pid) + start_index
+                Start::len() + (Start::len() * pid) + start_index
             }
         };
         self.cache.starts[index] = id;
@@ -2226,7 +2226,7 @@ impl<'i, 'c> LazyRef<'i, 'c> {
                     "invalid pattern ID: {:?}",
                     pid
                 );
-                Start::count() + (Start::count() * pid) + start_index
+                Start::len() + (Start::len() * pid) + start_index
             }
         };
         self.cache.starts[index]
@@ -3667,9 +3667,9 @@ fn minimum_cache_capacity(
     let sparses = 2 * states_len * NFAStateID::SIZE;
     let trans = MIN_STATES * stride * ID_SIZE;
 
-    let mut starts = Start::count() * ID_SIZE;
+    let mut starts = Start::len() * ID_SIZE;
     if starts_for_each_pattern {
-        starts += (Start::count() * nfa.pattern_len()) * ID_SIZE;
+        starts += (Start::len() * nfa.pattern_len()) * ID_SIZE;
     }
 
     // The min number of states HAS to be at least 4: we have 3 sentinel states

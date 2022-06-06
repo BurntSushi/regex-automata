@@ -295,17 +295,19 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
-    ///     HalfMatch, MatchKind,
+    ///     HalfMatch, MatchKind, Search,
     /// };
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
     ///     .build_many(&[r"\w+$", r"\S+$"])?;
-    /// let haystack = "@foo".as_bytes();
+    /// let haystack = "@foo";
     /// let mut state = OverlappingState::start();
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
-    /// let got = dfa.try_find_overlapping_fwd(haystack, &mut state)?;
+    /// let got = dfa.try_search_overlapping_fwd(
+    ///     None, &Search::new(haystack), &mut state,
+    /// )?;
     /// assert_eq!(expected, got);
     ///
     /// // The first pattern also matches at the same position, so re-running
@@ -314,7 +316,9 @@ impl Config {
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
-    /// let got = dfa.try_find_overlapping_fwd(haystack, &mut state)?;
+    /// let got = dfa.try_search_overlapping_fwd(
+    ///     None, &Search::new(haystack), &mut state,
+    /// )?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1358,20 +1362,20 @@ impl OwnedDFA {
         Builder::new().build_from_nfa(&nfa)
     }
 
-    /// Create an initial DFA with the given equivalence classes, pattern count
-    /// and whether anchored starting states are enabled for each pattern. An
-    /// initial DFA can be further mutated via determinization.
+    /// Create an initial DFA with the given equivalence classes, pattern
+    /// length and whether anchored starting states are enabled for each
+    /// pattern. An initial DFA can be further mutated via determinization.
     fn initial(
         classes: ByteClasses,
-        pattern_count: usize,
+        pattern_len: usize,
         starts_for_each_pattern: bool,
     ) -> Result<OwnedDFA, Error> {
-        let start_pattern_count =
-            if starts_for_each_pattern { pattern_count } else { 0 };
+        let start_pattern_len =
+            if starts_for_each_pattern { pattern_len } else { 0 };
         Ok(DFA {
             tt: TransitionTable::minimal(classes),
-            st: StartTable::dead(start_pattern_count)?,
-            ms: MatchStates::empty(pattern_count),
+            st: StartTable::dead(start_pattern_len)?,
+            ms: MatchStates::empty(pattern_len),
             special: Special::new(),
             accels: Accels::empty(),
         })
@@ -2185,7 +2189,7 @@ impl<'a> DFA<&'a [u32]> {
 
         let (special, nread) = Special::from_bytes(&slice[nr..])?;
         nr += nread;
-        special.validate_state_count(tt.count(), tt.stride2)?;
+        special.validate_state_len(tt.count(), tt.stride2)?;
 
         let (accels, nread) = Accels::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
@@ -2313,7 +2317,7 @@ impl OwnedDFA {
     /// them as candidates for acceleration during search.
     pub(crate) fn accelerate(&mut self) {
         // dead and quit states can never be accelerated.
-        if self.state_count() <= 2 {
+        if self.state_len() <= 2 {
             return;
         }
 
@@ -2428,7 +2432,7 @@ impl OwnedDFA {
         if cnormal > 0 {
             // our next available starting and normal states for swapping.
             let mut next_start_id = self.special.min_start;
-            let mut cur_id = self.from_index(self.state_count() - 1);
+            let mut cur_id = self.from_index(self.state_len() - 1);
             // This is guaranteed to exist since cnormal > 0.
             let mut next_norm_id =
                 self.tt.next_state_id(self.special.max_start);
@@ -2494,7 +2498,7 @@ impl OwnedDFA {
         self.special.set_max();
         self.special.validate().expect("special state ranges should validate");
         self.special
-            .validate_state_count(self.state_count(), self.stride2())
+            .validate_state_len(self.state_len(), self.stride2())
             .expect(
                 "special state ranges should be consistent with state count",
             );
@@ -2533,7 +2537,7 @@ impl OwnedDFA {
         self.special.quit_id = self.from_index(1);
         // If all we have are the dead and quit states, then we're done and
         // the DFA will never produce a match.
-        if self.state_count() <= 2 {
+        if self.state_len() <= 2 {
             self.special.set_max();
             return Ok(());
         }
@@ -2624,7 +2628,7 @@ impl OwnedDFA {
         self.special.set_max();
         self.special.validate().expect("special state ranges should validate");
         self.special
-            .validate_state_count(self.state_count(), self.stride2())
+            .validate_state_len(self.state_len(), self.stride2())
             .expect(
                 "special state ranges should be consistent with state count",
             );
@@ -2661,7 +2665,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
 
     /// Return the total number of states in this DFA. Every DFA has at least
     /// 1 state, even the empty DFA.
-    pub(crate) fn state_count(&self) -> usize {
+    pub(crate) fn state_len(&self) -> usize {
         self.tt.count()
     }
 
@@ -2683,8 +2687,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     }
 
     /// Returns the total number of patterns matched by this DFA.
-    pub(crate) fn pattern_count(&self) -> usize {
-        self.ms.patterns
+    pub(crate) fn pattern_len(&self) -> usize {
+        self.ms.pattern_len
     }
 
     /// Returns a map from match state ID to a list of pattern IDs that match
@@ -2709,7 +2713,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
         self.tt.to_index(id)
     }
 
-    /// Convert an index to a state (in the range 0..self.state_count()) to an
+    /// Convert an index to a state (in the range 0..self.state_len()) to an
     /// actual state identifier.
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
@@ -2794,7 +2798,7 @@ impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
             }
             writeln!(f, "  {:?} => {:06?}", sty, id)?;
         }
-        if self.pattern_count() > 1 {
+        if self.pattern_len() > 1 {
             writeln!(f, "")?;
             for i in 0..self.ms.count() {
                 let id = self.ms.match_state_id(self, i);
@@ -2814,8 +2818,8 @@ impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
                 writeln!(f, "")?;
             }
         }
-        writeln!(f, "state count: {:?}", self.state_count())?;
-        writeln!(f, "pattern count: {:?}", self.pattern_count())?;
+        writeln!(f, "state length: {:?}", self.state_len())?;
+        writeln!(f, "pattern length: {:?}", self.pattern_len())?;
         writeln!(f, ")")?;
         Ok(())
     }
@@ -2882,12 +2886,12 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn pattern_count(&self) -> usize {
-        self.ms.patterns
+    fn pattern_len(&self) -> usize {
+        self.ms.pattern_len
     }
 
     #[inline]
-    fn match_count(&self, id: StateID) -> usize {
+    fn match_len(&self, id: StateID) -> usize {
         self.match_pattern_len(id)
     }
 
@@ -2898,7 +2902,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         // that finds the pattern ID from the state machine, which requires
         // a bit of slicing/pointer-chasing. This optimization tends to only
         // matter when matches are frequent.
-        if self.ms.patterns == 1 {
+        if self.ms.pattern_len == 1 {
             return PatternID::ZERO;
         }
         let state_index = self.match_state_index(id);
@@ -3527,7 +3531,7 @@ impl StartTable<Vec<u32>> {
     /// to this point.
     fn dead(patterns: usize) -> Result<StartTable<Vec<u32>>, Error> {
         assert!(patterns <= PatternID::LIMIT);
-        let stride = Start::count();
+        let stride = Start::len();
         let pattern_starts_len = match stride.checked_mul(patterns) {
             Some(x) => x,
             None => return Err(Error::too_many_start_states()),
@@ -3582,7 +3586,7 @@ impl<'a> StartTable<&'a [u32]> {
             bytes::try_read_u32_as_usize(slice, "start table patterns")?;
         slice = &slice[nr..];
 
-        if stride != Start::count() {
+        if stride != Start::len() {
             return Err(DeserializeError::generic(
                 "invalid starting table stride",
             ));
@@ -3597,13 +3601,13 @@ impl<'a> StartTable<&'a [u32]> {
         // Our start states always start with a single stride of start states
         // for the entire automaton which permit it to match any pattern. What
         // follows it are an optional set of start states for each pattern.
-        let start_state_count = bytes::add(
+        let start_state_len = bytes::add(
             stride,
             pattern_table_size,
             "invalid 'any' pattern starts size",
         )?;
         let table_bytes_len = bytes::mul(
-            start_state_count,
+            start_state_len,
             StateID::SIZE,
             "pattern table bytes length",
         )?;
@@ -3622,7 +3626,7 @@ impl<'a> StartTable<&'a [u32]> {
         let table = unsafe {
             core::slice::from_raw_parts(
                 table_bytes.as_ptr() as *const u32,
-                start_state_count,
+                start_state_len,
             )
         };
         let st = StartTable { table, stride, patterns };
@@ -3860,7 +3864,7 @@ struct MatchStates<T> {
     /// In practice, T is either Vec<u32> or &[u32].
     pattern_ids: T,
     /// The total number of unique patterns represented by these match states.
-    patterns: usize,
+    pattern_len: usize,
 }
 
 impl<'a> MatchStates<&'a [u32]> {
@@ -3903,19 +3907,19 @@ impl<'a> MatchStates<&'a [u32]> {
         // Read the total number of unique pattern IDs (which is always 1 more
         // than the maximum pattern ID in this automaton, since pattern IDs are
         // handed out contiguously starting at 0).
-        let (patterns, nr) =
-            bytes::try_read_u32_as_usize(slice, "pattern count")?;
+        let (pattern_len, nr) =
+            bytes::try_read_u32_as_usize(slice, "pattern length")?;
         slice = &slice[nr..];
 
         // Now read the pattern ID count. We don't need to store this
         // explicitly, but we need it to know how many pattern IDs to read.
-        let (idcount, nr) =
-            bytes::try_read_u32_as_usize(slice, "pattern ID count")?;
+        let (idlen, nr) =
+            bytes::try_read_u32_as_usize(slice, "pattern ID length")?;
         slice = &slice[nr..];
 
         // Read the actual pattern IDs.
         let pattern_ids_len =
-            bytes::mul(idcount, PatternID::SIZE, "pattern ID byte length")?;
+            bytes::mul(idlen, PatternID::SIZE, "pattern ID byte length")?;
         bytes::check_slice_len(slice, pattern_ids_len, "match pattern IDs")?;
         bytes::check_alignment::<PatternID>(slice)?;
         let pattern_ids_bytes = &slice[..pattern_ids_len];
@@ -3931,31 +3935,27 @@ impl<'a> MatchStates<&'a [u32]> {
         let pattern_ids = unsafe {
             core::slice::from_raw_parts(
                 pattern_ids_bytes.as_ptr() as *const u32,
-                idcount,
+                idlen,
             )
         };
 
-        let ms = MatchStates { slices, pattern_ids, patterns };
+        let ms = MatchStates { slices, pattern_ids, pattern_len };
         Ok((ms, slice.as_ptr() as usize - slice_start))
     }
 }
 
 #[cfg(feature = "alloc")]
 impl MatchStates<Vec<u32>> {
-    fn empty(pattern_count: usize) -> MatchStates<Vec<u32>> {
-        assert!(pattern_count <= PatternID::LIMIT);
-        MatchStates {
-            slices: vec![],
-            pattern_ids: vec![],
-            patterns: pattern_count,
-        }
+    fn empty(pattern_len: usize) -> MatchStates<Vec<u32>> {
+        assert!(pattern_len <= PatternID::LIMIT);
+        MatchStates { slices: vec![], pattern_ids: vec![], pattern_len }
     }
 
     fn new(
         matches: &BTreeMap<StateID, Vec<PatternID>>,
-        pattern_count: usize,
+        pattern_len: usize,
     ) -> Result<MatchStates<Vec<u32>>, Error> {
-        let mut m = MatchStates::empty(pattern_count);
+        let mut m = MatchStates::empty(pattern_len);
         for (_, pids) in matches.iter() {
             let start = PatternID::new(m.pattern_ids.len())
                 .map_err(|_| Error::too_many_match_pattern_ids())?;
@@ -3971,7 +3971,7 @@ impl MatchStates<Vec<u32>> {
                 m.pattern_ids.push(pid.as_u32());
             }
         }
-        m.patterns = pattern_count;
+        m.pattern_len = pattern_len;
         Ok(m)
     }
 
@@ -3979,7 +3979,7 @@ impl MatchStates<Vec<u32>> {
         &self,
         matches: &BTreeMap<StateID, Vec<PatternID>>,
     ) -> Result<MatchStates<Vec<u32>>, Error> {
-        MatchStates::new(matches, self.patterns)
+        MatchStates::new(matches, self.pattern_len)
     }
 }
 
@@ -4010,7 +4010,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
 
         // write unique pattern ID count
         // Unwrap is OK since number of patterns is guaranteed to fit in a u32.
-        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
         // write pattern ID count
@@ -4061,7 +4061,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
             }
             for mi in 0..len {
                 let pid = self.pattern_id(si, mi);
-                if pid.as_usize() >= self.patterns {
+                if pid.as_usize() >= self.pattern_len {
                     return Err(DeserializeError::generic(
                         "invalid pattern ID",
                     ));
@@ -4099,7 +4099,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
         MatchStates {
             slices: self.slices.as_ref(),
             pattern_ids: self.pattern_ids.as_ref(),
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -4109,7 +4109,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
         MatchStates {
             slices: self.slices.as_ref().to_vec(),
             pattern_ids: self.pattern_ids.as_ref().to_vec(),
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -4507,7 +4507,7 @@ struct Remapper {
 impl Remapper {
     fn from_dfa(dfa: &OwnedDFA) -> Remapper {
         Remapper {
-            map: (0..dfa.state_count()).map(|i| dfa.from_index(i)).collect(),
+            map: (0..dfa.state_len()).map(|i| dfa.from_index(i)).collect(),
         }
     }
 
@@ -4524,7 +4524,7 @@ impl Remapper {
         // do is follow the swaps in our map until we see our original state
         // ID.
         let oldmap = self.map.clone();
-        for i in 0..dfa.state_count() {
+        for i in 0..dfa.state_len() {
             let cur_id = dfa.from_index(i);
             let mut new = oldmap[i];
             if cur_id == new {

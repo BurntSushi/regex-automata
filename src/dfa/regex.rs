@@ -745,15 +745,12 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
-    /// assert_eq!(3, re.pattern_count());
+    /// assert_eq!(3, re.pattern_len());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn pattern_count(&self) -> usize {
-        assert_eq!(
-            self.forward().pattern_count(),
-            self.reverse().pattern_count()
-        );
-        self.forward().pattern_count()
+    pub fn pattern_len(&self) -> usize {
+        assert_eq!(self.forward().pattern_len(), self.reverse().pattern_len());
+        self.forward().pattern_len()
     }
 
     /// Convenience function for returning this regex's prefilter as a trait
@@ -1053,10 +1050,7 @@ impl Builder {
             .dfa
             .clone()
             .configure(
-                dense::Config::new()
-                    .anchored(true)
-                    .match_kind(MatchKind::All)
-                    .starts_for_each_pattern(true),
+                dense::Config::new().anchored(true).match_kind(MatchKind::All),
             )
             .thompson(thompson::Config::new().reverse(true))
             .build_many(patterns)?;

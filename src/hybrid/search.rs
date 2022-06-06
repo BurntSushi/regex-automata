@@ -520,8 +520,8 @@ fn find_overlapping_fwd_imp(
         }
         Some(sid) => {
             if let Some(match_index) = state.next_match_index {
-                let match_count = dfa.match_count(cache, sid);
-                if match_index < match_count {
+                let match_len = dfa.match_len(cache, sid);
+                if match_index < match_len {
                     let m = HalfMatch {
                         pattern: dfa.match_pattern(cache, sid, match_index),
                         offset: state.at,
@@ -615,8 +615,8 @@ pub(crate) fn find_overlapping_rev(
         }
         Some(sid) => {
             if let Some(match_index) = state.next_match_index {
-                let match_count = dfa.match_count(cache, sid);
-                if match_index < match_count {
+                let match_len = dfa.match_len(cache, sid);
+                if match_index < match_len {
                     let m = HalfMatch {
                         pattern: dfa.match_pattern(cache, sid, match_index),
                         offset: state.at,

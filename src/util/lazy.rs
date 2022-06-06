@@ -1,10 +1,9 @@
 use core::{
-    cell::Cell,
     ptr,
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
 
 #[inline(always)]
 pub(crate) fn get_or_init<T: Send + Sync + 'static>(

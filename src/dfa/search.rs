@@ -64,7 +64,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
-        if dfa.pattern_count() == 1 && !pre.reports_false_positives() {
+        if dfa.pattern_len() == 1 && !pre.reports_false_positives() {
             return Ok(pre.find(search.haystack(), span).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
@@ -400,8 +400,8 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
         }
         Some(sid) => {
             if let Some(match_index) = state.next_match_index {
-                let match_count = dfa.match_count(sid);
-                if match_index < match_count {
+                let match_len = dfa.match_len(sid);
+                if match_index < match_len {
                     let m = HalfMatch {
                         pattern: dfa.match_pattern(sid, match_index),
                         offset: state.at,
@@ -508,8 +508,8 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
         }
         Some(sid) => {
             if let Some(match_index) = state.next_match_index {
-                let match_count = dfa.match_count(sid);
-                if match_index < match_count {
+                let match_len = dfa.match_len(sid);
+                if match_index < match_len {
                     let m = HalfMatch {
                         pattern: dfa.match_pattern(sid, match_index),
                         offset: state.at,

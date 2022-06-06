@@ -47,7 +47,7 @@ impl Start {
     }
 
     /// Returns the total number of starting state configurations.
-    pub(crate) fn count() -> usize {
+    pub(crate) fn len() -> usize {
         4
     }
 
@@ -95,7 +95,7 @@ impl Start {
     }
 
     /// Return this starting configuration as an integer. It is guaranteed to
-    /// be less than `Start::count()`.
+    /// be less than `Start::len()`.
     #[inline(always)]
     pub(crate) fn as_usize(&self) -> usize {
         *self as usize

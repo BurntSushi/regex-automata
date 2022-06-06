@@ -130,7 +130,7 @@ impl core::fmt::Display for Error {
                 StateID::LIMIT,
             ),
             ErrorKind::TooManyStartStates => {
-                let stride = Start::count();
+                let stride = Start::len();
                 // The start table has `stride` entries for starting states for
                 // the entire DFA, and then `stride` entries for each pattern
                 // if start states for each pattern are enabled (which is the
