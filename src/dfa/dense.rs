@@ -1439,7 +1439,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     ///
     /// Note that if the DFA has no patterns, this always returns false.
     pub fn has_starts_for_each_pattern(&self) -> bool {
-        self.st.patterns > 0
+        self.st.pattern_len > 0
     }
 
     /// Returns the total number of elements in the alphabet for this DFA.
@@ -2189,7 +2189,7 @@ impl<'a> DFA<&'a [u32]> {
 
         let (special, nread) = Special::from_bytes(&slice[nr..])?;
         nr += nread;
-        special.validate_state_len(tt.count(), tt.stride2)?;
+        special.validate_state_len(tt.len(), tt.stride2)?;
 
         let (accels, nread) = Accels::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
@@ -2277,13 +2277,13 @@ impl OwnedDFA {
         self.tt.swap(id1, id2);
     }
 
-    /// Truncate the states in this DFA to the given count.
+    /// Truncate the states in this DFA to the given length.
     ///
     /// This routine does not do anything to check the correctness of this
     /// truncation. Callers must ensure that other states pointing to truncated
     /// states are updated appropriately.
-    pub(crate) fn truncate_states(&mut self, count: usize) {
-        self.tt.truncate(count);
+    pub(crate) fn truncate_states(&mut self, len: usize) {
+        self.tt.truncate(len);
     }
 
     /// Return a mutable representation of the state corresponding to the given
@@ -2500,7 +2500,7 @@ impl OwnedDFA {
         self.special
             .validate_state_len(self.state_len(), self.stride2())
             .expect(
-                "special state ranges should be consistent with state count",
+                "special state ranges should be consistent with state length",
             );
         assert_eq!(
             self.special.accel_len(self.stride()),
@@ -2630,7 +2630,7 @@ impl OwnedDFA {
         self.special
             .validate_state_len(self.state_len(), self.stride2())
             .expect(
-                "special state ranges should be consistent with state count",
+                "special state ranges should be consistent with state length",
             );
         Ok(())
     }
@@ -2666,7 +2666,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// Return the total number of states in this DFA. Every DFA has at least
     /// 1 state, even the empty DFA.
     pub(crate) fn state_len(&self) -> usize {
-        self.tt.count()
+        self.tt.len()
     }
 
     /// Return an iterator over all pattern IDs for the given match state.
@@ -2800,7 +2800,7 @@ impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
         }
         if self.pattern_len() > 1 {
             writeln!(f, "")?;
-            for i in 0..self.ms.count() {
+            for i in 0..self.ms.len() {
                 let id = self.ms.match_state_id(self, i);
                 let id = if f.alternate() {
                     id.as_usize()
@@ -3017,7 +3017,7 @@ impl<'a> TransitionTable<&'a [u32]> {
     ) -> Result<(TransitionTable<&'a [u32]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr() as usize;
 
-        let (count, nr) = bytes::try_read_u32_as_usize(slice, "state count")?;
+        let (len, nr) = bytes::try_read_u32_as_usize(slice, "state length")?;
         slice = &slice[nr..];
 
         let (stride2, nr) = bytes::try_read_u32_as_usize(slice, "stride2")?;
@@ -3051,12 +3051,12 @@ impl<'a> TransitionTable<&'a [u32]> {
             ));
         }
 
-        let trans_count =
-            bytes::shl(count, stride2, "dense table transition count")?;
+        let trans_len =
+            bytes::shl(len, stride2, "dense table transition length")?;
         let table_bytes_len = bytes::mul(
-            trans_count,
+            trans_len,
             StateID::SIZE,
-            "dense table state byte count",
+            "dense table state byte length",
         )?;
         bytes::check_slice_len(slice, table_bytes_len, "transition table")?;
         bytes::check_alignment::<StateID>(slice)?;
@@ -3073,7 +3073,7 @@ impl<'a> TransitionTable<&'a [u32]> {
         let table = unsafe {
             core::slice::from_raw_parts(
                 table_bytes.as_ptr() as *const u32,
-                trans_count,
+                trans_len,
             )
         };
         let tt = TransitionTable { table, classes, stride2 };
@@ -3178,13 +3178,13 @@ impl TransitionTable<Vec<u32>> {
         }
     }
 
-    /// Truncate the states in this transition table to the given count.
+    /// Truncate the states in this transition table to the given length.
     ///
     /// This routine does not do anything to check the correctness of this
     /// truncation. Callers must ensure that other states pointing to truncated
     /// states are updated appropriately.
-    fn truncate(&mut self, count: usize) {
-        self.table.truncate(count << self.stride2);
+    fn truncate(&mut self, len: usize) {
+        self.table.truncate(len << self.stride2);
     }
 
     /// Return a mutable representation of the state corresponding to the given
@@ -3215,9 +3215,9 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
         }
         dst = &mut dst[..nwrite];
 
-        // write state count
+        // write state length
         // Unwrap is OK since number of states is guaranteed to fit in a u32.
-        E::write_u32(u32::try_from(self.count()).unwrap(), dst);
+        E::write_u32(u32::try_from(self.len()).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
         // write state stride (as power of 2)
@@ -3240,7 +3240,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     /// Returns the number of bytes the serialized form of this transition
     /// table will use.
     fn write_to_len(&self) -> usize {
-        size_of::<u32>()   // state count
+        size_of::<u32>()   // state length
         + size_of::<u32>() // stride2
         + self.classes.write_to_len()
         + (self.table().len() * StateID::SIZE)
@@ -3308,7 +3308,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     }
 
     /// Convert a state identifier to an index to a state (in the range
-    /// 0..self.count()).
+    /// 0..self.len()).
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
     /// to some other information (such as a remapped state ID).
@@ -3319,7 +3319,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
         id.as_usize() >> self.stride2
     }
 
-    /// Convert an index to a state (in the range 0..self.count()) to an actual
+    /// Convert an index to a state (in the range 0..self.len()) to an actual
     /// state identifier.
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
@@ -3370,7 +3370,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     /// states. In particular, the dead state always has ID 0 and is
     /// correspondingly always the first state. The dead state is never a match
     /// state.
-    fn count(&self) -> usize {
+    fn len(&self) -> usize {
         self.table().len() >> self.stride2
     }
 
@@ -3514,7 +3514,7 @@ pub(crate) struct StartTable<T> {
     /// start states for each pattern. Thus, one cannot use this field to
     /// say how many patterns are in the DFA in all cases. It is specific to
     /// how many patterns are represented in this start table.
-    patterns: usize,
+    pattern_len: usize,
 }
 
 #[cfg(feature = "alloc")]
@@ -3529,10 +3529,10 @@ impl StartTable<Vec<u32>> {
     /// returns an error. In practice, this is unlikely to be able to occur,
     /// since it's likely that allocation would have failed long before it got
     /// to this point.
-    fn dead(patterns: usize) -> Result<StartTable<Vec<u32>>, Error> {
-        assert!(patterns <= PatternID::LIMIT);
+    fn dead(pattern_len: usize) -> Result<StartTable<Vec<u32>>, Error> {
+        assert!(pattern_len <= PatternID::LIMIT);
         let stride = Start::len();
-        let pattern_starts_len = match stride.checked_mul(patterns) {
+        let pattern_starts_len = match stride.checked_mul(pattern_len) {
             Some(x) => x,
             None => return Err(Error::too_many_start_states()),
         };
@@ -3544,7 +3544,7 @@ impl StartTable<Vec<u32>> {
             return Err(Error::too_many_start_states());
         }
         let table = vec![DEAD.as_u32(); table_len];
-        Ok(StartTable { table, stride, patterns })
+        Ok(StartTable { table, stride, pattern_len })
     }
 }
 
@@ -3597,7 +3597,7 @@ impl<'a> StartTable<&'a [u32]> {
             ));
         }
         let pattern_table_size =
-            bytes::mul(stride, patterns, "invalid pattern count")?;
+            bytes::mul(stride, patterns, "invalid pattern length")?;
         // Our start states always start with a single stride of start states
         // for the entire automaton which permit it to match any pattern. What
         // follows it are an optional set of start states for each pattern.
@@ -3629,7 +3629,7 @@ impl<'a> StartTable<&'a [u32]> {
                 start_state_len,
             )
         };
-        let st = StartTable { table, stride, patterns };
+        let st = StartTable { table, stride, pattern_len: patterns };
         Ok((st, slice.as_ptr() as usize - slice_start))
     }
 }
@@ -3654,9 +3654,9 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         // Unwrap is OK since the stride is always 4 (currently).
         E::write_u32(u32::try_from(self.stride).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
-        // write pattern count
+        // write pattern length
         // Unwrap is OK since number of patterns is guaranteed to fit in a u32.
-        E::write_u32(u32::try_from(self.patterns).unwrap(), dst);
+        E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
         // write start IDs
         for &sid in self.table() {
@@ -3697,7 +3697,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         StartTable {
             table: self.table.as_ref(),
             stride: self.stride,
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -3707,7 +3707,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         StartTable {
             table: self.table.as_ref().to_vec(),
             stride: self.stride,
-            patterns: self.patterns,
+            pattern_len: self.pattern_len,
         }
     }
 
@@ -3723,7 +3723,11 @@ impl<T: AsRef<[u32]>> StartTable<T> {
             None => start_index,
             Some(pid) => {
                 let pid = pid.as_usize();
-                assert!(pid < self.patterns, "invalid pattern ID {:?}", pid);
+                assert!(
+                    pid < self.pattern_len,
+                    "invalid pattern ID {:?}",
+                    pid
+                );
                 self.stride + (self.stride * pid) + start_index
             }
         };
@@ -3874,14 +3878,14 @@ impl<'a> MatchStates<&'a [u32]> {
         let slice_start = slice.as_ptr() as usize;
 
         // Read the total number of match states.
-        let (count, nr) =
-            bytes::try_read_u32_as_usize(slice, "match state count")?;
+        let (len, nr) =
+            bytes::try_read_u32_as_usize(slice, "match state length")?;
         slice = &slice[nr..];
 
         // Read the slice start/length pairs.
-        let pair_count = bytes::mul(2, count, "match state offset pairs")?;
+        let pair_len = bytes::mul(2, len, "match state offset pairs")?;
         let slices_bytes_len = bytes::mul(
-            pair_count,
+            pair_len,
             PatternID::SIZE,
             "match state slice offset byte length",
         )?;
@@ -3900,7 +3904,7 @@ impl<'a> MatchStates<&'a [u32]> {
         let slices = unsafe {
             core::slice::from_raw_parts(
                 slices_bytes.as_ptr() as *const u32,
-                pair_count,
+                pair_len,
             )
         };
 
@@ -3911,7 +3915,7 @@ impl<'a> MatchStates<&'a [u32]> {
             bytes::try_read_u32_as_usize(slice, "pattern length")?;
         slice = &slice[nr..];
 
-        // Now read the pattern ID count. We don't need to store this
+        // Now read the pattern ID length. We don't need to store this
         // explicitly, but we need it to know how many pattern IDs to read.
         let (idlen, nr) =
             bytes::try_read_u32_as_usize(slice, "pattern ID length")?;
@@ -3997,9 +4001,9 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
         }
         dst = &mut dst[..nwrite];
 
-        // write state ID count
+        // write state ID length
         // Unwrap is OK since number of states is guaranteed to fit in a u32.
-        E::write_u32(u32::try_from(self.count()).unwrap(), dst);
+        E::write_u32(u32::try_from(self.len()).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
         // write slice offset pairs
@@ -4008,12 +4012,12 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
             dst = &mut dst[n..];
         }
 
-        // write unique pattern ID count
+        // write unique pattern ID length
         // Unwrap is OK since number of patterns is guaranteed to fit in a u32.
         E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
-        // write pattern ID count
+        // write pattern ID length
         // Unwrap is OK since we check at construction (and deserialization)
         // that the number of patterns is representable as a u32.
         E::write_u32(u32::try_from(self.pattern_ids().len()).unwrap(), dst);
@@ -4031,22 +4035,22 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
     /// Returns the number of bytes the serialized form of this transition
     /// table will use.
     fn write_to_len(&self) -> usize {
-        size_of::<u32>()   // match state count
+        size_of::<u32>()   // match state length
         + (self.slices().len() * PatternID::SIZE)
-        + size_of::<u32>() // unique pattern ID count
-        + size_of::<u32>() // pattern ID count
+        + size_of::<u32>() // unique pattern ID length
+        + size_of::<u32>() // pattern ID length
         + (self.pattern_ids().len() * PatternID::SIZE)
     }
 
     /// Valides that the match state info is itself internally consistent and
     /// consistent with the recorded match state region in the given DFA.
     fn validate(&self, dfa: &DFA<T>) -> Result<(), DeserializeError> {
-        if self.count() != dfa.special.match_len(dfa.stride()) {
+        if self.len() != dfa.special.match_len(dfa.stride()) {
             return Err(DeserializeError::generic(
-                "match state count mismatch",
+                "match state length mismatch",
             ));
         }
-        for si in 0..self.count() {
+        for si in 0..self.len() {
             let start = self.slices()[si * 2].as_usize();
             let len = self.slices()[si * 2 + 1].as_usize();
             if start >= self.pattern_ids().len() {
@@ -4084,7 +4088,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
     #[cfg(feature = "alloc")]
     fn to_map(&self, dfa: &DFA<T>) -> BTreeMap<StateID, Vec<PatternID>> {
         let mut map = BTreeMap::new();
-        for i in 0..self.count() {
+        for i in 0..self.len() {
             let mut pids = vec![];
             for j in 0..self.pattern_len(i) {
                 pids.push(self.pattern_id(i, j));
@@ -4176,7 +4180,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
     }
 
     /// Returns the total number of match states.
-    fn count(&self) -> usize {
+    fn len(&self) -> usize {
         assert_eq!(0, self.slices().len() % 2);
         self.slices().len() / 2
     }
