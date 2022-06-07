@@ -83,16 +83,16 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let mut matset = PatternSet::new(re.get_nfa().pattern_len());
+                let mut patset = PatternSet::new(re.get_nfa().pattern_len());
                 let search =
                     Search::new(test.input()).utf8(re.get_config().get_utf8());
                 re.which_overlapping_matches(
                     cache,
                     None,
                     &search,
-                    &mut matset,
+                    &mut patset,
                 );
-                TestResult::which(matset.iter().map(|p| p.as_usize()))
+                TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
         "captures" => {
@@ -130,7 +130,7 @@ fn run_test(
                     TestResult::captures(it)
                 }
                 ret::SearchKind::Overlapping => {
-                    let mut matset =
+                    let mut patset =
                         PatternSet::new(re.get_nfa().pattern_len());
                     let search = Search::new(test.input())
                         .utf8(re.get_config().get_utf8());
@@ -138,9 +138,9 @@ fn run_test(
                         cache,
                         None,
                         &search,
-                        &mut matset,
+                        &mut patset,
                     );
-                    TestResult::which(matset.iter().map(|p| p.as_usize()))
+                    TestResult::which(patset.iter().map(|p| p.as_usize()))
                 }
             }
         }

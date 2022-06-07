@@ -322,9 +322,9 @@ impl PikeVM {
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut PatternSet,
+        patset: &mut PatternSet,
     ) {
-        self.which_overlapping_imp(cache, pre, search, matset)
+        self.which_overlapping_imp(cache, pre, search, patset)
     }
 }
 
@@ -403,7 +403,7 @@ impl PikeVM {
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut PatternSet,
+        patset: &mut PatternSet,
     ) {
         assert!(
             search.haystack().len() < core::usize::MAX,
@@ -447,11 +447,11 @@ impl PikeVM {
                 nlist,
                 search.haystack(),
                 at,
-                matset,
+                patset,
             );
             // If we found a match and filled our set, then there is no more
             // additional info that we can provide. Thus, we can quit.
-            if matset.is_full() {
+            if patset.is_full() {
                 break;
             }
             at += 1;
@@ -496,7 +496,7 @@ impl PikeVM {
         nlist: &mut Threads,
         haystack: &[u8],
         at: usize,
-        matset: &mut PatternSet,
+        patset: &mut PatternSet,
     ) {
         instrument!(|c| c.record_state_set(&clist.list));
         for sid in clist.list.drain(..) {
@@ -505,7 +505,7 @@ impl PikeVM {
                 None => continue,
                 Some(pid) => pid,
             };
-            matset.insert(pid);
+            patset.insert(pid);
         }
     }
 

@@ -252,15 +252,15 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
             }
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
-                let mut matset = PatternSet::new(dfa.pattern_len());
+                let mut patset = PatternSet::new(dfa.pattern_len());
                 let search = re.create_search(test.input());
                 dfa.try_which_overlapping_matches(
                     re.scanner().as_mut(),
                     &search,
-                    &mut matset,
+                    &mut patset,
                 )
                 .unwrap();
-                TestResult::which(matset.iter().map(|p| p.as_usize()))
+                TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),

@@ -200,16 +200,16 @@ fn run_test(
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
                 let cache = cache.as_parts_mut().0;
-                let mut matset = PatternSet::new(dfa.pattern_len());
+                let mut patset = PatternSet::new(dfa.pattern_len());
                 let search = re.create_search(test.input());
                 dfa.try_which_overlapping_matches(
                     cache,
                     re.scanner().as_mut(),
                     &search,
-                    &mut matset,
+                    &mut patset,
                 )
                 .unwrap();
-                TestResult::which(matset.iter().map(|p| p.as_usize()))
+                TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),

@@ -1337,7 +1337,7 @@ pub unsafe trait Automaton {
     }
 
     /// Writes the set of patterns that match anywhere in the given search
-    /// configuration to `matset`. If multiple patterns match at the same
+    /// configuration to `patset`. If multiple patterns match at the same
     /// position and the underlying DFA supports overlapping matches, then both
     /// patterns are written to the given set.
     ///
@@ -1367,7 +1367,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense::DFA},
-    ///     MatchKind, MatchSet, Search,
+    ///     MatchKind, PatternSet, Search,
     /// };
     ///
     /// let patterns = &[
@@ -1378,10 +1378,10 @@ pub unsafe trait Automaton {
     ///     .build_many(patterns)?;
     ///
     /// let search = Search::new("foobar");
-    /// let mut matset = MatchSet::new(dfa.pattern_len());
-    /// dfa.try_which_overlapping_matches(None, &search, &mut matset)?;
+    /// let mut patset = PatternSet::new(dfa.pattern_len());
+    /// dfa.try_which_overlapping_matches(None, &search, &mut patset)?;
     /// let expected = vec![0, 2, 3, 4, 6];
-    /// let got: Vec<usize> = matset.iter().map(|p| p.as_usize()).collect();
+    /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1391,7 +1391,7 @@ pub unsafe trait Automaton {
         &self,
         mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut PatternSet,
+        patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
         while let Some(m) = self.try_search_overlapping_fwd(
@@ -1399,9 +1399,9 @@ pub unsafe trait Automaton {
             search,
             &mut state,
         )? {
-            matset.insert(m.pattern());
+            patset.insert(m.pattern());
             // There's nothing left to find, so we can stop.
-            if matset.is_full() {
+            if patset.is_full() {
                 break;
             }
         }
@@ -1537,9 +1537,9 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         &self,
         mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut PatternSet,
+        patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        (**self).try_which_overlapping_matches(pre, search, matset)
+        (**self).try_which_overlapping_matches(pre, search, patset)
     }
 }
 

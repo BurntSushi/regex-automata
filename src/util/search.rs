@@ -669,10 +669,6 @@ impl Match {
     }
 }
 
-// BREADCRUMBS: MatchSet -> PatternSet I think.
-//
-// Otherwise, review our types here and polish them up.
-
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternSet {
@@ -721,19 +717,19 @@ impl PatternSet {
         self.which.len()
     }
 
-    pub fn iter(&self) -> MatchSetIter<'_> {
-        MatchSetIter { it: self.which.iter().enumerate() }
+    pub fn iter(&self) -> PatternSetIter<'_> {
+        PatternSetIter { it: self.which.iter().enumerate() }
     }
 }
 
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
-pub struct MatchSetIter<'a> {
+pub struct PatternSetIter<'a> {
     it: core::iter::Enumerate<core::slice::Iter<'a, bool>>,
 }
 
 #[cfg(feature = "alloc")]
-impl<'a> Iterator for MatchSetIter<'a> {
+impl<'a> Iterator for PatternSetIter<'a> {
     type Item = PatternID;
 
     fn next(&mut self) -> Option<PatternID> {
@@ -741,7 +737,7 @@ impl<'a> Iterator for MatchSetIter<'a> {
             if yes {
                 // Even though 'index' can technically be greater than
                 // PatternID::MAX since any arbitrary 'usize' can be used to
-                // create a 'MatchSet', only valid 'PatternID' values can be
+                // create a 'PatternSet', only valid 'PatternID' values can be
                 // inserted into the set. Thus, 'yes' is only true precisely
                 // when 'index' corresponds to a valid 'PatternID'.
                 return Some(PatternID::new_unchecked(index));

@@ -276,10 +276,10 @@ fn search_dfa_automaton<A: Automaton>(
     dfa: A,
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
-    let mut matset = PatternSet::new(dfa.pattern_len());
+    let mut patset = PatternSet::new(dfa.pattern_len());
     let search = Search::new(haystack);
-    dfa.try_which_overlapping_matches(None, &search, &mut matset)?;
-    Ok(matset.iter().map(|pid| pid.as_usize()).collect())
+    dfa.try_which_overlapping_matches(None, &search, &mut patset)?;
+    Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
 
 fn search_hybrid_dfa<'i, 'c>(
@@ -287,10 +287,10 @@ fn search_hybrid_dfa<'i, 'c>(
     cache: &mut hybrid::dfa::Cache,
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
-    let mut matset = PatternSet::new(dfa.pattern_len());
+    let mut patset = PatternSet::new(dfa.pattern_len());
     let search = Search::new(haystack);
-    dfa.try_which_overlapping_matches(cache, None, &search, &mut matset)?;
-    Ok(matset.iter().map(|pid| pid.as_usize()).collect())
+    dfa.try_which_overlapping_matches(cache, None, &search, &mut patset)?;
+    Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
 
 fn search_pikevm(
@@ -298,8 +298,8 @@ fn search_pikevm(
     cache: &mut pikevm::Cache,
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
-    let mut matset = PatternSet::new(vm.get_nfa().pattern_len());
+    let mut patset = PatternSet::new(vm.get_nfa().pattern_len());
     let search = Search::new(haystack);
-    vm.which_overlapping_matches(cache, None, &search, &mut matset);
-    Ok(matset.iter().map(|pid| pid.as_usize()).collect())
+    vm.which_overlapping_matches(cache, None, &search, &mut patset);
+    Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }

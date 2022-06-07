@@ -897,7 +897,7 @@ impl DFA {
     }
 
     /// Writes the set of patterns that match anywhere in the given search
-    /// configuration to `matset`. If multiple patterns match at the same
+    /// configuration to `patset`. If multiple patterns match at the same
     /// position and the underlying DFA supports overlapping matches, then both
     /// patterns are written to the given set.
     ///
@@ -926,7 +926,7 @@ impl DFA {
     /// even when some patterns match at the same position as other patterns.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, MatchSet, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, PatternSet, Search};
     ///
     /// let patterns = &[
     ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
@@ -937,12 +937,12 @@ impl DFA {
     /// let mut cache = dfa.create_cache();
     ///
     /// let search = Search::new("foobar");
-    /// let mut matset = MatchSet::new(dfa.pattern_len());
+    /// let mut patset = PatternSet::new(dfa.pattern_len());
     /// dfa.try_which_overlapping_matches(
-    ///     &mut cache, None, &search, &mut matset,
+    ///     &mut cache, None, &search, &mut patset,
     /// )?;
     /// let expected = vec![0, 2, 3, 4, 6];
-    /// let got: Vec<usize> = matset.iter().map(|p| p.as_usize()).collect();
+    /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -953,7 +953,7 @@ impl DFA {
         cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut PatternSet,
+        patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
         while let Some(m) = self.try_search_overlapping_fwd(
@@ -962,9 +962,9 @@ impl DFA {
             search,
             &mut state,
         )? {
-            matset.insert(m.pattern());
+            patset.insert(m.pattern());
             // There's nothing left to find, so we can stop.
-            if matset.is_full() {
+            if patset.is_full() {
                 break;
             }
         }
