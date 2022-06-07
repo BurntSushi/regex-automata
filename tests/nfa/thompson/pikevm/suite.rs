@@ -6,7 +6,7 @@ use regex_automata::{
         pikevm::{self, PikeVM},
     },
     util::iter,
-    MatchKind, MatchSet, Search, SyntaxConfig,
+    MatchKind, PatternSet, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -83,7 +83,7 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let mut matset = MatchSet::new(re.get_nfa().pattern_len());
+                let mut matset = PatternSet::new(re.get_nfa().pattern_len());
                 let search =
                     Search::new(test.input()).utf8(re.get_config().get_utf8());
                 re.which_overlapping_matches(
@@ -130,7 +130,8 @@ fn run_test(
                     TestResult::captures(it)
                 }
                 ret::SearchKind::Overlapping => {
-                    let mut matset = MatchSet::new(re.get_nfa().pattern_len());
+                    let mut matset =
+                        PatternSet::new(re.get_nfa().pattern_len());
                     let search = Search::new(test.input())
                         .utf8(re.get_config().get_utf8());
                     re.which_overlapping_matches(

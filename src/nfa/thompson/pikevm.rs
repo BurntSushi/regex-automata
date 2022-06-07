@@ -13,7 +13,7 @@ use crate::{
         iter,
         nonmax::NonMaxUsize,
         prefilter::{self, Prefilter},
-        search::{Match, MatchError, MatchKind, MatchSet, Search},
+        search::{Match, MatchError, MatchKind, PatternSet, Search},
         sparse_set::SparseSet,
     },
 };
@@ -322,7 +322,7 @@ impl PikeVM {
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut MatchSet,
+        matset: &mut PatternSet,
     ) {
         self.which_overlapping_imp(cache, pre, search, matset)
     }
@@ -403,7 +403,7 @@ impl PikeVM {
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut MatchSet,
+        matset: &mut PatternSet,
     ) {
         assert!(
             search.haystack().len() < core::usize::MAX,
@@ -496,7 +496,7 @@ impl PikeVM {
         nlist: &mut Threads,
         haystack: &[u8],
         at: usize,
-        matset: &mut MatchSet,
+        matset: &mut PatternSet,
     ) {
         instrument!(|c| c.record_state_set(&clist.list));
         for sid in clist.list.drain(..) {

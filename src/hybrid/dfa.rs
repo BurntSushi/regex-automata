@@ -23,7 +23,7 @@ use crate::{
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
         id::{PatternID, StateID as NFAStateID},
         prefilter,
-        search::{HalfMatch, MatchError, MatchKind, MatchSet, Search},
+        search::{HalfMatch, MatchError, MatchKind, PatternSet, Search},
         sparse_set::SparseSets,
         start::Start,
     },
@@ -953,7 +953,7 @@ impl DFA {
         cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut MatchSet,
+        matset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
         while let Some(m) = self.try_search_overlapping_fwd(

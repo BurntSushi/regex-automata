@@ -3,7 +3,7 @@ use crate::{
     util::{
         id::{PatternID, StateID},
         prefilter,
-        search::{HalfMatch, MatchError, MatchSet, Search},
+        search::{HalfMatch, MatchError, PatternSet, Search},
     },
 };
 
@@ -1391,7 +1391,7 @@ pub unsafe trait Automaton {
         &self,
         mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut MatchSet,
+        matset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
         while let Some(m) = self.try_search_overlapping_fwd(
@@ -1537,7 +1537,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         &self,
         mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_>,
-        matset: &mut MatchSet,
+        matset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         (**self).try_which_overlapping_matches(pre, search, matset)
     }

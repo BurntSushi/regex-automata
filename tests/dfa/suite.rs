@@ -2,7 +2,7 @@ use regex_automata::{
     dfa::{self, dense, regex::Regex, sparse, Automaton, OverlappingState},
     nfa::thompson,
     util::iter,
-    MatchKind, MatchSet, Search, SyntaxConfig,
+    MatchKind, PatternSet, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -252,7 +252,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
             }
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
-                let mut matset = MatchSet::new(dfa.pattern_len());
+                let mut matset = PatternSet::new(dfa.pattern_len());
                 let search = re.create_search(test.input());
                 dfa.try_which_overlapping_matches(
                     re.scanner().as_mut(),

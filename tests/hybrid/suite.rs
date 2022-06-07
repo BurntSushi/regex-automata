@@ -6,7 +6,7 @@ use regex_automata::{
     },
     nfa::thompson,
     util::iter,
-    MatchKind, MatchSet, Search, SyntaxConfig,
+    MatchKind, PatternSet, Search, SyntaxConfig,
 };
 
 use ret::{
@@ -200,7 +200,7 @@ fn run_test(
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
                 let cache = cache.as_parts_mut().0;
-                let mut matset = MatchSet::new(dfa.pattern_len());
+                let mut matset = PatternSet::new(dfa.pattern_len());
                 let search = re.create_search(test.input());
                 dfa.try_which_overlapping_matches(
                     cache,

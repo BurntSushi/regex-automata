@@ -675,15 +675,15 @@ impl Match {
 
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MatchSet {
+pub struct PatternSet {
     len: usize,
     which: alloc::vec::Vec<bool>,
 }
 
 #[cfg(feature = "alloc")]
-impl MatchSet {
-    pub fn new(pattern_len: usize) -> MatchSet {
-        MatchSet { len: 0, which: alloc::vec![false; pattern_len] }
+impl PatternSet {
+    pub fn new(pattern_len: usize) -> PatternSet {
+        PatternSet { len: 0, which: alloc::vec![false; pattern_len] }
     }
 
     pub fn clear(&mut self) {
