@@ -669,6 +669,10 @@ impl Match {
     }
 }
 
+// BREADCRUMBS: MatchSet -> PatternSet I think.
+//
+// Otherwise, review our types here and polish them up.
+
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MatchSet {

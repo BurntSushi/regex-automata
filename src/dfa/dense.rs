@@ -3017,7 +3017,8 @@ impl<'a> TransitionTable<&'a [u32]> {
     ) -> Result<(TransitionTable<&'a [u32]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr() as usize;
 
-        let (len, nr) = bytes::try_read_u32_as_usize(slice, "state length")?;
+        let (state_len, nr) =
+            bytes::try_read_u32_as_usize(slice, "state length")?;
         slice = &slice[nr..];
 
         let (stride2, nr) = bytes::try_read_u32_as_usize(slice, "stride2")?;
@@ -3052,7 +3053,7 @@ impl<'a> TransitionTable<&'a [u32]> {
         }
 
         let trans_len =
-            bytes::shl(len, stride2, "dense table transition length")?;
+            bytes::shl(state_len, stride2, "dense table transition length")?;
         let table_bytes_len = bytes::mul(
             trans_len,
             StateID::SIZE,
@@ -3582,7 +3583,7 @@ impl<'a> StartTable<&'a [u32]> {
             bytes::try_read_u32_as_usize(slice, "start table stride")?;
         slice = &slice[nr..];
 
-        let (patterns, nr) =
+        let (pattern_len, nr) =
             bytes::try_read_u32_as_usize(slice, "start table patterns")?;
         slice = &slice[nr..];
 
@@ -3591,13 +3592,13 @@ impl<'a> StartTable<&'a [u32]> {
                 "invalid starting table stride",
             ));
         }
-        if patterns > PatternID::LIMIT {
+        if pattern_len > PatternID::LIMIT {
             return Err(DeserializeError::generic(
                 "invalid number of patterns",
             ));
         }
         let pattern_table_size =
-            bytes::mul(stride, patterns, "invalid pattern length")?;
+            bytes::mul(stride, pattern_len, "invalid pattern length")?;
         // Our start states always start with a single stride of start states
         // for the entire automaton which permit it to match any pattern. What
         // follows it are an optional set of start states for each pattern.
@@ -3629,7 +3630,7 @@ impl<'a> StartTable<&'a [u32]> {
                 start_state_len,
             )
         };
-        let st = StartTable { table, stride, pattern_len: patterns };
+        let st = StartTable { table, stride, pattern_len };
         Ok((st, slice.as_ptr() as usize - slice_start))
     }
 }
@@ -3878,12 +3879,12 @@ impl<'a> MatchStates<&'a [u32]> {
         let slice_start = slice.as_ptr() as usize;
 
         // Read the total number of match states.
-        let (len, nr) =
+        let (state_len, nr) =
             bytes::try_read_u32_as_usize(slice, "match state length")?;
         slice = &slice[nr..];
 
         // Read the slice start/length pairs.
-        let pair_len = bytes::mul(2, len, "match state offset pairs")?;
+        let pair_len = bytes::mul(2, state_len, "match state offset pairs")?;
         let slices_bytes_len = bytes::mul(
             pair_len,
             PatternID::SIZE,

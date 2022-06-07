@@ -500,15 +500,11 @@ fn search_dfa_automaton<A: Automaton>(
             }
         }
         config::SearchKind::Overlapping => {
+            let search = Search::new(haystack);
             let mut state = dfa::OverlappingState::start();
-            let mut it = iter::TryOverlappingHalfMatches::new(
-                Search::new(haystack),
-                move |search| {
-                    dfa.try_search_overlapping_fwd(None, search, &mut state)
-                },
-            );
-            for result in it {
-                let m = result?;
+            while let Some(m) =
+                dfa.try_search_overlapping_fwd(None, &search, &mut state)?
+            {
                 counts[m.pattern()] += 1;
                 if find.matches() {
                     write_half_match(m, buf);
@@ -596,17 +592,11 @@ fn search_hybrid_dfa<'i, 'c>(
             }
         }
         config::SearchKind::Overlapping => {
+            let search = Search::new(haystack);
             let mut state = hybrid::OverlappingState::start();
-            let mut it = iter::TryOverlappingHalfMatches::new(
-                Search::new(haystack),
-                move |search| {
-                    dfa.try_search_overlapping_fwd(
-                        cache, None, search, &mut state,
-                    )
-                },
-            );
-            for result in it {
-                let m = result?;
+            while let Some(m) = dfa
+                .try_search_overlapping_fwd(cache, None, &search, &mut state)?
+            {
                 counts[m.pattern()] += 1;
                 if find.matches() {
                     write_half_match(m, buf);

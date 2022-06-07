@@ -180,31 +180,33 @@ impl<'a> Accels<&'a [AccelTy]> {
     ///
     /// Callers may check the validity of every accelerator with the `validate`
     /// method.
+    ///
+    /// TODO: I believe this method is safe to call for all inputs.
     pub unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(Accels<&'a [AccelTy]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr() as usize;
 
-        let (len, _) =
+        let (accel_len, _) =
             bytes::try_read_u32_as_usize(slice, "accelerators length")?;
         // The accelerator length is part of the accel_tys slice that
         // we deserialize. This is perhaps a bit idiosyncratic. It would
         // probably be better to split out the length into a real field.
 
         let accel_tys_len = bytes::add(
-            bytes::mul(len, 2, "total number of accelerator accel_tys")?,
+            bytes::mul(accel_len, 2, "total number of accelerator accel_tys")?,
             1,
             "total number of accel_tys",
         )?;
-        let accel_tys_len = bytes::mul(
+        let accel_tys_bytes_len = bytes::mul(
             ACCEL_TY_SIZE,
             accel_tys_len,
             "total number of bytes in accelerators",
         )?;
-        bytes::check_slice_len(slice, accel_tys_len, "accelerators")?;
+        bytes::check_slice_len(slice, accel_tys_bytes_len, "accelerators")?;
         bytes::check_alignment::<AccelTy>(slice)?;
-        let accel_tys = &slice[..accel_tys_len];
-        slice = &slice[accel_tys_len..];
+        let accel_tys = &slice[..accel_tys_bytes_len];
+        slice = &slice[accel_tys_bytes_len..];
         // SAFETY: We've checked the length and alignment above, and since
         // slice is just bytes, we can safely cast to a slice of &[AccelTy].
         #[allow(unused_unsafe)]
@@ -421,6 +423,7 @@ impl Accel {
     /// If the given bytes are invalid, then this returns an error.
     fn from_bytes(bytes: [u8; 4]) -> Result<Accel, DeserializeError> {
         if usize::from(bytes[0]) >= ACCEL_LEN {
+            panic!("{:?}", crate::util::escape::DebugHaystack(&bytes));
             return Err(DeserializeError::generic(
                 "accelerator bytes cannot have length more than 3",
             ));

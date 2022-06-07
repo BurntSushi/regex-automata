@@ -20,7 +20,7 @@ identifiers are repsentable by a `usize` for the current target.
 
 Moreover, the identifier types clamp the range of permissible values to a range
 that is typically smaller than its internal representation. (With the maximum
-value being, e.g., `StateID::MAX`.) Users of these types may not rely this
+value being, e.g., `StateID::MAX`.) Users of these types may not rely on this
 clamping for the purpose of memory safety. Users may, however, rely on these
 invariants to avoid panics or other types of logic bugs.
 */
@@ -28,7 +28,9 @@ invariants to avoid panics or other types of logic bugs.
 // Continuing from the above comment about correctness guarantees, an example
 // of a way in which we use the guarantees on these types is delta encoding.
 // Namely, we require that IDs can be at most 2^31 - 2, which means the
-// difference between any two IDs is always representable as an i32.
+// difference between any two IDs is always representable as an i32. If that
+// assumption is violated, then delta encoding implementation might panic or
+// produce incorrect results, but no UB occurs.
 
 use core::{
     convert::{Infallible, TryFrom},
