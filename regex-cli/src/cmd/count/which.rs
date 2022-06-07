@@ -31,6 +31,7 @@ pub fn define() -> App {
         .about(ABOUT_SHORT)
         .before_help(ABOUT_LONG)
         .subcommand(define_api())
+        .subcommand(define_dfa())
         .subcommand(define_hybrid())
         .subcommand(define_nfa())
 }
@@ -38,6 +39,7 @@ pub fn define() -> App {
 pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
         "api" => run_api(args),
+        "dfa" => run_dfa(args),
         "hybrid" => run_hybrid(args),
         "nfa" => run_nfa(args),
         _ => Err(util::UnrecognizedCommandError.into()),
@@ -55,6 +57,29 @@ fn define_api() -> App {
     app::command("api")
         .about("Search using a top-level 'regex' crate API.")
         .subcommand(regex)
+}
+
+fn define_dfa() -> App {
+    let mut dense = app::leaf("dense").about("Search using a dense DFA.");
+    dense = config::Input::define(dense);
+    dense = config::Patterns::define(dense);
+    dense = config::Syntax::define(dense);
+    dense = config::Thompson::define(dense);
+    dense = config::Dense::define(dense);
+    dense = config::Find::define(dense);
+
+    let mut sparse = app::leaf("sparse").about("Search using a sparse DFA.");
+    sparse = config::Input::define(sparse);
+    sparse = config::Patterns::define(sparse);
+    sparse = config::Syntax::define(sparse);
+    sparse = config::Thompson::define(sparse);
+    sparse = config::Dense::define(sparse);
+    sparse = config::Find::define(sparse);
+
+    app::command("dfa")
+        .about("Search using a DFA.")
+        .subcommand(dense)
+        .subcommand(sparse)
 }
 
 fn define_hybrid() -> App {
@@ -110,6 +135,58 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
     input.with_mmap(|haystack| {
         let (pids, time) =
             util::timeitr(|| search_api_regex(&re, &*haystack))?;
+        table.add("search time", time);
+        table.add("which", pids);
+        table.print(stdout())?;
+        Ok(())
+    })
+}
+
+fn run_dfa(args: &Args) -> anyhow::Result<()> {
+    util::run_subcommand(args, define, |cmd, args| match cmd {
+        "dense" => run_dfa_dense(args),
+        "sparse" => run_dfa_sparse(args),
+        _ => Err(util::UnrecognizedCommandError.into()),
+    })
+}
+
+fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cdense = config::Dense::get(args)?;
+    let input = config::Input::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+
+    let dfa = cdense.from_patterns_dense(
+        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+    )?;
+    input.with_mmap(|haystack| {
+        let (pids, time) =
+            util::timeitr(|| search_dfa_automaton(&dfa, &*haystack))?;
+        table.add("search time", time);
+        table.add("which", pids);
+        table.print(stdout())?;
+        Ok(())
+    })
+}
+
+fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cdense = config::Dense::get(args)?;
+    let input = config::Input::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+
+    let dfa = cdense.from_patterns_sparse(
+        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+    )?;
+    input.with_mmap(|haystack| {
+        let (pids, time) =
+            util::timeitr(|| search_dfa_automaton(&dfa, &*haystack))?;
         table.add("search time", time);
         table.add("which", pids);
         table.print(stdout())?;
@@ -193,6 +270,16 @@ fn search_api_regex(
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
     Ok(re.matches(haystack).into_iter().collect())
+}
+
+fn search_dfa_automaton<A: Automaton>(
+    dfa: A,
+    haystack: &[u8],
+) -> anyhow::Result<Vec<usize>> {
+    let mut matset = MatchSet::new(dfa.pattern_len());
+    let search = Search::new(haystack);
+    dfa.try_which_overlapping_matches(None, &search, &mut matset)?;
+    Ok(matset.iter().map(|pid| pid.as_usize()).collect())
 }
 
 fn search_hybrid_dfa<'i, 'c>(
