@@ -1,10 +1,11 @@
-use regex_automata::dfa::{dense, Automaton};
-
 // A regression test for checking that minimization correctly translates
 // whether a state is a match state or not. Previously, it was possible for
 // minimization to mark a non-matching state as matching.
 #[test]
+#[cfg(not(miri))]
 fn minimize_sets_correct_match_states() {
+    use regex_automata::dfa::{dense::DFA, Automaton};
+
     let pattern =
         // This is a subset of the grapheme matching regex. I couldn't seem
         // to get a repro any smaller than this unfortunately.
@@ -33,8 +34,8 @@ fn minimize_sets_correct_match_states() {
             )
         ";
 
-    let dfa = dense::Builder::new()
-        .configure(dense::Config::new().anchored(true).minimize(true))
+    let dfa = DFA::builder()
+        .configure(DFA::config().anchored(true).minimize(true))
         .build(pattern)
         .unwrap();
     assert_eq!(Ok(None), dfa.try_find_fwd(b"\xE2"));

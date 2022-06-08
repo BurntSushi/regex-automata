@@ -3,8 +3,10 @@ mod hybrid;
 mod nfa;
 mod util;
 
+#[cfg(not(miri))]
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+#[cfg(not(miri))]
 fn suite() -> Result<ret::RegexTests> {
     let mut tests = ret::RegexTests::new();
     macro_rules! load {

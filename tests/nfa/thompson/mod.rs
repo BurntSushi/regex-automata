@@ -1,3 +1,4 @@
+#[cfg(not(miri))]
 use regex_automata::nfa::thompson::Captures;
 
 mod pikevm;
@@ -6,6 +7,7 @@ mod pikevm;
 ///
 /// The given Thompson captures must represent a valid match, where the first
 /// capturing group has a non-None span. Otherwise this panics.
+#[cfg(not(miri))]
 fn testify_captures(caps: &Captures) -> ret::Captures {
     assert!(caps.is_match(), "expected captures to represent a match");
     let spans = caps.iter().map(|group| {

@@ -1753,7 +1753,7 @@ mod tests {
     }
 
     #[test]
-    fn compile_class() {
+    fn compile_class_ascii() {
         assert_eq!(
             build(r"[a-z]").states(),
             &[s_range(b'a', b'z', 1), s_match(0),]
@@ -1762,6 +1762,11 @@ mod tests {
             build(r"[x-za-c]").states(),
             &[s_sparse(&[(b'a', b'c', 1), (b'x', b'z', 1)]), s_match(0)]
         );
+    }
+
+    #[test]
+    #[cfg(not(miri))]
+    fn compile_class_unicode() {
         assert_eq!(
             build(r"[\u03B1-\u03B4]").states(),
             &[s_range(0xB1, 0xB4, 2), s_byte(0xCE, 0), s_match(0)]

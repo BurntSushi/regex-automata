@@ -892,6 +892,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg(not(miri))]
     quickcheck! {
         fn prop_state_read_write_nfa_state_ids(sids: Vec<StateID>) -> bool {
             // Builders states do not permit duplicate IDs.
@@ -946,7 +947,9 @@ mod tests {
             s.iter_nfa_state_ids(|sid| got_sids.push(sid));
             got_pids == pids && got_sids == sids
         }
+    }
 
+    quickcheck! {
         fn prop_read_write_varu32(n: u32) -> bool {
             let mut buf = vec![];
             write_varu32(&mut buf, n);

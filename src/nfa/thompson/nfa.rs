@@ -3151,6 +3151,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn look_matches_word_unicode() {
         let look = Look::WordBoundaryUnicode;
 
@@ -3255,6 +3256,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn look_matches_word_unicode_negate() {
         let look = Look::WordBoundaryUnicodeNegate;
 

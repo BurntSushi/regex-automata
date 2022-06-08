@@ -16,6 +16,7 @@ use crate::util::{BunkPrefilter, SubstringPrefilter};
 // reported when a search "gives up."
 #[test]
 #[cfg(target_pointer_width = "64")]
+#[cfg(not(miri))]
 fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // This is a carefully chosen regex. The idea is to pick one that requires
     // some decent number of states (hence the bounded repetition). But we

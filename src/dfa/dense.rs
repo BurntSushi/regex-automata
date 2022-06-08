@@ -1749,12 +1749,20 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
-    /// // Create a 4KB buffer on the stack to store our serialized DFA.
-    /// let mut buf = [0u8; 4 * (1<<10)];
+    /// // Create a 4KB buffer on the stack to store our serialized DFA. We
+    /// // need to use a special type to force the alignment of our [u8; N]
+    /// // array to be aligned to a 4 byte boundary. Otherwise, deserializing
+    /// // the DFA will fail because of an alignment mismatch.
+    /// #[repr(C)]
+    /// struct Aligned<B: ?Sized> {
+    ///     _align: [u32; 0],
+    ///     bytes: B,
+    /// }
+    /// let mut buf = Aligned { _align: [], bytes: [0u8; 4 * (1<<10)] };
     /// // N.B. We use native endianness here to make the example work, but
     /// // using write_to_little_endian would work on a little endian target.
-    /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
+    /// let written = original_dfa.write_to_native_endian(&mut buf.bytes)?;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf.bytes[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
@@ -1799,12 +1807,20 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
-    /// // Create a 4KB buffer on the stack to store our serialized DFA.
-    /// let mut buf = [0u8; 4 * (1<<10)];
+    /// // Create a 4KB buffer on the stack to store our serialized DFA. We
+    /// // need to use a special type to force the alignment of our [u8; N]
+    /// // array to be aligned to a 4 byte boundary. Otherwise, deserializing
+    /// // the DFA will fail because of an alignment mismatch.
+    /// #[repr(C)]
+    /// struct Aligned<B: ?Sized> {
+    ///     _align: [u32; 0],
+    ///     bytes: B,
+    /// }
+    /// let mut buf = Aligned { _align: [], bytes: [0u8; 4 * (1<<10)] };
     /// // N.B. We use native endianness here to make the example work, but
     /// // using write_to_big_endian would work on a big endian target.
-    /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
+    /// let written = original_dfa.write_to_native_endian(&mut buf.bytes)?;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf.bytes[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
@@ -1858,10 +1874,18 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
-    /// // Create a 4KB buffer on the stack to store our serialized DFA.
-    /// let mut buf = [0u8; 4 * (1<<10)];
-    /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
+    /// // Create a 4KB buffer on the stack to store our serialized DFA. We
+    /// // need to use a special type to force the alignment of our [u8; N]
+    /// // array to be aligned to a 4 byte boundary. Otherwise, deserializing
+    /// // the DFA will fail because of an alignment mismatch.
+    /// #[repr(C)]
+    /// struct Aligned<B: ?Sized> {
+    ///     _align: [u32; 0],
+    ///     bytes: B,
+    /// }
+    /// let mut buf = Aligned { _align: [], bytes: [0u8; 4 * (1<<10)] };
+    /// let written = original_dfa.write_to_native_endian(&mut buf.bytes)?;
+    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf.bytes[..written])?.0;
     ///
     /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);

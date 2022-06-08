@@ -63,3 +63,13 @@ just like we do for grep_matcher::Match.
   * How can we best use them? We should certainly be able to find a place
   for them somewhere. One of the more compelling bits is as a prefilter
   for when literal prefixes can't be found.
+
+* Figure out how to better support Miri. The main issue is that, even in
+release mode, our test suite takes quite a bit of time. It's too long even in
+debug mode. And Miri is even slower than that. So we clearly can only test
+some subset of things. Currently, Miri runs acceptably fast on most doc tests
+and all library level tests. But some non-trivial set of doc tests take too
+long. And, sadly, none of the TOML test suite tests can run yet. Namely, even
+deserializing a single TOML file into memory appears to be incredibly slow.
+Ideally, we figure out how to increase Miri test coverage without complicating
+things too much.
