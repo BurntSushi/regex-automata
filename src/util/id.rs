@@ -81,12 +81,12 @@ use alloc::vec::Vec;
 pub struct PatternID(u32);
 
 impl PatternID {
-    /// The maximum pattern ID value, represented as a `usize`.
+    /// The maximum pattern ID value.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
     pub const MAX: PatternID =
         PatternID::new_unchecked(core::i32::MAX as usize - 1);
 
-    /// The maximum pattern ID value, represented as a `usize`.
+    /// The maximum pattern ID value.
     #[cfg(target_pointer_width = "16")]
     pub const MAX: PatternID = PatternID::new_unchecked(core::isize::MAX - 1);
 
@@ -112,8 +112,8 @@ impl PatternID {
     /// Create a new pattern ID without checking whether the given value
     /// exceeds [`PatternID::MAX`].
     ///
-    /// While this is unchecked, providing an incorrect value must never
-    /// sacrifice memory safety, as documented above.
+    /// While this is unchecked, providing an incorrect value will never
+    /// sacrifice memory safety.
     #[inline]
     pub const fn new_unchecked(id: usize) -> PatternID {
         PatternID(id as u32)
@@ -122,7 +122,7 @@ impl PatternID {
     /// Like [`PatternID::new`], but panics if the given ID is not valid.
     #[inline]
     pub fn must(id: usize) -> PatternID {
-        PatternID::new(id).unwrap()
+        PatternID::new(id).expect("invalid pattern ID")
     }
 
     /// Return this pattern ID as a `usize`.
@@ -139,7 +139,7 @@ impl PatternID {
 
     /// Return the internal u32 of this pattern ID represented as an i32.
     ///
-    /// This is guaranteed to never overflow an `i32`.
+    /// This is guaranteed to never overflow an i32.
     #[inline]
     pub const fn as_i32(&self) -> i32 {
         self.0 as i32
@@ -151,7 +151,7 @@ impl PatternID {
     /// it will always fit in a `usize` (and a `u32`).
     #[inline]
     pub fn one_more(&self) -> usize {
-        self.as_usize().checked_add(1).unwrap()
+        self.0 as usize + 1
     }
 
     /// Decode this pattern ID from the bytes given using the native endian
@@ -291,8 +291,8 @@ impl StateID {
     /// Create a new state ID without checking whether the given value
     /// exceeds [`StateID::MAX`].
     ///
-    /// While this is unchecked, providing an incorrect value must never
-    /// sacrifice memory safety, as documented above.
+    /// While this is unchecked, providing an incorrect value will never
+    /// sacrifice memory safety.
     #[inline]
     pub const fn new_unchecked(id: usize) -> StateID {
         StateID(id as u32)
@@ -301,7 +301,7 @@ impl StateID {
     /// Like [`StateID::new`], but panics if the given ID is not valid.
     #[inline]
     pub fn must(id: usize) -> StateID {
-        StateID::new(id).unwrap()
+        StateID::new(id).expect("invalid state ID")
     }
 
     /// Return this state ID as a `usize`.
@@ -330,7 +330,7 @@ impl StateID {
     /// it will always fit in a `usize` (and a `u32`).
     #[inline]
     pub fn one_more(&self) -> usize {
-        self.as_usize().checked_add(1).unwrap()
+        self.0 as usize + 1
     }
 
     /// Decode this state ID from the bytes given using the native endian byte
@@ -475,22 +475,9 @@ macro_rules! impls {
             }
         }
 
-        impl TryFrom<usize> for $ty {
-            type Error = $tyerr;
-
-            fn try_from(id: usize) -> Result<$ty, $tyerr> {
-                if id > $ty::MAX.as_usize() {
-                    return Err($tyerr { attempted: id as u64 });
-                }
-                Ok($ty::new_unchecked(id))
-            }
-        }
-
-        impl TryFrom<u8> for $ty {
-            type Error = Infallible;
-
-            fn try_from(id: u8) -> Result<$ty, Infallible> {
-                Ok($ty::new_unchecked(id as usize))
+        impl From<u8> for $ty {
+            fn from(id: u8) -> $ty {
+                $ty::new_unchecked(id as usize)
             }
         }
 
@@ -524,6 +511,17 @@ macro_rules! impls {
                     return Err($tyerr { attempted: id });
                 }
                 Ok($ty::new_unchecked(id as usize))
+            }
+        }
+
+        impl TryFrom<usize> for $ty {
+            type Error = $tyerr;
+
+            fn try_from(id: usize) -> Result<$ty, $tyerr> {
+                if id > $ty::MAX.as_usize() {
+                    return Err($tyerr { attempted: id as u64 });
+                }
+                Ok($ty::new_unchecked(id))
             }
         }
 

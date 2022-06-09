@@ -322,7 +322,7 @@ fn write_thompson_captures(
 
     let pid = caps.pattern().unwrap();
     write!(buf, "{:?}: {{", pid).unwrap();
-    for (group_index, m) in caps.iter().enumerate() {
+    for (group_index, span) in caps.iter().enumerate() {
         if group_index > 0 {
             write!(buf, ", ").unwrap();
         }
@@ -330,9 +330,11 @@ fn write_thompson_captures(
         if let Some(name) = nfa.capture_index_to_name(pid, group_index) {
             write!(buf, "/{}", name).unwrap();
         }
-        match m {
+        match span {
             None => write!(buf, ": ()").unwrap(),
-            Some(m) => write!(buf, ": ({}, {})", m.start(), m.end()).unwrap(),
+            Some(span) => {
+                write!(buf, ": ({}, {})", span.start, span.end).unwrap()
+            }
         }
     }
     write!(buf, "}}\n").unwrap();

@@ -42,8 +42,8 @@ impl Candidate {
     pub fn into_option(self) -> Option<usize> {
         match self {
             Candidate::None => None,
-            Candidate::Match(ref m) => Some(m.start()),
-            Candidate::PossibleMatch(ref m) => Some(m.start()),
+            Candidate::Match(ref sp) => Some(sp.start),
+            Candidate::PossibleMatch(ref sp) => Some(sp.start),
         }
     }
 }
@@ -164,7 +164,8 @@ pub struct None {
 
 impl Prefilter for None {
     fn find(&self, _: &mut State, _: &[u8], span: Span) -> Candidate {
-        Candidate::PossibleMatch(Span::new(span.start(), span.start()))
+        let span = Span { start: span.start, end: span.start };
+        Candidate::PossibleMatch(span)
     }
 
     fn memory_usage(&self) -> usize {

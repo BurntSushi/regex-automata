@@ -10,9 +10,9 @@ mod pikevm;
 #[cfg(not(miri))]
 fn testify_captures(caps: &Captures) -> ret::Captures {
     assert!(caps.is_match(), "expected captures to represent a match");
-    let spans = caps.iter().map(|group| {
-        group.map(|m| ret::Span { start: m.start(), end: m.end() })
-    });
+    let spans = caps
+        .iter()
+        .map(|group| group.map(|m| ret::Span { start: m.start, end: m.end }));
     // These unwraps are OK because we assume our 'caps' represents a match,
     // and a match always gives a non-zero number of groups with the first
     // group being non-None.

@@ -620,7 +620,7 @@ impl Regex {
         let revsearch = search
             .clone()
             .earliest(false)
-            .span(Span::new(search.start(), end.offset()));
+            .span((search.start()..end.offset()).into());
         let start = search::find_rev(rdfa, rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         debug_assert_eq!(
@@ -629,7 +629,7 @@ impl Regex {
             "forward and reverse search must match same pattern",
         );
         debug_assert!(start.offset() <= end.offset());
-        Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
+        Ok(Some(Match::new(end.pattern(), start.offset()..end.offset())))
     }
 }
 

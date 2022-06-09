@@ -58,7 +58,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
     }
 
     if let Some(ref mut pre) = pre {
-        let span = Span::new(at, search.end());
+        let span = Span::from(at..search.end());
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
@@ -151,7 +151,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
             if dfa.is_start_state(sid) {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
-                        let span = Span::new(at, search.end());
+                        let span = Span::from(at..search.end());
                         match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
@@ -428,7 +428,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             if dfa.is_start_state(sid) {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(state.at) {
-                        let span = Span::new(state.at, search.end());
+                        let span = Span::from(state.at..search.end());
                         match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {

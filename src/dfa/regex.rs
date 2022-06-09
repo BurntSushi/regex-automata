@@ -644,7 +644,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         let revsearch = search
             .clone()
             .earliest(false)
-            .span(Span::new(search.start(), end.offset()));
+            .span((search.start()..end.offset()).into());
         let start = (&rev)
             .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");
@@ -654,7 +654,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             "forward and reverse search must match same pattern",
         );
         assert!(start.offset() <= end.offset());
-        Ok(Some(Match::new(end.pattern(), start.offset(), end.offset())))
+        Ok(Some(Match::new(end.pattern(), start.offset()..end.offset())))
     }
 }
 

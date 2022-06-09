@@ -1067,8 +1067,9 @@ pub unsafe trait Automaton {
     ///         match haystack[span].iter().position(|&b| b == b'z') {
     ///             None => Candidate::None,
     ///             Some(i) => {
-    ///                 let start = span.start() + i;
-    ///                 Candidate::PossibleMatch(Span::new(start, start + 1))
+    ///                 let start = span.start + i;
+    ///                 let span = Span::from(start..start + 1);
+    ///                 Candidate::PossibleMatch(span)
     ///             }
     ///         }
     ///     }
@@ -1358,6 +1359,9 @@ pub unsafe trait Automaton {
     ///
     /// This routine panics if the search is configured with a `PatternID` and
     /// the underlying DFA does not support specific pattern searches.
+    ///
+    /// This routine may also panic if the given [`PatternSet`] has
+    /// insufficient capacity to hold all matching pattern IDs.
     ///
     /// # Example
     ///

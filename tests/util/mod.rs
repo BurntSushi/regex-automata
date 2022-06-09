@@ -23,9 +23,9 @@ impl Prefilter for SubstringPrefilter {
         self.0
             .find(&haystack[span])
             .map(|i| {
-                let start = span.start() + i;
+                let start = span.start + i;
                 let end = start + self.0.needle().len();
-                Candidate::PossibleMatch(Span::new(start, end))
+                Candidate::PossibleMatch(Span { start, end })
             })
             .unwrap_or(Candidate::None)
     }

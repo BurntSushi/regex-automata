@@ -68,7 +68,7 @@ fn find_fwd_imp(
     }
 
     if let Some(ref mut pre) = pre {
-        let span = Span::new(at, search.end());
+        let span = Span::from(at..search.end());
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
@@ -257,7 +257,7 @@ fn find_fwd_imp(
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
-                        let span = Span::new(at, search.end());
+                        let span = Span::from(at..search.end());
                         match pre.find(search.haystack(), span).into_option() {
                             // TODO: This looks like a bug to me. We should
                             // return 'Ok(last_match)', i.e., treat it like a
@@ -550,7 +550,7 @@ fn find_overlapping_fwd_imp(
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(state.at) {
-                        let span = Span::new(state.at, search.end());
+                        let span = Span::from(state.at..search.end());
                         match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {

@@ -152,8 +152,8 @@ use crate::{
 /// // There should be a total of 3 matches.
 /// assert_eq!(3, all.len());
 /// // The year from the second match is '2013'.
-/// let m = all[1].get_group_by_name("y").unwrap();
-/// assert_eq!("2013", &haystack[m.start()..m.end()]);
+/// let span = all[1].get_group_by_name("y").unwrap();
+/// assert_eq!("2013", &haystack[span]);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -163,7 +163,10 @@ use crate::{
 /// to occur.
 ///
 /// ```
-/// use regex_automata::nfa::thompson::{Captures, NFA, pikevm::PikeVM};
+/// use regex_automata::{
+///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
+///     Span,
+/// };
 ///
 /// let vm = PikeVM::new(r"([a-z]){4}")?;
 /// let mut cache = vm.create_cache();
@@ -172,9 +175,7 @@ use crate::{
 /// let haystack = b"quux";
 /// vm.find(&mut cache, haystack, &mut caps);
 /// assert!(caps.is_match());
-/// let m = caps.get_group(1).unwrap();
-/// assert_eq!(3, m.start());
-/// assert_eq!(4, m.end());
+/// assert_eq!(Some(Span::from(3..4)), caps.get_group(1));
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -2366,9 +2367,9 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// let haystack = "2010-03-14";
 /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
 /// assert!(caps.is_match());
-/// assert_eq!(Some(Span::new(0, 4)), caps.get_group(1));
-/// assert_eq!(Some(Span::new(5, 7)), caps.get_group(2));
-/// assert_eq!(Some(Span::new(8, 10)), caps.get_group(3));
+/// assert_eq!(Some(Span::from(0..4)), caps.get_group(1));
+/// assert_eq!(Some(Span::from(5..7)), caps.get_group(2));
+/// assert_eq!(Some(Span::from(8..10)), caps.get_group(3));
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -2387,9 +2388,9 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// let haystack = "2010-03-14";
 /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
 /// assert!(caps.is_match());
-/// assert_eq!(Some(Span::new(0, 4)), caps.get_group_by_name("y"));
-/// assert_eq!(Some(Span::new(5, 7)), caps.get_group_by_name("m"));
-/// assert_eq!(Some(Span::new(8, 10)), caps.get_group_by_name("d"));
+/// assert_eq!(Some(Span::from(0..4)), caps.get_group_by_name("y"));
+/// assert_eq!(Some(Span::from(5..7)), caps.get_group_by_name("m"));
+/// assert_eq!(Some(Span::from(8..10)), caps.get_group_by_name("d"));
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -2441,8 +2442,8 @@ impl Captures {
     /// assert_eq!(Some(Match::must(0, 0, 6)), caps.get_match());
     /// // The 'lower' group didn't match, so it won't have any offsets.
     /// assert_eq!(None, caps.get_group_by_name("lower"));
-    /// assert_eq!(Some(Span::new(0, 3)), caps.get_group_by_name("upper"));
-    /// assert_eq!(Some(Span::new(3, 6)), caps.get_group_by_name("digits"));
+    /// assert_eq!(Some(Span::from(0..3)), caps.get_group_by_name("upper"));
+    /// assert_eq!(Some(Span::from(3..6)), caps.get_group_by_name("digits"));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -2623,9 +2624,7 @@ impl Captures {
     /// ```
     #[inline]
     pub fn get_match(&self) -> Option<Match> {
-        let pid = self.pattern()?;
-        let m = self.get_group(0)?;
-        Some(Match::new(pid, m.start(), m.end()))
+        Some(Match::new(self.pattern()?, self.get_group(0)?))
     }
 
     /// Returns the span of a capturing group match corresponding to the group
@@ -2667,8 +2666,8 @@ impl Captures {
     ///
     /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
-    /// assert_eq!(Some(Span::new(0, 5)), caps.get_group(1));
-    /// assert_eq!(Some(Span::new(6, 17)), caps.get_group(2));
+    /// assert_eq!(Some(Span::from(0..5)), caps.get_group(1));
+    /// assert_eq!(Some(Span::from(6..17)), caps.get_group(2));
     /// // Looking for a non-existent capturing group will return None:
     /// assert_eq!(None, caps.get_group(3));
     ///
@@ -2680,7 +2679,7 @@ impl Captures {
         let (slot_start, slot_end) = self.nfa.slots(pid, index)?;
         let start = self.slots.get(slot_start).copied()??;
         let end = self.slots.get(slot_end).copied()??;
-        Some(Span::new(start.get(), end.get()))
+        Some(Span { start: start.get(), end: end.get() })
     }
 
     /// Returns the span of a capturing group match corresponding to the group
@@ -2713,8 +2712,8 @@ impl Captures {
     ///
     /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
-    /// assert_eq!(Some(Span::new(0, 5)), caps.get_group_by_name("first"));
-    /// assert_eq!(Some(Span::new(6, 17)), caps.get_group_by_name("last"));
+    /// assert_eq!(Some(Span::from(0..5)), caps.get_group_by_name("first"));
+    /// assert_eq!(Some(Span::from(6..17)), caps.get_group_by_name("last"));
     /// // Looking for a non-existent capturing group will return None:
     /// assert_eq!(None, caps.get_group_by_name("middle"));
     ///
@@ -2752,10 +2751,10 @@ impl Captures {
     /// assert!(caps.is_match());
     /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
-    ///     Some(Span::new(0, 18)),
-    ///     Some(Span::new(0, 5)),
-    ///     Some(Span::new(6, 11)),
-    ///     Some(Span::new(12, 18)),
+    ///     Some(Span::from(0..18)),
+    ///     Some(Span::from(0..5)),
+    ///     Some(Span::from(6..11)),
+    ///     Some(Span::from(12..18)),
     /// ]);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2779,10 +2778,10 @@ impl Captures {
     /// assert!(caps.is_match());
     /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
-    ///     Some(Span::new(0, 12)),
-    ///     Some(Span::new(0, 5)),
+    ///     Some(Span::from(0..12)),
+    ///     Some(Span::from(0..5)),
     ///     None,
-    ///     Some(Span::new(6, 12)),
+    ///     Some(Span::from(6..12)),
     /// ]);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
