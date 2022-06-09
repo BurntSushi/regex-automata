@@ -34,8 +34,8 @@ let mut cache = re.create_cache();
 let haystack = "2018-12-24 2016-10-08";
 let matches: Vec<Match> = re.find_iter(&mut cache, haystack).collect();
 assert_eq!(matches, vec![
-    Match::must(0, 0, 10),
-    Match::must(0, 11, 21),
+    Match::must(0, 0..10),
+    Match::must(0, 11..21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -55,8 +55,8 @@ let mut cache = re.create_cache();
 let haystack = "@foo bar";
 let matches: Vec<Match> = re.find_iter(&mut cache, haystack).collect();
 assert_eq!(matches, vec![
-    Match::must(1, 0, 4),
-    Match::must(0, 5, 8),
+    Match::must(1, 0..4),
+    Match::must(0, 5..8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

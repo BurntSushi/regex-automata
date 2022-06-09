@@ -175,11 +175,11 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
     re.set_prefilter(Some(Box::new(SubstringPrefilter::new("a"))));
     assert_eq!(
         re.find_leftmost(&mut cache, b"za123"),
-        Some(Match::must(0, 1, 5))
+        Some(Match::must(0, 1..5))
     );
     assert_eq!(
         re.find_leftmost(&mut cache, b"a123"),
-        Some(Match::must(0, 0, 4))
+        Some(Match::must(0, 0..4))
     );
     re.set_prefilter(Some(Box::new(BunkPrefilter::new())));
     assert_eq!(re.find_leftmost(&mut cache, b"za123"), None);

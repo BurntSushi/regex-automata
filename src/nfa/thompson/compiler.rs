@@ -131,7 +131,7 @@ impl Config {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(Match::must(0, 1, 4));
+    /// let expected = Some(Match::must(0, 1..4));
     /// vm.find(&mut cache, &*haystack, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -411,7 +411,7 @@ mutably both inside and outside the closure at the same time.
 /// let vm = PikeVM::new_from_nfa(nfa)?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
-/// let expected = Some(Match::must(0, 3, 4));
+/// let expected = Some(Match::must(0, 3..4));
 /// vm.find(&mut cache, "!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
@@ -443,7 +443,7 @@ mutably both inside and outside the closure at the same time.
 /// let vm = PikeVM::new_from_nfa(nfa)?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
-/// let expected = Some(Match::must(0, 3, 4));
+/// let expected = Some(Match::must(0, 3..4));
 /// vm.find(&mut cache, "!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
@@ -504,7 +504,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(Match::must(0, 3, 4));
+    /// let expected = Some(Match::must(0, 3..4));
     /// vm.find(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -533,7 +533,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(Match::must(1, 1, 2));
+    /// let expected = Some(Match::must(1, 1..2));
     /// vm.find(&mut cache, "!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -584,7 +584,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(Match::must(0, 3, 4));
+    /// let expected = Some(Match::must(0, 3..4));
     /// vm.find(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -625,7 +625,7 @@ impl Compiler {
     /// let vm = PikeVM::new_from_nfa(nfa)?;
     /// let mut cache = vm.create_cache();
     /// let mut caps = vm.create_captures();
-    /// let expected = Some(Match::must(1, 1, 2));
+    /// let expected = Some(Match::must(1, 1..2));
     /// vm.find(&mut cache, "!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///

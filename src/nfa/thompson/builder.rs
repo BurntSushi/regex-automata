@@ -282,7 +282,7 @@ impl State {
 /// let vm = PikeVM::new_from_nfa(nfa)?;
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
-/// let expected = Some(Match::must(0, 0, 3));
+/// let expected = Some(Match::must(0, 0..3));
 /// vm.find(&mut cache, "foo0", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///

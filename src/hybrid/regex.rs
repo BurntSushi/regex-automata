@@ -123,7 +123,7 @@ impl Regex {
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// let mut cache = re.create_cache();
     /// assert_eq!(
-    ///     Some(Match::must(0, 3, 14)),
+    ///     Some(Match::must(0, 3..14)),
     ///     re.find(&mut cache, "zzzfoo12345barzzz"),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -144,12 +144,12 @@ impl Regex {
     /// let mut cache = re.create_cache();
     ///
     /// let mut it = re.find_iter(&mut cache, "abc 1 foo 4567 0 quux");
-    /// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
-    /// assert_eq!(Some(Match::must(1, 4, 5)), it.next());
-    /// assert_eq!(Some(Match::must(0, 6, 9)), it.next());
-    /// assert_eq!(Some(Match::must(1, 10, 14)), it.next());
-    /// assert_eq!(Some(Match::must(1, 15, 16)), it.next());
-    /// assert_eq!(Some(Match::must(0, 17, 21)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0..3)), it.next());
+    /// assert_eq!(Some(Match::must(1, 4..5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 6..9)), it.next());
+    /// assert_eq!(Some(Match::must(1, 10..14)), it.next());
+    /// assert_eq!(Some(Match::must(1, 15..16)), it.next());
+    /// assert_eq!(Some(Match::must(0, 17..21)), it.next());
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -181,12 +181,12 @@ impl Regex {
     ///
     /// let haystack = "a☃z";
     /// let mut it = re.find_iter(&mut cache, haystack);
-    /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 2, 2)), it.next());
-    /// assert_eq!(Some(Match::must(0, 3, 3)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4, 4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -219,7 +219,7 @@ impl Regex {
     /// let mut cache = re.create_cache();
     ///
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
-    /// let expected = Some(Match::must(0, 1, 9));
+    /// let expected = Some(Match::must(0, 1..9));
     /// let got = re.find(&mut cache, haystack);
     /// assert_eq!(expected, got);
     ///
@@ -278,7 +278,7 @@ impl Regex {
     ///
     /// let mut cache = re1.create_cache();
     /// assert_eq!(
-    ///     Some(Match::must(0, 0, 2)),
+    ///     Some(Match::must(0, 0..2)),
     ///     re1.find(&mut cache, "Δ"),
     /// );
     ///
@@ -290,7 +290,7 @@ impl Regex {
     /// // allowed.
     /// re2.reset_cache(&mut cache);
     /// assert_eq!(
-    ///     Some(Match::must(0, 0, 3)),
+    ///     Some(Match::must(0, 0..3)),
     ///     re2.find(&mut cache, "☃"),
     /// );
     ///
@@ -362,7 +362,7 @@ impl Regex {
     /// let re = Regex::new("foo[0-9]+")?;
     /// let mut cache = re.create_cache();
     /// assert_eq!(
-    ///     Some(Match::must(0, 3, 11)),
+    ///     Some(Match::must(0, 3..11)),
     ///     re.find(&mut cache, "zzzfoo12345zzz"),
     /// );
     ///
@@ -372,7 +372,7 @@ impl Regex {
     /// // parts.
     /// let re = Regex::new("abc|a")?;
     /// let mut cache = re.create_cache();
-    /// assert_eq!(Some(Match::must(0, 0, 3)), re.find(&mut cache, "abc"));
+    /// assert_eq!(Some(Match::must(0, 0..3)), re.find(&mut cache, "abc"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
@@ -410,9 +410,9 @@ impl Regex {
     /// let text = "foo1 foo12 foo123";
     /// let matches: Vec<Match> = re.find_iter(&mut cache, text).collect();
     /// assert_eq!(matches, vec![
-    ///     Match::must(0, 0, 4),
-    ///     Match::must(0, 5, 10),
-    ///     Match::must(0, 11, 17),
+    ///     Match::must(0, 0..4),
+    ///     Match::must(0, 5..10),
+    ///     Match::must(0, 11..17),
     /// ]);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -804,7 +804,7 @@ impl Cache {
     ///
     /// let mut cache = re1.create_cache();
     /// assert_eq!(
-    ///     Some(Match::must(0, 0, 2)),
+    ///     Some(Match::must(0, 0..2)),
     ///     re1.find(&mut cache, "Δ"),
     /// );
     ///
@@ -816,7 +816,7 @@ impl Cache {
     /// // allowed.
     /// cache.reset(&re2);
     /// assert_eq!(
-    ///     Some(Match::must(0, 0, 3)),
+    ///     Some(Match::must(0, 0..3)),
     ///     re2.find(&mut cache, "☃"),
     /// );
     ///
@@ -898,12 +898,12 @@ impl Config {
     ///
     /// let haystack = "a☃z";
     /// let mut it = re.find_iter(&mut cache, haystack);
-    /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 2, 2)), it.next());
-    /// assert_eq!(Some(Match::must(0, 3, 3)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4, 4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -923,10 +923,10 @@ impl Config {
     ///
     /// let haystack = "a☃z";
     /// let mut it = re.find_iter(&mut cache, haystack);
-    /// assert_eq!(Some(Match::must(0, 0, 0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1, 1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4, 4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5, 5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1018,7 +1018,7 @@ impl Config {
 /// let mut cache = re.create_cache();
 ///
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
-/// let expected = Some(Match::must(0, 1, 9));
+/// let expected = Some(Match::must(0, 1..9));
 /// let got = re.find(&mut cache, haystack);
 /// assert_eq!(expected, got);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,

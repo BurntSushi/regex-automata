@@ -127,7 +127,7 @@ use crate::{
 /// let mut cache = vm.create_cache();
 /// let mut caps = vm.create_captures();
 ///
-/// let expected = Some(Match::must(0, 0, 8));
+/// let expected = Some(Match::must(0, 0..8));
 /// vm.find(&mut cache, b"foo12345", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
@@ -209,7 +209,7 @@ impl NFA {
     /// let vm = PikeVM::new(r"foo[0-9]+")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(Match::must(0, 0, 8));
+    /// let expected = Some(Match::must(0, 0..8));
     /// vm.find(&mut cache, b"foo12345", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -233,7 +233,7 @@ impl NFA {
     /// let vm = PikeVM::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(Match::must(1, 0, 3));
+    /// let expected = Some(Match::must(1, 0..3));
     /// vm.find(&mut cache, b"foo12345bar", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -254,7 +254,7 @@ impl NFA {
     /// let vm = PikeVM::new_from_nfa(NFA::always_match())?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(Match::must(0, 0, 0));
+    /// let expected = Some(Match::must(0, 0..0));
     /// vm.find(&mut cache, b"", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     /// vm.find(&mut cache, b"foo", &mut caps);
@@ -329,7 +329,7 @@ impl NFA {
     ///     .build(r"[a-z]+")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(Match::must(0, 1, 4));
+    /// let expected = Some(Match::must(0, 1..4));
     /// vm.find(&mut cache, b"\xFFabc\xFF", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -363,7 +363,7 @@ impl NFA {
     ///     .build(r"[a-z]+(?-u:.)")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
-    /// let expected = Some(Match::must(0, 1, 5));
+    /// let expected = Some(Match::must(0, 1..5));
     /// vm.find(&mut cache, b"\xFFabc\xFF", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
@@ -2439,7 +2439,7 @@ impl Captures {
     /// let haystack = "ABC123";
     /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
     /// assert!(caps.is_match());
-    /// assert_eq!(Some(Match::must(0, 0, 6)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0..6)), caps.get_match());
     /// // The 'lower' group didn't match, so it won't have any offsets.
     /// assert_eq!(None, caps.get_group_by_name("lower"));
     /// assert_eq!(Some(Span::from(0..3)), caps.get_group_by_name("upper"));
@@ -2480,7 +2480,7 @@ impl Captures {
     /// let haystack = "ABC123";
     /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
     /// assert!(caps.is_match());
-    /// assert_eq!(Some(Match::must(0, 0, 6)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0..6)), caps.get_match());
     /// // We didn't ask for capturing group offsets, so they aren't available.
     /// assert_eq!(None, caps.get_group_by_name("lower"));
     /// assert_eq!(None, caps.get_group_by_name("upper"));
@@ -2618,7 +2618,7 @@ impl Captures {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find(&mut cache, "ABC", &mut caps);
-    /// assert_eq!(Some(Match::must(1, 0, 3)), caps.get_match());
+    /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -2665,7 +2665,7 @@ impl Captures {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
-    /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0..17)), caps.get_match());
     /// assert_eq!(Some(Span::from(0..5)), caps.get_group(1));
     /// assert_eq!(Some(Span::from(6..17)), caps.get_group(2));
     /// // Looking for a non-existent capturing group will return None:
@@ -2711,7 +2711,7 @@ impl Captures {
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
     /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
-    /// assert_eq!(Some(Match::must(0, 0, 17)), caps.get_match());
+    /// assert_eq!(Some(Match::must(0, 0..17)), caps.get_match());
     /// assert_eq!(Some(Span::from(0..5)), caps.get_group_by_name("first"));
     /// assert_eq!(Some(Span::from(6..17)), caps.get_group_by_name("last"));
     /// // Looking for a non-existent capturing group will return None:

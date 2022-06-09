@@ -54,14 +54,14 @@ pub(crate) const MATCH_OFFSET: usize = 1;
 //
 // // "earliest" searching isn't impacted by greediness
 // let mut it = re.find_earliest_iter(&mut cache, haystack);
-// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
-// assert_eq!(Some(Match::must(0, 1, 2)), it.next());
-// assert_eq!(Some(Match::must(0, 2, 3)), it.next());
+// assert_eq!(Some(Match::must(0, 0..1)), it.next());
+// assert_eq!(Some(Match::must(0, 1..2)), it.next());
+// assert_eq!(Some(Match::must(0, 2..3)), it.next());
 // assert_eq!(None, it.next());
 //
 // // "leftmost" searching supports greediness (and non-greediness)
 // let mut it = re.find_leftmost_iter(&mut cache, haystack);
-// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
+// assert_eq!(Some(Match::must(0, 0..3)), it.next());
 // assert_eq!(None, it.next());
 //
 // // For overlapping, we want "all" match kind semantics.
@@ -73,9 +73,9 @@ pub(crate) const MATCH_OFFSET: usize = 1;
 // // In the overlapping search, we find all three possible matches
 // // starting at the beginning of the haystack.
 // let mut it = re.find_overlapping_iter(&mut cache, haystack);
-// assert_eq!(Some(Match::must(0, 0, 1)), it.next());
-// assert_eq!(Some(Match::must(0, 0, 2)), it.next());
-// assert_eq!(Some(Match::must(0, 0, 3)), it.next());
+// assert_eq!(Some(Match::must(0, 0..1)), it.next());
+// assert_eq!(Some(Match::must(0, 0..2)), it.next());
+// assert_eq!(Some(Match::must(0, 0..3)), it.next());
 // assert_eq!(None, it.next());
 //
 // # Ok::<(), Box<dyn std::error::Error>>(())
@@ -579,10 +579,10 @@ impl Match {
     /// object using convenient range syntax.
     ///
     /// ```
-    /// use regex_automata::Match;
+    /// use regex_automata::{Match, PatternID};
     ///
     /// let m = Match::new(PatternID::ZERO, 5..10);
-    /// assert_eq!(0, m.pattern());
+    /// assert_eq!(0, m.pattern().as_usize());
     /// assert_eq!(5, m.start());
     /// assert_eq!(10, m.end());
     /// ```
@@ -616,7 +616,7 @@ impl Match {
     /// use regex_automata::Match;
     ///
     /// let m = Match::must(3, 5..10);
-    /// assert_eq!(3, m.pattern());
+    /// assert_eq!(3, m.pattern().as_usize());
     /// assert_eq!(5, m.start());
     /// assert_eq!(10, m.end());
     /// ```

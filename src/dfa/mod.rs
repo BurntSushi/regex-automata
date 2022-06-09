@@ -38,8 +38,8 @@ let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<Match> = re.find_iter(text).collect();
 assert_eq!(matches, vec![
-    Match::must(0, 0, 10),
-    Match::must(0, 11, 21),
+    Match::must(0, 0..10),
+    Match::must(0, 11..21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -57,8 +57,8 @@ let re = Regex::new_many(&[r"\w+", r"\S+"])?;
 let text = b"@foo bar";
 let matches: Vec<Match> = re.find_iter(text).collect();
 assert_eq!(matches, vec![
-    Match::must(1, 0, 4),
-    Match::must(0, 5, 8),
+    Match::must(1, 0..4),
+    Match::must(0, 5..8),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -80,8 +80,8 @@ let re = Regex::new_sparse(r"[0-9]{4}-[0-9]{2}-[0-9]{2}").unwrap();
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<Match> = re.find_iter(text).collect();
 assert_eq!(matches, vec![
-    Match::must(0, 0, 10),
-    Match::must(0, 11, 21),
+    Match::must(0, 0..10),
+    Match::must(0, 11..21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -100,8 +100,8 @@ let sparse_re = Regex::builder().build_from_dfas(
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<Match> = sparse_re.find_iter(text).collect();
 assert_eq!(matches, vec![
-    Match::must(0, 0, 10),
-    Match::must(0, 11, 21),
+    Match::must(0, 0..10),
+    Match::must(0, 11..21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -130,8 +130,8 @@ let re2 = Regex::builder().build_from_dfas(fwd, rev);
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<Match> = re2.find_iter(text).collect();
 assert_eq!(matches, vec![
-    Match::must(0, 0, 10),
-    Match::must(0, 11, 21),
+    Match::must(0, 0..10),
+    Match::must(0, 11..21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -177,8 +177,8 @@ let re2 = Regex::builder().build_from_dfas(fwd, rev);
 let text = b"2018-12-24 2016-10-08";
 let matches: Vec<Match> = re2.find_iter(text).collect();
 assert_eq!(matches, vec![
-    Match::must(0, 0, 10),
-    Match::must(0, 11, 21),
+    Match::must(0, 0..10),
+    Match::must(0, 11..21),
 ]);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

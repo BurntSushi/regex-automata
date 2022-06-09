@@ -179,8 +179,8 @@ fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
         .configure(Regex::config().prefilter(Some(pre)))
         .build(r"a[0-9]+")?;
     let mut cache = re.create_cache();
-    assert_eq!(re.find(&mut cache, b"za123"), Some(Match::must(0, 1, 5)));
-    assert_eq!(re.find(&mut cache, b"a123"), Some(Match::must(0, 0, 4)));
+    assert_eq!(re.find(&mut cache, b"za123"), Some(Match::must(0, 1..5)));
+    assert_eq!(re.find(&mut cache, b"a123"), Some(Match::must(0, 0..4)));
 
     let pre = Arc::new(BunkPrefilter::new());
     let re = Regex::builder()
