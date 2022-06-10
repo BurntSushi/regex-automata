@@ -107,11 +107,12 @@ fn len(byte: u8) -> Option<usize> {
 ///
 /// If `bytes` is not valid UTF-8, then the behavior of this routine is
 /// unspecified.
+#[inline(always)]
 pub(crate) fn is_boundary(bytes: &[u8], i: usize) -> bool {
     match bytes.get(i) {
         // The position at the end of the bytes always represents an empty
         // string, which is a valid boundary. But anything after that doesn't
-        // make much sense to valid a boundary.
+        // make much sense to call valid a boundary.
         None => i == bytes.len(),
         // Other than ASCII (where the most significant bit is never set),
         // valid starting bytes always have their most significant two bits

@@ -55,17 +55,18 @@ impl Start {
     /// parameters. If the given offset range is not valid, then this panics.
     #[inline(always)]
     pub(crate) fn from_position_fwd(search: &Search<'_>) -> Start {
+        let sp = search.get_span();
         assert!(
-            search.haystack().get(search.get_range()).is_some(),
+            search.haystack().get(sp.range()).is_some(),
             "{}..{} is invalid",
-            search.start(),
-            search.end(),
+            sp.start,
+            sp.end,
         );
-        if search.start() == 0 {
+        if sp.start == 0 {
             Start::Text
-        } else if search.haystack()[search.start() - 1] == b'\n' {
+        } else if search.haystack()[sp.start - 1] == b'\n' {
             Start::Line
-        } else if utf8::is_word_byte(search.haystack()[search.start() - 1]) {
+        } else if utf8::is_word_byte(search.haystack()[sp.start - 1]) {
             Start::WordByte
         } else {
             Start::NonWordByte
@@ -77,17 +78,18 @@ impl Start {
     /// this panics.
     #[inline(always)]
     pub(crate) fn from_position_rev(search: &Search<'_>) -> Start {
+        let sp = search.get_span();
         assert!(
-            search.haystack().get(search.get_range()).is_some(),
+            search.haystack().get(sp.range()).is_some(),
             "{}..{} is invalid",
-            search.start(),
-            search.end(),
+            sp.start,
+            sp.end,
         );
-        if search.end() == search.haystack().len() {
+        if sp.end == search.haystack().len() {
             Start::Text
-        } else if search.haystack()[search.end()] == b'\n' {
+        } else if search.haystack()[sp.end] == b'\n' {
             Start::Line
-        } else if utf8::is_word_byte(search.haystack()[search.end()]) {
+        } else if utf8::is_word_byte(search.haystack()[sp.end]) {
             Start::WordByte
         } else {
             Start::NonWordByte

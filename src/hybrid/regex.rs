@@ -620,7 +620,7 @@ impl Regex {
         let revsearch = search
             .clone()
             .earliest(false)
-            .span((search.start()..end.offset()).into());
+            .span(search.get_start()..end.offset());
         let start = search::find_rev(rdfa, rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         debug_assert_eq!(

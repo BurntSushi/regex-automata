@@ -15,3 +15,11 @@ matches = [
 ]
 match_kind = "all"
 search_kind = "leftmost"
+
+[[tests]]
+name = "dotall"
+regex = '(?s:.)'
+input = "foobar"
+matches = [[5, 6]]
+match_kind = "all"
+search_kind = "leftmost"

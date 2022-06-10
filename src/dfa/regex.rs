@@ -644,7 +644,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         let revsearch = search
             .clone()
             .earliest(false)
-            .span((search.start()..end.offset()).into());
+            .span(search.get_start()..end.offset());
         let start = (&rev)
             .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");

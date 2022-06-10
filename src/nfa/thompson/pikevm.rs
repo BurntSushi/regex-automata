@@ -350,6 +350,8 @@ impl PikeVM {
         caps.set_pattern(None);
         cache.clear(caps.slot_len());
 
+        let allmatches =
+            self.config.get_match_kind().continue_past_first_match();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || search.get_pattern().is_some();
@@ -369,10 +371,12 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = search.start();
-        while at <= search.end() {
+        let mut at = search.get_start();
+        while at <= search.get_end() {
             if clist.set.is_empty() {
-                if caps.is_match() || (anchored && at > search.start()) {
+                if (caps.is_match() && !allmatches)
+                    || (anchored && at > search.get_start())
+                {
                     break;
                 }
             }
@@ -426,9 +430,9 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = search.start();
-        while at <= search.end() {
-            if anchored && clist.set.is_empty() && at > search.start() {
+        let mut at = search.get_start();
+        while at <= search.get_end() {
+            if anchored && clist.set.is_empty() && at > search.get_start() {
                 break;
             }
             if clist.set.is_empty() || !anchored {

@@ -230,7 +230,8 @@ fn search_pikevm(
                     // doing this step for all empty matches isn't needed for
                     // correctness, but it avoids an additional search call in
                     // some common cases (e.g., for the empty regex).
-                    search.step_byte();
+                    search
+                        .set_start(search.get_start().checked_add(1).unwrap());
                     // If we see an empty match that overlaps with the previous
                     // match, we skip this one and continue searching at the
                     // next byte.

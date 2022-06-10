@@ -7,7 +7,7 @@ use crate::{
     util::{
         id::PatternID,
         prefilter,
-        search::{HalfMatch, MatchError, Search, Span, MATCH_OFFSET},
+        search::{HalfMatch, MatchError, Search, Span},
     },
 };
 
@@ -56,7 +56,7 @@ fn find_fwd_imp(
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_fwd(dfa, cache, search)?;
     let mut last_match = None;
-    let mut at = search.start();
+    let mut at = search.get_start();
     // This could just be a closure, but then I think it would be unsound
     // because it would need to be safe to invoke. This way, the lack of safety
     // is clearer in the code below.
@@ -68,7 +68,7 @@ fn find_fwd_imp(
     }
 
     if let Some(ref mut pre) = pre {
-        let span = Span::from(at..search.end());
+        let span = Span::from(at..search.get_end());
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
@@ -88,7 +88,7 @@ fn find_fwd_imp(
             }
         }
     }
-    while at < search.end() {
+    while at < search.get_end() {
         if sid.is_tagged() {
             sid = dfa
                 .next_state(cache, sid, search.haystack()[at])
@@ -189,9 +189,9 @@ fn find_fwd_imp(
             //
             // NOTE: I used 'OpenSubtitles2018.raw.sample.en' for 'bigfile'.
             let mut prev_sid = sid;
-            while at < search.end() {
+            while at < search.get_end() {
                 prev_sid = unsafe { next_unchecked!(sid, at) };
-                if prev_sid.is_tagged() || at + 3 >= search.end() {
+                if prev_sid.is_tagged() || at + 3 >= search.get_end() {
                     core::mem::swap(&mut prev_sid, &mut sid);
                     break;
                 }
@@ -217,7 +217,7 @@ fn find_fwd_imp(
                 at += 1;
 
                 if prev_sid == sid {
-                    while at + 4 < search.end() {
+                    while at + 4 < search.get_end() {
                         let next = unsafe { next_unchecked!(sid, at) };
                         if sid != next {
                             break;
@@ -257,7 +257,7 @@ fn find_fwd_imp(
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(at) {
-                        let span = Span::from(at..search.end());
+                        let span = Span::from(at..search.get_end());
                         match pre.find(search.haystack(), span).into_option() {
                             // TODO: This looks like a bug to me. We should
                             // return 'Ok(last_match)', i.e., treat it like a
@@ -339,12 +339,12 @@ fn find_rev_imp(
     // an unsigned offset, 'at >= 0' is trivially always true. We could avoid
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
-    if search.start() == search.end() {
+    if search.get_start() == search.get_end() {
         return Ok(eoi_rev(dfa, cache, search, &mut sid)?);
     }
 
     let mut last_match = None;
-    let mut at = search.end() - 1;
+    let mut at = search.get_end() - 1;
     macro_rules! next_unchecked {
         ($sid:expr, $at:expr) => {{
             let byte = *search.haystack().get_unchecked($at);
@@ -380,10 +380,10 @@ fn find_rev_imp(
             //
             // NOTE: I used 'OpenSubtitles2018.raw.sample.en' for 'bigfile'.
             let mut prev_sid = sid;
-            while at >= search.start() {
+            while at >= search.get_start() {
                 prev_sid = unsafe { next_unchecked!(sid, at) };
                 if prev_sid.is_tagged()
-                    || at <= search.start().saturating_add(3)
+                    || at <= search.get_start().saturating_add(3)
                 {
                     core::mem::swap(&mut prev_sid, &mut sid);
                     break;
@@ -410,7 +410,7 @@ fn find_rev_imp(
                 at -= 1;
 
                 if prev_sid == sid {
-                    while at > search.start().saturating_add(3) {
+                    while at > search.get_start().saturating_add(3) {
                         let next = unsafe { next_unchecked!(sid, at) };
                         if sid != next {
                             break;
@@ -452,12 +452,10 @@ fn find_rev_imp(
             } else if sid.is_match() {
                 last_match = Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, sid, 0),
-                    // Since slice ranges are inclusive at the beginning and
-                    // exclusive at the end, and since reverse searches report
-                    // the beginning, we need to offset the position by our
-                    // MATCH_OFFSET (because matches are delayed by 1 byte in
-                    // the DFA).
-                    offset: at + MATCH_OFFSET,
+                    // Since reverse searches report the beginning of a match
+                    // and the beginning is inclusive (not exclusive like the
+                    // end of a match), we add 1 to make it inclusive.
+                    offset: at + 1,
                 });
                 if earliest {
                     return Ok(last_match);
@@ -477,7 +475,7 @@ fn find_rev_imp(
                 unreachable!("sid being unknown is a bug");
             }
         }
-        if at == search.start() {
+        if at == search.get_start() {
             break;
         }
         at -= 1;
@@ -515,7 +513,7 @@ fn find_overlapping_fwd_imp(
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = match state.id {
         None => {
-            state.at = search.start();
+            state.at = search.get_start();
             init_fwd(dfa, cache, search)?
         }
         Some(sid) => {
@@ -541,7 +539,7 @@ fn find_overlapping_fwd_imp(
     // it seems like most overlapping searches will have higher match counts,
     // and thus, throughput is perhaps not as important. But if you have a use
     // case for something faster, feel free to file an issue.
-    while state.at < search.end() {
+    while state.at < search.get_end() {
         sid = dfa
             .next_state(cache, sid, search.haystack()[state.at])
             .map_err(|_| gave_up(state.at))?;
@@ -550,7 +548,7 @@ fn find_overlapping_fwd_imp(
             if sid.is_start() {
                 if let Some(ref mut pre) = pre {
                     if pre.is_effective(state.at) {
-                        let span = Span::from(state.at..search.end());
+                        let span = Span::from(state.at..search.get_end());
                         match pre.find(search.haystack(), span).into_option() {
                             None => return Ok(None),
                             Some(i) => {
@@ -606,10 +604,10 @@ pub(crate) fn find_overlapping_rev(
     let mut sid = match state.id {
         None => {
             state.id = Some(init_rev(dfa, cache, search)?);
-            if search.start() == search.end() {
+            if search.get_start() == search.get_end() {
                 state.rev_eoi = true;
             } else {
-                state.at = search.end() - 1;
+                state.at = search.get_end() - 1;
             }
             state.id.unwrap()
         }
@@ -631,7 +629,7 @@ pub(crate) fn find_overlapping_rev(
             // with the search and there cannot be any more matches to report.
             if state.rev_eoi {
                 return Ok(None);
-            } else if state.at == search.start() {
+            } else if state.at == search.get_start() {
                 // At this point, we should follow the EOI transition. This
                 // will cause us the skip the main loop below and fall through
                 // to the final 'eoi_rev' transition.
@@ -655,7 +653,7 @@ pub(crate) fn find_overlapping_rev(
                 state.next_match_index = Some(1);
                 return Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, sid, 0),
-                    offset: state.at + MATCH_OFFSET,
+                    offset: state.at + 1,
                 }));
             } else if sid.is_dead() {
                 return Ok(None);
@@ -669,7 +667,7 @@ pub(crate) fn find_overlapping_rev(
                 unreachable!("sid being unknown is a bug");
             }
         }
-        if state.at == search.start() {
+        if state.at == search.get_start() {
             break;
         }
         state.at -= 1;
@@ -696,7 +694,7 @@ fn init_fwd(
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
         .start_state_forward(cache, search)
-        .map_err(|_| gave_up(search.start()))?;
+        .map_err(|_| gave_up(search.get_start()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     debug_assert!(!sid.is_match());
@@ -711,7 +709,7 @@ fn init_rev(
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
         .start_state_reverse(cache, search)
-        .map_err(|_| gave_up(search.end()))?;
+        .map_err(|_| gave_up(search.get_end()))?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     debug_assert!(!sid.is_match());
@@ -725,15 +723,15 @@ fn eoi_fwd(
     search: &Search<'_>,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    match search.haystack().get(search.end()) {
+    let sp = search.get_span();
+    match search.haystack().get(sp.end) {
         Some(&b) => {
-            *sid = dfa
-                .next_state(cache, *sid, b)
-                .map_err(|_| gave_up(search.end()))?;
+            *sid =
+                dfa.next_state(cache, *sid, b).map_err(|_| gave_up(sp.end))?;
             if sid.is_match() {
                 Ok(Some(HalfMatch {
                     pattern: dfa.match_pattern(cache, *sid, 0),
-                    offset: search.end(),
+                    offset: sp.end,
                 }))
             } else {
                 Ok(None)
@@ -762,22 +760,22 @@ fn eoi_rev(
     search: &Search<'_>,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
-    if search.start() > 0 {
+    let sp = search.get_span();
+    if sp.start > 0 {
         *sid = dfa
-            .next_state(cache, *sid, search.haystack()[search.start() - 1])
-            .map_err(|_| gave_up(search.start()))?;
+            .next_state(cache, *sid, search.haystack()[sp.start - 1])
+            .map_err(|_| gave_up(sp.start))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
                 pattern: dfa.match_pattern(cache, *sid, 0),
-                offset: search.start(),
+                offset: sp.start,
             }))
         } else {
             Ok(None)
         }
     } else {
-        *sid = dfa
-            .next_eoi_state(cache, *sid)
-            .map_err(|_| gave_up(search.start()))?;
+        *sid =
+            dfa.next_eoi_state(cache, *sid).map_err(|_| gave_up(sp.start))?;
         if sid.is_match() {
             Ok(Some(HalfMatch {
                 pattern: dfa.match_pattern(cache, *sid, 0),

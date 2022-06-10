@@ -111,7 +111,8 @@ where
         // as the previous search's start position. Thus, it would never
         // terminate.
         if Some(m.end()) == self.last_match_end {
-            self.search.step_byte();
+            self.search
+                .set_start(self.search.get_start().checked_add(1).unwrap());
             m = match (self.finder)(&self.search).transpose()? {
                 Err(err) => return Some(Err(err)),
                 Ok(m) => m,
@@ -292,7 +293,7 @@ where
         //
         // We could prevent *any* match from being returned if it splits a
         // codepoint, but that seems like it's going too far.
-        self.search.set_start(self.search.start().checked_add(1).unwrap());
+        self.search.set_start(self.search.get_start().checked_add(1).unwrap());
         if self.search.is_done() {
             return None;
         }

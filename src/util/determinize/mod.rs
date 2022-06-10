@@ -205,6 +205,14 @@ pub(crate) fn next(
                 // IDs in a set, we are guarateed not to have any duplicative
                 // match states. Thus, it is impossible to add the same pattern
                 // ID more than once.
+                //
+                // N.B. We delay matches by 1 byte as a way to hack 1-byte
+                // look-around into DFA searches. This lets us support ^, $
+                // and ASCII-only \b. The delay is also why we need a special
+                // "end-of-input" (EOI) sentinel and why we need to follow the
+                // EOI sentinel at the end of every search. This final EOI
+                // transition is necessary to report matches found at the end
+                // of a haystack.
                 builder.add_match_pattern_id(pattern_id);
                 if !match_kind.continue_past_first_match() {
                     break;

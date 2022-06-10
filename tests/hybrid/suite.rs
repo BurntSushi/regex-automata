@@ -309,7 +309,7 @@ fn try_search_overlapping(
             .clone()
             .pattern(Some(end.pattern()))
             .earliest(false)
-            .range(search.start()..end.offset());
+            .range(search.get_start()..end.offset());
         let mut rev_state = OverlappingState::start();
         while let Some(start) = rev_dfa.try_search_overlapping_rev(
             rev_cache,
