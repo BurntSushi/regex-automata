@@ -149,20 +149,6 @@ impl<'h> Search<'h> {
         Search { pattern, ..self }
     }
 
-    // BREADCRUMBS: Continue auditing and documenting 'Search'.
-    //
-    // The inconsistent naming is unfortunate. e.g., 'start()'/'end()' are
-    // getters despite things like 'pattern()' being setters. And to make things
-    // worse, we also have 'set_{start,end}'.
-    //
-    // I guess 'start()' and 'end()' really should be 'get_{start,end}', but
-    // that does make them more verbose. Their terseness is convenience inside
-    // the implementation of search routines...
-    //
-    // The setters which mutate 'Search' are probably necessary to keep around
-    // to avoid forcing callers to create copies of 'Search' just to update the
-    // search position. Should we thus make setters for everything else too?
-
     /// Whether to execute an "earliest" search or not.
     ///
     /// When running a non-overlapping search, an "earliest" search will return
@@ -178,8 +164,9 @@ impl<'h> Search<'h> {
     /// points. So there is no guarantee that "earliest" matches will always
     /// return the same offsets for all regex engines. The "earliest" notion
     /// is really about when the particular regex engine determines there is
-    /// a match. This is often useful for implementing "did a match occur or
-    /// not" predicates, but sometimes the offset is useful as well.
+    /// a match rather than a consistent semantic unto itself. This is often
+    /// useful for implementing "did a match occur or not" predicates, but
+    /// sometimes the offset is useful as well.
     ///
     /// This is disabled by default.
     #[inline]
@@ -187,6 +174,73 @@ impl<'h> Search<'h> {
         Search { earliest: yes, ..self }
     }
 
+    /// Whether to enable UTF-8 mode during search or not.
+    ///
+    /// UTF-8 mode on a `Search` refers to whether a regex engine should
+    /// treat the haystack as valid UTF-8 in cases where that could make a
+    /// difference.
+    ///
+    /// An example of this occurs when a regex pattern semantically matches the
+    /// empty string. In such cases, the underlying finite state machine will
+    /// likely not distiguish between empty strings that do and do not split
+    /// codepoints in UTF-8 haystacks. When this option is enabled, the regex
+    /// engine will can insert higher level code that checks for whether the
+    /// match splits a codepoint, and if so, skip that match entirely and look
+    /// for the next one.
+    ///
+    /// In effect, this option is useful to enable when both of the following
+    /// are true:
+    ///
+    /// 1. Your haystack is valid UTF-8.
+    /// 2. You never want to report spans that fall on invalid UTF-8
+    /// boundaries.
+    ///
+    /// Typically, this is enabled in concert with
+    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::pikevm::PikeVM,
+    ///     Match, Search,
+    /// };
+    ///
+    /// let vm = PikeVM::new("")?;
+    /// let mut cache = vm.create_cache();
+    /// let mut caps = vm.create_captures();
+    ///
+    /// // UTF-8 mode is enabled by default.
+    /// let mut search = Search::new("☃");
+    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
+    ///
+    /// // Even though an empty regex matches at 1..1, our next match is
+    /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
+    /// // three bytes long).
+    /// search.set_start(1);
+    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
+    ///
+    /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
+    /// let mut noutf8 = search.clone().utf8(false);
+    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
+
+    /// noutf8.set_start(2);
+    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
+    ///
+    /// noutf8.set_start(3);
+    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
+    ///
+    /// noutf8.set_start(4);
+    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn utf8(self, yes: bool) -> Search<'h> {
         Search { utf8: yes, ..self }
