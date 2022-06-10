@@ -641,10 +641,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // search, since it could be enabled for the forward search. In the
         // reverse case, to satisfy "leftmost" criteria, we need to match as
         // much as we can.
-        let revsearch = search
-            .clone()
-            .earliest(false)
-            .span(search.get_start()..end.offset());
+        let revsearch =
+            search.clone().earliest(false).span(search.start()..end.offset());
         let start = (&rev)
             .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");

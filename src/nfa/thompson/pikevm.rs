@@ -371,11 +371,11 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = search.get_start();
-        while at <= search.get_end() {
+        let mut at = search.start();
+        while at <= search.end() {
             if clist.set.is_empty() {
                 if (caps.is_match() && !allmatches)
-                    || (anchored && at > search.get_start())
+                    || (anchored && at > search.start())
                 {
                     break;
                 }
@@ -430,9 +430,9 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = search.get_start();
-        while at <= search.get_end() {
-            if anchored && clist.set.is_empty() && at > search.get_start() {
+        let mut at = search.start();
+        while at <= search.end() {
+            if anchored && clist.set.is_empty() && at > search.start() {
                 break;
             }
             if clist.set.is_empty() || !anchored {
