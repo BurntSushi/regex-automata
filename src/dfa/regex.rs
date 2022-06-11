@@ -595,7 +595,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn try_search(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         let m = match self.try_search_fwd_back(pre, search)? {
             None => return Ok(None),
@@ -657,13 +657,13 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 }
 
 type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>;
+    Box<dyn FnMut(&Search<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
 
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
     fn try_matches_iter<'r, 'h>(
         &'r self,
-        search: Search<'h>,
-    ) -> iter::TryMatches<'h, TryMatchesClosure<'h, 'r>> {
+        search: Search<'h, 'r>,
+    ) -> iter::TryMatches<'h, 'r, TryMatchesClosure<'h, 'r>> {
         let mut scanner = self.scanner();
         iter::TryMatches::boxed(search, move |search| {
             let pre = scanner.as_mut();
@@ -685,11 +685,13 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// This routine is useful when using the lower-level [`Regex::try_search`]
     /// API.
     #[inline]
-    pub fn create_search<'h, H: ?Sized + AsRef<[u8]>>(
-        &self,
+    pub fn create_search<'p, 'h, H: ?Sized + AsRef<[u8]>>(
+        &'p self,
         haystack: &'h H,
-    ) -> Search<'h> {
-        Search::new(haystack).utf8(self.get_config().get_utf8())
+    ) -> Search<'h, 'p> {
+        Search::new(haystack)
+            .prefilter(self.prefilter())
+            .utf8(self.get_config().get_utf8())
     }
 
     /// Return the config for this regex.
@@ -781,7 +783,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 ///
 /// This iterator can be created with the [`Regex::find_iter`] method.
 #[derive(Debug)]
-pub struct FindMatches<'h, 'c>(iter::Matches<'h, TryMatchesClosure<'h, 'c>>);
+pub struct FindMatches<'h, 'c>(
+    iter::Matches<'h, 'c, TryMatchesClosure<'h, 'c>>,
+);
 
 impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
     type Item = Match;
@@ -805,7 +809,7 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
 /// This iterator can be created with the [`Regex::try_find_iter`] method.
 #[derive(Debug)]
 pub struct TryFindMatches<'h, 'c>(
-    iter::TryMatches<'h, TryMatchesClosure<'h, 'c>>,
+    iter::TryMatches<'h, 'c, TryMatchesClosure<'h, 'c>>,
 );
 
 impl<'h, 'c> Iterator for TryFindMatches<'h, 'c> {

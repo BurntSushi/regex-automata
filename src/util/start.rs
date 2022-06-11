@@ -54,7 +54,7 @@ impl Start {
     /// Returns the starting state configuration for the given search
     /// parameters. If the given offset range is not valid, then this panics.
     #[inline(always)]
-    pub(crate) fn from_position_fwd(search: &Search<'_>) -> Start {
+    pub(crate) fn from_position_fwd(search: &Search<'_, '_>) -> Start {
         let sp = search.get_span();
         assert!(
             search.haystack().get(sp.range()).is_some(),
@@ -77,7 +77,7 @@ impl Start {
     /// given search parameters. If the given offset range is not valid, then
     /// this panics.
     #[inline(always)]
-    pub(crate) fn from_position_rev(search: &Search<'_>) -> Start {
+    pub(crate) fn from_position_rev(search: &Search<'_, '_>) -> Start {
         let sp = search.get_span();
         assert!(
             search.haystack().get(sp.range()).is_some(),

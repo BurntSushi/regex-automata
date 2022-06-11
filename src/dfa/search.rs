@@ -15,7 +15,7 @@ use crate::{
 pub fn find_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     pre: Option<&mut prefilter::Scanner>,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
         return Ok(None);
@@ -41,7 +41,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
 fn find_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
     mut pre: Option<&mut prefilter::Scanner>,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_fwd(dfa, search)?;
@@ -209,7 +209,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
 #[inline(never)]
 pub fn find_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
         return Ok(None);
@@ -224,7 +224,7 @@ pub fn find_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn find_rev_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_rev(dfa, search)?;
@@ -368,7 +368,7 @@ fn find_rev_imp<A: Automaton + ?Sized>(
 pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     pre: Option<&mut prefilter::Scanner>,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
@@ -387,7 +387,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
     mut pre: Option<&mut prefilter::Scanner>,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut at = search.start();
@@ -488,7 +488,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
 #[inline(never)]
 pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
@@ -597,7 +597,7 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn init_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
 ) -> Result<StateID, MatchError> {
     let state = dfa.start_state_forward(search);
     // Start states can never be match states, since all matches are delayed
@@ -609,7 +609,7 @@ fn init_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn init_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
 ) -> Result<StateID, MatchError> {
     let state = dfa.start_state_reverse(search);
     // Start states can never be match states, since all matches are delayed
@@ -621,7 +621,7 @@ fn init_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn eoi_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
     sid: &mut StateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let sp = search.get_span();
@@ -654,7 +654,7 @@ fn eoi_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
     sid: &mut StateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let sp = search.get_span();

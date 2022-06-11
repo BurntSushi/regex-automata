@@ -339,7 +339,7 @@ fn config_thompson(test: &RegexTest) -> thompson::Config {
 /// is written in a way that requires starting offsets.
 fn try_search_overlapping<A: Automaton>(
     re: &Regex<A>,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut pre = re.scanner();

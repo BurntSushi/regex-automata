@@ -2934,13 +2934,13 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn start_state_forward(&self, search: &Search<'_>) -> StateID {
+    fn start_state_forward(&self, search: &Search<'_, '_>) -> StateID {
         let index = Start::from_position_fwd(&search);
         self.st.start(index, search.get_pattern())
     }
 
     #[inline]
-    fn start_state_reverse(&self, search: &Search<'_>) -> StateID {
+    fn start_state_reverse(&self, search: &Search<'_, '_>) -> StateID {
         let index = Start::from_position_rev(&search);
         self.st.start(index, search.get_pattern())
     }

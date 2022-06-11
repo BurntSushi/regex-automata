@@ -245,7 +245,7 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_forward(&self, search: &Search<'_>) -> StateID;
+    fn start_state_forward(&self, search: &Search<'_, '_>) -> StateID;
 
     /// Return the ID of the start state for this DFA when executing a reverse
     /// search.
@@ -275,7 +275,7 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_reverse(&self, search: &Search<'_>) -> StateID;
+    fn start_state_reverse(&self, search: &Search<'_, '_>) -> StateID;
 
     /// Returns true if and only if the given identifier corresponds to a
     /// "special" state. A special state is one or more of the following:
@@ -1167,7 +1167,7 @@ pub unsafe trait Automaton {
     fn try_search_fwd(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_fwd(self, pre, search)
     }
@@ -1200,7 +1200,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_rev(
         &self,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_rev(self, search)
     }
@@ -1293,7 +1293,7 @@ pub unsafe trait Automaton {
     fn try_search_overlapping_fwd(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_fwd(self, pre, search, state)
@@ -1331,7 +1331,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_overlapping_rev(
         &self,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_rev(self, search, state)
@@ -1394,7 +1394,7 @@ pub unsafe trait Automaton {
     fn try_which_overlapping_matches(
         &self,
         mut pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
@@ -1434,12 +1434,12 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn start_state_forward(&self, search: &Search<'_>) -> StateID {
+    fn start_state_forward(&self, search: &Search<'_, '_>) -> StateID {
         (**self).start_state_forward(search)
     }
 
     #[inline]
-    fn start_state_reverse(&self, search: &Search<'_>) -> StateID {
+    fn start_state_reverse(&self, search: &Search<'_, '_>) -> StateID {
         (**self).start_state_reverse(search)
     }
 
@@ -1513,7 +1513,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn try_search_fwd(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_fwd(pre, search)
     }
@@ -1521,7 +1521,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_rev(
         &self,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_rev(search)
     }
@@ -1530,7 +1530,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn try_search_overlapping_fwd(
         &self,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_overlapping_fwd(pre, search, state)
@@ -1540,7 +1540,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     fn try_which_overlapping_matches(
         &self,
         mut pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         (**self).try_which_overlapping_matches(pre, search, patset)

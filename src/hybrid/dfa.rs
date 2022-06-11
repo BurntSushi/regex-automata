@@ -722,7 +722,7 @@ impl DFA {
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_fwd(self, cache, pre, search)
     }
@@ -755,7 +755,7 @@ impl DFA {
     pub fn try_search_rev(
         &self,
         cache: &mut Cache,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_rev(self, cache, search)
     }
@@ -851,7 +851,7 @@ impl DFA {
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_fwd(self, cache, pre, search, state)
@@ -891,7 +891,7 @@ impl DFA {
     pub fn try_search_overlapping_rev(
         &self,
         cache: &mut Cache,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_rev(self, cache, search, state)
@@ -956,7 +956,7 @@ impl DFA {
         &self,
         cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
@@ -1379,7 +1379,7 @@ impl DFA {
     pub fn start_state_forward(
         &self,
         cache: &mut Cache,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_fwd(search);
         let sid = LazyRef::new(self, cache)
@@ -1423,7 +1423,7 @@ impl DFA {
     pub fn start_state_reverse(
         &self,
         cache: &mut Cache,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_rev(search);
         let sid = LazyRef::new(self, cache)

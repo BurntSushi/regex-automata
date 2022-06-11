@@ -292,7 +292,7 @@ fn config_syntax(test: &RegexTest) -> SyntaxConfig {
 fn try_search_overlapping(
     re: &Regex,
     cache: &mut regex::Cache,
-    search: &Search<'_>,
+    search: &Search<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut pre = re.scanner();

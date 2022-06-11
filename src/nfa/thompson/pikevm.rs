@@ -298,7 +298,7 @@ impl PikeVM {
         &self,
         cache: &mut Cache,
         mut pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         caps: &mut Captures,
     ) {
         self.search_imp(cache, pre, search, caps);
@@ -321,7 +321,7 @@ impl PikeVM {
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) {
         self.which_overlapping_imp(cache, pre, search, patset)
@@ -333,7 +333,7 @@ impl PikeVM {
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         caps: &mut Captures,
     ) {
         // Why do we even care about this? Well, in our 'Captures'
@@ -406,7 +406,7 @@ impl PikeVM {
         &self,
         cache: &mut Cache,
         pre: Option<&mut prefilter::Scanner>,
-        search: &Search<'_>,
+        search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) {
         assert!(
@@ -675,7 +675,7 @@ impl PikeVM {
 }
 
 type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Search<'h>) -> Result<Option<Match>, MatchError> + 'c>;
+    Box<dyn FnMut(&Search<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
 
 /// An iterator over all non-overlapping matches for an infallible search.
 ///
@@ -691,7 +691,9 @@ type TryMatchesClosure<'h, 'c> =
 /// This iterator can be created with the [`PikeVM::find_iter`]
 /// method.
 #[derive(Debug)]
-pub struct FindMatches<'h, 'c>(iter::Matches<'h, TryMatchesClosure<'h, 'c>>);
+pub struct FindMatches<'h, 'c>(
+    iter::Matches<'h, 'c, TryMatchesClosure<'h, 'c>>,
+);
 
 impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
     type Item = Match;
@@ -718,7 +720,7 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
 /// method.
 #[derive(Debug)]
 pub struct CapturesMatches<'h, 'c> {
-    it: iter::Matches<'h, TryMatchesClosure<'h, 'c>>,
+    it: iter::Matches<'h, 'c, TryMatchesClosure<'h, 'c>>,
     /// In order to avoid re-implementing our own iterator, we store the
     /// capturing groups here and inside the iterator's closure. Once the
     /// closure executes, we clone the capturing group and return it.
