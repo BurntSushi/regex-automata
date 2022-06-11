@@ -210,13 +210,11 @@ fn search_pikevm(
             // The PikeVM has no 'earliest' captures iter, and using the
             // generic iterators is a little strained since they don't support
             // 'Captures' directly. So we just hand-write our own iterator.
-            let mut search = Search::new(haystack)
-                .earliest(true)
-                .utf8(vm.get_config().get_utf8());
+            let mut search = vm.create_search(haystack).earliest(true);
             let mut caps = vm.create_captures();
             let mut last_match_end: Option<usize> = None;
             loop {
-                vm.search(cache, None, &search, &mut caps);
+                vm.search(cache, &search, &mut caps);
                 let m = match caps.get_match() {
                     None => break,
                     Some(m) => m,

@@ -139,7 +139,7 @@ impl<'h, 'p> Search<'h, 'p> {
     ///
     /// // A standard search finds nothing, as expected.
     /// let search = Search::new(haystack);
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// // But if we wanted to search starting at position '1', we might
@@ -147,14 +147,14 @@ impl<'h, 'p> Search<'h, 'p> {
     /// // anchors to take the surrounding context into account! And thus,
     /// // a match is produced.
     /// let search = Search::new(&haystack[1..3]);
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..2)), caps.get_match());
     ///
     /// // But if we specify the span of the search instead of slicing the
     /// // haystack, then the regex engine can "see" outside of the span
     /// // and resolve the anchors correctly.
     /// let search = Search::new(haystack).span(1..3);
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -237,7 +237,7 @@ impl<'h, 'p> Search<'h, 'p> {
     ///
     /// // A standard search looks for any pattern.
     /// let search = Search::new("bar foo123");
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 4..10)), caps.get_match());
     ///
     /// // But we can also check whether a specific pattern
@@ -245,7 +245,7 @@ impl<'h, 'p> Search<'h, 'p> {
     /// let search = Search::new("bar foo123")
     ///     .range(4..)
     ///     .pattern(Some(PatternID::must(1)));
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(1, 4..10)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -306,14 +306,14 @@ impl<'h, 'p> Search<'h, 'p> {
     ///
     /// // A normal search implements greediness like you expect.
     /// let search = Search::new("foo12345");
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..8)), caps.get_match());
     ///
     /// // When 'earliest' is enabled and the regex engine supports
     /// // it, the search will bail once it knows a match has been
     /// // found.
     /// let search = Search::new("foo12345").earliest(true);
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..4)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -364,31 +364,31 @@ impl<'h, 'p> Search<'h, 'p> {
     ///
     /// // UTF-8 mode is enabled by default.
     /// let mut search = Search::new("☃");
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
     ///
     /// // Even though an empty regex matches at 1..1, our next match is
     /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
     /// // three bytes long).
     /// search.set_start(1);
-    /// vm.search(&mut cache, None, &search, &mut caps);
+    /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
     /// let mut noutf8 = search.clone().utf8(false);
-    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// vm.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
     ///
     /// noutf8.set_start(2);
-    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// vm.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
     ///
     /// noutf8.set_start(3);
-    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// vm.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// noutf8.set_start(4);
-    /// vm.search(&mut cache, None, &noutf8, &mut caps);
+    /// vm.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())

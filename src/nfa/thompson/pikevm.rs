@@ -12,7 +12,7 @@ use crate::{
         id::{PatternID, StateID},
         iter,
         nonmax::NonMaxUsize,
-        prefilter::{self, Prefilter},
+        prefilter::Prefilter,
         search::{Match, MatchError, MatchKind, PatternSet, Search},
         sparse_set::SparseSet,
     },
@@ -54,6 +54,7 @@ pub struct Config {
     anchored: Option<bool>,
     match_kind: Option<MatchKind>,
     utf8: Option<bool>,
+    pre: Option<Option<Arc<dyn Prefilter>>>,
 }
 
 impl Config {
@@ -77,6 +78,11 @@ impl Config {
         self
     }
 
+    pub fn prefilter(mut self, pre: Option<Arc<dyn Prefilter>>) -> Config {
+        self.pre = Some(pre);
+        self
+    }
+
     pub fn get_anchored(&self) -> bool {
         self.anchored.unwrap_or(false)
     }
@@ -89,11 +95,16 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
+    pub fn get_prefilter(&self) -> Option<&dyn Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_deref()
+    }
+
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             anchored: o.anchored.or(self.anchored),
             match_kind: o.match_kind.or(self.match_kind),
             utf8: o.utf8.or(self.utf8),
+            pre: o.pre.or_else(|| self.pre.clone()),
         }
     }
 }
@@ -210,6 +221,16 @@ impl PikeVM {
         Builder::new()
     }
 
+    pub fn create_search<'h, 'p, H: ?Sized + AsRef<[u8]>>(
+        &'p self,
+        haystack: &'h H,
+    ) -> Search<'h, 'p> {
+        let c = self.get_config();
+        Search::new(haystack.as_ref())
+            .prefilter(c.get_prefilter())
+            .utf8(c.get_utf8())
+    }
+
     pub fn create_cache(&self) -> Cache {
         Cache::new(self.get_nfa())
     }
@@ -236,11 +257,9 @@ impl PikeVM {
         cache: &mut Cache,
         haystack: H,
     ) -> bool {
-        let search = Search::new(haystack.as_ref())
-            .earliest(true)
-            .utf8(self.config.get_utf8());
+        let search = self.create_search(haystack.as_ref()).earliest(true);
         let mut caps = Captures::empty(self.nfa.clone());
-        self.search(cache, None, &search, &mut caps);
+        self.search(cache, &search, &mut caps);
         caps.is_match()
     }
 
@@ -251,9 +270,8 @@ impl PikeVM {
         haystack: H,
         caps: &mut Captures,
     ) {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
-        self.search(cache, None, &search, caps)
+        let search = self.create_search(haystack.as_ref());
+        self.search(cache, &search, caps)
     }
 
     #[inline]
@@ -262,11 +280,10 @@ impl PikeVM {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'h, 'c> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
+        let search = self.create_search(haystack.as_ref());
         let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
         let it = iter::TryMatches::boxed(search, move |search| {
-            self.search(cache, None, search, &mut caps);
+            self.search(cache, search, &mut caps);
             Ok(caps.get_match())
         })
         .infallible();
@@ -279,13 +296,12 @@ impl PikeVM {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> CapturesMatches<'h, 'c> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.config.get_utf8());
+        let search = self.create_search(haystack.as_ref());
         let caps = Arc::new(RefCell::new(self.create_captures()));
         let it = iter::TryMatches::boxed(search, {
             let caps = Arc::clone(&caps);
             move |search| {
-                self.search(cache, None, search, &mut *caps.borrow_mut());
+                self.search(cache, search, &mut *caps.borrow_mut());
                 Ok(caps.borrow().get_match())
             }
         })
@@ -297,11 +313,10 @@ impl PikeVM {
     pub fn search(
         &self,
         cache: &mut Cache,
-        mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         caps: &mut Captures,
     ) {
-        self.search_imp(cache, pre, search, caps);
+        self.search_imp(cache, search, caps);
         let m = match caps.get_match() {
             None => return,
             Some(m) => m,
@@ -309,7 +324,7 @@ impl PikeVM {
         if m.is_empty() {
             search
                 .skip_empty_utf8_splits(m, |search| {
-                    self.search_imp(cache, None, search, caps);
+                    self.search_imp(cache, search, caps);
                     Ok(caps.get_match())
                 })
                 .unwrap();
@@ -320,11 +335,10 @@ impl PikeVM {
     pub fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) {
-        self.which_overlapping_imp(cache, pre, search, patset)
+        self.which_overlapping_imp(cache, search, patset)
     }
 }
 
@@ -332,7 +346,6 @@ impl PikeVM {
     fn search_imp(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         caps: &mut Captures,
     ) {
@@ -405,7 +418,6 @@ impl PikeVM {
     fn which_overlapping_imp(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) {

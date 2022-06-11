@@ -587,7 +587,7 @@ impl DFA {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
-    ///     util::prefilter::{Candidate, Prefilter, State},
+    ///     util::prefilter::{Candidate, Prefilter},
     ///     HalfMatch, Search, Span,
     /// };
     ///

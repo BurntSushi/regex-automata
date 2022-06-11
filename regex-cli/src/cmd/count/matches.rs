@@ -654,11 +654,9 @@ fn search_pikevm(
         config::SearchKind::Earliest => {
             let mut caps = vm.create_captures();
             let mut it = iter::TryMatches::new(
-                Search::new(haystack)
-                    .earliest(true)
-                    .utf8(vm.get_config().get_utf8()),
+                vm.create_search(haystack).earliest(true),
                 move |search| {
-                    vm.search(cache, None, search, &mut caps);
+                    vm.search(cache, search, &mut caps);
                     Ok(caps.get_match())
                 },
             );

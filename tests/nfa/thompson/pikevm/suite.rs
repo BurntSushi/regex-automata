@@ -6,7 +6,7 @@ use regex_automata::{
         pikevm::{self, PikeVM},
     },
     util::iter,
-    MatchKind, PatternSet, Search, SyntaxConfig,
+    MatchKind, PatternSet, SyntaxConfig,
 };
 
 use ret::{
@@ -56,11 +56,9 @@ fn run_test(
             ret::SearchKind::Earliest => {
                 let mut caps = re.create_captures();
                 let it = iter::TryMatches::new(
-                    Search::new(test.input().as_bytes())
-                        .earliest(true)
-                        .utf8(test.utf8()),
+                    re.create_search(test.input()).earliest(true),
                     move |search| {
-                        re.search(cache, None, search, &mut caps);
+                        re.search(cache, search, &mut caps);
                         Ok(caps.get_match())
                     },
                 )
@@ -84,14 +82,8 @@ fn run_test(
             }
             ret::SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-                let search =
-                    Search::new(test.input()).utf8(re.get_config().get_utf8());
-                re.which_overlapping_matches(
-                    cache,
-                    None,
-                    &search,
-                    &mut patset,
-                );
+                let search = re.create_search(test.input());
+                re.which_overlapping_matches(cache, &search, &mut patset);
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
@@ -105,14 +97,12 @@ fn run_test(
                     // it through using a RefCell.
                     let caps = Rc::new(RefCell::new(re.create_captures()));
                     let it = iter::TryMatches::new(
-                        Search::new(test.input().as_bytes())
-                            .earliest(true)
-                            .utf8(test.utf8()),
+                        re.create_search(test.input()).earliest(true),
                         {
                             let caps = Rc::clone(&caps);
                             move |search| {
                                 let caps = &mut *caps.borrow_mut();
-                                re.search(cache, None, search, caps);
+                                re.search(cache, search, caps);
                                 Ok(caps.get_match())
                             }
                         },
@@ -132,14 +122,8 @@ fn run_test(
                 ret::SearchKind::Overlapping => {
                     let mut patset =
                         PatternSet::new(re.get_nfa().pattern_len());
-                    let search = Search::new(test.input())
-                        .utf8(re.get_config().get_utf8());
-                    re.which_overlapping_matches(
-                        cache,
-                        None,
-                        &search,
-                        &mut patset,
-                    );
+                    let search = re.create_search(test.input());
+                    re.which_overlapping_matches(cache, &search, &mut patset);
                     TestResult::which(patset.iter().map(|p| p.as_usize()))
                 }
             }
