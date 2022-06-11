@@ -28,14 +28,13 @@ let mut state = OverlappingState::start();
 
 // First, 'Sam' will match.
 let end1 = sparse_re.try_search_overlapping_fwd(
-    None, &Search::new(haystack), &mut state,
+    &Search::new(haystack), &mut state,
 )?;
 assert_eq!(end1, Some(HalfMatch::must(0, 3)));
 
 // And now 'Samwise' will match.
 let end2 = sparse_re.try_search_overlapping_fwd(
-    // FIXME: We shouldn't need to adjust the range here.
-    None, &Search::new(haystack).range(3..), &mut state,
+    &Search::new(haystack), &mut state,
 )?;
 assert_eq!(end2, Some(HalfMatch::must(0, 7)));
 # Ok::<(), Box<dyn std::error::Error>>(())

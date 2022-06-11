@@ -21,7 +21,6 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
     );
     assert_eq!(
         dfa.try_search_overlapping_fwd(
-            None,
             &Search::new(b"abcxyz"),
             &mut OverlappingState::start()
         ),

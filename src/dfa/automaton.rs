@@ -535,11 +535,12 @@ pub unsafe trait Automaton {
     /// Note that you do not need to implement your own search routine to
     /// make use of prefilters like this. The search routines provided
     /// by this crate already implement prefilter support via the
-    /// [`Prefilter`](crate::util::prefilter::Prefilter) trait. The various
-    /// `try_search_*` routines on this trait support the `Prefilter` trait
-    /// through [`Scanner`](crate::util::prefilter::Scanner)s. This example is
-    /// meant to show how you might deal with prefilters in a simplified case
-    /// if you are implementing your own search routine.
+    /// [`Prefilter`](crate::util::prefilter::Prefilter) trait. A prefilter
+    /// can be added to your search configuration with [`Search::prefilter`],
+    /// and if the search supports prefilters, it will be used.
+    ///
+    /// This example is meant to show how you might deal with prefilters in a
+    /// simplified case if you are implementing your own search routine.
     ///
     /// ```
     /// use regex_automata::{
@@ -944,7 +945,7 @@ pub unsafe trait Automaton {
         &self,
         haystack: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_fwd(None, &Search::new(haystack))
+        self.try_search_fwd(&Search::new(haystack))
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -1048,7 +1049,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
+    ///     util::prefilter::{Candidate, Prefilter},
     ///     HalfMatch, Span, Search,
     /// };
     ///
@@ -1058,7 +1059,6 @@ pub unsafe trait Automaton {
     /// impl Prefilter for ZPrefilter {
     ///     fn find(
     ///         &self,
-    ///         _: &mut State,
     ///         haystack: &[u8],
     ///         span: Span,
     ///     ) -> Candidate {
@@ -1080,16 +1080,10 @@ pub unsafe trait Automaton {
     /// }
     ///
     /// let dfa = dense::DFA::new("z[0-9]{3}")?;
-    /// let haystack = "foobar z123 q123".as_bytes();
-    /// // A scanner executes a prefilter while tracking some state that may
-    /// // disable the prefilter automatically if it isn't deemed "effective."
-    /// let mut scanner = Scanner::new(&ZPrefilter);
-    ///
+    /// let search = Search::new("foobar z123 q123")
+    ///     .prefilter(Some(&ZPrefilter));
     /// let expected = Some(HalfMatch::must(0, 11));
-    /// let got = dfa.try_search_fwd(
-    ///     Some(&mut scanner),
-    ///     &Search::new(haystack),
-    /// )?;
+    /// let got = dfa.try_search_fwd(&search)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1116,14 +1110,14 @@ pub unsafe trait Automaton {
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.try_search_fwd(None, &Search::new(haystack))?;
+    /// let got = dfa.try_search_fwd(&Search::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
     /// let search = Search::new(haystack).pattern(Some(PatternID::must(1)));
     /// let expected = Some(HalfMatch::must(1, 6));
-    /// let got = dfa.try_search_fwd(None, &search)?;
+    /// let got = dfa.try_search_fwd(&search)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1149,7 +1143,7 @@ pub unsafe trait Automaton {
     /// // to the sub-slice as well, which means we get `3` instead of `6`.
     /// let search = Search::new(&haystack[3..6]);
     /// let expected = Some(HalfMatch::must(0, 3));
-    /// let got = dfa.try_search_fwd(None, &search)?;
+    /// let got = dfa.try_search_fwd(&search)?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we provide the bounds of the search within the context of the
@@ -1158,7 +1152,7 @@ pub unsafe trait Automaton {
     /// // as a valid offset into `haystack` instead of its sub-slice.)
     /// let search = Search::new(haystack).range(3..6);
     /// let expected = None;
-    /// let got = dfa.try_search_fwd(None, &search)?;
+    /// let got = dfa.try_search_fwd(&search)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1166,10 +1160,9 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_fwd(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_fwd(self, pre, search)
+        search::find_fwd(self, search)
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -1272,7 +1265,7 @@ pub unsafe trait Automaton {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     None, &Search::new(haystack), &mut state,
+    ///     &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -1283,7 +1276,7 @@ pub unsafe trait Automaton {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     None, &Search::new(haystack), &mut state,
+    ///     &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -1292,11 +1285,10 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_overlapping_fwd(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_fwd(self, pre, search, state)
+        search::find_overlapping_fwd(self, search, state)
     }
 
     /// Executes a reverse overlapping search and returns the start of the
@@ -1383,7 +1375,7 @@ pub unsafe trait Automaton {
     ///
     /// let search = Search::new("foobar");
     /// let mut patset = PatternSet::new(dfa.pattern_len());
-    /// dfa.try_which_overlapping_matches(None, &search, &mut patset)?;
+    /// dfa.try_which_overlapping_matches(&search, &mut patset)?;
     /// let expected = vec![0, 2, 3, 4, 6];
     /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);
@@ -1393,16 +1385,13 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_which_overlapping_matches(
         &self,
-        mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
-        while let Some(m) = self.try_search_overlapping_fwd(
-            pre.as_deref_mut(),
-            search,
-            &mut state,
-        )? {
+        while let Some(m) =
+            self.try_search_overlapping_fwd(search, &mut state)?
+        {
             patset.insert(m.pattern());
             // There's nothing left to find, so we can stop.
             if patset.is_full() {
@@ -1512,10 +1501,9 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_fwd(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).try_search_fwd(pre, search)
+        (**self).try_search_fwd(search)
     }
 
     #[inline]
@@ -1529,21 +1517,19 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_overlapping_fwd(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        (**self).try_search_overlapping_fwd(pre, search, state)
+        (**self).try_search_overlapping_fwd(search, state)
     }
 
     #[inline]
     fn try_which_overlapping_matches(
         &self,
-        mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        (**self).try_which_overlapping_matches(pre, search, patset)
+        (**self).try_which_overlapping_matches(search, patset)
     }
 }
 

@@ -597,7 +597,6 @@ impl DFA {
     /// impl Prefilter for ZPrefilter {
     ///     fn find(
     ///         &self,
-    ///         _: &mut State,
     ///         haystack: &[u8],
     ///         span: Span,
     ///     ) -> Candidate {

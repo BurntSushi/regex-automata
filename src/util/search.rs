@@ -263,6 +263,11 @@ impl<'h, 'p> Search<'h, 'p> {
         Search { prefilter, ..self }
     }
 
+    #[inline]
+    pub fn get_prefilter(&self) -> Option<&'p dyn Prefilter> {
+        self.prefilter
+    }
+
     /// Whether to execute an "earliest" search or not.
     ///
     /// When running a non-overlapping search, an "earliest" search will return

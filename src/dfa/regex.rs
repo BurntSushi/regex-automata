@@ -460,8 +460,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &'r self,
         haystack: &'h H,
     ) -> FindMatches<'h, 'r> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        let search = self.create_search(haystack.as_ref());
         FindMatches(self.try_matches_iter(search).infallible())
     }
 }
@@ -501,12 +500,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let search = Search::new(haystack.as_ref())
-            .utf8(self.get_config().get_utf8())
-            .earliest(true);
-        self.forward()
-            .try_search_fwd(self.scanner().as_mut(), &search)
-            .map(|x| x.is_some())
+        let search = self.create_search(haystack.as_ref()).earliest(true);
+        self.forward().try_search_fwd(&search).map(|x| x.is_some())
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -529,10 +524,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let mut scanner = self.scanner();
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
-        self.try_search(scanner.as_mut(), &search)
+        let search = self.create_search(haystack.as_ref());
+        self.try_search(&search)
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -557,8 +550,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &'r self,
         haystack: &'h H,
     ) -> TryFindMatches<'h, 'r> {
-        let search =
-            Search::new(haystack.as_ref()).utf8(self.get_config().get_utf8());
+        let search = self.create_search(haystack.as_ref());
         TryFindMatches(self.try_matches_iter(search))
     }
 }
@@ -594,16 +586,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline]
     pub fn try_search(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let m = match self.try_search_fwd_back(pre, search)? {
+        let m = match self.try_search_fwd_back(search)? {
             None => return Ok(None),
             Some(m) => m,
         };
         if m.is_empty() {
             search.skip_empty_utf8_splits(m, |search| {
-                self.try_search_fwd_back(None, search)
+                self.try_search_fwd_back(search)
             })
         } else {
             Ok(Some(m))
@@ -615,7 +606,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline(always)]
     fn try_search_fwd_back(
         &self,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
@@ -623,7 +613,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // Since this is the usual way that automata are used, this helps
         // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
-        let end = match (&fwd).try_search_fwd(pre, search)? {
+        let end = match (&fwd).try_search_fwd(search)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -664,11 +654,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &'r self,
         search: Search<'h, 'r>,
     ) -> iter::TryMatches<'h, 'r, TryMatchesClosure<'h, 'r>> {
-        let mut scanner = self.scanner();
-        iter::TryMatches::boxed(search, move |search| {
-            let pre = scanner.as_mut();
-            self.try_search(pre, search)
-        })
+        iter::TryMatches::boxed(search, move |search| self.try_search(search))
     }
 }
 
@@ -762,12 +748,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             None => None,
             Some(ref x) => Some(&*x),
         }
-    }
-
-    /// Create and return a prefilter scanner if this regex's configuration has
-    /// a prefilter.
-    pub fn scanner(&self) -> Option<prefilter::Scanner> {
-        self.prefilter().map(prefilter::Scanner::new)
     }
 }
 

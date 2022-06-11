@@ -5,7 +5,7 @@ use crate::{
     },
     util::{
         id::{PatternID, StateID},
-        prefilter,
+        prefilter::Prefilter,
         search::{HalfMatch, Search, Span},
     },
     MatchError,
@@ -14,7 +14,6 @@ use crate::{
 #[inline(never)]
 pub fn find_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
@@ -22,17 +21,17 @@ pub fn find_fwd<A: Automaton + ?Sized>(
     }
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
-    if pre.is_some() && search.get_pattern().is_none() {
+    if search.get_prefilter().is_some() && search.get_pattern().is_none() {
         if search.get_earliest() {
-            find_fwd_imp(dfa, pre, search, true)
+            find_fwd_imp(dfa, search, search.get_prefilter(), true)
         } else {
-            find_fwd_imp(dfa, pre, search, false)
+            find_fwd_imp(dfa, search, search.get_prefilter(), false)
         }
     } else {
         if search.get_earliest() {
-            find_fwd_imp(dfa, None, search, true)
+            find_fwd_imp(dfa, search, None, true)
         } else {
-            find_fwd_imp(dfa, None, search, false)
+            find_fwd_imp(dfa, search, None, false)
         }
     }
 }
@@ -40,8 +39,8 @@ pub fn find_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn find_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    mut pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
+    pre: Option<&'_ dyn Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_fwd(dfa, search)?;
@@ -57,7 +56,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
         }};
     }
 
-    if let Some(ref mut pre) = pre {
+    if let Some(ref pre) = pre {
         let span = Span::from(at..search.end());
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
@@ -68,7 +67,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
             return Ok(pre.find(search.haystack(), span).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
-        } else if pre.is_effective(at) {
+        } else {
             match pre.find(search.haystack(), span).into_option() {
                 None => return Ok(None),
                 Some(i) => {
@@ -149,20 +148,18 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
         }
         if dfa.is_special_state(sid) {
             if dfa.is_start_state(sid) {
-                if let Some(ref mut pre) = pre {
-                    if pre.is_effective(at) {
-                        let span = Span::from(at..search.end());
-                        match pre.find(search.haystack(), span).into_option() {
-                            None => return Ok(None),
-                            Some(i) => {
-                                at = i;
-                                // We want to skip any update to 'at' below
-                                // at the end of this iteration and just
-                                // jump immediately back to the next state
-                                // transition at the leading position of the
-                                // candidate match.
-                                continue;
-                            }
+                if let Some(ref pre) = pre {
+                    let span = Span::from(at..search.end());
+                    match pre.find(search.haystack(), span).into_option() {
+                        None => return Ok(None),
+                        Some(i) => {
+                            at = i;
+                            // We want to skip any update to 'at' below
+                            // at the end of this iteration and just
+                            // jump immediately back to the next state
+                            // transition at the leading position of the
+                            // candidate match.
+                            continue;
                         }
                     }
                 } else if dfa.is_accel_state(sid) {
@@ -367,7 +364,6 @@ fn find_rev_imp<A: Automaton + ?Sized>(
 #[inline(never)]
 pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
@@ -376,18 +372,18 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     }
     // Searching with a pattern ID is always anchored, so we should only ever
     // use a prefilter when no pattern ID is given.
-    if pre.is_some() && search.get_pattern().is_none() {
-        find_overlapping_fwd_imp(dfa, pre, search, state)
+    if search.get_prefilter().is_some() && search.get_pattern().is_none() {
+        find_overlapping_fwd_imp(dfa, search, search.get_prefilter(), state)
     } else {
-        find_overlapping_fwd_imp(dfa, None, search, state)
+        find_overlapping_fwd_imp(dfa, search, search.get_prefilter(), state)
     }
 }
 
 #[inline(always)]
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    mut pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
+    pre: Option<&'_ dyn Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut at = search.start();
@@ -424,15 +420,13 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
         if dfa.is_special_state(sid) {
             state.id = Some(sid);
             if dfa.is_start_state(sid) {
-                if let Some(ref mut pre) = pre {
-                    if pre.is_effective(state.at) {
-                        let span = Span::from(state.at..search.end());
-                        match pre.find(search.haystack(), span).into_option() {
-                            None => return Ok(None),
-                            Some(i) => {
-                                state.at = i;
-                                continue;
-                            }
+                if let Some(ref pre) = pre {
+                    let span = Span::from(state.at..search.end());
+                    match pre.find(search.haystack(), span).into_option() {
+                        None => return Ok(None),
+                        Some(i) => {
+                            state.at = i;
+                            continue;
                         }
                     }
                 } else if dfa.is_accel_state(sid) {

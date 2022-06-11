@@ -149,9 +149,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"^a")?;
-    /// let got = dfa.try_search_fwd(
-    ///     None, &Search::new(haystack).range(2..3),
-    /// )?;
+    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(2..3))?;
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
     /// let expected = None;
@@ -160,9 +158,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(
-    ///     None, &Search::new(haystack).range(2..3),
-    /// )?;
+    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(2..3))?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
     /// let expected = Some(HalfMatch::must(0, 3));
@@ -171,9 +167,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(
-    ///     None, &Search::new(haystack).range(1..3),
-    /// )?;
+    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(1..3))?;
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
     /// // is found.
@@ -183,9 +177,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(
-    ///     None, &Search::new(haystack).range(1..3),
-    /// )?;
+    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(1..3))?;
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
     /// // prefix allows the search to match 'a'.
@@ -306,7 +298,7 @@ impl Config {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     None, &Search::new(haystack), &mut state,
+    ///     &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -317,7 +309,7 @@ impl Config {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     None, &Search::new(haystack), &mut state,
+    ///     &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -421,14 +413,14 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().starts_for_each_pattern(true))
     ///     .build(r"foo[0-9]+")?;
-    /// let haystack = b"quux foo123";
+    /// let haystack = "quux foo123";
     ///
     /// // Here's a normal unanchored search. Notice that we use 'None' for the
     /// // pattern ID. Since the DFA was built as an unanchored machine, it
     /// // use its default unanchored starting state.
     /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.try_search_fwd(
-    ///     None, &Search::new(haystack),
+    ///     &Search::new(haystack),
     /// )?);
     /// // But now if we explicitly specify the pattern to search ('0' being
     /// // the only pattern in the DFA), then it will use the starting state
@@ -436,7 +428,7 @@ impl Config {
     /// // pattern doesn't have a match at the beginning of the haystack, we
     /// // find nothing.
     /// assert_eq!(None, dfa.try_search_fwd(
-    ///     None, &Search::new(haystack).pattern(Some(PatternID::must(0))),
+    ///     &Search::new(haystack).pattern(Some(PatternID::must(0))),
     /// )?);
     /// // And finally, an anchored search is not the same as putting a '^' at
     /// // beginning of the pattern. An anchored search can only match at the
@@ -444,7 +436,7 @@ impl Config {
     /// let search = Search::new(haystack)
     ///     .pattern(Some(PatternID::must(0)))
     ///     .range(5..);
-    /// assert_eq!(Some(expected), dfa.try_search_fwd(None, &search)?);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&search)?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

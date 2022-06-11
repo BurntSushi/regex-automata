@@ -49,12 +49,7 @@ impl Candidate {
 }
 
 pub trait Prefilter: Debug + Send + Sync + RefUnwindSafe + UnwindSafe {
-    fn find(
-        &self,
-        state: &mut State,
-        haystack: &[u8],
-        span: Span,
-    ) -> Candidate;
+    fn find(&self, haystack: &[u8], span: Span) -> Candidate;
 
     fn memory_usage(&self) -> usize;
 
@@ -65,13 +60,8 @@ pub trait Prefilter: Debug + Send + Sync + RefUnwindSafe + UnwindSafe {
 
 impl<'a, P: Prefilter + ?Sized> Prefilter for &'a P {
     #[inline]
-    fn find(
-        &self,
-        state: &mut State,
-        haystack: &[u8],
-        span: Span,
-    ) -> Candidate {
-        (**self).find(state, haystack, span)
+    fn find(&self, haystack: &[u8], span: Span) -> Candidate {
+        (**self).find(haystack, span)
     }
 
     #[inline]
@@ -106,7 +96,7 @@ impl<'p> Scanner<'p> {
     }
 
     pub(crate) fn find(&mut self, bytes: &[u8], span: Span) -> Candidate {
-        self.prefilter.find(&mut self.state, bytes, span)
+        self.prefilter.find(bytes, span)
     }
 }
 
@@ -163,7 +153,7 @@ pub struct None {
 }
 
 impl Prefilter for None {
-    fn find(&self, _: &mut State, _: &[u8], span: Span) -> Candidate {
+    fn find(&self, _: &[u8], span: Span) -> Candidate {
         let span = Span { start: span.start, end: span.start };
         Candidate::PossibleMatch(span)
     }

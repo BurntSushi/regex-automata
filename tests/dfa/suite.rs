@@ -208,13 +208,10 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
         "is_match" => TestResult::matched(re.is_match(test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let mut scanner = re.scanner();
-                let it = iter::TryMatches::new(
-                    Search::new(test.input().as_bytes())
-                        .earliest(true)
-                        .utf8(test.utf8()),
-                    move |search| re.try_search(scanner.as_mut(), search),
-                )
+                let search = re.create_search(test.input()).earliest(true);
+                let it = iter::TryMatches::new(search, move |search| {
+                    re.try_search(search)
+                })
                 .infallible()
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
                 .map(|m| ret::Match {
@@ -254,12 +251,8 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
                 let dfa = re.forward();
                 let mut patset = PatternSet::new(dfa.pattern_len());
                 let search = re.create_search(test.input());
-                dfa.try_which_overlapping_matches(
-                    re.scanner().as_mut(),
-                    &search,
-                    &mut patset,
-                )
-                .unwrap();
+                dfa.try_which_overlapping_matches(&search, &mut patset)
+                    .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
@@ -342,14 +335,11 @@ fn try_search_overlapping<A: Automaton>(
     search: &Search<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
-    let mut pre = re.scanner();
     let mut fwd_state = OverlappingState::start();
     let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
-    while let Some(end) = fwd_dfa.try_search_overlapping_fwd(
-        pre.as_mut(),
-        search,
-        &mut fwd_state,
-    )? {
+    while let Some(end) =
+        fwd_dfa.try_search_overlapping_fwd(search, &mut fwd_state)?
+    {
         let revsearch = search
             .clone()
             .pattern(Some(end.pattern()))

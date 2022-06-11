@@ -1,5 +1,5 @@
 use regex_automata::{
-    util::prefilter::{self, Candidate, Prefilter},
+    util::prefilter::{Candidate, Prefilter},
     Span,
 };
 
@@ -14,12 +14,7 @@ impl SubstringPrefilter {
 
 impl Prefilter for SubstringPrefilter {
     #[inline]
-    fn find(
-        &self,
-        _state: &mut prefilter::State,
-        haystack: &[u8],
-        span: Span,
-    ) -> Candidate {
+    fn find(&self, haystack: &[u8], span: Span) -> Candidate {
         self.0
             .find(&haystack[span])
             .map(|i| {
@@ -49,12 +44,7 @@ impl BunkPrefilter {
 
 impl Prefilter for BunkPrefilter {
     #[inline]
-    fn find(
-        &self,
-        _state: &mut prefilter::State,
-        _haystack: &[u8],
-        _span: Span,
-    ) -> Candidate {
+    fn find(&self, _haystack: &[u8], _span: Span) -> Candidate {
         Candidate::None
     }
 
