@@ -3,9 +3,6 @@ use crate::util::{
     search::{HalfMatch, Match, MatchError, Search},
 };
 
-// BREADCRUMBS: I guess thread a new 'p lifetime through everything here...
-// Yuck.
-
 /// An iterator over all non-overlapping matches for a fallible search.
 ///
 /// The iterator yields a `Result<Match, MatchError>` value until no more

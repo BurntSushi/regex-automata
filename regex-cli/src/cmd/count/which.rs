@@ -278,7 +278,7 @@ fn search_dfa_automaton<A: Automaton>(
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
     let search = Search::new(haystack);
-    dfa.try_which_overlapping_matches(None, &search, &mut patset)?;
+    dfa.try_which_overlapping_matches(&search, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
 
@@ -289,7 +289,7 @@ fn search_hybrid_dfa<'i, 'c>(
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
     let search = Search::new(haystack);
-    dfa.try_which_overlapping_matches(cache, None, &search, &mut patset)?;
+    dfa.try_which_overlapping_matches(cache, &search, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
 

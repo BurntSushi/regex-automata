@@ -160,7 +160,7 @@ fn run_test(
             ret::SearchKind::Earliest => {
                 let search = re.create_search(test.input()).earliest(true);
                 let it = iter::TryMatches::new(search, move |search| {
-                    re.try_search(cache, re.scanner().as_mut(), search)
+                    re.try_search(cache, search)
                 })
                 .infallible()
                 .take(test.match_limit().unwrap_or(std::usize::MAX))
@@ -202,13 +202,8 @@ fn run_test(
                 let cache = cache.as_parts_mut().0;
                 let mut patset = PatternSet::new(dfa.pattern_len());
                 let search = re.create_search(test.input());
-                dfa.try_which_overlapping_matches(
-                    cache,
-                    re.scanner().as_mut(),
-                    &search,
-                    &mut patset,
-                )
-                .unwrap();
+                dfa.try_which_overlapping_matches(cache, &search, &mut patset)
+                    .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
@@ -295,13 +290,11 @@ fn try_search_overlapping(
     search: &Search<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
-    let mut pre = re.scanner();
     let mut fwd_state = OverlappingState::start();
     let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
     let (fwd_cache, rev_cache) = cache.as_parts_mut();
     while let Some(end) = fwd_dfa.try_search_overlapping_fwd(
         fwd_cache,
-        pre.as_mut(),
         search,
         &mut fwd_state,
     )? {

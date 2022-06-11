@@ -243,8 +243,10 @@ impl Regex {
         &'p self,
         haystack: &'h H,
     ) -> Search<'h, 'p> {
-        let pre = self.get_config().get_prefilter();
-        Search::new(haystack).prefilter(pre).utf8(self.get_config().get_utf8())
+        let c = self.get_config();
+        Search::new(haystack.as_ref())
+            .prefilter(c.get_prefilter())
+            .utf8(c.get_utf8())
     }
 
     /// Create a new cache for this `Regex`.
@@ -470,8 +472,7 @@ impl Regex {
         let search = self.create_search(haystack.as_ref()).earliest(true);
         let dfa = self.forward();
         let cache = &mut cache.forward;
-        search::find_fwd(dfa, cache, self.scanner().as_mut(), &search)
-            .map(|m| m.is_some())
+        search::find_fwd(dfa, cache, &search).map(|m| m.is_some())
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -497,7 +498,7 @@ impl Regex {
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
         let search = self.create_search(haystack.as_ref());
-        self.try_search(cache, self.scanner().as_mut(), &search)
+        self.try_search(cache, &search)
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -570,16 +571,15 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let m = match self.try_search_fwd_back(cache, pre, search)? {
+        let m = match self.try_search_fwd_back(cache, search)? {
             None => return Ok(None),
             Some(m) => m,
         };
         if m.is_empty() {
             search.skip_empty_utf8_splits(m, |search| {
-                self.try_search_fwd_back(cache, None, search)
+                self.try_search_fwd_back(cache, search)
             })
         } else {
             Ok(Some(m))
@@ -592,7 +592,6 @@ impl Regex {
     fn try_search_fwd_back(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner<'_>>,
         search: &Search<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
@@ -600,7 +599,7 @@ impl Regex {
         // So we reach around them. This also avoids generics.
         let (fdfa, rdfa) = (self.forward(), self.reverse());
         let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
-        let end = match search::find_fwd(fdfa, fcache, pre, search)? {
+        let end = match search::find_fwd(fdfa, fcache, search)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -641,10 +640,8 @@ impl Regex {
         cache: &'c mut Cache,
         search: Search<'h, 'r>,
     ) -> iter::TryMatches<'h, 'c, TryMatchesClosure<'h, 'c>> {
-        let mut scanner = self.scanner();
         iter::TryMatches::boxed(search, move |search| {
-            let pre = scanner.as_mut();
-            self.try_search(cache, pre, search)
+            self.try_search(cache, search)
         })
     }
 }
@@ -687,12 +684,6 @@ impl Regex {
     pub fn pattern_len(&self) -> usize {
         assert_eq!(self.forward().pattern_len(), self.reverse().pattern_len());
         self.forward().pattern_len()
-    }
-
-    /// Create and return a prefilter scanner if this regex's configuration has
-    /// a prefilter.
-    pub fn scanner(&self) -> Option<prefilter::Scanner> {
-        self.get_config().get_prefilter().map(prefilter::Scanner::new)
     }
 }
 

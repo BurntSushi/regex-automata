@@ -56,7 +56,6 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     assert_eq!(
         dfa.try_search_overlapping_fwd(
             &mut cache,
-            None,
             &Search::new(&haystack),
             &mut OverlappingState::start()
         ),
@@ -98,7 +97,6 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
     assert_eq!(
         dfa.try_search_overlapping_fwd(
             &mut cache,
-            None,
             &Search::new(b"abcxyz"),
             &mut OverlappingState::start()
         ),

@@ -6,7 +6,7 @@ use crate::{
     nfa::thompson,
     util::{
         id::PatternID,
-        prefilter,
+        prefilter::Prefilter,
         search::{HalfMatch, MatchError, Search, Span},
     },
 };
@@ -15,7 +15,6 @@ use crate::{
 pub(crate) fn find_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
@@ -29,19 +28,19 @@ pub(crate) fn find_fwd(
     // beneficial in ad hoc benchmarks. To see these differences, you often
     // need a query with a high match count. In other words, specializing these
     // four routines *tends* to help latency more than throughput.
-    if pre.is_some() && search.get_pattern().is_none() {
+    if search.get_prefilter().is_some() && search.get_pattern().is_none() {
         // Searching with a pattern ID is always anchored, so we should never
         // use a prefilter.
         if search.get_earliest() {
-            find_fwd_imp(dfa, cache, pre, search, true)
+            find_fwd_imp(dfa, cache, search, search.get_prefilter(), true)
         } else {
-            find_fwd_imp(dfa, cache, pre, search, false)
+            find_fwd_imp(dfa, cache, search, search.get_prefilter(), false)
         }
     } else {
         if search.get_earliest() {
-            find_fwd_imp(dfa, cache, None, search, true)
+            find_fwd_imp(dfa, cache, search, None, true)
         } else {
-            find_fwd_imp(dfa, cache, None, search, false)
+            find_fwd_imp(dfa, cache, search, None, false)
         }
     }
 }
@@ -50,8 +49,8 @@ pub(crate) fn find_fwd(
 fn find_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    mut pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
+    pre: Option<&'_ dyn Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_fwd(dfa, cache, search)?;
@@ -67,7 +66,7 @@ fn find_fwd_imp(
         }};
     }
 
-    if let Some(ref mut pre) = pre {
+    if let Some(ref pre) = pre {
         let span = Span::from(at..search.end());
         // If a prefilter doesn't report false positives, then we don't need to
         // touch the DFA at all. However, since all matches include the pattern
@@ -79,7 +78,7 @@ fn find_fwd_imp(
             return Ok(pre.find(search.haystack(), span).into_option().map(
                 |offset| HalfMatch { pattern: PatternID::ZERO, offset },
             ));
-        } else if pre.is_effective(at) {
+        } else {
             match pre.find(search.haystack(), span).into_option() {
                 None => return Ok(None),
                 Some(i) => {
@@ -255,24 +254,22 @@ fn find_fwd_imp(
         }
         if sid.is_tagged() {
             if sid.is_start() {
-                if let Some(ref mut pre) = pre {
-                    if pre.is_effective(at) {
-                        let span = Span::from(at..search.end());
-                        match pre.find(search.haystack(), span).into_option() {
-                            // TODO: This looks like a bug to me. We should
-                            // return 'Ok(last_match)', i.e., treat it like a
-                            // dead state. But don't 'fix' it until we can
-                            // write a regression test.
-                            None => return Ok(None),
-                            Some(i) => {
-                                at = i;
-                                // We want to skip any update to 'at' below
-                                // at the end of this iteration and just
-                                // jump immediately back to the next state
-                                // transition at the leading position of the
-                                // candidate match.
-                                continue;
-                            }
+                if let Some(ref pre) = pre {
+                    let span = Span::from(at..search.end());
+                    match pre.find(search.haystack(), span).into_option() {
+                        // TODO: This looks like a bug to me. We should
+                        // return 'Ok(last_match)', i.e., treat it like a
+                        // dead state. But don't 'fix' it until we can
+                        // write a regression test.
+                        None => return Ok(None),
+                        Some(i) => {
+                            at = i;
+                            // We want to skip any update to 'at' below
+                            // at the end of this iteration and just
+                            // jump immediately back to the next state
+                            // transition at the leading position of the
+                            // candidate match.
+                            continue;
                         }
                     }
                 }
@@ -487,7 +484,6 @@ fn find_rev_imp(
 pub(crate) fn find_overlapping_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
@@ -496,10 +492,11 @@ pub(crate) fn find_overlapping_fwd(
     }
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
-    if pre.is_some() && search.get_pattern().is_none() {
-        find_overlapping_fwd_imp(dfa, cache, pre, search, state)
+    if search.get_prefilter().is_some() && search.get_pattern().is_none() {
+        let pre = search.get_prefilter();
+        find_overlapping_fwd_imp(dfa, cache, search, pre, state)
     } else {
-        find_overlapping_fwd_imp(dfa, cache, None, search, state)
+        find_overlapping_fwd_imp(dfa, cache, search, None, state)
     }
 }
 
@@ -507,8 +504,8 @@ pub(crate) fn find_overlapping_fwd(
 fn find_overlapping_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    mut pre: Option<&mut prefilter::Scanner>,
     search: &Search<'_, '_>,
+    pre: Option<&'_ dyn Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = match state.id {
@@ -546,15 +543,13 @@ fn find_overlapping_fwd_imp(
         if sid.is_tagged() {
             state.id = Some(sid);
             if sid.is_start() {
-                if let Some(ref mut pre) = pre {
-                    if pre.is_effective(state.at) {
-                        let span = Span::from(state.at..search.end());
-                        match pre.find(search.haystack(), span).into_option() {
-                            None => return Ok(None),
-                            Some(i) => {
-                                state.at = i;
-                                continue;
-                            }
+                if let Some(ref pre) = pre {
+                    let span = Span::from(state.at..search.end());
+                    match pre.find(search.haystack(), span).into_option() {
+                        None => return Ok(None),
+                        Some(i) => {
+                            state.at = i;
+                            continue;
                         }
                     }
                 }

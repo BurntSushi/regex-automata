@@ -476,7 +476,7 @@ fn search_dfa_automaton<A: Automaton>(
         config::SearchKind::Earliest => {
             let mut it = iter::TryHalfMatches::new(
                 Search::new(haystack).earliest(true),
-                move |search| dfa.try_search_fwd(None, search),
+                move |search| dfa.try_search_fwd(search),
             );
             for result in it {
                 let m = result?;
@@ -489,7 +489,7 @@ fn search_dfa_automaton<A: Automaton>(
         config::SearchKind::Leftmost => {
             let mut it = iter::TryHalfMatches::new(
                 Search::new(haystack),
-                move |search| dfa.try_search_fwd(None, search),
+                move |search| dfa.try_search_fwd(search),
             );
             for result in it {
                 let m = result?;
@@ -503,7 +503,7 @@ fn search_dfa_automaton<A: Automaton>(
             let search = Search::new(haystack);
             let mut state = dfa::OverlappingState::start();
             while let Some(m) =
-                dfa.try_search_overlapping_fwd(None, &search, &mut state)?
+                dfa.try_search_overlapping_fwd(&search, &mut state)?
             {
                 counts[m.pattern()] += 1;
                 if find.matches() {
@@ -524,12 +524,9 @@ fn search_dfa_regex<A: Automaton>(
     let mut counts = vec![0u64; re.pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
-            let mut pre = re.scanner();
             let mut it = iter::TryMatches::new(
-                Search::new(haystack)
-                    .earliest(true)
-                    .utf8(re.get_config().get_utf8()),
-                move |search| re.try_search(pre.as_mut(), search),
+                re.create_search(haystack).earliest(true),
+                move |search| re.try_search(search),
             );
             for result in it {
                 let m = result?;
@@ -568,7 +565,7 @@ fn search_hybrid_dfa<'i, 'c>(
         config::SearchKind::Earliest => {
             let mut it = iter::TryHalfMatches::new(
                 Search::new(haystack).earliest(true),
-                move |search| dfa.try_search_fwd(cache, None, search),
+                move |search| dfa.try_search_fwd(cache, search),
             );
             for result in it {
                 let m = result?;
@@ -581,7 +578,7 @@ fn search_hybrid_dfa<'i, 'c>(
         config::SearchKind::Leftmost => {
             let mut it = iter::TryHalfMatches::new(
                 Search::new(haystack),
-                move |search| dfa.try_search_fwd(cache, None, search),
+                move |search| dfa.try_search_fwd(cache, search),
             );
             for result in it {
                 let m = result?;
@@ -594,8 +591,8 @@ fn search_hybrid_dfa<'i, 'c>(
         config::SearchKind::Overlapping => {
             let search = Search::new(haystack);
             let mut state = hybrid::OverlappingState::start();
-            while let Some(m) = dfa
-                .try_search_overlapping_fwd(cache, None, &search, &mut state)?
+            while let Some(m) =
+                dfa.try_search_overlapping_fwd(cache, &search, &mut state)?
             {
                 counts[m.pattern()] += 1;
                 if find.matches() {
@@ -617,13 +614,10 @@ fn search_hybrid_regex(
     let mut counts = vec![0u64; re.pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
-            let mut pre = re.scanner();
-            let mut it = iter::TryMatches::new(
-                Search::new(haystack)
-                    .earliest(true)
-                    .utf8(re.get_config().get_utf8()),
-                move |search| re.try_search(cache, pre.as_mut(), search),
-            );
+            let search = re.create_search(haystack).earliest(true);
+            let mut it = iter::TryMatches::new(search, move |search| {
+                re.try_search(cache, search)
+            });
             for result in it {
                 let m = result?;
                 counts[m.pattern()] += 1;

@@ -482,7 +482,7 @@ impl DFA {
         cache: &mut Cache,
         bytes: H,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_fwd(cache, None, &Search::new(bytes.as_ref()))
+        self.try_search_fwd(cache, &Search::new(bytes.as_ref()))
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -587,7 +587,7 @@ impl DFA {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
-    ///     util::prefilter::{Candidate, Prefilter, Scanner, State},
+    ///     util::prefilter::{Candidate, Prefilter, State},
     ///     HalfMatch, Search, Span,
     /// };
     ///
@@ -619,18 +619,10 @@ impl DFA {
     ///
     /// let dfa = DFA::new("z[0-9]{3}")?;
     /// let mut cache = dfa.create_cache();
-    ///
-    /// let haystack = "foobar z123 q123";
-    /// // A scanner executes a prefilter while tracking some state that may
-    /// // disable the prefilter automatically if it isn't deemed "effective."
-    /// let mut scanner = Scanner::new(&ZPrefilter);
-    ///
+    /// let search = Search::new("foobar z123 q123")
+    ///     .prefilter(Some(&ZPrefilter));
     /// let expected = Some(HalfMatch::must(0, 11));
-    /// let got = dfa.try_search_fwd(
-    ///     &mut cache,
-    ///     Some(&mut scanner),
-    ///     &Search::new(haystack),
-    /// )?;
+    /// let got = dfa.try_search_fwd(&mut cache, &search)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -655,11 +647,7 @@ impl DFA {
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.try_search_fwd(
-    ///     &mut cache,
-    ///     None,
-    ///     &Search::new(haystack),
-    /// )?;
+    /// let got = dfa.try_search_fwd(&mut cache, &Search::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we want to check whether some other pattern matches, then we
@@ -667,7 +655,6 @@ impl DFA {
     /// let expected = Some(HalfMatch::must(1, 6));
     /// let got = dfa.try_search_fwd(
     ///     &mut cache,
-    ///     None,
     ///     &Search::new(haystack).pattern(Some(PatternID::must(1))),
     /// )?;
     /// assert_eq!(expected, got);
@@ -697,7 +684,6 @@ impl DFA {
     /// let expected = Some(HalfMatch::must(0, 3));
     /// let got = dfa.try_search_fwd(
     ///     &mut cache,
-    ///     None,
     ///     &Search::new(&haystack[3..6]),
     /// )?;
     /// assert_eq!(expected, got);
@@ -709,7 +695,6 @@ impl DFA {
     /// let expected = None;
     /// let got = dfa.try_search_fwd(
     ///     &mut cache,
-    ///     None,
     ///     &Search::new(haystack).range(3..6),
     /// )?;
     /// assert_eq!(expected, got);
@@ -720,10 +705,9 @@ impl DFA {
     pub fn try_search_fwd(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_fwd(self, cache, pre, search)
+        search::find_fwd(self, cache, search)
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -828,7 +812,7 @@ impl DFA {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, None, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -839,7 +823,7 @@ impl DFA {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, None, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -849,11 +833,10 @@ impl DFA {
     pub fn try_search_overlapping_fwd(
         &self,
         cache: &mut Cache,
-        pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_fwd(self, cache, pre, search, state)
+        search::find_overlapping_fwd(self, cache, search, state)
     }
 
     /// Executes a reverse overlapping search and returns the start of the
@@ -942,7 +925,7 @@ impl DFA {
     /// let search = Search::new("foobar");
     /// let mut patset = PatternSet::new(dfa.pattern_len());
     /// dfa.try_which_overlapping_matches(
-    ///     &mut cache, None, &search, &mut patset,
+    ///     &mut cache, &search, &mut patset,
     /// )?;
     /// let expected = vec![0, 2, 3, 4, 6];
     /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
@@ -954,17 +937,13 @@ impl DFA {
     pub fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        mut pre: Option<&mut prefilter::Scanner>,
         search: &Search<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
-        while let Some(m) = self.try_search_overlapping_fwd(
-            cache,
-            pre.as_deref_mut(),
-            search,
-            &mut state,
-        )? {
+        while let Some(m) =
+            self.try_search_overlapping_fwd(cache, search, &mut state)?
+        {
             patset.insert(m.pattern());
             // There's nothing left to find, so we can stop.
             if patset.is_full() {
@@ -2556,7 +2535,7 @@ impl Config {
     ///     .build(r"^a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, None, &Search::new(haystack).range(2..3),
+    ///     &mut cache, &Search::new(haystack).span(2..3),
     /// )?;
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
@@ -2568,7 +2547,7 @@ impl Config {
     ///     .build(r"a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, None, &Search::new(haystack).range(2..3),
+    ///     &mut cache, &Search::new(haystack).span(2..3),
     /// )?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
@@ -2580,7 +2559,7 @@ impl Config {
     ///     .build(r"a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, None, &Search::new(haystack).range(1..3),
+    ///     &mut cache, &Search::new(haystack).span(1..3),
     /// )?;
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
@@ -2593,7 +2572,7 @@ impl Config {
     ///     .build(r"a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, None, &Search::new(haystack).range(1..3),
+    ///     &mut cache, &Search::new(haystack).span(1..3),
     /// )?;
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
@@ -2648,7 +2627,7 @@ impl Config {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, None, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -2659,7 +2638,7 @@ impl Config {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, None, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Search::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -2773,7 +2752,7 @@ impl Config {
     /// // uses its default unanchored starting state.
     /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.try_search_fwd(
-    ///     &mut cache, None, &Search::new(haystack),
+    ///     &mut cache, &Search::new(haystack),
     /// )?);
     /// // But now if we explicitly specify the pattern to search ('0' being
     /// // the only pattern in the DFA), then it will use the starting state
@@ -2782,7 +2761,6 @@ impl Config {
     /// // find nothing.
     /// assert_eq!(None, dfa.try_search_fwd(
     ///     &mut cache,
-    ///     None,
     ///     &Search::new(haystack).pattern(Some(PatternID::must(0))),
     /// )?);
     /// // And finally, an anchored search is not the same as putting a '^' at
@@ -2790,7 +2768,6 @@ impl Config {
     /// // beginning of the *search*, which we can change:
     /// assert_eq!(Some(expected), dfa.try_search_fwd(
     ///     &mut cache,
-    ///     None,
     ///     &Search::new(haystack).pattern(Some(PatternID::must(0))).range(5..),
     /// )?);
     ///
