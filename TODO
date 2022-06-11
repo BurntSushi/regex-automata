@@ -73,3 +73,6 @@ long. And, sadly, none of the TOML test suite tests can run yet. Namely, even
 deserializing a single TOML file into memory appears to be incredibly slow.
 Ideally, we figure out how to increase Miri test coverage without complicating
 things too much.
+
+* Decide and update docs with respect to what happens when you give a search an
+invalid range.

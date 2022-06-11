@@ -52,24 +52,16 @@ impl Start {
     }
 
     /// Returns the starting state configuration for the given search
-    /// parameters. If the given offset range is not valid, then this panics.
+    /// parameters.
     #[inline(always)]
     pub(crate) fn from_position_fwd(search: &Search<'_, '_>) -> Start {
-        let sp = search.get_span();
-        assert!(
-            search.haystack().get(sp.range()).is_some(),
-            "{}..{} is invalid",
-            sp.start,
-            sp.end,
-        );
-        if sp.start == 0 {
-            Start::Text
-        } else if search.haystack()[sp.start - 1] == b'\n' {
-            Start::Line
-        } else if utf8::is_word_byte(search.haystack()[sp.start - 1]) {
-            Start::WordByte
-        } else {
-            Start::NonWordByte
+        match search
+            .start()
+            .checked_sub(1)
+            .and_then(|i| search.haystack().get(i))
+        {
+            None => Start::Text,
+            Some(&byte) => byte_to_start(byte),
         }
     }
 
@@ -78,21 +70,9 @@ impl Start {
     /// this panics.
     #[inline(always)]
     pub(crate) fn from_position_rev(search: &Search<'_, '_>) -> Start {
-        let sp = search.get_span();
-        assert!(
-            search.haystack().get(sp.range()).is_some(),
-            "{}..{} is invalid",
-            sp.start,
-            sp.end,
-        );
-        if sp.end == search.haystack().len() {
-            Start::Text
-        } else if search.haystack()[sp.end] == b'\n' {
-            Start::Line
-        } else if utf8::is_word_byte(search.haystack()[sp.end]) {
-            Start::WordByte
-        } else {
-            Start::NonWordByte
+        match search.haystack().get(search.end()) {
+            None => Start::Text,
+            Some(&byte) => byte_to_start(byte),
         }
     }
 
@@ -101,5 +81,92 @@ impl Start {
     #[inline(always)]
     pub(crate) fn as_usize(&self) -> usize {
         *self as usize
+    }
+}
+
+#[inline(always)]
+fn byte_to_start(byte: u8) -> Start {
+    const fn make_mapping() -> [Start; 256] {
+        let mut map = [Start::NonWordByte; 256];
+
+        map[b'\n' as usize] = Start::Line;
+
+        map[b'_' as usize] = Start::WordByte;
+        let mut byte = b'0';
+        while byte <= b'9' {
+            map[byte as usize] = Start::WordByte;
+            byte += 1;
+        }
+        byte = b'A';
+        while byte <= b'Z' {
+            map[byte as usize] = Start::WordByte;
+            byte += 1;
+        }
+        byte = b'a';
+        while byte <= b'z' {
+            map[byte as usize] = Start::WordByte;
+            byte += 1;
+        }
+        map
+    }
+    const MAPPING: [Start; 256] = make_mapping();
+    MAPPING[byte as usize]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Start;
+    use crate::Search;
+
+    #[test]
+    fn start_fwd_bad_range() {
+        assert_eq!(
+            Start::Text,
+            Start::from_position_fwd(&Search::new("").range(0..1))
+        );
+    }
+
+    #[test]
+    fn start_rev_bad_range() {
+        assert_eq!(
+            Start::Text,
+            Start::from_position_rev(&Search::new("").range(0..1))
+        );
+    }
+
+    #[test]
+    fn start_fwd() {
+        let f = |haystack, start, end| {
+            let search = &Search::new(haystack).range(start..end);
+            Start::from_position_fwd(search)
+        };
+
+        assert_eq!(Start::Text, f("", 0, 0));
+        assert_eq!(Start::Text, f("abc", 0, 3));
+        assert_eq!(Start::Text, f("\nabc", 0, 3));
+
+        assert_eq!(Start::Line, f("\nabc", 1, 3));
+
+        assert_eq!(Start::WordByte, f("abc", 1, 3));
+
+        assert_eq!(Start::NonWordByte, f(" abc", 1, 3));
+    }
+
+    #[test]
+    fn start_rev() {
+        let f = |haystack, start, end| {
+            let search = &Search::new(haystack).range(start..end);
+            Start::from_position_rev(search)
+        };
+
+        assert_eq!(Start::Text, f("", 0, 0));
+        assert_eq!(Start::Text, f("abc", 0, 3));
+        assert_eq!(Start::Text, f("abc\n", 0, 4));
+
+        assert_eq!(Start::Line, f("abc\nz", 0, 3));
+
+        assert_eq!(Start::WordByte, f("abc", 0, 2));
+
+        assert_eq!(Start::NonWordByte, f("abc ", 0, 3));
     }
 }
