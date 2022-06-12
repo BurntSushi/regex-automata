@@ -78,6 +78,35 @@ use crate::util::{
 /// only search for one pattern in particular.
 /// * Whether to report a match as early as possible.
 /// * Whether to report matches that might split a codepoint in valid UTF-8.
+///
+/// All of these parameters, except for the haystack, have sensible default
+/// values. This means that the minimal search configuration is simply a call
+/// to [`Search::new`] with your haystack. Setting any other parameter is
+/// optional.
+///
+/// The API of `Search` is split into a few different parts:
+///
+/// * A builder-like API that transforms a `Search` by value. Examples:
+/// [`Search::span`] and [`Search::prefilter`].
+/// * A setter API that permits mutating parameters in place. Examples:
+/// [`Search::set_span`] and [`Search::set_prefilter`].
+/// * A getter API that permits retrieving any of the search parameters.
+/// Examples: [`Search::get_span`] and [`Search::get_prefilter`].
+/// * A few convenience getter routines that don't conform to the above naming
+/// pattern due to how common they are. Examples: [`Search::haystack`],
+/// [`Search::start`] and [`Search::end`].
+/// * Miscellaneous predicates and other helper routines that are useful
+/// in some contexts. Examples: [`Search::is_char_boundary`].
+///
+/// A `Search` exposes so much because it is meant to be used by both
+/// callers of regex engines _and_ implementors of regex engines.
+///
+/// The lifetime parameters have the following meaning:
+///
+/// * `'h` refers to the lifetime of the haystack.
+/// * `'p` refers to the lifetime of the prefilter. Since a prefilter is
+/// optional, this defaults to the `'static` lifetime when a prefilter is not
+/// present.
 #[derive(Clone)]
 pub struct Search<'h, 'p> {
     haystack: &'h [u8],
@@ -257,15 +286,11 @@ impl<'h, 'p> Search<'h, 'p> {
 
     #[inline]
     pub fn prefilter(
-        self,
+        mut self,
         prefilter: Option<&'p dyn Prefilter>,
     ) -> Search<'h, 'p> {
-        Search { prefilter, ..self }
-    }
-
-    #[inline]
-    pub fn get_prefilter(&self) -> Option<&'p dyn Prefilter> {
-        self.prefilter
+        self.set_prefilter(prefilter);
+        self
     }
 
     /// Whether to execute an "earliest" search or not.
@@ -532,6 +557,11 @@ impl<'h, 'p> Search<'h, 'p> {
         self.pattern = pattern;
     }
 
+    #[inline]
+    pub fn set_prefilter(&mut self, prefilter: Option<&'p dyn Prefilter>) {
+        self.prefilter = prefilter;
+    }
+
     /// Set whether the search should execute in "earliest" mode or not.
     ///
     /// This is like [`Search::earliest`], except it mutates the search
@@ -679,6 +709,11 @@ impl<'h, 'p> Search<'h, 'p> {
     #[inline]
     pub fn get_pattern(&self) -> Option<PatternID> {
         self.pattern
+    }
+
+    #[inline]
+    pub fn get_prefilter(&self) -> Option<&'p dyn Prefilter> {
+        self.prefilter
     }
 
     /// Return whether this search should execute in "earliest" mode.
