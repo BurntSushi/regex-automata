@@ -63,6 +63,81 @@ use crate::util::{
 // to track the effectiveness of a prefilter, we can add that to the match
 // context later!
 
+// TODO: For docs on Output, we should call out that Output is not for tracking
+// error conditions. Those are handled by Result<(), Error> constructs. The
+// Output may however contain things that are useful to inspect when an error
+// occurs. But the Output itself does not track whether an error occurs.
+
+#[derive(Clone, Default)]
+pub struct Output<M> {
+    /// M is a regex engine specific representation of a match. It might be
+    /// a HalfMatch, or a Match, or a PatternSet or a Captures or really
+    /// anything else. Its absence indicates that no match was found while
+    /// its presence indicates a match was found.
+    ///
+    /// BREADCRUMBS:
+    ///
+    /// Actually... presence/absence is not so simple. For example, we really
+    /// want to be able to have a `Output<Captures>` where `Captures` is always
+    /// present so that it can be used. Whether a match exists or not is
+    /// determined by `Captures` itself internally. But in the case of
+    /// `Output<Match>`, the existence of a `Match` itself really wants to,
+    /// well, indicate a match. There's no indirection. So `Match` needs
+    /// to have indirection, or we need a new match-like type that has
+    /// indirection, or we need to introduce indirection here.
+    ///
+    /// If `Match` has indirection, then that is quite annoying for the
+    /// "simpler" APIs that return a `Match`. Because then the caller has to
+    /// deal with the type machinery that permits a `Match` to, well, not
+    /// indicate a match. So that seems like a non-starter.
+    ///
+    /// If we introduce indirection in `Output`, then that makes it really
+    /// awkward to deal with match-like types that have indirection themselves,
+    /// like `Captures`.
+    ///
+    /// If we introduce another match-like type, then that increases
+    /// complexity. That is, if we used 'mat: M' instead of 'mat: Option<M>',
+    /// then we could use Output<Option<Match>> to represent the indirection.
+    ///
+    /// I suspect Output<Option<Match>> is the way to go. It keeps 'Match' to
+    /// mean the obvious thing and permits Output<Captures> to allow Captures
+    /// to deal with indirection
+    ///
+    /// Unfortunately, I think the Output<Option<Match>> route does mean
+    /// we need to provide a Option<Match> when building an Output. For
+    /// Option<Match>, we can leverage Output::default(). But for Captures,
+    /// we'll need to provide that explicitly. But we're already doing that.
+    mat: M,
+    // BREADCRUMBS:
+    //
+    // Should we try to track anything else now? One nice thing might be the
+    // cursor position. That would effectively permit us to push iteration
+    // down into the core regex engine. Which could simplify some things
+    // and make us less reliant on complex iterators. It also lets us push
+    // our regex engine semantics ALL the way down. It is very tempting.
+    //
+    // Otherwise, I think with the barebones API below, we can start changing
+    // all of our regex APIs...
+}
+
+impl<M> Output<M> {
+    pub fn new(mat: M) -> Output<M> {
+        Output { mat }
+    }
+
+    pub fn get(&self) -> &M {
+        &self.mat
+    }
+
+    pub fn get_mut(&mut self) -> &mut M {
+        &mut self.mat
+    }
+
+    pub fn set(&mut self, mat: M) {
+        self.mat = mat;
+    }
+}
+
 /// The parameters for a regex search.
 ///
 /// While most regex engines in this crate expose a convenience `find`-like
