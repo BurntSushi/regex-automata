@@ -98,8 +98,10 @@ use crate::util::{
 /// * Miscellaneous predicates and other helper routines that are useful
 /// in some contexts. Examples: [`Search::is_char_boundary`].
 ///
-/// A `Search` exposes so much because it is meant to be used by both
-/// callers of regex engines _and_ implementors of regex engines.
+/// A `Search` exposes so much because it is meant to be used by both callers
+/// of regex engines _and_ implementors of regex engines. A constraining
+/// factor is that regex engines should accept a `&Search`, which means that
+/// implementors should only use the "getter" APIs of a `Search`.
 ///
 /// The lifetime parameters have the following meaning:
 ///
