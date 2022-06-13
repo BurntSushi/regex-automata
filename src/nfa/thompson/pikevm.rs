@@ -13,7 +13,7 @@ use crate::{
         iter,
         nonmax::NonMaxUsize,
         prefilter::Prefilter,
-        search::{Match, MatchError, MatchKind, PatternSet, Search},
+        search::{Input, Match, MatchError, MatchKind, PatternSet},
         sparse_set::SparseSet,
     },
 };
@@ -224,9 +224,9 @@ impl PikeVM {
     pub fn create_search<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
-    ) -> Search<'h, 'p> {
+    ) -> Input<'h, 'p> {
         let c = self.get_config();
-        Search::new(haystack.as_ref())
+        Input::new(haystack.as_ref())
             .prefilter(c.get_prefilter())
             .utf8(c.get_utf8())
     }
@@ -313,7 +313,7 @@ impl PikeVM {
     pub fn search(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         caps: &mut Captures,
     ) {
         self.search_imp(cache, search, caps);
@@ -335,7 +335,7 @@ impl PikeVM {
     pub fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) {
         self.which_overlapping_imp(cache, search, patset)
@@ -346,7 +346,7 @@ impl PikeVM {
     fn search_imp(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         caps: &mut Captures,
     ) {
         // Why do we even care about this? Well, in our 'Captures'
@@ -418,7 +418,7 @@ impl PikeVM {
     fn which_overlapping_imp(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) {
         assert!(
@@ -687,7 +687,7 @@ impl PikeVM {
 }
 
 type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Search<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
+    Box<dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
 
 /// An iterator over all non-overlapping matches for an infallible search.
 ///

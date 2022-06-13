@@ -6,7 +6,7 @@ use regex_automata::{
     },
     nfa::thompson,
     util::iter,
-    MatchKind, PatternSet, Search, SyntaxConfig,
+    Input, MatchKind, PatternSet, SyntaxConfig,
 };
 
 use ret::{
@@ -287,7 +287,7 @@ fn config_syntax(test: &RegexTest) -> SyntaxConfig {
 fn try_search_overlapping(
     re: &Regex,
     cache: &mut regex::Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut fwd_state = OverlappingState::start();

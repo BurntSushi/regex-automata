@@ -15,7 +15,7 @@ use automata::{
     dfa::{self, Automaton},
     hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
-    PatternID, PatternSet, Search,
+    Input, PatternID, PatternSet,
 };
 
 const ABOUT_SHORT: &'static str = "\
@@ -277,7 +277,7 @@ fn search_dfa_automaton<A: Automaton>(
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
-    let search = Search::new(haystack);
+    let search = Input::new(haystack);
     dfa.try_which_overlapping_matches(&search, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
@@ -288,7 +288,7 @@ fn search_hybrid_dfa<'i, 'c>(
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
-    let search = Search::new(haystack);
+    let search = Input::new(haystack);
     dfa.try_which_overlapping_matches(cache, &search, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }

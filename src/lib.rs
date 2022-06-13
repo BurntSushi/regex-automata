@@ -32,8 +32,8 @@ pub use crate::util::syntax::SyntaxConfig;
 pub use crate::util::{
     bytes::{DeserializeError, SerializeError},
     search::{
-        HalfMatch, Match, MatchError, MatchKind, PatternSet, PatternSetIter,
-        Search, Span,
+        HalfMatch, Input, Match, MatchError, MatchKind, PatternSet,
+        PatternSetIter, Span,
     },
 };
 

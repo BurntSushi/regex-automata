@@ -1,4 +1,4 @@
-use crate::util::{search::Search, utf8};
+use crate::util::{search::Input, utf8};
 
 /// Represents the four possible starting configurations of a DFA search.
 ///
@@ -54,7 +54,7 @@ impl Start {
     /// Returns the starting state configuration for the given search
     /// parameters.
     #[inline(always)]
-    pub(crate) fn from_position_fwd(search: &Search<'_, '_>) -> Start {
+    pub(crate) fn from_position_fwd(search: &Input<'_, '_>) -> Start {
         match search
             .start()
             .checked_sub(1)
@@ -69,7 +69,7 @@ impl Start {
     /// given search parameters. If the given offset range is not valid, then
     /// this panics.
     #[inline(always)]
-    pub(crate) fn from_position_rev(search: &Search<'_, '_>) -> Start {
+    pub(crate) fn from_position_rev(search: &Input<'_, '_>) -> Start {
         match search.haystack().get(search.end()) {
             None => Start::Text,
             Some(&byte) => byte_to_start(byte),
@@ -116,13 +116,13 @@ fn byte_to_start(byte: u8) -> Start {
 #[cfg(test)]
 mod tests {
     use super::Start;
-    use crate::Search;
+    use crate::Input;
 
     #[test]
     fn start_fwd_bad_range() {
         assert_eq!(
             Start::Text,
-            Start::from_position_fwd(&Search::new("").range(0..1))
+            Start::from_position_fwd(&Input::new("").range(0..1))
         );
     }
 
@@ -130,14 +130,14 @@ mod tests {
     fn start_rev_bad_range() {
         assert_eq!(
             Start::Text,
-            Start::from_position_rev(&Search::new("").range(0..1))
+            Start::from_position_rev(&Input::new("").range(0..1))
         );
     }
 
     #[test]
     fn start_fwd() {
         let f = |haystack, start, end| {
-            let search = &Search::new(haystack).range(start..end);
+            let search = &Input::new(haystack).range(start..end);
             Start::from_position_fwd(search)
         };
 
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn start_rev() {
         let f = |haystack, start, end| {
-            let search = &Search::new(haystack).range(start..end);
+            let search = &Input::new(haystack).range(start..end);
             Start::from_position_rev(search)
         };
 

@@ -28,7 +28,7 @@ use crate::{
     util::{
         iter,
         prefilter::{self, Prefilter},
-        search::{Match, MatchError, MatchKind, Search, Span},
+        search::{Input, Match, MatchError, MatchKind, Span},
     },
 };
 
@@ -242,9 +242,9 @@ impl Regex {
     pub fn create_search<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
-    ) -> Search<'h, 'p> {
+    ) -> Input<'h, 'p> {
         let c = self.get_config();
-        Search::new(haystack.as_ref())
+        Input::new(haystack.as_ref())
             .prefilter(c.get_prefilter())
             .utf8(c.get_utf8())
     }
@@ -571,7 +571,7 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         let m = match self.try_search_fwd_back(cache, search)? {
             None => return Ok(None),
@@ -592,7 +592,7 @@ impl Regex {
     fn try_search_fwd_back(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
         // appear to have a bit more latency due to the 'search.as_ref()' call.
@@ -632,13 +632,13 @@ impl Regex {
 }
 
 type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Search<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
+    Box<dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
 
 impl Regex {
     fn try_matches_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        search: Search<'h, 'r>,
+        search: Input<'h, 'r>,
     ) -> iter::TryMatches<'h, 'c, TryMatchesClosure<'h, 'c>> {
         iter::TryMatches::boxed(search, move |search| {
             self.try_search(cache, search)

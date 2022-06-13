@@ -193,7 +193,7 @@ impl<M> Output<M> {
 /// optional, this defaults to the `'static` lifetime when a prefilter is not
 /// present.
 #[derive(Clone)]
-pub struct Search<'h, 'p> {
+pub struct Input<'h, 'p> {
     haystack: &'h [u8],
     span: Span,
     pattern: Option<PatternID>,
@@ -202,13 +202,13 @@ pub struct Search<'h, 'p> {
     utf8: bool,
 }
 
-impl<'h, 'p> Search<'h, 'p> {
+impl<'h, 'p> Input<'h, 'p> {
     /// Create a new search configuration for the given haystack.
     #[inline]
     pub fn new<H: ?Sized + AsRef<[u8]>>(
         haystack: &'h H,
-    ) -> Search<'h, 'static> {
-        Search {
+    ) -> Input<'h, 'static> {
+        Input {
             haystack: haystack.as_ref(),
             span: Span { start: 0, end: haystack.as_ref().len() },
             pattern: None,
@@ -288,7 +288,7 @@ impl<'h, 'p> Search<'h, 'p> {
     /// reported a match at position `0`, even though `at` starts at offset
     /// `1` because we sliced the haystack.
     #[inline]
-    pub fn span<S: Into<Span>>(mut self, span: S) -> Search<'h, 'p> {
+    pub fn span<S: Into<Span>>(mut self, span: S) -> Input<'h, 'p> {
         self.set_span(span);
         self
     }
@@ -319,7 +319,7 @@ impl<'h, 'p> Search<'h, 'p> {
     /// assert_eq!(2..5, search.get_range());
     /// ```
     #[inline]
-    pub fn range<R: RangeBounds<usize>>(mut self, range: R) -> Search<'h, 'p> {
+    pub fn range<R: RangeBounds<usize>>(mut self, range: R) -> Input<'h, 'p> {
         self.set_range(range);
         self
     }
@@ -364,7 +364,7 @@ impl<'h, 'p> Search<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn pattern(mut self, pattern: Option<PatternID>) -> Search<'h, 'p> {
+    pub fn pattern(mut self, pattern: Option<PatternID>) -> Input<'h, 'p> {
         self.set_pattern(pattern);
         self
     }
@@ -373,7 +373,7 @@ impl<'h, 'p> Search<'h, 'p> {
     pub fn prefilter(
         mut self,
         prefilter: Option<&'p dyn Prefilter>,
-    ) -> Search<'h, 'p> {
+    ) -> Input<'h, 'p> {
         self.set_prefilter(prefilter);
         self
     }
@@ -428,7 +428,7 @@ impl<'h, 'p> Search<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn earliest(mut self, yes: bool) -> Search<'h, 'p> {
+    pub fn earliest(mut self, yes: bool) -> Input<'h, 'p> {
         self.set_earliest(yes);
         self
     }
@@ -504,7 +504,7 @@ impl<'h, 'p> Search<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn utf8(mut self, yes: bool) -> Search<'h, 'p> {
+    pub fn utf8(mut self, yes: bool) -> Input<'h, 'p> {
         self.set_utf8(yes);
         self
     }
@@ -904,7 +904,7 @@ impl<'h, 'p> Search<'h, 'p> {
         mut find: F,
     ) -> Result<Option<Match>, MatchError>
     where
-        F: FnMut(&Search<'_, '_>) -> Result<Option<Match>, MatchError>,
+        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
     {
         if !self.get_utf8() || !m.is_empty() {
             return Ok(Some(m));
@@ -921,7 +921,7 @@ impl<'h, 'p> Search<'h, 'p> {
     }
 }
 
-impl<'h, 'p> core::fmt::Debug for Search<'h, 'p> {
+impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         use crate::util::escape::DebugHaystack;
 

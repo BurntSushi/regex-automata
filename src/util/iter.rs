@@ -1,6 +1,6 @@
 use crate::util::{
     prefilter,
-    search::{HalfMatch, Match, MatchError, Search},
+    search::{HalfMatch, Input, Match, MatchError},
 };
 
 /// An iterator over all non-overlapping matches for a fallible search.
@@ -22,7 +22,7 @@ pub struct TryMatches<'h, 'p, F> {
     /// The regex engine execution function.
     finder: F,
     /// The search configuration.
-    search: Search<'h, 'p>,
+    search: Input<'h, 'p>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
@@ -31,7 +31,7 @@ pub struct TryMatches<'h, 'p, F> {
 
 impl<'c, 'h, 'p, F> TryMatches<'h, 'p, F>
 where
-    F: FnMut(&Search<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
@@ -39,7 +39,7 @@ where
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(search: Search<'h, 'p>, finder: F) -> TryMatches<'h, 'p, F> {
+    pub fn new(search: Input<'h, 'p>, finder: F) -> TryMatches<'h, 'p, F> {
         TryMatches { finder, search, last_match_end: None }
     }
 
@@ -49,13 +49,13 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Search<'h, 'p>,
+        search: Input<'h, 'p>,
         finder: F,
     ) -> TryMatches<
         'h,
         'p,
         Box<
-            dyn FnMut(&Search<'h, 'p>) -> Result<Option<Match>, MatchError>
+            dyn FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError>
                 + 'c,
         >,
     > {
@@ -128,7 +128,7 @@ where
 
 impl<'c, 'h, 'p, F> Iterator for TryMatches<'h, 'p, F>
 where
-    F: FnMut(&Search<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
 {
     type Item = Result<Match, MatchError>;
 
@@ -179,7 +179,7 @@ pub struct Matches<'h, 'p, F>(TryMatches<'h, 'p, F>);
 
 impl<'c, 'h, 'p, F> Iterator for Matches<'h, 'p, F>
 where
-    F: FnMut(&Search<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
 {
     type Item = Match;
 
@@ -226,7 +226,7 @@ pub struct TryHalfMatches<'h, 'p, F> {
     /// The regex engine execution function.
     finder: F,
     /// The search configuration.
-    search: Search<'h, 'p>,
+    search: Input<'h, 'p>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
@@ -235,7 +235,7 @@ pub struct TryHalfMatches<'h, 'p, F> {
 
 impl<'c, 'h, 'p, F> TryHalfMatches<'h, 'p, F>
 where
-    F: FnMut(&Search<'h, 'p>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
@@ -243,10 +243,7 @@ where
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(
-        search: Search<'h, 'p>,
-        finder: F,
-    ) -> TryHalfMatches<'h, 'p, F> {
+    pub fn new(search: Input<'h, 'p>, finder: F) -> TryHalfMatches<'h, 'p, F> {
         TryHalfMatches { finder, search, last_match_end: None }
     }
 
@@ -256,13 +253,13 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Search<'h, 'p>,
+        search: Input<'h, 'p>,
         finder: F,
     ) -> TryHalfMatches<
         'h,
         'p,
         Box<
-            dyn FnMut(&Search<'h, 'p>) -> Result<Option<HalfMatch>, MatchError>
+            dyn FnMut(&Input<'h, 'p>) -> Result<Option<HalfMatch>, MatchError>
                 + 'c,
         >,
     > {
@@ -305,7 +302,7 @@ where
 
 impl<'c, 'h, 'p, F> Iterator for TryHalfMatches<'h, 'p, F>
 where
-    F: FnMut(&Search<'h, 'p>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     type Item = Result<HalfMatch, MatchError>;
 
@@ -361,7 +358,7 @@ pub struct HalfMatches<'h, 'p, F>(TryHalfMatches<'h, 'p, F>);
 
 impl<'c, 'h, 'p, F> Iterator for HalfMatches<'h, 'p, F>
 where
-    F: FnMut(&Search<'h, 'p>) -> Result<Option<HalfMatch>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<HalfMatch>, MatchError> + 'c,
 {
     type Item = HalfMatch;
 

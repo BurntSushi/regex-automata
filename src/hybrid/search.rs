@@ -7,7 +7,7 @@ use crate::{
     util::{
         id::PatternID,
         prefilter::Prefilter,
-        search::{HalfMatch, MatchError, Search, Span},
+        search::{HalfMatch, Input, MatchError, Span},
     },
 };
 
@@ -15,7 +15,7 @@ use crate::{
 pub(crate) fn find_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
         return Ok(None);
@@ -49,7 +49,7 @@ pub(crate) fn find_fwd(
 fn find_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
     pre: Option<&'_ dyn Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
@@ -310,7 +310,7 @@ fn find_fwd_imp(
 pub(crate) fn find_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
         return Ok(None);
@@ -326,7 +326,7 @@ pub(crate) fn find_rev(
 fn find_rev_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut sid = init_rev(dfa, cache, search)?;
@@ -484,7 +484,7 @@ fn find_rev_imp(
 pub(crate) fn find_overlapping_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
@@ -504,7 +504,7 @@ pub(crate) fn find_overlapping_fwd(
 fn find_overlapping_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
     pre: Option<&'_ dyn Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
@@ -590,7 +590,7 @@ fn find_overlapping_fwd_imp(
 pub(crate) fn find_overlapping_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
     state: &mut OverlappingState,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if search.is_done() {
@@ -685,7 +685,7 @@ pub(crate) fn find_overlapping_rev(
 fn init_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
         .start_state_forward(cache, search)
@@ -700,7 +700,7 @@ fn init_fwd(
 fn init_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
 ) -> Result<LazyStateID, MatchError> {
     let sid = dfa
         .start_state_reverse(cache, search)
@@ -715,7 +715,7 @@ fn init_rev(
 fn eoi_fwd(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let sp = search.get_span();
@@ -752,7 +752,7 @@ fn eoi_fwd(
 fn eoi_rev(
     dfa: &DFA,
     cache: &mut Cache,
-    search: &Search<'_, '_>,
+    search: &Input<'_, '_>,
     sid: &mut LazyStateID,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let sp = search.get_span();

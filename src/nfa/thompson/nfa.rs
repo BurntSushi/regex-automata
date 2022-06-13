@@ -3049,7 +3049,7 @@ impl<'a> Iterator for CapturesPatternIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{nfa::thompson::pikevm::PikeVM, Search};
+    use crate::{nfa::thompson::pikevm::PikeVM, Input};
 
     #[test]
     fn always_match() {
@@ -3057,7 +3057,7 @@ mod tests {
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
-            let search = Search::new(haystack).range(start..end);
+            let search = Input::new(haystack).range(start..end);
             vm.search(&mut cache, &search, &mut caps);
             caps.get_match().map(|m| m.end())
         };
@@ -3076,7 +3076,7 @@ mod tests {
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
-            let search = Search::new(haystack).range(start..end);
+            let search = Input::new(haystack).range(start..end);
             vm.search(&mut cache, &search, &mut caps);
             caps.get_match().map(|m| m.end())
         };

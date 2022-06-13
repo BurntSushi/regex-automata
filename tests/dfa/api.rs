@@ -3,7 +3,7 @@ use std::error::Error;
 use regex_automata::{
     dfa::{dense, regex::Regex, Automaton, OverlappingState},
     nfa::thompson,
-    HalfMatch, Match, MatchError, Search,
+    HalfMatch, Input, Match, MatchError,
 };
 
 use crate::util::{BunkPrefilter, SubstringPrefilter};
@@ -21,7 +21,7 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
     );
     assert_eq!(
         dfa.try_search_overlapping_fwd(
-            &Search::new(b"abcxyz"),
+            &Input::new(b"abcxyz"),
             &mut OverlappingState::start()
         ),
         Err(MatchError::Quit { byte: b'x', offset: 3 })

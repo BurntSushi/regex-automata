@@ -30,7 +30,7 @@ use crate::{
 use crate::{
     dfa::{dense, error::Error, sparse},
     nfa::thompson,
-    util::search::{MatchKind, Search, Span},
+    util::search::{Input, MatchKind, Span},
 };
 
 // When the alloc feature is enabled, the regex type sets its A type parameter
@@ -586,7 +586,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline]
     pub fn try_search(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         let m = match self.try_search_fwd_back(search)? {
             None => return Ok(None),
@@ -606,7 +606,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline(always)]
     fn try_search_fwd_back(
         &self,
-        search: &Search,
+        search: &Input,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
@@ -647,12 +647,12 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 }
 
 type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Search<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
+    Box<dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
 
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
     fn try_matches_iter<'r, 'h>(
         &'r self,
-        search: Search<'h, 'r>,
+        search: Input<'h, 'r>,
     ) -> iter::TryMatches<'h, 'r, TryMatchesClosure<'h, 'r>> {
         iter::TryMatches::boxed(search, move |search| self.try_search(search))
     }
@@ -674,8 +674,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn create_search<'p, 'h, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
-    ) -> Search<'h, 'p> {
-        Search::new(haystack)
+    ) -> Input<'h, 'p> {
+        Input::new(haystack)
             .prefilter(self.prefilter())
             .utf8(self.get_config().get_utf8())
     }

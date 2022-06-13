@@ -3,7 +3,7 @@ use crate::{
     util::{
         id::{PatternID, StateID},
         prefilter,
-        search::{HalfMatch, MatchError, PatternSet, Search},
+        search::{HalfMatch, Input, MatchError, PatternSet},
     },
 };
 
@@ -245,7 +245,7 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_forward(&self, search: &Search<'_, '_>) -> StateID;
+    fn start_state_forward(&self, search: &Input<'_, '_>) -> StateID;
 
     /// Return the ID of the start state for this DFA when executing a reverse
     /// search.
@@ -275,7 +275,7 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_reverse(&self, search: &Search<'_, '_>) -> StateID;
+    fn start_state_reverse(&self, search: &Input<'_, '_>) -> StateID;
 
     /// Returns true if and only if the given identifier corresponds to a
     /// "special" state. A special state is one or more of the following:
@@ -945,7 +945,7 @@ pub unsafe trait Automaton {
         &self,
         haystack: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_fwd(&Search::new(haystack))
+        self.try_search_fwd(&Input::new(haystack))
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -1017,7 +1017,7 @@ pub unsafe trait Automaton {
         &self,
         haystack: &[u8],
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_rev(&Search::new(haystack))
+        self.try_search_rev(&Input::new(haystack))
     }
 
     /// Executes a forward search and returns the end position of the leftmost
@@ -1160,7 +1160,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_fwd(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_fwd(self, search)
     }
@@ -1193,7 +1193,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_rev(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_rev(self, search)
     }
@@ -1285,7 +1285,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_overlapping_fwd(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_fwd(self, search, state)
@@ -1323,7 +1323,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_overlapping_rev(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_rev(self, search, state)
@@ -1385,7 +1385,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_which_overlapping_matches(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
@@ -1423,12 +1423,12 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn start_state_forward(&self, search: &Search<'_, '_>) -> StateID {
+    fn start_state_forward(&self, search: &Input<'_, '_>) -> StateID {
         (**self).start_state_forward(search)
     }
 
     #[inline]
-    fn start_state_reverse(&self, search: &Search<'_, '_>) -> StateID {
+    fn start_state_reverse(&self, search: &Input<'_, '_>) -> StateID {
         (**self).start_state_reverse(search)
     }
 
@@ -1501,7 +1501,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_fwd(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_fwd(search)
     }
@@ -1509,7 +1509,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_rev(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_rev(search)
     }
@@ -1517,7 +1517,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_overlapping_fwd(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_overlapping_fwd(search, state)
@@ -1526,7 +1526,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_which_overlapping_matches(
         &self,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         (**self).try_which_overlapping_matches(search, patset)

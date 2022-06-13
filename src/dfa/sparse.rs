@@ -65,7 +65,7 @@ use crate::{
         bytes::{self, DeserializeError, Endian, SerializeError},
         escape::DebugByte,
         id::{PatternID, StateID},
-        search::Search,
+        search::Input,
         start::Start,
     },
 };
@@ -1190,13 +1190,13 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn start_state_forward(&self, search: &Search<'_, '_>) -> StateID {
+    fn start_state_forward(&self, search: &Input<'_, '_>) -> StateID {
         let index = Start::from_position_fwd(&search);
         self.starts.start(index, search.get_pattern())
     }
 
     #[inline]
-    fn start_state_reverse(&self, search: &Search<'_, '_>) -> StateID {
+    fn start_state_reverse(&self, search: &Input<'_, '_>) -> StateID {
         let index = Start::from_position_rev(&search);
         self.starts.start(index, search.get_pattern())
     }

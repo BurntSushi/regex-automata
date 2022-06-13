@@ -13,7 +13,7 @@ use automata::{
     hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
     util::iter,
-    Search,
+    Input,
 };
 
 const ABOUT: &'static str = "\
@@ -475,7 +475,7 @@ fn search_dfa_automaton<A: Automaton>(
     match find.kind() {
         config::SearchKind::Earliest => {
             let mut it = iter::TryHalfMatches::new(
-                Search::new(haystack).earliest(true),
+                Input::new(haystack).earliest(true),
                 move |search| dfa.try_search_fwd(search),
             );
             for result in it {
@@ -488,7 +488,7 @@ fn search_dfa_automaton<A: Automaton>(
         }
         config::SearchKind::Leftmost => {
             let mut it = iter::TryHalfMatches::new(
-                Search::new(haystack),
+                Input::new(haystack),
                 move |search| dfa.try_search_fwd(search),
             );
             for result in it {
@@ -500,7 +500,7 @@ fn search_dfa_automaton<A: Automaton>(
             }
         }
         config::SearchKind::Overlapping => {
-            let search = Search::new(haystack);
+            let search = Input::new(haystack);
             let mut state = dfa::OverlappingState::start();
             while let Some(m) =
                 dfa.try_search_overlapping_fwd(&search, &mut state)?
@@ -564,7 +564,7 @@ fn search_hybrid_dfa<'i, 'c>(
     match find.kind() {
         config::SearchKind::Earliest => {
             let mut it = iter::TryHalfMatches::new(
-                Search::new(haystack).earliest(true),
+                Input::new(haystack).earliest(true),
                 move |search| dfa.try_search_fwd(cache, search),
             );
             for result in it {
@@ -577,7 +577,7 @@ fn search_hybrid_dfa<'i, 'c>(
         }
         config::SearchKind::Leftmost => {
             let mut it = iter::TryHalfMatches::new(
-                Search::new(haystack),
+                Input::new(haystack),
                 move |search| dfa.try_search_fwd(cache, search),
             );
             for result in it {
@@ -589,7 +589,7 @@ fn search_hybrid_dfa<'i, 'c>(
             }
         }
         config::SearchKind::Overlapping => {
-            let search = Search::new(haystack);
+            let search = Input::new(haystack);
             let mut state = hybrid::OverlappingState::start();
             while let Some(m) =
                 dfa.try_search_overlapping_fwd(cache, &search, &mut state)?

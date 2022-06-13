@@ -23,7 +23,7 @@ use crate::{
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
         id::{PatternID, StateID as NFAStateID},
         prefilter,
-        search::{HalfMatch, MatchError, MatchKind, PatternSet, Search},
+        search::{HalfMatch, Input, MatchError, MatchKind, PatternSet},
         sparse_set::SparseSets,
         start::Start,
     },
@@ -482,7 +482,7 @@ impl DFA {
         cache: &mut Cache,
         bytes: H,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_fwd(cache, &Search::new(bytes.as_ref()))
+        self.try_search_fwd(cache, &Input::new(bytes.as_ref()))
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -547,7 +547,7 @@ impl DFA {
         cache: &mut Cache,
         bytes: H,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_rev(cache, &Search::new(bytes.as_ref()))
+        self.try_search_rev(cache, &Input::new(bytes.as_ref()))
     }
 }
 
@@ -705,7 +705,7 @@ impl DFA {
     pub fn try_search_fwd(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_fwd(self, cache, search)
     }
@@ -738,7 +738,7 @@ impl DFA {
     pub fn try_search_rev(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_rev(self, cache, search)
     }
@@ -833,7 +833,7 @@ impl DFA {
     pub fn try_search_overlapping_fwd(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_fwd(self, cache, search, state)
@@ -873,7 +873,7 @@ impl DFA {
     pub fn try_search_overlapping_rev(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         state: &mut OverlappingState,
     ) -> Result<Option<HalfMatch>, MatchError> {
         search::find_overlapping_rev(self, cache, search, state)
@@ -937,7 +937,7 @@ impl DFA {
     pub fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
@@ -1357,7 +1357,7 @@ impl DFA {
     pub fn start_state_forward(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_fwd(search);
         let sid = LazyRef::new(self, cache)
@@ -1401,7 +1401,7 @@ impl DFA {
     pub fn start_state_reverse(
         &self,
         cache: &mut Cache,
-        search: &Search<'_, '_>,
+        search: &Input<'_, '_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_rev(search);
         let sid = LazyRef::new(self, cache)

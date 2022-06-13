@@ -15,7 +15,7 @@ use automata::{
     dfa::{self, Automaton},
     hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
-    PatternID, Search,
+    Input, PatternID,
 };
 
 const ABOUT_SHORT: &'static str = "\
