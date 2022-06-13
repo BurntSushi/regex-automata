@@ -229,11 +229,11 @@ impl Regex {
         Builder::new()
     }
 
-    /// Create a new `Search` for the given haystack.
+    /// Create a new `Input` for the given haystack.
     ///
-    /// The `Search` returned is configured to match the configuration of this
+    /// The `Input` returned is configured to match the configuration of this
     /// `Regex`. For example, if this `Regex` was built with [`Config::utf8`]
-    /// enabled, then the `Search` returned will also have its [`Search::utf8`]
+    /// enabled, then the `Input` returned will also have its [`Input::utf8`]
     /// knob enabled.
     ///
     /// This routine is useful when using the lower-level [`Regex::try_search`]

@@ -51,7 +51,7 @@ use core::convert::TryFrom;
 /// ```
 /// use regex_automata::{
 ///     hybrid::dfa::{Cache, DFA},
-///     HalfMatch, MatchError, PatternID, Search,
+///     HalfMatch, MatchError, PatternID, Input,
 /// };
 ///
 /// fn find_leftmost_first(
@@ -65,7 +65,7 @@ use core::convert::TryFrom;
 ///     // byte), so we don't need to check if the start state is a match.
 ///     let mut sid = dfa.start_state_forward(
 ///         cache,
-///         &Search::new(haystack),
+///         &Input::new(haystack),
 ///     ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
 ///     let mut last_match = None;
 ///     // Walk all the bytes in the haystack. We can quit early if we see

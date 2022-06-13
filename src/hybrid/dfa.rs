@@ -557,7 +557,7 @@ impl DFA {
     ///
     /// This is like [`DFA::try_find_fwd`], except it provides some additional
     /// control over how the search is executed. Those parameters are
-    /// configured via a [`Search`].
+    /// configured via a [`Input`].
     ///
     /// The examples below demonstrate each of these additional parameters.
     ///
@@ -588,7 +588,7 @@ impl DFA {
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
     ///     util::prefilter::{Candidate, Prefilter},
-    ///     HalfMatch, Search, Span,
+    ///     HalfMatch, Input, Span,
     /// };
     ///
     /// #[derive(Debug)]
@@ -619,7 +619,7 @@ impl DFA {
     ///
     /// let dfa = DFA::new("z[0-9]{3}")?;
     /// let mut cache = dfa.create_cache();
-    /// let search = Search::new("foobar z123 q123")
+    /// let search = Input::new("foobar z123 q123")
     ///     .prefilter(Some(&ZPrefilter));
     /// let expected = Some(HalfMatch::must(0, 11));
     /// let got = dfa.try_search_fwd(&mut cache, &search)?;
@@ -634,7 +634,7 @@ impl DFA {
     /// for specific patterns.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, PatternID, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, PatternID, Input};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().starts_for_each_pattern(true))
@@ -647,7 +647,7 @@ impl DFA {
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.try_search_fwd(&mut cache, &Search::new(haystack))?;
+    /// let got = dfa.try_search_fwd(&mut cache, &Input::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we want to check whether some other pattern matches, then we
@@ -655,7 +655,7 @@ impl DFA {
     /// let expected = Some(HalfMatch::must(1, 6));
     /// let got = dfa.try_search_fwd(
     ///     &mut cache,
-    ///     &Search::new(haystack).pattern(Some(PatternID::must(1))),
+    ///     &Input::new(haystack).pattern(Some(PatternID::must(1))),
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -668,7 +668,7 @@ impl DFA {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// // N.B. We disable Unicode here so that we use a simple ASCII word
     /// // boundary. Alternatively, we could enable heuristic support for
@@ -684,7 +684,7 @@ impl DFA {
     /// let expected = Some(HalfMatch::must(0, 3));
     /// let got = dfa.try_search_fwd(
     ///     &mut cache,
-    ///     &Search::new(&haystack[3..6]),
+    ///     &Input::new(&haystack[3..6]),
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -695,7 +695,7 @@ impl DFA {
     /// let expected = None;
     /// let got = dfa.try_search_fwd(
     ///     &mut cache,
-    ///     &Search::new(haystack).range(3..6),
+    ///     &Input::new(haystack).range(3..6),
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -799,7 +799,7 @@ impl DFA {
     /// ```
     /// use regex_automata::{
     ///     hybrid::{dfa::DFA, OverlappingState},
-    ///     HalfMatch, MatchKind, Search,
+    ///     HalfMatch, MatchKind, Input,
     /// };
     ///
     /// let dfa = DFA::builder()
@@ -812,7 +812,7 @@ impl DFA {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -823,7 +823,7 @@ impl DFA {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -912,7 +912,7 @@ impl DFA {
     /// even when some patterns match at the same position as other patterns.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, PatternSet, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, PatternSet, Input};
     ///
     /// let patterns = &[
     ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
@@ -922,7 +922,7 @@ impl DFA {
     ///     .build_many(patterns)?;
     /// let mut cache = dfa.create_cache();
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// let mut patset = PatternSet::new(dfa.pattern_len());
     /// dfa.try_which_overlapping_matches(
     ///     &mut cache, &search, &mut patset,
@@ -996,7 +996,7 @@ impl DFA {
     /// haystack by using the `next_state` method.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, Input};
     ///
     /// let dfa = DFA::new(r"[a-z]+r")?;
     /// let mut cache = dfa.create_cache();
@@ -1005,7 +1005,7 @@ impl DFA {
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
     /// let mut sid = dfa.start_state_forward(
-    ///     &mut cache, &Search::new(haystack),
+    ///     &mut cache, &Input::new(haystack),
     /// )?;
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
@@ -1096,7 +1096,7 @@ impl DFA {
     /// haystack by using the `next_state_untagged` method where possible.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, Input};
     ///
     /// let dfa = DFA::new(r"[a-z]+r")?;
     /// let mut cache = dfa.create_cache();
@@ -1105,7 +1105,7 @@ impl DFA {
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
     /// let mut sid = dfa.start_state_forward(
-    ///     &mut cache, &Search::new(haystack),
+    ///     &mut cache, &Input::new(haystack),
     /// )?;
     /// // Walk all the bytes in the haystack.
     /// let mut at = 0;
@@ -1285,7 +1285,7 @@ impl DFA {
     /// and then finishing the search with the final EOI transition.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, Input};
     ///
     /// let dfa = DFA::new(r"[a-z]+r")?;
     /// let mut cache = dfa.create_cache();
@@ -1294,7 +1294,7 @@ impl DFA {
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
     /// let mut sid = dfa.start_state_forward(
-    ///     &mut cache, &Search::new(haystack),
+    ///     &mut cache, &Input::new(haystack),
     /// )?;
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
@@ -1448,7 +1448,7 @@ impl DFA {
     /// other.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, Input};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().match_kind(MatchKind::All))
@@ -1461,7 +1461,7 @@ impl DFA {
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
     /// let mut sid = dfa.start_state_forward(
-    ///     &mut cache, &Search::new(haystack),
+    ///     &mut cache, &Input::new(haystack),
     /// )?;
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
@@ -2526,7 +2526,7 @@ impl Config {
     /// message).
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let haystack = "aba";
     ///
@@ -2535,7 +2535,7 @@ impl Config {
     ///     .build(r"^a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Search::new(haystack).span(2..3),
+    ///     &mut cache, &Input::new(haystack).span(2..3),
     /// )?;
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
@@ -2547,7 +2547,7 @@ impl Config {
     ///     .build(r"a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Search::new(haystack).span(2..3),
+    ///     &mut cache, &Input::new(haystack).span(2..3),
     /// )?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
@@ -2559,7 +2559,7 @@ impl Config {
     ///     .build(r"a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Search::new(haystack).span(1..3),
+    ///     &mut cache, &Input::new(haystack).span(1..3),
     /// )?;
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
@@ -2572,7 +2572,7 @@ impl Config {
     ///     .build(r"a")?;
     /// let mut cache = dfa.create_cache();
     /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Search::new(haystack).span(1..3),
+    ///     &mut cache, &Input::new(haystack).span(1..3),
     /// )?;
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
@@ -2615,7 +2615,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     hybrid::{dfa::DFA, OverlappingState},
-    ///     HalfMatch, MatchKind, Search,
+    ///     HalfMatch, MatchKind, Input,
     /// };
     ///
     /// let dfa = DFA::builder()
@@ -2627,7 +2627,7 @@ impl Config {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -2638,7 +2638,7 @@ impl Config {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &mut cache, &Search::new(haystack), &mut state,
+    ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -2657,7 +2657,7 @@ impl Config {
     /// for you, so it's usually not necessary to do this yourself.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchKind, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchKind, Input};
     ///
     /// let haystack = "123foobar456";
     /// let pattern = r"[a-z]+";
@@ -2684,7 +2684,7 @@ impl Config {
     /// // enabled. Indeed, this is what Regex does internally.
     /// let got_rev = dfa_rev.try_search_rev(
     ///     &mut cache_rev,
-    ///     &Search::new(haystack).range(..got_fwd.offset()),
+    ///     &Input::new(haystack).range(..got_fwd.offset()),
     /// )?.unwrap();
     /// assert_eq!(expected_fwd, got_fwd);
     /// assert_eq!(expected_rev, got_rev);
@@ -2739,7 +2739,7 @@ impl Config {
     /// to run both anchored and unanchored searches for a single pattern.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, PatternID, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, PatternID, Input};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().starts_for_each_pattern(true))
@@ -2752,7 +2752,7 @@ impl Config {
     /// // uses its default unanchored starting state.
     /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.try_search_fwd(
-    ///     &mut cache, &Search::new(haystack),
+    ///     &mut cache, &Input::new(haystack),
     /// )?);
     /// // But now if we explicitly specify the pattern to search ('0' being
     /// // the only pattern in the DFA), then it will use the starting state
@@ -2761,14 +2761,14 @@ impl Config {
     /// // find nothing.
     /// assert_eq!(None, dfa.try_search_fwd(
     ///     &mut cache,
-    ///     &Search::new(haystack).pattern(Some(PatternID::must(0))),
+    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))),
     /// )?);
     /// // And finally, an anchored search is not the same as putting a '^' at
     /// // beginning of the pattern. An anchored search can only match at the
     /// // beginning of the *search*, which we can change:
     /// assert_eq!(Some(expected), dfa.try_search_fwd(
     ///     &mut cache,
-    ///     &Search::new(haystack).pattern(Some(PatternID::must(0))).range(5..),
+    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))).range(5..),
     /// )?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3004,7 +3004,7 @@ impl Config {
     /// shows how to check whether a state is a start state or not.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, MatchError, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, MatchError, Input};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().specialize_start_states(true))
@@ -3013,7 +3013,7 @@ impl Config {
     ///
     /// let haystack = "123 foobar 4567".as_bytes();
     /// let sid = dfa.start_state_forward(
-    ///     &mut cache, &Search::new(haystack),
+    ///     &mut cache, &Input::new(haystack),
     /// ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
     /// // The ID returned by 'start_state_forward' will always be tagged as
     /// // a start state when start state specialization is enabled.
@@ -3028,14 +3028,14 @@ impl Config {
     /// is not tagged and `sid.is_start()` returns false.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, MatchError, Search};
+    /// use regex_automata::{hybrid::dfa::DFA, MatchError, Input};
     ///
     /// let dfa = DFA::new(r"[a-z]+")?;
     /// let mut cache = dfa.create_cache();
     ///
     /// let haystack = "123 foobar 4567".as_bytes();
     /// let sid = dfa.start_state_forward(
-    ///     &mut cache, &Search::new(haystack),
+    ///     &mut cache, &Input::new(haystack),
     /// ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
     /// // Start states are not tagged in the default configuration!
     /// assert!(!sid.is_tagged());

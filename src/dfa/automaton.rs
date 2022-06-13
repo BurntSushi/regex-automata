@@ -118,14 +118,14 @@ pub unsafe trait Automaton {
     /// by using the `next_state` method.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, Search};
+    /// use regex_automata::{dfa::{Automaton, dense}, Input};
     ///
     /// let dfa = dense::DFA::new(r"[a-z]+r")?;
     /// let haystack = "bar".as_bytes();
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Search::new(haystack));
+    /// let mut state = dfa.start_state_forward(&Input::new(haystack));
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -193,14 +193,14 @@ pub unsafe trait Automaton {
     /// and then finishing the search with the final EOI transition.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, Search};
+    /// use regex_automata::{dfa::{Automaton, dense}, Input};
     ///
     /// let dfa = dense::DFA::new(r"[a-z]+r")?;
     /// let haystack = "bar".as_bytes();
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Search::new(haystack));
+    /// let mut state = dfa.start_state_forward(&Input::new(haystack));
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -306,7 +306,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchError, PatternID, Search,
+    ///     HalfMatch, MatchError, PatternID, Input,
     /// };
     ///
     /// fn find<A: Automaton>(
@@ -317,7 +317,7 @@ pub unsafe trait Automaton {
     ///     // initial bytes of the haystack. Note that start states can never
     ///     // be match states (since DFAs in this crate delay matches by 1
     ///     // byte), so we don't need to check if the start state is a match.
-    ///     let mut state = dfa.start_state_forward(&Search::new(haystack));
+    ///     let mut state = dfa.start_state_forward(&Input::new(haystack));
     ///     let mut last_match = None;
     ///     // Walk all the bytes in the haystack. We can quit early if we see
     ///     // a dead or a quit state. The former means the automaton will
@@ -536,7 +536,7 @@ pub unsafe trait Automaton {
     /// make use of prefilters like this. The search routines provided
     /// by this crate already implement prefilter support via the
     /// [`Prefilter`](crate::util::prefilter::Prefilter) trait. A prefilter
-    /// can be added to your search configuration with [`Search::prefilter`],
+    /// can be added to your search configuration with [`Input::prefilter`],
     /// and if the search supports prefilters, it will be used.
     ///
     /// This example is meant to show how you might deal with prefilters in a
@@ -545,7 +545,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchError, PatternID, Search,
+    ///     HalfMatch, MatchError, PatternID, Input,
     /// };
     ///
     /// fn find_byte(slice: &[u8], at: usize, byte: u8) -> Option<usize> {
@@ -562,7 +562,7 @@ pub unsafe trait Automaton {
     ///     // See the Automaton::is_special_state example for similar code
     ///     // with more comments.
     ///
-    ///     let mut state = dfa.start_state_forward(&Search::new(haystack));
+    ///     let mut state = dfa.start_state_forward(&Input::new(haystack));
     ///     let mut last_match = None;
     ///     let mut pos = 0;
     ///     while pos < haystack.len() {
@@ -765,7 +765,7 @@ pub unsafe trait Automaton {
     /// other.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, MatchKind, Search};
+    /// use regex_automata::{dfa::{Automaton, dense}, MatchKind, Input};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
@@ -776,7 +776,7 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Search::new(haystack));
+    /// let mut state = dfa.start_state_forward(&Input::new(haystack));
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -1050,7 +1050,7 @@ pub unsafe trait Automaton {
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
     ///     util::prefilter::{Candidate, Prefilter},
-    ///     HalfMatch, Span, Search,
+    ///     HalfMatch, Span, Input,
     /// };
     ///
     /// #[derive(Debug)]
@@ -1080,7 +1080,7 @@ pub unsafe trait Automaton {
     /// }
     ///
     /// let dfa = dense::DFA::new("z[0-9]{3}")?;
-    /// let search = Search::new("foobar z123 q123")
+    /// let search = Input::new("foobar z123 q123")
     ///     .prefilter(Some(&ZPrefilter));
     /// let expected = Some(HalfMatch::must(0, 11));
     /// let got = dfa.try_search_fwd(&search)?;
@@ -1097,7 +1097,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, PatternID, Search,
+    ///     HalfMatch, PatternID, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1110,12 +1110,12 @@ pub unsafe trait Automaton {
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.try_search_fwd(&Search::new(haystack))?;
+    /// let got = dfa.try_search_fwd(&Input::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
-    /// let search = Search::new(haystack).pattern(Some(PatternID::must(1)));
+    /// let search = Input::new(haystack).pattern(Some(PatternID::must(1)));
     /// let expected = Some(HalfMatch::must(1, 6));
     /// let got = dfa.try_search_fwd(&search)?;
     /// assert_eq!(expected, got);
@@ -1129,7 +1129,7 @@ pub unsafe trait Automaton {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Search};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
     ///
     /// // N.B. We disable Unicode here so that we use a simple ASCII word
     /// // boundary. Alternatively, we could enable heuristic support for
@@ -1141,7 +1141,7 @@ pub unsafe trait Automaton {
     /// // larger context and assumes that `123` is surrounded by word
     /// // boundaries. And of course, the match position is reported relative
     /// // to the sub-slice as well, which means we get `3` instead of `6`.
-    /// let search = Search::new(&haystack[3..6]);
+    /// let search = Input::new(&haystack[3..6]);
     /// let expected = Some(HalfMatch::must(0, 3));
     /// let got = dfa.try_search_fwd(&search)?;
     /// assert_eq!(expected, got);
@@ -1150,7 +1150,7 @@ pub unsafe trait Automaton {
     /// // entire haystack, then the search can take the surrounding context
     /// // into account. (And if we did find a match, it would be reported
     /// // as a valid offset into `haystack` instead of its sub-slice.)
-    /// let search = Search::new(haystack).range(3..6);
+    /// let search = Input::new(haystack).range(3..6);
     /// let expected = None;
     /// let got = dfa.try_search_fwd(&search)?;
     /// assert_eq!(expected, got);
@@ -1254,7 +1254,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
-    ///     HalfMatch, MatchKind, Search,
+    ///     HalfMatch, MatchKind, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1265,7 +1265,7 @@ pub unsafe trait Automaton {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &Search::new(haystack), &mut state,
+    ///     &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -1276,7 +1276,7 @@ pub unsafe trait Automaton {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &Search::new(haystack), &mut state,
+    ///     &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -1363,7 +1363,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense::DFA},
-    ///     MatchKind, PatternSet, Search,
+    ///     MatchKind, PatternSet, Input,
     /// };
     ///
     /// let patterns = &[
@@ -1373,7 +1373,7 @@ pub unsafe trait Automaton {
     ///     .configure(DFA::config().match_kind(MatchKind::All))
     ///     .build_many(patterns)?;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// let mut patset = PatternSet::new(dfa.pattern_len());
     /// dfa.try_which_overlapping_matches(&search, &mut patset)?;
     /// let expected = vec![0, 2, 3, 4, 6];

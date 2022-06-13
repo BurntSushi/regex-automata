@@ -142,14 +142,14 @@ impl Config {
     /// message).
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Search};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
     ///
     /// let haystack = "aba".as_bytes();
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"^a")?;
-    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(2..3))?;
+    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(2..3))?;
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
     /// let expected = None;
@@ -158,7 +158,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(2..3))?;
+    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(2..3))?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
     /// let expected = Some(HalfMatch::must(0, 3));
@@ -167,7 +167,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(true))
     ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(1..3))?;
+    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(1..3))?;
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
     /// // is found.
@@ -177,7 +177,7 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().anchored(false)) // default
     ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(&Search::new(haystack).span(1..3))?;
+    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(1..3))?;
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
     /// // prefix allows the search to match 'a'.
@@ -287,7 +287,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
-    ///     HalfMatch, MatchKind, Search,
+    ///     HalfMatch, MatchKind, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -298,7 +298,7 @@ impl Config {
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &Search::new(haystack), &mut state,
+    ///     &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -309,7 +309,7 @@ impl Config {
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
     /// let got = dfa.try_search_overlapping_fwd(
-    ///     &Search::new(haystack), &mut state,
+    ///     &Input::new(haystack), &mut state,
     /// )?;
     /// assert_eq!(expected, got);
     ///
@@ -330,7 +330,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchKind, Search,
+    ///     HalfMatch, MatchKind, Input,
     /// };
     ///
     /// let haystack = "123foobar456".as_bytes();
@@ -354,7 +354,7 @@ impl Config {
     /// // requires building the reverse automaton with starts_for_each_pattern
     /// // enabled. Indeed, this is what Regex does internally.
     /// let got_rev = dfa_rev.try_search_rev(
-    ///     &Search::new(haystack).range(..got_fwd.offset()),
+    ///     &Input::new(haystack).range(..got_fwd.offset()),
     /// )?.unwrap();
     /// assert_eq!(expected_fwd, got_fwd);
     /// assert_eq!(expected_rev, got_rev);
@@ -407,7 +407,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, PatternID, Search,
+    ///     HalfMatch, PatternID, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -420,7 +420,7 @@ impl Config {
     /// // use its default unanchored starting state.
     /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(Some(expected), dfa.try_search_fwd(
-    ///     &Search::new(haystack),
+    ///     &Input::new(haystack),
     /// )?);
     /// // But now if we explicitly specify the pattern to search ('0' being
     /// // the only pattern in the DFA), then it will use the starting state
@@ -428,12 +428,12 @@ impl Config {
     /// // pattern doesn't have a match at the beginning of the haystack, we
     /// // find nothing.
     /// assert_eq!(None, dfa.try_search_fwd(
-    ///     &Search::new(haystack).pattern(Some(PatternID::must(0))),
+    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))),
     /// )?);
     /// // And finally, an anchored search is not the same as putting a '^' at
     /// // beginning of the pattern. An anchored search can only match at the
     /// // beginning of the *search*, which we can change:
-    /// let search = Search::new(haystack)
+    /// let search = Input::new(haystack)
     ///     .pattern(Some(PatternID::must(0)))
     ///     .range(5..);
     /// assert_eq!(Some(expected), dfa.try_search_fwd(&search)?);
@@ -669,14 +669,14 @@ impl Config {
     /// shows how to check whether a state is a start state or not.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, Search};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, Input};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().specialize_start_states(true))
     ///     .build(r"[a-z]+")?;
     ///
     /// let haystack = "123 foobar 4567".as_bytes();
-    /// let sid = dfa.start_state_forward(&Search::new(haystack));
+    /// let sid = dfa.start_state_forward(&Input::new(haystack));
     /// // The ID returned by 'start_state_forward' will always be tagged as
     /// // a start state when start state specialization is enabled.
     /// assert!(dfa.is_special_state(sid));
@@ -690,12 +690,12 @@ impl Config {
     /// is not tagged and `sid.is_start()` returns false.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, Search};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, Input};
     ///
     /// let dfa = DFA::new(r"[a-z]+")?;
     ///
     /// let haystack = "123 foobar 4567";
-    /// let sid = dfa.start_state_forward(&Search::new(haystack));
+    /// let sid = dfa.start_state_forward(&Input::new(haystack));
     /// // Start states are not special in the default configuration!
     /// assert!(!dfa.is_special_state(sid));
     /// assert!(!dfa.is_start_state(sid));

@@ -219,7 +219,7 @@ impl<'h, 'p, F> core::fmt::Debug for Matches<'h, 'p, F> {
 /// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
 ///
 /// **WARNING:** Unlike other iterators that require both the start and end
-/// bounds of a match, this iterator does not respect the [`Search::utf8`]
+/// bounds of a match, this iterator does not respect the [`Input::utf8`]
 /// setting. Namely, if the underlying regex engine reports an empty match
 /// that falls on an invalid UTF-8 boundary, then this iterator will yield it.
 pub struct TryHalfMatches<'h, 'p, F> {
@@ -351,7 +351,7 @@ impl<'h, 'p, F> core::fmt::Debug for TryHalfMatches<'h, 'p, F> {
 /// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
 ///
 /// **WARNING:** Unlike other iterators that require both the start and end
-/// bounds of a match, this iterator does not respect the [`Search::utf8`]
+/// bounds of a match, this iterator does not respect the [`Input::utf8`]
 /// setting. Namely, if the underlying regex engine reports an empty match
 /// that falls on an invalid UTF-8 boundary, then this iterator will yield it.
 pub struct HalfMatches<'h, 'p, F>(TryHalfMatches<'h, 'p, F>);

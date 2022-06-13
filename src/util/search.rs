@@ -4,7 +4,7 @@ use crate::util::{
     escape::DebugByte, id::PatternID, prefilter::Prefilter, utf8,
 };
 
-// TODO: We should litigate whether we can stuff prefilters into a 'Search'.
+// TODO: We should litigate whether we can stuff prefilters into a 'Input'.
 // It certainly feels like prefilters *belong* here, since they are really
 // a parameter of a search. And it would simplify a lot of annoying method
 // signatures.
@@ -13,11 +13,11 @@ use crate::util::{
 // infrastructure uses a "scanner" that wraps the actual prefilter. The scanner
 // is supposed to record state about how "effective" the prefilter is, and then
 // dynamically disable it if it's doing poorly. That requires mutation and a
-// 'Search' is, ideally, immutable.
+// 'Input' is, ideally, immutable.
 //
 // But, the question is, do we really need to track whether a prefilter is
 // effective or not? If not, then we can just stuff a '&dyn Prefilter' into a
-// 'Search' and be done with it. If so, we either need to make 'Search' mutable
+// 'Input' and be done with it. If so, we either need to make 'Input' mutable
 // with respect to regex search implementations, or we need some other way of
 // determining whether a prefilter is effective or not.
 //
@@ -29,7 +29,7 @@ use crate::util::{
 // scope. It would need to be re-litigated for each search.
 //
 // ... unless, we went with my idea about a "match" context. That is, every
-// search has a 'Search' configuration that represents the input, some mutable
+// search has a 'Input' configuration that represents the input, some mutable
 // scratch space (if necessary) and an output 'Match' context. That match
 // context includes the match (if one exists), but it might also include other
 // information, like where the search stopped if it failed. Or... prefilter
@@ -58,7 +58,7 @@ use crate::util::{
 // to be confined to "match at location." And we can add to it in the future
 // too.
 //
-// So maybe we stuff a prefilter into a 'Search' for now, get rid of scanner,
+// So maybe we stuff a prefilter into a 'Input' for now, get rid of scanner,
 // and then do the "match context" thing? And if we decide we need to be able
 // to track the effectiveness of a prefilter, we can add that to the match
 // context later!
@@ -151,7 +151,7 @@ impl<M> Output<M> {
 /// While most regex engines in this crate expose a convenience `find`-like
 /// routine that accepts a haystack and returns a match if one was found, it
 /// turns out that regex searches have a lot of parameters. The `find`-like
-/// methods represent the common use case, while this `Search` type represents
+/// methods represent the common use case, while this `Input` type represents
 /// the full configurability of a regex search. That configurability includes:
 ///
 /// * Search only a substring of a haystack, while taking the broader context
@@ -164,27 +164,27 @@ impl<M> Output<M> {
 ///
 /// All of these parameters, except for the haystack, have sensible default
 /// values. This means that the minimal search configuration is simply a call
-/// to [`Search::new`] with your haystack. Setting any other parameter is
+/// to [`Input::new`] with your haystack. Setting any other parameter is
 /// optional.
 ///
-/// The API of `Search` is split into a few different parts:
+/// The API of `Input` is split into a few different parts:
 ///
-/// * A builder-like API that transforms a `Search` by value. Examples:
-/// [`Search::span`] and [`Search::prefilter`].
+/// * A builder-like API that transforms a `Input` by value. Examples:
+/// [`Input::span`] and [`Input::prefilter`].
 /// * A setter API that permits mutating parameters in place. Examples:
-/// [`Search::set_span`] and [`Search::set_prefilter`].
+/// [`Input::set_span`] and [`Input::set_prefilter`].
 /// * A getter API that permits retrieving any of the search parameters.
-/// Examples: [`Search::get_span`] and [`Search::get_prefilter`].
+/// Examples: [`Input::get_span`] and [`Input::get_prefilter`].
 /// * A few convenience getter routines that don't conform to the above naming
-/// pattern due to how common they are. Examples: [`Search::haystack`],
-/// [`Search::start`] and [`Search::end`].
+/// pattern due to how common they are. Examples: [`Input::haystack`],
+/// [`Input::start`] and [`Input::end`].
 /// * Miscellaneous predicates and other helper routines that are useful
-/// in some contexts. Examples: [`Search::is_char_boundary`].
+/// in some contexts. Examples: [`Input::is_char_boundary`].
 ///
-/// A `Search` exposes so much because it is meant to be used by both callers
+/// A `Input` exposes so much because it is meant to be used by both callers
 /// of regex engines _and_ implementors of regex engines. A constraining
-/// factor is that regex engines should accept a `&Search`, which means that
-/// implementors should only use the "getter" APIs of a `Search`.
+/// factor is that regex engines should accept a `&Input`, which means that
+/// implementors should only use the "getter" APIs of a `Input`.
 ///
 /// The lifetime parameters have the following meaning:
 ///
@@ -228,7 +228,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// This routine is generic over how a span is provided. While
     /// a [`Span`] may be given directly, one may also provide a
     /// `std::ops::Range<usize>`. To provide anything supported by range
-    /// syntax, use the [`Search::range`] method.
+    /// syntax, use the [`Input::range`] method.
     ///
     /// # Example
     ///
@@ -240,7 +240,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, Search,
+    ///     Match, Input,
     /// };
     ///
     /// // Look for 'at', but as a distinct word.
@@ -252,7 +252,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let haystack = "batter";
     ///
     /// // A standard search finds nothing, as expected.
-    /// let search = Search::new(haystack);
+    /// let search = Input::new(haystack);
     /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
@@ -260,14 +260,14 @@ impl<'h, 'p> Input<'h, 'p> {
     /// // slice the haystack. If we do this, it's impossible for the \b
     /// // anchors to take the surrounding context into account! And thus,
     /// // a match is produced.
-    /// let search = Search::new(&haystack[1..3]);
+    /// let search = Input::new(&haystack[1..3]);
     /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..2)), caps.get_match());
     ///
     /// // But if we specify the span of the search instead of slicing the
     /// // haystack, then the regex engine can "see" outside of the span
     /// // and resolve the anchors correctly.
-    /// let search = Search::new(haystack).span(1..3);
+    /// let search = Input::new(haystack).span(1..3);
     /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
@@ -293,7 +293,7 @@ impl<'h, 'p> Input<'h, 'p> {
         self
     }
 
-    /// Like `Search::span`, but accepts any range instead.
+    /// Like `Input::span`, but accepts any range instead.
     ///
     /// This routine does not panic if the range given is not a valid range for
     /// this search's haystack. If this search is run with an invalid range,
@@ -310,12 +310,12 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert_eq!(0..6, search.get_range());
     ///
-    /// let search = Search::new("foobar").range(2..=4);
+    /// let search = Input::new("foobar").range(2..=4);
     /// assert_eq!(2..5, search.get_range());
     /// ```
     #[inline]
@@ -342,7 +342,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, PatternID, Search,
+    ///     Match, PatternID, Input,
     /// };
     ///
     /// let vm = PikeVM::new_many(&[r"[a-z0-9]{6}", r"[a-z][a-z0-9]{5}"])?;
@@ -350,13 +350,13 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let mut caps = vm.create_captures();
     ///
     /// // A standard search looks for any pattern.
-    /// let search = Search::new("bar foo123");
+    /// let search = Input::new("bar foo123");
     /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 4..10)), caps.get_match());
     ///
     /// // But we can also check whether a specific pattern
     /// // matches at a particular position.
-    /// let search = Search::new("bar foo123")
+    /// let search = Input::new("bar foo123")
     ///     .range(4..)
     ///     .pattern(Some(PatternID::must(1)));
     /// vm.search(&mut cache, &search, &mut caps);
@@ -407,7 +407,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, PatternID, Search,
+    ///     Match, PatternID, Input,
     /// };
     ///
     /// let vm = PikeVM::new(r"foo[0-9]+")?;
@@ -415,14 +415,14 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let mut caps = vm.create_captures();
     ///
     /// // A normal search implements greediness like you expect.
-    /// let search = Search::new("foo12345");
+    /// let search = Input::new("foo12345");
     /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..8)), caps.get_match());
     ///
     /// // When 'earliest' is enabled and the regex engine supports
     /// // it, the search will bail once it knows a match has been
     /// // found.
-    /// let search = Search::new("foo12345").earliest(true);
+    /// let search = Input::new("foo12345").earliest(true);
     /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..4)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -435,7 +435,7 @@ impl<'h, 'p> Input<'h, 'p> {
 
     /// Whether to enable UTF-8 mode during search or not.
     ///
-    /// UTF-8 mode on a `Search` refers to whether a regex engine should
+    /// UTF-8 mode on a `Input` refers to whether a regex engine should
     /// treat the haystack as valid UTF-8 in cases where that could make a
     /// difference.
     ///
@@ -465,7 +465,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, Search,
+    ///     Match, Input,
     /// };
     ///
     /// let vm = PikeVM::new("")?;
@@ -473,7 +473,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let mut caps = vm.create_captures();
     ///
     /// // UTF-8 mode is enabled by default.
-    /// let mut search = Search::new("☃");
+    /// let mut search = Input::new("☃");
     /// vm.search(&mut cache, &search, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
     ///
@@ -511,7 +511,7 @@ impl<'h, 'p> Input<'h, 'p> {
 
     /// Set the span for this search configuration.
     ///
-    /// This is like the [`Search::span`] method, except this mutates the
+    /// This is like the [`Input::span`] method, except this mutates the
     /// span in place.
     ///
     /// This routine is generic over how a span is provided. While
@@ -521,9 +521,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert_eq!(0..6, search.get_range());
     /// search.set_span(2..4);
     /// assert_eq!(2..4, search.get_range());
@@ -535,7 +535,7 @@ impl<'h, 'p> Input<'h, 'p> {
 
     /// Set the span for this search configuration given any range.
     ///
-    /// This is like the [`Search::range`] method, except this mutates the
+    /// This is like the [`Input::range`] method, except this mutates the
     /// span in place.
     ///
     /// This routine does not panic if the range given is not a valid range for
@@ -553,9 +553,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert_eq!(0..6, search.get_range());
     /// search.set_range(2..=4);
     /// assert_eq!(2..5, search.get_range());
@@ -590,9 +590,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert_eq!(0..6, search.get_range());
     /// search.set_start(5);
     /// assert_eq!(5..6, search.get_range());
@@ -610,9 +610,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert_eq!(0..6, search.get_range());
     /// search.set_end(5);
     /// assert_eq!(0..5, search.get_range());
@@ -624,15 +624,15 @@ impl<'h, 'p> Input<'h, 'p> {
 
     /// Set the pattern to search for.
     ///
-    /// This is like [`Search::pattern`], except it mutates the search
+    /// This is like [`Input::pattern`], except it mutates the search
     /// configuration in place.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{PatternID, Search};
+    /// use regex_automata::{PatternID, Input};
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert_eq!(None, search.get_pattern());
     /// search.set_pattern(Some(PatternID::must(5)));
     /// assert_eq!(Some(PatternID::must(5)), search.get_pattern());
@@ -649,15 +649,15 @@ impl<'h, 'p> Input<'h, 'p> {
 
     /// Set whether the search should execute in "earliest" mode or not.
     ///
-    /// This is like [`Search::earliest`], except it mutates the search
+    /// This is like [`Input::earliest`], except it mutates the search
     /// configuration in place.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert!(!search.get_earliest());
     /// search.set_earliest(true);
     /// assert!(search.get_earliest());
@@ -669,15 +669,15 @@ impl<'h, 'p> Input<'h, 'p> {
 
     /// Set whether the search should execute in UTF-8 mode or not.
     ///
-    /// This is like [`Search::utf8`], except it mutates the search
+    /// This is like [`Input::utf8`], except it mutates the search
     /// configuration in place.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert!(search.get_utf8());
     /// search.set_utf8(false);
     /// assert!(!search.get_utf8());
@@ -692,9 +692,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert_eq!(b"foobar", search.haystack());
     /// ```
     #[inline]
@@ -709,12 +709,12 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert_eq!(0, search.start());
     ///
-    /// let search = Search::new("foobar").span(2..4);
+    /// let search = Input::new("foobar").span(2..4);
     /// assert_eq!(2, search.start());
     /// ```
     #[inline]
@@ -729,12 +729,12 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert_eq!(6, search.end());
     ///
-    /// let search = Search::new("foobar").span(2..4);
+    /// let search = Input::new("foobar").span(2..4);
     /// assert_eq!(4, search.end());
     /// ```
     #[inline]
@@ -750,9 +750,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{Search, Span};
+    /// use regex_automata::{Input, Span};
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert_eq!(Span { start: 0, end: 6 }, search.get_span());
     /// ```
     #[inline]
@@ -768,9 +768,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert_eq!(0..6, search.get_range());
     /// ```
     #[inline]
@@ -786,9 +786,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert_eq!(None, search.get_pattern());
     /// ```
     #[inline]
@@ -806,9 +806,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert!(!search.get_earliest());
     /// ```
     #[inline]
@@ -821,9 +821,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("foobar");
+    /// let search = Input::new("foobar");
     /// assert!(search.get_utf8());
     /// ```
     #[inline]
@@ -840,9 +840,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let mut search = Search::new("foobar");
+    /// let mut search = Input::new("foobar");
     /// assert!(!search.is_done());
     /// search.set_start(6);
     /// assert!(!search.is_done());
@@ -866,9 +866,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// UTF-8.
     ///
     /// ```
-    /// use regex_automata::Search;
+    /// use regex_automata::Input;
     ///
-    /// let search = Search::new("☃");
+    /// let search = Input::new("☃");
     /// assert!(search.is_char_boundary(0));
     /// assert!(!search.is_char_boundary(1));
     /// assert!(!search.is_char_boundary(2));
@@ -925,7 +925,7 @@ impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         use crate::util::escape::DebugHaystack;
 
-        f.debug_struct("Search")
+        f.debug_struct("Input")
             .field("haystack", &DebugHaystack(self.haystack()))
             .field("span", &self.span)
             .field("prefilter", &self.prefilter)
@@ -944,7 +944,7 @@ impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
 ///
 /// A span is used to report the offsets of a match, but it is also used to
 /// convey which region of a haystack should be searched via routines like
-/// [`Search::span`].
+/// [`Input::span`].
 ///
 /// This is basically equivalent to a `std::ops::Range<usize>`, except this
 /// type implements `Copy` which makes it more ergonomic to use in the context
