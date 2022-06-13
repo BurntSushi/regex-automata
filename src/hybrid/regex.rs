@@ -239,7 +239,7 @@ impl Regex {
     /// This routine is useful when using the lower-level [`Regex::try_search`]
     /// API.
     #[inline]
-    pub fn create_search<'h, 'p, H: ?Sized + AsRef<[u8]>>(
+    pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
@@ -425,7 +425,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'h, 'c> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         FindMatches(self.try_matches_iter(cache, search).infallible())
     }
 }
@@ -469,7 +469,7 @@ impl Regex {
     ) -> Result<bool, MatchError> {
         // Not only can we do an "earliest" search, but we can avoid doing a
         // reverse scan too.
-        let search = self.create_search(haystack.as_ref()).earliest(true);
+        let search = self.create_input(haystack.as_ref()).earliest(true);
         let dfa = self.forward();
         let cache = &mut cache.forward;
         search::find_fwd(dfa, cache, &search).map(|m| m.is_some())
@@ -497,7 +497,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         self.try_search(cache, &search)
     }
 
@@ -525,7 +525,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> TryFindMatches<'h, 'c> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         TryFindMatches(self.try_matches_iter(cache, search))
     }
 }

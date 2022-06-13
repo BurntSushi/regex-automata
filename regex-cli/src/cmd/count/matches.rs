@@ -525,7 +525,7 @@ fn search_dfa_regex<A: Automaton>(
     match find.kind() {
         config::SearchKind::Earliest => {
             let mut it = iter::TryMatches::new(
-                re.create_search(haystack).earliest(true),
+                re.create_input(haystack).earliest(true),
                 move |search| re.try_search(search),
             );
             for result in it {
@@ -614,7 +614,7 @@ fn search_hybrid_regex(
     let mut counts = vec![0u64; re.pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
-            let search = re.create_search(haystack).earliest(true);
+            let search = re.create_input(haystack).earliest(true);
             let mut it = iter::TryMatches::new(search, move |search| {
                 re.try_search(cache, search)
             });
@@ -654,7 +654,7 @@ fn search_pikevm(
         config::SearchKind::Earliest => {
             let mut caps = vm.create_captures();
             let mut it = iter::TryMatches::new(
-                vm.create_search(haystack).earliest(true),
+                vm.create_input(haystack).earliest(true),
                 move |search| {
                     vm.search(cache, search, &mut caps);
                     Ok(caps.get_match())

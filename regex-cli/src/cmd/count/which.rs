@@ -298,7 +298,7 @@ fn search_pikevm(
     cache: &mut pikevm::Cache,
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
-    let search = vm.create_search(haystack);
+    let search = vm.create_input(haystack);
     let mut patset = PatternSet::new(vm.get_nfa().pattern_len());
     vm.which_overlapping_matches(cache, &search, &mut patset);
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())

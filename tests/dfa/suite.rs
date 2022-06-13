@@ -208,7 +208,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
         "is_match" => TestResult::matched(re.is_match(test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let search = re.create_search(test.input()).earliest(true);
+                let search = re.create_input(test.input()).earliest(true);
                 let it = iter::TryMatches::new(search, move |search| {
                     re.try_search(search)
                 })
@@ -231,7 +231,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let search = re.create_search(test.input());
+                let search = re.create_input(test.input());
                 try_search_overlapping(re, &search).unwrap()
             }
         },
@@ -250,7 +250,7 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
                 let mut patset = PatternSet::new(dfa.pattern_len());
-                let search = re.create_search(test.input());
+                let search = re.create_input(test.input());
                 dfa.try_which_overlapping_matches(&search, &mut patset)
                     .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))

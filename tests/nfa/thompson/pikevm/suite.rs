@@ -56,7 +56,7 @@ fn run_test(
             ret::SearchKind::Earliest => {
                 let mut caps = re.create_captures();
                 let it = iter::TryMatches::new(
-                    re.create_search(test.input()).earliest(true),
+                    re.create_input(test.input()).earliest(true),
                     move |search| {
                         re.search(cache, search, &mut caps);
                         Ok(caps.get_match())
@@ -82,7 +82,7 @@ fn run_test(
             }
             ret::SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-                let search = re.create_search(test.input());
+                let search = re.create_input(test.input());
                 re.which_overlapping_matches(cache, &search, &mut patset);
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
@@ -97,7 +97,7 @@ fn run_test(
                     // it through using a RefCell.
                     let caps = Rc::new(RefCell::new(re.create_captures()));
                     let it = iter::TryMatches::new(
-                        re.create_search(test.input()).earliest(true),
+                        re.create_input(test.input()).earliest(true),
                         {
                             let caps = Rc::clone(&caps);
                             move |search| {
@@ -122,7 +122,7 @@ fn run_test(
                 ret::SearchKind::Overlapping => {
                     let mut patset =
                         PatternSet::new(re.get_nfa().pattern_len());
-                    let search = re.create_search(test.input());
+                    let search = re.create_input(test.input());
                     re.which_overlapping_matches(cache, &search, &mut patset);
                     TestResult::which(patset.iter().map(|p| p.as_usize()))
                 }

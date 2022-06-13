@@ -221,7 +221,7 @@ impl PikeVM {
         Builder::new()
     }
 
-    pub fn create_search<'h, 'p, H: ?Sized + AsRef<[u8]>>(
+    pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
@@ -257,7 +257,7 @@ impl PikeVM {
         cache: &mut Cache,
         haystack: H,
     ) -> bool {
-        let search = self.create_search(haystack.as_ref()).earliest(true);
+        let search = self.create_input(haystack.as_ref()).earliest(true);
         let mut caps = Captures::empty(self.nfa.clone());
         self.search(cache, &search, &mut caps);
         caps.is_match()
@@ -270,7 +270,7 @@ impl PikeVM {
         haystack: H,
         caps: &mut Captures,
     ) {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         self.search(cache, &search, caps)
     }
 
@@ -280,7 +280,7 @@ impl PikeVM {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'h, 'c> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
         let it = iter::TryMatches::boxed(search, move |search| {
             self.search(cache, search, &mut caps);
@@ -296,7 +296,7 @@ impl PikeVM {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> CapturesMatches<'h, 'c> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         let caps = Arc::new(RefCell::new(self.create_captures()));
         let it = iter::TryMatches::boxed(search, {
             let caps = Arc::clone(&caps);

@@ -460,7 +460,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &'r self,
         haystack: &'h H,
     ) -> FindMatches<'h, 'r> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         FindMatches(self.try_matches_iter(search).infallible())
     }
 }
@@ -500,7 +500,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let search = self.create_search(haystack.as_ref()).earliest(true);
+        let search = self.create_input(haystack.as_ref()).earliest(true);
         self.forward().try_search_fwd(&search).map(|x| x.is_some())
     }
 
@@ -524,7 +524,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         self.try_search(&search)
     }
 
@@ -550,7 +550,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &'r self,
         haystack: &'h H,
     ) -> TryFindMatches<'h, 'r> {
-        let search = self.create_search(haystack.as_ref());
+        let search = self.create_input(haystack.as_ref());
         TryFindMatches(self.try_matches_iter(search))
     }
 }
@@ -671,7 +671,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// This routine is useful when using the lower-level [`Regex::try_search`]
     /// API.
     #[inline]
-    pub fn create_search<'p, 'h, H: ?Sized + AsRef<[u8]>>(
+    pub fn create_input<'p, 'h, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
