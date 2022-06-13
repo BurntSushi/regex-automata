@@ -230,6 +230,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// `std::ops::Range<usize>`. To provide anything supported by range
     /// syntax, use the [`Input::range`] method.
     ///
+    /// The default span is the entire haystack.
+    ///
+    /// Note that [`Input::range`] overrides this method and vice versa.
+    ///
     /// # Example
     ///
     /// This example shows how the span of the search can impact whether a
@@ -300,6 +304,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// then the most likely outcome is that the actual search execution will
     /// panic.
     ///
+    /// The default range is the entire haystack.
+    ///
+    /// Note that [`Input::span`] overrides this method and vice versa.
+    ///
     /// # Panics
     ///
     /// This routine will panic if the given range could not be converted
@@ -334,6 +342,8 @@ impl<'h, 'p> Input<'h, 'p> {
     ///
     /// If a pattern ID is given and a regex engine doesn't support searching
     /// by a specific pattern, then the regex engine must panic.
+    ///
+    /// The default is to look for a match for any pattern in a regex object.
     ///
     /// # Example
     ///
@@ -456,6 +466,8 @@ impl<'h, 'p> Input<'h, 'p> {
     ///
     /// Typically, this is enabled in concert with
     /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8).
+    ///
+    /// This is enabled by default.
     ///
     /// # Example
     ///
