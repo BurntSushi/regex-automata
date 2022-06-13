@@ -111,10 +111,18 @@ pub struct Output<M> {
     // BREADCRUMBS:
     //
     // Should we try to track anything else now? One nice thing might be the
-    // cursor position. That would effectively permit us to push iteration
-    // down into the core regex engine. Which could simplify some things
-    // and make us less reliant on complex iterators. It also lets us push
-    // our regex engine semantics ALL the way down. It is very tempting.
+    // cursor position. That would effectively permit us to push iteration down
+    // into the core regex engine. Which could simplify some things and make us
+    // less reliant on complex iterators. It also lets us push our regex engine
+    // semantics ALL the way down. It is very tempting.
+    //
+    // Nope, we shouldn't do it. Remember, the DFAs fundamentally cannot handle
+    // fully correct iteration because they don't know when they have an empty
+    // match. Why? Because DFAs can only report either the start or the end
+    // of a match. While DFA iteration can always make progress and avoid
+    // reporting an empty match overlapping with a previous match, it cannot
+    // know when an empty match splits a codepoint generally. So we'll always
+    // need some higher level logic.
     //
     // Otherwise, I think with the barebones API below, we can start changing
     // all of our regex APIs...

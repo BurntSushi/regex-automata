@@ -293,17 +293,12 @@ where
         // matches, we discard this match and advance the search by 1.
         //
         // Note that we do not prevent this iterator from returning an offset
-        // that splits a codepoint. Our other iterators that detect this work
-        // with the full match offsets and so know only to check this case when
-        // an empty match is found. But here, all we have is one half of the
-        // match, which means we don't know if it's empty or not.
+        // that splits a codepoint. In order to do that, we need both the start
+        // and end of a match, which is not available here.
         //
         // We could prevent *any* match from being returned if it splits a
         // codepoint, but that seems like it's going too far.
         self.search.set_start(self.search.start().checked_add(1).unwrap());
-        if self.search.is_done() {
-            return None;
-        }
         (self.finder)(&self.search).transpose()
     }
 }
@@ -316,9 +311,6 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Result<HalfMatch, MatchError>> {
-        if self.search.is_done() {
-            return None;
-        }
         let mut m = match (self.finder)(&self.search).transpose()? {
             Err(err) => return Some(Err(err)),
             Ok(m) => m,
