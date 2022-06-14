@@ -22,7 +22,7 @@ pub struct TryMatches<'h, 'p, F> {
     /// The regex engine execution function.
     finder: F,
     /// The search configuration.
-    search: Input<'h, 'p>,
+    input: Input<'h, 'p>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
@@ -35,12 +35,12 @@ where
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
-    /// The given `search` provides the parameters (including the haystack),
+    /// The given `input` provides the parameters (including the haystack),
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(search: Input<'h, 'p>, finder: F) -> TryMatches<'h, 'p, F> {
-        TryMatches { finder, search, last_match_end: None }
+    pub fn new(input: Input<'h, 'p>, finder: F) -> TryMatches<'h, 'p, F> {
+        TryMatches { finder, input, last_match_end: None }
     }
 
     /// Like `new`, but boxes the given closure into a `dyn` object.
@@ -49,7 +49,7 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Input<'h, 'p>,
+        input: Input<'h, 'p>,
         finder: F,
     ) -> TryMatches<
         'h,
@@ -59,7 +59,7 @@ where
                 + 'c,
         >,
     > {
-        TryMatches::new(search, Box::new(finder))
+        TryMatches::new(input, Box::new(finder))
     }
 
     /// Return an infallible version of this iterator.
@@ -115,12 +115,12 @@ where
         // as the previous search's start position. Thus, it would never
         // terminate.
         if Some(m.end()) == self.last_match_end {
-            self.search.set_start(self.search.start().checked_add(1).unwrap());
-            m = match (self.finder)(&self.search).transpose()? {
+            self.input.set_start(self.input.start().checked_add(1).unwrap());
+            m = match (self.finder)(&self.input).transpose()? {
                 Err(err) => return Some(Err(err)),
                 Ok(m) => m,
             };
-            self.search.set_start(m.end());
+            self.input.set_start(m.end());
         }
         Some(Ok(m))
     }
@@ -134,11 +134,11 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        let mut m = match (self.finder)(&self.search).transpose()? {
+        let mut m = match (self.finder)(&self.input).transpose()? {
             Err(err) => return Some(Err(err)),
             Ok(m) => m,
         };
-        self.search.set_start(m.end());
+        self.input.set_start(m.end());
         if m.is_empty() {
             m = match self.handle_overlapping_empty_match(m)? {
                 Err(err) => return Some(Err(err)),
@@ -154,7 +154,7 @@ impl<'h, 'p, F> core::fmt::Debug for TryMatches<'h, 'p, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TryMatches")
             .field("finder", &"<closure>")
-            .field("search", &self.search)
+            .field("search", &self.input)
             .field("last_match_end", &self.last_match_end)
             .finish()
     }
@@ -226,7 +226,7 @@ pub struct TryHalfMatches<'h, 'p, F> {
     /// The regex engine execution function.
     finder: F,
     /// The search configuration.
-    search: Input<'h, 'p>,
+    input: Input<'h, 'p>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
@@ -239,12 +239,12 @@ where
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
-    /// The given `search` provides the parameters (including the haystack),
+    /// The given `input` provides the parameters (including the haystack),
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(search: Input<'h, 'p>, finder: F) -> TryHalfMatches<'h, 'p, F> {
-        TryHalfMatches { finder, search, last_match_end: None }
+    pub fn new(input: Input<'h, 'p>, finder: F) -> TryHalfMatches<'h, 'p, F> {
+        TryHalfMatches { finder, input, last_match_end: None }
     }
 
     /// Like `new`, but boxes the given closure into a `dyn` object.
@@ -253,7 +253,7 @@ where
     /// able to write the type of the closure. This is often necessary for
     /// composition to work cleanly.
     pub fn boxed(
-        search: Input<'h, 'p>,
+        input: Input<'h, 'p>,
         finder: F,
     ) -> TryHalfMatches<
         'h,
@@ -263,7 +263,7 @@ where
                 + 'c,
         >,
     > {
-        TryHalfMatches::new(search, Box::new(finder))
+        TryHalfMatches::new(input, Box::new(finder))
     }
 
     /// Return an infallible version of this iterator.
@@ -295,8 +295,8 @@ where
         //
         // We could prevent *any* match from being returned if it splits a
         // codepoint, but that seems like it's going too far.
-        self.search.set_start(self.search.start().checked_add(1).unwrap());
-        (self.finder)(&self.search).transpose()
+        self.input.set_start(self.input.start().checked_add(1).unwrap());
+        (self.finder)(&self.input).transpose()
     }
 }
 
@@ -308,7 +308,7 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Result<HalfMatch, MatchError>> {
-        let mut m = match (self.finder)(&self.search).transpose()? {
+        let mut m = match (self.finder)(&self.input).transpose()? {
             Err(err) => return Some(Err(err)),
             Ok(m) => m,
         };
@@ -318,7 +318,7 @@ where
                 Ok(m) => m,
             };
         }
-        self.search.set_start(m.offset());
+        self.input.set_start(m.offset());
         self.last_match_end = Some(m.offset());
         Some(Ok(m))
     }
@@ -328,7 +328,7 @@ impl<'h, 'p, F> core::fmt::Debug for TryHalfMatches<'h, 'p, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("TryHalfMatches")
             .field("finder", &"<closure>")
-            .field("search", &self.search)
+            .field("search", &self.input)
             .field("last_match_end", &self.last_match_end)
             .finish()
     }

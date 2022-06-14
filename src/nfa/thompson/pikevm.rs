@@ -313,16 +313,16 @@ impl PikeVM {
     pub fn search(
         &self,
         cache: &mut Cache,
-        search: &Input<'_, '_>,
+        input: &Input<'_, '_>,
         caps: &mut Captures,
     ) {
-        self.search_imp(cache, search, caps);
+        self.search_imp(cache, input, caps);
         let m = match caps.get_match() {
             None => return,
             Some(m) => m,
         };
         if m.is_empty() {
-            search
+            input
                 .skip_empty_utf8_splits(m, |search| {
                     self.search_imp(cache, search, caps);
                     Ok(caps.get_match())
@@ -335,10 +335,10 @@ impl PikeVM {
     pub fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        search: &Input<'_, '_>,
+        input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) {
-        self.which_overlapping_imp(cache, search, patset)
+        self.which_overlapping_imp(cache, input, patset)
     }
 }
 
@@ -346,7 +346,7 @@ impl PikeVM {
     fn search_imp(
         &self,
         cache: &mut Cache,
-        search: &Input<'_, '_>,
+        input: &Input<'_, '_>,
         caps: &mut Captures,
     ) {
         // Why do we even care about this? Well, in our 'Captures'
@@ -356,7 +356,7 @@ impl PikeVM {
         // length that fits into isize, and so this assert should always pass.
         // But we put it here to make our assumption explicit.
         assert!(
-            search.haystack().len() < core::usize::MAX,
+            input.haystack().len() < core::usize::MAX,
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
@@ -367,8 +367,8 @@ impl PikeVM {
             self.config.get_match_kind().continue_past_first_match();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
-            || search.get_pattern().is_some();
-        let start_id = match search.get_pattern() {
+            || input.get_pattern().is_some();
+        let start_id = match input.get_pattern() {
             // We always use the anchored starting state here, even if doing an
             // unanchored search. The "unanchored" part of it is implemented
             // in the loop below, by computing the epsilon closure from the
@@ -384,11 +384,11 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = search.start();
-        while at <= search.end() {
+        let mut at = input.start();
+        while at <= input.end() {
             if clist.set.is_empty() {
                 if (caps.is_match() && !allmatches)
-                    || (anchored && at > search.start())
+                    || (anchored && at > input.start())
                 {
                     break;
                 }
@@ -399,12 +399,12 @@ impl PikeVM {
                     clist,
                     scratch_caps,
                     start_id,
-                    search.haystack(),
+                    input.haystack(),
                     at,
                 );
             }
-            if self.steps(stack, clist, nlist, search.haystack(), at, caps) {
-                if search.get_earliest() {
+            if self.steps(stack, clist, nlist, input.haystack(), at, caps) {
+                if input.get_earliest() {
                     break;
                 }
             }
@@ -418,11 +418,11 @@ impl PikeVM {
     fn which_overlapping_imp(
         &self,
         cache: &mut Cache,
-        search: &Input<'_, '_>,
+        input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) {
         assert!(
-            search.haystack().len() < core::usize::MAX,
+            input.haystack().len() < core::usize::MAX,
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
@@ -430,8 +430,8 @@ impl PikeVM {
 
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
-            || search.get_pattern().is_some();
-        let start_id = match search.get_pattern() {
+            || input.get_pattern().is_some();
+        let start_id = match input.get_pattern() {
             None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
@@ -442,9 +442,9 @@ impl PikeVM {
             ref mut clist,
             ref mut nlist,
         } = cache;
-        let mut at = search.start();
-        while at <= search.end() {
-            if anchored && clist.set.is_empty() && at > search.start() {
+        let mut at = input.start();
+        while at <= input.end() {
+            if anchored && clist.set.is_empty() && at > input.start() {
                 break;
             }
             if clist.set.is_empty() || !anchored {
@@ -453,7 +453,7 @@ impl PikeVM {
                     clist,
                     scratch_caps,
                     start_id,
-                    search.haystack(),
+                    input.haystack(),
                     at,
                 );
             }
@@ -461,7 +461,7 @@ impl PikeVM {
                 stack,
                 clist,
                 nlist,
-                search.haystack(),
+                input.haystack(),
                 at,
                 patset,
             );

@@ -1190,15 +1190,15 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn start_state_forward(&self, search: &Input<'_, '_>) -> StateID {
-        let index = Start::from_position_fwd(&search);
-        self.starts.start(index, search.get_pattern())
+    fn start_state_forward(&self, input: &Input<'_, '_>) -> StateID {
+        let index = Start::from_position_fwd(&input);
+        self.starts.start(index, input.get_pattern())
     }
 
     #[inline]
-    fn start_state_reverse(&self, search: &Input<'_, '_>) -> StateID {
-        let index = Start::from_position_rev(&search);
-        self.starts.start(index, search.get_pattern())
+    fn start_state_reverse(&self, input: &Input<'_, '_>) -> StateID {
+        let index = Start::from_position_rev(&input);
+        self.starts.start(index, input.get_pattern())
     }
 
     #[inline]

@@ -287,22 +287,20 @@ fn config_syntax(test: &RegexTest) -> SyntaxConfig {
 fn try_search_overlapping(
     re: &Regex,
     cache: &mut regex::Cache,
-    search: &Input<'_, '_>,
+    input: &Input<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut fwd_state = OverlappingState::start();
     let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
     let (fwd_cache, rev_cache) = cache.as_parts_mut();
-    while let Some(end) = fwd_dfa.try_search_overlapping_fwd(
-        fwd_cache,
-        search,
-        &mut fwd_state,
-    )? {
-        let revsearch = search
+    while let Some(end) =
+        fwd_dfa.try_search_overlapping_fwd(fwd_cache, input, &mut fwd_state)?
+    {
+        let revsearch = input
             .clone()
             .pattern(Some(end.pattern()))
             .earliest(false)
-            .range(search.start()..end.offset());
+            .range(input.start()..end.offset());
         let mut rev_state = OverlappingState::start();
         while let Some(start) = rev_dfa.try_search_overlapping_rev(
             rev_cache,
@@ -315,9 +313,9 @@ fn try_search_overlapping(
             let span = ret::Span { start: start.offset(), end: end.offset() };
             // Some tests check that we don't yield matches that split a
             // codepoint when UTF-8 mode is enabled, so skip those here.
-            if search.get_utf8()
+            if input.get_utf8()
                 && span.start == span.end
-                && !search.is_char_boundary(span.end)
+                && !input.is_char_boundary(span.end)
             {
                 continue;
             }

@@ -332,19 +332,19 @@ fn config_thompson(test: &RegexTest) -> thompson::Config {
 /// is written in a way that requires starting offsets.
 fn try_search_overlapping<A: Automaton>(
     re: &Regex<A>,
-    search: &Input<'_, '_>,
+    input: &Input<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut fwd_state = OverlappingState::start();
     let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
     while let Some(end) =
-        fwd_dfa.try_search_overlapping_fwd(search, &mut fwd_state)?
+        fwd_dfa.try_search_overlapping_fwd(input, &mut fwd_state)?
     {
-        let revsearch = search
+        let revsearch = input
             .clone()
             .pattern(Some(end.pattern()))
             .earliest(false)
-            .range(search.start()..end.offset());
+            .range(input.start()..end.offset());
         let mut rev_state = OverlappingState::start();
         while let Some(start) =
             rev_dfa.try_search_overlapping_rev(&revsearch, &mut rev_state)?
@@ -355,9 +355,9 @@ fn try_search_overlapping<A: Automaton>(
             let span = ret::Span { start: start.offset(), end: end.offset() };
             // Some tests check that we don't yield matches that split a
             // codepoint when UTF-8 mode is enabled, so skip those here.
-            if search.get_utf8()
+            if input.get_utf8()
                 && span.start == span.end
-                && !search.is_char_boundary(span.end)
+                && !input.is_char_boundary(span.end)
             {
                 continue;
             }

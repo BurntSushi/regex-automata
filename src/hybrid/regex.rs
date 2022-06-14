@@ -571,14 +571,14 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        search: &Input<'_, '_>,
+        input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let m = match self.try_search_fwd_back(cache, search)? {
+        let m = match self.try_search_fwd_back(cache, input)? {
             None => return Ok(None),
             Some(m) => m,
         };
         if m.is_empty() {
-            search.skip_empty_utf8_splits(m, |search| {
+            input.skip_empty_utf8_splits(m, |search| {
                 self.try_search_fwd_back(cache, search)
             })
         } else {
@@ -592,14 +592,14 @@ impl Regex {
     fn try_search_fwd_back(
         &self,
         cache: &mut Cache,
-        search: &Input<'_, '_>,
+        input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
         // appear to have a bit more latency due to the 'search.as_ref()' call.
         // So we reach around them. This also avoids generics.
         let (fdfa, rdfa) = (self.forward(), self.reverse());
         let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
-        let end = match search::find_fwd(fdfa, fcache, search)? {
+        let end = match search::find_fwd(fdfa, fcache, input)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -618,7 +618,7 @@ impl Regex {
         // reverse case, to satisfy "leftmost" criteria, we need to match as
         // much as we can.
         let revsearch =
-            search.clone().earliest(false).span(search.start()..end.offset());
+            input.clone().earliest(false).span(input.start()..end.offset());
         let start = search::find_rev(rdfa, rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         debug_assert_eq!(
@@ -638,9 +638,9 @@ impl Regex {
     fn try_matches_iter<'r: 'c, 'c, 'h>(
         &'r self,
         cache: &'c mut Cache,
-        search: Input<'h, 'r>,
+        input: Input<'h, 'r>,
     ) -> iter::TryMatches<'h, 'c, TryMatchesClosure<'h, 'c>> {
-        iter::TryMatches::boxed(search, move |search| {
+        iter::TryMatches::boxed(input, move |search| {
             self.try_search(cache, search)
         })
     }

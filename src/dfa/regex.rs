@@ -586,14 +586,14 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline]
     pub fn try_search(
         &self,
-        search: &Input<'_, '_>,
+        input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let m = match self.try_search_fwd_back(search)? {
+        let m = match self.try_search_fwd_back(input)? {
             None => return Ok(None),
             Some(m) => m,
         };
         if m.is_empty() {
-            search.skip_empty_utf8_splits(m, |search| {
+            input.skip_empty_utf8_splits(m, |search| {
                 self.try_search_fwd_back(search)
             })
         } else {
@@ -606,14 +606,14 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     #[inline(always)]
     fn try_search_fwd_back(
         &self,
-        search: &Input,
+        input: &Input,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
         // Since this is the usual way that automata are used, this helps
         // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
-        let end = match (&fwd).try_search_fwd(search)? {
+        let end = match (&fwd).try_search_fwd(input)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -632,7 +632,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // reverse case, to satisfy "leftmost" criteria, we need to match as
         // much as we can.
         let revsearch =
-            search.clone().earliest(false).span(search.start()..end.offset());
+            input.clone().earliest(false).span(input.start()..end.offset());
         let start = (&rev)
             .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");
@@ -652,9 +652,9 @@ type TryMatchesClosure<'h, 'c> =
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
     fn try_matches_iter<'r, 'h>(
         &'r self,
-        search: Input<'h, 'r>,
+        input: Input<'h, 'r>,
     ) -> iter::TryMatches<'h, 'r, TryMatchesClosure<'h, 'r>> {
-        iter::TryMatches::boxed(search, move |search| self.try_search(search))
+        iter::TryMatches::boxed(input, move |search| self.try_search(search))
     }
 }
 
