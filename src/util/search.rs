@@ -68,7 +68,7 @@ use crate::util::{
 // Output may however contain things that are useful to inspect when an error
 // occurs. But the Output itself does not track whether an error occurs.
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Output<M> {
     /// M is a regex engine specific representation of a match. It might be
     /// a HalfMatch, or a Match, or a PatternSet or a Captures or really
@@ -129,22 +129,81 @@ pub struct Output<M> {
 }
 
 impl<M> Output<M> {
+    #[inline]
     pub fn new(mat: M) -> Output<M> {
         Output { mat }
     }
 
+    #[inline]
     pub fn get(&self) -> &M {
         &self.mat
     }
 
+    #[inline]
     pub fn get_mut(&mut self) -> &mut M {
         &mut self.mat
     }
 
+    #[inline]
+    pub fn into_inner(self) -> M {
+        self.mat
+    }
+
+    #[inline]
     pub fn set(&mut self, mat: M) {
         self.mat = mat;
     }
+
+    #[inline]
+    pub fn map<N>(self, mut map: impl FnMut(M) -> N) -> Output<N> {
+        Output { mat: map(self.mat) }
+    }
+
+    /*
+    #[inline]
+    pub fn transfer<N>(self, mat: N) -> OutputTransfer<M, N> {
+        OutputTransfer
+    }
+    */
+
+    /*
+    #[inline]
+    pub fn replace<N>(self, mat: N) -> (Output<N>, M) {
+
+    }
+    */
+
+    // #[inline]
+    // pub fn acquire(
+    // &mut self,
+    // mut mapto: impl FnMut(M) -> N,
+    // mut mapfrom: impl FnMut(N) -> M,
+    // ) -> OutputOwned<'_, M, M> {
+    // let owned = core::mem::replace(self, Output::new(new()));
+    // OutputOwned { owned, place: self }
+    // }
 }
+
+/*
+#[derive(Debug)]
+pub struct OutputOwned<'a, M, N, B> {
+    owned: Output<M>,
+    place: &'a mut Output<N>,
+    back: B,
+}
+
+impl<'a, M, N> OutputOwned<'a, M, N> {
+    pub fn map<U>(self, map: impl FnMut(M) -> U) -> OutputOwned<'a, U, N> {
+        OutputOwned { owned: self.owned.map(map), place: self.place }
+    }
+}
+
+impl<'a, M, N> Drop for OutputOwned<'a, M, M> {
+    fn drop(&mut self) {
+        core::mem::replace(self.place, self.owned)
+    }
+}
+*/
 
 /// The parameters for a regex search.
 ///

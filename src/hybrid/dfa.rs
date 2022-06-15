@@ -23,7 +23,9 @@ use crate::{
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
         id::{PatternID, StateID as NFAStateID},
         prefilter,
-        search::{HalfMatch, Input, MatchError, MatchKind, PatternSet},
+        search::{
+            HalfMatch, Input, MatchError, MatchKind, Output, PatternSet,
+        },
         sparse_set::SparseSets,
         start::Start,
     },
@@ -482,7 +484,9 @@ impl DFA {
         cache: &mut Cache,
         bytes: H,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_fwd(cache, &Input::new(bytes.as_ref()))
+        let mut out = Output::default();
+        self.try_search_fwd(cache, &Input::new(bytes.as_ref()), &mut out)?;
+        Ok(out.into_inner())
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -547,7 +551,9 @@ impl DFA {
         cache: &mut Cache,
         bytes: H,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_rev(cache, &Input::new(bytes.as_ref()))
+        let mut out = Output::default();
+        self.try_search_rev(cache, &Input::new(bytes.as_ref()), &mut out)?;
+        Ok(out.into_inner())
     }
 }
 
@@ -706,8 +712,9 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_fwd(self, cache, input)
+        out: &mut Output<Option<HalfMatch>>,
+    ) -> Result<(), MatchError> {
+        search::find_fwd(self, cache, input, out)
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -739,8 +746,9 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_rev(self, cache, input)
+        out: &mut Output<Option<HalfMatch>>,
+    ) -> Result<(), MatchError> {
+        search::find_rev(self, cache, input, out)
     }
 
     /// Executes an overlapping forward search and returns the end position of
@@ -834,9 +842,10 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
+        out: &mut Output<Option<HalfMatch>>,
         state: &mut OverlappingState,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_fwd(self, cache, input, state)
+    ) -> Result<(), MatchError> {
+        search::find_overlapping_fwd(self, cache, input, out, state)
     }
 
     /// Executes a reverse overlapping search and returns the start of the
@@ -874,9 +883,10 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
+        out: &mut Output<Option<HalfMatch>>,
         state: &mut OverlappingState,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        search::find_overlapping_rev(self, cache, input, state)
+    ) -> Result<(), MatchError> {
+        search::find_overlapping_rev(self, cache, input, out, state)
     }
 
     /// Writes the set of patterns that match anywhere in the given search
@@ -938,18 +948,44 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        patset: &mut PatternSet,
+        out: &mut Output<PatternSet>,
     ) -> Result<(), MatchError> {
+        // TODO: This impl is so hideously complex. The main issue is trying to
+        // reuse the Output<PatternSet> in our calls to a lower level routine
+        // that want Output<Option<HalfMatch>>. In particular, we want to
+        // reuse both the PatternSet (to avoid creating a new alloc) and the
+        // info in Output itself, which might be tracking higher level match
+        // information.
+        //
+        // Does this mean we need to separate our "match output" with our
+        // "match context"? Sigh.
+
+        let emptyset = PatternSet::new(0);
+        let nothing = Output::new(emptyset.clone());
+        let mut ownedout = core::mem::replace(out, nothing);
+        let mut patset = core::mem::replace(ownedout.get_mut(), emptyset);
+
+        let mut halfout: Output<Option<HalfMatch>> = ownedout.map(|_| None);
         let mut state = OverlappingState::start();
-        while let Some(m) =
-            self.try_search_overlapping_fwd(cache, input, &mut state)?
-        {
+        loop {
+            self.try_search_overlapping_fwd(
+                cache,
+                input,
+                &mut halfout,
+                &mut state,
+            )?;
+            let m = match *halfout.get() {
+                None => break,
+                Some(m) => m,
+            };
             patset.insert(m.pattern());
             // There's nothing left to find, so we can stop.
             if patset.is_full() {
                 break;
             }
         }
+        let setout = halfout.map(|_| patset);
+        core::mem::replace(out, setout);
         Ok(())
     }
 }
