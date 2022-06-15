@@ -1198,8 +1198,8 @@ pub unsafe trait Automaton {
         search::find_rev(self, input)
     }
 
-    /// Executes an overlapping forward search and returns the end position of
-    /// matches as they are found. If no match exists, then `None` is returned.
+    /// Executes an overlapping forward search. Matches, if one exists, can be
+    /// obtained via the [`OverlappingState::get_match`] method.
     ///
     /// This routine is principally only useful when searching for multiple
     /// patterns on inputs where multiple patterns may match the same regions
@@ -1233,7 +1233,7 @@ pub unsafe trait Automaton {
     /// This routine must panic if a `pattern_id` is given and the underlying
     /// DFA does not support specific pattern searches.
     ///
-    /// It must also panic if the given haystack range is not valid.
+    /// It may also panic if the given haystack range is not valid.
     ///
     /// # Example
     ///
@@ -1264,10 +1264,10 @@ pub unsafe trait Automaton {
     /// let mut state = OverlappingState::start();
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
+    /// dfa.try_search_overlapping_fwd(
     ///     &Input::new(haystack), &mut state,
     /// )?;
-    /// assert_eq!(expected, got);
+    /// assert_eq!(expected, state.get_match());
     ///
     /// // The first pattern also matches at the same position, so re-running
     /// // the search will yield another match. Notice also that the first
@@ -1275,10 +1275,10 @@ pub unsafe trait Automaton {
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
+    /// dfa.try_search_overlapping_fwd(
     ///     &Input::new(haystack), &mut state,
     /// )?;
-    /// assert_eq!(expected, got);
+    /// assert_eq!(expected, state.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1287,13 +1287,12 @@ pub unsafe trait Automaton {
         &self,
         input: &Input<'_, '_>,
         state: &mut OverlappingState,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<(), MatchError> {
         search::find_overlapping_fwd(self, input, state)
     }
 
-    /// Executes a reverse overlapping search and returns the start of the
-    /// position of the leftmost match that is found. If no match exists, then
-    /// `None` is returned.
+    /// Executes a reverse overlapping forward search. Matches, if one exists,
+    /// can be obtained via the [`OverlappingState::get_match`] method.
     ///
     /// When using this routine to implement an iterator of overlapping
     /// matches, the `start` of the search should remain invariant throughout
@@ -1325,7 +1324,7 @@ pub unsafe trait Automaton {
         &self,
         input: &Input<'_, '_>,
         state: &mut OverlappingState,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<(), MatchError> {
         search::find_overlapping_rev(self, input, state)
     }
 
@@ -1389,9 +1388,10 @@ pub unsafe trait Automaton {
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
-        while let Some(m) =
-            self.try_search_overlapping_fwd(input, &mut state)?
-        {
+        while let Some(m) = {
+            self.try_search_overlapping_fwd(input, &mut state)?;
+            state.get_match()
+        } {
             patset.insert(m.pattern());
             // There's nothing left to find, so we can stop.
             if patset.is_full() {
@@ -1519,8 +1519,17 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         &self,
         input: &Input<'_, '_>,
         state: &mut OverlappingState,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<(), MatchError> {
         (**self).try_search_overlapping_fwd(input, state)
+    }
+
+    #[inline]
+    fn try_search_overlapping_rev(
+        &self,
+        input: &Input<'_, '_>,
+        state: &mut OverlappingState,
+    ) -> Result<(), MatchError> {
+        (**self).try_search_overlapping_rev(input, state)
     }
 
     #[inline]
@@ -1551,6 +1560,12 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
 /// a previous search may result in incorrect results.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OverlappingState {
+    /// The match reported by the most recent overlapping search to use this
+    /// state.
+    ///
+    /// If a search does not find any matches, then it is expected to clear
+    /// this value.
+    pub(crate) mat: Option<HalfMatch>,
     /// The state ID of the state at which the search was in when the call
     /// terminated. When this is a match state, `last_match` must be set to a
     /// non-None value.
@@ -1590,11 +1605,21 @@ impl OverlappingState {
     /// automaton.
     pub fn start() -> OverlappingState {
         OverlappingState {
+            mat: None,
             id: None,
             at: 0,
             next_match_index: None,
             rev_eoi: false,
         }
+    }
+
+    /// Return the match result of the most recent search to execute with this
+    /// state.
+    ///
+    /// A searches will clear this result automatically, such that if no
+    /// match is found, this will correctly report `None`.
+    pub fn get_match(&self) -> Option<HalfMatch> {
+        self.mat
     }
 }
 

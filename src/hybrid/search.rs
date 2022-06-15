@@ -1,13 +1,13 @@
 use crate::{
     hybrid::{
-        dfa::{Cache, DFA},
-        id::{LazyStateID, OverlappingState},
+        dfa::{Cache, OverlappingState, DFA},
+        id::LazyStateID,
     },
     nfa::thompson,
     util::{
         id::PatternID,
         prefilter::Prefilter,
-        search::{HalfMatch, Input, MatchError, Output, Span},
+        search::{HalfMatch, Input, MatchError, Span},
     },
 };
 
@@ -16,11 +16,9 @@ pub(crate) fn find_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     input: &Input<'_, '_>,
-    out: &mut Output<Option<HalfMatch>>,
-) -> Result<(), MatchError> {
-    out.set(None);
+) -> Result<Option<HalfMatch>, MatchError> {
     if input.is_done() {
-        return Ok(());
+        return Ok(None);
     }
     // So what we do here is specialize four different versions of 'find_fwd':
     // one for each of the combinations for 'has prefilter' and 'is earliest
@@ -34,15 +32,15 @@ pub(crate) fn find_fwd(
         // Searching with a pattern ID is always anchored, so we should never
         // use a prefilter.
         if input.get_earliest() {
-            find_fwd_imp(dfa, cache, input, input.get_prefilter(), true, out)
+            find_fwd_imp(dfa, cache, input, input.get_prefilter(), true)
         } else {
-            find_fwd_imp(dfa, cache, input, input.get_prefilter(), false, out)
+            find_fwd_imp(dfa, cache, input, input.get_prefilter(), false)
         }
     } else {
         if input.get_earliest() {
-            find_fwd_imp(dfa, cache, input, None, true, out)
+            find_fwd_imp(dfa, cache, input, None, true)
         } else {
-            find_fwd_imp(dfa, cache, input, None, false, out)
+            find_fwd_imp(dfa, cache, input, None, false)
         }
     }
 }
@@ -54,8 +52,8 @@ fn find_fwd_imp(
     input: &Input<'_, '_>,
     pre: Option<&'_ dyn Prefilter>,
     earliest: bool,
-    out: &mut Output<Option<HalfMatch>>,
-) -> Result<(), MatchError> {
+) -> Result<Option<HalfMatch>, MatchError> {
+    let mut mat = None;
     let mut sid = init_fwd(dfa, cache, input)?;
     let mut at = input.start();
     // This could just be a closure, but then I think it would be unsound
@@ -71,7 +69,7 @@ fn find_fwd_imp(
     if let Some(ref pre) = pre {
         let span = Span::from(at..input.end());
         match pre.find(input.haystack(), span).into_option() {
-            None => return Ok(()),
+            None => return Ok(mat),
             Some(i) => {
                 at = i;
             }
@@ -247,7 +245,7 @@ fn find_fwd_imp(
                 if let Some(ref pre) = pre {
                     let span = Span::from(at..input.end());
                     match pre.find(input.haystack(), span).into_option() {
-                        None => return Ok(()),
+                        None => return Ok(mat),
                         Some(i) => {
                             at = i;
                             // We want to skip any update to 'at' below
@@ -268,15 +266,15 @@ fn find_fwd_imp(
                 // match, 'at' has already been set to 1 byte past the actual
                 // match location, which is precisely the exclusive ending
                 // bound of the match.
-                out.set(Some(HalfMatch { pattern, offset: at }));
+                mat = Some(HalfMatch::new(pattern, at));
                 if earliest {
-                    return Ok(());
+                    return Ok(mat);
                 }
             } else if sid.is_dead() {
-                return Ok(());
+                return Ok(mat);
             } else if sid.is_quit() {
-                if out.get().is_some() {
-                    return Ok(());
+                if mat.is_some() {
+                    return Ok(mat);
                 }
                 return Err(MatchError::Quit {
                     byte: input.haystack()[at],
@@ -289,7 +287,8 @@ fn find_fwd_imp(
         }
         at += 1;
     }
-    eoi_fwd(dfa, cache, input, &mut sid, out)
+    eoi_fwd(dfa, cache, input, &mut sid, &mut mat)?;
+    Ok(mat)
 }
 
 #[inline(never)]
@@ -297,16 +296,14 @@ pub(crate) fn find_rev(
     dfa: &DFA,
     cache: &mut Cache,
     input: &Input<'_, '_>,
-    out: &mut Output<Option<HalfMatch>>,
-) -> Result<(), MatchError> {
-    out.set(None);
+) -> Result<Option<HalfMatch>, MatchError> {
     if input.is_done() {
-        return Ok(());
+        return Ok(None);
     }
     if input.get_earliest() {
-        find_rev_imp(dfa, cache, input, true, out)
+        find_rev_imp(dfa, cache, input, true)
     } else {
-        find_rev_imp(dfa, cache, input, false, out)
+        find_rev_imp(dfa, cache, input, false)
     }
 }
 
@@ -316,8 +313,8 @@ fn find_rev_imp(
     cache: &mut Cache,
     input: &Input<'_, '_>,
     earliest: bool,
-    out: &mut Output<Option<HalfMatch>>,
-) -> Result<(), MatchError> {
+) -> Result<Option<HalfMatch>, MatchError> {
+    let mut mat = None;
     let mut sid = init_rev(dfa, cache, input)?;
     // In reverse search, the loop below can't handle the case of searching an
     // empty slice. Ideally we could write something congruent to the forward
@@ -326,7 +323,8 @@ fn find_rev_imp(
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
     if input.start() == input.end() {
-        return eoi_rev(dfa, cache, input, &mut sid, out);
+        eoi_rev(dfa, cache, input, &mut sid, &mut mat)?;
+        return Ok(mat);
     }
 
     let mut at = input.end() - 1;
@@ -435,21 +433,19 @@ fn find_rev_imp(
             if sid.is_start() {
                 continue;
             } else if sid.is_match() {
-                out.set(Some(HalfMatch {
-                    pattern: dfa.match_pattern(cache, sid, 0),
-                    // Since reverse searches report the beginning of a match
-                    // and the beginning is inclusive (not exclusive like the
-                    // end of a match), we add 1 to make it inclusive.
-                    offset: at + 1,
-                }));
+                let pattern = dfa.match_pattern(cache, sid, 0);
+                // Since reverse searches report the beginning of a match
+                // and the beginning is inclusive (not exclusive like the
+                // end of a match), we add 1 to make it inclusive.
+                mat = Some(HalfMatch::new(pattern, at + 1));
                 if earliest {
-                    return Ok(());
+                    return Ok(mat);
                 }
             } else if sid.is_dead() {
-                return Ok(());
+                return Ok(mat);
             } else if sid.is_quit() {
-                if out.get().is_some() {
-                    return Ok(());
+                if mat.is_some() {
+                    return Ok(mat);
                 }
                 return Err(MatchError::Quit {
                     byte: input.haystack()[at],
@@ -465,7 +461,8 @@ fn find_rev_imp(
         }
         at -= 1;
     }
-    eoi_rev(dfa, cache, input, &mut sid, out)
+    eoi_rev(dfa, cache, input, &mut sid, &mut mat)?;
+    Ok(mat)
 }
 
 #[inline(never)]
@@ -473,10 +470,9 @@ pub(crate) fn find_overlapping_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     input: &Input<'_, '_>,
-    out: &mut Output<Option<HalfMatch>>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
-    out.set(None);
+    state.mat = None;
     if input.is_done() {
         return Ok(());
     }
@@ -484,9 +480,9 @@ pub(crate) fn find_overlapping_fwd(
     // a prefilter.
     if input.get_prefilter().is_some() && input.get_pattern().is_none() {
         let pre = input.get_prefilter();
-        find_overlapping_fwd_imp(dfa, cache, input, pre, out, state)
+        find_overlapping_fwd_imp(dfa, cache, input, pre, state)
     } else {
-        find_overlapping_fwd_imp(dfa, cache, input, None, out, state)
+        find_overlapping_fwd_imp(dfa, cache, input, None, state)
     }
 }
 
@@ -496,7 +492,6 @@ fn find_overlapping_fwd_imp(
     cache: &mut Cache,
     input: &Input<'_, '_>,
     pre: Option<&'_ dyn Prefilter>,
-    out: &mut Output<Option<HalfMatch>>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
     let mut sid = match state.id {
@@ -509,10 +504,8 @@ fn find_overlapping_fwd_imp(
                 let match_len = dfa.match_len(cache, sid);
                 if match_index < match_len {
                     state.next_match_index = Some(match_index + 1);
-                    out.set(Some(HalfMatch {
-                        pattern: dfa.match_pattern(cache, sid, match_index),
-                        offset: state.at,
-                    }));
+                    let pattern = dfa.match_pattern(cache, sid, match_index);
+                    state.mat = Some(HalfMatch::new(pattern, state.at));
                     return Ok(());
                 }
             }
@@ -546,10 +539,8 @@ fn find_overlapping_fwd_imp(
                 }
             } else if sid.is_match() {
                 state.next_match_index = Some(1);
-                out.set(Some(HalfMatch {
-                    pattern: dfa.match_pattern(cache, sid, 0),
-                    offset: state.at,
-                }));
+                let pattern = dfa.match_pattern(cache, sid, 0);
+                state.mat = Some(HalfMatch::new(pattern, state.at));
                 return Ok(());
             } else if sid.is_dead() {
                 return Ok(());
@@ -566,16 +557,16 @@ fn find_overlapping_fwd_imp(
         state.at += 1;
     }
 
-    eoi_fwd(dfa, cache, input, &mut sid, out)?;
+    let result = eoi_fwd(dfa, cache, input, &mut sid, &mut state.mat);
     state.id = Some(sid);
-    if out.get().is_some() {
+    if state.mat.is_some() {
         // '1' is always correct here since if we get to this point, this
         // always corresponds to the first (index '0') match discovered at
         // this position. So the next match to report at this position (if
         // it exists) is at index '1'.
         state.next_match_index = Some(1);
     }
-    Ok(())
+    result
 }
 
 #[inline(never)]
@@ -583,10 +574,9 @@ pub(crate) fn find_overlapping_rev(
     dfa: &DFA,
     cache: &mut Cache,
     input: &Input<'_, '_>,
-    out: &mut Output<Option<HalfMatch>>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
-    out.set(None);
+    state.mat = None;
     if input.is_done() {
         return Ok(());
     }
@@ -605,10 +595,8 @@ pub(crate) fn find_overlapping_rev(
                 let match_len = dfa.match_len(cache, sid);
                 if match_index < match_len {
                     state.next_match_index = Some(match_index + 1);
-                    out.set(Some(HalfMatch {
-                        pattern: dfa.match_pattern(cache, sid, match_index),
-                        offset: state.at,
-                    }));
+                    let pattern = dfa.match_pattern(cache, sid, match_index);
+                    state.mat = Some(HalfMatch::new(pattern, state.at));
                     return Ok(());
                 }
             }
@@ -640,10 +628,8 @@ pub(crate) fn find_overlapping_rev(
                 continue;
             } else if sid.is_match() {
                 state.next_match_index = Some(1);
-                out.set(Some(HalfMatch {
-                    pattern: dfa.match_pattern(cache, sid, 0),
-                    offset: state.at + 1,
-                }));
+                let pattern = dfa.match_pattern(cache, sid, 0);
+                state.mat = Some(HalfMatch::new(pattern, state.at + 1));
                 return Ok(());
             } else if sid.is_dead() {
                 return Ok(());
@@ -663,17 +649,17 @@ pub(crate) fn find_overlapping_rev(
         state.at -= 1;
     }
 
+    let result = eoi_rev(dfa, cache, input, &mut sid, &mut state.mat);
     state.rev_eoi = true;
-    eoi_rev(dfa, cache, input, &mut sid, out)?;
     state.id = Some(sid);
-    if out.get().is_some() {
+    if state.mat.is_some() {
         // '1' is always correct here since if we get to this point, this
         // always corresponds to the first (index '0') match discovered at
         // this position. So the next match to report at this position (if
         // it exists) is at index '1'.
         state.next_match_index = Some(1);
     }
-    Ok(())
+    result
 }
 
 #[inline(always)]
@@ -706,25 +692,13 @@ fn init_rev(
     Ok(sid)
 }
 
-// TODO: Right now, both routines below accept a Output<Option<HalfMatch>>. But
-// we're going to eventually want to pass a Output<OverlappingState> from the
-// overlapping routines. What to do?
-//
-// We could define some kind of generic API just for these functions... Meh.
-//
-// Or we could go back to not accepting an 'out' and just returning a
-// Option<HalfMatch> and thereby making the caller deal with it.
-//
-// A generic API just for these routines might be very small and simple though.
-// Think about it.
-
 #[inline(always)]
 fn eoi_fwd(
     dfa: &DFA,
     cache: &mut Cache,
     input: &Input<'_, '_>,
     sid: &mut LazyStateID,
-    out: &mut Output<Option<HalfMatch>>,
+    mat: &mut Option<HalfMatch>,
 ) -> Result<(), MatchError> {
     let sp = input.get_span();
     match input.haystack().get(sp.end) {
@@ -732,10 +706,8 @@ fn eoi_fwd(
             *sid =
                 dfa.next_state(cache, *sid, b).map_err(|_| gave_up(sp.end))?;
             if sid.is_match() {
-                out.set(Some(HalfMatch {
-                    pattern: dfa.match_pattern(cache, *sid, 0),
-                    offset: sp.end,
-                }));
+                let pattern = dfa.match_pattern(cache, *sid, 0);
+                *mat = Some(HalfMatch::new(pattern, sp.end));
             }
         }
         None => {
@@ -743,10 +715,8 @@ fn eoi_fwd(
                 .next_eoi_state(cache, *sid)
                 .map_err(|_| gave_up(input.haystack().len()))?;
             if sid.is_match() {
-                out.set(Some(HalfMatch {
-                    pattern: dfa.match_pattern(cache, *sid, 0),
-                    offset: input.haystack().len(),
-                }));
+                let pattern = dfa.match_pattern(cache, *sid, 0);
+                *mat = Some(HalfMatch::new(pattern, input.haystack().len()));
             }
         }
     }
@@ -759,7 +729,7 @@ fn eoi_rev(
     cache: &mut Cache,
     input: &Input<'_, '_>,
     sid: &mut LazyStateID,
-    out: &mut Output<Option<HalfMatch>>,
+    mat: &mut Option<HalfMatch>,
 ) -> Result<(), MatchError> {
     let sp = input.get_span();
     if sp.start > 0 {
@@ -767,19 +737,15 @@ fn eoi_rev(
             .next_state(cache, *sid, input.haystack()[sp.start - 1])
             .map_err(|_| gave_up(sp.start))?;
         if sid.is_match() {
-            out.set(Some(HalfMatch {
-                pattern: dfa.match_pattern(cache, *sid, 0),
-                offset: sp.start,
-            }));
+            let pattern = dfa.match_pattern(cache, *sid, 0);
+            *mat = Some(HalfMatch::new(pattern, sp.start));
         }
     } else {
         *sid =
             dfa.next_eoi_state(cache, *sid).map_err(|_| gave_up(sp.start))?;
         if sid.is_match() {
-            out.set(Some(HalfMatch {
-                pattern: dfa.match_pattern(cache, *sid, 0),
-                offset: 0,
-            }));
+            let pattern = dfa.match_pattern(cache, *sid, 0);
+            *mat = Some(HalfMatch::new(pattern, 0));
         }
     }
     Ok(())

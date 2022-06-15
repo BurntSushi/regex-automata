@@ -43,8 +43,8 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
     pre: Option<&'_ dyn Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
+    let mut mat = None;
     let mut sid = init_fwd(dfa, input)?;
-    let mut last_match = None;
     let mut at = input.start();
     // This could just be a closure, but then I think it would be unsound
     // because it would need to be safe to invoke. This way, the lack of safety
@@ -63,16 +63,10 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
-        if dfa.pattern_len() == 1 && !pre.reports_false_positives() {
-            return Ok(pre.find(input.haystack(), span).into_option().map(
-                |offset| HalfMatch { pattern: PatternID::ZERO, offset },
-            ));
-        } else {
-            match pre.find(input.haystack(), span).into_option() {
-                None => return Ok(None),
-                Some(i) => {
-                    at = i;
-                }
+        match pre.find(input.haystack(), span).into_option() {
+            None => return Ok(mat),
+            Some(i) => {
+                at = i;
             }
         }
     }
@@ -151,7 +145,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                 if let Some(ref pre) = pre {
                     let span = Span::from(at..input.end());
                     match pre.find(input.haystack(), span).into_option() {
-                        None => return Ok(None),
+                        None => return Ok(mat),
                         Some(i) => {
                             at = i;
                             // We want to skip any update to 'at' below
@@ -170,9 +164,9 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                 }
             } else if dfa.is_match_state(sid) {
                 let pattern = dfa.match_pattern(sid, 0);
-                last_match = Some(HalfMatch { pattern, offset: at });
+                mat = Some(HalfMatch::new(pattern, at));
                 if earliest {
-                    return Ok(last_match);
+                    return Ok(mat);
                 }
                 if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
@@ -186,11 +180,11 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                     .unwrap_or(input.end());
                 continue;
             } else if dfa.is_dead_state(sid) {
-                return Ok(last_match);
+                return Ok(mat);
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
-                if last_match.is_some() {
-                    return Ok(last_match);
+                if mat.is_some() {
+                    return Ok(mat);
                 }
                 return Err(MatchError::Quit {
                     byte: input.haystack()[at],
@@ -200,7 +194,8 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
         }
         at += 1;
     }
-    Ok(eoi_fwd(dfa, input, &mut sid)?.or(last_match))
+    eoi_fwd(dfa, input, &mut sid, &mut mat)?;
+    Ok(mat)
 }
 
 #[inline(never)]
@@ -224,6 +219,7 @@ fn find_rev_imp<A: Automaton + ?Sized>(
     input: &Input<'_, '_>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
+    let mut mat = None;
     let mut sid = init_rev(dfa, input)?;
     // In reverse search, the loop below can't handle the case of searching an
     // empty slice. Ideally we could write something congruent to the forward
@@ -232,10 +228,10 @@ fn find_rev_imp<A: Automaton + ?Sized>(
     // this extra case handling by using a signed offset, but Rust makes it
     // annoying to do. So... We just handle the empty case separately.
     if input.start() == input.end() {
-        return Ok(eoi_rev(dfa, input, &mut sid)?);
+        eoi_rev(dfa, input, &mut sid, &mut mat)?;
+        return Ok(mat);
     }
 
-    let mut last_match = None;
     let mut at = input.end() - 1;
     macro_rules! next_unchecked {
         ($sid:expr, $at:expr) => {{
@@ -312,15 +308,13 @@ fn find_rev_imp<A: Automaton + ?Sized>(
                         .unwrap_or(input.start());
                 }
             } else if dfa.is_match_state(sid) {
-                last_match = Some(HalfMatch {
-                    pattern: dfa.match_pattern(sid, 0),
-                    // Since reverse searches report the beginning of a match
-                    // and the beginning is inclusive (not exclusive like the
-                    // end of a match), we add 1 to make it inclusive.
-                    offset: at + 1,
-                });
+                let pattern = dfa.match_pattern(sid, 0);
+                // Since reverse searches report the beginning of a match
+                // and the beginning is inclusive (not exclusive like the
+                // end of a match), we add 1 to make it inclusive.
+                mat = Some(HalfMatch::new(pattern, at + 1));
                 if earliest {
-                    return Ok(last_match);
+                    return Ok(mat);
                 }
                 if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
@@ -341,11 +335,11 @@ fn find_rev_imp<A: Automaton + ?Sized>(
                     .map(|i| i + 1)
                     .unwrap_or(input.start());
             } else if dfa.is_dead_state(sid) {
-                return Ok(last_match);
+                return Ok(mat);
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
-                if last_match.is_some() {
-                    return Ok(last_match);
+                if mat.is_some() {
+                    return Ok(mat);
                 }
                 return Err(MatchError::Quit {
                     byte: input.haystack()[at],
@@ -358,7 +352,8 @@ fn find_rev_imp<A: Automaton + ?Sized>(
         }
         at -= 1;
     }
-    Ok(eoi_rev(dfa, input, &mut sid)?.or(last_match))
+    eoi_rev(dfa, input, &mut sid, &mut mat)?;
+    Ok(mat)
 }
 
 #[inline(never)]
@@ -366,9 +361,10 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
     state: &mut OverlappingState,
-) -> Result<Option<HalfMatch>, MatchError> {
+) -> Result<(), MatchError> {
+    state.mat = None;
     if input.is_done() {
-        return Ok(None);
+        return Ok(());
     }
     // Searching with a pattern ID is always anchored, so we should only ever
     // use a prefilter when no pattern ID is given.
@@ -385,7 +381,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     input: &Input<'_, '_>,
     pre: Option<&'_ dyn Prefilter>,
     state: &mut OverlappingState,
-) -> Result<Option<HalfMatch>, MatchError> {
+) -> Result<(), MatchError> {
     let mut at = input.start();
     let mut sid = match state.id {
         None => {
@@ -396,12 +392,10 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             if let Some(match_index) = state.next_match_index {
                 let match_len = dfa.match_len(sid);
                 if match_index < match_len {
-                    let m = HalfMatch {
-                        pattern: dfa.match_pattern(sid, match_index),
-                        offset: state.at,
-                    };
                     state.next_match_index = Some(match_index + 1);
-                    return Ok(Some(m));
+                    let pattern = dfa.match_pattern(sid, match_index);
+                    state.mat = Some(HalfMatch::new(pattern, state.at));
+                    return Ok(());
                 }
             }
             // Once we've reported all matches at a given position, we need to
@@ -423,7 +417,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                 if let Some(ref pre) = pre {
                     let span = Span::from(state.at..input.end());
                     match pre.find(input.haystack(), span).into_option() {
-                        None => return Ok(None),
+                        None => return Ok(()),
                         Some(i) => {
                             state.at = i;
                             continue;
@@ -438,10 +432,9 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                 }
             } else if dfa.is_match_state(sid) {
                 state.next_match_index = Some(1);
-                return Ok(Some(HalfMatch {
-                    pattern: dfa.match_pattern(sid, 0),
-                    offset: state.at,
-                }));
+                let pattern = dfa.match_pattern(sid, 0);
+                state.mat = Some(HalfMatch::new(pattern, state.at));
+                return Ok(());
             } else if dfa.is_accel_state(sid) {
                 let needs = dfa.accelerator(sid);
                 // If the accelerator returns nothing, why don't we quit the
@@ -455,7 +448,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                     .unwrap_or(input.end());
                 continue;
             } else if dfa.is_dead_state(sid) {
-                return Ok(None);
+                return Ok(());
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
                 return Err(MatchError::Quit {
@@ -467,9 +460,9 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
         state.at += 1;
     }
 
-    let result = eoi_fwd(dfa, input, &mut sid);
+    let result = eoi_fwd(dfa, input, &mut sid, &mut state.mat);
     state.id = Some(sid);
-    if let Ok(Some(ref last_match)) = result {
+    if state.mat.is_some() {
         // '1' is always correct here since if we get to this point, this
         // always corresponds to the first (index '0') match discovered at
         // this position. So the next match to report at this position (if
@@ -484,9 +477,10 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
     state: &mut OverlappingState,
-) -> Result<Option<HalfMatch>, MatchError> {
+) -> Result<(), MatchError> {
+    state.mat = None;
     if input.is_done() {
-        return Ok(None);
+        return Ok(());
     }
     let mut sid = match state.id {
         None => {
@@ -502,12 +496,10 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
             if let Some(match_index) = state.next_match_index {
                 let match_len = dfa.match_len(sid);
                 if match_index < match_len {
-                    let m = HalfMatch {
-                        pattern: dfa.match_pattern(sid, match_index),
-                        offset: state.at,
-                    };
                     state.next_match_index = Some(match_index + 1);
-                    return Ok(Some(m));
+                    let pattern = dfa.match_pattern(sid, match_index);
+                    state.mat = Some(HalfMatch::new(pattern, state.at));
+                    return Ok(());
                 }
             }
             // Once we've reported all matches at a given position, we need
@@ -515,7 +507,7 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
             // already followed the EOI transition, then we know we're done
             // with the search and there cannot be any more matches to report.
             if state.rev_eoi {
-                return Ok(None);
+                return Ok(());
             } else if state.at == input.start() {
                 // At this point, we should follow the EOI transition. This
                 // will cause us the skip the main loop below and fall through
@@ -542,10 +534,9 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
                 }
             } else if dfa.is_match_state(sid) {
                 state.next_match_index = Some(1);
-                return Ok(Some(HalfMatch {
-                    pattern: dfa.match_pattern(sid, 0),
-                    offset: state.at + 1,
-                }));
+                let pattern = dfa.match_pattern(sid, 0);
+                state.mat = Some(HalfMatch::new(pattern, state.at + 1));
+                return Ok(());
             } else if dfa.is_accel_state(sid) {
                 let needles = dfa.accelerator(sid);
                 // If the accelerator returns nothing, why don't we quit the
@@ -560,7 +551,7 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
                         .map(|i| i + 1)
                         .unwrap_or(input.start());
             } else if dfa.is_dead_state(sid) {
-                return Ok(None);
+                return Ok(());
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
                 return Err(MatchError::Quit {
@@ -575,10 +566,10 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
         state.at -= 1;
     }
 
+    let result = eoi_rev(dfa, input, &mut sid, &mut state.mat);
     state.rev_eoi = true;
-    let result = eoi_rev(dfa, input, &mut sid);
     state.id = Some(sid);
-    if let Ok(Some(ref last_match)) = result {
+    if state.mat.is_some() {
         // '1' is always correct here since if we get to this point, this
         // always corresponds to the first (index '0') match discovered at
         // this position. So the next match to report at this position (if
@@ -617,32 +608,26 @@ fn eoi_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
     sid: &mut StateID,
-) -> Result<Option<HalfMatch>, MatchError> {
+    mat: &mut Option<HalfMatch>,
+) -> Result<(), MatchError> {
     let sp = input.get_span();
     match input.haystack().get(sp.end) {
         Some(&b) => {
             *sid = dfa.next_state(*sid, b);
             if dfa.is_match_state(*sid) {
-                Ok(Some(HalfMatch {
-                    pattern: dfa.match_pattern(*sid, 0),
-                    offset: sp.end,
-                }))
-            } else {
-                Ok(None)
+                let pattern = dfa.match_pattern(*sid, 0);
+                *mat = Some(HalfMatch::new(pattern, sp.end));
             }
         }
         None => {
             *sid = dfa.next_eoi_state(*sid);
             if dfa.is_match_state(*sid) {
-                Ok(Some(HalfMatch {
-                    pattern: dfa.match_pattern(*sid, 0),
-                    offset: sp.end,
-                }))
-            } else {
-                Ok(None)
+                let pattern = dfa.match_pattern(*sid, 0);
+                *mat = Some(HalfMatch::new(pattern, input.haystack().len()));
             }
         }
     }
+    Ok(())
 }
 
 #[inline(always)]
@@ -650,27 +635,21 @@ fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
     sid: &mut StateID,
-) -> Result<Option<HalfMatch>, MatchError> {
+    mat: &mut Option<HalfMatch>,
+) -> Result<(), MatchError> {
     let sp = input.get_span();
     if sp.start > 0 {
         *sid = dfa.next_state(*sid, input.haystack()[sp.start - 1]);
         if dfa.is_match_state(*sid) {
-            Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(*sid, 0),
-                offset: sp.start,
-            }))
-        } else {
-            Ok(None)
+            let pattern = dfa.match_pattern(*sid, 0);
+            *mat = Some(HalfMatch::new(pattern, sp.start));
         }
     } else {
         *sid = dfa.next_eoi_state(*sid);
         if dfa.is_match_state(*sid) {
-            Ok(Some(HalfMatch {
-                pattern: dfa.match_pattern(*sid, 0),
-                offset: 0,
-            }))
-        } else {
-            Ok(None)
+            let pattern = dfa.match_pattern(*sid, 0);
+            *mat = Some(HalfMatch::new(pattern, 0));
         }
     }
+    Ok(())
 }

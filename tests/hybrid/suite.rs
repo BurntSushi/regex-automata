@@ -1,8 +1,7 @@
 use regex_automata::{
     hybrid::{
-        dfa::DFA,
+        dfa::{OverlappingState, DFA},
         regex::{self, Regex},
-        OverlappingState,
     },
     nfa::thompson,
     util::iter,
@@ -293,23 +292,28 @@ fn try_search_overlapping(
     let mut fwd_state = OverlappingState::start();
     let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
     let (fwd_cache, rev_cache) = cache.as_parts_mut();
-    while let Some(end) =
-        fwd_dfa.try_search_overlapping_fwd(fwd_cache, input, &mut fwd_state)?
-    {
+    while let Some(end) = {
+        fwd_dfa.try_search_overlapping_fwd(
+            fwd_cache,
+            input,
+            &mut fwd_state,
+        )?;
+        fwd_state.get_match()
+    } {
         let revsearch = input
             .clone()
             .pattern(Some(end.pattern()))
             .earliest(false)
             .range(input.start()..end.offset());
         let mut rev_state = OverlappingState::start();
-        while let Some(start) = rev_dfa.try_search_overlapping_rev(
-            rev_cache,
-            &revsearch,
-            &mut rev_state,
-        )? {
-            // let start = rev_dfa
-            // .try_search_rev(rev_cache, &revsearch)?
-            // .expect("reverse search must match if forward search does");
+        while let Some(start) = {
+            rev_dfa.try_search_overlapping_rev(
+                rev_cache,
+                &revsearch,
+                &mut rev_state,
+            )?;
+            rev_state.get_match()
+        } {
             let span = ret::Span { start: start.offset(), end: end.offset() };
             // Some tests check that we don't yield matches that split a
             // codepoint when UTF-8 mode is enabled, so skip those here.
@@ -320,7 +324,6 @@ fn try_search_overlapping(
                 continue;
             }
             let mat = ret::Match { id: end.pattern().as_usize(), span };
-            dbg!(&mat);
             matches.push(mat);
         }
     }

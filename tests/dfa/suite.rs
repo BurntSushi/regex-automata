@@ -337,18 +337,20 @@ fn try_search_overlapping<A: Automaton>(
     let mut matches = vec![];
     let mut fwd_state = OverlappingState::start();
     let (fwd_dfa, rev_dfa) = (re.forward(), re.reverse());
-    while let Some(end) =
-        fwd_dfa.try_search_overlapping_fwd(input, &mut fwd_state)?
-    {
+    while let Some(end) = {
+        fwd_dfa.try_search_overlapping_fwd(input, &mut fwd_state)?;
+        fwd_state.get_match()
+    } {
         let revsearch = input
             .clone()
             .pattern(Some(end.pattern()))
             .earliest(false)
             .range(input.start()..end.offset());
         let mut rev_state = OverlappingState::start();
-        while let Some(start) =
-            rev_dfa.try_search_overlapping_rev(&revsearch, &mut rev_state)?
-        {
+        while let Some(start) = {
+            rev_dfa.try_search_overlapping_rev(&revsearch, &mut rev_state)?;
+            rev_state.get_match()
+        } {
             // let start = rev_dfa
             // .try_search_rev(rev_cache, &revsearch)?
             // .expect("reverse search must match if forward search does");

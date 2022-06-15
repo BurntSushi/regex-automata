@@ -142,7 +142,7 @@ available in any capacity without `alloc`.
 
 pub use self::{
     error::{BuildError, CacheError},
-    id::{LazyStateID, OverlappingState},
+    id::LazyStateID,
 };
 
 pub mod dfa;

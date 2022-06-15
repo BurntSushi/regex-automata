@@ -23,20 +23,16 @@ let dense_re = dense::Builder::new()
 let sparse_re = dense_re.to_sparse()?;
 
 // Setup our haystack and initial start state.
-let haystack = b"Samwise";
+let input = Input::new("Samwise");
 let mut state = OverlappingState::start();
 
 // First, 'Sam' will match.
-let end1 = sparse_re.try_search_overlapping_fwd(
-    &Input::new(haystack), &mut state,
-)?;
-assert_eq!(end1, Some(HalfMatch::must(0, 3)));
+sparse_re.try_search_overlapping_fwd(&input, &mut state)?;
+assert_eq!(Some(HalfMatch::must(0, 3)), state.get_match());
 
 // And now 'Samwise' will match.
-let end2 = sparse_re.try_search_overlapping_fwd(
-    &Input::new(haystack), &mut state,
-)?;
-assert_eq!(end2, Some(HalfMatch::must(0, 7)));
+sparse_re.try_search_overlapping_fwd(&input, &mut state)?;
+assert_eq!(Some(HalfMatch::must(0, 7)), state.get_match());
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 */

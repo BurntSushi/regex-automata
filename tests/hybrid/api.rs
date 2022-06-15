@@ -1,7 +1,10 @@
 use std::{error::Error, sync::Arc};
 
 use regex_automata::{
-    hybrid::{dfa::DFA, regex::Regex, OverlappingState},
+    hybrid::{
+        dfa::{OverlappingState, DFA},
+        regex::Regex,
+    },
     nfa::thompson,
     HalfMatch, Input, Match, MatchError,
 };

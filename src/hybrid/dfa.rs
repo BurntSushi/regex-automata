@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use crate::{
     hybrid::{
         error::{BuildError, CacheError},
-        id::{LazyStateID, LazyStateIDError, OverlappingState},
+        id::{LazyStateID, LazyStateIDError},
         search,
     },
     nfa::thompson,
@@ -23,9 +23,7 @@ use crate::{
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
         id::{PatternID, StateID as NFAStateID},
         prefilter,
-        search::{
-            HalfMatch, Input, MatchError, MatchKind, Output, PatternSet,
-        },
+        search::{HalfMatch, Input, MatchError, MatchKind, PatternSet},
         sparse_set::SparseSets,
         start::Start,
     },
@@ -484,9 +482,7 @@ impl DFA {
         cache: &mut Cache,
         bytes: H,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        let mut out = Output::default();
-        self.try_search_fwd(cache, &Input::new(bytes.as_ref()), &mut out)?;
-        Ok(out.into_inner())
+        self.try_search_fwd(cache, &Input::new(bytes.as_ref()))
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -551,9 +547,7 @@ impl DFA {
         cache: &mut Cache,
         bytes: H,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        let mut out = Output::default();
-        self.try_search_rev(cache, &Input::new(bytes.as_ref()), &mut out)?;
-        Ok(out.into_inner())
+        self.try_search_rev(cache, &Input::new(bytes.as_ref()))
     }
 }
 
@@ -712,9 +706,8 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        out: &mut Output<Option<HalfMatch>>,
-    ) -> Result<(), MatchError> {
-        search::find_fwd(self, cache, input, out)
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_fwd(self, cache, input)
     }
 
     /// Executes a reverse search and returns the start of the position of the
@@ -746,9 +739,8 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        out: &mut Output<Option<HalfMatch>>,
-    ) -> Result<(), MatchError> {
-        search::find_rev(self, cache, input, out)
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        search::find_rev(self, cache, input)
     }
 
     /// Executes an overlapping forward search and returns the end position of
@@ -806,7 +798,7 @@ impl DFA {
     ///
     /// ```
     /// use regex_automata::{
-    ///     hybrid::{dfa::DFA, OverlappingState},
+    ///     hybrid::dfa::{DFA, OverlappingState},
     ///     HalfMatch, MatchKind, Input,
     /// };
     ///
@@ -819,10 +811,10 @@ impl DFA {
     /// let mut state = OverlappingState::start();
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
+    /// dfa.try_search_overlapping_fwd(
     ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
-    /// assert_eq!(expected, got);
+    /// assert_eq!(expected, state.get_match());
     ///
     /// // The first pattern also matches at the same position, so re-running
     /// // the search will yield another match. Notice also that the first
@@ -830,10 +822,10 @@ impl DFA {
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
+    /// dfa.try_search_overlapping_fwd(
     ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
-    /// assert_eq!(expected, got);
+    /// assert_eq!(expected, state.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -842,10 +834,9 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        out: &mut Output<Option<HalfMatch>>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
-        search::find_overlapping_fwd(self, cache, input, out, state)
+        search::find_overlapping_fwd(self, cache, input, state)
     }
 
     /// Executes a reverse overlapping search and returns the start of the
@@ -883,10 +874,9 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        out: &mut Output<Option<HalfMatch>>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
-        search::find_overlapping_rev(self, cache, input, out, state)
+        search::find_overlapping_rev(self, cache, input, state)
     }
 
     /// Writes the set of patterns that match anywhere in the given search
@@ -948,44 +938,19 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        out: &mut Output<PatternSet>,
+        patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        // TODO: This impl is so hideously complex. The main issue is trying to
-        // reuse the Output<PatternSet> in our calls to a lower level routine
-        // that want Output<Option<HalfMatch>>. In particular, we want to
-        // reuse both the PatternSet (to avoid creating a new alloc) and the
-        // info in Output itself, which might be tracking higher level match
-        // information.
-        //
-        // Does this mean we need to separate our "match output" with our
-        // "match context"? Sigh.
-
-        let emptyset = PatternSet::new(0);
-        let nothing = Output::new(emptyset.clone());
-        let mut ownedout = core::mem::replace(out, nothing);
-        let mut patset = core::mem::replace(ownedout.get_mut(), emptyset);
-
-        let mut halfout: Output<Option<HalfMatch>> = ownedout.map(|_| None);
         let mut state = OverlappingState::start();
-        loop {
-            self.try_search_overlapping_fwd(
-                cache,
-                input,
-                &mut halfout,
-                &mut state,
-            )?;
-            let m = match *halfout.get() {
-                None => break,
-                Some(m) => m,
-            };
+        while let Some(m) = {
+            self.try_search_overlapping_fwd(cache, input, &mut state)?;
+            state.get_match()
+        } {
             patset.insert(m.pattern());
             // There's nothing left to find, so we can stop.
             if patset.is_full() {
                 break;
             }
         }
-        let setout = halfout.map(|_| patset);
-        core::mem::replace(out, setout);
         Ok(())
     }
 }
@@ -2650,7 +2615,7 @@ impl Config {
     ///
     /// ```
     /// use regex_automata::{
-    ///     hybrid::{dfa::DFA, OverlappingState},
+    ///     hybrid::dfa::{DFA, OverlappingState},
     ///     HalfMatch, MatchKind, Input,
     /// };
     ///
@@ -2662,10 +2627,10 @@ impl Config {
     /// let mut state = OverlappingState::start();
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
+    /// dfa.try_search_overlapping_fwd(
     ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
-    /// assert_eq!(expected, got);
+    /// assert_eq!(expected, state.get_match());
     ///
     /// // The first pattern also matches at the same position, so re-running
     /// // the search will yield another match. Notice also that the first
@@ -2673,10 +2638,10 @@ impl Config {
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
+    /// dfa.try_search_overlapping_fwd(
     ///     &mut cache, &Input::new(haystack), &mut state,
     /// )?;
-    /// assert_eq!(expected, got);
+    /// assert_eq!(expected, state.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -3708,6 +3673,87 @@ impl Builder {
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.thompson.configure(config);
         self
+    }
+}
+
+/// Represents the current state of an overlapping search.
+///
+/// This is used for overlapping searches since they need to know something
+/// about the previous search. For example, when multiple patterns match at the
+/// same position, this state tracks the last reported pattern so that the next
+/// search knows whether to report another matching pattern or continue with
+/// the search at the next position. Additionally, it also tracks which state
+/// the last search call terminated in.
+///
+/// This type provides no introspection capabilities. The only thing a caller
+/// can do is construct it and pass it around to permit search routines to use
+/// it to track state.
+///
+/// Callers should always provide a fresh state constructed via
+/// [`OverlappingState::start`] when starting a new search. Reusing state from
+/// a previous search may result in incorrect results.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OverlappingState {
+    /// The match reported by the most recent overlapping search to use this
+    /// state.
+    ///
+    /// If a search does not find any matches, then it is expected to clear
+    /// this value.
+    pub(crate) mat: Option<HalfMatch>,
+    /// The state ID of the state at which the search was in when the call
+    /// terminated. When this is a match state, `last_match` must be set to a
+    /// non-None value.
+    ///
+    /// A `None` value indicates the start state of the corresponding
+    /// automaton. We cannot use the actual ID, since any one automaton may
+    /// have many start states, and which one is in use depends on several
+    /// search-time factors.
+    pub(crate) id: Option<LazyStateID>,
+    /// The position of the search.
+    ///
+    /// When `id` is None (i.e., we are starting a search), this is set to
+    /// the beginning of the search as given by the caller regardless of its
+    /// current value. Subsequent calls to an overlapping search pick up at
+    /// this offset.
+    pub(crate) at: usize,
+    /// The index into the matching patterns of the next match to report if the
+    /// current state is a match state. Note that this may be 1 greater than
+    /// the total number of matches to report for the current match state. (In
+    /// which case, no more matches should be reported at the current position
+    /// and the search should advance to the next position.)
+    pub(crate) next_match_index: Option<usize>,
+    /// This is set to true when a reverse overlapping search has entered its
+    /// EOI transitions.
+    ///
+    /// This isn't used in a forward search because it knows to stop once the
+    /// position exceeds the end of the search range. In a reverse search,
+    /// since we use unsigned offsets, we don't "know" once we've gone past
+    /// `0`. So the only way to detect it is with this extra flag. The reverse
+    /// overlapping search knows to terminate specifically after it has
+    /// reported all matches after following the EOI transition.
+    pub(crate) rev_eoi: bool,
+}
+
+impl OverlappingState {
+    /// Create a new overlapping state that begins at the start state of any
+    /// automaton.
+    pub fn start() -> OverlappingState {
+        OverlappingState {
+            mat: None,
+            id: None,
+            at: 0,
+            next_match_index: None,
+            rev_eoi: false,
+        }
+    }
+
+    /// Return the match result of the most recent search to execute with this
+    /// state.
+    ///
+    /// A searches will clear this result automatically, such that if no
+    /// match is found, this will correctly report `None`.
+    pub fn get_match(&self) -> Option<HalfMatch> {
+        self.mat
     }
 }
 

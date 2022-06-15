@@ -293,14 +293,12 @@ impl Config {
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
     ///     .build_many(&[r"\w+$", r"\S+$"])?;
-    /// let haystack = "@foo";
+    /// let input = Input::new("@foo");
     /// let mut state = OverlappingState::start();
     ///
     /// let expected = Some(HalfMatch::must(1, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
-    ///     &Input::new(haystack), &mut state,
-    /// )?;
-    /// assert_eq!(expected, got);
+    /// dfa.try_search_overlapping_fwd(&input, &mut state)?;
+    /// assert_eq!(expected, state.get_match());
     ///
     /// // The first pattern also matches at the same position, so re-running
     /// // the search will yield another match. Notice also that the first
@@ -308,10 +306,8 @@ impl Config {
     /// // pattern begins its match before the first, is therefore an earlier
     /// // match and is thus reported first.
     /// let expected = Some(HalfMatch::must(0, 4));
-    /// let got = dfa.try_search_overlapping_fwd(
-    ///     &Input::new(haystack), &mut state,
-    /// )?;
-    /// assert_eq!(expected, got);
+    /// dfa.try_search_overlapping_fwd(&input, &mut state)?;
+    /// assert_eq!(expected, state.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
