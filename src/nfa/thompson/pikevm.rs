@@ -297,16 +297,15 @@ impl PikeVM {
         haystack: &'h H,
     ) -> CapturesMatches<'h, 'c> {
         let search = self.create_input(haystack.as_ref());
-        let caps = Arc::new(RefCell::new(self.create_captures()));
-        let it = iter::TryMatches::boxed(search, {
-            let caps = Arc::clone(&caps);
-            move |search| {
-                self.search(cache, search, &mut *caps.borrow_mut());
-                Ok(caps.borrow().get_match())
+        let caps = self.create_captures();
+        let it = iter::TryCaptures::boxed(search, caps, {
+            move |search, caps| {
+                self.search(cache, search, caps);
+                Ok(())
             }
         })
         .infallible();
-        CapturesMatches { caps, it }
+        CapturesMatches(it)
     }
 
     #[inline]
@@ -349,6 +348,8 @@ impl PikeVM {
         input: &Input<'_, '_>,
         caps: &mut Captures,
     ) {
+        caps.set_pattern(None);
+        cache.clear();
         // Why do we even care about this? Well, in our 'Captures'
         // representation, we use usize::MAX as a sentinel to indicate "no
         // match." This isn't problematic so long as our haystack doesn't have
@@ -360,8 +361,6 @@ impl PikeVM {
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
-        caps.set_pattern(None);
-        cache.clear(caps.slot_len());
 
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
@@ -378,39 +377,28 @@ impl PikeVM {
             Some(pid) => self.nfa.start_pattern(pid),
         };
 
-        let Cache {
-            ref mut stack,
-            ref mut scratch_caps,
-            ref mut clist,
-            ref mut nlist,
-        } = cache;
+        let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         let mut at = input.start();
         while at <= input.end() {
-            if clist.set.is_empty() {
+            if curr.set.is_empty() {
                 if (caps.is_match() && !allmatches)
                     || (anchored && at > input.start())
                 {
                     break;
                 }
             }
-            if clist.set.is_empty() || (!anchored && !caps.is_match()) {
-                self.epsilon_closure(
-                    stack,
-                    clist,
-                    scratch_caps,
-                    start_id,
-                    input.haystack(),
-                    at,
-                );
+            if curr.set.is_empty() || (!anchored && !caps.is_match()) {
+                let slots = next.slots(start_id, caps.slot_len());
+                self.epsilon_closure(stack, curr, slots, start_id, input, at);
             }
-            if self.steps(stack, clist, nlist, input.haystack(), at, caps) {
+            if self.steps(stack, curr, next, input, at, caps) {
                 if input.get_earliest() {
                     break;
                 }
             }
             at += 1;
-            core::mem::swap(clist, nlist);
-            nlist.set.clear();
+            core::mem::swap(curr, next);
+            next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
     }
@@ -426,7 +414,7 @@ impl PikeVM {
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
-        cache.clear(0);
+        cache.clear();
 
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
@@ -436,43 +424,25 @@ impl PikeVM {
             Some(pid) => self.nfa.start_pattern(pid),
         };
 
-        let Cache {
-            ref mut stack,
-            ref mut scratch_caps,
-            ref mut clist,
-            ref mut nlist,
-        } = cache;
+        let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         let mut at = input.start();
         while at <= input.end() {
-            if anchored && clist.set.is_empty() && at > input.start() {
+            if anchored && curr.set.is_empty() && at > input.start() {
                 break;
             }
-            if clist.set.is_empty() || !anchored {
-                self.epsilon_closure(
-                    stack,
-                    clist,
-                    scratch_caps,
-                    start_id,
-                    input.haystack(),
-                    at,
-                );
+            if curr.set.is_empty() || !anchored {
+                let slots = &mut [];
+                self.epsilon_closure(stack, curr, slots, start_id, input, at);
             }
-            self.steps_overlapping(
-                stack,
-                clist,
-                nlist,
-                input.haystack(),
-                at,
-                patset,
-            );
+            self.steps_overlapping(stack, curr, next, input, at, patset);
             // If we found a match and filled our set, then there is no more
             // additional info that we can provide. Thus, we can quit.
             if patset.is_full() {
                 break;
             }
             at += 1;
-            core::mem::swap(clist, nlist);
-            nlist.set.clear();
+            core::mem::swap(curr, next);
+            next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
     }
@@ -481,17 +451,18 @@ impl PikeVM {
     fn steps(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        clist: &mut Threads,
-        nlist: &mut Threads,
-        haystack: &[u8],
+        curr: &mut Threads,
+        next: &mut Threads,
+        input: &Input<'_, '_>,
         at: usize,
         caps: &mut Captures,
     ) -> bool {
         let mut matched = false;
-        instrument!(|c| c.record_state_set(&clist.list));
-        for sid in clist.list.drain(..) {
-            let slots = &mut clist.caps[sid].slots[..caps.slot_len()];
-            let pid = match self.step(stack, nlist, slots, sid, haystack, at) {
+        instrument!(|c| c.record_state_set(&curr.set));
+        for sid in curr.set.iter() {
+            // We can't use curr.slots(..) here because of the borrow checker.
+            let slots = &mut curr.caps[sid].slots[..caps.slot_len()];
+            let pid = match self.step(stack, next, slots, sid, input, at) {
                 None => continue,
                 Some(pid) => pid,
             };
@@ -508,16 +479,16 @@ impl PikeVM {
     fn steps_overlapping(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        clist: &mut Threads,
-        nlist: &mut Threads,
-        haystack: &[u8],
+        curr: &mut Threads,
+        next: &mut Threads,
+        input: &Input<'_, '_>,
         at: usize,
         patset: &mut PatternSet,
     ) {
-        instrument!(|c| c.record_state_set(&clist.list));
-        for sid in clist.list.drain(..) {
+        instrument!(|c| c.record_state_set(&curr.set));
+        for sid in curr.set.iter() {
             let slots = &mut [];
-            let pid = match self.step(stack, nlist, slots, sid, haystack, at) {
+            let pid = match self.step(stack, next, slots, sid, input, at) {
                 None => continue,
                 Some(pid) => pid,
             };
@@ -529,10 +500,10 @@ impl PikeVM {
     fn step(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        nlist: &mut Threads,
-        thread_caps: &mut [Slot],
+        next: &mut Threads,
+        slots: &mut [Option<NonMaxUsize>],
         sid: StateID,
-        haystack: &[u8],
+        input: &Input<'_, '_>,
         at: usize,
     ) -> Option<PatternID> {
         instrument!(|c| c.record_step(sid));
@@ -543,34 +514,22 @@ impl PikeVM {
             | State::BinaryUnion { .. }
             | State::Capture { .. } => None,
             State::ByteRange { ref trans } => {
-                if trans.matches(haystack, at) {
+                if trans.matches(input.haystack(), at) {
                     // OK because 'at <= haystack.len() < usize::MAX', so
                     // adding 1 will never wrap.
                     let at = at.wrapping_add(1);
                     self.epsilon_closure(
-                        stack,
-                        nlist,
-                        thread_caps,
-                        trans.next,
-                        haystack,
-                        at,
+                        stack, next, slots, trans.next, input, at,
                     );
                 }
                 None
             }
             State::Sparse(ref sparse) => {
-                if let Some(next) = sparse.matches(haystack, at) {
+                if let Some(sid) = sparse.matches(input.haystack(), at) {
                     // OK because 'at <= haystack.len() < usize::MAX', so
                     // adding 1 will never wrap.
                     let at = at.wrapping_add(1);
-                    self.epsilon_closure(
-                        stack,
-                        nlist,
-                        thread_caps,
-                        next,
-                        haystack,
-                        at,
-                    );
+                    self.epsilon_closure(stack, next, slots, sid, input, at);
                 }
                 None
             }
@@ -582,10 +541,10 @@ impl PikeVM {
     fn epsilon_closure(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        nlist: &mut Threads,
-        thread_caps: &mut [Slot],
+        next: &mut Threads,
+        slots: &mut [Option<NonMaxUsize>],
         sid: StateID,
-        haystack: &[u8],
+        input: &Input<'_, '_>,
         at: usize,
     ) {
         instrument!(|c| {
@@ -597,16 +556,11 @@ impl PikeVM {
             match frame {
                 FollowEpsilon::StateID(sid) => {
                     self.epsilon_closure_step(
-                        stack,
-                        nlist,
-                        thread_caps,
-                        sid,
-                        haystack,
-                        at,
+                        stack, next, slots, sid, input, at,
                     );
                 }
                 FollowEpsilon::Capture { slot, pos } => {
-                    thread_caps[slot] = pos;
+                    slots[slot] = pos;
                 }
             }
         }
@@ -616,10 +570,10 @@ impl PikeVM {
     fn epsilon_closure_step(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        nlist: &mut Threads,
-        thread_caps: &mut [Slot],
+        next: &mut Threads,
+        slots: &mut [Option<NonMaxUsize>],
         mut sid: StateID,
-        haystack: &[u8],
+        input: &Input<'_, '_>,
         at: usize,
     ) {
         // TODO: Also, get rid of the NFA utf-8 option? That would be nice...
@@ -627,7 +581,7 @@ impl PikeVM {
         // do our manual unanchored prefix.
         loop {
             instrument!(|c| c.record_set_insert(sid));
-            if !nlist.set.insert(sid) {
+            if !next.set.insert(sid) {
                 return;
             }
             match *self.nfa.state(sid) {
@@ -635,12 +589,11 @@ impl PikeVM {
                 | State::Match { .. }
                 | State::ByteRange { .. }
                 | State::Sparse { .. } => {
-                    nlist.caps(sid).copy_from_slice(thread_caps);
-                    nlist.list.push(sid);
+                    next.slots(sid, slots.len()).copy_from_slice(slots);
                     return;
                 }
                 State::Look { look, next } => {
-                    if !look.matches(haystack, at) {
+                    if !look.matches(input.haystack(), at) {
                         return;
                     }
                     sid = next;
@@ -669,15 +622,14 @@ impl PikeVM {
                     stack.push(FollowEpsilon::StateID(alt2));
                 }
                 State::Capture { next, slot } => {
-                    if slot < thread_caps.len() {
+                    if slot < slots.len() {
                         instrument!(|c| c.record_stack_push(sid));
                         stack.push(FollowEpsilon::Capture {
                             slot,
-                            pos: thread_caps[slot],
+                            pos: slots[slot],
                         });
                         // OK because length of a slice must fit into an isize.
-                        thread_caps[slot] =
-                            Some(NonMaxUsize::new(at).unwrap());
+                        slots[slot] = Some(NonMaxUsize::new(at).unwrap());
                     }
                     sid = next;
                 }
@@ -686,8 +638,9 @@ impl PikeVM {
     }
 }
 
-type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
+type TryMatchesClosure<'h, 'c> = Box<
+    dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + Send + 'c,
+>;
 
 /// An iterator over all non-overlapping matches for an infallible search.
 ///
@@ -716,6 +669,12 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
     }
 }
 
+type TryCapturesClosure<'h, 'c> = Box<
+    dyn FnMut(&Input<'h, 'c>, &mut Captures) -> Result<(), MatchError>
+        + Send
+        + 'c,
+>;
+
 /// An iterator over all non-overlapping leftmost matches, with their capturing
 /// groups, for a particular search.
 ///
@@ -731,49 +690,36 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
 /// This iterator can be created with the [`Regex::captures_iter`]
 /// method.
 #[derive(Debug)]
-pub struct CapturesMatches<'h, 'c> {
-    it: iter::Matches<'h, 'c, TryMatchesClosure<'h, 'c>>,
-    /// In order to avoid re-implementing our own iterator, we store the
-    /// capturing groups here and inside the iterator's closure. Once the
-    /// closure executes, we clone the capturing group and return it.
-    ///
-    /// If this sounds like it hurts perf, it probably does, but you aren't
-    /// using this iterator if you care about perf because it allocates a
-    /// fresh set of capturing groups on each iteration.
-    caps: Arc<RefCell<Captures>>,
-}
+pub struct CapturesMatches<'h, 'c>(
+    iter::Captures<'h, 'c, TryCapturesClosure<'h, 'c>>,
+);
 
 impl<'h, 'c> Iterator for CapturesMatches<'h, 'c> {
     type Item = Captures;
 
     #[inline]
     fn next(&mut self) -> Option<Captures> {
-        self.it.next().map(|_| self.caps.borrow().clone())
+        self.0.next()
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Cache {
     stack: Vec<FollowEpsilon>,
-    scratch_caps: Vec<Option<NonMaxUsize>>,
-    clist: Box<Threads>,
-    nlist: Box<Threads>,
+    curr: Box<Threads>,
+    next: Box<Threads>,
 }
 
 #[derive(Clone, Debug)]
 enum FollowEpsilon {
     StateID(StateID),
-    Capture { slot: usize, pos: Slot },
+    Capture { slot: usize, pos: Option<NonMaxUsize> },
 }
-
-type Slot = Option<NonMaxUsize>;
 
 #[derive(Clone, Debug)]
 struct Threads {
     set: SparseSet,
-    list: Vec<StateID>,
     caps: Vec<Thread>,
-    current_slot_len: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -785,46 +731,32 @@ impl Cache {
     pub fn new(nfa: &NFA) -> Cache {
         Cache {
             stack: vec![],
-            scratch_caps: vec![None; nfa.capture_slot_len()],
-            clist: Box::new(Threads::new(nfa)),
-            nlist: Box::new(Threads::new(nfa)),
+            curr: Box::new(Threads::new(nfa)),
+            next: Box::new(Threads::new(nfa)),
         }
     }
 
-    fn clear(&mut self, slot_len: usize) {
+    fn clear(&mut self) {
         self.stack.clear();
-        self.clist.set.clear();
-        self.clist.list.clear();
-        self.nlist.set.clear();
-        self.nlist.list.clear();
-        if slot_len != self.clist.current_slot_len {
-            self.clist.current_slot_len = slot_len;
-            self.nlist.current_slot_len = slot_len;
-            self.scratch_caps.resize(slot_len, None);
-        }
+        self.curr.set.clear();
+        self.next.set.clear();
     }
 }
 
 impl Threads {
     fn new(nfa: &NFA) -> Threads {
-        let mut threads = Threads {
-            set: SparseSet::new(0),
-            list: Vec::with_capacity(nfa.states().len()),
-            caps: vec![],
-            current_slot_len: 0,
-        };
-        threads.resize(nfa);
-        threads
+        Threads {
+            set: SparseSet::new(nfa.states().len()),
+            caps: vec![Thread::new(nfa); nfa.states().len()],
+        }
     }
 
-    fn resize(&mut self, nfa: &NFA) {
-        self.current_slot_len = nfa.capture_slot_len();
-        self.set.resize(nfa.states().len());
-        self.caps.resize(nfa.states().len(), Thread::new(nfa));
-    }
-
-    fn caps(&mut self, sid: StateID) -> &mut [Slot] {
-        &mut self.caps[sid].slots[..self.current_slot_len]
+    fn slots(
+        &mut self,
+        sid: StateID,
+        len: usize,
+    ) -> &mut [Option<NonMaxUsize>] {
+        &mut self.caps[sid].slots[..len]
     }
 }
 
@@ -835,7 +767,11 @@ impl Thread {
     }
 }
 
-fn copy_to_captures(pid: PatternID, slots: &[Slot], caps: &mut Captures) {
+fn copy_to_captures(
+    pid: PatternID,
+    slots: &[Option<NonMaxUsize>],
+    caps: &mut Captures,
+) {
     caps.set_pattern(Some(pid));
     for (i, &slot) in slots.iter().enumerate() {
         caps.set_slot(i, slot.map(|s| s.get()));
@@ -975,8 +911,8 @@ impl Counters {
         trace!("===== END PikeVM Instrumentation Output =====");
     }
 
-    fn record_state_set(&mut self, set: &[StateID]) {
-        let set = set.iter().copied().collect::<Vec<StateID>>();
+    fn record_state_set(&mut self, set: &SparseSet) {
+        let set = set.iter().collect::<Vec<StateID>>();
         *self.state_sets.entry(set).or_insert(0) += 1;
     }
 

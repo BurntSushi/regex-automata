@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use regex_automata::{
     nfa::thompson::{
         self,
@@ -95,21 +93,17 @@ fn run_test(
                     // 'TryMatches' helper, but since those helpers don't
                     // support capturing groups directly, we've got to smuggle
                     // it through using a RefCell.
-                    let caps = Rc::new(RefCell::new(re.create_captures()));
-                    let it = iter::TryMatches::new(
+                    let it = iter::TryCaptures::new(
                         re.create_input(test.input()).earliest(true),
-                        {
-                            let caps = Rc::clone(&caps);
-                            move |search| {
-                                let caps = &mut *caps.borrow_mut();
-                                re.search(cache, search, caps);
-                                Ok(caps.get_match())
-                            }
+                        re.create_captures(),
+                        move |search, caps| {
+                            re.search(cache, search, caps);
+                            Ok(())
                         },
                     )
                     .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|_| testify_captures(&caps.borrow()));
+                    .map(|caps| testify_captures(&caps));
                     TestResult::captures(it)
                 }
                 ret::SearchKind::Leftmost => {

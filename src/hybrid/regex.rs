@@ -631,8 +631,9 @@ impl Regex {
     }
 }
 
-type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
+type TryMatchesClosure<'h, 'c> = Box<
+    dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + Send + 'c,
+>;
 
 impl Regex {
     fn try_matches_iter<'r: 'c, 'c, 'h>(

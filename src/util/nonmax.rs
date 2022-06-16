@@ -5,10 +5,12 @@ use core::num::NonZeroUsize;
 pub(crate) struct NonMaxUsize(NonZeroUsize);
 
 impl NonMaxUsize {
+    #[inline]
     pub(crate) fn new(value: usize) -> Option<NonMaxUsize> {
         NonZeroUsize::new(value.wrapping_add(1)).map(NonMaxUsize)
     }
 
+    #[inline]
     pub(crate) fn get(self) -> usize {
         self.0.get().wrapping_sub(1)
     }

@@ -1,7 +1,211 @@
-use crate::util::{
-    prefilter,
-    search::{HalfMatch, Input, Match, MatchError},
+use crate::{
+    nfa::thompson,
+    util::{
+        prefilter,
+        search::{HalfMatch, Input, Match, MatchError},
+    },
 };
+
+// BREADCRUMBS: Decide on whether we want to keep the 'Captures' iterators
+// (probably do) and, if so, document them. Sigh.
+
+pub struct TryCaptures<'h, 'p, F> {
+    /// The regex engine execution function.
+    finder: F,
+    /// The search configuration.
+    input: Input<'h, 'p>,
+    /// Where to write capturing group spans.
+    caps: thompson::Captures,
+    /// Records the end offset of the most recent match. This is necessary to
+    /// handle a corner case for preventing empty matches from overlapping with
+    /// the ending bounds of a prior match.
+    last_match_end: Option<usize>,
+}
+
+impl<'c, 'h, 'p, F> TryCaptures<'h, 'p, F>
+where
+    F: FnMut(
+            &Input<'h, 'p>,
+            &mut thompson::Captures,
+        ) -> Result<(), MatchError>
+        + Send
+        + 'c,
+{
+    /// Create a new fallible non-overlapping matches iterator.
+    ///
+    /// The given `input` provides the parameters (including the haystack),
+    /// while the `finder` represents a closure that calls the underlying regex
+    /// engine. The closure may borrow any additional state that is needed,
+    /// such as a prefilter scanner.
+    pub fn new(
+        input: Input<'h, 'p>,
+        caps: thompson::Captures,
+        finder: F,
+    ) -> TryCaptures<'h, 'p, F> {
+        TryCaptures { finder, input, caps, last_match_end: None }
+    }
+
+    /// Like `new`, but boxes the given closure into a `dyn` object.
+    ///
+    /// This is useful when you can give up function inlining in favor of being
+    /// able to write the type of the closure. This is often necessary for
+    /// composition to work cleanly.
+    pub fn boxed(
+        input: Input<'h, 'p>,
+        caps: thompson::Captures,
+        finder: F,
+    ) -> TryCaptures<
+        'h,
+        'p,
+        Box<
+            dyn FnMut(
+                    &Input<'h, 'p>,
+                    &mut thompson::Captures,
+                ) -> Result<(), MatchError>
+                + Send
+                + 'c,
+        >,
+    > {
+        TryCaptures::new(input, caps, Box::new(finder))
+    }
+
+    /// Return an infallible version of this iterator.
+    ///
+    /// Any item yielded that corresponds to an error results in a panic.
+    pub fn infallible(self) -> Captures<'h, 'p, F> {
+        Captures(self)
+    }
+
+    /// Handles the special case of an empty match by ensuring that 1) the
+    /// iterator always advances and 2) empty matches never overlap with other
+    /// matches.
+    ///
+    /// (1) is necessary because we principally make progress by setting the
+    /// starting location of the next search to the ending location of the last
+    /// match. But if a match is empty, then this results in a search that does
+    /// not advance and thus does not terminate.
+    ///
+    /// (2) is not strictly necessary, but makes intuitive sense and matches
+    /// the presiding behavior of most general purpose regex engines. The
+    /// "intuitive sense" here is that we want to report NON-overlapping
+    /// matches. So for example, given the regex 'a|(?:)' against the haystack
+    /// 'a', without the special handling, you'd get the matches [0, 1) and [1,
+    /// 1), where the latter overlaps with the end bounds of the former.
+    ///
+    /// Note that we mark this cold and forcefully prevent inlining because
+    /// handling empty matches like this is extremely rare and does require
+    /// quite a bit of code, comparatively. Keeping this code out of the main
+    /// iterator function keeps it smaller and more amenable to inlining
+    /// itself.
+    #[cold]
+    #[inline(never)]
+    fn handle_overlapping_empty_match(
+        &mut self,
+        mut m: Match,
+    ) -> Result<Option<Match>, MatchError> {
+        assert!(m.is_empty());
+        if Some(m.end()) == self.last_match_end {
+            self.input.set_start(self.input.start().checked_add(1).unwrap());
+            (self.finder)(&self.input, &mut self.caps)?;
+            m = match self.caps.get_match() {
+                None => return Ok(None),
+                Some(m) => m,
+            };
+            self.input.set_start(m.end());
+        }
+        Ok(Some(m))
+    }
+
+    #[inline]
+    pub fn advance(&mut self) -> Result<(), MatchError> {
+        (self.finder)(&self.input, &mut self.caps)?;
+        let mut m = match self.caps.get_match() {
+            None => return Ok(()),
+            Some(m) => m,
+        };
+        self.input.set_start(m.end());
+        if m.is_empty() {
+            m = match self.handle_overlapping_empty_match(m)? {
+                None => return Ok(()),
+                Some(m) => m,
+            };
+        }
+        self.last_match_end = Some(m.end());
+        Ok(())
+    }
+
+    #[inline]
+    pub fn get_caps(&self) -> &thompson::Captures {
+        &self.caps
+    }
+}
+
+impl<'c, 'h, 'p, F> Iterator for TryCaptures<'h, 'p, F>
+where
+    F: FnMut(
+            &Input<'h, 'p>,
+            &mut thompson::Captures,
+        ) -> Result<(), MatchError>
+        + Send
+        + 'c,
+{
+    type Item = Result<thompson::Captures, MatchError>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Result<thompson::Captures, MatchError>> {
+        if let Err(err) = self.advance() {
+            return Some(Err(err));
+        }
+        if !self.caps.is_match() {
+            None
+        } else {
+            Some(Ok(self.caps.clone()))
+        }
+    }
+}
+
+impl<'h, 'p, F> core::fmt::Debug for TryCaptures<'h, 'p, F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_struct("TryCaptures")
+            .field("finder", &"<closure>")
+            .field("input", &self.input)
+            .field("caps", &self.caps)
+            .field("last_match_end", &self.last_match_end)
+            .finish()
+    }
+}
+
+pub struct Captures<'h, 'p, F>(TryCaptures<'h, 'p, F>);
+
+impl<'c, 'h, 'p, F> Iterator for Captures<'h, 'p, F>
+where
+    F: FnMut(
+            &Input<'h, 'p>,
+            &mut thompson::Captures,
+        ) -> Result<(), MatchError>
+        + Send
+        + 'c,
+{
+    type Item = thompson::Captures;
+
+    #[inline]
+    fn next(&mut self) -> Option<thompson::Captures> {
+        match self.0.next()? {
+            Ok(m) => Some(m),
+            Err(err) => panic!(
+                "unexpected regex find captures error: {}\n\
+                 to handle find errors, use try_ methods",
+                err,
+            ),
+        }
+    }
+}
+
+impl<'h, 'p, F> core::fmt::Debug for Captures<'h, 'p, F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_tuple("Captures").field(&self.0).finish()
+    }
+}
 
 /// An iterator over all non-overlapping matches for a fallible search.
 ///
@@ -31,7 +235,7 @@ pub struct TryMatches<'h, 'p, F> {
 
 impl<'c, 'h, 'p, F> TryMatches<'h, 'p, F>
 where
-    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + Send + 'c,
 {
     /// Create a new fallible non-overlapping matches iterator.
     ///
@@ -56,6 +260,7 @@ where
         'p,
         Box<
             dyn FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError>
+                + Send
                 + 'c,
         >,
     > {
@@ -128,7 +333,7 @@ where
 
 impl<'c, 'h, 'p, F> Iterator for TryMatches<'h, 'p, F>
 where
-    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + Send + 'c,
 {
     type Item = Result<Match, MatchError>;
 
@@ -179,7 +384,7 @@ pub struct Matches<'h, 'p, F>(TryMatches<'h, 'p, F>);
 
 impl<'c, 'h, 'p, F> Iterator for Matches<'h, 'p, F>
 where
-    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + 'c,
+    F: FnMut(&Input<'h, 'p>) -> Result<Option<Match>, MatchError> + Send + 'c,
 {
     type Item = Match;
 

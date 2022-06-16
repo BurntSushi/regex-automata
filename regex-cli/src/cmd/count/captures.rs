@@ -15,6 +15,7 @@ use automata::{
     dfa::{self, Automaton},
     hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
+    util::iter,
     Input, PatternID,
 };
 
@@ -206,58 +207,30 @@ fn search_pikevm(
         counts[pid] = vec![0; vm.get_nfa().pattern_capture_len(pid)];
     }
     match captures.kind() {
-        config::SearchKind::Earliest => {
-            // The PikeVM has no 'earliest' captures iter, and using the
-            // generic iterators is a little strained since they don't support
-            // 'Captures' directly. So we just hand-write our own iterator.
-            let mut search = vm.create_input(haystack).earliest(true);
-            let mut caps = vm.create_captures();
-            let mut last_match_end: Option<usize> = None;
+        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
+            // The standard iterators alloc a new 'Captures' for each match, so
+            // we use a slightly less convenient API to reuse 'Captures' for
+            // each match. Overall, this should result in zero amortized allocs
+            // per match.
+            let search = vm
+                .create_input(haystack)
+                .earliest(captures.kind() == config::SearchKind::Earliest);
+            let caps = vm.create_captures();
+            let mut it =
+                iter::TryCaptures::new(search, caps, move |search, caps| {
+                    vm.search(cache, search, caps);
+                    Ok(())
+                });
             loop {
-                vm.search(cache, &search, &mut caps);
+                it.advance()?;
+                let caps = it.get_caps();
                 let m = match caps.get_match() {
                     None => break,
                     Some(m) => m,
                 };
-                search.set_start(m.end());
-                if m.is_empty() {
-                    // After every empty match, we forcefully step forward,
-                    // since we know we'll otherwise run the search again
-                    // at the same bounds, get the same result and then hit
-                    // the 'last_match_end == Some(m.end())' case below. So
-                    // doing this step for all empty matches isn't needed for
-                    // correctness, but it avoids an additional search call in
-                    // some common cases (e.g., for the empty regex).
-                    search.set_start(search.start().checked_add(1).unwrap());
-                    // If we see an empty match that overlaps with the previous
-                    // match, we skip this one and continue searching at the
-                    // next byte.
-                    //
-                    // Because of the optimization above, this case is only
-                    // triggered when a non-empty match is followed by an empty
-                    // match.
-                    if last_match_end == Some(m.end()) {
-                        continue;
-                    }
-                }
-                last_match_end = Some(m.end());
-
                 for (group_index, subm) in caps.iter().enumerate() {
                     if subm.is_some() {
                         counts[m.pattern()][group_index] += 1;
-                    }
-                }
-                if captures.matches() {
-                    write_thompson_captures(vm.get_nfa(), &caps, buf);
-                }
-            }
-        }
-        config::SearchKind::Leftmost => {
-            for caps in vm.captures_iter(cache, haystack) {
-                let pid = caps.pattern().unwrap();
-                for (group_index, m) in caps.iter().enumerate() {
-                    if m.is_some() {
-                        counts[pid][group_index] += 1;
                     }
                 }
                 if captures.matches() {

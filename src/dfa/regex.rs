@@ -646,8 +646,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 }
 
-type TryMatchesClosure<'h, 'c> =
-    Box<dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + 'c>;
+type TryMatchesClosure<'h, 'c> = Box<
+    dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + Send + 'c,
+>;
 
 impl<A: Automaton, P: Prefilter> Regex<A, P> {
     fn try_matches_iter<'r, 'h>(

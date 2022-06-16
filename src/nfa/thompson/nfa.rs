@@ -1417,6 +1417,7 @@ impl Inner {
     ///
     /// Capture indices are relative to the pattern. e.g., When captures are
     /// enabled, every pattern has a capture at index `0`.
+    #[inline(always)]
     pub(super) fn slot(
         &self,
         pid: PatternID,
@@ -2350,8 +2351,8 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// It is worth pointing out that while this type is necessary to use if you
 /// want to use one of the NFA regex engines provided by this crate, it is
 /// _not_ necessary to use this type if you want to build your own NFA-based
-/// regex engine. That is, the implementation of this type does not use any
-/// private implementation details of `NFA`.
+/// regex engine. That is, by design, the implementation of this type does not
+/// use any private implementation details of `NFA`.
 ///
 /// # Example
 ///
@@ -2361,11 +2362,10 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// ```
 /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Span};
 ///
-/// let vm = PikeVM::new(r"^(\d{4})-(\d{2})-(\d{2})$")?;
+/// let vm = PikeVM::new(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")?;
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
 ///
-/// let haystack = "2010-03-14";
-/// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
+/// vm.find(&mut cache, "2010-03-14", &mut caps);
 /// assert!(caps.is_match());
 /// assert_eq!(Some(Span::from(0..4)), caps.get_group(1));
 /// assert_eq!(Some(Span::from(5..7)), caps.get_group(2));
@@ -2382,11 +2382,10 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// ```
 /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Span};
 ///
-/// let vm = PikeVM::new(r"^(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})$")?;
+/// let vm = PikeVM::new(r"^(?P<y>[0-9]{4})-(?P<m>[0-9]{2})-(?P<d>[0-9]{2})$")?;
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
 ///
-/// let haystack = "2010-03-14";
-/// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
+/// vm.find(&mut cache, "2010-03-14", &mut caps);
 /// assert!(caps.is_match());
 /// assert_eq!(Some(Span::from(0..4)), caps.get_group_by_name("y"));
 /// assert_eq!(Some(Span::from(5..7)), caps.get_group_by_name("m"));
@@ -2411,8 +2410,9 @@ impl Captures {
     /// import the `Captures` type explicitly. The PikeVM will also handle
     /// providing the correct NFA to this constructor.
     ///
-    /// This routine provides the most information, but also requires the NFA
-    /// search routines to do the most work.
+    /// This routine provides the most information for matches---namely, the
+    /// match spans of capturing groups---but also requires the NFA search
+    /// routines to do the most work.
     ///
     /// It is unspecified behavior to use the returned `Captures` value in
     /// a search with any NFA other than the one that is provided to this
@@ -2436,8 +2436,7 @@ impl Captures {
     /// let mut cache = vm.create_cache();
     /// let mut caps = Captures::new(vm.get_nfa().clone());
     ///
-    /// let haystack = "ABC123";
-    /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
+    /// vm.find(&mut cache, "ABC123", &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(Match::must(0, 0..6)), caps.get_match());
     /// // The 'lower' group didn't match, so it won't have any offsets.
@@ -2477,8 +2476,7 @@ impl Captures {
     /// let mut cache = vm.create_cache();
     /// let mut caps = Captures::new_for_matches_only(vm.get_nfa().clone());
     ///
-    /// let haystack = "ABC123";
-    /// vm.find(&mut cache, haystack.as_bytes(), &mut caps);
+    /// vm.find(&mut cache, "ABC123", &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(Match::must(0, 0..6)), caps.get_match());
     /// // We didn't ask for capturing group offsets, so they aren't available.
@@ -2558,6 +2556,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     pub fn is_match(&self) -> bool {
         self.pid.is_some()
     }
@@ -2730,9 +2729,9 @@ impl Captures {
     /// If this `Captures` value does not correspond to a match, then the
     /// iterator returned yields no elements.
     ///
-    /// Note that the iterator returned yields elements of type
-    /// `Option<Span>`. An element is present if and only if it corresponds to
-    /// a capturing group that participated in a match.
+    /// Note that the iterator returned yields elements of type `Option<Span>`.
+    /// A span is present if and only if it corresponds to a capturing group
+    /// that participated in a match.
     ///
     /// # Example
     ///
@@ -2799,7 +2798,8 @@ impl Captures {
     /// always returns `0`.
     ///
     /// This always returns the same number of elements yielded by
-    /// [`Captures::iter`].
+    /// [`Captures::iter`]. That is, the number includes capturing groups even
+    /// if they don't participate in the match.
     ///
     /// # Example
     ///
@@ -2843,9 +2843,14 @@ impl Captures {
     /// It is not usually necessary to call this routine. Namely, a `Captures`
     /// value only provides high level access to the capturing groups of the
     /// pattern that matched, and only low level access to individual slots.
-    /// Thus, even if slots corresponding to groups that aren't associated with
-    /// the matching pattern are set, then it won't impact the higher level
-    /// APIs.
+    /// Thus, even if slots corresponding to groups that aren't associated
+    /// with the matching pattern are set, then it won't impact the higher
+    /// level APIs. Namely, higher level APIs like [`Captures::get_group`] will
+    /// return `None` if no pattern ID is present, even if there are spans set
+    /// in the underlying slots.
+    ///
+    /// Thus, to "clear" a `Captures` value of a match, it is usually only
+    /// necessary to call [`Captures::set_pattern`] with `None`.
     ///
     /// # Example
     ///
@@ -2878,9 +2883,6 @@ impl Captures {
     /// assert!(!caps.is_match());
     /// let slots: Vec<Option<usize>> =
     ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
-    /// // Note that the following ordering is not considered an API guarantee.
-    /// // The only valid way of mapping a capturing group index to a slot
-    /// // index is with the NFA::slot or NFA::slots routines.
     /// assert_eq!(slots, vec![
     ///     None,
     ///     None,
@@ -2892,6 +2894,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     pub fn clear(&mut self) {
         self.pid = None;
         for slot in self.slots.iter_mut() {
@@ -2953,6 +2956,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     pub fn set_pattern(&mut self, pid: Option<PatternID>) {
         self.pid = pid;
     }
@@ -2992,6 +2996,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[inline]
     pub fn get_slot(&mut self, slot: usize) -> Option<usize> {
         self.slots[slot].map(|s| s.get())
     }
@@ -3008,6 +3013,7 @@ impl Captures {
     ///
     /// This panics if the given `slot` is not valid. A `slot` is valid if
     /// and only if `slot < caps.slot_len()`.
+    #[inline]
     pub fn set_slot(&mut self, slot: usize, at: Option<usize>) {
         // OK because length of a slice must fit into an isize.
         self.slots[slot] = at.and_then(NonMaxUsize::new);
@@ -3018,6 +3024,7 @@ impl Captures {
     ///
     /// This value is equivalent to the sum of all capturing groups across all
     /// patterns from the originating NFA.
+    #[inline]
     pub fn slot_len(&self) -> usize {
         self.slots.len()
     }

@@ -234,7 +234,7 @@ impl DFA<Vec<u8>> {
     }
 
     /// The implementation for constructing a sparse DFA from a dense DFA.
-    pub(crate) fn from_dense<T: AsRef<[u32]>>(
+    pub(crate) fn from_dense<T: AsRef<[u32]> + Send + Sync>(
         dfa: &dense::DFA<T>,
     ) -> Result<DFA<Vec<u8>>, Error> {
         // In order to build the transition table, we need to be able to write
@@ -411,7 +411,7 @@ impl DFA<Vec<u8>> {
     }
 }
 
-impl<T: AsRef<[u8]>> DFA<T> {
+impl<T: AsRef<[u8]> + Send + Sync> DFA<T> {
     /// Cheaply return a borrowed version of this sparse DFA. Specifically, the
     /// DFA returned always uses `&[u8]` for its transitions.
     pub fn as_ref<'a>(&'a self) -> DFA<&'a [u8]> {
@@ -463,7 +463,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
 
 /// Routines for converting a sparse DFA to other representations, such as raw
 /// bytes suitable for persistent storage.
-impl<T: AsRef<[u8]>> DFA<T> {
+impl<T: AsRef<[u8]> + Send + Sync> DFA<T> {
     /// Serialize this DFA as raw bytes to a `Vec<u8>` in little endian
     /// format.
     ///
@@ -1084,7 +1084,7 @@ impl<'a> DFA<&'a [u8]> {
     }
 }
 
-impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
+impl<T: AsRef<[u8]> + Send + Sync> fmt::Debug for DFA<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "sparse::DFA(")?;
         for state in self.trans.states() {
@@ -1109,7 +1109,7 @@ impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
     }
 }
 
-unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
+unsafe impl<T: AsRef<[u8]> + Send + Sync> Automaton for DFA<T> {
     #[inline]
     fn is_special_state(&self, id: StateID) -> bool {
         self.special.is_special_state(id)
@@ -1719,7 +1719,7 @@ impl StartTable<Vec<u8>> {
         StartTable { table: vec![0; len], stride, pattern_len: patterns }
     }
 
-    fn from_dense_dfa<T: AsRef<[u32]>>(
+    fn from_dense_dfa<T: AsRef<[u32]> + Send + Sync>(
         dfa: &dense::DFA<T>,
         remap: &[StateID],
     ) -> Result<StartTable<Vec<u8>>, Error> {
