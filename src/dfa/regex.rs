@@ -459,9 +459,10 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn find_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         haystack: &'h H,
-    ) -> FindMatches<'h, 'r> {
-        let search = self.create_input(haystack.as_ref());
-        FindMatches(self.try_matches_iter(search).infallible())
+    ) -> FindMatches<'r, 'h, A, P> {
+        let input = self.create_input(haystack.as_ref());
+        let it = iter::Searcher::new(input);
+        FindMatches { re: self, it }
     }
 }
 
@@ -549,9 +550,10 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     pub fn try_find_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         haystack: &'h H,
-    ) -> TryFindMatches<'h, 'r> {
-        let search = self.create_input(haystack.as_ref());
-        TryFindMatches(self.try_matches_iter(search))
+    ) -> TryFindMatches<'r, 'h, A, P> {
+        let input = self.create_input(haystack.as_ref());
+        let it = iter::Searcher::new(input);
+        TryFindMatches { re: self, it }
     }
 }
 
@@ -643,19 +645,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         );
         assert!(start.offset() <= end.offset());
         Ok(Some(Match::new(end.pattern(), start.offset()..end.offset())))
-    }
-}
-
-type TryMatchesClosure<'h, 'c> = Box<
-    dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + Send + 'c,
->;
-
-impl<A: Automaton, P: Prefilter> Regex<A, P> {
-    fn try_matches_iter<'r, 'h>(
-        &'r self,
-        input: Input<'h, 'r>,
-    ) -> iter::TryMatches<'h, 'r, TryMatchesClosure<'h, 'r>> {
-        iter::TryMatches::boxed(input, move |search| self.try_search(search))
     }
 }
 
@@ -764,16 +753,20 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 ///
 /// This iterator can be created with the [`Regex::find_iter`] method.
 #[derive(Debug)]
-pub struct FindMatches<'h, 'c>(
-    iter::Matches<'h, 'c, TryMatchesClosure<'h, 'c>>,
-);
+pub struct FindMatches<'r, 'h, A, P> {
+    re: &'r Regex<A, P>,
+    it: iter::Searcher<'h, 'r>,
+}
 
-impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
+impl<'r, 'h, A: Automaton, P: Prefilter> Iterator
+    for FindMatches<'r, 'h, A, P>
+{
     type Item = Match;
 
     #[inline]
     fn next(&mut self) -> Option<Match> {
-        self.0.next()
+        let FindMatches { re, ref mut it } = *self;
+        it.advance(|input| re.try_search(input))
     }
 }
 
@@ -789,16 +782,20 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
 ///
 /// This iterator can be created with the [`Regex::try_find_iter`] method.
 #[derive(Debug)]
-pub struct TryFindMatches<'h, 'c>(
-    iter::TryMatches<'h, 'c, TryMatchesClosure<'h, 'c>>,
-);
+pub struct TryFindMatches<'r, 'h, A, P> {
+    re: &'r Regex<A, P>,
+    it: iter::Searcher<'h, 'r>,
+}
 
-impl<'h, 'c> Iterator for TryFindMatches<'h, 'c> {
+impl<'r, 'h, A: Automaton, P: Prefilter> Iterator
+    for TryFindMatches<'r, 'h, A, P>
+{
     type Item = Result<Match, MatchError>;
 
     #[inline]
     fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        self.0.next()
+        let TryFindMatches { re, ref mut it } = *self;
+        it.try_advance(|input| re.try_search(input)).transpose()
     }
 }
 

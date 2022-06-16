@@ -215,15 +215,13 @@ fn search_pikevm(
             let search = vm
                 .create_input(haystack)
                 .earliest(captures.kind() == config::SearchKind::Earliest);
-            let caps = vm.create_captures();
-            let mut it =
-                iter::TryCaptures::new(search, caps, move |search, caps| {
-                    vm.search(cache, search, caps);
-                    Ok(())
-                });
+            let mut caps = vm.create_captures();
+            let mut it = iter::Searcher::new(search);
             loop {
-                it.advance()?;
-                let caps = it.get_caps();
+                it.advance(|input| {
+                    vm.search(cache, input, &mut caps);
+                    Ok(caps.get_match())
+                });
                 let m = match caps.get_match() {
                     None => break,
                     Some(m) => m,

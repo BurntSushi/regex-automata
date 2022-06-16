@@ -473,24 +473,11 @@ fn search_dfa_automaton<A: Automaton>(
     let mut counts = vec![0u64; dfa.pattern_len()];
     let mut at = 0;
     match find.kind() {
-        config::SearchKind::Earliest => {
-            let mut it = iter::TryHalfMatches::new(
-                Input::new(haystack).earliest(true),
-                move |search| dfa.try_search_fwd(search),
-            );
-            for result in it {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_half_match(m, buf);
-                }
-            }
-        }
-        config::SearchKind::Leftmost => {
-            let mut it = iter::TryHalfMatches::new(
-                Input::new(haystack),
-                move |search| dfa.try_search_fwd(search),
-            );
+        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
+            let input = Input::new(haystack)
+                .earliest(find.kind() == config::SearchKind::Earliest);
+            let mut it = iter::Searcher::new(input)
+                .into_half_matches_iter(|input| dfa.try_search_fwd(input));
             for result in it {
                 let m = result?;
                 counts[m.pattern()] += 1;
@@ -525,10 +512,9 @@ fn search_dfa_regex<A: Automaton>(
     let mut counts = vec![0u64; re.pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
-            let mut it = iter::TryMatches::new(
-                re.create_input(haystack).earliest(true),
-                move |search| re.try_search(search),
-            );
+            let input = re.create_input(haystack).earliest(true);
+            let mut it = iter::Searcher::new(input)
+                .into_matches_iter(|input| re.try_search(input));
             for result in it {
                 let m = result?;
                 counts[m.pattern()] += 1;
@@ -563,24 +549,13 @@ fn search_hybrid_dfa<'i, 'c>(
     let mut counts = vec![0u64; dfa.pattern_len()];
     let mut at = 0;
     match find.kind() {
-        config::SearchKind::Earliest => {
-            let mut it = iter::TryHalfMatches::new(
-                Input::new(haystack).earliest(true),
-                move |search| dfa.try_search_fwd(cache, search),
-            );
-            for result in it {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_half_match(m, buf);
-                }
-            }
-        }
-        config::SearchKind::Leftmost => {
-            let mut it = iter::TryHalfMatches::new(
-                Input::new(haystack),
-                move |search| dfa.try_search_fwd(cache, search),
-            );
+        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
+            let input = Input::new(haystack)
+                .earliest(find.kind() == config::SearchKind::Earliest);
+            let mut it =
+                iter::Searcher::new(input).into_half_matches_iter(|input| {
+                    dfa.try_search_fwd(cache, input)
+                });
             for result in it {
                 let m = result?;
                 counts[m.pattern()] += 1;
@@ -616,10 +591,9 @@ fn search_hybrid_regex(
     let mut counts = vec![0u64; re.pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
-            let search = re.create_input(haystack).earliest(true);
-            let mut it = iter::TryMatches::new(search, move |search| {
-                re.try_search(cache, search)
-            });
+            let input = re.create_input(haystack).earliest(true);
+            let mut it = iter::Searcher::new(input)
+                .into_matches_iter(|input| re.try_search(cache, input));
             for result in it {
                 let m = result?;
                 counts[m.pattern()] += 1;
@@ -655,15 +629,17 @@ fn search_pikevm(
     match find.kind() {
         config::SearchKind::Earliest => {
             let mut caps = vm.create_captures();
-            let mut it = iter::TryMatches::new(
-                vm.create_input(haystack).earliest(true),
-                move |search| {
-                    vm.search(cache, search, &mut caps);
+            let mut it =
+                iter::Searcher::new(vm.create_input(haystack).earliest(true));
+            loop {
+                it.advance(|input| {
+                    vm.search(cache, input, &mut caps);
                     Ok(caps.get_match())
-                },
-            );
-            for result in it {
-                let m = result?;
+                });
+                let m = match caps.get_match() {
+                    None => break,
+                    Some(m) => m,
+                };
                 counts[m.pattern()] += 1;
                 if find.matches() {
                     write_multi_match(m, buf);

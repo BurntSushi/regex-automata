@@ -52,20 +52,19 @@ fn run_test(
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
+                let input = re.create_input(test.input()).earliest(true);
                 let mut caps = re.create_captures();
-                let it = iter::TryMatches::new(
-                    re.create_input(test.input()).earliest(true),
-                    move |search| {
-                        re.search(cache, search, &mut caps);
+                let it = iter::Searcher::new(input)
+                    .into_matches_iter(|input| {
+                        re.search(cache, input, &mut caps);
                         Ok(caps.get_match())
-                    },
-                )
-                .infallible()
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| ret::Match {
-                    id: m.pattern().as_usize(),
-                    span: ret::Span { start: m.start(), end: m.end() },
-                });
+                    })
+                    .infallible()
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
                 TestResult::matches(it)
             }
             ret::SearchKind::Leftmost => {
@@ -85,43 +84,32 @@ fn run_test(
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
-        "captures" => {
-            match test.search_kind() {
-                ret::SearchKind::Earliest => {
-                    // This is pretty messy. There is no 'earliest' iterator,
-                    // so we've got to roll our own. We do reuse the iterator
-                    // 'TryMatches' helper, but since those helpers don't
-                    // support capturing groups directly, we've got to smuggle
-                    // it through using a RefCell.
-                    let it = iter::TryCaptures::new(
-                        re.create_input(test.input()).earliest(true),
-                        re.create_captures(),
-                        move |search, caps| {
-                            re.search(cache, search, caps);
-                            Ok(())
-                        },
-                    )
+        "captures" => match test.search_kind() {
+            ret::SearchKind::Earliest => {
+                let input = re.create_input(test.input()).earliest(true);
+                let it = iter::Searcher::new(input)
+                    .into_captures_iter(re.create_captures(), |input, caps| {
+                        Ok(re.search(cache, input, caps))
+                    })
                     .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
-                    TestResult::captures(it)
-                }
-                ret::SearchKind::Leftmost => {
-                    let it = re
-                        .captures_iter(cache, test.input())
-                        .take(test.match_limit().unwrap_or(std::usize::MAX))
-                        .map(|caps| testify_captures(&caps));
-                    TestResult::captures(it)
-                }
-                ret::SearchKind::Overlapping => {
-                    let mut patset =
-                        PatternSet::new(re.get_nfa().pattern_len());
-                    let search = re.create_input(test.input());
-                    re.which_overlapping_matches(cache, &search, &mut patset);
-                    TestResult::which(patset.iter().map(|p| p.as_usize()))
-                }
+                TestResult::captures(it)
             }
-        }
+            ret::SearchKind::Leftmost => {
+                let it = re
+                    .captures_iter(cache, test.input())
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|caps| testify_captures(&caps));
+                TestResult::captures(it)
+            }
+            ret::SearchKind::Overlapping => {
+                let mut patset = PatternSet::new(re.get_nfa().pattern_len());
+                let search = re.create_input(test.input());
+                re.which_overlapping_matches(cache, &search, &mut patset);
+                TestResult::which(patset.iter().map(|p| p.as_usize()))
+            }
+        },
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
     }
 }

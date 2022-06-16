@@ -208,16 +208,15 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
         "is_match" => TestResult::matched(re.is_match(test.input())),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let search = re.create_input(test.input()).earliest(true);
-                let it = iter::TryMatches::new(search, move |search| {
-                    re.try_search(search)
-                })
-                .infallible()
-                .take(test.match_limit().unwrap_or(std::usize::MAX))
-                .map(|m| ret::Match {
-                    id: m.pattern().as_usize(),
-                    span: ret::Span { start: m.start(), end: m.end() },
-                });
+                let input = re.create_input(test.input()).earliest(true);
+                let it = iter::Searcher::new(input)
+                    .into_matches_iter(|input| re.try_search(input))
+                    .infallible()
+                    .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
+                    });
                 TestResult::matches(it)
             }
             ret::SearchKind::Leftmost => {

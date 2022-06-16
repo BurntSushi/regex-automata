@@ -420,13 +420,14 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> FindMatches<'h, 'c> {
-        let search = self.create_input(haystack.as_ref());
-        FindMatches(self.try_matches_iter(cache, search).infallible())
+    ) -> FindMatches<'r, 'c, 'h> {
+        let input = self.create_input(haystack.as_ref());
+        let it = iter::Searcher::new(input);
+        FindMatches { re: self, cache, it }
     }
 }
 
@@ -520,13 +521,14 @@ impl Regex {
     /// The infallible (panics on error) version of this routine is
     /// [`find_iter`](Regex::find_iter).
     #[inline]
-    pub fn try_find_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn try_find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> TryFindMatches<'h, 'c> {
-        let search = self.create_input(haystack.as_ref());
-        TryFindMatches(self.try_matches_iter(cache, search))
+    ) -> TryFindMatches<'r, 'c, 'h> {
+        let input = self.create_input(haystack.as_ref());
+        let it = iter::Searcher::new(input);
+        TryFindMatches { re: self, cache, it }
     }
 }
 
@@ -631,22 +633,6 @@ impl Regex {
     }
 }
 
-type TryMatchesClosure<'h, 'c> = Box<
-    dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + Send + 'c,
->;
-
-impl Regex {
-    fn try_matches_iter<'r: 'c, 'c, 'h>(
-        &'r self,
-        cache: &'c mut Cache,
-        input: Input<'h, 'r>,
-    ) -> iter::TryMatches<'h, 'c, TryMatchesClosure<'h, 'c>> {
-        iter::TryMatches::boxed(input, move |search| {
-            self.try_search(cache, search)
-        })
-    }
-}
-
 /// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl Regex {
@@ -702,16 +688,19 @@ impl Regex {
 /// This iterator can be created with the [`Regex::find_iter`]
 /// method.
 #[derive(Debug)]
-pub struct FindMatches<'h, 'c>(
-    iter::Matches<'h, 'c, TryMatchesClosure<'h, 'c>>,
-);
+pub struct FindMatches<'r, 'c, 'h> {
+    re: &'r Regex,
+    cache: &'c mut Cache,
+    it: iter::Searcher<'h, 'r>,
+}
 
-impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
+impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
     type Item = Match;
 
     #[inline]
     fn next(&mut self) -> Option<Match> {
-        self.0.next()
+        let FindMatches { re, ref mut cache, ref mut it } = *self;
+        it.advance(|input| re.try_search(cache, input))
     }
 }
 
@@ -729,16 +718,19 @@ impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
 /// This iterator can be created with the [`Regex::try_find_iter`]
 /// method.
 #[derive(Debug)]
-pub struct TryFindMatches<'h, 'c>(
-    iter::TryMatches<'h, 'c, TryMatchesClosure<'h, 'c>>,
-);
+pub struct TryFindMatches<'r, 'c, 'h> {
+    re: &'r Regex,
+    cache: &'c mut Cache,
+    it: iter::Searcher<'h, 'r>,
+}
 
-impl<'h, 'c> Iterator for TryFindMatches<'h, 'c> {
+impl<'r, 'c, 'h> Iterator for TryFindMatches<'r, 'c, 'h> {
     type Item = Result<Match, MatchError>;
 
     #[inline]
     fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        self.0.next()
+        let TryFindMatches { re, ref mut cache, ref mut it } = *self;
+        it.try_advance(|input| re.try_search(cache, input)).transpose()
     }
 }
 

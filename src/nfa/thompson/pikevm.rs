@@ -275,37 +275,27 @@ impl PikeVM {
     }
 
     #[inline]
-    pub fn find_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> FindMatches<'h, 'c> {
-        let search = self.create_input(haystack.as_ref());
-        let mut caps = Captures::new_for_matches_only(self.get_nfa().clone());
-        let it = iter::TryMatches::boxed(search, move |search| {
-            self.search(cache, search, &mut caps);
-            Ok(caps.get_match())
-        })
-        .infallible();
-        FindMatches(it)
+    ) -> FindMatches<'r, 'c, 'h> {
+        let input = self.create_input(haystack.as_ref());
+        let caps = Captures::new_for_matches_only(self.get_nfa().clone());
+        let it = iter::Searcher::new(input);
+        FindMatches { re: self, cache, caps, it }
     }
 
     #[inline]
-    pub fn captures_iter<'r: 'c, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> CapturesMatches<'h, 'c> {
-        let search = self.create_input(haystack.as_ref());
+    ) -> CapturesMatches<'r, 'c, 'h> {
+        let input = self.create_input(haystack.as_ref());
         let caps = self.create_captures();
-        let it = iter::TryCaptures::boxed(search, caps, {
-            move |search, caps| {
-                self.search(cache, search, caps);
-                Ok(())
-            }
-        })
-        .infallible();
-        CapturesMatches(it)
+        let it = iter::Searcher::new(input);
+        CapturesMatches { re: self, cache, caps, it }
     }
 
     #[inline]
@@ -638,10 +628,6 @@ impl PikeVM {
     }
 }
 
-type TryMatchesClosure<'h, 'c> = Box<
-    dyn FnMut(&Input<'h, 'c>) -> Result<Option<Match>, MatchError> + Send + 'c,
->;
-
 /// An iterator over all non-overlapping matches for an infallible search.
 ///
 /// The iterator yields a [`Match`] value until no more matches could be found.
@@ -656,24 +642,28 @@ type TryMatchesClosure<'h, 'c> = Box<
 /// This iterator can be created with the [`PikeVM::find_iter`]
 /// method.
 #[derive(Debug)]
-pub struct FindMatches<'h, 'c>(
-    iter::Matches<'h, 'c, TryMatchesClosure<'h, 'c>>,
-);
+pub struct FindMatches<'r, 'c, 'h> {
+    re: &'r PikeVM,
+    cache: &'c mut Cache,
+    caps: Captures,
+    it: iter::Searcher<'h, 'r>,
+}
 
-impl<'h, 'c> Iterator for FindMatches<'h, 'c> {
+impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
     type Item = Match;
 
     #[inline]
     fn next(&mut self) -> Option<Match> {
-        self.0.next()
+        // Splitting 'self' apart seems necessary to appease borrowck.
+        let FindMatches { re, ref mut cache, ref mut caps, ref mut it } =
+            *self;
+        it.advance(|input| {
+            re.search(cache, input, caps);
+            Ok(caps.get_match())
+        });
+        caps.get_match()
     }
 }
-
-type TryCapturesClosure<'h, 'c> = Box<
-    dyn FnMut(&Input<'h, 'c>, &mut Captures) -> Result<(), MatchError>
-        + Send
-        + 'c,
->;
 
 /// An iterator over all non-overlapping leftmost matches, with their capturing
 /// groups, for a particular search.
@@ -690,16 +680,30 @@ type TryCapturesClosure<'h, 'c> = Box<
 /// This iterator can be created with the [`Regex::captures_iter`]
 /// method.
 #[derive(Debug)]
-pub struct CapturesMatches<'h, 'c>(
-    iter::Captures<'h, 'c, TryCapturesClosure<'h, 'c>>,
-);
+pub struct CapturesMatches<'r, 'c, 'h> {
+    re: &'r PikeVM,
+    cache: &'c mut Cache,
+    caps: Captures,
+    it: iter::Searcher<'h, 'r>,
+}
 
-impl<'h, 'c> Iterator for CapturesMatches<'h, 'c> {
+impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
     type Item = Captures;
 
     #[inline]
     fn next(&mut self) -> Option<Captures> {
-        self.0.next()
+        // Splitting 'self' apart seems necessary to appease borrowck.
+        let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
+            *self;
+        it.advance(|input| {
+            re.search(cache, input, caps);
+            Ok(caps.get_match())
+        });
+        if caps.is_match() {
+            Some(caps.clone())
+        } else {
+            None
+        }
     }
 }
 
