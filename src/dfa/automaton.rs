@@ -97,7 +97,7 @@ use crate::{
 ///
 /// When implementing this trait, one must uphold the documented correctness
 /// guarantees. Otherwise, undefined behavior may occur.
-pub unsafe trait Automaton: Send + Sync {
+pub unsafe trait Automaton {
     /// Transitions from the current state to the next state, given the next
     /// byte of input.
     ///

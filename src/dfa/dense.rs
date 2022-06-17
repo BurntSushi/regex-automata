@@ -1388,7 +1388,7 @@ impl DFA<&[u32]> {
     }
 }
 
-impl<T: AsRef<[u32]> + Send + Sync> DFA<T> {
+impl<T: AsRef<[u32]>> DFA<T> {
     /// Cheaply return a borrowed version of this dense DFA. Specifically,
     /// the DFA returned always uses `&[u32]` for its transition table.
     pub fn as_ref(&self) -> DFA<&'_ [u32]> {
@@ -1531,7 +1531,7 @@ impl<T: AsRef<[u32]> + Send + Sync> DFA<T> {
 
 /// Routines for converting a dense DFA to other representations, such as
 /// sparse DFAs or raw bytes suitable for persistent storage.
-impl<T: AsRef<[u32]> + Send + Sync> DFA<T> {
+impl<T: AsRef<[u32]>> DFA<T> {
     /// Convert this dense DFA to a sparse DFA.
     ///
     /// If a `StateID` is too small to represent all states in the sparse
@@ -2649,7 +2649,7 @@ impl OwnedDFA {
 }
 
 /// A variety of generic internal methods for accessing DFA internals.
-impl<T: AsRef<[u32]> + Send + Sync> DFA<T> {
+impl<T: AsRef<[u32]>> DFA<T> {
     /// Return the byte classes used by this DFA.
     pub(crate) fn byte_classes(&self) -> &ByteClasses {
         &self.tt.classes
@@ -2779,7 +2779,7 @@ impl<T: AsRef<[u32]> + Send + Sync> DFA<T> {
     }
 }
 
-impl<T: AsRef<[u32]> + Send + Sync> fmt::Debug for DFA<T> {
+impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "dense::DFA(")?;
         for state in self.states() {
@@ -2837,7 +2837,7 @@ impl<T: AsRef<[u32]> + Send + Sync> fmt::Debug for DFA<T> {
     }
 }
 
-unsafe impl<T: AsRef<[u32]> + Send + Sync> Automaton for DFA<T> {
+unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     #[inline]
     fn is_special_state(&self, id: StateID) -> bool {
         self.special.is_special_state(id)
@@ -4000,7 +4000,7 @@ impl MatchStates<Vec<u32>> {
     }
 }
 
-impl<T: AsRef<[u32]> + Send + Sync> MatchStates<T> {
+impl<T: AsRef<[u32]>> MatchStates<T> {
     /// Writes a serialized form of these match states to the buffer given. If
     /// the buffer is too small, then an error is returned. To determine how
     /// big the buffer must be, use `write_to_len`.

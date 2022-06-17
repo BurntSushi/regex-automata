@@ -3,7 +3,7 @@ use crate::{
     util::{id::StateID, search::Input},
 };
 
-impl<T: AsRef<[u32]> + Send + Sync> fst::Automaton for dense::DFA<T> {
+impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {
     type State = StateID;
 
     #[inline]
@@ -38,7 +38,7 @@ impl<T: AsRef<[u32]> + Send + Sync> fst::Automaton for dense::DFA<T> {
     }
 }
 
-impl<T: AsRef<[u8]> + Send + Sync> fst::Automaton for sparse::DFA<T> {
+impl<T: AsRef<[u8]>> fst::Automaton for sparse::DFA<T> {
     type State = StateID;
 
     #[inline]
