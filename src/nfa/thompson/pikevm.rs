@@ -257,9 +257,9 @@ impl PikeVM {
         cache: &mut Cache,
         haystack: H,
     ) -> bool {
-        let search = self.create_input(haystack.as_ref()).earliest(true);
+        let input = self.create_input(haystack.as_ref()).earliest(true);
         let mut caps = Captures::empty(self.nfa.clone());
-        self.search(cache, &search, &mut caps);
+        self.search(cache, &input, &mut caps);
         caps.is_match()
     }
 
@@ -270,8 +270,8 @@ impl PikeVM {
         haystack: H,
         caps: &mut Captures,
     ) {
-        let search = self.create_input(haystack.as_ref());
-        self.search(cache, &search, caps)
+        let input = self.create_input(haystack.as_ref());
+        self.search(cache, &input, caps)
     }
 
     #[inline]

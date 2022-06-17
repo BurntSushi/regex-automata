@@ -1080,10 +1080,10 @@ pub unsafe trait Automaton {
     /// }
     ///
     /// let dfa = dense::DFA::new("z[0-9]{3}")?;
-    /// let search = Input::new("foobar z123 q123")
+    /// let input = Input::new("foobar z123 q123")
     ///     .prefilter(Some(&ZPrefilter));
     /// let expected = Some(HalfMatch::must(0, 11));
-    /// let got = dfa.try_search_fwd(&search)?;
+    /// let got = dfa.try_search_fwd(&input)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1115,9 +1115,9 @@ pub unsafe trait Automaton {
     ///
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
-    /// let search = Input::new(haystack).pattern(Some(PatternID::must(1)));
+    /// let input = Input::new(haystack).pattern(Some(PatternID::must(1)));
     /// let expected = Some(HalfMatch::must(1, 6));
-    /// let got = dfa.try_search_fwd(&search)?;
+    /// let got = dfa.try_search_fwd(&input)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1141,18 +1141,18 @@ pub unsafe trait Automaton {
     /// // larger context and assumes that `123` is surrounded by word
     /// // boundaries. And of course, the match position is reported relative
     /// // to the sub-slice as well, which means we get `3` instead of `6`.
-    /// let search = Input::new(&haystack[3..6]);
+    /// let input = Input::new(&haystack[3..6]);
     /// let expected = Some(HalfMatch::must(0, 3));
-    /// let got = dfa.try_search_fwd(&search)?;
+    /// let got = dfa.try_search_fwd(&input)?;
     /// assert_eq!(expected, got);
     ///
     /// // But if we provide the bounds of the search within the context of the
     /// // entire haystack, then the search can take the surrounding context
     /// // into account. (And if we did find a match, it would be reported
     /// // as a valid offset into `haystack` instead of its sub-slice.)
-    /// let search = Input::new(haystack).range(3..6);
+    /// let input = Input::new(haystack).range(3..6);
     /// let expected = None;
-    /// let got = dfa.try_search_fwd(&search)?;
+    /// let got = dfa.try_search_fwd(&input)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1372,9 +1372,9 @@ pub unsafe trait Automaton {
     ///     .configure(DFA::config().match_kind(MatchKind::All))
     ///     .build_many(patterns)?;
     ///
-    /// let search = Input::new("foobar");
+    /// let input = Input::new("foobar");
     /// let mut patset = PatternSet::new(dfa.pattern_len());
-    /// dfa.try_which_overlapping_matches(&search, &mut patset)?;
+    /// dfa.try_which_overlapping_matches(&input, &mut patset)?;
     /// let expected = vec![0, 2, 3, 4, 6];
     /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);

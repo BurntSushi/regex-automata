@@ -137,8 +137,8 @@ mod tests {
     #[test]
     fn start_fwd() {
         let f = |haystack, start, end| {
-            let search = &Input::new(haystack).range(start..end);
-            Start::from_position_fwd(search)
+            let input = &Input::new(haystack).range(start..end);
+            Start::from_position_fwd(input)
         };
 
         assert_eq!(Start::Text, f("", 0, 0));
@@ -155,8 +155,8 @@ mod tests {
     #[test]
     fn start_rev() {
         let f = |haystack, start, end| {
-            let search = &Input::new(haystack).range(start..end);
-            Start::from_position_rev(search)
+            let input = &Input::new(haystack).range(start..end);
+            Start::from_position_rev(input)
         };
 
         assert_eq!(Start::Text, f("", 0, 0));

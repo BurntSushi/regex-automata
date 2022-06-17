@@ -501,8 +501,10 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let search = self.create_input(haystack.as_ref()).earliest(true);
-        self.forward().try_search_fwd(&search).map(|x| x.is_some())
+        // Not only can we do an "earliest" search, but we can avoid doing a
+        // reverse scan too.
+        let input = self.create_input(haystack.as_ref()).earliest(true);
+        self.forward().try_search_fwd(&input).map(|x| x.is_some())
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -525,8 +527,8 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         &self,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let search = self.create_input(haystack.as_ref());
-        self.try_search(&search)
+        let input = self.create_input(haystack.as_ref());
+        self.try_search(&input)
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the

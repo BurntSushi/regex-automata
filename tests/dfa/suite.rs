@@ -230,8 +230,8 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let search = re.create_input(test.input());
-                try_search_overlapping(re, &search).unwrap()
+                let input = re.create_input(test.input());
+                try_search_overlapping(re, &input).unwrap()
             }
         },
         "which" => match test.search_kind() {
@@ -249,8 +249,8 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
                 let mut patset = PatternSet::new(dfa.pattern_len());
-                let search = re.create_input(test.input());
-                dfa.try_which_overlapping_matches(&search, &mut patset)
+                let input = re.create_input(test.input());
+                dfa.try_which_overlapping_matches(&input, &mut patset)
                     .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }

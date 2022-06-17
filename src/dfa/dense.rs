@@ -429,10 +429,10 @@ impl Config {
     /// // And finally, an anchored search is not the same as putting a '^' at
     /// // beginning of the pattern. An anchored search can only match at the
     /// // beginning of the *search*, which we can change:
-    /// let search = Input::new(haystack)
+    /// let input = Input::new(haystack)
     ///     .pattern(Some(PatternID::must(0)))
     ///     .range(5..);
-    /// assert_eq!(Some(expected), dfa.try_search_fwd(&search)?);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&input)?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

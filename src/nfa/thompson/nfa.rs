@@ -3064,8 +3064,8 @@ mod tests {
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
-            let search = Input::new(haystack).range(start..end);
-            vm.search(&mut cache, &search, &mut caps);
+            let input = Input::new(haystack).range(start..end);
+            vm.search(&mut cache, &input, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 
@@ -3083,8 +3083,8 @@ mod tests {
         let mut cache = vm.create_cache();
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
-            let search = Input::new(haystack).range(start..end);
-            vm.search(&mut cache, &search, &mut caps);
+            let input = Input::new(haystack).range(start..end);
+            vm.search(&mut cache, &input, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 

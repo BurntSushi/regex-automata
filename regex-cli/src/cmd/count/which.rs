@@ -277,8 +277,8 @@ fn search_dfa_automaton<A: Automaton>(
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
-    let search = Input::new(haystack);
-    dfa.try_which_overlapping_matches(&search, &mut patset)?;
+    let input = Input::new(haystack);
+    dfa.try_which_overlapping_matches(&input, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
 
@@ -288,8 +288,8 @@ fn search_hybrid_dfa<'i, 'c>(
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
-    let search = Input::new(haystack);
-    dfa.try_which_overlapping_matches(cache, &search, &mut patset)?;
+    let input = Input::new(haystack);
+    dfa.try_which_overlapping_matches(cache, &input, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
 
@@ -298,8 +298,8 @@ fn search_pikevm(
     cache: &mut pikevm::Cache,
     haystack: &[u8],
 ) -> anyhow::Result<Vec<usize>> {
-    let search = vm.create_input(haystack);
+    let input = vm.create_input(haystack);
     let mut patset = PatternSet::new(vm.get_nfa().pattern_len());
-    vm.which_overlapping_matches(cache, &search, &mut patset);
+    vm.which_overlapping_matches(cache, &input, &mut patset);
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }

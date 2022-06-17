@@ -470,10 +470,10 @@ impl Regex {
     ) -> Result<bool, MatchError> {
         // Not only can we do an "earliest" search, but we can avoid doing a
         // reverse scan too.
-        let search = self.create_input(haystack.as_ref()).earliest(true);
+        let input = self.create_input(haystack.as_ref()).earliest(true);
         let dfa = self.forward();
         let cache = &mut cache.forward;
-        search::find_fwd(dfa, cache, &search).map(|m| m.is_some())
+        search::find_fwd(dfa, cache, &input).map(|m| m.is_some())
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -498,8 +498,8 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let search = self.create_input(haystack.as_ref());
-        self.try_search(cache, &search)
+        let input = self.create_input(haystack.as_ref());
+        self.try_search(cache, &input)
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the

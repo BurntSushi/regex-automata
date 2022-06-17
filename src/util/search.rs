@@ -114,23 +114,23 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let haystack = "batter";
     ///
     /// // A standard search finds nothing, as expected.
-    /// let search = Input::new(haystack);
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// let input = Input::new(haystack);
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// // But if we wanted to search starting at position '1', we might
     /// // slice the haystack. If we do this, it's impossible for the \b
     /// // anchors to take the surrounding context into account! And thus,
     /// // a match is produced.
-    /// let search = Input::new(&haystack[1..3]);
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// let input = Input::new(&haystack[1..3]);
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..2)), caps.get_match());
     ///
     /// // But if we specify the span of the search instead of slicing the
     /// // haystack, then the regex engine can "see" outside of the span
     /// // and resolve the anchors correctly.
-    /// let search = Input::new(haystack).span(1..3);
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// let input = Input::new(haystack).span(1..3);
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -178,11 +178,11 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert_eq!(0..6, search.get_range());
+    /// let input = Input::new("foobar");
+    /// assert_eq!(0..6, input.get_range());
     ///
-    /// let search = Input::new("foobar").range(2..=4);
-    /// assert_eq!(2..5, search.get_range());
+    /// let input = Input::new("foobar").range(2..=4);
+    /// assert_eq!(2..5, input.get_range());
     /// ```
     #[inline]
     pub fn range<R: RangeBounds<usize>>(mut self, range: R) -> Input<'h, 'p> {
@@ -218,16 +218,16 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let mut caps = vm.create_captures();
     ///
     /// // A standard search looks for any pattern.
-    /// let search = Input::new("bar foo123");
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// let input = Input::new("bar foo123");
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 4..10)), caps.get_match());
     ///
     /// // But we can also check whether a specific pattern
     /// // matches at a particular position.
-    /// let search = Input::new("bar foo123")
+    /// let input = Input::new("bar foo123")
     ///     .range(4..)
     ///     .pattern(Some(PatternID::must(1)));
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(1, 4..10)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -283,15 +283,15 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let mut caps = vm.create_captures();
     ///
     /// // A normal search implements greediness like you expect.
-    /// let search = Input::new("foo12345");
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// let input = Input::new("foo12345");
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..8)), caps.get_match());
     ///
     /// // When 'earliest' is enabled and the regex engine supports
     /// // it, the search will bail once it knows a match has been
     /// // found.
-    /// let search = Input::new("foo12345").earliest(true);
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// let input = Input::new("foo12345").earliest(true);
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..4)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -564,8 +564,8 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert_eq!(b"foobar", search.haystack());
+    /// let input = Input::new("foobar");
+    /// assert_eq!(b"foobar", input.haystack());
     /// ```
     #[inline]
     pub fn haystack(&self) -> &[u8] {
@@ -581,11 +581,11 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert_eq!(0, search.start());
+    /// let input = Input::new("foobar");
+    /// assert_eq!(0, input.start());
     ///
-    /// let search = Input::new("foobar").span(2..4);
-    /// assert_eq!(2, search.start());
+    /// let input = Input::new("foobar").span(2..4);
+    /// assert_eq!(2, input.start());
     /// ```
     #[inline]
     pub fn start(&self) -> usize {
@@ -601,11 +601,11 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert_eq!(6, search.end());
+    /// let input = Input::new("foobar");
+    /// assert_eq!(6, input.end());
     ///
-    /// let search = Input::new("foobar").span(2..4);
-    /// assert_eq!(4, search.end());
+    /// let input = Input::new("foobar").span(2..4);
+    /// assert_eq!(4, input.end());
     /// ```
     #[inline]
     pub fn end(&self) -> usize {
@@ -622,8 +622,8 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{Input, Span};
     ///
-    /// let search = Input::new("foobar");
-    /// assert_eq!(Span { start: 0, end: 6 }, search.get_span());
+    /// let input = Input::new("foobar");
+    /// assert_eq!(Span { start: 0, end: 6 }, input.get_span());
     /// ```
     #[inline]
     pub fn get_span(&self) -> Span {
@@ -640,8 +640,8 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert_eq!(0..6, search.get_range());
+    /// let input = Input::new("foobar");
+    /// assert_eq!(0..6, input.get_range());
     /// ```
     #[inline]
     pub fn get_range(&self) -> Range<usize> {
@@ -658,8 +658,8 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert_eq!(None, search.get_pattern());
+    /// let input = Input::new("foobar");
+    /// assert_eq!(None, input.get_pattern());
     /// ```
     #[inline]
     pub fn get_pattern(&self) -> Option<PatternID> {
@@ -678,8 +678,8 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert!(!search.get_earliest());
+    /// let input = Input::new("foobar");
+    /// assert!(!input.get_earliest());
     /// ```
     #[inline]
     pub fn get_earliest(&self) -> bool {
@@ -693,8 +693,8 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("foobar");
-    /// assert!(search.get_utf8());
+    /// let input = Input::new("foobar");
+    /// assert!(input.get_utf8());
     /// ```
     #[inline]
     pub fn get_utf8(&self) -> bool {
@@ -738,12 +738,12 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let search = Input::new("☃");
-    /// assert!(search.is_char_boundary(0));
-    /// assert!(!search.is_char_boundary(1));
-    /// assert!(!search.is_char_boundary(2));
-    /// assert!(search.is_char_boundary(3));
-    /// assert!(!search.is_char_boundary(4));
+    /// let input = Input::new("☃");
+    /// assert!(input.is_char_boundary(0));
+    /// assert!(!input.is_char_boundary(1));
+    /// assert!(!input.is_char_boundary(2));
+    /// assert!(input.is_char_boundary(3));
+    /// assert!(!input.is_char_boundary(4));
     /// ```
     #[inline]
     pub fn is_char_boundary(&self, offset: usize) -> bool {

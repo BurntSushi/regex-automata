@@ -179,8 +179,8 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Overlapping => {
-                let search = re.create_input(test.input());
-                try_search_overlapping(re, cache, &search).unwrap()
+                let input = re.create_input(test.input());
+                try_search_overlapping(re, cache, &input).unwrap()
             }
         },
         "which" => match test.search_kind() {
@@ -199,8 +199,8 @@ fn run_test(
                 let dfa = re.forward();
                 let cache = cache.as_parts_mut().0;
                 let mut patset = PatternSet::new(dfa.pattern_len());
-                let search = re.create_input(test.input());
-                dfa.try_which_overlapping_matches(cache, &search, &mut patset)
+                let input = re.create_input(test.input());
+                dfa.try_which_overlapping_matches(cache, &input, &mut patset)
                     .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }

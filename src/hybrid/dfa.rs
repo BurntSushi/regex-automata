@@ -619,10 +619,10 @@ impl DFA {
     ///
     /// let dfa = DFA::new("z[0-9]{3}")?;
     /// let mut cache = dfa.create_cache();
-    /// let search = Input::new("foobar z123 q123")
+    /// let input = Input::new("foobar z123 q123")
     ///     .prefilter(Some(&ZPrefilter));
     /// let expected = Some(HalfMatch::must(0, 11));
-    /// let got = dfa.try_search_fwd(&mut cache, &search)?;
+    /// let got = dfa.try_search_fwd(&mut cache, &input)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -922,11 +922,9 @@ impl DFA {
     ///     .build_many(patterns)?;
     /// let mut cache = dfa.create_cache();
     ///
-    /// let search = Input::new("foobar");
+    /// let input = Input::new("foobar");
     /// let mut patset = PatternSet::new(dfa.pattern_len());
-    /// dfa.try_which_overlapping_matches(
-    ///     &mut cache, &search, &mut patset,
-    /// )?;
+    /// dfa.try_which_overlapping_matches(&mut cache, &input, &mut patset)?;
     /// let expected = vec![0, 2, 3, 4, 6];
     /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);

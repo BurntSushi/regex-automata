@@ -212,11 +212,11 @@ fn search_pikevm(
             // we use a slightly less convenient API to reuse 'Captures' for
             // each match. Overall, this should result in zero amortized allocs
             // per match.
-            let search = vm
+            let input = vm
                 .create_input(haystack)
                 .earliest(captures.kind() == config::SearchKind::Earliest);
             let mut caps = vm.create_captures();
-            let mut it = iter::Searcher::new(search);
+            let mut it = iter::Searcher::new(input);
             loop {
                 it.advance(|input| {
                     vm.search(cache, input, &mut caps);

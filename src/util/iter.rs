@@ -1,3 +1,15 @@
+/*!
+Generic helpers for iteration of matches from a regex engine in a haystack.
+
+The principle type in this module is a [`Searcher`]. A `Searcher` provides
+its own lower level iterater-like API in addition to methods for constructing
+types that implement `Iterator`. The documentation for `Searcher` explains a
+bit more about why these different APIs exist.
+
+Currently, this module supports iteration over any regex engine that works
+with the [`HalfMatch`], [`Match`] or [`Captures`] types.
+*/
+
 use crate::{
     nfa::thompson::Captures,
     util::{
@@ -6,11 +18,11 @@ use crate::{
     },
 };
 
-/// A searcher for advancing through all non-overlapping matches in a haystack.
+/// A searcher for creating iterators and performing lower level iteration.
 ///
 /// This searcher encapsulates the logic required for finding all successive
-/// non-overlapping matches in a haystack. In theory this would be something
-/// like this:
+/// non-overlapping matches in a haystack. In theory, iteration would look
+/// something like this:
 ///
 /// 1. Setting the start position to `0`.
 /// 2. Execute a regex search. If no match, end iteration.
@@ -39,13 +51,68 @@ use crate::{
 /// accept a closure (representing how a regex engine executes a search) and
 /// returns a conventional iterator.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type:
+/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type passed
+/// to [`Searcher::new`]:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
 /// * `'p` is the lifetime of the prefilter.
+///
+/// # Searcher vs Iterator
+///
+/// Why does a search type with "advance" APIs exist at all when we also have
+/// iterators? Unfortunately, the reasoning behind this split is a complex
+/// combination of the following things:
+///
+/// 1. While many of the regex engines expose their own iterators, it is also
+/// nice to expose this lower level iteration helper because it permits callers
+/// to provide their own `Input` configuration. Moreover, a `Searcher` can work
+/// with _any_ regex engine instead of only the ones defined in this crate.
+/// This way, everyone benefits from a shared iteration implementation.
+/// 2. There are many different regex engines that, while they have the same
+/// match semantics, they have slightly different APIs. Iteration is just
+/// complex enough to want to share code, and so we need a way of abstracting
+/// over those different regex engines. While we could define a new trait that
+/// describes any regex engine search API, it would wind up looking very close
+/// to a closure. While there may still be reasons for the more generic trait
+/// to exist, for now and for the purposes of iteration, we use a closure.
+/// Closures also provide a lot of easy flexibility at the call site, in that
+/// they permit the caller to borrow any kind of state they want for use during
+/// each search call.
+/// 3. As a result of using closures, and because closures are anonymous types
+/// that cannot be named, it is difficult to encapsulate them without both
+/// costs to speed and added complexity to the public API. For example, in
+/// defining an iterator type like
+/// [`dfa::regex::FindMatches`](crate::dfa::regex::FindMatches),
+/// if we use a closure internally, it's not possible to name this type in the
+/// return type of the iterator constructor. Thus, the only way around it is
+/// to erase the type by boxing it and turning it into a `Box<dyn FnMut ...>`.
+/// This boxed closure is unlikely to be inlined _and_ it infects the public
+/// API in subtle ways. Namely, unless you declare the closure as implementing
+/// `Send` and `Sync`, then the resulting iterator type won't implement it
+/// either. But there are practical issues with requiring the closure to
+/// implement `Send` and `Sync` that result in other API complexities that
+/// are beyond the scope of this already long exposition.
+/// 4. Some regex engines expose more complex match information than just
+/// "which pattern matched" and "at what offsets." For example, the PikeVM
+/// exposes match spans for each capturing group that participated in the
+/// match. In such cases, it can be quite beneficial to reuse the capturing
+/// group allocation on subsequent searches. A proper iterator doesn't permit
+/// this API due to its interface, so it's useful to have something a bit lower
+/// level that permits callers to amortize allocations while also reusing a
+/// shared implementation of iteration. (See the documentation for
+/// [`Searcher::advance`] for an example of using the "advance" API with the
+/// PikeVM.)
+///
+/// What this boils down to is that there are "advance" APIs which require
+/// handing a closure to it for every call, and there are also APIs to create
+/// iterators from a closure. The former are useful for _implementing_
+/// iterators or when you need more flexibility, while the latter are useful
+/// for conveniently writing custom iterators on-the-fly.
 #[derive(Clone, Debug)]
 pub struct Searcher<'h, 'p> {
-    /// The search configuration.
+    /// The input parameters to give to each regex engine call.
+    ///
+    /// The start position of the search is mutated during iteration.
     input: Input<'h, 'p>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
@@ -64,6 +131,88 @@ impl<'h, 'p> Searcher<'h, 'p> {
         Searcher { input, last_match_end: None }
     }
 
+    /// Return the next half match for an infallible search if one exists, and
+    /// advance to the next position.
+    ///
+    /// This is like `try_advance_half`, except errors are converted into
+    /// panics.
+    ///
+    /// # Panics
+    ///
+    /// If the given closure returns an error, then this panics. This is useful
+    /// when you know your underlying regex engine has been configured to not
+    /// return an error.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use a `Searcher` to iterate over all matches
+    /// when using a DFA, which only provides "half" matches.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::iter::Searcher,
+    ///     HalfMatch, Input,
+    /// };
+    ///
+    /// let re = DFA::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let input = Input::new("2010-03-14 2016-10-08 2020-10-22");
+    /// let mut it = Searcher::new(input);
+    ///
+    /// let expected = Some(HalfMatch::must(0, 10));
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(HalfMatch::must(0, 21));
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(HalfMatch::must(0, 32));
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = None;
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// This correctly moves iteration forward even when an empty match occurs:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::iter::Searcher,
+    ///     HalfMatch, Input,
+    /// };
+    ///
+    /// let re = DFA::new(r"a|")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let input = Input::new("abba");
+    /// let mut it = Searcher::new(input);
+    ///
+    /// let expected = Some(HalfMatch::must(0, 1));
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(HalfMatch::must(0, 2));
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(HalfMatch::must(0, 4));
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = None;
+    /// let got = it.advance_half(|input| re.try_search_fwd(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn advance_half<F>(&mut self, mut finder: F) -> Option<HalfMatch>
     where
@@ -79,6 +228,126 @@ impl<'h, 'p> Searcher<'h, 'p> {
         }
     }
 
+    /// Return the next match for an infallible search if one exists, and
+    /// advance to the next position.
+    ///
+    /// The search is advanced even in the presence of empty matches by
+    /// forbidding empty matches from overlapping with any other match.
+    ///
+    /// This is like `try_advance`, except errors are converted into panics.
+    ///
+    /// # Panics
+    ///
+    /// If the given closure returns an error, then this panics. This is useful
+    /// when you know your underlying regex engine has been configured to not
+    /// return an error.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use a `Searcher` to iterate over all matches
+    /// when using a regex based on lazy DFAs:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::regex::Regex,
+    ///     util::iter::Searcher,
+    ///     Match, Input,
+    /// };
+    ///
+    /// let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let input = Input::new("2010-03-14 2016-10-08 2020-10-22");
+    /// let mut it = Searcher::new(input);
+    ///
+    /// let expected = Some(Match::must(0, 0..10));
+    /// let got = it.advance(|input| re.try_search(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(Match::must(0, 11..21));
+    /// let got = it.advance(|input| re.try_search(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(Match::must(0, 22..32));
+    /// let got = it.advance(|input| re.try_search(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = None;
+    /// let got = it.advance(|input| re.try_search(&mut cache, input));
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// This example shows the same as above, but with the PikeVM. This example
+    /// is useful because it shows how to use this API even when the regex
+    /// engine doesn't directly return a `Match`.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{pikevm::PikeVM, Captures},
+    ///     util::iter::Searcher,
+    ///     Match, Input,
+    /// };
+    ///
+    /// let re = PikeVM::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    ///
+    /// let input = Input::new("2010-03-14 2016-10-08 2020-10-22");
+    /// let mut it = Searcher::new(input);
+    ///
+    /// let expected = Some(Match::must(0, 0..10));
+    /// let got = it.advance(|input| {
+    ///     re.search(&mut cache, input, &mut caps);
+    ///     Ok(caps.get_match())
+    /// });
+    /// // Note that if we wanted to extract capturing group spans, we could
+    /// // do that here with 'caps'.
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(Match::must(0, 11..21));
+    /// let got = it.advance(|input| {
+    ///     re.search(&mut cache, input, &mut caps);
+    ///     Ok(caps.get_match())
+    /// });
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = Some(Match::must(0, 22..32));
+    /// let got = it.advance(|input| {
+    ///     re.search(&mut cache, input, &mut caps);
+    ///     Ok(caps.get_match())
+    /// });
+    /// assert_eq!(expected, got);
+    ///
+    /// let expected = None;
+    /// let got = it.advance(|input| {
+    ///     re.search(&mut cache, input, &mut caps);
+    ///     Ok(caps.get_match())
+    /// });
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn advance<F>(&mut self, mut finder: F) -> Option<Match>
+    where
+        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
+    {
+        match self.try_advance(finder) {
+            Ok(m) => m,
+            Err(err) => panic!(
+                "unexpected regex find error: {}\n\
+                 to handle find errors, use 'try' or 'search' methods",
+                err,
+            ),
+        }
+    }
+
+    /// Return the next half match for a fallible search if one exists, and
+    /// advance to the next position.
+    ///
+    /// This is like `advance_half`, except it permits callers to handle errors
+    /// during iteration.
     #[inline]
     pub fn try_advance_half<F>(
         &mut self,
@@ -102,21 +371,11 @@ impl<'h, 'p> Searcher<'h, 'p> {
         Ok(Some(m))
     }
 
-    #[inline]
-    pub fn advance<F>(&mut self, mut finder: F) -> Option<Match>
-    where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
-    {
-        match self.try_advance(finder) {
-            Ok(m) => m,
-            Err(err) => panic!(
-                "unexpected regex find error: {}\n\
-                 to handle find errors, use 'try' or 'search' methods",
-                err,
-            ),
-        }
-    }
-
+    /// Return the next match for a fallible search if one exists, and advance
+    /// to the next position.
+    ///
+    /// This is like `advance`, except it permits callers to handle errors
+    /// during iteration.
     #[inline]
     pub fn try_advance<F>(
         &mut self,
@@ -140,6 +399,47 @@ impl<'h, 'p> Searcher<'h, 'p> {
         Ok(Some(m))
     }
 
+    /// Given a closure that executes a single search, return an iterator over
+    /// all successive non-overlapping half matches.
+    ///
+    /// The iterator returned yields result values. If the underlying regex
+    /// engine is configured to never return an error, consider calling
+    /// [`TryHalfMatchesIter::infallible`] to convert errors into panics.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use a `Searcher` to create a proper
+    /// iterator over half matches.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::iter::Searcher,
+    ///     HalfMatch, Input,
+    /// };
+    ///
+    /// let re = DFA::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let input = Input::new("2010-03-14 2016-10-08 2020-10-22");
+    /// let mut it = Searcher::new(input).into_half_matches_iter(|input| {
+    ///     re.try_search_fwd(&mut cache, input)
+    /// });
+    ///
+    /// let expected = Some(Ok(HalfMatch::must(0, 10)));
+    /// assert_eq!(expected, it.next());
+    ///
+    /// let expected = Some(Ok(HalfMatch::must(0, 21)));
+    /// assert_eq!(expected, it.next());
+    ///
+    /// let expected = Some(Ok(HalfMatch::must(0, 32)));
+    /// assert_eq!(expected, it.next());
+    ///
+    /// let expected = None;
+    /// assert_eq!(expected, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn into_half_matches_iter<F>(
         self,
@@ -151,6 +451,47 @@ impl<'h, 'p> Searcher<'h, 'p> {
         TryHalfMatchesIter { it: self, finder }
     }
 
+    /// Given a closure that executes a single search, return an iterator over
+    /// all successive non-overlapping matches.
+    ///
+    /// The iterator returned yields result values. If the underlying regex
+    /// engine is configured to never return an error, consider calling
+    /// [`TryMatchesIter::infallible`] to convert errors into panics.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use a `Searcher` to create a proper
+    /// iterator over matches.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::regex::Regex,
+    ///     util::iter::Searcher,
+    ///     Match, Input,
+    /// };
+    ///
+    /// let re = Regex::new(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let input = Input::new("2010-03-14 2016-10-08 2020-10-22");
+    /// let mut it = Searcher::new(input).into_matches_iter(|input| {
+    ///     re.try_search(&mut cache, input)
+    /// });
+    ///
+    /// let expected = Some(Ok(Match::must(0, 0..10)));
+    /// assert_eq!(expected, it.next());
+    ///
+    /// let expected = Some(Ok(Match::must(0, 11..21)));
+    /// assert_eq!(expected, it.next());
+    ///
+    /// let expected = Some(Ok(Match::must(0, 22..32)));
+    /// assert_eq!(expected, it.next());
+    ///
+    /// let expected = None;
+    /// assert_eq!(expected, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn into_matches_iter<F>(self, finder: F) -> TryMatchesIter<'h, 'p, F>
     where
@@ -159,6 +500,64 @@ impl<'h, 'p> Searcher<'h, 'p> {
         TryMatchesIter { it: self, finder }
     }
 
+    /// Given a closure that executes a single search, return an iterator over
+    /// all successive non-overlapping `Captures` values.
+    ///
+    /// The iterator returned yields result values. If the underlying regex
+    /// engine is configured to never return an error, consider calling
+    /// [`TryCapturesIter::infallible`] to convert errors into panics.
+    ///
+    /// Unlike the other iterator constructors, this accepts an initial
+    /// `Captures` value. This `Captures` value is reused for each search, and
+    /// the iterator implementation clones it before returning it. The caller
+    /// must provide this value because the iterator is purposely ignorant
+    /// of the underlying regex engine and thus doesn't know how to create
+    /// one itself. More to the point, a `Captures` value itself has a few
+    /// different constructors, which change which kind of information is
+    /// available to query in exchange for search performance.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use a `Searcher` to create a proper iterator
+    /// over `Captures` values, which provides access to all capturing group
+    /// spans for each match.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{pikevm::PikeVM, Captures},
+    ///     util::iter::Searcher,
+    ///     Input, Span,
+    /// };
+    ///
+    /// let re = PikeVM::new(
+    ///     r"(?P<y>[0-9]{4})-(?P<m>[0-9]{2})-(?P<d>[0-9]{2})",
+    /// )?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    ///
+    /// let haystack = "2010-03-14 2016-10-08 2020-10-22";
+    /// let input = Input::new(haystack);
+    /// let mut it = Searcher::new(input)
+    ///     .into_captures_iter(caps, |input, caps| {
+    ///         re.search(&mut cache, input, caps);
+    ///         Ok(())
+    ///     });
+    ///
+    /// let got = it.next().expect("first date")?;
+    /// let year = got.get_group_by_name("y").expect("must match");
+    /// assert_eq!("2010", &haystack[year]);
+    ///
+    /// let got = it.next().expect("second date")?;
+    /// let month = got.get_group_by_name("m").expect("must match");
+    /// assert_eq!("10", &haystack[month]);
+    ///
+    /// let got = it.next().expect("third date")?;
+    /// let day = got.get_group_by_name("d").expect("must match");
+    /// assert_eq!("22", &haystack[day]);
+    ///
+    /// assert!(it.next().is_none());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn into_captures_iter<F>(
         self,
