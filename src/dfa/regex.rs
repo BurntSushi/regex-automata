@@ -299,7 +299,8 @@ impl Regex {
     /// This example shows how to disable UTF-8 mode for `Regex` iteration.
     /// When UTF-8 mode is disabled, the position immediately following an
     /// empty match is where the next search begins, instead of the next
-    /// position of a UTF-8 encoded codepoint.
+    /// position of a UTF-8 encoded codepoint. In other words, UTF-8 mode never
+    /// reports empty matches that split a UTF-8 encoding of a codepoint.
     ///
     /// ```
     /// use regex_automata::{dfa::regex::Regex, Match};
@@ -343,7 +344,6 @@ impl Regex {
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
     ///     .syntax(SyntaxConfig::new().utf8(false))
-    ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 1..9));
@@ -888,10 +888,10 @@ impl Config {
 
     /// Returns true if and only if this configuration has UTF-8 mode enabled.
     ///
-    /// When UTF-8 mode is enabled and an empty match is seen, the iterators on
-    /// [`Regex`] will always start the next search at the next UTF-8 encoded
-    /// codepoint. When UTF-8 mode is disabled, such searches are begun at the
-    /// next byte offset.
+    /// When UTF-8 mode is enabled and an empty match is seen, [`Regex`] will
+    /// always start the next search at the next UTF-8 encoded codepoint.
+    /// When UTF-8 mode is disabled, such searches are begun at the next byte
+    /// offset.
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
     }
@@ -957,9 +957,8 @@ impl Config {
 ///
 /// # Example
 ///
-/// This example shows how to disable UTF-8 mode in the syntax, the NFA and
-/// the regex itself. This is generally what you want for matching on
-/// arbitrary bytes.
+/// This example shows how to disable UTF-8 mode in the syntax and the regex
+/// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
 /// use regex_automata::{
@@ -969,7 +968,6 @@ impl Config {
 /// let re = Regex::builder()
 ///     .configure(Regex::config().utf8(false))
 ///     .syntax(SyntaxConfig::new().utf8(false))
-///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
 /// let expected = Some(Match::must(0, 1..9));

@@ -846,14 +846,13 @@ pub unsafe trait Automaton {
     ///
     /// let dfa = dense::Builder::new()
     ///     // We disable Unicode everywhere and permit the regex to match
-    ///     // invalid UTF-8. e.g., `[^abc]` matches `\xFF`, which is not valid
-    ///     // UTF-8.
+    ///     // invalid UTF-8. e.g., [^abc] matches \xFF, which is not valid
+    ///     // UTF-8. If we left Unicode enabled, [^abc] would match any UTF-8
+    ///     // encoding of any Unicode scalar value except for 'a', 'b' or 'c'.
+    ///     // That translates to a much more complicated DFA, and also
+    ///     // inhibits the 'accelerator' optimization that we are trying to
+    ///     // demostrate in this example.
     ///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
-    ///     // This makes the implicit `(?s:.)*?` prefix added to the regex
-    ///     // match through arbitrary bytes instead of being UTF-8 aware. This
-    ///     // isn't necessary to get acceleration to work in this case, but
-    ///     // it does make the DFA substantially simpler.
-    ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build("[^abc]+a")?;
     ///
     /// // Here we just pluck out the state that we know is accelerated.

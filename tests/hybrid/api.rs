@@ -46,7 +46,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
                 .cache_capacity(0)
                 .minimum_cache_clear_count(Some(0)),
         )
-        .thompson(thompson::NFA::config().utf8(false))
+        .thompson(thompson::NFA::config())
         .build(pattern)?;
     let mut cache = dfa.create_cache();
 

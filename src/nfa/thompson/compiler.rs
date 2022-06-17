@@ -23,7 +23,6 @@ use crate::{
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     reverse: Option<bool>,
-    utf8: Option<bool>,
     nfa_size_limit: Option<Option<usize>>,
     shrink: Option<bool>,
     captures: Option<bool>,
@@ -80,65 +79,6 @@ impl Config {
     /// ```
     pub fn reverse(mut self, yes: bool) -> Config {
         self.reverse = Some(yes);
-        self
-    }
-
-    /// Whether to enable UTF-8 mode or not.
-    ///
-    /// When UTF-8 mode is enabled (which is the default), unanchored searches
-    /// will only match through valid UTF-8. If invalid UTF-8 is seen, then
-    /// an unanchored search will stop at that point. This is equivalent to
-    /// putting a `(?s:.)*?` at the start of the regex.
-    ///
-    /// When UTF-8 mode is disabled, then unanchored searches will match
-    /// through any arbitrary byte. This is equivalent to putting a
-    /// `(?s-u:.)*?` at the start of the regex.
-    ///
-    /// Generally speaking, UTF-8 mode should only be used when you know you
-    /// are searching valid UTF-8, such as a Rust `&str`. If UTF-8 mode is used
-    /// on input that is not valid UTF-8, then the regex is not likely to work
-    /// as expected.
-    ///
-    /// This is enabled by default.
-    ///
-    /// # Example
-    ///
-    /// This example demonstrates the difference between enabling and disabling
-    /// this option. In particular, we show how disabling this permits
-    /// searching through bytes that are not valid UTF-8.
-    ///
-    /// ```ignore
-    /// use regex_automata::{
-    ///     nfa::thompson::{pikevm::PikeVM, NFA},
-    ///     Match,
-    /// };
-    ///
-    /// let haystack = b"\xFFabc\xFF";
-    ///
-    /// let nfa = NFA::new(r"[a-z]+")?;
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
-    /// // No match is found, because UTF-8 mode is enabled by default.
-    /// vm.find(&mut cache, &*haystack, &mut caps);
-    /// assert!(!caps.is_match());
-    ///
-    /// // ...but disabling UTF-8 mode permits us to build an NFA that will
-    /// // much through invalid UTF-8.
-    /// let nfa = NFA::compiler()
-    ///     .configure(NFA::config().utf8(false))
-    ///     .build(r"[a-z]+")?;
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
-    /// let expected = Some(Match::must(0, 1..4));
-    /// vm.find(&mut cache, &*haystack, &mut caps);
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn utf8(mut self, yes: bool) -> Config {
-        self.utf8 = Some(yes);
         self
     }
 
@@ -286,12 +226,6 @@ impl Config {
         self.reverse.unwrap_or(false)
     }
 
-    /// Returns whether UTF-8 mode is enabled or not for NFA compilation.
-    pub fn get_utf8(&self) -> bool {
-        // self.utf8.unwrap_or(true)
-        false
-    }
-
     /// Return the configured NFA size limit, if it exists, in the number of
     /// bytes of heap used.
     pub fn get_nfa_size_limit(&self) -> Option<usize> {
@@ -330,7 +264,6 @@ impl Config {
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             reverse: o.reverse.or(self.reverse),
-            utf8: o.utf8.or(self.utf8),
             nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
             shrink: o.shrink.or(self.shrink),
             captures: o.captures.or(self.captures),
@@ -716,11 +649,7 @@ impl Compiler {
         let unanchored_prefix = if anchored {
             self.c_empty()?
         } else {
-            if self.config.get_utf8() {
-                self.c_unanchored_prefix_valid_utf8()?
-            } else {
-                self.c_unanchored_prefix_invalid_utf8()?
-            }
+            self.c_at_least(&Hir::any(true), false, 0)?
         };
 
         let compiled =
@@ -1348,16 +1277,6 @@ impl Compiler {
         Ok(ThompsonRef { start: id, end: id })
     }
 
-    /// Compile an unanchored prefix that lazily matches only valid UTF-8.
-    fn c_unanchored_prefix_valid_utf8(&self) -> Result<ThompsonRef, Error> {
-        self.c_at_least(&Hir::any(false), false, 0)
-    }
-
-    /// Compile an unanchored prefix that lazily matches any sequence of bytes.
-    fn c_unanchored_prefix_invalid_utf8(&self) -> Result<ThompsonRef, Error> {
-        self.c_at_least(&Hir::any(true), false, 0)
-    }
-
     // The below helpers are meant to be simple wrappers around the
     // corresponding Builder methods. For the most part, they let us write
     // 'self.add_foo()' instead of 'self.builder.borrow_mut().add_foo()', where
@@ -1692,22 +1611,8 @@ mod tests {
     // prefix.
     #[test]
     fn compile_unanchored_prefix() {
-        /*
-        // When the machine can only match valid UTF-8.
         let nfa = NFA::compiler()
             .configure(NFA::config().captures(false))
-            .build(r"a")
-            .unwrap();
-        // There should be many states since the `.` in `(?s:.)*?` matches any
-        // Unicode scalar value.
-        assert_eq!(11, nfa.states().len());
-        assert_eq!(nfa.states()[10], s_match(0));
-        assert_eq!(nfa.states()[9], s_byte(b'a', 10));
-        */
-
-        // When the machine can match through invalid UTF-8.
-        let nfa = NFA::compiler()
-            .configure(NFA::config().captures(false).utf8(false))
             .build(r"a")
             .unwrap();
         assert_eq!(
@@ -1740,12 +1645,7 @@ mod tests {
 
         // Check that non-UTF-8 literals work.
         let nfa = NFA::compiler()
-            .configure(
-                NFA::config()
-                    .captures(false)
-                    .utf8(false)
-                    .unanchored_prefix(false),
-            )
+            .configure(NFA::config().captures(false).unanchored_prefix(false))
             .syntax(crate::SyntaxConfig::new().utf8(false))
             .build(r"(?-u)\xFF")
             .unwrap();

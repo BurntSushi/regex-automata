@@ -302,8 +302,8 @@ fn configure_regex_builder(
 }
 
 /// Configuration of a Thompson NFA compiler from a regex test.
-fn config_thompson(test: &RegexTest) -> thompson::Config {
-    thompson::Config::new().utf8(test.utf8())
+fn config_thompson(_test: &RegexTest) -> thompson::Config {
+    thompson::Config::new()
 }
 
 /// Execute an overlapping search, and for each match found, also find its

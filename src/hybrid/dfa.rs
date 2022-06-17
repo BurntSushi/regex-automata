@@ -248,12 +248,7 @@ impl DFA {
     /// # Example
     ///
     /// This example shows how to use the builder to disable UTF-8 mode
-    /// everywhere for lazy DFAs. This includes disabling it for both the
-    /// concrete syntax (e.g., `.` matches any byte and Unicode character
-    /// classes like `\p{Letter}` are not allowed) and for the unanchored
-    /// search prefix. The latter enables the regex to match anywhere in a
-    /// sequence of arbitrary bytes. (Typically, the unanchored search prefix
-    /// will only permit matching valid UTF-8.)
+    /// everywhere for lazy DFAs.
     ///
     /// ```
     /// use regex_automata::{
@@ -264,7 +259,6 @@ impl DFA {
     ///
     /// let re = DFA::builder()
     ///     .syntax(SyntaxConfig::new().utf8(false))
-    ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let mut cache = re.create_cache();
     ///
@@ -3481,9 +3475,6 @@ impl Config {
 ///   `\n`). Things that are Unicode only, such as `\pL`, are not allowed.
 /// * The pattern itself is permitted to match invalid UTF-8. For example,
 ///   things like `[^a]` that match any byte except for `a` are permitted.
-/// * Unanchored patterns can search through invalid UTF-8. That is, for
-///   unanchored patterns, the implicit prefix is `(?s-u:.)*?` instead of
-///   `(?s:.)*?`.
 ///
 /// ```
 /// use regex_automata::{
@@ -3495,7 +3486,6 @@ impl Config {
 /// let dfa = DFA::builder()
 ///     .configure(DFA::config().cache_capacity(5_000))
 ///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
-///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo[^b]ar.*")?;
 /// let mut cache = dfa.create_cache();
 ///

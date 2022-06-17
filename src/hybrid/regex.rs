@@ -933,10 +933,10 @@ impl Config {
 
     /// Returns true if and only if this configuration has UTF-8 mode enabled.
     ///
-    /// When UTF-8 mode is enabled and an empty match is seen, the iterators on
-    /// [`Regex`] will always start the next search at the next UTF-8 encoded
-    /// codepoint. When UTF-8 mode is disabled, such searches are begun at the
-    /// next byte offset.
+    /// When UTF-8 mode is enabled and an empty match is seen, [`Regex`] will
+    /// always start the next search at the next UTF-8 encoded codepoint.
+    /// When UTF-8 mode is disabled, such searches are begun at the next byte
+    /// offset.
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
     }

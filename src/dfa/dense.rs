@@ -965,9 +965,6 @@ impl Config {
 ///   `\n`). Things that are Unicode only, such as `\pL`, are not allowed.
 /// * The pattern itself is permitted to match invalid UTF-8. For example,
 ///   things like `[^a]` that match any byte except for `a` are permitted.
-/// * Unanchored patterns can search through invalid UTF-8. That is, for
-///   unanchored patterns, the implicit prefix is `(?s-u:.)*?` instead of
-///   `(?s:.)*?`.
 ///
 /// ```
 /// use regex_automata::{
@@ -979,7 +976,6 @@ impl Config {
 /// let dfa = dense::Builder::new()
 ///     .configure(dense::Config::new().minimize(false))
 ///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
-///     .thompson(NFA::config().utf8(false))
 ///     .build(r"foo[^b]ar.*")?;
 ///
 /// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";

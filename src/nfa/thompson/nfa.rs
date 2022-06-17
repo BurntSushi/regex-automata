@@ -318,22 +318,18 @@ impl NFA {
     ///
     /// # Example
     ///
-    /// This example shows how to build an NFA that is permitted to search
-    /// through invalid UTF-8.
+    /// This example shows how to build an NFA with a small size limit that
+    /// results in a compilation error for any regex that tries to use more
+    /// heap memory than the configured limit.
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+    /// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
     ///
-    /// let vm = PikeVM::builder()
-    ///     .thompson(NFA::config().utf8(false))
-    ///     .build(r"[a-z]+")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
-    ///
-    /// let expected = Some(Match::must(0, 1..4));
-    /// vm.find(&mut cache, b"\xFFabc\xFF", &mut caps);
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// let result = PikeVM::builder()
+    ///     .thompson(NFA::config().nfa_size_limit(Some(1_000)))
+    ///     // Remember, \w is Unicode-aware by default and thus huge.
+    ///     .build(r"\w+");
+    /// assert!(result.is_err());
     /// ```
     pub fn config() -> Config {
         Config::new()
@@ -346,10 +342,9 @@ impl NFA {
     ///
     /// # Example
     ///
-    /// This example shows how to build an NFA that is permitted to both
-    /// search through and match invalid UTF-8. Without the additional syntax
-    /// configuration here, compilation of `(?-u:.)` would fail because it is
-    /// permitted to match invalid UTF-8.
+    /// This example shows how to build an NFA that is permitted match invalid
+    /// UTF-8. Without the additional syntax configuration here, compilation of
+    /// `(?-u:.)` would fail because it is permitted to match invalid UTF-8.
     ///
     /// ```
     /// use regex_automata::{
@@ -359,7 +354,6 @@ impl NFA {
     ///
     /// let vm = PikeVM::builder()
     ///     .syntax(SyntaxConfig::new().utf8(false))
-    ///     .thompson(NFA::config().utf8(false))
     ///     .build(r"[a-z]+(?-u:.)")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
