@@ -544,13 +544,13 @@ impl PikeVM {
         stack.push(FollowEpsilon::StateID(sid));
         while let Some(frame) = stack.pop() {
             match frame {
+                FollowEpsilon::Capture { slot, pos } => {
+                    slots[slot] = pos;
+                }
                 FollowEpsilon::StateID(sid) => {
                     self.epsilon_closure_step(
                         stack, next, slots, sid, input, at,
                     );
-                }
-                FollowEpsilon::Capture { slot, pos } => {
-                    slots[slot] = pos;
                 }
             }
         }
@@ -566,9 +566,6 @@ impl PikeVM {
         input: &Input<'_, '_>,
         at: usize,
     ) {
-        // TODO: Also, get rid of the NFA utf-8 option? That would be nice...
-        // Yes, I think we should. If we keep it, then we can't unconditionally
-        // do our manual unanchored prefix.
         loop {
             instrument!(|c| c.record_set_insert(sid));
             if !next.set.insert(sid) {
@@ -716,8 +713,8 @@ pub struct Cache {
 
 #[derive(Clone, Debug)]
 enum FollowEpsilon {
-    StateID(StateID),
     Capture { slot: usize, pos: Option<NonMaxUsize> },
+    StateID(StateID),
 }
 
 #[derive(Clone, Debug)]
