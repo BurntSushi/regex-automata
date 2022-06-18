@@ -232,7 +232,7 @@ impl PikeVM {
     }
 
     pub fn create_cache(&self) -> Cache {
-        Cache::new(self.get_nfa())
+        Cache::new(self)
     }
 
     pub fn create_captures(&self) -> Captures {
@@ -625,19 +625,18 @@ impl PikeVM {
     }
 }
 
-/// An iterator over all non-overlapping matches for an infallible search.
+/// An iterator over all non-overlapping matches for a particular search.
 ///
 /// The iterator yields a [`Match`] value until no more matches could be found.
 /// If the underlying regex engine returns an error, then a panic occurs.
 ///
 /// The lifetime parameters are as follows:
 ///
+/// * `'r` represents the lifetime of the PikeVM.
+/// * `'c` represents the lifetime of the PikeVM's cache.
 /// * `'h` represents the lifetime of the haystack being searched.
-/// * `'c` represents the lifetime of the regex cache. The lifetime of the
-/// regex object itself must outlive `'c`.
 ///
-/// This iterator can be created with the [`PikeVM::find_iter`]
-/// method.
+/// This iterator can be created with the [`PikeVM::find_iter`] method.
 #[derive(Debug)]
 pub struct FindMatches<'r, 'c, 'h> {
     re: &'r PikeVM,
@@ -657,8 +656,7 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
         it.advance(|input| {
             re.search(cache, input, caps);
             Ok(caps.get_match())
-        });
-        caps.get_match()
+        })
     }
 }
 
@@ -670,12 +668,11 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
 ///
 /// The lifetime parameters are as follows:
 ///
+/// * `'r` represents the lifetime of the PikeVM.
+/// * `'c` represents the lifetime of the PikeVM's cache.
 /// * `'h` represents the lifetime of the haystack being searched.
-/// * `'c` represents the lifetime of the regex cache. The lifetime of the
-/// regex object itself must outlive `'c`.
 ///
-/// This iterator can be created with the [`Regex::captures_iter`]
-/// method.
+/// This iterator can be created with the [`Regex::captures_iter`] method.
 #[derive(Debug)]
 pub struct CapturesMatches<'r, 'c, 'h> {
     re: &'r PikeVM,
@@ -704,17 +701,103 @@ impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
     }
 }
 
+/// A cache represents mutable state that a [`PikeVM`] requires during a
+/// search.
+///
+/// For a given [`PikeVM`], its corresponding cache may be created either via
+/// [`PikeVM::create_cache`], or via [`Cache::new`]. They are equivalent in
+/// every way, except the former does not require explicitly importing `Cache`.
+///
+/// A particular `Cache` is coupled with the [`PikeVM`] from which it
+/// was created. It may only be used with that `PikeVM`. A cache and its
+/// allocations may be re-purposed via [`Cache::reset`], in which case, it can
+/// only be used with the new `PikeVM` (and not the old one).
 #[derive(Clone, Debug)]
 pub struct Cache {
+    /// Stack used while computing epsilon closure. This effectively lets us
+    /// move what is more naturally expressed through recursion to a stack
+    /// on the heap.
     stack: Vec<FollowEpsilon>,
-    curr: Box<Threads>,
-    next: Box<Threads>,
+    /// The current threads of execution that we're exploring for the current
+    /// byte in the haystack.
+    curr: Threads,
+    /// The next set of threads we're building that will be explored for the
+    /// next byte in the haystack.
+    next: Threads,
 }
 
-#[derive(Clone, Debug)]
-enum FollowEpsilon {
-    Capture { slot: usize, pos: Option<NonMaxUsize> },
-    StateID(StateID),
+impl Cache {
+    /// Create a new [`PikeVM`] cache.
+    ///
+    /// A potentially more convenient routine to create a cache is
+    /// [`PikeVM::create_cache`], as it does not require also importing the
+    /// `Cache` type.
+    ///
+    /// If you want to reuse the returned `Cache` with some other `PikeVM`,
+    /// then you must call [`Cache::reset`] with the desired `PikeVM`.
+    pub fn new(vm: &PikeVM) -> Cache {
+        Cache { stack: vec![], curr: Threads::new(vm), next: Threads::new(vm) }
+    }
+
+    /// Reset this cache such that it can be used for searching with different
+    /// [`PikeVM`].
+    ///
+    /// A cache reset permits reusing memory already allocated in this cache
+    /// with a different `PikeVM`.
+    ///
+    /// # Example
+    ///
+    /// This shows how to re-purpose a cache for use with a different `PikeVM`.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let re1 = PikeVM::new(r"\w")?;
+    /// let re2 = PikeVM::new(r"\W")?;
+    ///
+    /// let mut cache = re1.create_cache();
+    /// assert_eq!(
+    ///     Some(Match::must(0, 0..2)),
+    ///     re1.find_iter(&mut cache, "Δ").next(),
+    /// );
+    ///
+    /// // Using 'cache' with re2 is not allowed. It may result in panics or
+    /// // incorrect results. In order to re-purpose the cache, we must reset
+    /// // it with the PikeVM we'd like to use it with.
+    /// //
+    /// // Similarly, after this reset, using the cache with 're1' is also not
+    /// // allowed.
+    /// cache.reset(&re2);
+    /// assert_eq!(
+    ///     Some(Match::must(0, 0..3)),
+    ///     re2.find_iter(&mut cache, "☃").next(),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn reset(&mut self, vm: &PikeVM) {
+        self.curr.reset(vm);
+        self.next.reset(vm);
+    }
+
+    /// Returns the heap memory usage, in bytes, of this cache.
+    ///
+    /// This does **not** include the stack size used up by this cache. To
+    /// compute that, use `std::mem::size_of::<Cache>()`.
+    pub fn memory_usage(&self) -> usize {
+        use core::mem::size_of;
+        (self.stack.len() * size_of::<FollowEpsilon>())
+            + self.curr.memory_usage()
+            + self.next.memory_usage()
+    }
+
+    /// Clears this cache. This should be called at the start of every search
+    /// to ensure we start with a clean slate.
+    fn clear(&mut self) {
+        self.stack.clear();
+        self.curr.set.clear();
+        self.next.set.clear();
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -723,33 +806,26 @@ struct Threads {
     caps: Vec<Thread>,
 }
 
-#[derive(Clone, Debug)]
-struct Thread {
-    slots: Box<[Option<NonMaxUsize>]>,
-}
-
-impl Cache {
-    pub fn new(nfa: &NFA) -> Cache {
-        Cache {
-            stack: vec![],
-            curr: Box::new(Threads::new(nfa)),
-            next: Box::new(Threads::new(nfa)),
-        }
-    }
-
-    fn clear(&mut self) {
-        self.stack.clear();
-        self.curr.set.clear();
-        self.next.set.clear();
-    }
-}
-
 impl Threads {
-    fn new(nfa: &NFA) -> Threads {
-        Threads {
-            set: SparseSet::new(nfa.states().len()),
-            caps: vec![Thread::new(nfa); nfa.states().len()],
-        }
+    fn new(vm: &PikeVM) -> Threads {
+        let mut threads = Threads { set: SparseSet::new(0), caps: vec![] };
+        threads.reset(vm);
+        threads
+    }
+
+    fn reset(&mut self, vm: &PikeVM) {
+        let nfa = vm.get_nfa();
+        self.set.resize(nfa.states().len());
+        self.caps.resize(nfa.states().len(), Thread::new(nfa));
+    }
+
+    fn memory_usage(&self) -> usize {
+        use core::mem::size_of;
+
+        let slot_len = self.caps.get(0).map_or(0, |thread| thread.slots.len());
+        let slot_usage_per = slot_len * size_of::<Option<NonMaxUsize>>();
+        self.set.memory_usage()
+            + (self.caps.len() * (size_of::<Thread>() + slot_usage_per))
     }
 
     fn slots(
@@ -761,6 +837,11 @@ impl Threads {
     }
 }
 
+#[derive(Clone, Debug)]
+struct Thread {
+    slots: Box<[Option<NonMaxUsize>]>,
+}
+
 impl Thread {
     fn new(nfa: &NFA) -> Thread {
         let slots = vec![None; nfa.capture_slot_len()].into_boxed_slice();
@@ -768,6 +849,16 @@ impl Thread {
     }
 }
 
+#[derive(Clone, Debug)]
+enum FollowEpsilon {
+    Capture { slot: usize, pos: Option<NonMaxUsize> },
+    StateID(StateID),
+}
+
+/// Write the given pattern ID and slot values to the given `Captures`.
+///
+/// This is generally what you want to use once a match has been found. This
+/// copies the internal slot data to the public `Captures` type.
 fn copy_to_captures(
     pid: PatternID,
     slots: &[Option<NonMaxUsize>],

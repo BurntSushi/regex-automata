@@ -111,34 +111,6 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                 break;
             }
             at += 1;
-
-            if prev_sid == sid {
-                while at + 4 < input.end() {
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at += 1;
-
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at += 1;
-
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at += 1;
-
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at += 1;
-                }
-            }
         }
         if dfa.is_special_state(sid) {
             if dfa.is_start_state(sid) {
@@ -270,34 +242,6 @@ fn find_rev_imp<A: Automaton + ?Sized>(
                 break;
             }
             at -= 1;
-
-            if prev_sid == sid {
-                while at > input.start().saturating_add(3) {
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
-
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
-
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
-
-                    let next = unsafe { next_unchecked!(sid, at) };
-                    if sid != next {
-                        break;
-                    }
-                    at -= 1;
-                }
-            }
         }
         if dfa.is_special_state(sid) {
             if dfa.is_start_state(sid) {

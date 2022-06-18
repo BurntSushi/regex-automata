@@ -123,7 +123,7 @@ fn find_fwd_imp(
             //    unroll2   2.22s      1.50s        0.61s
             //    unroll3   1.67s      1.45s        0.61s
             //
-            // Ideally we'd be able to find a configuration they yields the
+            // Ideally we'd be able to find a configuration that yields the
             // best time for all regexes, but alas we settle for unroll3 that
             // gives us *almost* the best for '\w{50}' and the best for the
             // other two regexes.
@@ -175,6 +175,14 @@ fn find_fwd_imp(
             // with high and low match counts.
             //
             // NOTE: I used 'OpenSubtitles2018.raw.sample.en' for 'bigfile'.
+            //
+            // NOTE: In a follow-up, it turns out that the "inner" loop
+            // mentioned above was a pretty big pessimization in some other
+            // cases. Namely, it resulted in too much ping-ponging into and out
+            // of the loop, which resulted in nearly ~2x regressions in search
+            // time when compared to the originaly lazy DFA in the regex crate.
+            // So I've removed the second loop unrolling that targets the
+            // self-transition case.
             let mut prev_sid = sid;
             while at < input.end() {
                 prev_sid = unsafe { next_unchecked!(sid, at) };
@@ -202,34 +210,6 @@ fn find_fwd_imp(
                     break;
                 }
                 at += 1;
-
-                if prev_sid == sid {
-                    while at + 4 < input.end() {
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at += 1;
-
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at += 1;
-
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at += 1;
-
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at += 1;
-                    }
-                }
             }
             // If we quit out of the code above with an unknown state ID at
             // any point, then we need to re-compute that transition using
@@ -391,34 +371,6 @@ fn find_rev_imp(
                     break;
                 }
                 at -= 1;
-
-                if prev_sid == sid {
-                    while at > input.start().saturating_add(3) {
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at -= 1;
-
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at -= 1;
-
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at -= 1;
-
-                        let next = unsafe { next_unchecked!(sid, at) };
-                        if sid != next {
-                            break;
-                        }
-                        at -= 1;
-                    }
-                }
             }
             // If we quit out of the code above with an unknown state ID at
             // any point, then we need to re-compute that transition using
