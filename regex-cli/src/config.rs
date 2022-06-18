@@ -569,33 +569,6 @@ perform a reverse search that is used to find the starting location of a match.
         }
         {
             const SHORT: &str =
-                "Allow unachored searches through invalid UTF-8.";
-            const LONG: &str = "\
-Allow unanchored searches through invalid UTF-8.
-
-When UTF-8 mode is enabled (which is the default), unanchored searches will
-only match through valid UTF-8. If invalid UTF-8 is seen, then an unanchored
-search will stop at that point. This is equivalent to putting a `(?s:.)*` at
-the start of the regex.
-
-When UTF-8 mode is disabled, then unanchored searches will match through any
-arbitrary byte. This is equivalent to putting a `(?s-u:.)*` at the start of the
-regex.
-
-Generally speaking, UTF-8 mode should only be used when you know you are
-searching valid UTF-8. Typically, this should only be disabled in precisely
-the cases where the regex itself is permitted to match invalid UTF-8. This
-means you usually want to use '--no-utf8-syntax' and '--no-utf8-nfa' (or '-bB')
-together instead of one or the other.
-
-This mode cannot be toggled inside the regex.
-";
-            app = app.arg(
-                switch("no-utf8-nfa").short("B").help(SHORT).long_help(LONG),
-            );
-        }
-        {
-            const SHORT: &str =
                 "Set a size limit, in bytes, on the NFA compiled.";
             const LONG: &str = "\
 Set a size limit, in bytes, on the NFA compiled.
@@ -619,18 +592,19 @@ The default for this flag is 'none', which sets no size limit.
             app = app.arg(flag("nfa-size-limit").help(SHORT).long_help(LONG));
         }
         {
-            const SHORT: &str = "Disable NFA shrinking.";
+            const SHORT: &str = "Enable NFA shrinking.";
             const LONG: &str = "\
-Disable NFA shrinking.
+Enable NFA shrinking.
 
-By default, when compiling an NFA, some extra effort is expended to reduce the
-size of the NFA. While implementation details may change, currently this only
-occurs when compiling large Unicode character classes in reverse. This extra
-work can make NFA compilation slower. However, the reduction in size can be
-big enough to cause a dramatic performance improvement when the NFA is used to
-compile a DFA.
+By default, when compiling an NFA, faster compilation is preferred over
+smaller NFAs. When NFA shrinking is enabled, the trade off is reversed.
+Namely, some extra effort is expended to reduce the size of the NFA. While
+implementation details may change, currently this only occurs when compiling
+large Unicode character classes in reverse. This extra work can make NFA
+compilation slower. However, the reduction in size can be big enough to cause a
+dramatic performance improvement when the NFA is determinized into a DFA.
 ";
-            app = app.arg(switch("no-shrink").help(SHORT).long_help(LONG));
+            app = app.arg(switch("shrink").help(SHORT).long_help(LONG));
         }
         {
             const SHORT: &str = "Do not include capturing groups.";
@@ -667,8 +641,7 @@ groups (such as a search with the PikeVM).
     pub fn get(args: &Args) -> anyhow::Result<Thompson> {
         let mut c = thompson::Config::new()
             .reverse(args.is_present("reverse"))
-            .utf8(!args.is_present("no-utf8-nfa"))
-            .shrink(!args.is_present("no-shrink"))
+            .shrink(args.is_present("shrink"))
             .captures(!args.is_present("no-captures"));
         if let Some(x) = args.value_of_lossy("nfa-size-limit") {
             if x.to_lowercase() == "none" {
@@ -728,8 +701,8 @@ searches are started at the next byte offset.
 Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
-'--no-utf8-iter' together.
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+together.
 
 This mode cannot be toggled inside the regex.
 ";
@@ -1190,8 +1163,8 @@ searches are started at the next byte offset.
 Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
-'--no-utf8-iter' together.
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+together.
 
 This mode cannot be toggled inside the regex.
 ";
@@ -1615,8 +1588,8 @@ searches are started at the next byte offset.
 Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax', '--no-utf8-nfa' and
-'--no-utf8-iter' together.
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+together.
 
 This mode cannot be toggled inside the regex.
 ";
