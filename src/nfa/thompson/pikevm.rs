@@ -145,9 +145,11 @@ impl Builder {
         // feature = "unicode-perl"
         // )) {
         // If the NFA has no captures, then the PikeVM doesn't work since it
-        // relies on them in order to report match locations. However, in the
-        // special case of an NFA with no patterns, it is allowed, since no
-        // matches can ever be produced.
+        // relies on them in order to report match locations. However, in
+        // the special case of an NFA with no patterns, it is allowed, since
+        // no matches can ever be produced. And importantly, an NFA with no
+        // patterns has no capturing groups anyway, so this is necessary to
+        // permit the PikeVM to work with regexes with zero patterns.
         if !nfa.has_capture() && nfa.pattern_len() > 0 {
             return Err(Error::missing_captures());
         }
@@ -339,7 +341,7 @@ impl PikeVM {
         caps: &mut Captures,
     ) {
         caps.set_pattern(None);
-        cache.clear();
+        cache.setup_search(caps.slot_len());
         // Why do we even care about this? Well, in our 'Captures'
         // representation, we use usize::MAX as a sentinel to indicate "no
         // match." This isn't problematic so long as our haystack doesn't have
@@ -378,8 +380,8 @@ impl PikeVM {
                 }
             }
             if curr.set.is_empty() || (!anchored && !caps.is_match()) {
-                let slots = next.slots(start_id, caps.slot_len());
-                self.epsilon_closure(stack, curr, slots, start_id, input, at);
+                let slots = next.slot_table.for_state(start_id);
+                self.epsilon_closure(stack, slots, curr, start_id, input, at);
             }
             if self.steps(stack, curr, next, input, at, caps) {
                 if input.get_earliest() {
@@ -404,7 +406,7 @@ impl PikeVM {
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
-        cache.clear();
+        cache.setup_search(0);
 
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
@@ -422,7 +424,7 @@ impl PikeVM {
             }
             if curr.set.is_empty() || !anchored {
                 let slots = &mut [];
-                self.epsilon_closure(stack, curr, slots, start_id, input, at);
+                self.epsilon_closure(stack, slots, curr, start_id, input, at);
             }
             self.steps_overlapping(stack, curr, next, input, at, patset);
             // If we found a match and filled our set, then there is no more
@@ -441,22 +443,24 @@ impl PikeVM {
     fn steps(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        curr: &mut Threads,
-        next: &mut Threads,
+        curr: &mut ActiveStates,
+        next: &mut ActiveStates,
         input: &Input<'_, '_>,
         at: usize,
         caps: &mut Captures,
     ) -> bool {
+        let slot_len = caps.slot_len();
         let mut matched = false;
         instrument!(|c| c.record_state_set(&curr.set));
-        for sid in curr.set.iter() {
-            // We can't use curr.slots(..) here because of the borrow checker.
-            let slots = &mut curr.caps[sid].slots[..caps.slot_len()];
-            let pid = match self.step(stack, next, slots, sid, input, at) {
+        let ActiveStates { ref set, ref mut slot_table } = *curr;
+        for sid in set.iter() {
+            let pid = match self.step(stack, slot_table, next, sid, input, at)
+            {
                 None => continue,
                 Some(pid) => pid,
             };
             matched = true;
+            let slots = slot_table.for_state(sid);
             copy_to_captures(pid, slots, caps);
             if !self.config.get_match_kind().continue_past_first_match() {
                 break;
@@ -469,16 +473,17 @@ impl PikeVM {
     fn steps_overlapping(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        curr: &mut Threads,
-        next: &mut Threads,
+        curr: &mut ActiveStates,
+        next: &mut ActiveStates,
         input: &Input<'_, '_>,
         at: usize,
         patset: &mut PatternSet,
     ) {
         instrument!(|c| c.record_state_set(&curr.set));
-        for sid in curr.set.iter() {
-            let slots = &mut [];
-            let pid = match self.step(stack, next, slots, sid, input, at) {
+        let ActiveStates { ref set, ref mut slot_table } = *curr;
+        for sid in set.iter() {
+            let pid = match self.step(stack, slot_table, next, sid, input, at)
+            {
                 None => continue,
                 Some(pid) => pid,
             };
@@ -490,8 +495,8 @@ impl PikeVM {
     fn step(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        next: &mut Threads,
-        slots: &mut [Option<NonMaxUsize>],
+        curr_slot_table: &mut SlotTable,
+        next: &mut ActiveStates,
         sid: StateID,
         input: &Input<'_, '_>,
         at: usize,
@@ -505,21 +510,25 @@ impl PikeVM {
             | State::Capture { .. } => None,
             State::ByteRange { ref trans } => {
                 if trans.matches(input.haystack(), at) {
+                    let slots = curr_slot_table.for_state(sid);
                     // OK because 'at <= haystack.len() < usize::MAX', so
                     // adding 1 will never wrap.
                     let at = at.wrapping_add(1);
                     self.epsilon_closure(
-                        stack, next, slots, trans.next, input, at,
+                        stack, slots, next, trans.next, input, at,
                     );
                 }
                 None
             }
             State::Sparse(ref sparse) => {
-                if let Some(sid) = sparse.matches(input.haystack(), at) {
+                if let Some(next_sid) = sparse.matches(input.haystack(), at) {
+                    let slots = curr_slot_table.for_state(sid);
                     // OK because 'at <= haystack.len() < usize::MAX', so
                     // adding 1 will never wrap.
                     let at = at.wrapping_add(1);
-                    self.epsilon_closure(stack, next, slots, sid, input, at);
+                    self.epsilon_closure(
+                        stack, slots, next, next_sid, input, at,
+                    );
                 }
                 None
             }
@@ -531,8 +540,8 @@ impl PikeVM {
     fn epsilon_closure(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        next: &mut Threads,
-        slots: &mut [Option<NonMaxUsize>],
+        curr_slots: &mut [Option<NonMaxUsize>],
+        next: &mut ActiveStates,
         sid: StateID,
         input: &Input<'_, '_>,
         at: usize,
@@ -541,15 +550,15 @@ impl PikeVM {
             c.record_closure(sid);
             c.record_stack_push(sid);
         });
-        stack.push(FollowEpsilon::StateID(sid));
+        stack.push(FollowEpsilon::Explore(sid));
         while let Some(frame) = stack.pop() {
             match frame {
-                FollowEpsilon::Capture { slot, pos } => {
-                    slots[slot] = pos;
+                FollowEpsilon::RestoreCapture { slot, offset: pos } => {
+                    curr_slots[slot] = pos;
                 }
-                FollowEpsilon::StateID(sid) => {
+                FollowEpsilon::Explore(sid) => {
                     self.epsilon_closure_step(
-                        stack, next, slots, sid, input, at,
+                        stack, curr_slots, next, sid, input, at,
                     );
                 }
             }
@@ -560,8 +569,8 @@ impl PikeVM {
     fn epsilon_closure_step(
         &self,
         stack: &mut Vec<FollowEpsilon>,
-        next: &mut Threads,
-        slots: &mut [Option<NonMaxUsize>],
+        curr_slots: &mut [Option<NonMaxUsize>],
+        next: &mut ActiveStates,
         mut sid: StateID,
         input: &Input<'_, '_>,
         at: usize,
@@ -576,7 +585,7 @@ impl PikeVM {
                 | State::Match { .. }
                 | State::ByteRange { .. }
                 | State::Sparse { .. } => {
-                    next.slots(sid, slots.len()).copy_from_slice(slots);
+                    next.slot_table.for_state(sid).copy_from_slice(curr_slots);
                     return;
                 }
                 State::Look { look, next } => {
@@ -600,23 +609,23 @@ impl PikeVM {
                             .iter()
                             .copied()
                             .rev()
-                            .map(FollowEpsilon::StateID),
+                            .map(FollowEpsilon::Explore),
                     );
                 }
                 State::BinaryUnion { alt1, alt2 } => {
                     sid = alt1;
                     instrument!(|c| c.record_stack_push(sid));
-                    stack.push(FollowEpsilon::StateID(alt2));
+                    stack.push(FollowEpsilon::Explore(alt2));
                 }
                 State::Capture { next, slot } => {
-                    if slot < slots.len() {
+                    if slot < curr_slots.len() {
                         instrument!(|c| c.record_stack_push(sid));
-                        stack.push(FollowEpsilon::Capture {
+                        stack.push(FollowEpsilon::RestoreCapture {
                             slot,
-                            pos: slots[slot],
+                            offset: curr_slots[slot],
                         });
                         // OK because length of a slice must fit into an isize.
-                        slots[slot] = Some(NonMaxUsize::new(at).unwrap());
+                        curr_slots[slot] = Some(NonMaxUsize::new(at).unwrap());
                     }
                     sid = next;
                 }
@@ -718,12 +727,12 @@ pub struct Cache {
     /// move what is more naturally expressed through recursion to a stack
     /// on the heap.
     stack: Vec<FollowEpsilon>,
-    /// The current threads of execution that we're exploring for the current
-    /// byte in the haystack.
-    curr: Threads,
-    /// The next set of threads we're building that will be explored for the
+    /// The current active states being explored for the current byte in the
+    /// haystack.
+    curr: ActiveStates,
+    /// The next set of states we're building that will be explored for the
     /// next byte in the haystack.
-    next: Threads,
+    next: ActiveStates,
 }
 
 impl Cache {
@@ -736,7 +745,11 @@ impl Cache {
     /// If you want to reuse the returned `Cache` with some other `PikeVM`,
     /// then you must call [`Cache::reset`] with the desired `PikeVM`.
     pub fn new(vm: &PikeVM) -> Cache {
-        Cache { stack: vec![], curr: Threads::new(vm), next: Threads::new(vm) }
+        Cache {
+            stack: vec![],
+            curr: ActiveStates::new(vm),
+            next: ActiveStates::new(vm),
+        }
     }
 
     /// Reset this cache such that it can be used for searching with different
@@ -793,66 +806,215 @@ impl Cache {
 
     /// Clears this cache. This should be called at the start of every search
     /// to ensure we start with a clean slate.
-    fn clear(&mut self) {
+    ///
+    /// This also sets the length of the capturing groups used in the current
+    /// search. This permits an optimization where by 'SlotTable::for_state'
+    /// only returns the number of slots equivalent to the number of slots
+    /// given in the 'Captures' value. This may be less than the total number
+    /// of possible slots, e.g., when one only wants to track overall match
+    /// offsets. This in turn permits less copying of capturing group spans
+    /// in the PikeVM.
+    fn setup_search(&mut self, captures_slot_len: usize) {
         self.stack.clear();
-        self.curr.set.clear();
-        self.next.set.clear();
+        self.curr.setup_search(captures_slot_len);
+        self.next.setup_search(captures_slot_len);
     }
 }
 
+/// A set of active states used to "simulate" the execution of an NFA via the
+/// PikeVM.
+///
+/// There are two sets of these used during NFA simulation. One set corresponds
+/// to the "current" set of states being traversed for the current position
+/// in a haystack. The other set corresponds to the "next" set of states being
+/// built, which will become the new "current" set for the next position in the
+/// haystack. These two sets correspond to CLIST and NLIST in Thompson's
+/// original paper regexes: https://dl.acm.org/doi/pdf/10.1145/363347.363387
+///
+/// In addition to representing a set of NFA states, this also maintains slot
+/// values for each state. These slot values are what turn the NFA simulation
+/// into the "Pike VM." Namely, they track capturing group values for each
+/// state. During the computation of epsilon closure, we copy slot values from
+/// states in the "current" set to the "next" set. Eventually, once a match
+/// is found, the slot values for that match state are what we write to the
+/// caller provided 'Captures' value.
 #[derive(Clone, Debug)]
-struct Threads {
+struct ActiveStates {
+    /// The set of active NFA states. This set preserves insertion order, which
+    /// is critical for simulating the match semantics of backtracking regex
+    /// engines.
     set: SparseSet,
-    caps: Vec<Thread>,
+    /// The slots for every NFA state, where each slot stores a (possibly
+    /// absent) offset. Every capturing group has two slots. One for a start
+    /// offset and one for an end offset.
+    slot_table: SlotTable,
 }
 
-impl Threads {
-    fn new(vm: &PikeVM) -> Threads {
-        let mut threads = Threads { set: SparseSet::new(0), caps: vec![] };
-        threads.reset(vm);
-        threads
+impl ActiveStates {
+    /// Create a new set of active states for the given PikeVM. The active
+    /// states returned may only be used with the given PikeVM. (Use 'reset'
+    /// to re-purpose the allocation for a different PikeVM.)
+    fn new(vm: &PikeVM) -> ActiveStates {
+        let mut active = ActiveStates {
+            set: SparseSet::new(0),
+            slot_table: SlotTable::new(),
+        };
+        active.reset(vm);
+        active
     }
 
+    /// Reset this set of active states such that it can be used with the given
+    /// PikeVM (and only that PikeVM).
     fn reset(&mut self, vm: &PikeVM) {
         let nfa = vm.get_nfa();
-        self.set.resize(nfa.states().len());
-        self.caps.resize(nfa.states().len(), Thread::new(nfa));
+        self.set.resize(vm.get_nfa().states().len());
+        self.slot_table.reset(vm);
     }
 
+    /// Return the heap memory usage, in bytes, used by this set of active
+    /// states.
+    ///
+    /// This does not include the stack size of this value.
     fn memory_usage(&self) -> usize {
-        use core::mem::size_of;
-
-        let slot_len = self.caps.get(0).map_or(0, |thread| thread.slots.len());
-        let slot_usage_per = slot_len * size_of::<Option<NonMaxUsize>>();
-        self.set.memory_usage()
-            + (self.caps.len() * (size_of::<Thread>() + slot_usage_per))
+        self.set.memory_usage() + self.slot_table.memory_usage()
     }
 
-    fn slots(
-        &mut self,
-        sid: StateID,
-        len: usize,
-    ) -> &mut [Option<NonMaxUsize>] {
-        &mut self.caps[sid].slots[..len]
+    /// Setup this set of active states for a new search. The given slot
+    /// length should be the number of slots in a caller provided 'Captures'
+    /// (and may be zero).
+    fn setup_search(&mut self, captures_slot_len: usize) {
+        self.set.clear();
+        self.slot_table.setup_search(captures_slot_len);
     }
 }
 
+/// A table of slots, where each row represent a state in an NFA. Thus, the
+/// table has room for storing slots for every single state in an NFA.
+///
+/// This table is represented with a single contiguous allocation. In general,
+/// the notion of "capturing group" doesn't really exist at this level of
+/// abstraction, hence the name "slot" instead. (Indeed, every capturing group
+/// maps to a pair of slots, one for the start offset and one for the end
+/// offset.) Slots are indexed by the 'Captures' NFA state.
+///
+/// N.B. Not every state actually needs a row of slots. Namely, states that
+/// only have epsilon transitions currently never have anything written to
+/// their rows in this table. Thus, the table is somewhat wasteful in its heap
+/// usage. However, it is important to maintain fast random access by state
+/// ID, which means one giant table tends to work well. RE2 takes a different
+/// approach here and allocates each row as its own reference counted thing.
+/// I explored such a strategy at one point here, but couldn't get it to work
+/// well using entirely safe code. (To the ambitious reader: I encourage you to
+/// re-litigate that experiment.) I very much wanted to stick to safe code, but
+/// could be convinced otherwise if there was a solid argument and the safety
+/// was encapsulated well.
 #[derive(Clone, Debug)]
-struct Thread {
-    slots: Box<[Option<NonMaxUsize>]>,
+struct SlotTable {
+    /// The actual table of offsets.
+    table: Vec<Option<NonMaxUsize>>,
+    /// The number of slots per state, i.e., the table's stride or the length
+    /// of each row.
+    slots_per_state: usize,
+    /// The number of slots in the caller-provided 'Captures' value for the
+    /// current search. Setting this to 'slots_per_state' is always correct,
+    /// but may be wasteful.
+    slots_for_captures: usize,
 }
 
-impl Thread {
-    fn new(nfa: &NFA) -> Thread {
-        let slots = vec![None; nfa.capture_slot_len()].into_boxed_slice();
-        Thread { slots }
+impl SlotTable {
+    /// Create a new slot table.
+    ///
+    /// One should call 'reset' with the corresponding PikeVM before use.
+    fn new() -> SlotTable {
+        SlotTable { table: vec![], slots_for_captures: 0, slots_per_state: 0 }
+    }
+
+    /// Reset this slot table such that it can be used with the given PikeVM
+    /// (and only that PikeVM).
+    fn reset(&mut self, vm: &PikeVM) {
+        let nfa = vm.get_nfa();
+        self.slots_per_state = nfa.capture_slot_len();
+        // This is always correct, but may be reduced for a particular search
+        // if a 'Captures' has fewer slots, e.g., none at all or only slots
+        // for tracking the overall match instead of all slots for every
+        // group.
+        self.slots_for_captures = nfa.capture_slot_len();
+        self.table.resize(nfa.states().len() * self.slots_per_state, None);
+    }
+
+    /// Return the heap memory usage, in bytes, used by this slot table.
+    ///
+    /// This does not include the stack size of this value.
+    fn memory_usage(&self) -> usize {
+        self.table.len() * core::mem::size_of::<Option<NonMaxUsize>>()
+    }
+
+    /// Perform any per-search setup for this slot table.
+    ///
+    /// In particular, this sets the length of the number of slots used in the
+    /// 'Captures' given by the caller (if any at all). This number may be
+    /// smaller than the total number of slots available, e.g., when the caller
+    /// is only interested in tracking the overall match and not the spans of
+    /// every matching capturing group. Only tracking the overall match can
+    /// save a substantial amount of time copying capturing spans during a
+    /// search.
+    fn setup_search(&mut self, captures_slot_len: usize) {
+        self.slots_for_captures = captures_slot_len;
+    }
+
+    /// Return a mutable slice of the slots for the given state.
+    ///
+    /// Note that the length of the slice returned may be less than the total
+    /// number of slots available for this state. In particular, the length
+    /// always matches the number of slots indicated via 'setup_search'.
+    fn for_state(&mut self, sid: StateID) -> &mut [Option<NonMaxUsize>] {
+        let i = sid.as_usize() * self.slots_per_state;
+        &mut self.table[i..i + self.slots_for_captures]
     }
 }
 
+/// Represents a stack frame for use while computing an epsilon closure.
+///
+/// (An "epsilon closure" refers to the set of reachable NFA states from a
+/// single state without consuming any input. That is, the set of all epsilon
+/// transitions not only from that single state, but from every other state
+/// reachable by an epsilon transition as well. This is why it's called a
+/// "closure." Computing an epsilon closure is also done during DFA
+/// determinization! Compare and contrast the epsilon closure here in this
+/// PikeVM and the one used for determinization in crate::util::determinize.)
+///
+/// Computing the epsilon closure in a Thompson NFA proceeds via a depth
+/// first traversal over all epsilon transitions from a particular state.
+/// (A depth first traversal is important because it emulates the same priority
+/// of matches that is typically found in backtracking regex engines.) This
+/// depth first traversal is naturally expressed using recursion, but to avoid
+/// a call stack size proportional to the size of a regex, we put our stack on
+/// the heap instead.
+///
+/// This stack thus consists of call frames. The typical call frame is
+/// `Explore`, which instructs epsilon closure to explore the epsilon
+/// transitions from that state. (Subsequent epsilon transitions are then
+/// pushed on to the stack as more `Explore` frames.) If the state ID being
+/// explored has no epsilon transitions, then the capturing group slots are
+/// copied from the original state that sparked the epsilon closure (from the
+/// 'step' routine) to the state ID being explored. This way, capturing group
+/// slots are forwarded from the previous state to the next.
+///
+/// The other stack frame, `RestoreCaptures`, instructs the epsilon closure to
+/// set the position for a particular slot back to some particular offset. This
+/// frame is pushed when `Explore` sees a `Capture` transition. `Explore` will
+/// set the offset of the slot indicated in `Capture` to the current offset,
+/// and then push the old offset on to the stack as a `RestoreCapture` frame.
+/// Thus, the new offset is only used until the epsilon closure reverts back to
+/// the `RestoreCapture` frame. In effect, this gives the `Capture` epsilon
+/// transition its "scope" to only states that come "after" it during depth
+/// first traversal.
 #[derive(Clone, Debug)]
 enum FollowEpsilon {
-    Capture { slot: usize, pos: Option<NonMaxUsize> },
-    StateID(StateID),
+    /// Explore the epsilon transitions from a state ID.
+    Explore(StateID),
+    /// Reset the given `slot` to the given `offset` (which might be `None`).
+    RestoreCapture { slot: usize, offset: Option<NonMaxUsize> },
 }
 
 /// Write the given pattern ID and slot values to the given `Captures`.
