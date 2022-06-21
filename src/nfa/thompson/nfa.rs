@@ -2255,6 +2255,12 @@ impl<'a> Iterator for PatternIter<'a> {
     }
 }
 
+/// An iterator over capturing groups and their names for a specific pattern.
+///
+/// This iterator is created by [`NFA::pattern_capture_names`].
+///
+/// The lifetime parameter `'a` refers to the lifetime of the NFA from which
+/// this pattern iterator was created.
 #[derive(Debug)]
 pub struct PatternCaptureNames<'a> {
     it: core::slice::Iter<'a, Option<Arc<str>>>,
@@ -2268,6 +2274,12 @@ impl<'a> Iterator for PatternCaptureNames<'a> {
     }
 }
 
+/// An iterator over capturing groups and their names for an entire [`NFA`].
+///
+/// This iterator is created by [`NFA::all_capture_names`].
+///
+/// The lifetime parameter `'a` refers to the lifetime of the NFA from which
+/// this pattern iterator was created.
 #[derive(Debug)]
 pub struct AllCaptureNames<'a> {
     nfa: &'a NFA,

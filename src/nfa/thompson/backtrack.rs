@@ -1,3 +1,15 @@
+/*!
+An NFA backed bounded backtracker for executing regex searches with capturing
+groups.
+
+This module provides a [`BoundedBacktracker`] that works by simulating an NFA
+using the classical backtracking algorithm with a twist: it avoids redoing
+work that it has done before and thereby avoids worst case exponential time.
+In exchange, it can only be used on "short" haystacks. Its advantage is that
+is can be faster than the [`PikeVM`](thompson::pikevm::PikeVM) in many cases
+because it does less book-keeping.
+*/
+
 use alloc::sync::Arc;
 
 use crate::{
@@ -1672,9 +1684,30 @@ impl<'r, 'c, 'h> Iterator for TryCapturesMatches<'r, 'c, 'h> {
     }
 }
 
+/// A cache represents mutable state that a [`BoundedBacktracker`] requires
+/// during a search.
+///
+/// For a given [`BoundedBacktracker`], its corresponding cache may be created
+/// either via [`BoundedBacktracker::create_cache`], or via [`Cache::new`].
+/// They are equivalent in every way, except the former does not require
+/// explicitly importing `Cache`.
+///
+/// A particular `Cache` is coupled with the [`BoundedBacktracker`] from which
+/// it was created. It may only be used with that `BoundedBacktracker`. A cache
+/// and its allocations may be re-purposed via [`Cache::reset`], in which case,
+/// it can only be used with the new `BoundedBacktracker` (and not the old
+/// one).
 #[derive(Clone, Debug)]
 pub struct Cache {
+    /// Stack used on the heap for doing backtracking instead of the
+    /// traditional recursive approach. We don't want recursion because then
+    /// we're likely to hit a stack overflow for bigger regexes.
     stack: Vec<Frame>,
+    /// The set of (StateID, HaystackOffset) pairs that have been visited
+    /// by the backtracker within a single search. If such a pair has been
+    /// visited, then we avoid doing the work for that pair again. This is
+    /// what "bounds" the backtracking and prevents it from having worst case
+    /// exponential time.
     visited: Visited,
 }
 
@@ -1761,6 +1794,9 @@ impl Cache {
     }
 }
 
+// BREADCRUMBS: Keep documenting the stuff below.
+
+/// Represents a stack frame on the heap while doing backtracking.
 #[derive(Clone, Debug)]
 enum Frame {
     /// Look for a match starting at `sid` and the given position in the
