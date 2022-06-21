@@ -267,3 +267,13 @@ matches = [[0, 0], [2, 2]]
 match_kind = "all"
 search_kind = "overlapping"
 unescape = true
+
+[[tests]]
+name = "scratch"
+regexes = ['sam', 'samwise']
+input = "samwise"
+matches = [
+  { id = 0, span = [0, 3] },
+]
+match_kind = "leftmost-first"
+search_kind = "overlapping"

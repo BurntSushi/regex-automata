@@ -1,6 +1,7 @@
 #[cfg(not(miri))]
 use regex_automata::nfa::thompson::Captures;
 
+mod backtrack;
 mod pikevm;
 
 /// Convert Thompson captures into the test suite's capture values.

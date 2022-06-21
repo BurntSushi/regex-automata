@@ -1,3 +1,4 @@
+pub mod backtrack;
 mod builder;
 mod compiler;
 mod error;

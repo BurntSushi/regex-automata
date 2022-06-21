@@ -978,7 +978,7 @@ impl HalfMatch {
 ///
 /// Every match reported by a regex engine guarantees that its span has its
 /// start offset as less than or equal to its end offset.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Match {
     /// The pattern ID.
     pattern: PatternID,
@@ -1429,6 +1429,15 @@ pub enum MatchError {
         /// position immediately following the last byte scanned.
         offset: usize,
     },
+    /// This error occurs if the haystack given to the regex engine was too
+    /// long to be searched. This occurs, for example, with regex engines
+    /// like the bounded backtracker that have a configurable fixed amount of
+    /// capacity that is tied to the length of the haystack. Anything beyond
+    /// that configured limit will result in an error at search time.
+    HaystackTooLong {
+        /// The length of the haystack that exceeded the limit.
+        len: usize,
+    },
 }
 
 #[cfg(feature = "std")]
@@ -1445,6 +1454,9 @@ impl core::fmt::Display for MatchError {
             ),
             MatchError::GaveUp { offset } => {
                 write!(f, "gave up searching at offset {}", offset)
+            }
+            MatchError::HaystackTooLong { len } => {
+                write!(f, "haystack of length {} is too long", len)
             }
         }
     }

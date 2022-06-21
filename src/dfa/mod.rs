@@ -278,9 +278,8 @@ accustomed to, although, it does provide more predictable and consistent
 performance.
 * There is no `&str` API like in the regex crate. In this module, all APIs
 operate on `&[u8]`. By default, match indices are guaranteed to fall on UTF-8
-boundaries, unless any of [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8),
-[`nfa::thompson::Config::utf8`](crate::nfa::thompson::Config::utf8) or
-[`regex::Config::utf8`] are disabled.
+boundaries, unless either of [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
+or [`regex::Config::utf8`] are disabled.
 
 With some of the downsides out of the way, here are some positive differences:
 

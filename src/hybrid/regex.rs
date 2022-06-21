@@ -118,7 +118,7 @@ impl Regex {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{Match, hybrid::regex::Regex};
+    /// use regex_automata::{hybrid::regex::Regex, Match};
     ///
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// let mut cache = re.create_cache();
@@ -132,13 +132,13 @@ impl Regex {
         Regex::builder().build(pattern)
     }
 
-    /// Like `new`, but parses multiple patterns into a single "regex set."
+    /// Like `new`, but parses multiple patterns into a single "multi regex."
     /// This similarly uses the default regex configuration.
     ///
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{Match, hybrid::regex::Regex};
+    /// use regex_automata::{hybrid::regex::Regex, Match};
     ///
     /// let re = Regex::new_many(&["[a-z]+", "[0-9]+"])?;
     /// let mut cache = re.create_cache();
@@ -166,10 +166,14 @@ impl Regex {
     ///
     /// # Example
     ///
-    /// This example shows how to disable UTF-8 mode for `Regex` iteration.
+    /// This example shows how to disable UTF-8 mode for `Regex` searches.
     /// When UTF-8 mode is disabled, the position immediately following an
     /// empty match is where the next search begins, instead of the next
     /// position of a UTF-8 encoded codepoint.
+    ///
+    /// In the code below, notice that `""` is permitted to match positions
+    /// that split the encoding of a codepoint. When the [`Config::utf8`]
+    /// option is disabled, those positions are not reported.
     ///
     /// ```
     /// use regex_automata::{hybrid::regex::Regex, Match};
@@ -206,11 +210,7 @@ impl Regex {
     /// everywhere.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     hybrid::regex::Regex,
-    ///     nfa::thompson,
-    ///     Match, SyntaxConfig,
-    /// };
+    /// use regex_automata::{hybrid::regex::Regex, Match, SyntaxConfig};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
@@ -332,8 +332,8 @@ impl Regex {
     /// let re = Regex::new("foo[0-9]+bar")?;
     /// let mut cache = re.create_cache();
     ///
-    /// assert_eq!(true, re.is_match(&mut cache, "foo12345bar"));
-    /// assert_eq!(false, re.is_match(&mut cache, "foobar"));
+    /// assert!(re.is_match(&mut cache, "foo12345bar"));
+    /// assert!(!re.is_match(&mut cache, "foobar"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
@@ -390,8 +390,6 @@ impl Regex {
     /// Returns an iterator over all non-overlapping leftmost matches in the
     /// given bytes. If no match exists, then the iterator yields no elements.
     ///
-    /// This corresponds to the "standard" regex search iterator.
-    ///
     /// # Panics
     ///
     /// If the underlying lazy DFAs return an error, then this routine panics.
@@ -405,7 +403,7 @@ impl Regex {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{Match, hybrid::regex::Regex};
+    /// use regex_automata::{hybrid::regex::Regex, Match};
     ///
     /// let re = Regex::new("foo[0-9]+")?;
     /// let mut cache = re.create_cache();
@@ -852,7 +850,7 @@ impl Config {
     /// Whether to enable UTF-8 mode or not.
     ///
     /// When UTF-8 mode is enabled (the default) and an empty match is seen,
-    /// the iterators on [`Regex`] will always start the next search at the
+    /// the search APIs of [`Regex`] will always start the next search at the
     /// next UTF-8 encoded codepoint when searching valid UTF-8. When UTF-8
     /// mode is disabled, such searches are begun at the next byte offset.
     ///
@@ -861,9 +859,7 @@ impl Config {
     ///
     /// Generally speaking, one should enable this when
     /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
-    /// and
-    /// [`thompson::Config::utf8`](crate::nfa::thompson::Config::utf8)
-    /// are enabled, and disable it otherwise.
+    /// is enabled, and disable it otherwise.
     ///
     /// # Example
     ///
@@ -964,14 +960,11 @@ impl Config {
 /// itself. This builder is different from a general purpose regex builder
 /// in that it permits fine grain configuration of the construction process.
 /// The trade off for this is complexity, and the possibility of setting a
-/// configuration that might not make sense. For example, there are three
+/// configuration that might not make sense. For example, there are two
 /// different UTF-8 modes:
 ///
 /// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
 /// pattern itself can contain sub-expressions that match invalid UTF-8.
-/// * [`nfa::thompson::Config::utf8`](crate::nfa::thompson::Config::utf8)
-/// controls whether the implicit unanchored prefix added to the NFA can
-/// match through invalid UTF-8 or not.
 /// * [`Config::utf8`] controls how the regex iterators themselves advance
 /// the starting position of the next search when a match with zero length is
 /// found.
@@ -992,9 +985,7 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
-/// use regex_automata::{
-///     hybrid::regex::Regex, nfa::thompson, Match, SyntaxConfig
-/// };
+/// use regex_automata::{hybrid::regex::Regex, Match, SyntaxConfig};
 ///
 /// let re = Regex::builder()
 ///     .configure(Regex::config().utf8(false))

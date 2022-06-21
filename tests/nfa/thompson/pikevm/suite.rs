@@ -104,10 +104,8 @@ fn run_test(
                 TestResult::captures(it)
             }
             ret::SearchKind::Overlapping => {
-                let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-                let input = re.create_input(test.input());
-                re.which_overlapping_matches(cache, &input, &mut patset);
-                TestResult::which(patset.iter().map(|p| p.as_usize()))
+                // There is no overlapping PikeVM API that supports captures.
+                TestResult::skip()
             }
         },
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),

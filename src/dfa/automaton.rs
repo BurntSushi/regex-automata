@@ -1329,11 +1329,17 @@ pub unsafe trait Automaton {
 
     /// Writes the set of patterns that match anywhere in the given search
     /// configuration to `patset`. If multiple patterns match at the same
-    /// position and the underlying DFA supports overlapping matches, then both
-    /// patterns are written to the given set.
+    /// position and the underlying DFA supports overlapping matches, then all
+    /// matching patterns are written to the given set.
     ///
     /// Unless all of the patterns in this DFA are anchored, then generally
     /// speaking, this will visit every byte in the haystack.
+    ///
+    /// This search routine *does not* clear the pattern set. This gives some
+    /// flexibility to the caller (e.g., running multiple searches with the
+    /// same pattern set), but does make the API bug-prone if you're reusing
+    /// the same pattern set for multiple searches but intended them to be
+    /// independent.
     ///
     /// # Errors
     ///
@@ -1392,8 +1398,9 @@ pub unsafe trait Automaton {
             state.get_match()
         } {
             patset.insert(m.pattern());
-            // There's nothing left to find, so we can stop.
-            if patset.is_full() {
+            // There's nothing left to find, so we can stop. Or the caller
+            // asked us to.
+            if patset.is_full() || input.get_earliest() {
                 break;
             }
         }

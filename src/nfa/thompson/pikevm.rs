@@ -1,3 +1,10 @@
+/*!
+An NFA backed `PikeVM` for executing regex searches with capturing groups.
+
+This module provides a [`PikeVM`] that works by simulating an NFA and
+resolving all spans of capturing groups that participate in a match.
+*/
+
 use core::cell::RefCell;
 
 use alloc::{
@@ -49,6 +56,10 @@ thread_local! {
     static COUNTERS: RefCell<Counters> = RefCell::new(Counters::empty());
 }
 
+/// The configuration used for building a `PikeVM`.
+///
+/// A `PikeVM` configuration is a simple data object that is typically used
+/// with [`Builder::configure`].
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     anchored: Option<bool>,
@@ -63,34 +74,222 @@ impl Config {
         Config::default()
     }
 
+    /// Set whether matching must be anchored at the beginning of the input.
+    ///
+    /// When enabled, a match must begin at the start of a search. When
+    /// disabled (the default), the `PikeVM` will act as if the pattern started
+    /// with a `(?s:.)*?`, which enables a match to appear anywhere.
+    ///
+    /// By default this is disabled.
+    ///
+    /// **WARNING:** this is subtly different than using a `^` at the start of
+    /// your regex. A `^` forces a regex to match exclusively at the start of
+    /// input, regardless of where you begin your search. In contrast, enabling
+    /// this option will allow your regex to match anywhere in your input,
+    /// but the match must start at the beginning of a search. (Most of the
+    /// higher level convenience search routines make "start of input" and
+    /// "start of search" equivalent, but some routines allow treating these as
+    /// orthogonal.)
+    ///
+    /// For example, consider the haystack `aba` and the following searches:
+    ///
+    /// 1. The regex `^a` is compiled with `anchored=false` and searches
+    ///    `aba` starting at position `2`. Since `^` requires the match to
+    ///    start at the beginning of the input and `2 > 0`, no match is found.
+    /// 2. The regex `a` is compiled with `anchored=true` and searches `aba`
+    ///    starting at position `2`. This reports a match at `[2, 3]` since
+    ///    the match starts where the search started. Since there is no `^`,
+    ///    there is no requirement for the match to start at the beginning of
+    ///    the input.
+    /// 3. The regex `a` is compiled with `anchored=true` and searches `aba`
+    ///    starting at position `1`. Since `b` corresponds to position `1` and
+    ///    since the regex is anchored, it finds no match.
+    /// 4. The regex `a` is compiled with `anchored=false` and searches `aba`
+    ///    startting at position `1`. Since the regex is neither anchored nor
+    ///    starts with `^`, the regex is compiled with an implicit `(?s:.)*?`
+    ///    prefix that permits it to match anywhere. Thus, it reports a match
+    ///    at `[2, 3]`.
+    ///
+    /// # Example
+    ///
+    /// This demonstrates the differences between an anchored search and
+    /// a pattern that begins with `^` (as described in the above warning
+    /// message).
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, Input};
+    ///
+    /// let haystack = "aba";
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().anchored(false)) // default
+    ///     .build(r"^a")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// vm.search(&mut cache, &Input::new(haystack).span(2..3), &mut caps);
+    /// // No match is found because 2 is not the beginning of the haystack,
+    /// // which is what ^ requires.
+    /// let expected = None;
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().anchored(true))
+    ///     .build(r"a")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// vm.search(&mut cache, &Input::new(haystack).span(2..3), &mut caps);
+    /// // An anchored search can still match anywhere in the haystack, it just
+    /// // must begin at the start of the search which is '2' in this case.
+    /// let expected = Some(Match::must(0, 2..3));
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().anchored(true))
+    ///     .build(r"a")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// vm.search(&mut cache, &Input::new(haystack).span(1..3), &mut caps);
+    /// // No match is found since we start searching at offset 1 which
+    /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
+    /// // is found.
+    /// let expected = None;
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().anchored(false))
+    ///     .build(r"a")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// vm.search(&mut cache, &Input::new(haystack).span(1..3), &mut caps);
+    /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
+    /// // pattern. Even though the search starts at 'b', the 'match anything'
+    /// // prefix allows the search to match 'a'.
+    /// let expected = Some(Match::must(0, 2..3));
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn anchored(mut self, yes: bool) -> Config {
         self.anchored = Some(yes);
         self
     }
 
+    /// Set the desired match semantics.
+    ///
+    /// The default is [`MatchKind::LeftmostFirst`], which corresponds to the
+    /// match semantics of Perl-like regex engines. That is, when multiple
+    /// patterns would match at the same leftmost position, the pattern that
+    /// appears first in the concrete syntax is chosen.
+    ///
+    /// Currently, the only other kind of match semantics supported is
+    /// [`MatchKind::All`]. This corresponds to "classical DFA" construction
+    /// where all possible matches are visited in the NFA by the `PikeVM`.
+    ///
+    /// Typically, `All` is used when one wants to execute an overlapping
+    /// search and `LeftmostFirst` otherwise. In particular, it rarely makes
+    /// sense to use `All` with the various "leftmost" find routines, since the
+    /// leftmost routines depend on the `LeftmostFirst` automata construction
+    /// strategy. Specifically, `LeftmostFirst` results in the `PikeVM`
+    /// simulating dead states as a way to terminate the search and report a
+    /// match. `LeftmostFirst` also supports non-greedy matches using this
+    /// strategy where as `All` does not.
     pub fn match_kind(mut self, kind: MatchKind) -> Config {
         self.match_kind = Some(kind);
         self
     }
 
+    /// Whether to enable UTF-8 mode or not.
+    ///
+    /// When UTF-8 mode is enabled (the default) and an empty match is seen,
+    /// the search APIs of [`PikeVM`] will always start the next search at the
+    /// next UTF-8 encoded codepoint when searching valid UTF-8. When UTF-8
+    /// mode is disabled, such searches are begun at the next byte offset.
+    ///
+    /// If this mode is enabled and invalid UTF-8 is given to search, then
+    /// behavior is unspecified.
+    ///
+    /// Generally speaking, one should enable this when
+    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
+    /// is enabled, and disable it otherwise.
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates the differences between when this option is
+    /// enabled and disabled. The differences only arise when the `PikeVM` can
+    /// return matches of length zero.
+    ///
+    /// In this first snippet, we show the results when UTF-8 mode is disabled.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().utf8(false))
+    ///     .build(r"")?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let haystack = "a☃z";
+    /// let mut it = vm.find_iter(&mut cache, haystack);
+    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And in this snippet, we execute the same search on the same haystack,
+    /// but with UTF-8 mode enabled. Notice that byte offsets that would
+    /// otherwise split the encoding of `☃` are not returned.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().utf8(true))
+    ///     .build(r"")?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let haystack = "a☃z";
+    /// let mut it = vm.find_iter(&mut cache, haystack);
+    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn utf8(mut self, yes: bool) -> Config {
         self.utf8 = Some(yes);
         self
     }
 
+    /// Attach the given prefilter to this configuration.
+    ///
+    /// The given prefilter is automatically applied to every search done by a
+    /// `PikeVM`, except for the lower level routines that accept a prefilter
+    /// parameter from the caller.
     pub fn prefilter(mut self, pre: Option<Arc<dyn Prefilter>>) -> Config {
         self.pre = Some(pre);
         self
     }
 
+    /// Returns whether this configuration has enabled anchored searches.
     pub fn get_anchored(&self) -> bool {
         self.anchored.unwrap_or(false)
     }
 
+    /// Returns the match semantics set in this configuration.
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
+    /// Returns true if and only if this configuration has UTF-8 mode enabled.
+    ///
+    /// When UTF-8 mode is enabled and an empty match is seen, [`PikeVM`] will
+    /// always start the next search at the next UTF-8 encoded codepoint.
+    /// When UTF-8 mode is disabled, such searches are begun at the next byte
+    /// offset.
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
     }
@@ -99,6 +298,10 @@ impl Config {
         self.pre.as_ref().unwrap_or(&None).as_deref()
     }
 
+    /// Overwrite the default configuration such that the options in `o` are
+    /// always used. If an option in `o` is not set, then the corresponding
+    /// option in `self` is used. If it's not set in `self` either, then it
+    /// remains not set.
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             anchored: o.anchored.or(self.anchored),
@@ -109,7 +312,54 @@ impl Config {
     }
 }
 
-/// A builder for a PikeVM.
+/// A builder for a `PikeVM`.
+///
+/// This builder permits configuring options for the syntax of a pattern,
+/// the NFA construction and the `PikeVM` construction. This builder is
+/// different from a general purpose regex builder in that it permits fine
+/// grain configuration of the construction process. The trade off for this is
+/// complexity, and the possibility of setting a configuration that might not
+/// make sense. For example, there are two different UTF-8 modes:
+///
+/// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
+/// pattern itself can contain sub-expressions that match invalid UTF-8.
+/// * [`Config::utf8`] controls how the regex iterators themselves advance
+/// the starting position of the next search when a match with zero length is
+/// found.
+///
+/// Generally speaking, callers will want to either enable all of these or
+/// disable all of these.
+///
+/// # Example
+///
+/// This example shows how to disable UTF-8 mode in the syntax and the regex
+/// itself. This is generally what you want for matching on arbitrary bytes.
+///
+/// ```
+/// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, SyntaxConfig};
+///
+/// let vm = PikeVM::builder()
+///     .configure(PikeVM::config().utf8(false))
+///     .syntax(SyntaxConfig::new().utf8(false))
+///     .build(r"foo(?-u:[^b])ar.*")?;
+/// let mut cache = vm.create_cache();
+///
+/// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
+/// let expected = Some(Match::must(0, 1..9));
+/// let got = vm.find_iter(&mut cache, haystack).next();
+/// assert_eq!(expected, got);
+/// // Notice that `(?-u:[^b])` matches invalid UTF-8,
+/// // but the subsequent `.*` does not! Disabling UTF-8
+/// // on the syntax permits this.
+/// //
+/// // N.B. This example does not show the impact of
+/// // disabling UTF-8 mode on a PikeVM Config, since that
+/// // only impacts regexes that can produce matches of
+/// // length 0.
+/// assert_eq!(b"foo\xFFarzz", &haystack[got.unwrap().range()]);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
@@ -125,10 +375,15 @@ impl Builder {
         }
     }
 
+    /// Build a `PikeVM` from the given pattern.
+    ///
+    /// If there was a problem parsing or compiling the pattern, then an error
+    /// is returned.
     pub fn build(&self, pattern: &str) -> Result<PikeVM, Error> {
         self.build_many(&[pattern])
     }
 
+    /// Build a `PikeVM` from the given patterns.
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -137,6 +392,11 @@ impl Builder {
         self.build_from_nfa(nfa)
     }
 
+    /// Build a `PikeVM` directly from its NFA.
+    ///
+    /// Note that when using this method, any configuration that applies to the
+    /// construction of the NFA itself will of course be ignored, since the NFA
+    /// given here is already built.
     pub fn build_from_nfa(&self, nfa: NFA) -> Result<PikeVM, Error> {
         // TODO: Check that this is correct.
         // if !cfg!(all(
@@ -161,6 +421,7 @@ impl Builder {
         Ok(PikeVM { config: self.config.clone(), nfa })
     }
 
+    /// Apply the given `PikeVM` configuration options to this builder.
     pub fn configure(&mut self, config: Config) -> &mut Builder {
         self.config = self.config.overwrite(config);
         self
@@ -196,6 +457,50 @@ impl Builder {
     }
 }
 
+/// A virtual machine for executing regex searches with capturing groups.
+///
+/// # Advice
+///
+/// The `PikeVM` is generally the most "powerful" regex engine in this crate.
+/// "Powerful" in this context means that it can handle any regular expression
+/// that is parseable by `regex-syntax` and any size haystack. Regretably,
+/// the `PikeVM` is also simultaneously often the _slowest_ regex engine in
+/// practice. This results in an annoying situation where one generally tries
+/// to pick any other regex engine (or perhaps none at all) before being
+/// forced to fall back to a `PikeVM`.
+///
+/// For example, a common strategy for dealing with capturing groups is to
+/// actually look for the overall match of the regex using a faster regex
+/// engine, like a [lazy DFA](crate::hybrid::regex::Regex). Once the overall
+/// match is found, one can then run the `PikeVM` on just the match span to
+/// find the spans of the capturing groups. In this way, the faster regex
+/// engine does the majority of the work, while the `PikeVM` only lends its
+/// power in a more limited role.
+///
+/// Unfortunately, this isn't always possible because the faster regex engines
+/// don't support all of the regex features in `regex-syntax`. This notably
+/// includes (and is currently limited to) Unicode word boundaries. So if your
+/// pattern has Unicode word boundaries, you typically can't use a DFA-based
+/// regex engine at all (unless you
+/// [enable heuristic support for it](crate::hybrid::dfa::Config::unicode_word_boundary)).
+///
+/// # Example
+///
+/// This example shows that the `PikeVM` implements Unicode word boundaries
+/// correctly by default.
+///
+/// ```
+/// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+///
+/// let vm = PikeVM::new(r"\b\w+\b")?;
+/// let mut cache = vm.create_cache();
+///
+/// let mut it = vm.find_iter(&mut cache, "Шерлок Холмс");
+/// assert_eq!(Some(Match::must(0, 0..12)), it.next());
+/// assert_eq!(Some(Match::must(0, 13..23)), it.next());
+/// assert_eq!(None, it.next());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct PikeVM {
     config: Config,
@@ -203,26 +508,206 @@ pub struct PikeVM {
 }
 
 impl PikeVM {
+    /// Parse the given regular expression using the default configuration and
+    /// return the corresponding `PikeVM`.
+    ///
+    /// If you want a non-default configuration, then use the [`Builder`] to
+    /// set your own configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::new("foo[0-9]+bar")?;
+    /// let mut cache = vm.create_cache();
+    /// assert_eq!(
+    ///     Some(Match::must(0, 3..14)),
+    ///     vm.find_iter(&mut cache, "zzzfoo12345barzzz").next(),
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(pattern: &str) -> Result<PikeVM, Error> {
         PikeVM::builder().build(pattern)
     }
 
+    /// Like `new`, but parses multiple patterns into a single "multi regex."
+    /// This similarly uses the default regex configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::new_many(&["[a-z]+", "[0-9]+"])?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let mut it = vm.find_iter(&mut cache, "abc 1 foo 4567 0 quux");
+    /// assert_eq!(Some(Match::must(0, 0..3)), it.next());
+    /// assert_eq!(Some(Match::must(1, 4..5)), it.next());
+    /// assert_eq!(Some(Match::must(0, 6..9)), it.next());
+    /// assert_eq!(Some(Match::must(1, 10..14)), it.next());
+    /// assert_eq!(Some(Match::must(1, 15..16)), it.next());
+    /// assert_eq!(Some(Match::must(0, 17..21)), it.next());
+    /// assert_eq!(None, it.next());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<PikeVM, Error> {
         PikeVM::builder().build_many(patterns)
     }
 
+    /// # Example
+    ///
+    /// This shows how to hand assemble a regular expression via its HIR,
+    /// compile an NFA from it and build a PikeVM from the NFA.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+    /// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
+    ///
+    /// let hir = Hir::class(Class::Bytes(ClassBytes::new(vec![
+    ///     ClassBytesRange::new(b'0', b'9'),
+    ///     ClassBytesRange::new(b'A', b'Z'),
+    ///     ClassBytesRange::new(b'_', b'_'),
+    ///     ClassBytesRange::new(b'a', b'z'),
+    /// ])));
+    ///
+    /// let config = NFA::config().nfa_size_limit(Some(1_000));
+    /// let nfa = NFA::compiler().configure(config).build_from_hir(&hir)?;
+    ///
+    /// let vm = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let expected = Some(Match::must(0, 3..4));
+    /// vm.find(&mut cache, "!@#A#@!", &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new_from_nfa(nfa: NFA) -> Result<PikeVM, Error> {
         PikeVM::builder().build_from_nfa(nfa)
     }
 
+    /// Create a new `PikeVM` that matches every input.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::always_match()?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let expected = Match::must(0, 0..0);
+    /// assert_eq!(Some(expected), vm.find_iter(&mut cache, "").next());
+    /// assert_eq!(Some(expected), vm.find_iter(&mut cache, "foo").next());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn always_match() -> Result<PikeVM, Error> {
+        let nfa = thompson::NFA::always_match();
+        PikeVM::new_from_nfa(nfa)
+    }
+
+    /// Create a new `PikeVM` that never matches any input.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    ///
+    /// let vm = PikeVM::never_match()?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// assert_eq!(None, vm.find_iter(&mut cache, "").next());
+    /// assert_eq!(None, vm.find_iter(&mut cache, "foo").next());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn never_match() -> Result<PikeVM, Error> {
+        let nfa = thompson::NFA::never_match();
+        PikeVM::new_from_nfa(nfa)
+    }
+
+    /// Return a default configuration for a `PikeVM`.
+    ///
+    /// This is a convenience routine to avoid needing to import the `Config`
+    /// type when customizing the construction of a `PikeVM`.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to disable UTF-8 mode for `PikeVM` searches.
+    /// When UTF-8 mode is disabled, the position immediately following an
+    /// empty match is where the next search begins, instead of the next
+    /// position of a UTF-8 encoded codepoint.
+    ///
+    /// In the code below, notice that `""` is permitted to match positions
+    /// that split the encoding of a codepoint. When the [`Config::utf8`]
+    /// option is disabled, those positions are not reported.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().utf8(false))
+    ///     .build(r"")?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let haystack = "a☃z";
+    /// let mut it = vm.find_iter(&mut cache, haystack);
+    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
+    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
+    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
+    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
+    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
+    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
+    /// assert_eq!(None, it.next());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn config() -> Config {
         Config::new()
     }
 
+    /// Return a builder for configuring the construction of a `PikeVM`.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// [`Builder`] type in common cases.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use the builder to disable UTF-8 mode
+    /// everywhere.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::pikevm::PikeVM,
+    ///     Match, SyntaxConfig,
+    /// };
+    ///
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().utf8(false))
+    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .build(r"foo(?-u:[^b])ar.*")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    ///
+    /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
+    /// let expected = Some(Match::must(0, 1..9));
+    /// vm.find(&mut cache, haystack, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn builder() -> Builder {
         Builder::new()
     }
 
+    /// Create a new `Input` for the given haystack.
+    ///
+    /// The `Input` returned is configured to match the configuration of this
+    /// `PikeVM`. For example, if this `PikeVM` was built with [`Config::utf8`]
+    /// enabled, then the `Input` returned will also have its [`Input::utf8`]
+    /// knob enabled.
+    ///
+    /// This routine is useful when using the lower-level [`PikeVM::search`]
+    /// API.
     pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
@@ -233,19 +718,116 @@ impl PikeVM {
             .utf8(c.get_utf8())
     }
 
+    /// Create a new cache for this `PikeVM`.
+    ///
+    /// The cache returned should only be used for searches for this
+    /// `PikeVM`. If you want to reuse the cache for another `PikeVM`, then
+    /// you must call [`Cache::reset`] with that `PikeVM` (or, equivalently,
+    /// [`PikeVM::reset_cache`]).
     pub fn create_cache(&self) -> Cache {
         Cache::new(self)
     }
 
+    /// Create a new empty set of capturing groups that is guaranteed to be
+    /// valid for the search APIs on this `PikeVM`.
+    ///
+    /// A `Captures` value created for a specific `PikeVM` cannot be used with
+    /// any other `PikeVM`.
+    ///
+    /// See the [`Captures`] documentation for an explanation of its
+    /// alternative constructors that permit the `PikeVM` to do less work
+    /// during a search, and thus might make it faster.
     pub fn create_captures(&self) -> Captures {
         Captures::new(self.get_nfa().clone())
     }
 
+    /// Reset the given cache such that it can be used for searching with the
+    /// this `PikeVM` (and only this `PikeVM`).
+    ///
+    /// A cache reset permits reusing memory already allocated in this cache
+    /// with a different `PikeVM`.
+    ///
+    /// # Example
+    ///
+    /// This shows how to re-purpose a cache for use with a different `PikeVM`.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let re1 = PikeVM::new(r"\w")?;
+    /// let re2 = PikeVM::new(r"\W")?;
+    ///
+    /// let mut cache = re1.create_cache();
+    /// assert_eq!(
+    ///     Some(Match::must(0, 0..2)),
+    ///     re1.find_iter(&mut cache, "Δ").next(),
+    /// );
+    ///
+    /// // Using 'cache' with re2 is not allowed. It may result in panics or
+    /// // incorrect results. In order to re-purpose the cache, we must reset
+    /// // it with the PikeVM we'd like to use it with.
+    /// //
+    /// // Similarly, after this reset, using the cache with 're1' is also not
+    /// // allowed.
+    /// cache.reset(&re2);
+    /// assert_eq!(
+    ///     Some(Match::must(0, 0..3)),
+    ///     re2.find_iter(&mut cache, "☃").next(),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn reset_cache(&self, cache: &mut Cache) {
+        cache.reset(self);
+    }
+
+    /// Returns the total number of patterns compiled into this `PikeVM`.
+    ///
+    /// In the case of a `PikeVM` that contains no patterns, this returns `0`.
+    ///
+    /// # Example
+    ///
+    /// This example shows the pattern length for a `PikeVM` that never
+    /// matches:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    ///
+    /// let vm = PikeVM::never_match()?;
+    /// assert_eq!(vm.pattern_len(), 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And another example for a `PikeVM` that matches at every position:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    ///
+    /// let vm = PikeVM::always_match()?;
+    /// assert_eq!(vm.pattern_len(), 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And finally, a `PikeVM` that was constructed from multiple patterns:
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    ///
+    /// let vm = PikeVM::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
+    /// assert_eq!(vm.pattern_len(), 3);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn pattern_len(&self) -> usize {
+        self.nfa.pattern_len()
+    }
+
+    /// Return the config for this `PikeVM`.
     #[inline]
     pub fn get_config(&self) -> &Config {
         &self.config
     }
 
+    /// Returns a reference to the underlying NFA.
     #[inline]
     pub fn get_nfa(&self) -> &NFA {
         &self.nfa
@@ -253,6 +835,29 @@ impl PikeVM {
 }
 
 impl PikeVM {
+    /// Returns true if and only if this `PikeVM` matches the given haystack.
+    ///
+    /// This routine may short circuit if it knows that scanning future
+    /// input will never lead to a different result. In particular, if the
+    /// underlying NFA enters a match state, then this routine will return
+    /// `true` immediately without inspecting any future input. (Consider how
+    /// this might make a difference given the regex `a+` on the haystack
+    /// `aaaaaaaaaaaaaaa`. This routine can stop after it sees the first `a`,
+    /// but routines like `find` need to continue searching because `+` is
+    /// greedy by default.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    ///
+    /// let vm = PikeVM::new("foo[0-9]+bar")?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// assert!(vm.is_match(&mut cache, "foo12345bar"));
+    /// assert!(!vm.is_match(&mut cache, "foobar"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn is_match<H: AsRef<[u8]>>(
         &self,
@@ -265,6 +870,48 @@ impl PikeVM {
         caps.is_match()
     }
 
+    /// Executes a leftmost forward search and writes the spans of capturing
+    /// groups that participated in a match into the provided [`Captures`]
+    /// value. If no match was found, then [`Captures::is_match`] is guaranteed
+    /// to return `false`.
+    ///
+    /// For more control over the input parameters, see [`PikeVM::search`].
+    ///
+    /// # Example
+    ///
+    /// Leftmost first match semantics corresponds to the match with the
+    /// smallest starting offset, but where the end offset is determined by
+    /// preferring earlier branches in the original regular expression. For
+    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
+    /// will match `Samwise` in `Samwise`.
+    ///
+    /// Generally speaking, the "leftmost first" match is how most backtracking
+    /// regular expressions tend to work. This is in contrast to POSIX-style
+    /// regular expressions that yield "leftmost longest" matches. Namely,
+    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
+    /// leftmost longest semantics. (This crate does not currently support
+    /// leftmost longest semantics.)
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::new("foo[0-9]+")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let expected = Match::must(0, 0..8);
+    /// vm.find(&mut cache, "foo12345", &mut caps);
+    /// assert_eq!(Some(expected), caps.get_match());
+    ///
+    /// // Even though a match is found after reading the first byte (`a`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over later parts.
+    /// let vm = PikeVM::new("abc|a")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let expected = Match::must(0, 0..3);
+    /// vm.find(&mut cache, "abc", &mut caps);
+    /// assert_eq!(Some(expected), caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn find<H: AsRef<[u8]>>(
         &self,
@@ -276,6 +923,26 @@ impl PikeVM {
         self.search(cache, &input, caps)
     }
 
+    /// Returns an iterator over all non-overlapping leftmost matches in the
+    /// given bytes. If no match exists, then the iterator yields no elements.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let vm = PikeVM::new("foo[0-9]+")?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let text = "foo1 foo12 foo123";
+    /// let matches: Vec<Match> = vm.find_iter(&mut cache, text).collect();
+    /// assert_eq!(matches, vec![
+    ///     Match::must(0, 0..4),
+    ///     Match::must(0, 5..10),
+    ///     Match::must(0, 11..17),
+    /// ]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
@@ -288,6 +955,38 @@ impl PikeVM {
         FindMatches { re: self, cache, caps, it }
     }
 
+    /// Returns an iterator over all non-overlapping `Captures` values. If no
+    /// match exists, then the iterator yields no elements.
+    ///
+    /// This yields the same matches as [`PikeVM::find_iter`], but it includes
+    /// the spans of all capturing groups that participate in each match.
+    ///
+    /// **Tip:** See [`util::iter::Searcher`](crate::util::iter::Searcher) for
+    /// how to correctly iterate over all matches in a haystack while avoiding
+    /// the creation of a new `Captures` value for every match. (Which you are
+    /// forced to do with an `Iterator`.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
+    ///
+    /// let vm = PikeVM::new("foo(?P<numbers>[0-9]+)")?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let text = "foo1 foo12 foo123";
+    /// let matches: Vec<Span> = vm
+    ///     .captures_iter(&mut cache, text)
+    ///     // The unwrap is OK since 'numbers' matches if the pattern matches.
+    ///     .map(|caps| caps.get_group_by_name("numbers").unwrap())
+    ///     .collect();
+    /// assert_eq!(matches, vec![
+    ///     Span::from(3..4),
+    ///     Span::from(8..10),
+    ///     Span::from(14..17),
+    /// ]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
@@ -300,6 +999,133 @@ impl PikeVM {
         CapturesMatches { re: self, cache, caps, it }
     }
 
+    /// Executes a leftmost forward search and writes the spans of capturing
+    /// groups that participated in a match into the provided [`Captures`]
+    /// value. If no match was found, then [`Captures::is_match`] is guaranteed
+    /// to return `false`.
+    ///
+    /// This is like [`PikeVM::find`], except it provides some additional
+    /// control over how the search is executed. Those parameters are
+    /// configured via a [`Input`].
+    ///
+    /// The examples below demonstrate each of these additional parameters.
+    ///
+    /// # Example: prefilter
+    ///
+    /// This example shows how to provide a prefilter for a pattern where all
+    /// matches start with a `z` byte.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::pikevm::PikeVM,
+    ///     util::prefilter::{Candidate, Prefilter},
+    ///     Match, Input, Span,
+    /// };
+    ///
+    /// #[derive(Debug)]
+    /// pub struct ZPrefilter;
+    ///
+    /// impl Prefilter for ZPrefilter {
+    ///     fn find(
+    ///         &self,
+    ///         haystack: &[u8],
+    ///         span: Span,
+    ///     ) -> Candidate {
+    ///         // Try changing b'z' to b'q' and observe this test fail since
+    ///         // the prefilter will skip right over the match.
+    ///         match haystack[span].iter().position(|&b| b == b'z') {
+    ///             None => Candidate::None,
+    ///             Some(i) => {
+    ///                 let start = span.start + i;
+    ///                 let span = Span::from(start..start + 1);
+    ///                 Candidate::PossibleMatch(span)
+    ///             }
+    ///         }
+    ///     }
+    ///
+    ///     fn memory_usage(&self) -> usize {
+    ///         0
+    ///     }
+    /// }
+    ///
+    /// let vm = PikeVM::new("z[0-9]{3}")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let input = Input::new("foobar z123 q123")
+    ///     .prefilter(Some(&ZPrefilter));
+    /// let expected = Some(Match::must(0, 7..11));
+    /// vm.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: specific pattern search
+    ///
+    /// This example shows how to build a multi-PikeVM that permits searching
+    /// for specific patterns.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::pikevm::PikeVM,
+    ///     Match, PatternID, Input,
+    /// };
+    ///
+    /// let vm = PikeVM::new_many(&["[a-z0-9]{6}", "[a-z][a-z0-9]{5}"])?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let haystack = "foo123";
+    ///
+    /// // Since we are using the default leftmost-first match and both
+    /// // patterns match at the same starting position, only the first pattern
+    /// // will be returned in this case when doing a search for any of the
+    /// // patterns.
+    /// let expected = Some(Match::must(0, 0..6));
+    /// vm.search(&mut cache, &Input::new(haystack), &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// // But if we want to check whether some other pattern matches, then we
+    /// // can provide its pattern ID.
+    /// let expected = Some(Match::must(1, 0..6));
+    /// vm.search(
+    ///     &mut cache,
+    ///     &Input::new(haystack).pattern(Some(PatternID::must(1))),
+    ///     &mut caps,
+    /// );
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: specifying the bounds of a search
+    ///
+    /// This example shows how providing the bounds of a search can produce
+    /// different results than simply sub-slicing the haystack.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, Input};
+    ///
+    /// let vm = PikeVM::new(r"\b[0-9]{3}\b")?;
+    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let haystack = "foo123bar";
+    ///
+    /// // Since we sub-slice the haystack, the search doesn't know about
+    /// // the larger context and assumes that `123` is surrounded by word
+    /// // boundaries. And of course, the match position is reported relative
+    /// // to the sub-slice as well, which means we get `0..3` instead of
+    /// // `3..6`.
+    /// let expected = Some(Match::must(0, 0..3));
+    /// vm.search(&mut cache, &Input::new(&haystack[3..6]), &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// // But if we provide the bounds of the search within the context of the
+    /// // entire haystack, then the search can take the surrounding context
+    /// // into account. (And if we did find a match, it would be reported
+    /// // as a valid offset into `haystack` instead of its sub-slice.)
+    /// let expected = None;
+    /// vm.search(&mut cache, &Input::new(haystack).range(3..6), &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn search(
         &self,
@@ -322,6 +1148,53 @@ impl PikeVM {
         }
     }
 
+    /// Writes the set of patterns that match anywhere in the given search
+    /// configuration to `patset`. If multiple patterns match at the same
+    /// position and this `PikeVM` was configured with [`MatchKind::All`]
+    /// semantics, then all matching patterns are written to the given set.
+    ///
+    /// Unless all of the patterns in this `PikeVM` are anchored, then
+    /// generally speaking, this will visit every byte in the haystack.
+    ///
+    /// This search routine *does not* clear the pattern set. This gives some
+    /// flexibility to the caller (e.g., running multiple searches with the
+    /// same pattern set), but does make the API bug-prone if you're reusing
+    /// the same pattern set for multiple searches but intended them to be
+    /// independent.
+    ///
+    /// # Panics
+    ///
+    /// This routine may panic if the given [`PatternSet`] has insufficient
+    /// capacity to hold all matching pattern IDs.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find all matching patterns in a haystack,
+    /// even when some patterns match at the same position as other patterns.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::pikevm::PikeVM,
+    ///     MatchKind, PatternSet, Input,
+    /// };
+    ///
+    /// let patterns = &[
+    ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
+    /// ];
+    /// let vm = PikeVM::builder()
+    ///     .configure(PikeVM::config().match_kind(MatchKind::All))
+    ///     .build_many(patterns)?;
+    /// let mut cache = vm.create_cache();
+    ///
+    /// let input = Input::new("foobar");
+    /// let mut patset = PatternSet::new(vm.pattern_len());
+    /// vm.which_overlapping_matches(&mut cache, &input, &mut patset);
+    /// let expected = vec![0, 2, 3, 4, 6];
+    /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn which_overlapping_matches(
         &self,
@@ -334,6 +1207,13 @@ impl PikeVM {
 }
 
 impl PikeVM {
+    /// The implementation of standard leftmost search.
+    ///
+    /// Capturing group spans are written to 'caps', but only if requested.
+    /// 'caps' can be one of three things: 1) totally empty, in which case, we
+    /// only report the pattern that matched or 2) only has slots for recording
+    /// the overall match offsets for any pattern or 3) has all slots available
+    /// for recording the spans of any groups participating in a match.
     fn search_imp(
         &self,
         cache: &mut Cache,
@@ -342,6 +1222,9 @@ impl PikeVM {
     ) {
         caps.set_pattern(None);
         cache.setup_search(caps.slot_len());
+        if input.is_done() {
+            return;
+        }
         // Why do we even care about this? Well, in our 'Captures'
         // representation, we use usize::MAX as a sentinel to indicate "no
         // match." This isn't problematic so long as our haystack doesn't have
@@ -354,11 +1237,22 @@ impl PikeVM {
         );
         instrument!(|c| c.reset(&self.nfa));
 
+        // Whether we want to visit all match states instead of emulating the
+        // 'leftmost' semantics of typical backtracking regex engines.
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
+        // Whether the search is anchored or not. This can be from
+        // configuration or from how the pattern itself is constructed. As a
+        // special case, searches that have specified a specific pattern to
+        // search for are automatically anchored, since there is no unanchored
+        // prefix for each individual pattern, only for the entire NFA as a
+        // whole.
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || input.get_pattern().is_some();
+        // Where to start. It's either the anchored starting state for the
+        // entire NFA, or it's the anchored starting state for a specific
+        // pattern.
         let start_id = match input.get_pattern() {
             // We always use the anchored starting state here, even if doing an
             // unanchored search. The "unanchored" part of it is implemented
@@ -370,44 +1264,140 @@ impl PikeVM {
         };
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
-        let mut at = input.start();
-        while at <= input.end() {
+        // Yes, our search doesn't end at input.end(), but includes it. This
+        // is necessary because matches are delayed by one byte, just like
+        // how the DFA engines work. The delay is used to handle look-behind
+        // assertions. In the case of the PikeVM, the delay is implemented
+        // by not considering a match to exist until it is visited in
+        // 'steps'. Technically, we know a match exists in the previous
+        // iteration via 'epsilon_closure'. (It's the same thing in NFA-to-DFA
+        // determinization. We don't mark a DFA state as a match state if it
+        // contains an NFA match state, but rather, whether the DFA state was
+        // generated by a transition from a DFA state that contains an NFA
+        // match state.)
+        for at in input.start()..=input.end() {
             if curr.set.is_empty() {
-                if (caps.is_match() && !allmatches)
-                    || (anchored && at > input.start())
-                {
+                // We have a match and we haven't been instructed to continue
+                // on even after finding a match, so we can quit.
+                if caps.is_match() && !allmatches {
+                    break;
+                }
+                // If we're running an anchored search and we've advanced
+                // beyond the start position, then we will never observe a
+                // match and thus must stop.
+                if anchored && at > input.start() {
                     break;
                 }
             }
-            if curr.set.is_empty() || (!anchored && !caps.is_match()) {
-                let slots = next.slot_table.for_state(start_id);
-                self.epsilon_closure(stack, slots, curr, start_id, input, at);
+            // Instead of using the NFA's unanchored start state, we actually
+            // always use its anchored starting state. As a result, when doing
+            // an unanchored search, we need to simulate our own '(?s:.)*?'
+            // prefix, to permit a match to appear anywhere.
+            //
+            // Now, we don't *have* to do things this way. We could use the
+            // NFA's unanchored starting state and do one 'epsilon_closure'
+            // call from that starting state before the main loop here. And
+            // that is just as correct. However, it turns out to be slower
+            // than our approach here because it slightly increases the cost
+            // of processing each byte by requiring us to visit more NFA
+            // states to deal with the additional NFA states in the unanchored
+            // prefix. By simulating it explicitly here, we lower those costs
+            // substantially. The cost is itself small, but it adds up for
+            // large haystacks.
+            //
+            // In order to simulate the '(?s:.)*?' prefix---which is not
+            // greedy---we are careful not to perform an epsilon closure on
+            // the start state if we already have a match. Namely, if we
+            // did otherwise, we would never reach a terminating condition
+            // because there would always be additional states to process.
+            // In effect, the exclusion of running 'epsilon_closure' when
+            // we have a match corresponds to the "dead" states we have in
+            // our DFA regex engines. Namely, in a DFA, match states merely
+            // instruct the search execution to record the current offset as
+            // the most recently seen match. It is the dead state that actually
+            // indicates when to stop the search (other than EOF or quit
+            // states).
+            //
+            // However, when 'allmatches' is true, the caller has asked us to
+            // leave in every possible match state. This tends not to make a
+            // whole lot of sense in unanchored searches, because it means the
+            // search really cannot terminate until EOF. And often, in that
+            // case, you wind up skipping over a bunch of matches and are left
+            // with the "last" match. Arguably, it just doesn't make a lot of
+            // sense to run a 'leftmost' search (which is what this routine is)
+            // with 'allmatches' set to true. But the DFAs support it and this
+            // matches their behavior. (Generally, 'allmatches' is useful for
+            // overlapping searches or leftmost anchored searches to find the
+            // longest possible match by ignoring match priority.)
+            if !caps.is_match() || allmatches {
+                // Since we are adding to the 'curr' active states and since
+                // this is for the start ID, we use a slots slice that is
+                // guaranteed to have the right length but where event element
+                // is absent. This is exactly what we want, because this
+                // epsilon closure is responsible for simulating an unanchored
+                // '(?s:.)*?' prefix. It is specifically outside of any
+                // capturing groups, and thus, using slots that are always
+                // absent is correct.
+                //
+                // Note though that we can't just use '&mut []' here, since
+                // this epsilon closure may traverse through 'Captures' epsilon
+                // transitions, and thus must be able to write offsets to the
+                // slots given which are later copied to slot values in 'curr'.
+                let slots = next.slot_table.all_absent();
+                self.epsilon_closure(stack, slots, curr, input, at, start_id);
             }
-            if self.steps(stack, curr, next, input, at, caps) {
-                if input.get_earliest() {
-                    break;
-                }
+            self.nexts(stack, curr, next, input, at, caps);
+            // Unless the caller asked us to return early, we need to mush on
+            // to see if we can extend our match. (But note that 'nexts' will
+            // quit right after seeing a match when match_kind==LeftmostFirst,
+            // as is consist with leftmost-first match priority.)
+            if input.get_earliest() && caps.is_match() {
+                break;
             }
-            at += 1;
             core::mem::swap(curr, next);
             next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
     }
 
+    /// The implementation for the 'which_overlapping_matches' API. Basically,
+    /// we do a single scan through the entire haystack (unless our regex
+    /// or search is anchored) and record every pattern that matched. In
+    /// particular, when MatchKind::All is used, this supports overlapping
+    /// matches. So if we have the regexes 'sam' and 'samwise', they will
+    /// *both* be reported in the pattern set when searching the haystack
+    /// 'samwise'.
     fn which_overlapping_imp(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) {
+        // NOTE: This is effectively a copy of 'search_imp' above, but with no
+        // captures support and instead writes patterns that matched directly
+        // to 'patset'. See that routine for better commentary about what's
+        // going on in this routine. We probably could unify the routines using
+        // generics or more helper routines, but I'm not sure it's worth it.
+        //
+        // NOTE: We somewhat go out of our way here to support things like
+        // 'input.get_earliest()' and 'leftmost-first' match semantics. Neither
+        // of those seem particularly relevant to this routine, but they are
+        // both supported by the DFA analogs of this routine by construction
+        // and composition, so it seems like good sense to have the PikeVM
+        // match that behavior.
+
+        cache.setup_search(0);
+        if input.is_done() {
+            return;
+        }
         assert!(
             input.haystack().len() < core::usize::MAX,
             "byte slice lengths must be less than usize MAX",
         );
         instrument!(|c| c.reset(&self.nfa));
-        cache.setup_search(0);
 
+        let allmatches =
+            self.config.get_match_kind().continue_past_first_match();
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || input.get_pattern().is_some();
@@ -417,30 +1407,45 @@ impl PikeVM {
         };
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
-        let mut at = input.start();
-        while at <= input.end() {
-            if anchored && curr.set.is_empty() && at > input.start() {
-                break;
+        for at in input.start()..=input.end() {
+            let any_matches = !patset.is_empty();
+            if curr.set.is_empty() {
+                if any_matches && !allmatches {
+                    break;
+                }
+                if anchored && at > input.start() {
+                    break;
+                }
             }
-            if curr.set.is_empty() || !anchored {
+            if !any_matches || allmatches {
                 let slots = &mut [];
-                self.epsilon_closure(stack, slots, curr, start_id, input, at);
+                self.epsilon_closure(stack, slots, curr, input, at, start_id);
             }
-            self.steps_overlapping(stack, curr, next, input, at, patset);
+            self.nexts_overlapping(stack, curr, next, input, at, patset);
             // If we found a match and filled our set, then there is no more
-            // additional info that we can provide. Thus, we can quit.
-            if patset.is_full() {
+            // additional info that we can provide. Thus, we can quit. We also
+            // quit if the caller asked us to stop at the earliest point that
+            // we know a match exists.
+            if patset.is_full() || input.get_earliest() {
                 break;
             }
-            at += 1;
             core::mem::swap(curr, next);
             next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
     }
 
+    /// Process the active states in 'curr' to find the states (written to
+    /// 'next') we should process for the next byte in the haystack.
+    ///
+    /// 'stack' is used to perform a depth first traversal of the NFA when
+    /// computing an epsilon closure.
+    ///
+    /// When a match is found, the slots for that match state (in 'curr') are
+    /// copied to 'caps'. Moreover, once a match is seen, processing for 'curr'
+    /// stops (unless the PikeVM was configured with MatchKind::All semantics).
     #[inline(always)]
-    fn steps(
+    fn nexts(
         &self,
         stack: &mut Vec<FollowEpsilon>,
         curr: &mut ActiveStates,
@@ -448,29 +1453,28 @@ impl PikeVM {
         input: &Input<'_, '_>,
         at: usize,
         caps: &mut Captures,
-    ) -> bool {
+    ) {
         let slot_len = caps.slot_len();
-        let mut matched = false;
         instrument!(|c| c.record_state_set(&curr.set));
         let ActiveStates { ref set, ref mut slot_table } = *curr;
         for sid in set.iter() {
-            let pid = match self.step(stack, slot_table, next, sid, input, at)
+            let pid = match self.next(stack, slot_table, next, input, at, sid)
             {
                 None => continue,
                 Some(pid) => pid,
             };
-            matched = true;
             let slots = slot_table.for_state(sid);
             copy_to_captures(pid, slots, caps);
             if !self.config.get_match_kind().continue_past_first_match() {
                 break;
             }
         }
-        matched
     }
 
+    /// Like 'nexts', but for the overlapping case. This doesn't write any
+    /// slots, and instead just writes which pattern matched in 'patset'.
     #[inline(always)]
-    fn steps_overlapping(
+    fn nexts_overlapping(
         &self,
         stack: &mut Vec<FollowEpsilon>,
         curr: &mut ActiveStates,
@@ -482,24 +1486,37 @@ impl PikeVM {
         instrument!(|c| c.record_state_set(&curr.set));
         let ActiveStates { ref set, ref mut slot_table } = *curr;
         for sid in set.iter() {
-            let pid = match self.step(stack, slot_table, next, sid, input, at)
+            let pid = match self.next(stack, slot_table, next, input, at, sid)
             {
                 None => continue,
                 Some(pid) => pid,
             };
             patset.insert(pid);
+            if !self.config.get_match_kind().continue_past_first_match() {
+                break;
+            }
         }
     }
 
+    /// Starting from 'sid', if the position 'at' in the 'input' haystack has a
+    /// transition defined out of 'sid', then add the state transitioned to and
+    /// its epsilon closure to the 'next' set of states to explore.
+    ///
+    /// 'stack' is used by the epsilon closure computation to perform a depth
+    /// first traversal of the NFA.
+    ///
+    /// 'curr_slot_table' should be the table of slots for the current set of
+    /// states being explored. If there is a transition out of 'sid', then
+    /// sid's row in the slot table is used to perform the epsilon closure.
     #[inline(always)]
-    fn step(
+    fn next(
         &self,
         stack: &mut Vec<FollowEpsilon>,
         curr_slot_table: &mut SlotTable,
         next: &mut ActiveStates,
-        sid: StateID,
         input: &Input<'_, '_>,
         at: usize,
+        sid: StateID,
     ) -> Option<PatternID> {
         instrument!(|c| c.record_step(sid));
         match *self.nfa.state(sid) {
@@ -515,7 +1532,7 @@ impl PikeVM {
                     // adding 1 will never wrap.
                     let at = at.wrapping_add(1);
                     self.epsilon_closure(
-                        stack, slots, next, trans.next, input, at,
+                        stack, slots, next, input, at, trans.next,
                     );
                 }
                 None
@@ -527,7 +1544,7 @@ impl PikeVM {
                     // adding 1 will never wrap.
                     let at = at.wrapping_add(1);
                     self.epsilon_closure(
-                        stack, slots, next, next_sid, input, at,
+                        stack, slots, next, input, at, next_sid,
                     );
                 }
                 None
@@ -536,15 +1553,28 @@ impl PikeVM {
         }
     }
 
+    /// Compute the epsilon closure of 'sid', writing the closure into 'next'
+    /// while copying slot values from 'curr_slots' into corresponding states
+    /// in 'next'. 'curr_slots' should be the slot values corresponding to
+    /// 'sid'.
+    ///
+    /// The given 'stack' is used to perform a depth first traversal of the
+    /// NFA by recursively following all epsilon transitions out of 'sid'.
+    /// Conditional epsilon transitions are followed if and only if they are
+    /// satisfied for the position 'at' in the 'input' haystack.
+    ///
+    /// While this routine may write to 'curr_slots', once it returns, any
+    /// writes are undone and the original values (even if absent) are
+    /// restored.
     #[inline(always)]
     fn epsilon_closure(
         &self,
         stack: &mut Vec<FollowEpsilon>,
         curr_slots: &mut [Option<NonMaxUsize>],
         next: &mut ActiveStates,
-        sid: StateID,
         input: &Input<'_, '_>,
         at: usize,
+        sid: StateID,
     ) {
         instrument!(|c| {
             c.record_closure(sid);
@@ -557,26 +1587,58 @@ impl PikeVM {
                     curr_slots[slot] = pos;
                 }
                 FollowEpsilon::Explore(sid) => {
-                    self.epsilon_closure_step(
-                        stack, curr_slots, next, sid, input, at,
+                    self.epsilon_closure_explore(
+                        stack, curr_slots, next, input, at, sid,
                     );
                 }
             }
         }
     }
 
+    /// Explore all of the epsilon transitions out of 'sid'. This is mostly
+    /// split out from 'epsilon_closure' in order to clearly delineate
+    /// the actual work of computing an epsilon closure from the stack
+    /// book-keeping.
+    ///
+    /// This will push any additional explorations needed on to 'stack'.
+    ///
+    /// 'curr_slots' should refer to the slots for the currently active NFA
+    /// state. That is, the current state we are stepping through. These
+    /// slots are mutated in place as new 'Captures' states are traversed
+    /// during epsilon closure, but the slots are restored to their original
+    /// values once the full epsilon closure is completed. The ultimate use of
+    /// 'curr_slots' is to copy them to the corresponding 'next_slots', so that
+    /// the capturing group spans are forwarded from the currently active state
+    /// to the next.
+    ///
+    /// 'next' refers to the next set of active states. Computing an epsilon
+    /// closure may increase the next set of active states.
+    ///
+    /// 'input' refers to the caller's input configuration and 'at' refers to
+    /// the current position in the haystack. These are used to check whether
+    /// conditional epsilon transitions (like look-around) are satisfied at
+    /// the current position. If they aren't, then the epsilon closure won't
+    /// include them.
     #[inline(always)]
-    fn epsilon_closure_step(
+    fn epsilon_closure_explore(
         &self,
         stack: &mut Vec<FollowEpsilon>,
         curr_slots: &mut [Option<NonMaxUsize>],
         next: &mut ActiveStates,
-        mut sid: StateID,
         input: &Input<'_, '_>,
         at: usize,
+        mut sid: StateID,
     ) {
+        // We can avoid pushing some state IDs on to our stack in precisely
+        // the cases where a 'push(x)' would be immediately followed by a 'x
+        // = pop()'. This is achieved by this outer-loop. We simply set 'sid'
+        // to be the next state ID we want to explore once we're done with
+        // our initial exploration. In practice, this avoids a lot of stack
+        // thrashing.
         loop {
             instrument!(|c| c.record_set_insert(sid));
+            // Record this state as part of our next set of active states. If
+            // we've already explored it, then no need to do it again.
             if !next.set.insert(sid) {
                 return;
             }
@@ -618,6 +1680,10 @@ impl PikeVM {
                     stack.push(FollowEpsilon::Explore(alt2));
                 }
                 State::Capture { next, slot } => {
+                    // There's no need to do anything with slots that
+                    // ultimately won't be copied into the caller-provided
+                    // 'Captures' value. So we just skip dealing with them at
+                    // all.
                     if slot < curr_slots.len() {
                         instrument!(|c| c.record_stack_push(sid));
                         stack.push(FollowEpsilon::RestoreCapture {
@@ -681,7 +1747,7 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
 /// * `'c` represents the lifetime of the PikeVM's cache.
 /// * `'h` represents the lifetime of the haystack being searched.
 ///
-/// This iterator can be created with the [`Regex::captures_iter`] method.
+/// This iterator can be created with the [`PikeVM::captures_iter`] method.
 #[derive(Debug)]
 pub struct CapturesMatches<'r, 'c, 'h> {
     re: &'r PikeVM,
@@ -939,7 +2005,20 @@ impl SlotTable {
         // for tracking the overall match instead of all slots for every
         // group.
         self.slots_for_captures = nfa.capture_slot_len();
-        self.table.resize(nfa.states().len() * self.slots_per_state, None);
+        let len = nfa
+            .states()
+            .len()
+            // We add 1 so that our last row is always empty. We use it as
+            // "scratch" space for computing the epsilon closure off of the
+            // starting state.
+            .checked_add(1)
+            .and_then(|x| x.checked_mul(self.slots_per_state))
+            // It seems like this could actually panic on legitimate inputs on
+            // 32-bit targets, and very likely to panic on 16-bit. Should we
+            // somehow convert this to an error? What about something similar
+            // for the lazy DFA cache?
+            .expect("slot table length doesn't overflow");
+        self.table.resize(len, None);
     }
 
     /// Return the heap memory usage, in bytes, used by this slot table.
@@ -969,6 +2048,15 @@ impl SlotTable {
     /// always matches the number of slots indicated via 'setup_search'.
     fn for_state(&mut self, sid: StateID) -> &mut [Option<NonMaxUsize>] {
         let i = sid.as_usize() * self.slots_per_state;
+        &mut self.table[i..i + self.slots_for_captures]
+    }
+
+    /// Return a slice of slots of appropriate length where every slot offset
+    /// is guaranteed to be absent. This is useful in cases where you need to
+    /// compute an epsilon closure outside of the user supplied regex, and thus
+    /// never want it to have any capturing slots set.
+    fn all_absent(&mut self) -> &mut [Option<NonMaxUsize>] {
+        let i = self.table.len() - self.slots_per_state;
         &mut self.table[i..i + self.slots_for_captures]
     }
 }

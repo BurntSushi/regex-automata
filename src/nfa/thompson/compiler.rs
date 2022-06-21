@@ -328,9 +328,8 @@ mutably both inside and outside the closure at the same time.
 ///
 /// # Example: compilation from concrete syntax
 ///
-/// This shows how to compile an NFA from a pattern string while setting a
-/// size limit on how build the NFA is allowed to be (in terms of bytes of heap
-/// used).
+/// This shows how to compile an NFA from a pattern string while setting a size
+/// limit on how big the NFA is allowed to be (in terms of bytes of heap used).
 ///
 /// ```
 /// use regex_automata::{
@@ -357,10 +356,7 @@ mutably both inside and outside the closure at the same time.
 /// compile an NFA directly from it.
 ///
 /// ```
-/// use regex_automata::{
-///     nfa::thompson::{NFA, pikevm::PikeVM},
-///     Match,
-/// };
+/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
 /// use regex_syntax::hir::{Hir, Class, ClassBytes, ClassBytesRange};
 ///
 /// let hir = Hir::class(Class::Bytes(ClassBytes::new(vec![

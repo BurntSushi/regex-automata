@@ -821,7 +821,7 @@ impl Config {
     /// Whether to enable UTF-8 mode or not.
     ///
     /// When UTF-8 mode is enabled (the default) and an empty match is seen,
-    /// the iterators on [`Regex`] will always start the next search at the
+    /// the search APIs of [`Regex`] will always start the next search at the
     /// next UTF-8 encoded codepoint when searching valid UTF-8. When UTF-8
     /// mode is disabled, such searches are begun at the next byte offset.
     ///
@@ -830,9 +830,7 @@ impl Config {
     ///
     /// Generally speaking, one should enable this when
     /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
-    /// and
-    /// [`thompson::Config::utf8`](crate::nfa::thompson::Config::utf8)
-    /// are enabled, and disable it otherwise.
+    /// is enabled, and disable it otherwise.
     ///
     /// # Example
     ///
@@ -912,14 +910,11 @@ impl Config {
 /// itself. This builder is different from a general purpose regex builder in
 /// that it permits fine grain configuration of the construction process. The
 /// trade off for this is complexity, and the possibility of setting a
-/// configuration that might not make sense. For example, there are three
+/// configuration that might not make sense. For example, there are two
 /// different UTF-8 modes:
 ///
 /// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
 /// pattern itself can contain sub-expressions that match invalid UTF-8.
-/// * [`nfa::thompson::Config::utf8`](crate::nfa::thompson::Config::utf8)
-/// controls whether the implicit unanchored prefix added to the NFA can
-/// match through invalid UTF-8 or not.
 /// * [`Config::utf8`] controls how the regex iterators themselves advance
 /// the starting position of the next search when a match with zero length is
 /// found.
@@ -961,9 +956,7 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
-/// use regex_automata::{
-///     dfa::regex::Regex, nfa::thompson, Match, SyntaxConfig
-/// };
+/// use regex_automata::{dfa::regex::Regex, Match, SyntaxConfig};
 ///
 /// let re = Regex::builder()
 ///     .configure(Regex::config().utf8(false))
