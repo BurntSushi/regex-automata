@@ -18,6 +18,25 @@ use crate::{
     Input, Match, MatchError, MatchKind,
 };
 
+/// Returns the minimum visited capacity for the given haystack.
+///
+/// This function can be used as the argument to [`Config::visited_capacity`]
+/// in order to guarantee that a backtracking search for the
+/// given `input.haystack()` won't return an error when using a
+/// [`BoundedBacktracker`] built from the given `NFA`.
+///
+/// This routine exists primarily as a way to test that the bounded backtracker
+/// works correctly when its capacity is set to the smallest possible amount.
+/// Still, it may be useful in cases where you know you want to use the bounded
+/// backtracker for a specific input, and just need to know what visited
+/// capacity to provide to make it work.
+///
+/// Be warned that this number could be quite large as it is multiplicative in
+/// the size the given NFA and haystack.
+pub fn min_visited_capacity(nfa: &NFA, input: &Input<'_, '_>) -> usize {
+    div_ceil(nfa.states().len() * (input.haystack().len() + 1), 8)
+}
+
 /// The configuration used for building a bounded backtracker.
 ///
 /// A bounded backtracker configuration is a simple data object that is
@@ -259,12 +278,12 @@ impl Config {
     /// // thus means that the backtracker can only handle smaller haystacks,
     /// // assuming that the visited capacity remains unchanged.
     /// let re = BoundedBacktracker::new(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 878);
+    /// assert_eq!(re.max_haystack_len(), 7_036);
     /// // But we can increase the visited capacity to handle bigger haystacks!
     /// let re = BoundedBacktracker::builder()
     ///     .configure(BoundedBacktracker::config().visited_capacity(1<<20))
     ///     .build(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 3517);
+    /// assert_eq!(re.max_haystack_len(), 28_148);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn visited_capacity(mut self, capacity: usize) -> Config {
@@ -921,33 +940,36 @@ impl BoundedBacktracker {
     /// // If you're only using ASCII, you get a big budget.
     /// let re = BoundedBacktracker::new(r"(?-u)\w+")?;
     /// let mut cache = re.create_cache();
-    /// assert_eq!(re.max_haystack_len(), 37_448);
+    /// assert_eq!(re.max_haystack_len(), 299_592);
     /// // Things work up to the max.
-    /// let mut haystack = "a".repeat(37_448);
-    /// let expected = Some(Match::must(0, 0..37_448));
+    /// let mut haystack = "a".repeat(299_592);
+    /// let expected = Some(Match::must(0, 0..299_592));
     /// assert_eq!(expected, re.find_iter(&mut cache, &haystack).next());
     /// // But you'll get an error if you provide a haystack that's too big.
     /// // Notice that we use the 'try_find_iter' routine instead, which
     /// // yields Result<Match, MatchError> instead of Match.
     /// haystack.push('a');
-    /// let expected = Some(Err(MatchError::HaystackTooLong { len: 37_449 }));
+    /// let expected = Some(Err(MatchError::HaystackTooLong { len: 299_593 }));
     /// assert_eq!(expected, re.try_find_iter(&mut cache, &haystack).next());
     ///
     /// // Unicode inflates the size of the underlying NFA quite a bit, and
     /// // thus means that the backtracker can only handle smaller haystacks,
     /// // assuming that the visited capacity remains unchanged.
     /// let re = BoundedBacktracker::new(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 878);
+    /// assert_eq!(re.max_haystack_len(), 7_036);
     /// // But we can increase the visited capacity to handle bigger haystacks!
     /// let re = BoundedBacktracker::builder()
     ///     .configure(BoundedBacktracker::config().visited_capacity(1<<20))
     ///     .build(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 3517);
+    /// assert_eq!(re.max_haystack_len(), 28_148);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
     pub fn max_haystack_len(&self) -> usize {
-        let capacity = self.get_config().get_visited_capacity();
+        // The capacity given in the config is "bytes of heap memory," but the
+        // capacity we use here is "number of bits." So conver the capacity in
+        // bytes to the capacity in bits.
+        let capacity = 8 * self.get_config().get_visited_capacity();
         let blocks = div_ceil(capacity, Visited::BLOCK_SIZE);
         let real_capacity = blocks * Visited::BLOCK_SIZE;
         (real_capacity / self.nfa.states().len()) - 1
@@ -1410,26 +1432,6 @@ impl BoundedBacktracker {
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
             || input.get_pattern().is_some();
-        if anchored {
-            self.backtrack(cache, input, input.start(), caps);
-            return Ok(());
-        }
-        for at in input.start()..=input.end() {
-            self.backtrack(cache, input, at, caps);
-            if caps.is_match() {
-                return Ok(());
-            }
-        }
-        Ok(())
-    }
-
-    fn backtrack(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_, '_>,
-        at: usize,
-        caps: &mut Captures,
-    ) {
         let start_id = match input.get_pattern() {
             // We always use the anchored starting state here, even if doing an
             // unanchored search. The "unanchored" part of it is implemented
@@ -1440,6 +1442,33 @@ impl BoundedBacktracker {
             Some(pid) => self.nfa.start_pattern(pid),
         };
 
+        if anchored {
+            self.backtrack(cache, input, input.start(), start_id, caps);
+            return Ok(());
+        }
+        for at in input.start()..=input.end() {
+            self.backtrack(cache, input, at, start_id, caps);
+            if caps.is_match() {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    /// Look for a match starting at `at` in `input` and write the matching
+    /// pattern ID and group spans to `caps`. The search uses `start_id` as its
+    /// starting state in the underlying NFA.
+    ///
+    /// If no match was found, then the caller should increment `at` and try
+    /// at the next position.
+    fn backtrack(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        at: usize,
+        start_id: StateID,
+        caps: &mut Captures,
+    ) {
         cache.stack.push(Frame::Step { sid: start_id, at });
         while let Some(frame) = cache.stack.pop() {
             match frame {
@@ -1456,6 +1485,17 @@ impl BoundedBacktracker {
         }
     }
 
+    // LAMENTATION: The actual backtracking search is implemented in about
+    // 75 lines below. Yet this file is over 2,000 lines long. What have I
+    // done?
+
+    /// Execute a "step" in the backtracing algorithm.
+    ///
+    /// A "step" is somewhat of a misnomer, because this routine keeps going
+    /// until it either runs out of things to try or fins a match. In the
+    /// former case, it may have pushed some things on to the backtracking
+    /// stack, in which case, those will be tried next as part of the
+    /// 'backtrack' routine above.
     fn step(
         &self,
         cache: &mut Cache,
@@ -1715,11 +1755,12 @@ impl Cache {
     /// Create a new [`BoundedBacktracker`] cache.
     ///
     /// A potentially more convenient routine to create a cache is
-    /// [`BoundedBacktracker::create_cache`], as it does not require also importing the
-    /// `Cache` type.
+    /// [`BoundedBacktracker::create_cache`], as it does not require also
+    /// importing the `Cache` type.
     ///
-    /// If you want to reuse the returned `Cache` with some other `BoundedBacktracker`,
-    /// then you must call [`Cache::reset`] with the desired `BoundedBacktracker`.
+    /// If you want to reuse the returned `Cache` with some other
+    /// `BoundedBacktracker`, then you must call [`Cache::reset`] with the
+    /// desired `BoundedBacktracker`.
     pub fn new(re: &BoundedBacktracker) -> Cache {
         Cache { stack: vec![], visited: Visited::new(re) }
     }
@@ -1732,7 +1773,8 @@ impl Cache {
     ///
     /// # Example
     ///
-    /// This shows how to re-purpose a cache for use with a different `BoundedBacktracker`.
+    /// This shows how to re-purpose a cache for use with a different
+    /// `BoundedBacktracker`.
     ///
     /// ```
     /// use regex_automata::{nfa::thompson::backtrack::BoundedBacktracker, Match};
@@ -1769,8 +1811,8 @@ impl Cache {
     /// This does **not** include the stack size used up by this cache. To
     /// compute that, use `std::mem::size_of::<Cache>()`.
     pub fn memory_usage(&self) -> usize {
-        use core::mem::size_of;
-        self.stack.len() * size_of::<()>()
+        self.stack.len() * core::mem::size_of::<Frame>()
+            + self.visited.memory_usage()
     }
 
     /// Clears this cache. This should be called at the start of every search
@@ -1794,33 +1836,71 @@ impl Cache {
     }
 }
 
-// BREADCRUMBS: Keep documenting the stuff below.
-
 /// Represents a stack frame on the heap while doing backtracking.
+///
+/// Instead of using explicit recursion for backtracking, we use a stack on
+/// the heap to keep track of things that we want to explore if the current
+/// backtracking branch turns out to not lead to a match.
 #[derive(Clone, Debug)]
 enum Frame {
     /// Look for a match starting at `sid` and the given position in the
     /// haystack.
     Step { sid: StateID, at: usize },
     /// Reset the given `slot` to the given `offset` (which might be `None`).
+    /// This effectively gives a "scope" to capturing groups, such that an
+    /// offset for a particular group only gets returned if the match goes
+    /// through that capturing group. If backtracking ends up going down a
+    /// different branch that results in a different offset (or perhaps none at
+    /// all), then this "restore capture" frame will cause the offset to get
+    /// reset.
     RestoreCapture { slot: usize, offset: Option<NonMaxUsize> },
 }
 
+/// A bitset that keeps track of whether a particular (StateID, offset) has
+/// been considered during backtracking. If it has already been visited, then
+/// backtracking skips it. This is what gives backtracking its "bound."
 #[derive(Clone, Debug)]
 struct Visited {
+    /// The actual underlying bitset. Each element in the bitset corresponds
+    /// to a particular (StateID, offset) pair. States correspond to the rows
+    /// and the offsets correspond to the columns.
+    ///
+    /// If our underlying NFA has N states and the haystack we're searching
+    /// has M bytes, then we have N*(M+1) entries in our bitset table. The
+    /// M+1 occurs because our matches are delayed by one byte (to support
+    /// look-around), and so we need to handle the end position itself rather
+    /// than stopping just before the end. (If there is no end position, then
+    /// it's treated as "end-of-input," which is matched by things like '$'.)
+    ///
+    /// Given BITS=N*(M+1), we wind up with div_ceil(BITS, sizeof(usize))
+    /// blocks.
+    ///
+    /// We use 'usize' to represent our blocks because it makes some of the
+    /// arithmetic in 'insert' a bit nicer. For example, if we used 'u32' for
+    /// our block, we'd either need to cast u32s to usizes or usizes to u32s.
     bitset: Vec<usize>,
+    /// The stride represents one plus length of the haystack we're searching
+    /// (as described above). The stride must be initialized for each search.
     stride: usize,
 }
 
 impl Visited {
-    const BLOCK_SIZE: usize = core::mem::size_of::<usize>();
+    /// The size of each block, in bits.
+    const BLOCK_SIZE: usize = 8 * core::mem::size_of::<usize>();
 
+    /// Create a new visited set for the given backtracker.
+    ///
+    /// The set is ready to use, but must be setup at the beginning of each
+    /// search by calling `setup_search`.
     fn new(re: &BoundedBacktracker) -> Visited {
         let mut visited = Visited { bitset: vec![], stride: 0 };
         visited.reset(re);
         visited
     }
 
+    /// Insert the given (StateID, offset) pair into this set. If it already
+    /// exists, then this is a no-op and it returns false. Otherwise this
+    /// returns true.
     fn insert(&mut self, sid: StateID, at: usize) -> bool {
         let table_index = sid.as_usize() * self.stride + at;
         let block_index = table_index / Visited::BLOCK_SIZE;
@@ -1833,12 +1913,18 @@ impl Visited {
         true
     }
 
+    /// Returns the capacity of this visited set in terms of the number of bits
+    /// it has to track (StateID, offset) pairs.
     fn capacity(&self) -> usize {
         self.bitset.len() * Visited::BLOCK_SIZE
     }
 
+    /// Reset this visited set to work with the given bounded backtracker.
     fn reset(&mut self, re: &BoundedBacktracker) {
-        let capacity = re.get_config().get_visited_capacity();
+        // The capacity given in the config is "bytes of heap memory," but the
+        // capacity we use here is "number of bits." So conver the capacity in
+        // bytes to the capacity in bits.
+        let capacity = 8 * re.get_config().get_visited_capacity();
         let blocks = div_ceil(capacity, Visited::BLOCK_SIZE);
         self.bitset.resize(blocks, 0);
         // N.B. 'stride' is set in 'setup_search', since it isn't known until
@@ -1846,6 +1932,10 @@ impl Visited {
         // error if the haystack is too big.)
     }
 
+    /// Setup this visited set to work for a search using the given NFA
+    /// and input configuration. The NFA must be the same NFA used by the
+    /// BoundedBacktracker given to Visited::reset. Failing to call this might
+    /// result in panics or silently incorrect search behavior.
     fn setup_search(
         &mut self,
         nfa: &NFA,
@@ -1873,8 +1963,14 @@ impl Visited {
         }
         Ok(())
     }
+
+    /// Return the heap memory usage, in bytes, of this visited set.
+    fn memory_usage(&self) -> usize {
+        self.bitset.len() * core::mem::size_of::<usize>()
+    }
 }
 
+/// Integer division, but rounds up instead of down.
 fn div_ceil(lhs: usize, rhs: usize) -> usize {
     if lhs % rhs == 0 {
         lhs / rhs

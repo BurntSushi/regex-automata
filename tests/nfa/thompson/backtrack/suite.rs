@@ -2,8 +2,9 @@ use regex_automata::{
     nfa::thompson::{
         self,
         backtrack::{self, BoundedBacktracker},
+        NFA,
     },
-    SyntaxConfig,
+    Input, SyntaxConfig,
 };
 
 use ret::{
@@ -13,7 +14,7 @@ use ret::{
 
 use crate::{nfa::thompson::testify_captures, suite, Result};
 
-/// Tests the default configuration of the hybrid NFA/DFA.
+/// Tests the default configuration of the bounded backtracker.
 #[test]
 fn default() -> Result<()> {
     let builder = BoundedBacktracker::builder();
@@ -29,6 +30,45 @@ fn default() -> Result<()> {
     // wrong or smaller than it should be.
     runner.blacklist("expensive/backtrack-blow-visited-capacity");
     runner.test_iter(suite()?.iter(), compiler(builder)).assert();
+    Ok(())
+}
+
+/// Tests the bounded backtracker when its visited capacity is set to its
+/// minimum amount.
+#[test]
+fn min_visited_capacity() -> Result<()> {
+    let mut runner = TestRunner::new()?;
+    runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
+    runner
+        .test_iter(suite()?.iter(), move |test, regexes| {
+            let regexes = regexes
+                .iter()
+                .map(|r| r.to_str().map(|s| s.to_string()))
+                .collect::<std::result::Result<Vec<String>, _>>()?;
+            let nfa = NFA::compiler()
+                .configure(config_thompson(test))
+                .syntax(config_syntax(test))
+                .build_many(&regexes)?;
+            let mut builder = BoundedBacktracker::builder();
+            if !configure_backtrack_builder(test, &mut builder) {
+                return Ok(CompiledRegex::skip());
+            }
+            // Setup the bounded backtracker so that its visited capacity is
+            // the absolute minimum required for the test's haystack.
+            builder.configure(BoundedBacktracker::config().visited_capacity(
+                backtrack::min_visited_capacity(
+                    &nfa,
+                    &Input::new(test.input()),
+                ),
+            ));
+
+            let re = builder.build_from_nfa(nfa)?;
+            let mut cache = re.create_cache();
+            Ok(CompiledRegex::compiled(move |test| -> TestResult {
+                run_test(&re, &mut cache, test)
+            }))
+        })
+        .assert();
     Ok(())
 }
 

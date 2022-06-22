@@ -18,6 +18,6 @@ matches = [[0, 1]]
 # backtracker can handle them fine.
 [[tests]]
 name = "backtrack-blow-visited-capacity"
-regex = '\pL{30}'
-input = "abcdefghijklmnopqrstuvwxyzABCDZZZZZZZZ"
-matches = [[0, 30]]
+regex = '\pL{50}'
+input = "abcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyZZ"
+matches = [[0, 50], [50, 100], [100, 150]]

@@ -33,6 +33,7 @@ fn unminimized_no_byte_class() -> Result<()> {
 
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -46,6 +47,7 @@ fn unminimized_nfa_shrink() -> Result<()> {
 
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -59,7 +61,6 @@ fn minimized_default() -> Result<()> {
     builder.dense(dense::Config::new().minimize(true));
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
-        // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
@@ -74,7 +75,6 @@ fn minimized_no_byte_class() -> Result<()> {
 
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
-        // These regexes tend to be too big. Minimization takes... forever.
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
@@ -87,6 +87,7 @@ fn sparse_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
         .test_iter(suite()?.iter(), sparse_compiler(builder))
         .assert();
     Ok(())
@@ -115,6 +116,7 @@ fn serialization_unminimized_default() -> Result<()> {
     };
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
         .test_iter(suite()?.iter(), my_compiler(builder))
         .assert();
     Ok(())
@@ -143,6 +145,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
     };
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
         .test_iter(suite()?.iter(), my_compiler(builder))
         .assert();
     Ok(())
