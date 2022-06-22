@@ -4,7 +4,7 @@ use anyhow::Context;
 use automata::{
     dfa::{self, dense, sparse},
     hybrid,
-    nfa::thompson::{self, pikevm},
+    nfa::thompson::{self, backtrack, pikevm},
     MatchKind,
 };
 use bstr::{BStr, BString, ByteSlice};
@@ -663,6 +663,110 @@ groups (such as a search with the PikeVM).
             .configure(self.0.clone())
             .build_many_from_hir(exprs)
             .context("failed to compile Thompson NFA")
+    }
+}
+
+#[derive(Debug)]
+pub struct Backtrack {
+    config: backtrack::Config,
+}
+
+impl Backtrack {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Build an anchored bounded backtracker.";
+            const LONG: &str = "\
+Build an anchored bounded backtracker.
+
+When enabled, the regex only executes anchored searches, even if the underlying
+NFA has an unanchored start state. This means that the regex can only find
+matches that begin where the search starts. When disabled (the default), the
+regex will have an \"unanchored\" prefix that permits it to match anywhere.
+";
+            app = app.arg(
+                switch("anchored").short("a").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Disable UTF-8 handling for iterators.";
+            const LONG: &str = "\
+Disable UTF-8 handling for match iterators when an empty match is seen.
+
+When UTF-8 mode is enabled for regexes (the default) and an empty match is
+seen, the iterators will always start the next search at the next UTF-8 encoded
+codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
+searches are started at the next byte offset.
+
+Generally speaking, UTF-8 mode for regexes should only be used when you know
+you are searching valid UTF-8. Typically, this should only be disabled in
+precisely the cases where the regex itself is permitted to match invalid UTF-8.
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+together.
+
+This mode cannot be toggled inside the regex.
+";
+            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str =
+                "Set the visited set capacity used to bound backtracking.";
+            const LONG: &str = "\
+Set the visited set capacity used to bound backtracking.
+
+The visited capacity represents the amount of heap memory (in bytes) to
+allocate toward tracking which parts of the backtracking search have been done
+before. The heap memory needed for any particular search is proportional to
+'haystack.len() * nfa.states().len()', whichc an be quite large. Therefore, the
+bounded backtracker is typically only able to run on shorter haystacks.
+
+For a given regex, increasing the visited capacity means that the
+maximum haystack length that can be searched is increased.
+
+The default capacity is a reasonable but empirically chosen size.
+";
+            app =
+                app.arg(flag("visited-capacity").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<Backtrack> {
+        let mut config = backtrack::Config::new()
+            .anchored(args.is_present("anchored"))
+            .utf8(!args.is_present("no-utf8-iter"));
+        if let Some(x) = args.value_of_lossy("visited-capacity") {
+            let limit =
+                x.parse().context("failed to parse --visited-capacity")?;
+            config = config.visited_capacity(limit);
+        }
+        Ok(Backtrack { config })
+    }
+
+    pub fn builder(
+        &self,
+        syntax: &Syntax,
+        thompson: &Thompson,
+    ) -> backtrack::Builder {
+        let mut builder = backtrack::BoundedBacktracker::builder();
+        builder
+            .configure(self.config.clone())
+            .syntax(syntax.0)
+            .thompson(thompson.0.clone());
+        builder
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        thompson: &Thompson,
+        patterns: &Patterns,
+    ) -> anyhow::Result<backtrack::BoundedBacktracker> {
+        let patterns = patterns.as_strings();
+        let b = self.builder(syntax, thompson);
+        let (vm, time) = util::timeitr(|| b.build_many(patterns))?;
+        table.add("build bounded backtracker time", time);
+        Ok(vm)
     }
 }
 

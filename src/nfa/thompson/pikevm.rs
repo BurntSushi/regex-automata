@@ -1,5 +1,5 @@
 /*!
-An NFA backed `PikeVM` for executing regex searches with capturing groups.
+An NFA backed Pike VM for executing regex searches with capturing groups.
 
 This module provides a [`PikeVM`] that works by simulating an NFA and
 resolving all spans of capturing groups that participate in a match.

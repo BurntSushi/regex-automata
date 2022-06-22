@@ -11,7 +11,10 @@ use anyhow::Context;
 use automata::{
     dfa::{self, Automaton},
     hybrid,
-    nfa::thompson::pikevm::{self, PikeVM},
+    nfa::thompson::{
+        backtrack::{self, BoundedBacktracker},
+        pikevm::{self, PikeVM},
+    },
     util::iter,
     Input,
 };
@@ -139,6 +142,15 @@ fn define_nfa() -> App {
 }
 
 fn define_nfa_thompson() -> App {
+    let mut backtrack =
+        app::leaf("backtrack").about("Search using a bounded backtracker.");
+    backtrack = config::Input::define(backtrack);
+    backtrack = config::Patterns::define(backtrack);
+    backtrack = config::Syntax::define(backtrack);
+    backtrack = config::Thompson::define(backtrack);
+    backtrack = config::Backtrack::define(backtrack);
+    backtrack = config::Find::define(backtrack);
+
     let mut pikevm = app::leaf("pikevm").about("Search using a Pike VM.");
     pikevm = config::Input::define(pikevm);
     pikevm = config::Patterns::define(pikevm);
@@ -149,6 +161,7 @@ fn define_nfa_thompson() -> App {
 
     app::command("thompson")
         .about("Search using a Thompson NFA.")
+        .subcommand(backtrack)
         .subcommand(pikevm)
 }
 
@@ -342,6 +355,7 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
 
     let (mut cache, time) = util::timeit(|| dfa.create_cache());
     table.add("create cache time", time);
+    table.add("cache size", cache.memory_usage());
 
     input.with_mmap(|haystack| {
         let mut buf = String::new();
@@ -375,6 +389,7 @@ fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
 
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("create regex cache time", time);
+    table.add("cache size", cache.memory_usage());
 
     input.with_mmap(|haystack| {
         let mut buf = String::new();
@@ -403,8 +418,42 @@ fn run_nfa(args: &Args) -> anyhow::Result<()> {
 
 fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
+        "backtrack" => run_nfa_thompson_backtrack(args),
         "pikevm" => run_nfa_thompson_pikevm(args),
         _ => Err(util::UnrecognizedCommandError.into()),
+    })
+}
+
+fn run_nfa_thompson_backtrack(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let cbacktrack = config::Backtrack::get(args)?;
+    let input = config::Input::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+    let find = config::Find::get(args)?;
+
+    let re = cbacktrack
+        .from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+
+    let (mut cache, time) = util::timeit(|| re.create_cache());
+    table.add("create cache time", time);
+    table.add("cache size", cache.memory_usage());
+    table.add("max haystack length", re.max_haystack_len());
+
+    input.with_mmap(|haystack| {
+        let mut buf = String::new();
+        let (counts, time) = util::timeitr(|| {
+            search_backtrack(&re, &mut cache, &find, &*haystack, &mut buf)
+        })?;
+        table.add("search time", time);
+        table.add("counts", counts);
+        table.print(stdout())?;
+        if !buf.is_empty() {
+            write!(stdout(), "\n{}", buf)?;
+        }
+        Ok(())
     })
 }
 
@@ -422,6 +471,7 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
+    table.add("cache size", cache.memory_usage());
 
     input.with_mmap(|haystack| {
         let mut buf = String::new();
@@ -618,6 +668,34 @@ fn search_hybrid_regex(
     Ok(counts)
 }
 
+fn search_backtrack(
+    re: &BoundedBacktracker,
+    cache: &mut backtrack::Cache,
+    find: &config::Find,
+    haystack: &[u8],
+    buf: &mut String,
+) -> anyhow::Result<Vec<u64>> {
+    let mut counts = vec![0u64; re.pattern_len()];
+    match find.kind() {
+        config::SearchKind::Earliest => {
+            anyhow::bail!("earliest searches not supported");
+        }
+        config::SearchKind::Overlapping => {
+            anyhow::bail!("overlapping searches not supported");
+        }
+        config::SearchKind::Leftmost => {
+            for result in re.try_find_iter(cache, haystack) {
+                let m = result?;
+                counts[m.pattern()] += 1;
+                if find.matches() {
+                    write_multi_match(m, buf);
+                }
+            }
+        }
+    }
+    Ok(counts)
+}
+
 fn search_pikevm(
     vm: &PikeVM,
     cache: &mut pikevm::Cache,
@@ -625,7 +703,7 @@ fn search_pikevm(
     haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
-    let mut counts = vec![0u64; vm.get_nfa().pattern_len()];
+    let mut counts = vec![0u64; vm.pattern_len()];
     match find.kind() {
         config::SearchKind::Earliest => {
             let mut caps = vm.create_captures();

@@ -19,15 +19,15 @@ fn default() -> Result<()> {
     let builder = BoundedBacktracker::builder();
     let mut runner = TestRunner::new()?;
     runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
-    // N.B. At the time of writing, every regex search in the test suite
-    // fits into the backtracker's default visited capacity. If regexes are
-    // added that blow that capacity, then they should be blacklisted here. A
-    // tempting alternative is to automatically skip them, but that could wind
-    // up hiding interesting failure modes. e.g., If the visited capacity is
-    // somehow wrong or smaller than it should be.
-    // TODO: Add a regex to the test suite that blows the default visited
-    // capacity. It probably needs to be "expensive" since the easiest way
-    // to do it is to write a big regex.
+    // At the time of writing, every regex search in the test suite fits
+    // into the backtracker's default visited capacity (except for the
+    // blacklisted one below). If regexes are added that blow that capacity,
+    // then they should be blacklisted here. A tempting alternative is to
+    // automatically skip them by checking the haystack length against
+    // BoundedBacktracker::max_haystack_len, but that could wind up hiding
+    // interesting failure modes. e.g., If the visited capacity is somehow
+    // wrong or smaller than it should be.
+    runner.blacklist("expensive/backtrack-blow-visited-capacity");
     runner.test_iter(suite()?.iter(), compiler(builder)).assert();
     Ok(())
 }
