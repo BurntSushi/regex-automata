@@ -18,7 +18,7 @@ resolver = "2"
 autoexamples = false
 
 [workspace]
-members = ["bench", "examples", "regex-cli", "regex-test"]
+members = ["examples", "regex-cli", "regex-test"]
 
 [lib]
 bench = false

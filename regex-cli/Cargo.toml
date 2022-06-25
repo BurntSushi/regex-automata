@@ -13,7 +13,7 @@ keywords = ["regex", "cli", "debug", "nfa", "dfa"]
 license = "Unlicense/MIT"
 categories = ["text-processing"]
 autotests = false
-edition = "2018"
+edition = "2021"
 
 [[bin]]
 name = "regex-cli"
@@ -30,6 +30,7 @@ csv = "1.1.6"
 log = "0.4.14"
 memchr = "2.5.0"
 memmap2 = "0.3.0"
+once_cell = "1.12.0"
 regex = { version = "1.5.4" }
 serde = { version = "1.0.137", features = ["derive"] }
 syntax = { package = "regex-syntax", version = "0.6.17" }

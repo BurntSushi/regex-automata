@@ -1,32 +1,160 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     convert::TryFrom,
+    ffi::OsStr,
+    io::Write,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use {anyhow::Context, bstr::BString};
+use {
+    anyhow::Context,
+    bstr::{BString, ByteSlice, ByteVec},
+    regex::Regex,
+};
 
 use crate::{
     app::{self, App, Args},
-    util,
+    util::{self, ShortHumanDuration},
 };
 
 mod count;
 
-const ABOUT: &'static str = "\
+const ABOUT_SHORT: &'static str = "\
+Run benchmarks.
+";
+
+const ABOUT_LONG: &'static str = "\
 Run benchmarks.
 ";
 
 pub fn define() -> App {
     let mut app =
-        app::command("bench").about("Run benchmarks.").before_help(ABOUT);
+        app::command("bench").about(ABOUT_SHORT).before_help(ABOUT_LONG);
     {
         const SHORT: &str =
             "The directory containing benchmarks and haystacks.";
         const LONG: &str = SHORT;
         app = app.arg(app::flag("dir").short("d").help(SHORT).long_help(LONG));
+    }
+    {
+        const SHORT: &str = "Filter (using regex) which benchmarks to run.";
+        const LONG: &str = "\
+Filter (using regex) which benchmarks to run.
+
+This flag may be given multiple times. The value can either be a whitelist
+regex or a blacklist regex. To make it a blacklist regex, start it with a
+'~'. If there is at least one whitelist regex, then a benchmark must match at
+least one of them in order to run. If there are no whitelist regexes, then
+a benchmark is only run when it does not match any blacklist regexes. The
+last filter regex that matches (whether it be a whitelist or a blacklist) is
+what takes precedence. So for example, a whitelist regex that matches after a
+blacklist regex matches, that would result in that benchmark being run.
+
+So for example, consider the benchmarks 'foo', 'bar', 'baz' and 'quux'.
+
+* '-f foo' will run 'foo'.
+* '-f ~foo' will run 'bar', 'baz' and 'quux'.
+* '-f . -f ~ba -f bar' will run 'foo', 'bar' and 'quux'.
+
+Filter regexes are matched on the full name of the benchmark, which takes the
+form '{type}/{group}/{name}'.
+";
+        app = app.arg(
+            app::flag("filter")
+                .short("f")
+                .multiple(true)
+                .number_of_values(1)
+                .help(SHORT)
+                .long_help(LONG),
+        );
+    }
+    {
+        const SHORT: &str = "Filter (using regex) which regex engines to run.";
+        const LONG: &str = "\
+Filter (using regex) which regex engines to run.
+
+This is just like the -f/--filter flag (with the same whitelist/blacklist
+rules), except it applies to which regex engines to benchmark. For example,
+many benchmarks list a number of regex engines that it should run with, but
+this filter permits specifying a smaller set of regex engines to benchmark.
+
+To be clear, a benchmark can only run with regex engines it has been configured
+with in a TOML file. This flag cannot add regex engines to existing benchmarks.
+This flag can only select a subset of regex engines for each benchmark.
+
+This filter is applied to every benchmark. It is useful, for example, if you
+only want to run benchmarks for one of the regex engines instead of all of
+them, which might take considerably longer.
+";
+        app = app.arg(
+            app::flag("engine")
+                .short("e")
+                .multiple(true)
+                .number_of_values(1)
+                .help(SHORT)
+                .long_help(LONG),
+        );
+    }
+    {
+        const SHORT: &str = "The max number of warmup iterations to execute.";
+        const LONG: &str = "\
+The max number of warmup iterations to execute.
+";
+        app =
+            app.arg(app::flag("max-warmup-iters").help(SHORT).long_help(LONG));
+    }
+    {
+        const SHORT: &str = "The max number of benchmark iterations to run.";
+        const LONG: &str = "\
+The maximum number of iterations to run for each benchmark.
+
+One of the difficulties of a benchmark harness is determining just how long to
+run a benchmark for. We want to run it long enough that we get a decent sample,
+but not too long that we are waiting forever for results. That is, there is a
+point of diminishing returns.
+
+This flag permits controlling the maximum number of iterations that a benchmark
+will be executed for. In general, one should not need to change this, as it
+would be better to tweak --bench-time instead. However, it is exposed in case
+it's useful, and in particular, you might want to increase it in certain
+circumstances for an usually fast routine.
+";
+        app = app.arg(app::flag("max-iters").help(SHORT).long_help(LONG));
+    }
+    {
+        const SHORT: &str =
+            "The approximate amount of time to run a benchmark.";
+        const LONG: &str = "\
+The approximate amount of time to run a benchmark.
+
+This harness tries to balance \"benchmarks taking too long\" and \"benchmarks
+need enough samples to be reliable\" by varying the number of times each
+benchmark is executed. Slower search routines (for example) get executed
+fewer times while faster routines get executed more. This is done by holding
+invariant roughly how long one wants each benchmark to run for. This flag sets
+that time.
+
+In general, unless a benchmark is unusually fast, one should generally expect
+each benchmark to take roughly this amount of time to complete.
+
+The format for this flag is a duration specified in seconds, milliseconds,
+microseconds or nanoseconds. Namely, '^[0-9]+(s|ms|us|ns)$'.
+";
+        app = app.arg(app::flag("bench-time").help(SHORT).long_help(LONG));
+    }
+    {
+        const SHORT: &str = "List benchmarks to run, but don't run them.";
+        const LONG: &str = "\
+List benchmarks to run, but don't run them.
+
+This command does all of the work to collect benchmarks, haystacks, filter them
+and validate them. But it does not actually run the benchmarks. Instead, it
+prints every benchmark that will be executed. This is useful for seeing what
+work will be done without actually doing it.
+";
+        app = app.arg(app::switch("list").help(SHORT).long_help(LONG));
     }
     app
 }
@@ -36,16 +164,14 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
 
     // BREADCRUMBS:
     //
-    // We need filtering.
-    //
-    // Support other benchmark types.
-    //
-    // Our core benchmark runner needs to be smarter with respect to determining
-    // how many iterations to run.
+    // Our core benchmark runner needs to be smarter with respect to
+    // determining how many iterations to run.
     //
     // Add warmup configuration.
     //
     // Consider if we need outlier detection, and if so, how to use it.
+    //
+    // Support other benchmark types.
 
     let runner = Runner::new(args)?;
     let benchdefs = runner.benchmarks()?;
@@ -53,14 +179,42 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
 
     let mut benches = vec![];
     for bdef in &benchdefs.benches {
-        for b in bdef.iter(&haystacks)? {
+        if !runner.bench_filter.include(&bdef.full_name()) {
+            continue;
+        }
+        for b in bdef.iter(&runner.bench_config, &haystacks)? {
+            if !runner.engine_filter.include(&b.engine) {
+                continue;
+            }
             benches.push(b);
         }
     }
 
+    let mut stdout = std::io::stdout();
+    if runner.list {
+        for b in benches.iter() {
+            writeln!(
+                stdout,
+                "{},{},{}",
+                b.def.full_name(),
+                b.engine,
+                b.def.haystack
+            )?;
+        }
+        return Ok(());
+    }
+
     let mut aggs: Vec<Aggregate> = vec![];
     for b in benches.iter() {
-        aggs.push(b.aggregate(|| match &*b.engine {
+        write!(
+            stdout,
+            "benchmark {} on engine {} on haystack {}...",
+            b.def.full_name(),
+            b.engine,
+            b.def.haystack
+        )?;
+        stdout.flush()?;
+        let agg = b.aggregate(|| match &*b.engine {
             "regex/api" => count::regex_api(b),
             "regex/automata/dfa/dense" => count::regex_automata_dfa_dense(b),
             "regex/automata/dfa/sparse" => count::regex_automata_dfa_sparse(b),
@@ -68,22 +222,55 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
             "regex/automata/pikevm" => count::regex_automata_pikevm(b),
             "memchr/memmem" => count::memchr_memmem(b),
             name => anyhow::bail!("unknown regex engine '{}'", name),
-        }));
+        });
+        writeln!(stdout, " done.")?;
+        dbg!(&agg);
+        aggs.push(agg);
     }
-    dbg!(&aggs);
     Ok(())
 }
 
 #[derive(Clone, Debug)]
 struct Runner {
     dir: PathBuf,
+    bench_filter: Filter,
+    engine_filter: Filter,
+    bench_config: BenchmarkConfig,
+    list: bool,
 }
 
 impl Runner {
     fn new(args: &Args) -> anyhow::Result<Runner> {
-        let mut runner = Runner { dir: PathBuf::from("benches") };
+        let mut runner = Runner {
+            dir: PathBuf::from("benches"),
+            // These unwraps are OK because an empty set of rules always works.
+            bench_filter: Filter::new([].into_iter()).unwrap(),
+            engine_filter: Filter::new([].into_iter()).unwrap(),
+            bench_config: BenchmarkConfig::default(),
+            list: args.is_present("list"),
+        };
         if let Some(x) = args.value_of_os("dir") {
             runner.dir = PathBuf::from(x);
+        }
+        if let Some(rules) = args.values_of_os("filter") {
+            runner.bench_filter = Filter::new(rules).context("-f/--filter")?;
+        }
+        if let Some(rules) = args.values_of_os("engine") {
+            runner.engine_filter =
+                Filter::new(rules).context("-e/--engine")?;
+        }
+        if let Some(x) = args.value_of_lossy("max-iters") {
+            runner.bench_config.max_iters =
+                x.parse().context("--max-iters")?;
+        }
+        if let Some(x) = args.value_of_lossy("max-warmup-iters") {
+            runner.bench_config.max_warmup_iters =
+                x.parse().context("--max-warmup-iters")?;
+        }
+        if let Some(x) = args.value_of_lossy("bench-time") {
+            let hdur: ShortHumanDuration =
+                x.parse().context("--bench-time")?;
+            runner.bench_config.approx_max_benchmark_time = hdur.dur;
         }
         Ok(runner)
     }
@@ -100,6 +287,23 @@ impl Runner {
         let mut haystacks = Haystacks::new();
         haystacks.load_dir(dir, &benches.haystack_names())?;
         Ok(haystacks)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct BenchmarkConfig {
+    max_warmup_iters: u64,
+    max_iters: u64,
+    approx_max_benchmark_time: Duration,
+}
+
+impl Default for BenchmarkConfig {
+    fn default() -> BenchmarkConfig {
+        BenchmarkConfig {
+            max_warmup_iters: 1_000,
+            max_iters: 100_000,
+            approx_max_benchmark_time: Duration::from_secs(3),
+        }
     }
 }
 
@@ -304,9 +508,18 @@ impl BenchmarkDef {
     ///
     /// If the haystack in the benchmark definition could not be found in the
     /// haystacks given, then this returns an error.
-    fn iter(&self, haystacks: &Haystacks) -> anyhow::Result<BenchmarkIter> {
+    fn iter(
+        &self,
+        config: &BenchmarkConfig,
+        haystacks: &Haystacks,
+    ) -> anyhow::Result<BenchmarkIter> {
         let haystack = haystacks.get(&self.haystack)?;
-        Ok(BenchmarkIter { it: self.engines.iter(), def: self, haystack })
+        Ok(BenchmarkIter {
+            it: self.engines.iter(),
+            config: config.clone(),
+            def: self,
+            haystack,
+        })
     }
 
     /// Validate that our benchmark is consistent with our rules.
@@ -366,6 +579,7 @@ impl std::fmt::Display for BenchmarkType {
 
 #[derive(Debug)]
 struct BenchmarkIter<'b> {
+    config: BenchmarkConfig,
     def: &'b BenchmarkDef,
     haystack: Arc<[u8]>,
     it: std::slice::Iter<'b, String>,
@@ -377,6 +591,7 @@ impl<'b> Iterator for BenchmarkIter<'b> {
     fn next(&mut self) -> Option<Benchmark> {
         let engine = self.it.next()?;
         Some(Benchmark {
+            config: self.config.clone(),
             def: self.def.clone(),
             haystack: Arc::clone(&self.haystack),
             engine: engine.to_string(),
@@ -386,6 +601,7 @@ impl<'b> Iterator for BenchmarkIter<'b> {
 
 #[derive(Clone, Debug)]
 struct Benchmark {
+    config: BenchmarkConfig,
     def: BenchmarkDef,
     haystack: Arc<[u8]>,
     engine: String,
@@ -408,22 +624,29 @@ impl Benchmark {
         mut test: impl FnMut() -> anyhow::Result<T>,
     ) -> anyhow::Result<Results> {
         let mut results = Results::new();
-        for i in 0..100 {
+        let warmup_start = Instant::now();
+        let max_warmup_time = self.config.approx_max_benchmark_time / 4;
+        for _ in 0..self.config.max_warmup_iters {
             let mut start = Instant::now();
             let result = test();
             let elapsed = start.elapsed();
             verify(self, result?)?;
+            if warmup_start.elapsed() >= max_warmup_time {
+                break;
+            }
         }
-        let start = Instant::now();
-        let iters = 1_000;
-        for i in 0..iters {
+        let bench_start = Instant::now();
+        for _ in 0..self.config.max_iters {
             let mut start = Instant::now();
             let result = test();
             let elapsed = start.elapsed();
             verify(self, result?)?;
             results.results.push(elapsed);
+            if bench_start.elapsed() >= self.config.approx_max_benchmark_time {
+                break;
+            }
         }
-        results.total = start.elapsed();
+        results.total = bench_start.elapsed();
         Ok(results)
     }
 }
@@ -496,6 +719,74 @@ impl Aggregate {
             err: Some(err),
             ..Aggregate::default()
         }
+    }
+}
+
+/// Filter is the implementation of whitelist/blacklist rules. If there are no
+/// rules, everything matches. If there's at least one whitelist rule, then you
+/// need at least one whitelist rule to match to get through the filter. If
+/// there are no whitelist regexes, then you can't match any of the blacklist
+/// regexes.
+///
+/// This filter also has precedence built into that. That means that the order
+/// of rules matters. So for example, if you have a whitelist regex that
+/// matches AFTER a blacklist regex matches, then the input is considered to
+/// have matched the filter.
+#[derive(Clone, Debug)]
+struct Filter {
+    rules: Vec<FilterRule>,
+}
+
+/// A single rule in a filter, which is a combination of a regex and whether
+/// it's a blacklist rule or not.
+#[derive(Clone, Debug)]
+struct FilterRule {
+    regex: Regex,
+    blacklist: bool,
+}
+
+impl Filter {
+    fn new<'a>(
+        rules: impl Iterator<Item = &'a OsStr>,
+    ) -> anyhow::Result<Filter> {
+        let mut filter = Filter { rules: vec![] };
+        for osrule in rules {
+            let rule = match osrule.to_str() {
+                Some(rule) => rule,
+                None => {
+                    let raw = BString::from(
+                        Vec::from_os_str_lossy(osrule).into_owned(),
+                    );
+                    anyhow::bail!("regex is not UTF-8: '{}'", raw)
+                }
+            };
+            let (pattern, blacklist) = if rule.starts_with('~') {
+                (&rule[1..], true)
+            } else {
+                (&*rule, false)
+            };
+            let regex = Regex::new(pattern).context("regex is not valid")?;
+            filter.rules.push(FilterRule { regex, blacklist });
+        }
+        Ok(filter)
+    }
+
+    fn include(&self, haystack: &str) -> bool {
+        // If we have no rules, then everything matches.
+        if self.rules.is_empty() {
+            return true;
+        }
+        // If we have any whitelist rules, then 'include' starts off as false,
+        // as we need at least one whitelist rule in that case to match. If all
+        // we have are blacklists though, then we start off with include=true,
+        // and we only get excluded if one of those blacklists is matched.
+        let mut include = self.rules.iter().all(|r| r.blacklist);
+        for rule in &self.rules {
+            if rule.regex.is_match(haystack) {
+                include = !rule.blacklist;
+            }
+        }
+        include
     }
 }
 
