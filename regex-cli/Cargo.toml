@@ -28,6 +28,7 @@ bstr = { version = "0.2.16", default-features = false, features = ["std"] }
 clap = { version = "2.33.0", default-features = false }
 csv = "1.1.6"
 log = "0.4.14"
+memchr = "2.5.0"
 memmap2 = "0.3.0"
 regex = { version = "1.5.4" }
 serde = { version = "1.0.137", features = ["derive"] }
@@ -35,6 +36,7 @@ syntax = { package = "regex-syntax", version = "0.6.17" }
 tabwriter = "1.2.1"
 toml = "0.5.9"
 unicode-width = "0.1.7"
+walkdir = "2.3.2"
 
 [dependencies.automata]
 package = "regex-automata"
