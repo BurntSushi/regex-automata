@@ -29,13 +29,7 @@ impl Patterns {
         }
         {
             const SHORT: &str = "Read patterns from a file.";
-            app = app.arg(
-                app::flag("pattern-file")
-                    .short("f")
-                    .multiple(true)
-                    .number_of_values(1)
-                    .help(SHORT),
-            );
+            app = app.arg(app::mflag("pattern-file").short("f").help(SHORT));
         }
         app
     }

@@ -106,6 +106,16 @@ pub fn flag(name: &'static str) -> clap::Arg {
 }
 
 /// Convenience function for defining a Clap argument with a long flag name
+/// that accepts a single value, but can be given multiple times.
+pub fn mflag(name: &'static str) -> clap::Arg {
+    clap::Arg::with_name(name)
+        .long(name)
+        .takes_value(true)
+        .multiple(true)
+        .number_of_values(1)
+}
+
+/// Convenience function for defining a Clap argument with a long flag name
 /// that accepts no values. i.e., It is a boolean switch.
 pub fn switch(name: &'static str) -> clap::Arg {
     clap::Arg::with_name(name).long(name)

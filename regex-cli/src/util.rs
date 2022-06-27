@@ -122,9 +122,35 @@ impl Table {
 /// milliseconds, microseconds and nanoseconds.
 ///
 /// This avoids bringing in another crate to do this work (like humantime).
-#[derive(Clone)]
-pub struct ShortHumanDuration {
-    pub dur: Duration,
+#[derive(Clone, Default)]
+pub struct ShortHumanDuration(Duration);
+
+impl ShortHumanDuration {
+    pub fn serialize_with<S: serde::Serializer>(
+        d: &Duration,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&ShortHumanDuration::from(*d), s)
+    }
+
+    pub fn deserialize_with<'de, D: serde::Deserializer<'de>>(
+        d: D,
+    ) -> Result<Duration, D::Error> {
+        let sdur: ShortHumanDuration = serde::Deserialize::deserialize(d)?;
+        Ok(Duration::from(sdur))
+    }
+}
+
+impl From<ShortHumanDuration> for Duration {
+    fn from(hdur: ShortHumanDuration) -> Duration {
+        hdur.0
+    }
+}
+
+impl From<Duration> for ShortHumanDuration {
+    fn from(dur: Duration) -> ShortHumanDuration {
+        ShortHumanDuration(dur)
+    }
 }
 
 impl std::fmt::Debug for ShortHumanDuration {
@@ -135,7 +161,7 @@ impl std::fmt::Debug for ShortHumanDuration {
 
 impl std::fmt::Display for ShortHumanDuration {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let v = self.dur.as_secs_f64();
+        let v = self.0.as_secs_f64();
         if v >= 0.950 {
             write!(f, "{:.2}s", v)
         } else if v >= 0.000_950 {
@@ -171,6 +197,187 @@ impl std::str::FromStr for ShortHumanDuration {
             "ns" => value *= 1,
             unit => unreachable!("impossible unit '{}'", unit),
         }
-        Ok(ShortHumanDuration { dur: Duration::from_nanos(value) })
+        Ok(ShortHumanDuration(Duration::from_nanos(value)))
+    }
+}
+
+impl serde::Serialize for ShortHumanDuration {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ShortHumanDuration {
+    fn deserialize<D>(deserializer: D) -> Result<ShortHumanDuration, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct V;
+
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = ShortHumanDuration;
+
+            fn expecting(
+                &self,
+                f: &mut std::fmt::Formatter,
+            ) -> std::fmt::Result {
+                write!(f, "duration string of the form [0-9]+(s|ms|us|ns)")
+            }
+
+            fn visit_str<E>(self, s: &str) -> Result<ShortHumanDuration, E>
+            where
+                E: serde::de::Error,
+            {
+                s.parse::<ShortHumanDuration>()
+                    .map_err(|e| serde::de::Error::custom(e.to_string()))
+            }
+        }
+        deserializer.deserialize_str(V)
+    }
+}
+
+/// Another little wrapper type for computing, serializing and deserializing
+/// throughput.
+///
+/// We fix our time units for throughput to "per second," but try to show
+/// convenient size units, e.g., GB, MB, KB or B.
+///
+/// The internal representation is always in bytes per second.
+#[derive(Clone, Default)]
+pub struct Throughput(f64);
+
+impl Throughput {
+    /// Create a new throughput from the given number of bytes and the amount
+    /// of time taken to process those bytes.
+    pub fn new(bytes: u64, duration: Duration) -> Throughput {
+        let bytes_per_second = (bytes as f64) / duration.as_secs_f64();
+        Throughput::from_bytes_per_second(bytes_per_second)
+    }
+
+    /// If you've already computed a throughput and it is in units of B/sec,
+    /// then this permits building a `Throughput` from that raw value.
+    pub fn from_bytes_per_second(bytes_per_second: f64) -> Throughput {
+        Throughput(bytes_per_second)
+    }
+
+    /// Given a byte amount, convert this throughput to the total duration
+    /// spent. This assumes that the byte amount given is the same one as the
+    /// one used to build this throughput value.
+    pub fn duration(&self, bytes: u64) -> Duration {
+        Duration::from_secs_f64(bytes as f64 / self.0)
+    }
+
+    /// Return the underlying bytes per second value.
+    pub fn bytes_per_second(&self) -> f64 {
+        self.0
+    }
+}
+
+impl std::fmt::Debug for Throughput {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
+impl std::fmt::Display for Throughput {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        const KB: f64 = (1 << 10) as f64;
+        const MB: f64 = (1 << 20) as f64;
+        const GB: f64 = (1 << 30) as f64;
+        const MIN_KB: f64 = 2.0 * KB;
+        const MIN_MB: f64 = 2.0 * MB;
+        const MIN_GB: f64 = 2.0 * GB;
+
+        let bytes_per_second = self.0 as f64;
+        if bytes_per_second < MIN_KB {
+            write!(f, "{} B/s", bytes_per_second as u64)
+        } else if bytes_per_second < MIN_MB {
+            write!(f, "{:.1} KB/s", bytes_per_second / KB)
+        } else if bytes_per_second < MIN_GB {
+            write!(f, "{:.1} MB/sec", bytes_per_second / MB)
+        } else {
+            write!(f, "{:.1} GB/sec", bytes_per_second / GB)
+        }
+    }
+}
+
+impl std::str::FromStr for Throughput {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Throughput> {
+        static RE: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(
+                r"(?x)
+                ^
+                (?P<float>[0-9]+(?:\.[0-9]*)?|\.[0-9]+)
+                \s*
+                (?P<units>B|KB|MB|GB)/s
+                $
+            ",
+            )
+            .unwrap()
+        });
+        let caps = match RE.captures(s) {
+            Some(caps) => caps,
+            None => anyhow::bail!(
+                "throughput '{}' not in '<decimal>(B|KB|MB|GB)/s' format",
+                s,
+            ),
+        };
+        let mut bytes_per_second: f64 = caps["float"]
+            .parse()
+            .context("invalid throughput decimal number")?;
+        match &caps["units"] {
+            "B" => bytes_per_second *= 1.0,
+            "KB" => bytes_per_second *= 1_000.0,
+            "MB" => bytes_per_second *= 1_000_000.0,
+            "GB" => bytes_per_second *= 1_000_000_000.0,
+            unit => unreachable!("impossible unit '{}'", unit),
+        }
+        Ok(Throughput(bytes_per_second))
+    }
+}
+
+impl serde::Serialize for Throughput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Throughput {
+    fn deserialize<D>(deserializer: D) -> Result<Throughput, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct V;
+
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = Throughput;
+
+            fn expecting(
+                &self,
+                f: &mut std::fmt::Formatter,
+            ) -> std::fmt::Result {
+                write!(
+                    f,
+                    "throughput string of the form <decimal>(B|KB|MB|GB)/s"
+                )
+            }
+
+            fn visit_str<E>(self, s: &str) -> Result<Throughput, E>
+            where
+                E: serde::de::Error,
+            {
+                s.parse::<Throughput>()
+                    .map_err(|e| serde::de::Error::custom(e.to_string()))
+            }
+        }
+        deserializer.deserialize_str(V)
     }
 }

@@ -1,6 +1,20 @@
 use std::convert::TryFrom;
 
+use automata::SyntaxConfig;
+
 use super::{Benchmark, Results};
+
+pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
+    match &*b.engine {
+        "regex/api" => regex_api(b),
+        "regex/automata/dfa/dense" => regex_automata_dfa_dense(b),
+        "regex/automata/dfa/sparse" => regex_automata_dfa_sparse(b),
+        "regex/automata/hybrid" => regex_automata_hybrid(b),
+        "regex/automata/pikevm" => regex_automata_pikevm(b),
+        "memchr/memmem" => memchr_memmem(b),
+        name => anyhow::bail!("unknown regex engine '{}'", name),
+    }
+}
 
 fn verify(b: &Benchmark, count: usize) -> anyhow::Result<()> {
     let count = u64::try_from(count).expect("too many benchmark iterations");
@@ -13,56 +27,80 @@ fn verify(b: &Benchmark, count: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(super) fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
-    use regex::bytes::Regex;
+fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
+    use regex::bytes::RegexBuilder;
 
     let haystack = &*b.haystack;
-    let re = Regex::new(&b.def.regex)?;
+    let re = RegexBuilder::new(&b.def.regex)
+        .unicode(b.def.unicode)
+        .case_insensitive(b.def.case_insensitive)
+        .build()?;
     b.run(verify, || Ok(re.find_iter(haystack).count()))
 }
 
-pub(super) fn regex_automata_dfa_dense(
-    b: &Benchmark,
-) -> anyhow::Result<Results> {
+fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
     use automata::dfa::regex::Regex;
 
     let haystack = &*b.haystack;
-    let re = Regex::new(&b.def.regex)?;
+    let re = Regex::builder()
+        .configure(Regex::config().utf8(false))
+        .syntax(syntax_config(b))
+        .build(&b.def.regex)?;
     b.run(verify, || Ok(re.find_iter(haystack).count()))
 }
 
-pub(super) fn regex_automata_dfa_sparse(
-    b: &Benchmark,
-) -> anyhow::Result<Results> {
+fn regex_automata_dfa_sparse(b: &Benchmark) -> anyhow::Result<Results> {
     use automata::dfa::regex::Regex;
 
     let haystack = &*b.haystack;
-    let re = Regex::new_sparse(&b.def.regex)?;
+    let re = Regex::builder()
+        .configure(Regex::config().utf8(false))
+        .syntax(syntax_config(b))
+        .build_sparse(&b.def.regex)?;
     b.run(verify, || Ok(re.find_iter(haystack).count()))
 }
 
-pub(super) fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
+fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
     use automata::hybrid::regex::Regex;
 
     let haystack = &*b.haystack;
-    let re = Regex::new(&b.def.regex)?;
+    let re = Regex::builder()
+        .configure(Regex::config().utf8(false))
+        .syntax(syntax_config(b))
+        .build(&b.def.regex)?;
     let mut cache = re.create_cache();
     b.run(verify, || Ok(re.find_iter(&mut cache, haystack).count()))
 }
 
-pub(super) fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
+fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
     use automata::nfa::thompson::pikevm::PikeVM;
 
     let haystack = &*b.haystack;
-    let re = PikeVM::new(&b.def.regex)?;
+    let re = PikeVM::builder()
+        .configure(PikeVM::config().utf8(false))
+        .syntax(syntax_config(b))
+        .build(&b.def.regex)?;
     let mut cache = re.create_cache();
     b.run(verify, || Ok(re.find_iter(&mut cache, haystack).count()))
 }
 
-pub(super) fn memchr_memmem(b: &Benchmark) -> anyhow::Result<Results> {
+fn memchr_memmem(b: &Benchmark) -> anyhow::Result<Results> {
     use memchr::memmem;
 
+    anyhow::ensure!(
+        !b.def.case_insensitive,
+        "memmem engine is incompatible with 'case-insensitive = true'"
+    );
     let haystack = &*b.haystack;
     let finder = memmem::Finder::new(&b.def.regex);
     b.run(verify, || Ok(finder.find_iter(haystack).count()))
+}
+
+/// For regex-automata based regex engines, this builds a syntax configuration
+/// from a benchmark definition.
+fn syntax_config(b: &Benchmark) -> SyntaxConfig {
+    SyntaxConfig::new()
+        .utf8(false)
+        .unicode(b.def.unicode)
+        .case_insensitive(b.def.case_insensitive)
 }
