@@ -61,11 +61,12 @@ fn regex_automata_dfa_sparse(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::hybrid::regex::Regex;
+    use automata::hybrid::{dfa::DFA, regex::Regex};
 
     let haystack = &*b.haystack;
     let re = Regex::builder()
         .configure(Regex::config().utf8(false))
+        .dfa(DFA::config().skip_cache_capacity_check(true))
         .syntax(syntax_config(b))
         .build(&b.def.regex)?;
     let mut cache = re.create_cache();
