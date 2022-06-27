@@ -129,10 +129,6 @@ jobs:
       if: matrix.build != 'pinned' && matrix.build != 'stable-thumb'
       run: ${{ env.CARGO }} build --verbose --manifest-path regex-cli/Cargo.toml ${{ env.TARGET }}
 
-    - name: Test benchmarks
-      if: matrix.build != 'pinned' && matrix.build != 'stable-thumb'
-      run: ${{ env.CARGO }} bench --manifest-path bench/Cargo.toml --verbose ${{ env.TARGET }} -- --test
-
   rustfmt:
     name: rustfmt
     runs-on: ubuntu-18.04
