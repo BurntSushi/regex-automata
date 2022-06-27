@@ -43,7 +43,7 @@ and the haystacks. The benchmark definitions must be in files with a '.toml'
 extension. All haystacks should be in '{dir}/haystacks/' and have a '.txt'
 extension. Both benchmark definitions and haystacks may be in sub-directories.
 
-The default for this value is 'benches'.
+The default for this value is 'benchmarks'.
 ";
         app = app.arg(app::flag("dir").short("d").help(SHORT).long_help(LONG));
     }
@@ -213,7 +213,7 @@ struct Runner {
 impl Runner {
     fn new(args: &Args) -> anyhow::Result<Runner> {
         let mut runner = Runner {
-            dir: PathBuf::from("benches"),
+            dir: PathBuf::from("benchmarks"),
             // These unwraps are OK because an empty set of rules always works.
             bench_filter: Filter::new([].into_iter()).unwrap(),
             engine_filter: Filter::new([].into_iter()).unwrap(),
