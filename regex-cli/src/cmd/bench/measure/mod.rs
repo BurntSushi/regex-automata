@@ -11,15 +11,18 @@ use std::{
 use {
     anyhow::Context,
     bstr::{BString, ByteSlice, ByteVec},
+    once_cell::sync::Lazy,
     regex::Regex,
 };
 
 use crate::{
     app::{self, App, Args},
-    util::{self, ShortHumanDuration, Throughput},
+    cmd::bench::{Aggregate, AggregateDuration},
+    util::{self, Filter, ShortHumanDuration},
 };
 
 mod count;
+mod count_captures;
 
 const ABOUT_SHORT: &'static str = "\
 Run benchmarks and write measurements.
@@ -95,14 +98,6 @@ them, which might take considerably longer.
             .arg(app::mflag("engine").short("e").help(SHORT).long_help(LONG));
     }
     {
-        const SHORT: &str = "The max number of warmup iterations to execute.";
-        const LONG: &str = "\
-The max number of warmup iterations to execute.
-";
-        app =
-            app.arg(app::flag("max-warmup-iters").help(SHORT).long_help(LONG));
-    }
-    {
         const SHORT: &str = "The max number of benchmark iterations to run.";
         const LONG: &str = "\
 The maximum number of iterations to run for each benchmark.
@@ -119,6 +114,14 @@ it's useful, and in particular, you might want to increase it in certain
 circumstances for an usually fast routine.
 ";
         app = app.arg(app::flag("max-iters").help(SHORT).long_help(LONG));
+    }
+    {
+        const SHORT: &str = "The max number of warmup iterations to execute.";
+        const LONG: &str = "\
+The max number of warmup iterations to execute.
+";
+        app =
+            app.arg(app::flag("max-warmup-iters").help(SHORT).long_help(LONG));
     }
     {
         const SHORT: &str =
@@ -142,6 +145,27 @@ microseconds or nanoseconds. Namely, '^[0-9]+(s|ms|us|ns)$'.
         app = app.arg(app::flag("bench-time").help(SHORT).long_help(LONG));
     }
     {
+        const SHORT: &str =
+            "The approximate amount of time to warmup a benchmark.";
+        const LONG: &str = "\
+The approximate amount of time to warmup a benchmark.
+
+This is like --bench-time, but it controls the maximum amount of time to
+spending \"warming\" up a benchmark. The idea of warming up a benchmark is
+to execute the thing we're trying to measure for a period of time before
+starting the process of collecting samples. The reason for doing this is
+generally to fill up any internal caches being used to avoid extreme outliers,
+and even to an extent, to give CPUs a chance to adjust their clock speeds
+up. The idea here is that a \"warmed\" regex engine is more in line with real
+world use cases.
+
+As a general rule of thumb, warmup time should be one half the benchmark time.
+Indeed, if this is not given, it automatically defaults to half the benchmark
+time.
+";
+        app = app.arg(app::flag("warmup-time").help(SHORT).long_help(LONG));
+    }
+    {
         const SHORT: &str = "List benchmarks to run, but don't run them.";
         const LONG: &str = "\
 List benchmarks to run, but don't run them.
@@ -157,62 +181,93 @@ work will be done without actually doing it.
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
-    use self::count;
+    // Parse everything and load what we need.
+    let runner = MeasureArgs::new(args)?;
+    let defs = runner
+        .benchmark_definitions()?
+        .filter_by_name(&runner.bench_filter)
+        .filter_by_engine(&runner.engine_filter);
+    let haystacks = runner.haystacks(&defs)?;
 
-    let runner = Runner::new(args)?;
-    let benchdefs = runner.benchmarks()?;
-    let haystacks = runner.haystacks(&benchdefs)?;
-
-    let mut benches = vec![];
-    for bdef in &benchdefs.benches {
-        if !runner.bench_filter.include(&bdef.full_name()) {
-            continue;
-        }
-        for b in bdef.iter(&runner.bench_config, &haystacks)? {
+    // Collect all of the benchmarks we will run. Each benchmark definition can
+    // spawn multiple benchmarks; one for each regex engine specified in the
+    // definition.
+    let mut benchmarks = vec![];
+    for def in &defs.defs {
+        for b in def.iter(&runner.bench_config, &haystacks)? {
+            // While we did run the engine filter above, we run it again
+            // because the filter above only excludes benchmark definitions
+            // that have no matching engines at all. But we might still run
+            // a subset. So why do we run it above? Well, this way, we avoid
+            // loading haystacks into memory that will never be used.
             if !runner.engine_filter.include(&b.engine) {
                 continue;
             }
-            benches.push(b);
+            benchmarks.push(b);
         }
     }
-
-    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    // If we just want to list which benchmarks we'll run, spit that out.
     if runner.list {
-        for b in benches.iter() {
-            wtr.write_record(&[
-                b.def.full_name(),
-                b.engine.clone(),
-                b.def.haystack.clone(),
-            ])?;
+        let mut wtr = csv::Writer::from_writer(std::io::stdout());
+        for b in benchmarks.iter() {
+            wtr.write_record(&[b.def.full_name(), b.engine.clone()])?;
         }
         return Ok(());
     }
-    for b in benches.iter() {
-        let agg = b.aggregate(|| match b.def.benchmark_type {
+    // Run our benchmarks and emit the results of each as a single CSV record.
+    let mut wtr = csv::Writer::from_writer(std::io::stdout());
+    for b in benchmarks.iter() {
+        // Run the benchmark, collect the samples and turn the samples into a
+        // collection of various aggregate statistics (mean+/-stddev, median,
+        // min, max).
+        let agg = b.aggregate(match b.def.benchmark_type {
             BenchmarkType::Compile => todo!(),
-            BenchmarkType::Count => self::count::run(b),
-            BenchmarkType::CountCaptures => todo!(),
+            BenchmarkType::Count => count::run(b),
+            BenchmarkType::CountCaptures => count_captures::run(b),
             BenchmarkType::Grep => todo!(),
             BenchmarkType::RegexRedux => todo!(),
         });
+        // Our aggregate is initially captured in terms of how long it takes to
+        // execute each iteration of the benchmark. But for searching, this is
+        // not particularly intuitive. Instead, we convert strict timings into
+        // throughputs, which give a much better idea of how fast something is
+        // by relating it to how much can be searched in a single second.
+        //
+        // Literally every regex benchmark I've looked at reports measurements
+        // as raw timings. Like, who the heck cares if a regex search completes
+        // in 500ns? What does that mean? It's much clearer to say 500 MB/s.
+        // I guess people consistently misunderstand that benchmarks are
+        // fundamentally about communication first.
         wtr.serialize(agg.into_throughput())?;
+        // Flush every record once we have it so that users can see that
+        // progress is being made.
         wtr.flush()?;
     }
     Ok(())
 }
 
+/// The CLI arguments parsed from the 'measure' sub-command.
 #[derive(Clone, Debug)]
-struct Runner {
+struct MeasureArgs {
+    /// The directory to find benchmark definitions and haystacks.
     dir: PathBuf,
+    /// The filter to apply to benchmark "full names." That is, the name in
+    /// the format of {benchmark_type}/{group}/{name}.
     bench_filter: Filter,
+    /// The filter to apply to regex engine name.
     engine_filter: Filter,
+    /// Various parameters to control how ever benchmark is executed.
     bench_config: BenchmarkConfig,
+    /// Whether to just list the benchmarks that will be executed and
+    /// then quit. This also tests that all of the benchmark data can be
+    /// deserialized.
     list: bool,
 }
 
-impl Runner {
-    fn new(args: &Args) -> anyhow::Result<Runner> {
-        let mut runner = Runner {
+impl MeasureArgs {
+    /// Parse measurement args from the given CLI args.
+    fn new(args: &Args) -> anyhow::Result<MeasureArgs> {
+        let mut runner = MeasureArgs {
             dir: PathBuf::from("benchmarks"),
             // These unwraps are OK because an empty set of rules always works.
             bench_filter: Filter::new([].into_iter()).unwrap(),
@@ -244,29 +299,61 @@ impl Runner {
             runner.bench_config.approx_max_benchmark_time =
                 Duration::from(hdur);
         }
+        if let Some(x) = args.value_of_lossy("warmup-time") {
+            let hdur: ShortHumanDuration =
+                x.parse().context("--warmup-time")?;
+            runner.bench_config.approx_max_warmup_time = Duration::from(hdur);
+        } else {
+            let default = runner.bench_config.approx_max_benchmark_time / 2;
+            runner.bench_config.approx_max_warmup_time = default;
+        }
         Ok(runner)
     }
 
-    fn benchmarks(&self) -> anyhow::Result<BenchmarkDefs> {
+    /// Read and parse benchmark definitions from TOML files in the --dir
+    /// directory.
+    fn benchmark_definitions(&self) -> anyhow::Result<BenchmarkDefs> {
         let mut benches = BenchmarkDefs::new();
         benches.load_dir(&self.dir)?;
         Ok(benches)
     }
 
+    /// Read all of the haystacks from disk that are referenced in the given
+    /// benchmark definitions.
     fn haystacks(&self, benches: &BenchmarkDefs) -> anyhow::Result<Haystacks> {
         let dir = self.dir.join("haystacks");
 
         let mut haystacks = Haystacks::new();
-        haystacks.load_dir(dir, &benches.haystack_names())?;
+        haystacks.load_dir(dir, &benches.haystack_paths())?;
         Ok(haystacks)
     }
 }
 
+/// The configuration for a benchmark. This is overridable via the CLI, and can
+/// be useful on a case-by-case basis. In effect, it controls how benchmarks
+/// are executed and generally permits explicitly configuring how long you
+/// want to wait for benchmarks to run. Nobody wants to wait a long time, but
+/// you kind of need to wait a little bit or else benchmark results tend to be
+/// quite noisy.
 #[derive(Clone, Debug)]
 struct BenchmarkConfig {
-    max_warmup_iters: u64,
+    /// The maximum number of samples to collect.
     max_iters: u64,
+    /// The maximum number of times to execute the benchmark before collecting
+    /// samples.
+    max_warmup_iters: u64,
+    /// The approximate amount of time the benchmark should run. The idea here
+    /// is to collect as many samples as possible, up to the max and only for
+    /// as long as we are in our time budget.
+    ///
+    /// It'd be nice if we could just collect the same number of samples for
+    /// every benchmark, but this is in practice basically impossible when your
+    /// benchmarks include things that are blindingly fast like 'memmem' and
+    /// things that are tortoise slow, like the Pike VM.
     approx_max_benchmark_time: Duration,
+    /// Like max benchmark time, but for warmup time. As a general rule, it's
+    /// usually good to have this be about half the benchmark time.
+    approx_max_warmup_time: Duration,
 }
 
 impl Default for BenchmarkConfig {
@@ -274,25 +361,42 @@ impl Default for BenchmarkConfig {
         BenchmarkConfig {
             max_warmup_iters: 100_000,
             max_iters: 100_000,
-            approx_max_benchmark_time: Duration::from_secs(3),
+            approx_max_benchmark_time: Duration::from_millis(3000),
+            approx_max_warmup_time: Duration::from_millis(1500),
         }
     }
 }
 
+/// A collection of haystacks found on the filesystem.
+///
+/// Note that we only load haystacks that are pointed to by benchmarks that we
+/// will run. So for example, if only a small subset of benchmarks are selected
+/// to run, then only the haystacks referenced by those benchmarks (if any)
+/// will be loaded into memory.
+///
+/// Note that haystacks loaded from files can be any sequence of bytes, even
+/// invalid UTF-8. This is in contrast to haystacks defined inline in TOML
+/// files, which must be valid UTF-8.
 #[derive(Clone, Debug)]
 struct Haystacks {
     /// A map from a haystack name (the file path relative to, e.g.,
-    /// benches/haystacks) to the haystack itself. We use a Arc<u8> instead of
-    /// a Vec<u8> so that we can reuse a single copy of the haystack everywhere
-    /// without lifetimes.
+    /// benches/haystacks) to the haystack itself. We use a Arc<[u8]> instead
+    /// of a Vec<u8> so that we can reuse a single copy of the haystack
+    /// everywhere without lifetimes. In the context of this tool, there is no
+    /// real downside to Arc<[u8]> anyway.
     map: BTreeMap<String, Arc<[u8]>>,
 }
 
 impl Haystacks {
+    /// Create a new empty set of haystacks.
     fn new() -> Haystacks {
         Haystacks { map: BTreeMap::new() }
     }
 
+    /// Load the haystacks found in the given directory. But only load the
+    /// haystacks that are in `which`. `which` should be a set of strings
+    /// corresponding to file paths relative to the `{benchmark_dir}/haystacks`
+    /// directory.
     fn load_dir<P: AsRef<Path>>(
         &mut self,
         dir: P,
@@ -305,6 +409,8 @@ impl Haystacks {
         Ok(())
     }
 
+    /// Load a single file at the path given as a haystack. The haystack use
+    /// get the name given as a key in the haystack map.
     fn load_file<P: AsRef<Path>>(
         &mut self,
         name: &str,
@@ -318,6 +424,8 @@ impl Haystacks {
         Ok(())
     }
 
+    /// Load the raw bytes into the haystack map with the name given. If a
+    /// haystack with the given name already exists, then an error is returned.
     fn load_bytes(&mut self, name: &str, data: Vec<u8>) -> anyhow::Result<()> {
         anyhow::ensure!(
             !self.map.contains_key(name),
@@ -328,6 +436,8 @@ impl Haystacks {
         Ok(())
     }
 
+    /// Get the haystack witht he given name. If one does not exist, then an
+    /// error is returned.
     fn get(&self, name: &str) -> anyhow::Result<Arc<[u8]>> {
         if let Some(ref haystack) = self.map.get(name) {
             return Ok(Arc::clone(haystack));
@@ -336,17 +446,32 @@ impl Haystacks {
     }
 }
 
+/// A sequence of benchmark definitions defined over possibly many TOML files.
+/// Each benchmark definition typically defines one or more actual benchmarks,
+/// with the number of actual benchmarks equal to the number of regex engines
+/// included in the definition.
 #[derive(Clone, Debug, serde::Deserialize)]
 struct BenchmarkDefs {
+    /// The definitions, in the order in which they're defined.
+    #[serde(rename = "benches")]
     #[serde(default)] // allows empty TOML files
-    benches: Vec<BenchmarkDef>,
+    defs: Vec<BenchmarkDef>,
+    /// All of the benchmark definition names we've seen. We don't permit
+    /// duplicates.
+    #[serde(skip)]
+    seen: BTreeSet<String>,
 }
 
 impl BenchmarkDefs {
+    /// Create an empty set of benchmark definitions.
     fn new() -> BenchmarkDefs {
-        BenchmarkDefs { benches: vec![] }
+        BenchmarkDefs { defs: vec![], seen: BTreeSet::new() }
     }
 
+    /// Load all benchmark definitions from the given directory. Any file
+    /// with a 'toml' extension is read and deserialized. Also, the top-level
+    /// 'haystacks' directory is skipped, as it is meant to only contain
+    /// haystacks.
     fn load_dir<P: AsRef<Path>>(&mut self, dir: P) -> anyhow::Result<()> {
         let dir = dir.as_ref();
         let mut it = walkdir::WalkDir::new(dir).into_iter();
@@ -371,6 +496,7 @@ impl BenchmarkDefs {
         Ok(())
     }
 
+    /// Load the benchmark definitions from the TOML file at the given path.
     fn load_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<()> {
         let path = path.as_ref();
         let group = path
@@ -389,27 +515,82 @@ impl BenchmarkDefs {
         Ok(())
     }
 
+    /// Load the benchmark definitions from the TOML data. The group given is
+    /// assigned to every benchmark definition. Typically the group name is the
+    /// stem of the file name.
     fn load_slice(&mut self, group: &str, data: &[u8]) -> anyhow::Result<()> {
         let mut benches: BenchmarkDefs = toml::from_slice(&data)
             .with_context(|| format!("error decoding TOML for '{}'", group))?;
-        for b in &mut benches.benches {
+        for mut b in benches.defs {
             b.group = group.to_string();
+            anyhow::ensure!(
+                !self.seen.contains(&b.full_name()),
+                "a benchmark with name '{}' has already been defined",
+                b.full_name(),
+            );
+            self.seen.insert(b.full_name());
             b.validate()
                 .with_context(|| format!("error loading test '{}'", b.name))?;
+            self.defs.push(b);
         }
-        self.benches.extend(benches.benches);
         Ok(())
     }
 
-    fn haystack_names(&self) -> BTreeSet<String> {
-        let mut names = BTreeSet::new();
-        for b in &self.benches {
-            names.insert(b.haystack.clone());
+    /// Return a new set of benchmark definitions such that all definitions
+    /// pass the given name filter.
+    fn filter_by_name(&self, name_filter: &Filter) -> BenchmarkDefs {
+        let mut new = BenchmarkDefs::new();
+        for def in self.defs.iter() {
+            if name_filter.include(&def.full_name()) {
+                new.defs.push(def.clone());
+            }
         }
-        names
+        new
+    }
+
+    /// Return a new set of benchmark definitions such that all definitions
+    /// have at least one regex engine that passes the given filter.
+    fn filter_by_engine(&self, engine_filter: &Filter) -> BenchmarkDefs {
+        let mut new = BenchmarkDefs::new();
+        for def in self.defs.iter() {
+            for engine in def.engines.iter() {
+                if engine_filter.include(engine) {
+                    new.defs.push(def.clone());
+                    break;
+                }
+            }
+        }
+        new
+    }
+
+    /// Return all haystack paths from this set of benchmark definitions.
+    ///
+    /// This is useful for loading on the subset of haystacks that are
+    /// actually needed to run benchmarks.
+    fn haystack_paths(&self) -> BTreeSet<String> {
+        let mut paths = BTreeSet::new();
+        for def in &self.defs {
+            if let Some(ref path) = def.haystack_path {
+                paths.insert(path.clone());
+            }
+        }
+        paths
     }
 }
 
+/// A definition of a benchmark.
+///
+/// Each definition usually corresponds to multiple benchmarks, one for each
+/// regex engine specified.
+///
+/// In general, benchmark definitions specify the parameters of the benchmark.
+/// Most importantly, that's the regex pattern itself, the haystack and the
+/// task that needs to be performed. Some general purpose options, such as
+/// Unicode mode and case insensitivity, may also be set. Benchmark definitions
+/// do not encode regex engine specific options (like a JIT stack size).
+/// Instead, if one wants to test multiple configurations of a particular
+/// regex implementation, then each configuration should be used to produce a
+/// different regex engine.
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct BenchmarkDef {
@@ -434,11 +615,19 @@ struct BenchmarkDef {
     name: String,
     /// The actual regex pattern to measure.
     regex: String,
-    /// A pointer to a haystack. This is NOT the haystack itself. Instead,
-    /// it is the name of a haystack that is resolved when the benchmark is
-    /// executed. The pointer is a file path relative to the benches/haystacks
-    /// directory.
-    haystack: String,
+    /// The haystack to search, inlined into the benchmark definition. One
+    /// should only use this when the haystack is short. Either this or
+    /// 'haystack-path' must be present.
+    ///
+    /// Note that this field cannot support invalid UTF-8, since TOML does
+    /// not permit invalid UTF-8 anywhere in its file. To create a haystack
+    /// with invalid UTF-8, put the data in a file and point to it with
+    /// 'haystack-path'.
+    haystack: Option<String>,
+    /// A file path to a haystack. The path relative to the
+    /// benchmarks/haystacks directory. Either this or 'haystack' must be
+    /// present.
+    haystack_path: Option<String>,
     /// Whether the regex should be matched case insensitively or not.
     case_insensitive: bool,
     /// Whether the regex engine's "Unicode mode" should be enabled.
@@ -446,6 +635,12 @@ struct BenchmarkDef {
     /// A benchmark type specific option for 'count'. This indicates how many
     /// matches should be found in the benchmark's haystack.
     match_count: Option<u64>,
+    /// A benchmark type specific option for 'count-captures'. This indicates
+    /// how many capturing groups match. For every overall regex match,
+    /// the sum should be incremented by the number of capturing groups
+    /// that participated in the match (which may not be all of them, e.g.,
+    /// '([0-9])|([a-z])').
+    capture_count: Option<u64>,
     /// A benchmark type specific option for 'grep'. This indicates how many
     /// lines should match the regex in a haystack.
     line_count: Option<u64>,
@@ -462,6 +657,11 @@ struct BenchmarkDef {
     /// engines. For example, you might have 'pcre2/jit/default-stack-size' and
     /// 'pcre2/jit/large-stack-size'.
     engines: Vec<String>,
+    /// An analysis that describes the benchmark, its motivation and, ideally,
+    /// any engine-specific details that relate to the most recent results
+    /// observed. The analysis should be a "living" document of the benchmark
+    /// that gets updated as the results change. (An ambitious goal.)
+    analysis: String,
 }
 
 impl BenchmarkDef {
@@ -471,6 +671,21 @@ impl BenchmarkDef {
     /// name together, separated by a '/'.
     fn full_name(&self) -> String {
         format!("{}/{}/{}", self.benchmark_type, self.group, self.name)
+    }
+
+    /// Return the haystack for this benchmark definition. This uses the given
+    /// collection of haystacks to look up a haystack path if the haystack
+    /// isn't inlined into the benchmark definition.
+    ///
+    /// If the haystack was not inlined and it could not be found in the given
+    /// set of haystacks, then an error is returned.
+    fn haystack(&self, haystacks: &Haystacks) -> anyhow::Result<Arc<[u8]>> {
+        if let Some(ref haystack) = self.haystack {
+            return Ok(Arc::from(haystack.as_bytes()));
+        }
+        // Unwrap is OK because validation guarantees that either 'haystack'
+        // xor 'haystack_path' is present.
+        haystacks.get(self.haystack_path.as_ref().unwrap())
     }
 
     /// Returns an iterator over all the different ways this benchmark should
@@ -485,12 +700,11 @@ impl BenchmarkDef {
         config: &BenchmarkConfig,
         haystacks: &Haystacks,
     ) -> anyhow::Result<BenchmarkIter> {
-        let haystack = haystacks.get(&self.haystack)?;
         Ok(BenchmarkIter {
             it: self.engines.iter(),
             config: config.clone(),
             def: self,
-            haystack,
+            haystack: self.haystack(haystacks)?,
         })
     }
 
@@ -500,28 +714,101 @@ impl BenchmarkDef {
     /// benchmarks by construction, but there are some bits that are too
     /// annoying to push into Serde/types.
     fn validate(&self) -> anyhow::Result<()> {
+        static RE_GROUP: Lazy<Regex> =
+            Lazy::new(|| Regex::new(r"^[a-z][a-z0-9]+$").unwrap());
+        static RE_NAME: Lazy<Regex> =
+            Lazy::new(|| Regex::new(r"^[a-z][-a-z0-9]+$").unwrap());
+        static RE_ENGINE: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r"^[a-z][-a-z0-9]+(/[a-z][-a-z0-9]+)*$").unwrap()
+        });
+
+        // Benchmark type imposes constraints on which things can or can't
+        // be set.
         match self.benchmark_type {
             BenchmarkType::Compile => {}
             BenchmarkType::Count => {
                 anyhow::ensure!(
                     self.match_count.is_some(),
-                    "'count' benchmarks must have 'match_count' set",
+                    "'count' benchmarks must have 'match-count' set",
+                );
+                anyhow::ensure!(
+                    self.capture_count.is_none(),
+                    "'count' benchmarks must not have 'capture-count' set",
+                );
+                anyhow::ensure!(
+                    self.line_count.is_none(),
+                    "'count' benchmarks must not have 'line-count' set",
                 );
             }
             BenchmarkType::CountCaptures => {
                 anyhow::ensure!(
-                    self.match_count.is_some(),
-                    "'count-capture' benchmarks must have 'capture_count' set",
+                    self.capture_count.is_some(),
+                    "'count-captures' benchmarks must have 'capture-count' set",
+                );
+                anyhow::ensure!(
+                    self.match_count.is_none(),
+                    "'count-captures' benchmarks must not have 'match-count' set",
+                );
+                anyhow::ensure!(
+                    self.line_count.is_none(),
+                    "'count-captures' benchmarks must not have 'line-count' set",
                 );
             }
             BenchmarkType::Grep => {
                 anyhow::ensure!(
                     self.line_count.is_some(),
-                    "'grep' benchmarks must have 'line_count' set",
+                    "'grep' benchmarks must have 'line-count' set",
+                );
+                anyhow::ensure!(
+                    self.match_count.is_none(),
+                    "'grep' benchmarks must not have 'match-count' set",
+                );
+                anyhow::ensure!(
+                    self.capture_count.is_none(),
+                    "'grep' benchmarks must not have 'capture-count' set",
                 );
             }
             BenchmarkType::RegexRedux => {}
         }
+        // Group must be valid.
+        anyhow::ensure!(
+            RE_GROUP.is_match(&self.group),
+            "group name '{}' does not match format '{}' \
+             (group name is usually derived from TOML file name)",
+            self.group,
+            RE_GROUP.as_str(),
+        );
+        // Name must be valid.
+        anyhow::ensure!(
+            RE_NAME.is_match(&self.name),
+            "benchmark name '{}' does not match format '{}'",
+            self.name,
+            RE_NAME.as_str(),
+        );
+        // We must have 'haystack' xor 'haystack-path'.
+        anyhow::ensure!(
+            !(self.haystack.is_some() && self.haystack_path.is_some()),
+            "only one of 'haystack' and 'haystack-path' may be set",
+        );
+        anyhow::ensure!(
+            self.haystack.is_some() || self.haystack_path.is_some(),
+            "at least one of 'haystack' and 'haystack-path' must be set",
+        );
+        // Our engine names should conform as well.
+        for engine in self.engines.iter() {
+            anyhow::ensure!(
+                RE_ENGINE.is_match(engine),
+                "engine name '{}' does not match format '{}'",
+                engine,
+                RE_ENGINE.as_str(),
+            );
+        }
+        // Analysis must be non-empty. Don't be lazy.
+        anyhow::ensure!(
+            !self.analysis.is_empty(),
+            "'analysis' cannot be empty"
+        );
+
         Ok(())
     }
 }
@@ -572,12 +859,16 @@ impl std::fmt::Display for BenchmarkType {
     }
 }
 
+/// An iterator over all benchmarks from a benchmark definition.
+///
+/// The lifetime `'d` refers to the benchmark definition from which to generate
+/// benchmarks.
 #[derive(Debug)]
-struct BenchmarkIter<'b> {
+struct BenchmarkIter<'d> {
     config: BenchmarkConfig,
-    def: &'b BenchmarkDef,
+    def: &'d BenchmarkDef,
     haystack: Arc<[u8]>,
-    it: std::slice::Iter<'b, String>,
+    it: std::slice::Iter<'d, String>,
 }
 
 impl<'b> Iterator for BenchmarkIter<'b> {
@@ -594,25 +885,30 @@ impl<'b> Iterator for BenchmarkIter<'b> {
     }
 }
 
+/// A single benchmark that can be executed in order to collect timing samples.
+/// Each sample corresponds to a single run of a single regex engine on a
+/// particular haystack.
 #[derive(Clone, Debug)]
 struct Benchmark {
+    /// The config, given from the command line.
     config: BenchmarkConfig,
+    /// The definition, taken from TOML data.
     def: BenchmarkDef,
+    /// The actual haystack data to search, taken from either the TOML data
+    /// (via 'haystack') or from the file system (via 'haystack-path').
     haystack: Arc<[u8]>,
+    /// The name of the regex engine to execute. This is guaranteed to match
+    /// one of the values in 'def.engines'.
     engine: String,
 }
 
 impl Benchmark {
-    fn aggregate(
-        &self,
-        mut results: impl FnMut() -> anyhow::Result<Results>,
-    ) -> Aggregate {
-        match results() {
-            Ok(results) => results.to_aggregate(),
-            Err(err) => Aggregate::errored(self, err.to_string()),
-        }
-    }
-
+    /// Run the benchmark given a function to verify that the results are
+    /// correct and a function to produce a result.
+    ///
+    /// This is intended to be used directly by the implementation of each
+    /// regex engine. In particular, this might be called after some setup work
+    /// (typically compiling the regex itself).
     fn run<T>(
         &self,
         mut verify: impl FnMut(&Benchmark, T) -> anyhow::Result<()>,
@@ -620,13 +916,12 @@ impl Benchmark {
     ) -> anyhow::Result<Results> {
         let mut results = Results::new(self);
         let warmup_start = Instant::now();
-        let max_warmup_time = self.config.approx_max_benchmark_time / 2;
         for _ in 0..self.config.max_warmup_iters {
             let mut start = Instant::now();
             let result = test();
             let elapsed = start.elapsed();
             verify(self, result?)?;
-            if warmup_start.elapsed() >= max_warmup_time {
+            if warmup_start.elapsed() >= self.config.approx_max_warmup_time {
                 break;
             }
         }
@@ -644,16 +939,47 @@ impl Benchmark {
         results.total = bench_start.elapsed();
         Ok(results)
     }
+
+    /// Turn the given results collected from running this benchmark into
+    /// a single set of aggregate statistics describing the samples in the
+    /// results.
+    fn aggregate(&self, result: anyhow::Result<Results>) -> AggregateDuration {
+        match result {
+            Ok(results) => results.to_aggregate(),
+            Err(err) => self.aggregate_error(err.to_string()),
+        }
+    }
+
+    /// Create a new "error" aggregate from this benchmark with the given
+    /// error message. This is useful in cases where the benchmark couldn't
+    /// run or there was some other discrepancy. Folding the error into the
+    /// aggregate value itself avoids recording the error "out of band" and
+    /// also avoids silently squashing it.
+    fn aggregate_error(&self, err: String) -> AggregateDuration {
+        AggregateDuration {
+            full_name: self.def.full_name(),
+            engine: self.engine.clone(),
+            err: Some(err),
+            ..AggregateDuration::default()
+        }
+    }
 }
 
+/// The raw results generated by running a benchmark.
 #[derive(Clone, Debug)]
 struct Results {
+    /// The benchmark that was executed.
     benchmark: Benchmark,
+    /// The total amount of time that the benchmark ran for.
     total: Duration,
+    /// The individual timing samples collected from the benchmark. Each sample
+    /// represents the time it takes for a single run of the thing being
+    /// measured. This does not include warmup iterations.
     samples: Vec<Duration>,
 }
 
 impl Results {
+    /// Create a new empty set of results for the given benchmark.
     fn new(b: &Benchmark) -> Results {
         Results {
             benchmark: b.clone(),
@@ -662,7 +988,9 @@ impl Results {
         }
     }
 
-    fn to_aggregate(&self) -> Aggregate {
+    /// Convert these results into aggregate statistical values. If there are
+    /// no samples, then an "error" aggregate is returned.
+    fn to_aggregate(&self) -> AggregateDuration {
         let mut samples = vec![];
         for &dur in self.samples.iter() {
             samples.push(dur.as_secs_f64());
@@ -672,15 +1000,16 @@ impl Results {
         // assume that 'timings' is non-empty.
         if samples.is_empty() {
             let err = "no samples or errors recorded".to_string();
-            return Aggregate::errored(&self.benchmark, err);
+            return self.benchmark.aggregate_error(err);
         }
         // We have no NaNs, so this is fine.
         samples.sort_unstable_by(|x, y| x.partial_cmp(y).unwrap());
-        Aggregate {
+        AggregateDuration {
             full_name: self.benchmark.def.full_name(),
             engine: self.benchmark.engine.clone(),
-            haystack: self.benchmark.def.haystack.clone(),
-            haystack_len: self.benchmark.haystack.len() as u64,
+            // We don't expect to have haystacks bigger than 2**64.
+            haystack_len: u64::try_from(self.benchmark.haystack.len())
+                .unwrap(),
             err: None,
             // We don't expect iterations to exceed 2**64.
             iters: u64::try_from(samples.len()).unwrap(),
@@ -696,186 +1025,6 @@ impl Results {
             // OK because timings.len() > 0
             max: Duration::from_secs_f64(max(&samples).unwrap()),
         }
-    }
-}
-
-/// Aggregate statistics for a particular benchmark.
-///
-/// This could probably be simplified somewhat by attaching a `Benchmark`
-/// to it, but it is an intentionally flattened structure so as to make
-/// (de)serializing a bit more convenient.
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-struct Aggregate {
-    full_name: String,
-    engine: String,
-    haystack: String,
-    haystack_len: u64,
-    err: Option<String>,
-    iters: u64,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    total: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    median: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    mean: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    stddev: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    min: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    max: Duration,
-}
-
-impl Aggregate {
-    /// Create a new aggregate value that represents an error.
-    fn errored(b: &Benchmark, err: String) -> Aggregate {
-        Aggregate {
-            full_name: b.def.full_name(),
-            engine: b.engine.clone(),
-            haystack: b.def.haystack.clone(),
-            err: Some(err),
-            ..Aggregate::default()
-        }
-    }
-
-    /// Convert this aggregate value from using duration to throughput.
-    fn into_throughput(self) -> AggregateThroughput {
-        if self.err.is_some() {
-            return AggregateThroughput {
-                full_name: self.full_name,
-                engine: self.engine,
-                haystack: self.haystack,
-                err: self.err,
-                ..AggregateThroughput::default()
-            };
-        }
-        // Getting stddev as a throughput is not quite as straight-forward. I
-        // believe the correct thing to do here is to compute the ratio between
-        // stddev and mean in terms of duration, then compute the throughput of
-        // the mean and then use the ratio on the mean throughput to find the
-        // stddev throughput.
-        let ratio = self.stddev.as_secs_f64() / self.mean.as_secs_f64();
-        let mean = Throughput::new(self.haystack_len, self.mean);
-        let stddev =
-            Throughput::from_bytes_per_second(mean.bytes_per_second() * ratio);
-        AggregateThroughput {
-            full_name: self.full_name,
-            engine: self.engine,
-            haystack: self.haystack,
-            haystack_len: self.haystack_len,
-            err: self.err,
-            iters: self.iters,
-            total: self.total,
-            median: Throughput::new(self.haystack_len, self.median),
-            mean,
-            stddev,
-            // For throughput, min/max are flipped. Which makes sense, the
-            // bigger the throughput, the better. But the smaller the duration,
-            // the better.
-            min: Throughput::new(self.haystack_len, self.max),
-            max: Throughput::new(self.haystack_len, self.min),
-        }
-    }
-}
-
-/// Like 'Aggregate', but uses throughputs instead of durations. In my opinion,
-/// throughput is easier to reason about for regex benchmarks. It gives you
-/// the same information, but it also gives you some intuition for how long it
-/// will take to search some data. Namely, throughput provides more bits of
-/// information when compared to benchmark iteration duration.
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-struct AggregateThroughput {
-    full_name: String,
-    engine: String,
-    haystack: String,
-    haystack_len: u64,
-    err: Option<String>,
-    iters: u64,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    total: Duration,
-    median: Throughput,
-    mean: Throughput,
-    stddev: Throughput,
-    min: Throughput,
-    max: Throughput,
-}
-
-/// Filter is the implementation of whitelist/blacklist rules. If there are no
-/// rules, everything matches. If there's at least one whitelist rule, then you
-/// need at least one whitelist rule to match to get through the filter. If
-/// there are no whitelist regexes, then you can't match any of the blacklist
-/// regexes.
-///
-/// This filter also has precedence built into that. That means that the order
-/// of rules matters. So for example, if you have a whitelist regex that
-/// matches AFTER a blacklist regex matches, then the input is considered to
-/// have matched the filter.
-#[derive(Clone, Debug)]
-struct Filter {
-    rules: Vec<FilterRule>,
-}
-
-/// A single rule in a filter, which is a combination of a regex and whether
-/// it's a blacklist rule or not.
-#[derive(Clone, Debug)]
-struct FilterRule {
-    regex: Regex,
-    blacklist: bool,
-}
-
-impl Filter {
-    /// Return a new filter from the given rules. The order of the rules
-    /// matters, as the last rule that matches takes precedent over any
-    /// previous matching rules.
-    fn new<'a>(
-        rules: impl Iterator<Item = &'a OsStr>,
-    ) -> anyhow::Result<Filter> {
-        let mut filter = Filter { rules: vec![] };
-        for osrule in rules {
-            let rule = match osrule.to_str() {
-                Some(rule) => rule,
-                None => {
-                    let raw = BString::from(
-                        Vec::from_os_str_lossy(osrule).into_owned(),
-                    );
-                    anyhow::bail!("regex is not UTF-8: '{}'", raw)
-                }
-            };
-            let (pattern, blacklist) = if rule.starts_with('~') {
-                (&rule[1..], true)
-            } else {
-                (&*rule, false)
-            };
-            let regex = Regex::new(pattern).context("regex is not valid")?;
-            filter.rules.push(FilterRule { regex, blacklist });
-        }
-        Ok(filter)
-    }
-
-    /// Return true if and only if the given subject passes this filter.
-    fn include(&self, subject: &str) -> bool {
-        // If we have no rules, then everything matches.
-        if self.rules.is_empty() {
-            return true;
-        }
-        // If we have any whitelist rules, then 'include' starts off as false,
-        // as we need at least one whitelist rule in that case to match. If all
-        // we have are blacklists though, then we start off with include=true,
-        // and we only get excluded if one of those blacklists is matched.
-        let mut include = self.rules.iter().all(|r| r.blacklist);
-        for rule in &self.rules {
-            if rule.regex.is_match(subject) {
-                include = !rule.blacklist;
-            }
-        }
-        include
     }
 }
 

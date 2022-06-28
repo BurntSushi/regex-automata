@@ -68,6 +68,7 @@ pub fn escape_os(string: &OsStr) -> String {
 ///
 /// * `\t`, `\r` and `\n` are mapped to their corresponding ASCII bytes.
 /// * `\xZZ` hexadecimal escapes are mapped to their byte.
+/// * A literal `\` can be written as `\\`.
 ///
 /// Everything else is left as is, including non-hexadecimal escapes like
 /// `\xGG`.
@@ -76,22 +77,7 @@ pub fn escape_os(string: &OsStr) -> String {
 /// capable of specifying arbitrary bytes or otherwise make it easier to
 /// specify non-printable characters.
 ///
-/// The dual of this routine is [`escape`](fn.escape.html).
-///
-/// # Example
-///
-/// This example shows how to convert an escaped string (which is valid UTF-8)
-/// into a corresponding sequence of bytes. Each escape sequence is mapped to
-/// its bytes, which may include invalid UTF-8.
-///
-/// Pay special attention to the use of raw strings. That is, `r"\n"` is
-/// equivalent to `"\\n"`.
-///
-/// ```
-/// use grep_cli::unescape;
-///
-/// assert_eq!(&b"foo\nbar\xFFbaz"[..], &*unescape(r"foo\nbar\xFFbaz"));
-/// ```
+/// The dual of this routine is `escape`.
 pub fn unescape(s: &str) -> Vec<u8> {
     use self::State::*;
 

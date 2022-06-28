@@ -10,6 +10,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/dfa/dense" => regex_automata_dfa_dense(b),
         "regex/automata/dfa/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
+        "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "memchr/memmem" => memchr_memmem(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
@@ -71,6 +72,31 @@ fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
         .build(&b.def.regex)?;
     let mut cache = re.create_cache();
     b.run(verify, || Ok(re.find_iter(&mut cache, haystack).count()))
+}
+
+fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::nfa::thompson::backtrack::BoundedBacktracker;
+
+    let haystack = &*b.haystack;
+    let re = BoundedBacktracker::builder()
+        .configure(BoundedBacktracker::config().utf8(false))
+        .syntax(syntax_config(b))
+        .build(&b.def.regex)?;
+    let mut cache = re.create_cache();
+    b.run(verify, || {
+        // We could check the haystack length against
+        // 'backtrack::min_visited_capacity' and return an error before running
+        // our benchmark, but handling the error at search time is probably
+        // more consistent with real world usage. Some brief experiments don't
+        // seem to show much of a difference between this and the panicking
+        // APIs.
+        let mut count = 0;
+        for result in re.try_find_iter(&mut cache, haystack) {
+            result?;
+            count += 1;
+        }
+        Ok(count)
+    })
 }
 
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {

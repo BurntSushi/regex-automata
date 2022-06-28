@@ -821,7 +821,7 @@ impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
 /// of this crate. Like a range, this implements `Index` for `[u8]` and `str`,
 /// and `IndexMut` for `[u8]`. For convenience, this also impls `From<Range>`,
 /// which means things like `Span::from(5..10)` work.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct Span {
     /// The start offset of the span, inclusive.
     pub start: usize,
@@ -849,6 +849,12 @@ impl Span {
     #[inline]
     pub fn contains(&self, offset: usize) -> bool {
         !self.is_empty() && self.start <= offset && offset <= self.end
+    }
+}
+
+impl core::fmt::Debug for Span {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
     }
 }
 

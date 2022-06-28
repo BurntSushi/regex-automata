@@ -1424,7 +1424,12 @@ impl BoundedBacktracker {
         input: &Input<'_, '_>,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
-        caps.set_pattern(None);
+        // Unlike in the PikeVM, we write our capturing group spans directly
+        // into the caller's captures groups. So we have to make sure we're
+        // starting with a blank slate first. In the PikeVM, we avoid this
+        // by construction: the spans that are copied to every slot in the
+        // 'Captures' value account for presence/absence.
+        caps.clear();
         cache.setup_search(&self.nfa, input)?;
         if input.is_done() {
             return Ok(());
@@ -1461,6 +1466,7 @@ impl BoundedBacktracker {
     ///
     /// If no match was found, then the caller should increment `at` and try
     /// at the next position.
+    #[inline(always)]
     fn backtrack(
         &self,
         cache: &mut Cache,
@@ -1496,6 +1502,7 @@ impl BoundedBacktracker {
     /// former case, it may have pushed some things on to the backtracking
     /// stack, in which case, those will be tried next as part of the
     /// 'backtrack' routine above.
+    #[inline(always)]
     fn step(
         &self,
         cache: &mut Cache,

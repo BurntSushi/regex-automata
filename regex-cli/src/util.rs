@@ -1,10 +1,14 @@
 use std::{
+    ffi::OsStr,
     io::{self, Write},
     time::Duration,
 };
 
 use {
-    anyhow::Context, once_cell::sync::Lazy, regex::Regex,
+    anyhow::Context,
+    bstr::{BString, ByteVec},
+    once_cell::sync::Lazy,
+    regex::Regex,
     unicode_width::UnicodeWidthStr,
 };
 
@@ -111,6 +115,78 @@ impl Table {
             writeln!(wtr, "{}:\t{:?}", label, value)?;
         }
         wtr.flush()
+    }
+}
+
+/// Filter is the implementation of whitelist/blacklist rules. If there are no
+/// rules, everything matches. If there's at least one whitelist rule, then you
+/// need at least one whitelist rule to match to get through the filter. If
+/// there are no whitelist regexes, then you can't match any of the blacklist
+/// regexes.
+///
+/// This filter also has precedence built into that. That means that the order
+/// of rules matters. So for example, if you have a whitelist regex that
+/// matches AFTER a blacklist regex matches, then the input is considered to
+/// have matched the filter.
+#[derive(Clone, Debug)]
+pub struct Filter {
+    rules: Vec<FilterRule>,
+}
+
+/// A single rule in a filter, which is a combination of a regex and whether
+/// it's a blacklist rule or not.
+#[derive(Clone, Debug)]
+struct FilterRule {
+    regex: Regex,
+    blacklist: bool,
+}
+
+impl Filter {
+    /// Return a new filter from the given rules. The order of the rules
+    /// matters, as the last rule that matches takes precedent over any
+    /// previous matching rules.
+    pub fn new<'a>(
+        rules: impl Iterator<Item = &'a OsStr>,
+    ) -> anyhow::Result<Filter> {
+        let mut filter = Filter { rules: vec![] };
+        for osrule in rules {
+            let rule = match osrule.to_str() {
+                Some(rule) => rule,
+                None => {
+                    let raw = BString::from(
+                        Vec::from_os_str_lossy(osrule).into_owned(),
+                    );
+                    anyhow::bail!("regex is not UTF-8: '{}'", raw)
+                }
+            };
+            let (pattern, blacklist) = if rule.starts_with('~') {
+                (&rule[1..], true)
+            } else {
+                (&*rule, false)
+            };
+            let regex = Regex::new(pattern).context("regex is not valid")?;
+            filter.rules.push(FilterRule { regex, blacklist });
+        }
+        Ok(filter)
+    }
+
+    /// Return true if and only if the given subject passes this filter.
+    pub fn include(&self, subject: &str) -> bool {
+        // If we have no rules, then everything matches.
+        if self.rules.is_empty() {
+            return true;
+        }
+        // If we have any whitelist rules, then 'include' starts off as false,
+        // as we need at least one whitelist rule in that case to match. If all
+        // we have are blacklists though, then we start off with include=true,
+        // and we only get excluded if one of those blacklists is matched.
+        let mut include = self.rules.iter().all(|r| r.blacklist);
+        for rule in &self.rules {
+            if rule.regex.is_match(subject) {
+                include = !rule.blacklist;
+            }
+        }
+        include
     }
 }
 

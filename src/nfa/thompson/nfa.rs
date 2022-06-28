@@ -2399,8 +2399,22 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Captures {
+    // FIXME: Consider (again) re-orienting this type such that it only has
+    // enough slots to store the pattern with the greatest number of groups.
+    // Since the public API only supports accessing groups for a specific
+    // pattern (other than the lower level slot API), this is OK.
+    //
+    // Main advantage is that accessing a group from a group index becomes much
+    // more straightforward. You don't need any lookup tables. You just do
+    // (group_index * 2, group_index * 2 + 1).
+    //
+    // Main downside is that you can't write directly to a 'Captures' given a
+    // slot index from an 'State::Capture'. The PikeVM doesn't even try that
+    // anyway, but the backtracker does. So the backtracker will need an extra
+    // copy I guess. Both will need some way to copy matching slots values to a
+    // 'Captures', but I think all of the necessary info is already on the NFA.
     nfa: NFA,
     pid: Option<PatternID>,
     slots: Vec<Option<NonMaxUsize>>,
@@ -3033,6 +3047,44 @@ impl Captures {
     #[inline]
     pub fn slot_len(&self) -> usize {
         self.slots.len()
+    }
+}
+
+impl core::fmt::Debug for Captures {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let mut dstruct = f.debug_struct("Captures");
+        dstruct.field("pid", &self.pid);
+        if let Some(pid) = self.pid {
+            dstruct.field("spans", &CapturesDebugMap { pid, caps: self });
+        }
+        dstruct.finish()
+    }
+}
+
+/// A little helper type to provide a nice map-like debug representation for
+/// our capturing group spans.
+struct CapturesDebugMap<'a> {
+    pid: PatternID,
+    caps: &'a Captures,
+}
+
+impl<'a> core::fmt::Debug for CapturesDebugMap<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        let mut map = f.debug_map();
+        let mut names = self.caps.nfa.pattern_capture_names(self.pid);
+        for (group_index, maybe_name) in names.enumerate() {
+            let span = self.caps.get_group(group_index);
+            let debug_span: &dyn core::fmt::Debug = match span {
+                None => &None::<()>,
+                Some(ref span) => span,
+            };
+            if let Some(name) = maybe_name {
+                map.entry(&format!("{}/{}", group_index, name), debug_span);
+            } else {
+                map.entry(&group_index, debug_span);
+            }
+        }
+        map.finish()
     }
 }
 
