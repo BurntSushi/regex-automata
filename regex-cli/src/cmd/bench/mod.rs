@@ -6,6 +6,7 @@ use crate::{
 };
 
 mod cmp;
+mod diff;
 mod measure;
 
 const ABOUT_SHORT: &'static str = "\
@@ -21,12 +22,14 @@ pub fn define() -> App {
         .about(ABOUT_SHORT)
         .before_help(ABOUT_LONG)
         .subcommand(cmp::define())
+        .subcommand(diff::define())
         .subcommand(measure::define())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(&args, define, |cmd, args| match cmd {
         "cmp" => cmp::run(args),
+        "diff" => diff::run(args),
         "measure" => measure::run(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })

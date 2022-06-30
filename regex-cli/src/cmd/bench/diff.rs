@@ -1,6 +1,6 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+    collections::btree_map::{BTreeMap, Entry},
+    path::{Path, PathBuf},
 };
 
 use {anyhow::Context, termcolor::WriteColor};
@@ -12,19 +12,19 @@ use crate::{
 };
 
 const ABOUT_SHORT: &'static str = "\
-Compare benchmarks between different regex engines.
+Compare benchmarks across time.
 ";
 
 const ABOUT_LONG: &'static str = "\
-Compare benchmarks between different regex engines.
+Compare benchmarks across time.
 
-To compare benchmarks for the same regex engine over time, use the 'regex-cli
-bench diff' command.
+To compare benchmarks between regex engines, use the 'regex-cli bench cmp'
+command.
 ";
 
 pub fn define() -> App {
     let mut app =
-        app::command("cmp").about(ABOUT_SHORT).before_help(ABOUT_LONG);
+        app::command("diff").about(ABOUT_SHORT).before_help(ABOUT_LONG);
     {
         const SHORT: &str =
             "File paths to CSV data containing benchmark measurements.";
@@ -34,9 +34,8 @@ File paths to CSV data containing benchmark measurements.
 In general, the CSV data read by this tool is the same CSV data written by the
 'regex-cli bench measure' command.
 
-Multiple CSV data sets may be given to this command. However, if after applying
-the filters given, there are any duplicate benchmark/engine pairs, then the
-command will error.
+Multiple CSV data sets may be given to this command. Each data set corresponds
+to a column in the output.
 ";
         app = app.arg(
             app::arg("csv-path").multiple(true).help(SHORT).long_help(LONG),
@@ -124,7 +123,7 @@ are: median, mean, min, max.
         const LONG: &str = "\
 Whether to use color (default: auto).
 
-When enabled, color is used to indicate which regex engine did the best on each
+When enabled, color is used to indicate which measurement did the best on each
 benchmark. The choices are: auto, always, never.
 ";
         app = app.arg(app::mflag("color").help(SHORT).long_help(LONG));
@@ -133,53 +132,58 @@ benchmark. The choices are: auto, always, never.
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
-    let cmpargs = CmpArgs::new(args)?;
-    let aggs = cmpargs.read_aggregates()?;
-    let aggs_by_name = AggregatesByBenchmarkName::new(aggs);
-    let engines = aggs_by_name.engine_names();
+    let diffargs = DiffArgs::new(args)?;
+    let data_names = diffargs.csv_data_names()?;
+    let grouped_aggs = diffargs.read_aggregate_groups()?;
 
-    let mut wtr = cmpargs.elastic_stdout();
+    let mut wtr = diffargs.elastic_stdout();
 
     // Write column names.
     write!(wtr, "benchmark")?;
-    for engine in engines.iter() {
-        write!(wtr, "\t{}", engine)?;
+    write!(wtr, "\tengine")?;
+    for data_name in data_names.iter() {
+        write!(wtr, "\t{}", data_name)?;
     }
     writeln!(wtr, "")?;
 
     // Write underlines beneath each column name to give some separation. Note
-    // that we use byte length because we require that all names are ASCII.
+    // that we use byte length, which is a little suspect, because file names
+    // might have Unicode in them.
     write_divider(&mut wtr, '-', "benchmark".len())?;
-    for engine in engines.iter() {
+    write!(wtr, "\t")?;
+    write_divider(&mut wtr, '-', "engine".len())?;
+    for data_name in data_names.iter() {
         write!(wtr, "\t")?;
-        write_divider(&mut wtr, '-', engine.len())?;
+        write_divider(&mut wtr, '-', data_name.len())?;
     }
     writeln!(wtr, "")?;
 
-    for group in aggs_by_name.groups.iter() {
-        if group.biggest_difference(cmpargs.stat) < cmpargs.threshold {
+    for group in grouped_aggs.iter() {
+        if group.biggest_difference(diffargs.stat) < diffargs.threshold {
             continue;
         }
         write!(wtr, "{}", group.full_name)?;
+        write!(wtr, "\t{}", group.engine)?;
         // We write an entry for every engine we care about, even if the engine
         // isn't in this group. This makes sure everything stays aligned. If
         // an output has too many missing entries, the user can use filters to
         // condense things.
-        for engine in engines.iter() {
+        let best = group.best(diffargs.stat);
+        for data_name in data_names.iter() {
             write!(wtr, "\t")?;
-            match group.aggs_by_engine.get(engine) {
+            match group.aggs_by_data.get(data_name) {
                 None => {
                     write!(wtr, "-")?;
                 }
                 Some(agg) => {
-                    if engine == group.best(cmpargs.stat) {
+                    if best == data_name {
                         let mut spec = termcolor::ColorSpec::new();
                         spec.set_fg(Some(termcolor::Color::Green))
                             .set_bold(true);
                         wtr.set_color(&spec)?;
                     }
-                    write!(wtr, "{}", cmpargs.stat.get(&agg))?;
-                    if engine == group.best(cmpargs.stat) {
+                    write!(wtr, "{}", diffargs.stat.get(&agg))?;
+                    if best == data_name {
                         wtr.reset()?;
                     }
                 }
@@ -191,9 +195,9 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The arguments for this 'cmp' command parsed from CLI args.
+/// The arguments for this 'diff' command parsed from CLI args.
 #[derive(Debug)]
-struct CmpArgs {
+struct DiffArgs {
     /// File paths to CSV files.
     csv_paths: Vec<PathBuf>,
     /// A filter to be applied to benchmark "full names."
@@ -209,10 +213,10 @@ struct CmpArgs {
     color: Option<bool>,
 }
 
-impl CmpArgs {
-    /// Parse 'cmp' args from the given CLI args.
-    fn new(args: &Args) -> anyhow::Result<CmpArgs> {
-        let mut cmpargs = CmpArgs {
+impl DiffArgs {
+    /// Parse 'diff' args from the given CLI args.
+    fn new(args: &Args) -> anyhow::Result<DiffArgs> {
+        let mut diffargs = DiffArgs {
             csv_paths: args
                 .values_of_os("csv-path")
                 .into_iter()
@@ -227,15 +231,15 @@ impl CmpArgs {
             // color: atty::is(atty::Stream::Stdout),
         };
         anyhow::ensure!(
-            !cmpargs.csv_paths.is_empty(),
+            !diffargs.csv_paths.is_empty(),
             "no CSV file paths given"
         );
         if let Some(rules) = args.values_of_os("filter") {
-            cmpargs.bench_filter =
+            diffargs.bench_filter =
                 Filter::new(rules).context("-f/--filter")?;
         }
         if let Some(rules) = args.values_of_os("engine") {
-            cmpargs.engine_filter =
+            diffargs.engine_filter =
                 Filter::new(rules).context("-e/--engine")?;
         }
         if let Some(threshold) = args.value_of_lossy("threshold") {
@@ -246,10 +250,10 @@ impl CmpArgs {
                 percent <= 100,
                 "threshold must be a percent integer in the range [0, 100]"
             );
-            cmpargs.threshold = f64::from(percent);
+            diffargs.threshold = f64::from(percent);
         }
         if let Some(statname) = args.value_of_lossy("statistic") {
-            cmpargs.stat = match &*statname {
+            diffargs.stat = match &*statname {
                 "median" => Stat::Median,
                 "mean" => Stat::Mean,
                 "min" => Stat::Min,
@@ -264,7 +268,7 @@ impl CmpArgs {
             };
         }
         if let Some(colorchoice) = args.value_of_lossy("color") {
-            cmpargs.color = match &*colorchoice {
+            diffargs.color = match &*colorchoice {
                 "auto" => None,
                 "always" => Some(true),
                 "never" => Some(false),
@@ -277,7 +281,7 @@ impl CmpArgs {
                 }
             }
         }
-        Ok(cmpargs)
+        Ok(diffargs)
     }
 
     /// Return a possible colorable stdout that supports elastic tabstops.
@@ -298,14 +302,18 @@ impl CmpArgs {
     }
 
     /// Reads all aggregate benchmark measurements from all CSV file paths
-    /// given, and returns them as one flattened vector. The filters provided
-    /// are applied. If any duplicates are seen (for a given benchmark name and
-    /// regex engine pair), then an error is returned.
-    fn read_aggregates(&self) -> anyhow::Result<Vec<Aggregate>> {
-        let mut aggregates = vec![];
-        // A set of (benchmark full name, regex engine name) pairs.
-        let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+    /// given, and returns them grouped by the data set. That is, each group
+    /// represents all measurements found across the data sets given for a
+    /// single (benchmark name, engine name) pair. The filters provided are
+    /// applied.
+    fn read_aggregate_groups(&self) -> anyhow::Result<Vec<AggregateGroup>> {
+        // Our groups are just maps from CSV data name to measurements.
+        let mut groups: Vec<BTreeMap<String, Aggregate>> = vec![];
+        // Map from (benchmark, engine) pair to index in 'groups'. We use the
+        // index to find which group to insert each Aggregate into.
+        let mut pair2idx: BTreeMap<(String, String), usize> = BTreeMap::new();
         for csv_path in self.csv_paths.iter() {
+            let data_name = csv_data_name(csv_path)?;
             let mut rdr = csv::Reader::from_path(csv_path)?;
             for result in rdr.deserialize() {
                 let agg: Aggregate = result?;
@@ -316,17 +324,27 @@ impl CmpArgs {
                     continue;
                 }
                 let pair = (agg.full_name.clone(), agg.engine.clone());
-                anyhow::ensure!(
-                    !seen.contains(&pair),
-                    "duplicate benchmark with name {} and regex engine {}",
-                    agg.full_name,
-                    agg.engine,
-                );
-                seen.insert(pair);
-                aggregates.push(agg);
+                let idx = match pair2idx.entry(pair) {
+                    Entry::Occupied(e) => *e.get(),
+                    Entry::Vacant(e) => {
+                        let idx = groups.len();
+                        groups.push(BTreeMap::new());
+                        *e.insert(idx)
+                    }
+                };
+                groups[idx].insert(data_name.clone(), agg);
             }
         }
-        Ok(aggregates)
+        Ok(groups.into_iter().map(AggregateGroup::new).collect())
+    }
+
+    /// Returns the "nice" CSV data names from the paths given. The names are
+    /// just the stems of the file names from each of the paths. The vector
+    /// returned contains the names in the same order as given on the CLI.
+    /// Duplicates are not removed. If there was a problem exteacting the file
+    /// stem from any path, then an error is returned.
+    fn csv_data_names(&self) -> anyhow::Result<Vec<String>> {
+        self.csv_paths.iter().map(csv_data_name).collect()
     }
 }
 
@@ -351,82 +369,49 @@ impl Stat {
     }
 }
 
-/// A grouping of all aggregates into groups where each group corresponds to a
-/// single benchmark definition and every aggregate in that group corresponds
-/// to a distinct regex engine. That is, the groups are rows in the output of
-/// this command and the elements in each group are the columns.
-#[derive(Debug)]
-struct AggregatesByBenchmarkName {
-    groups: Vec<AggregateGroup>,
-}
-
-impl AggregatesByBenchmarkName {
-    /// Group all of the aggregate given.
-    fn new(aggs: Vec<Aggregate>) -> AggregatesByBenchmarkName {
-        let mut grouped = AggregatesByBenchmarkName { groups: vec![] };
-        // Map from benchmark name to all aggregates with that name in 'aggs'.
-        let mut name_to_aggs: BTreeMap<String, Vec<Aggregate>> =
-            BTreeMap::new();
-        for agg in aggs {
-            name_to_aggs
-                .entry(agg.full_name.clone())
-                .or_insert(vec![])
-                .push(agg);
-        }
-        for (_, aggs) in name_to_aggs {
-            grouped.groups.push(AggregateGroup::new(aggs));
-        }
-        grouped
-    }
-
-    /// Returns a lexicographically sorted list of all regex engine names in
-    /// this collection of aggregates. The order is ascending.
-    fn engine_names(&self) -> Vec<String> {
-        let mut engine_names = BTreeSet::new();
-        for group in self.groups.iter() {
-            for agg in group.aggs_by_engine.values() {
-                engine_names.insert(agg.engine.clone());
-            }
-        }
-        engine_names.into_iter().collect()
-    }
-}
-
-/// A group of aggregates for a single benchmark name. Every aggregate in this
-/// group represents a distinct regex engine for the same benchmark definition.
+/// A group of aggregates for a single pair of (benchmark name, engine name).
+/// Every aggregate in this group represents a measurement from a given CSV
+/// input.
 #[derive(Debug)]
 struct AggregateGroup {
     /// The benchmark definition's "full name," corresponding to all aggregates
     /// in this group. This is mostly just an easy convenience for accessing
     /// the name without having to dig through the map.
     full_name: String,
-    /// A map from the benchmark's regex engine to the aggregate statistics.
-    /// Every aggregate in this map must have the same benchmark 'full_name'.
-    aggs_by_engine: BTreeMap<String, Aggregate>,
+    /// Similarly to 'full_name', this is the regex engine corresponding to all
+    /// aggregates in this group.
+    engine: String,
+    /// A map from the data set name to the aggregate statistics. Every
+    /// aggregate in this map must have the same benchmark 'full_name' and
+    /// 'engine' name.
+    aggs_by_data: BTreeMap<String, Aggregate>,
 }
 
 impl AggregateGroup {
-    /// Create a new group of aggregates for a single benchmark name. Every
-    /// aggregate given must have the same 'full_name'. Each aggregate is
-    /// expected to be a measurement for a distinct regex engine.
-    fn new(aggs: Vec<Aggregate>) -> AggregateGroup {
-        let mut aggs_by_engine = BTreeMap::new();
-        let full_name = aggs[0].full_name.clone();
-        for agg in aggs {
+    /// Create a new group of aggregates for a single (benchmark name, engine
+    /// name) pair. Every aggregate given must have the same 'full_name'
+    /// and 'engine'. Each aggregate is expected to be a measurement from a
+    /// distinct CSV input, where the name of the CSV input is the key in the
+    /// map given.
+    fn new(aggs_by_data: BTreeMap<String, Aggregate>) -> AggregateGroup {
+        let mut it = aggs_by_data.values();
+        let (full_name, engine) = {
+            let agg = it.next().expect("at least one aggregate");
+            (agg.full_name.clone(), agg.engine.clone())
+        };
+        for agg in it {
             assert_eq!(
                 full_name, agg.full_name,
                 "expected all aggregates to have name {}, but also found {}",
                 full_name, agg.full_name,
             );
-            assert!(
-                !aggs_by_engine.contains_key(&agg.engine),
-                "duplicate regex engine {} for benchmark {}",
-                agg.engine,
-                agg.full_name,
+            assert_eq!(
+                engine, agg.engine,
+                "expected all aggregates to have engine {}, but also found {}",
+                engine, agg.engine,
             );
-            aggs_by_engine.insert(agg.engine.clone(), agg);
         }
-        AggregateGroup { full_name, aggs_by_engine }
+        AggregateGroup { full_name, engine, aggs_by_data }
     }
 
     /// Return the biggest difference, percentage wise, between aggregates
@@ -435,41 +420,41 @@ impl AggregateGroup {
     /// difference at all, so specifying any non-zero threshold should exclude
     /// it.)
     fn biggest_difference(&self, stat: Stat) -> f64 {
-        if self.aggs_by_engine.len() < 2 {
+        if self.aggs_by_data.len() < 2 {
             // I believe this is a redundant base case.
             return 0.0;
         }
-        let best = stat.get(&self.aggs_by_engine[self.best(stat)]);
-        let worst = stat.get(&self.aggs_by_engine[self.worst(stat)]);
+        let best = stat.get(&self.aggs_by_data[self.best(stat)]);
+        let worst = stat.get(&self.aggs_by_data[self.worst(stat)]);
         let best_bps = best.bytes_per_second();
         let worst_bps = worst.bytes_per_second();
         ((best_bps - worst_bps) / best_bps) * 100.0
     }
 
-    /// Return the engine name of the best measurement in this group. The name
+    /// Return the data name of the best measurement in this group. The name
     /// returned is guaranteed to exist in this group.
     fn best(&self, stat: Stat) -> &str {
-        let mut it = self.aggs_by_engine.iter();
-        let mut best_engine = it.next().unwrap().0;
-        for (engine, agg) in self.aggs_by_engine.iter() {
-            if stat.get(agg) > stat.get(&self.aggs_by_engine[best_engine]) {
-                best_engine = engine;
+        let mut it = self.aggs_by_data.iter();
+        let mut best_data_name = it.next().unwrap().0;
+        for (data_name, agg) in self.aggs_by_data.iter() {
+            if stat.get(agg) > stat.get(&self.aggs_by_data[best_data_name]) {
+                best_data_name = data_name;
             }
         }
-        best_engine
+        best_data_name
     }
 
-    /// Return the engine name of the worst measurement in this group. The name
+    /// Return the data name of the worst measurement in this group. The name
     /// returned is guaranteed to exist in this group.
     fn worst(&self, stat: Stat) -> &str {
-        let mut it = self.aggs_by_engine.iter();
-        let mut worst_engine = it.next().unwrap().0;
-        for (engine, agg) in self.aggs_by_engine.iter() {
-            if stat.get(agg) < stat.get(&self.aggs_by_engine[worst_engine]) {
-                worst_engine = engine;
+        let mut it = self.aggs_by_data.iter();
+        let mut worst_data_name = it.next().unwrap().0;
+        for (data_name, agg) in self.aggs_by_data.iter() {
+            if stat.get(agg) < stat.get(&self.aggs_by_data[worst_data_name]) {
+                worst_data_name = data_name;
             }
         }
-        worst_engine
+        worst_data_name
     }
 }
 
@@ -482,4 +467,23 @@ fn write_divider<W: WriteColor>(
     let div: String = std::iter::repeat(divider).take(width).collect();
     write!(wtr, "{}", div)?;
     Ok(())
+}
+
+/// Extract a "data set" name from a given CSV file path.
+///
+/// If there was a problem getting the name (i.e., the file path is "weird" in
+/// some way), then an error is returned.
+fn csv_data_name<P: AsRef<Path>>(path: P) -> anyhow::Result<String> {
+    let path = path.as_ref();
+    let stem = match path.file_stem() {
+        Some(stem) => stem,
+        None => anyhow::bail!("{}: could not get file stem", path.display()),
+    };
+    match stem.to_str() {
+        Some(name) => Ok(name.to_string()),
+        None => anyhow::bail!(
+            "{}: path's file name is not valid UTF-8",
+            path.display()
+        ),
+    }
 }
