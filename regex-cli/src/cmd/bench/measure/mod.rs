@@ -810,12 +810,16 @@ impl BenchmarkDef {
 //
 // Add a 'regex-cli bench cmp' utility for comparing results across regex
 // engines. So each row is a benchmark, each column is a regex engine and the
-// value in the cell is a chosen aggregate statistic. The simple way to do this
-// is to limit the input to a single CSV file. But it seems useful to be able
-// to compare results across multiple result collections. But that in turn
-// seems to greatly complicate the utility. It's also likely the case that it's
-// bad practice to compare different regex engines across different benchmark
-// runs, since it could easily lead to invalid comparisons.
+// value in the cell is a chosen aggregate statistic. The simple way to do
+// this is to limit the input to a single CSV file. But it seems useful to be
+// able to compare results across multiple result collections. But that in
+// turn seems to greatly complicate the utility. It's also likely the case
+// that it's bad practice to compare different regex engines across different
+// benchmark runs, since it could easily lead to invalid comparisons. DONE, and
+// it handles multiple files. We achieved that by just disallowing duplicates.
+// So you can, say, "save benchmarks for PCRE2", then iterate on whatever you
+// want for your own regex engine, save benchmarks for those, and then just
+// throw them all at 'regex-cli bench cmp'.
 //
 // Add a 'regex-cli bench diff' utility that compares results for the same
 // benchmark and regex engine across multiple benchmark runs. So the rows

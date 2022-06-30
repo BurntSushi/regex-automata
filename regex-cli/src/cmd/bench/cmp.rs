@@ -161,6 +161,10 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
             continue;
         }
         write!(wtr, "{}", group.full_name)?;
+        // We write an entry for every engine we care about, even if the engine
+        // isn't in this group. This makes sure everything stays aligned. If
+        // an output has too many missing entries, the user can use filters to
+        // condense things.
         for engine in engines.iter() {
             write!(wtr, "\t")?;
             match group.aggs_by_engine.get(engine) {
@@ -188,13 +192,21 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The arguments for this 'cmp' command parsed from CLI args.
 #[derive(Debug)]
 struct CmpArgs {
+    /// File paths to CSV files.
     csv_paths: Vec<PathBuf>,
+    /// A filter to be applied to benchmark "full names."
     bench_filter: Filter,
+    /// A filter to be applied to regex engine names.
     engine_filter: Filter,
+    /// The statistic we want to compare.
     stat: Stat,
+    /// Defaults to 0, and is a percent. When the biggest difference in a row
+    /// is less than this threshold, then we skip writing that row.
     threshold: f64,
+    /// 'none' means 'auto', i.e., we only write colors when stdout is a tty.
     color: Option<bool>,
 }
 
@@ -430,9 +442,13 @@ impl AggregateGroup {
     }
 
     /// Return the biggest difference, percentage wise, between aggregates
-    /// in this group. The comparison statistic given is used.
+    /// in this group. The comparison statistic given is used. If this group
+    /// is a singleton, then 0 is returned. (Which makes sense. There is no
+    /// difference at all, so specifying any non-zero threshold should exclude
+    /// it.)
     fn biggest_difference(&self, stat: Stat) -> f64 {
         if self.aggs_by_engine.len() < 2 {
+            // I believe this is a redundant base case.
             return 0.0;
         }
         let best = stat.get(&self.aggs_by_engine[&self.best_engine_name]);
