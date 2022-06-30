@@ -350,7 +350,6 @@ impl Throughput {
     /// Given a byte amount, convert this throughput to the total duration
     /// spent. This assumes that the byte amount given is the same one as the
     /// one used to build this throughput value.
-    #[allow(dead_code)]
     pub fn duration(&self, bytes: u64) -> Duration {
         Duration::from_secs_f64(bytes as f64 / self.0)
     }

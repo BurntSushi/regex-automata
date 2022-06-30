@@ -15,6 +15,101 @@ use crate::{
     util::{self, Table},
 };
 
+/// This defines a flag for controlling the use of color in the output.
+#[derive(Debug)]
+pub enum Color {
+    /// Color is only enabled when the output is a tty.
+    Auto,
+    /// Color is always enabled.
+    Always,
+    /// Color is disabled.
+    Never,
+}
+
+impl Color {
+    /// Define a --color flag on the given app.
+    pub fn define(app: App) -> App {
+        const SHORT: &str = "Whether to use color (default: auto).";
+        const LONG: &str = "\
+Whether to use color (default: auto).
+
+When enabled, a modest amount of color is used to help make the output more
+digestible, typically be enabling quick eye scanning. For example, when enabled
+for the various benchmark comparison commands, the \"best\" timings are
+colorized. The choices are: auto, always, never.
+";
+        app.arg(app::flag("color").help(SHORT).long_help(LONG))
+    }
+
+    /// Read and parse any --color options given in the CLI args. If none
+    /// exist, a default is returned. If one does exist but is invalid, then an
+    /// error is returned.
+    pub fn get(args: &Args) -> anyhow::Result<Color> {
+        if let Some(choice) = args.value_of_lossy("color") {
+            choice.parse()
+        } else {
+            Ok(Color::Auto)
+        }
+    }
+
+    /// Return a possibly colorized stdout.
+    #[allow(dead_code)]
+    pub fn stdout(&self) -> Box<dyn termcolor::WriteColor> {
+        use termcolor::{Ansi, NoColor};
+
+        if self.should_color() {
+            Box::new(Ansi::new(std::io::stdout()))
+        } else {
+            Box::new(NoColor::new(std::io::stdout()))
+        }
+    }
+
+    /// Return a possibly colorized stdout, just like 'stdout', except the
+    /// output supports elastic tabstops.
+    pub fn elastic_stdout(&self) -> Box<dyn termcolor::WriteColor> {
+        use {
+            tabwriter::TabWriter,
+            termcolor::{Ansi, NoColor},
+        };
+
+        if self.should_color() {
+            Box::new(Ansi::new(TabWriter::new(std::io::stdout())))
+        } else {
+            Box::new(NoColor::new(TabWriter::new(std::io::stdout())))
+        }
+    }
+
+    /// Return true if colors should be used. When the color choice is 'auto',
+    /// this only returns true if stdout is a tty.
+    pub fn should_color(&self) -> bool {
+        match *self {
+            Color::Auto => atty::is(atty::Stream::Stdout),
+            Color::Always => true,
+            Color::Never => false,
+        }
+    }
+}
+
+impl std::str::FromStr for Color {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Color> {
+        let color = match s {
+            "auto" => Color::Auto,
+            "always" => Color::Always,
+            "never" => Color::Never,
+            unknown => {
+                anyhow::bail!(
+                    "unrecognized color config '{}', must be \
+                     one of auto, always or never.",
+                    unknown,
+                )
+            }
+        };
+        Ok(color)
+    }
+}
+
 #[derive(Debug)]
 pub struct Patterns(Vec<String>);
 

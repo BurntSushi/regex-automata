@@ -3,12 +3,14 @@ use std::{
     path::PathBuf,
 };
 
-use {anyhow::Context, termcolor::WriteColor};
-
 use crate::{
     app::{self, App, Args},
-    cmd::bench::Aggregate,
-    util::{Filter, Throughput},
+    cmd::bench::{
+        write_divider, Aggregate, FilterByBenchmarkName, FilterByEngineName,
+        Stat, Threshold, Units,
+    },
+    config::Color,
+    util::{Filter, ShortHumanDuration},
 };
 
 const ABOUT_SHORT: &'static str = "\
@@ -25,6 +27,13 @@ bench diff' command.
 pub fn define() -> App {
     let mut app =
         app::command("cmp").about(ABOUT_SHORT).before_help(ABOUT_LONG);
+    app = FilterByBenchmarkName::define(app);
+    app = FilterByEngineName::define(app);
+    app = Threshold::define(app);
+    app = Stat::define(app);
+    app = Units::define(app);
+    app = Color::define(app);
+
     {
         const SHORT: &str =
             "File paths to CSV data containing benchmark measurements.";
@@ -42,93 +51,6 @@ command will error.
             app::arg("csv-path").multiple(true).help(SHORT).long_help(LONG),
         );
     }
-    {
-        const SHORT: &str =
-            "Filter (using regex) which benchmarks to compare.";
-        const LONG: &str = "\
-Filter (using regex) which benchmarks to compare.
-
-This flag may be given multiple times. The value can either be a whitelist
-regex or a blacklist regex. To make it a blacklist regex, start it with a '~'.
-If there is at least one whitelist regex, then a benchmark must match at least
-one of them in order to be included. If there are no whitelist regexes, then a
-benchmark is only included when it does not match any blacklist regexes. The
-last filter regex that matches (whether it be a whitelist or a blacklist) is
-what takes precedence. So for example, a whitelist regex that matches after a
-blacklist regex matches, that would result in that benchmark being included in
-the comparison.
-
-So for example, consider the benchmarks 'foo', 'bar', 'baz' and 'quux'.
-
-* '-f foo' will include 'foo'.
-* '-f ~foo' will include 'bar', 'baz' and 'quux'.
-* '-f . -f ~ba -f bar' will include 'foo', 'bar' and 'quux'.
-
-Filter regexes are matched on the full name of the benchmark, which takes the
-form '{type}/{group}/{name}'.
-";
-        app = app
-            .arg(app::mflag("filter").short("f").help(SHORT).long_help(LONG));
-    }
-    {
-        const SHORT: &str =
-            "Filter (using regex) which regex engines to compare.";
-        const LONG: &str = "\
-Filter (using regex) which regex engines to compare.
-
-This is just like the -f/--filter flag (with the same whitelist/blacklist
-rules), except it applies to which regex engines to compare. For example, many
-benchmarks list a number of regex engines that it should run with, but this
-filter permits specifying a smaller set of regex engines to compare.
-
-This filter is applied to every benchmark. It is useful, for example, if you
-only want to compare benchmarks across two regex engines instead of all regex
-engines that were run in that benchmark.
-";
-        app = app
-            .arg(app::mflag("engine").short("e").help(SHORT).long_help(LONG));
-    }
-    {
-        const SHORT: &str =
-            "The minimum threshold measurements must differ by to be shown.";
-        const LONG: &str = "\
-The minimum threshold measurements must differ by to be shown.
-
-The value given here is a percentage. Only benchmarks containing measurements
-with at least a difference of X% will be shown in the comparison output. So
-for example, given '-t5', only benchmarks whose minimum and maximum measurement
-differ by at least 5% will be shown.
-
-By default, there is no threshold enforced. All benchmarks in the given data
-set matching the filters are shown.
-";
-        app = app.arg(
-            app::mflag("threshold").short("t").help(SHORT).long_help(LONG),
-        );
-    }
-    {
-        const SHORT: &str =
-            "The aggregate statistic on which to compare (default: median).";
-        const LONG: &str = "\
-The aggregate statistic on which to compare (default: median).
-
-Comparisons are only performed on the basis of a single statistic. The choices
-are: median, mean, min, max.
-";
-        app = app.arg(
-            app::mflag("statistic").short("s").help(SHORT).long_help(LONG),
-        );
-    }
-    {
-        const SHORT: &str = "Whether to use color (default: auto).";
-        const LONG: &str = "\
-Whether to use color (default: auto).
-
-When enabled, color is used to indicate which regex engine did the best on each
-benchmark. The choices are: auto, always, never.
-";
-        app = app.arg(app::mflag("color").help(SHORT).long_help(LONG));
-    }
     app
 }
 
@@ -138,7 +60,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     let aggs_by_name = AggregatesByBenchmarkName::new(aggs);
     let engines = aggs_by_name.engine_names();
 
-    let mut wtr = cmpargs.elastic_stdout();
+    let mut wtr = cmpargs.color.elastic_stdout();
 
     // Write column names.
     write!(wtr, "benchmark")?;
@@ -157,7 +79,8 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     writeln!(wtr, "")?;
 
     for group in aggs_by_name.groups.iter() {
-        if group.biggest_difference(cmpargs.stat) < cmpargs.threshold {
+        let diff = group.biggest_difference(cmpargs.stat);
+        if !cmpargs.threshold.include(diff) {
             continue;
         }
         write!(wtr, "{}", group.full_name)?;
@@ -178,7 +101,15 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
                             .set_bold(true);
                         wtr.set_color(&spec)?;
                     }
-                    write!(wtr, "{}", cmpargs.stat.get(&agg))?;
+                    match cmpargs.units {
+                        Units::Time => {
+                            let d = agg.duration(cmpargs.stat);
+                            write!(wtr, "{}", ShortHumanDuration::from(d))?;
+                        }
+                        Units::Throughput => {
+                            write!(wtr, "{}", agg.throughput(cmpargs.stat))?;
+                        }
+                    }
                     if engine == group.best(cmpargs.stat) {
                         wtr.reset()?;
                     }
@@ -202,99 +133,37 @@ struct CmpArgs {
     engine_filter: Filter,
     /// The statistic we want to compare.
     stat: Stat,
+    /// The statistical units we want to use in our comparisons.
+    units: Units,
     /// Defaults to 0, and is a percent. When the biggest difference in a row
     /// is less than this threshold, then we skip writing that row.
-    threshold: f64,
-    /// 'none' means 'auto', i.e., we only write colors when stdout is a tty.
-    color: Option<bool>,
+    threshold: Threshold,
+    /// The user's color choice. We default to 'Auto'.
+    color: Color,
 }
 
 impl CmpArgs {
     /// Parse 'cmp' args from the given CLI args.
     fn new(args: &Args) -> anyhow::Result<CmpArgs> {
-        let mut cmpargs = CmpArgs {
+        let cmpargs = CmpArgs {
             csv_paths: args
                 .values_of_os("csv-path")
                 .into_iter()
                 .flatten()
                 .map(PathBuf::from)
                 .collect(),
-            bench_filter: Filter::new([].into_iter()).unwrap(),
-            engine_filter: Filter::new([].into_iter()).unwrap(),
-            stat: Stat::Median,
-            threshold: 0.0,
-            color: None,
-            // color: atty::is(atty::Stream::Stdout),
+            bench_filter: FilterByBenchmarkName::get(args)?,
+            engine_filter: FilterByEngineName::get(args)?,
+            stat: Stat::get(args)?,
+            units: Units::get(args)?,
+            threshold: Threshold::get(args)?,
+            color: Color::get(args)?,
         };
         anyhow::ensure!(
             !cmpargs.csv_paths.is_empty(),
             "no CSV file paths given"
         );
-        if let Some(rules) = args.values_of_os("filter") {
-            cmpargs.bench_filter =
-                Filter::new(rules).context("-f/--filter")?;
-        }
-        if let Some(rules) = args.values_of_os("engine") {
-            cmpargs.engine_filter =
-                Filter::new(rules).context("-e/--engine")?;
-        }
-        if let Some(threshold) = args.value_of_lossy("threshold") {
-            let percent = threshold
-                .parse::<u32>()
-                .context("invalid integer percent threshold")?;
-            anyhow::ensure!(
-                percent <= 100,
-                "threshold must be a percent integer in the range [0, 100]"
-            );
-            cmpargs.threshold = f64::from(percent);
-        }
-        if let Some(statname) = args.value_of_lossy("statistic") {
-            cmpargs.stat = match &*statname {
-                "median" => Stat::Median,
-                "mean" => Stat::Mean,
-                "min" => Stat::Min,
-                "max" => Stat::Max,
-                unknown => {
-                    anyhow::bail!(
-                        "unrecognized statistic name '{}', must be \
-                         one of median, mean, min or max.",
-                        unknown,
-                    )
-                }
-            };
-        }
-        if let Some(colorchoice) = args.value_of_lossy("color") {
-            cmpargs.color = match &*colorchoice {
-                "auto" => None,
-                "always" => Some(true),
-                "never" => Some(false),
-                unknown => {
-                    anyhow::bail!(
-                        "unrecognized color config '{}', must be \
-                         one of auto, always or never.",
-                        unknown,
-                    )
-                }
-            }
-        }
         Ok(cmpargs)
-    }
-
-    /// Return a possible colorable stdout that supports elastic tabstops.
-    ///
-    /// Currently this only supports writing ANSI escape sequences.
-    fn elastic_stdout(&self) -> Box<dyn WriteColor> {
-        use {
-            tabwriter::TabWriter,
-            termcolor::{Ansi, NoColor},
-        };
-
-        let isatty = atty::is(atty::Stream::Stdout);
-        if self.color == Some(true) || (self.color == None && isatty) {
-            Box::new(Ansi::new(TabWriter::new(std::io::stdout())))
-        } else {
-            Box::new(NoColor::new(TabWriter::new(std::io::stdout())))
-        }
     }
 
     /// Reads all aggregate benchmark measurements from all CSV file paths
@@ -309,6 +178,13 @@ impl CmpArgs {
             let mut rdr = csv::Reader::from_path(csv_path)?;
             for result in rdr.deserialize() {
                 let agg: Aggregate = result?;
+                if let Some(ref err) = agg.err {
+                    eprintln!(
+                        "{}: skipping because of error: {}",
+                        agg.full_name, err
+                    );
+                    continue;
+                }
                 if !self.bench_filter.include(&agg.full_name) {
                     continue;
                 }
@@ -327,27 +203,6 @@ impl CmpArgs {
             }
         }
         Ok(aggregates)
-    }
-}
-
-/// The statistic we use to compare aggregates.
-#[derive(Clone, Copy, Debug)]
-enum Stat {
-    Median,
-    Mean,
-    Min,
-    Max,
-}
-
-impl Stat {
-    /// Get the corresponding throughput statistic for the aggregate given.
-    fn get(self, agg: &Aggregate) -> Throughput {
-        match self {
-            Stat::Median => agg.median,
-            Stat::Mean => agg.mean,
-            Stat::Min => agg.min,
-            Stat::Max => agg.max,
-        }
     }
 }
 
@@ -439,8 +294,8 @@ impl AggregateGroup {
             // I believe this is a redundant base case.
             return 0.0;
         }
-        let best = stat.get(&self.aggs_by_engine[self.best(stat)]);
-        let worst = stat.get(&self.aggs_by_engine[self.worst(stat)]);
+        let best = self.aggs_by_engine[self.best(stat)].throughput(stat);
+        let worst = self.aggs_by_engine[self.worst(stat)].throughput(stat);
         let best_bps = best.bytes_per_second();
         let worst_bps = worst.bytes_per_second();
         ((best_bps - worst_bps) / best_bps) * 100.0
@@ -451,8 +306,9 @@ impl AggregateGroup {
     fn best(&self, stat: Stat) -> &str {
         let mut it = self.aggs_by_engine.iter();
         let mut best_engine = it.next().unwrap().0;
-        for (engine, agg) in self.aggs_by_engine.iter() {
-            if stat.get(agg) > stat.get(&self.aggs_by_engine[best_engine]) {
+        for (engine, candidate) in self.aggs_by_engine.iter() {
+            let best = &self.aggs_by_engine[best_engine];
+            if candidate.throughput(stat) > best.throughput(stat) {
                 best_engine = engine;
             }
         }
@@ -464,22 +320,12 @@ impl AggregateGroup {
     fn worst(&self, stat: Stat) -> &str {
         let mut it = self.aggs_by_engine.iter();
         let mut worst_engine = it.next().unwrap().0;
-        for (engine, agg) in self.aggs_by_engine.iter() {
-            if stat.get(agg) < stat.get(&self.aggs_by_engine[worst_engine]) {
+        for (engine, candidate) in self.aggs_by_engine.iter() {
+            let worst = &self.aggs_by_engine[worst_engine];
+            if candidate.throughput(stat) < worst.throughput(stat) {
                 worst_engine = engine;
             }
         }
         worst_engine
     }
-}
-
-/// Write the given divider character `width` times to the given writer.
-fn write_divider<W: WriteColor>(
-    mut wtr: W,
-    divider: char,
-    width: usize,
-) -> anyhow::Result<()> {
-    let div: String = std::iter::repeat(divider).take(width).collect();
-    write!(wtr, "{}", div)?;
-    Ok(())
 }
