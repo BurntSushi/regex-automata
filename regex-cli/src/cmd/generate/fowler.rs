@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     app::{self, App, Args},
-    escape, util,
+    escape,
 };
 
 use anyhow::Context;
@@ -62,7 +62,7 @@ fn convert(
     dst: &mut dyn Write,
 ) -> anyhow::Result<()> {
     log::trace!("processing {}", group_name);
-    let mut src = std::io::BufReader::new(src);
+    let src = std::io::BufReader::new(src);
 
     writeln!(
         dst,
@@ -141,7 +141,7 @@ impl TomlTest {
             // To fix that, I rewrote the tests to use non-capturing groups in
             // order to match the expected number of expected capture matches.
             let numcaps = count_capturing_groups(&dat.regex)?;
-            for i in captures.len()..numcaps {
+            for _ in captures.len()..numcaps {
                 captures.push(None);
             }
         }
@@ -335,7 +335,7 @@ fn count_capturing_groups(pattern: &str) -> anyhow::Result<usize> {
 }
 
 fn count_capturing_groups_ast(ast: &syntax::ast::Ast) -> usize {
-    use syntax::ast::{Ast, Group, Repetition};
+    use syntax::ast::Ast;
     match *ast {
         Ast::Empty(_)
         | Ast::Flags(_)

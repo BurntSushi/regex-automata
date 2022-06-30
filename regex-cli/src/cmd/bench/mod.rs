@@ -5,6 +5,7 @@ use crate::{
     util::{self, ShortHumanDuration, Throughput},
 };
 
+mod cmp;
 mod measure;
 
 const ABOUT_SHORT: &'static str = "\
@@ -19,11 +20,13 @@ pub fn define() -> App {
     app::command("bench")
         .about(ABOUT_SHORT)
         .before_help(ABOUT_LONG)
+        .subcommand(cmp::define())
         .subcommand(measure::define())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(&args, define, |cmd, args| match cmd {
+        "cmp" => cmp::run(args),
         "measure" => measure::run(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })

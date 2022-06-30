@@ -1,24 +1,16 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    convert::TryFrom,
-    ffi::OsStr,
-    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use {
-    anyhow::Context,
-    bstr::{BString, ByteSlice, ByteVec},
-    once_cell::sync::Lazy,
-    regex::Regex,
-};
+use {anyhow::Context, once_cell::sync::Lazy, regex::Regex};
 
 use crate::{
     app::{self, App, Args},
-    cmd::bench::{Aggregate, AggregateDuration},
-    util::{self, Filter, ShortHumanDuration},
+    cmd::bench::AggregateDuration,
+    util::{Filter, ShortHumanDuration},
 };
 
 mod count;
@@ -267,7 +259,7 @@ struct MeasureArgs {
 impl MeasureArgs {
     /// Parse measurement args from the given CLI args.
     fn new(args: &Args) -> anyhow::Result<MeasureArgs> {
-        let mut runner = MeasureArgs {
+        let mut margs = MeasureArgs {
             dir: PathBuf::from("benchmarks"),
             // These unwraps are OK because an empty set of rules always works.
             bench_filter: Filter::new([].into_iter()).unwrap(),
@@ -276,38 +268,36 @@ impl MeasureArgs {
             list: args.is_present("list"),
         };
         if let Some(x) = args.value_of_os("dir") {
-            runner.dir = PathBuf::from(x);
+            margs.dir = PathBuf::from(x);
         }
         if let Some(rules) = args.values_of_os("filter") {
-            runner.bench_filter = Filter::new(rules).context("-f/--filter")?;
+            margs.bench_filter = Filter::new(rules).context("-f/--filter")?;
         }
         if let Some(rules) = args.values_of_os("engine") {
-            runner.engine_filter =
-                Filter::new(rules).context("-e/--engine")?;
+            margs.engine_filter = Filter::new(rules).context("-e/--engine")?;
         }
         if let Some(x) = args.value_of_lossy("max-iters") {
-            runner.bench_config.max_iters =
-                x.parse().context("--max-iters")?;
+            margs.bench_config.max_iters = x.parse().context("--max-iters")?;
         }
         if let Some(x) = args.value_of_lossy("max-warmup-iters") {
-            runner.bench_config.max_warmup_iters =
+            margs.bench_config.max_warmup_iters =
                 x.parse().context("--max-warmup-iters")?;
         }
         if let Some(x) = args.value_of_lossy("bench-time") {
             let hdur: ShortHumanDuration =
                 x.parse().context("--bench-time")?;
-            runner.bench_config.approx_max_benchmark_time =
+            margs.bench_config.approx_max_benchmark_time =
                 Duration::from(hdur);
         }
         if let Some(x) = args.value_of_lossy("warmup-time") {
             let hdur: ShortHumanDuration =
                 x.parse().context("--warmup-time")?;
-            runner.bench_config.approx_max_warmup_time = Duration::from(hdur);
+            margs.bench_config.approx_max_warmup_time = Duration::from(hdur);
         } else {
-            let default = runner.bench_config.approx_max_benchmark_time / 2;
-            runner.bench_config.approx_max_warmup_time = default;
+            let default = margs.bench_config.approx_max_benchmark_time / 2;
+            margs.bench_config.approx_max_warmup_time = default;
         }
-        Ok(runner)
+        Ok(margs)
     }
 
     /// Read and parse benchmark definitions from TOML files in the --dir
@@ -519,7 +509,7 @@ impl BenchmarkDefs {
     /// assigned to every benchmark definition. Typically the group name is the
     /// stem of the file name.
     fn load_slice(&mut self, group: &str, data: &[u8]) -> anyhow::Result<()> {
-        let mut benches: BenchmarkDefs = toml::from_slice(&data)
+        let benches: BenchmarkDefs = toml::from_slice(&data)
             .with_context(|| format!("error decoding TOML for '{}'", group))?;
         for mut b in benches.defs {
             b.group = group.to_string();
@@ -813,6 +803,36 @@ impl BenchmarkDef {
     }
 }
 
+// BREADCRUMBS: Not sure which order, but:
+//
+// Write out the other benchmark types below. regex-redux will be the most
+// involved.
+//
+// Add a 'regex-cli bench cmp' utility for comparing results across regex
+// engines. So each row is a benchmark, each column is a regex engine and the
+// value in the cell is a chosen aggregate statistic. The simple way to do this
+// is to limit the input to a single CSV file. But it seems useful to be able
+// to compare results across multiple result collections. But that in turn
+// seems to greatly complicate the utility. It's also likely the case that it's
+// bad practice to compare different regex engines across different benchmark
+// runs, since it could easily lead to invalid comparisons.
+//
+// Add a 'regex-cli bench diff' utility that compares results for the same
+// benchmark and regex engine across multiple benchmark runs. So the rows
+// here are benchmark/engine pairs, each column is a CSV file representing a
+// benchmark run and the value in the cell is a chosen aggregate statistic. So
+// in this case, we need at least two CSV files, but can deal with many. This
+// permits comparing benchmark timings across time.
+//
+// The utilities should have filtering and thresholding, like critcmp.
+//
+// Finally, start adding FFI regex engines. We need to add at least PCRE2 and
+// RE2.
+//
+// Fill out the benchmarks.
+//
+// Write analyses? Seems like something I should do later maybe. Sigh.
+
 /// The type of the benchmark. This basically controls what we're measuring and
 /// how to execute the code under test.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
@@ -917,9 +937,7 @@ impl Benchmark {
         let mut results = Results::new(self);
         let warmup_start = Instant::now();
         for _ in 0..self.config.max_warmup_iters {
-            let mut start = Instant::now();
             let result = test();
-            let elapsed = start.elapsed();
             verify(self, result?)?;
             if warmup_start.elapsed() >= self.config.approx_max_warmup_time {
                 break;
@@ -927,7 +945,7 @@ impl Benchmark {
         }
         let bench_start = Instant::now();
         for _ in 0..self.config.max_iters {
-            let mut start = Instant::now();
+            let start = Instant::now();
             let result = test();
             let elapsed = start.elapsed();
             verify(self, result?)?;

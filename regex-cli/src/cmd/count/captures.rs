@@ -1,8 +1,4 @@
-use std::{
-    cmp,
-    collections::BTreeMap,
-    io::{stdout, Write},
-};
+use std::io::{stdout, Write};
 
 use crate::{
     app::{self, App, Args},
@@ -10,13 +6,10 @@ use crate::{
     util::{self, Table},
 };
 
-use anyhow::Context;
 use automata::{
-    dfa::{self, Automaton},
-    hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
     util::iter,
-    Input, PatternID,
+    PatternID,
 };
 
 const ABOUT_SHORT: &'static str = "\
@@ -87,7 +80,6 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
-    let cthompson = config::Thompson::get(args)?;
     let cregex = config::RegexAPI::get(args)?;
     let input = config::Input::get(args)?;
     let patterns = config::Patterns::get(args)?;

@@ -1,4 +1,3 @@
-use std::cmp;
 use std::io::{stdout, Write};
 
 use crate::{
@@ -7,7 +6,6 @@ use crate::{
     util::{self, Table},
 };
 
-use anyhow::Context;
 use automata::{
     dfa::{self, Automaton},
     hybrid,
@@ -176,7 +174,6 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
-    let cthompson = config::Thompson::get(args)?;
     let cregex = config::RegexAPI::get(args)?;
     let input = config::Input::get(args)?;
     let patterns = config::Patterns::get(args)?;
@@ -521,12 +518,11 @@ fn search_dfa_automaton<A: Automaton>(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; dfa.pattern_len()];
-    let mut at = 0;
     match find.kind() {
         config::SearchKind::Earliest | config::SearchKind::Leftmost => {
             let input = Input::new(haystack)
                 .earliest(find.kind() == config::SearchKind::Earliest);
-            let mut it = iter::Searcher::new(input)
+            let it = iter::Searcher::new(input)
                 .into_half_matches_iter(|input| dfa.try_search_fwd(input));
             for result in it {
                 let m = result?;
@@ -563,7 +559,7 @@ fn search_dfa_regex<A: Automaton>(
     match find.kind() {
         config::SearchKind::Earliest => {
             let input = re.create_input(haystack).earliest(true);
-            let mut it = iter::Searcher::new(input)
+            let it = iter::Searcher::new(input)
                 .into_matches_iter(|input| re.try_search(input));
             for result in it {
                 let m = result?;
@@ -597,12 +593,11 @@ fn search_hybrid_dfa<'i, 'c>(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; dfa.pattern_len()];
-    let mut at = 0;
     match find.kind() {
         config::SearchKind::Earliest | config::SearchKind::Leftmost => {
             let input = Input::new(haystack)
                 .earliest(find.kind() == config::SearchKind::Earliest);
-            let mut it =
+            let it =
                 iter::Searcher::new(input).into_half_matches_iter(|input| {
                     dfa.try_search_fwd(cache, input)
                 });
@@ -642,7 +637,7 @@ fn search_hybrid_regex(
     match find.kind() {
         config::SearchKind::Earliest => {
             let input = re.create_input(haystack).earliest(true);
-            let mut it = iter::Searcher::new(input)
+            let it = iter::Searcher::new(input)
                 .into_matches_iter(|input| re.try_search(cache, input));
             for result in it {
                 let m = result?;

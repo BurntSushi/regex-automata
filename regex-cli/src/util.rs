@@ -198,7 +198,7 @@ impl Filter {
 /// milliseconds, microseconds and nanoseconds.
 ///
 /// This avoids bringing in another crate to do this work (like humantime).
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct ShortHumanDuration(Duration);
 
 impl ShortHumanDuration {
@@ -255,25 +255,33 @@ impl std::str::FromStr for ShortHumanDuration {
 
     fn from_str(s: &str) -> anyhow::Result<ShortHumanDuration> {
         static RE: Lazy<Regex> = Lazy::new(|| {
-            Regex::new(r"^(?P<digits>[0-9]+)(?P<units>s|ms|us|ns)$").unwrap()
+            Regex::new(
+                r"(?x)
+                ^
+                (?P<float>[0-9]+(?:\.[0-9]*)?|\.[0-9]+)
+                (?P<units>s|ms|us|ns)
+                $
+            ",
+            )
+            .unwrap()
         });
         let caps = match RE.captures(s) {
             Some(caps) => caps,
             None => anyhow::bail!(
-                "duration '{}' not in '[0-9]+(s|ms|us|ns)' format",
+                "duration '{}' not in '<decimal>(s|ms|us|ns)' format",
                 s,
             ),
         };
-        let mut value: u64 =
-            caps["digits"].parse().context("invalid duration integer")?;
+        let mut value: f64 =
+            caps["float"].parse().context("invalid duration decimal")?;
         match &caps["units"] {
-            "s" => value *= 1_000_000_000,
-            "ms" => value *= 1_000_000,
-            "us" => value *= 1_000,
-            "ns" => value *= 1,
+            "s" => value /= 1.0,
+            "ms" => value /= 1_000.0,
+            "us" => value /= 1_000_000.0,
+            "ns" => value /= 1_000_000_000.0,
             unit => unreachable!("impossible unit '{}'", unit),
         }
-        Ok(ShortHumanDuration(Duration::from_nanos(value)))
+        Ok(ShortHumanDuration(Duration::from_secs_f64(value)))
     }
 }
 
@@ -300,7 +308,7 @@ impl<'de> serde::Deserialize<'de> for ShortHumanDuration {
                 &self,
                 f: &mut std::fmt::Formatter,
             ) -> std::fmt::Result {
-                write!(f, "duration string of the form [0-9]+(s|ms|us|ns)")
+                write!(f, "duration string of the form <decimal>(s|ms|us|ns)")
             }
 
             fn visit_str<E>(self, s: &str) -> Result<ShortHumanDuration, E>
@@ -322,7 +330,7 @@ impl<'de> serde::Deserialize<'de> for ShortHumanDuration {
 /// convenient size units, e.g., GB, MB, KB or B.
 ///
 /// The internal representation is always in bytes per second.
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Default)]
 pub struct Throughput(f64);
 
 impl Throughput {
@@ -342,6 +350,7 @@ impl Throughput {
     /// Given a byte amount, convert this throughput to the total duration
     /// spent. This assumes that the byte amount given is the same one as the
     /// one used to build this throughput value.
+    #[allow(dead_code)]
     pub fn duration(&self, bytes: u64) -> Duration {
         Duration::from_secs_f64(bytes as f64 / self.0)
     }
@@ -373,9 +382,9 @@ impl std::fmt::Display for Throughput {
         } else if bytes_per_second < MIN_MB {
             write!(f, "{:.1} KB/s", bytes_per_second / KB)
         } else if bytes_per_second < MIN_GB {
-            write!(f, "{:.1} MB/sec", bytes_per_second / MB)
+            write!(f, "{:.1} MB/s", bytes_per_second / MB)
         } else {
-            write!(f, "{:.1} GB/sec", bytes_per_second / GB)
+            write!(f, "{:.1} GB/s", bytes_per_second / GB)
         }
     }
 }

@@ -1,11 +1,9 @@
 // N.B. This was copied from the grep-cli crate. It might make sense to just
 // depend on grep-cli directly, but its dependency tree is a little beefy.
 
-#![allow(dead_code)]
+use std::{convert::TryFrom, str};
 
-use std::{convert::TryFrom, ffi::OsStr, str};
-
-use bstr::{ByteSlice, ByteVec};
+use bstr::ByteSlice;
 
 /// A single state in the state machine used by `unescape`.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -26,21 +24,7 @@ enum State {
 /// converts the non-printable subset of ASCII in addition to invalid UTF-8
 /// bytes to hexadecimal escape sequences. Everything else is left as is.
 ///
-/// The dual of this routine is [`unescape`](fn.unescape.html).
-///
-/// # Example
-///
-/// This example shows how to convert a byte string that contains a `\n` and
-/// invalid UTF-8 bytes into a `String`.
-///
-/// Pay special attention to the use of raw strings. That is, `r"\n"` is
-/// equivalent to `"\\n"`.
-///
-/// ```
-/// use grep_cli::escape;
-///
-/// assert_eq!(r"foo\nbar\xFFbaz", escape(b"foo\nbar\xFFbaz"));
-/// ```
+/// The dual of this routine is `unescape`.
 pub fn escape(bytes: &[u8]) -> String {
     let mut escaped = String::new();
     for (s, e, ch) in bytes.char_indices() {
@@ -55,12 +39,14 @@ pub fn escape(bytes: &[u8]) -> String {
     escaped
 }
 
+/*
 /// Escapes an OS string into a human readable string.
 ///
 /// This is like [`escape`](fn.escape.html), but accepts an OS string.
 pub fn escape_os(string: &OsStr) -> String {
     escape(Vec::from_os_str_lossy(string).as_bytes())
 }
+*/
 
 /// Unescapes a string.
 ///
@@ -151,6 +137,7 @@ pub fn unescape(s: &str) -> Vec<u8> {
     bytes
 }
 
+/*
 /// Unescapes an OS string.
 ///
 /// This is like [`unescape`](fn.unescape.html), but accepts an OS string.
@@ -160,6 +147,7 @@ pub fn unescape(s: &str) -> Vec<u8> {
 pub fn unescape_os(string: &OsStr) -> Vec<u8> {
     unescape(&string.to_string_lossy())
 }
+*/
 
 /// Adds the given codepoint to the given string, escaping it if necessary.
 fn escape_char(cp: char, into: &mut String) {

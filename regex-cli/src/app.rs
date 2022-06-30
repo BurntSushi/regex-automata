@@ -1,5 +1,3 @@
-use crate::cmd;
-
 const TEMPLATE_ROOT: &'static str = "\
 {bin} {version}
 {author}

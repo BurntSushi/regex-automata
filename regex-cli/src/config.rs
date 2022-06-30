@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, convert::TryFrom, fs, path::PathBuf, sync::Arc};
+use std::{borrow::Borrow, convert::TryFrom, fs, path::PathBuf};
 
 use anyhow::Context;
 use automata::{
@@ -282,7 +282,7 @@ pub enum SearchKind {
 }
 
 impl SearchKind {
-    pub fn define(mut app: App) -> App {
+    pub fn define(app: App) -> App {
         const SHORT: &str = "Set the type of search to perform.";
         const LONG: &str = "\
 Set the type of search to perform.
