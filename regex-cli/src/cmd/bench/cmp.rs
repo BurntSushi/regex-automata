@@ -180,8 +180,8 @@ impl CmpArgs {
                 let agg: Aggregate = result?;
                 if let Some(ref err) = agg.err {
                     eprintln!(
-                        "{}: skipping because of error: {}",
-                        agg.full_name, err
+                        "{}:{}: skipping because of error: {}",
+                        agg.full_name, agg.engine, err
                     );
                     continue;
                 }

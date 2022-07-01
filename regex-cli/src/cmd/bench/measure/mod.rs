@@ -13,8 +13,11 @@ use crate::{
     util::{Filter, ShortHumanDuration},
 };
 
+mod compile;
 mod count;
 mod count_captures;
+mod grep;
+mod regexredux;
 
 const ABOUT_SHORT: &'static str = "\
 Run benchmarks and write measurements.
@@ -213,11 +216,11 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         // collection of various aggregate statistics (mean+/-stddev, median,
         // min, max).
         let agg = b.aggregate(match b.def.benchmark_type {
-            BenchmarkType::Compile => todo!(),
+            BenchmarkType::Compile => compile::run(b),
             BenchmarkType::Count => count::run(b),
             BenchmarkType::CountCaptures => count_captures::run(b),
-            BenchmarkType::Grep => todo!(),
-            BenchmarkType::RegexRedux => todo!(),
+            BenchmarkType::Grep => grep::run(b),
+            BenchmarkType::RegexRedux => regexredux::run(b),
         });
         // Our aggregate is initially captured in terms of how long it takes to
         // execute each iteration of the benchmark. But for searching, this is
@@ -230,6 +233,10 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         // in 500ns? What does that mean? It's much clearer to say 500 MB/s.
         // I guess people consistently misunderstand that benchmarks are
         // fundamentally about communication first.
+        //
+        // Using throughputs doesn't quite make sense for the 'compile'
+        // benchmarks, but '--units time' can be used with the benchmark
+        // comparison commands to change units.
         wtr.serialize(agg.into_throughput())?;
         // Flush every record once we have it so that users can see that
         // progress is being made.
@@ -349,8 +356,8 @@ struct BenchmarkConfig {
 impl Default for BenchmarkConfig {
     fn default() -> BenchmarkConfig {
         BenchmarkConfig {
-            max_warmup_iters: 100_000,
-            max_iters: 100_000,
+            max_warmup_iters: 1_000_000,
+            max_iters: 1_000_000,
             approx_max_benchmark_time: Duration::from_millis(3000),
             approx_max_warmup_time: Duration::from_millis(1500),
         }
@@ -705,7 +712,7 @@ impl BenchmarkDef {
     /// annoying to push into Serde/types.
     fn validate(&self) -> anyhow::Result<()> {
         static RE_GROUP: Lazy<Regex> =
-            Lazy::new(|| Regex::new(r"^[a-z][a-z0-9]+$").unwrap());
+            Lazy::new(|| Regex::new(r"^[a-z][-a-z0-9]+$").unwrap());
         static RE_NAME: Lazy<Regex> =
             Lazy::new(|| Regex::new(r"^[a-z][-a-z0-9]+$").unwrap());
         static RE_ENGINE: Lazy<Regex> = Lazy::new(|| {
@@ -715,7 +722,21 @@ impl BenchmarkDef {
         // Benchmark type imposes constraints on which things can or can't
         // be set.
         match self.benchmark_type {
-            BenchmarkType::Compile => {}
+            BenchmarkType::Compile => {
+                anyhow::ensure!(
+                    self.match_count.is_some(),
+                    "'compile' benchmarks must have 'match-count' set \
+                     (to verify compiled regex has expected behavior)",
+                );
+                anyhow::ensure!(
+                    self.capture_count.is_none(),
+                    "'compile' benchmarks must not have 'capture-count' set",
+                );
+                anyhow::ensure!(
+                    self.line_count.is_none(),
+                    "'compile' benchmarks must not have 'line-count' set",
+                );
+            }
             BenchmarkType::Count => {
                 anyhow::ensure!(
                     self.match_count.is_some(),
@@ -758,7 +779,20 @@ impl BenchmarkDef {
                     "'grep' benchmarks must not have 'capture-count' set",
                 );
             }
-            BenchmarkType::RegexRedux => {}
+            BenchmarkType::RegexRedux => {
+                anyhow::ensure!(
+                    self.line_count.is_none(),
+                    "'regex-redux' benchmarks must not have 'line-count' set",
+                );
+                anyhow::ensure!(
+                    self.match_count.is_none(),
+                    "'regex-redux' benchmarks must not have 'match-count' set",
+                );
+                anyhow::ensure!(
+                    self.capture_count.is_none(),
+                    "'regex-redux' benchmarks must not have 'capture-count' set",
+                );
+            }
         }
         // Group must be valid.
         anyhow::ensure!(
@@ -804,9 +838,6 @@ impl BenchmarkDef {
 }
 
 // BREADCRUMBS: Not sure which order, but:
-//
-// Write out the other benchmark types below. regex-redux will be the most
-// involved.
 //
 // Finally, start adding FFI regex engines. We need to add at least PCRE2 and
 // RE2.

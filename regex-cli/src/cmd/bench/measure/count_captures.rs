@@ -53,8 +53,7 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
 fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
     use automata::{nfa::thompson::backtrack::BoundedBacktracker, Input};
 
-    let haystack = &*b.haystack;
-    let mut input = Input::new(haystack);
+    let mut input = Input::new(&b.haystack);
     let re = BoundedBacktracker::builder()
         .configure(BoundedBacktracker::config().utf8(false))
         .syntax(syntax_config(b))
@@ -83,8 +82,7 @@ fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
     use automata::{nfa::thompson::pikevm::PikeVM, Input};
 
-    let haystack = &*b.haystack;
-    let mut input = Input::new(haystack);
+    let mut input = Input::new(&b.haystack);
     let re = PikeVM::builder()
         .configure(PikeVM::config().utf8(false))
         .syntax(syntax_config(b))
