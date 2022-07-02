@@ -11,6 +11,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/dfa/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        #[cfg(feature = "extre-re2")]
+        "re2/api" => re2_api(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -90,6 +92,16 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
             .build(&b.def.regex)?;
         let mut cache = re.create_cache();
         Ok(Box::new(move |h| Ok(re.find_iter(&mut cache, h).count())))
+    })
+}
+
+fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
+    use crate::ffi::re2::Regex;
+    use automata::Input;
+
+    b.run(verify, || {
+        let re = Regex::new(&b.def.regex)?;
+        Ok(Box::new(move |h| Ok(re.find_iter(Input::new(h)).count())))
     })
 }
 

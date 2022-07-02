@@ -22,12 +22,20 @@ name = "regex-cli"
 instrument = ["instrument-pikevm"]
 instrument-pikevm = ["automata/instrument-pikevm"]
 
+# These features enable/disable support for external regex engines. By default,
+# they are all disabled, since they typically require you to have the regex
+# engine installed in some other way. To enable all external regex engines,
+# enable the extre-all feature.
+extre-all = ["extre-re2"]
+extre-re2 = ["cc", "libc", "pkg-config"]
+
 [dependencies]
 anyhow = "1.0.28"
 atty = "0.2.14"
 bstr = { version = "0.2.16", default-features = false, features = ["std"] }
-clap = { version = "2.33.0", default-features = false }
+clap = { version = "2.34.0", default-features = false }
 csv = "1.1.6"
+libc = { version = "0.2.126", optional = true }
 log = "0.4.14"
 memchr = "2.5.0"
 memmap2 = "0.3.0"
@@ -50,3 +58,7 @@ features = ["logging"]
 version = "0.8.4"
 default-features = false
 features = ["atty", "humantime", "termcolor"]
+
+[build-dependencies]
+cc = { version = "1.0.73", optional = true }
+pkg-config = { version = "0.3.25", optional = true }

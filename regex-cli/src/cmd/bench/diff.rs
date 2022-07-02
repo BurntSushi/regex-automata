@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::{
     app::{self, App, Args},
     cmd::bench::{
@@ -68,15 +70,13 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     }
     writeln!(wtr, "")?;
 
-    // Write underlines beneath each column name to give some separation. Note
-    // that we use byte length, which is a little suspect, because file names
-    // might have Unicode in them.
-    write_divider(&mut wtr, '-', "benchmark".len())?;
+    // Write underlines beneath each column name to give some separation.
+    write_divider(&mut wtr, '-', "benchmark".width())?;
     write!(wtr, "\t")?;
-    write_divider(&mut wtr, '-', "engine".len())?;
+    write_divider(&mut wtr, '-', "engine".width())?;
     for data_name in data_names.iter() {
         write!(wtr, "\t")?;
-        write_divider(&mut wtr, '-', data_name.len())?;
+        write_divider(&mut wtr, '-', data_name.width())?;
     }
     writeln!(wtr, "")?;
 

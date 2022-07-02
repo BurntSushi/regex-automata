@@ -603,6 +603,16 @@ impl Regex {
             None => return Ok(None),
             Some(end) => end,
         };
+        // This special cases an empty match at the beginning of the search. If
+        // our end matches our start, then since a reverse DFA can't match past
+        // the start, it must follow that our starting position is also our end
+        // position. So short circuit and skip the reverse search.
+        if input.start() == end.offset() {
+            return Ok(Some(Match::new(
+                end.pattern(),
+                end.offset()..end.offset(),
+            )));
+        }
         // N.B. I have tentatively convinced myself that it isn't necessary
         // to specify the specific pattern for the reverse search since the
         // reverse search will always find the same pattern to match as the

@@ -2,6 +2,7 @@ mod app;
 mod cmd;
 mod config;
 mod escape;
+mod ffi;
 mod util;
 
 fn main() -> anyhow::Result<()> {

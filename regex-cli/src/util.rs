@@ -198,6 +198,9 @@ impl Filter {
 /// milliseconds, microseconds and nanoseconds.
 ///
 /// This avoids bringing in another crate to do this work (like humantime).
+/// Hah, incidentally, when I wrote this, I had forgotten that I already had
+/// an indirect dependency on 'humantime' via 'env_logger'. I decided to keep
+/// this type because it lets us precisely control the format we support.
 #[derive(Clone, Copy, Default)]
 pub struct ShortHumanDuration(Duration);
 

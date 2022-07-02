@@ -13,6 +13,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "memchr/memmem" => memchr_memmem(b),
+        #[cfg(feature = "extre-re2")]
+        "re2/api" => re2_api(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -121,6 +123,16 @@ fn memchr_memmem(b: &Benchmark) -> anyhow::Result<Results> {
     let haystack = &*b.haystack;
     let finder = memmem::Finder::new(&b.def.regex);
     b.run(verify, || Ok(finder.find_iter(haystack).count()))
+}
+
+#[cfg(feature = "extre-re2")]
+fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
+    use crate::ffi::re2::Regex;
+    use automata::Input;
+
+    let haystack = &*b.haystack;
+    let re = Regex::new(&b.def.regex)?;
+    b.run(verify, || Ok(re.find_iter(Input::new(haystack)).count()))
 }
 
 /// For regex-automata based regex engines, this builds a syntax configuration

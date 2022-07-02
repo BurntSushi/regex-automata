@@ -3,6 +3,8 @@ use std::{
     path::PathBuf,
 };
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::{
     app::{self, App, Args},
     cmd::bench::{
@@ -69,12 +71,11 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     }
     writeln!(wtr, "")?;
 
-    // Write underlines beneath each column name to give some separation. Note
-    // that we use byte length because we require that all names are ASCII.
-    write_divider(&mut wtr, '-', "benchmark".len())?;
+    // Write underlines beneath each column name to give some separation.
+    write_divider(&mut wtr, '-', "benchmark".width())?;
     for engine in engines.iter() {
         write!(wtr, "\t")?;
-        write_divider(&mut wtr, '-', engine.len())?;
+        write_divider(&mut wtr, '-', engine.width())?;
     }
     writeln!(wtr, "")?;
 
