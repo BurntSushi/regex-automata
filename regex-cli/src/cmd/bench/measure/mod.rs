@@ -17,6 +17,7 @@ mod compile;
 mod count;
 mod count_captures;
 mod grep;
+mod new;
 mod regexredux;
 
 const ABOUT_SHORT: &'static str = "\
@@ -780,6 +781,10 @@ impl BenchmarkDef {
                 );
             }
             BenchmarkType::RegexRedux => {
+                anyhow::ensure!(
+                    self.regex.is_empty(),
+                    "'regex-redux' benchmark must not set 'regex'",
+                );
                 anyhow::ensure!(
                     self.line_count.is_none(),
                     "'regex-redux' benchmarks must not have 'line-count' set",

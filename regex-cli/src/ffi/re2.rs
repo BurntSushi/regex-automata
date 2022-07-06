@@ -37,15 +37,15 @@ impl Drop for Regex {
 }
 
 impl Regex {
-    /// Create a new RE2 regex. If one could not be created, then an error is
-    /// returned.
+    /// Create a new RE2 regex with the given configuration. If one could not
+    /// be created, then an error is returned.
     ///
     /// Currently, the error returned doesn't include any RE2-specific
     /// diagnostics. However, RE2 is likely configured to log errors to stderr.
-    pub fn new(pattern: &str) -> anyhow::Result<Regex> {
+    pub fn new(pattern: &str, opts: Options) -> anyhow::Result<Regex> {
         // SAFETY: If compilation fails and/or throws an exception, then
         // nullptr is returned which we convert into a generic error here.
-        match NonNull::new(unsafe { re2_regexp_new(pattern.into()) }) {
+        match NonNull::new(unsafe { re2_regexp_new(pattern.into(), opts) }) {
             Some(re) => Ok(Regex { re, pattern: pattern.to_string() }),
             // We don't make any attempt at extracting the error message
             // from RE2. We probably should, but my C++ skills suck.
@@ -156,6 +156,32 @@ impl Regex {
                 Some(input.haystack().as_ptr() as usize);
         }
         matched
+    }
+}
+
+/// Options that can be passed to Regex::new_with_options to configure a subset
+/// of RE2 knobs.
+///
+/// Note that since this is such a simple type, we just make it repr(C)
+/// directly. It is meant to be equivalent to the re2_options type defined in
+/// the shim layer.
+#[repr(C)]
+#[derive(Clone, Debug)]
+pub struct Options {
+    /// When disabled, RE2's "latin1" mode is enabled. Otherwise, UTF-8 is
+    /// enabled. RE2's "latin1" mode is (I believe) the same as disabling
+    /// regex-automata's Unicode and UTF-8 modes. Namely, it permits an RE2
+    /// regex to match arbitrary bytes and it caps the range of any character
+    /// class to be at most 0xFF.
+    pub utf8: bool,
+    /// When enabled, RE2's case sensitive mode is enabled. When disabled,
+    /// matching is done case insensitively.
+    pub case_sensitive: bool,
+}
+
+impl Default for Options {
+    fn default() -> Options {
+        Options { utf8: true, case_sensitive: true }
     }
 }
 
@@ -319,7 +345,7 @@ impl<'a> From<&'a [u8]> for re2_string {
 }
 
 extern "C" {
-    fn re2_regexp_new(pat: re2_string) -> *mut re2_regexp;
+    fn re2_regexp_new(pat: re2_string, opts: Options) -> *mut re2_regexp;
     fn re2_regexp_free(re: *mut re2_regexp);
     fn re2_regexp_is_match(
         re: *mut re2_regexp,
@@ -357,7 +383,8 @@ mod tests {
     // didn't participate in a match.
     #[test]
     fn captures() {
-        let re = Regex::new(r"\W+(?:([a-z]+)|([0-9]+))").unwrap();
+        let re = Regex::new(r"\W+(?:([a-z]+)|([0-9]+))", Options::default())
+            .unwrap();
         let mut caps = re.create_captures();
         assert!(re.captures(&Input::new("ABC!@#123"), &mut caps));
         assert_eq!(Some(Span::from(3..9)), caps.get_group(0));

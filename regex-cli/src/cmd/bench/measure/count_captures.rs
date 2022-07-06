@@ -1,8 +1,6 @@
 use std::convert::TryFrom;
 
-use automata::SyntaxConfig;
-
-use super::{Benchmark, Results};
+use super::{new, Benchmark, Results};
 
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
@@ -27,13 +25,8 @@ fn verify(b: &Benchmark, count: usize) -> anyhow::Result<()> {
 }
 
 fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
-    use regex::bytes::RegexBuilder;
-
     let haystack = &*b.haystack;
-    let re = RegexBuilder::new(&b.def.regex)
-        .unicode(b.def.unicode)
-        .case_insensitive(b.def.case_insensitive)
-        .build()?;
+    let re = new::regex_api(b)?;
     let mut caps = re.capture_locations();
     b.run(verify, || {
         let mut at = 0;
@@ -53,13 +46,10 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::{nfa::thompson::backtrack::BoundedBacktracker, Input};
+    use automata::Input;
 
     let mut input = Input::new(&b.haystack);
-    let re = BoundedBacktracker::builder()
-        .configure(BoundedBacktracker::config().utf8(false))
-        .syntax(syntax_config(b))
-        .build(&b.def.regex)?;
+    let re = new::regex_automata_backtrack(b)?;
     let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     b.run(verify, || {
         input.set_start(0);
@@ -82,13 +72,10 @@ fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::{nfa::thompson::pikevm::PikeVM, Input};
+    use automata::Input;
 
     let mut input = Input::new(&b.haystack);
-    let re = PikeVM::builder()
-        .configure(PikeVM::config().utf8(false))
-        .syntax(syntax_config(b))
-        .build(&b.def.regex)?;
+    let re = new::regex_automata_pikevm(b)?;
     let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     b.run(verify, || {
         input.set_start(0);
@@ -112,11 +99,10 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
 
 #[cfg(feature = "extre-re2")]
 fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
-    use crate::ffi::re2::Regex;
     use automata::Input;
 
     let mut input = Input::new(&b.haystack);
-    let re = Regex::new(&b.def.regex)?;
+    let re = new::re2_api(b)?;
     let mut caps = re.create_captures();
     b.run(verify, || {
         input.set_start(0);
@@ -136,13 +122,4 @@ fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
         }
         Ok(count)
     })
-}
-
-/// For regex-automata based regex engines, this builds a syntax configuration
-/// from a benchmark definition.
-fn syntax_config(b: &Benchmark) -> SyntaxConfig {
-    SyntaxConfig::new()
-        .utf8(false)
-        .unicode(b.def.unicode)
-        .case_insensitive(b.def.case_insensitive)
 }

@@ -1,8 +1,6 @@
 use std::convert::TryFrom;
 
-use automata::SyntaxConfig;
-
-use super::{Benchmark, Results};
+use super::{new, Benchmark, Results};
 
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
@@ -33,83 +31,47 @@ fn verify(
 }
 
 fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
-    use regex::bytes::RegexBuilder;
-
     b.run(verify, || {
-        let re = RegexBuilder::new(&b.def.regex)
-            .unicode(b.def.unicode)
-            .case_insensitive(b.def.case_insensitive)
-            .build()?;
+        let re = new::regex_api(b)?;
         Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
     })
 }
 
 fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::dfa::regex::Regex;
-
     b.run(verify, || {
-        let re = Regex::builder()
-            .configure(Regex::config().utf8(false))
-            .syntax(syntax_config(b))
-            .build(&b.def.regex)?;
+        let re = new::regex_automata_dfa_dense(b)?;
         Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
     })
 }
 
 fn regex_automata_dfa_sparse(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::dfa::regex::Regex;
-
     b.run(verify, || {
-        let re = Regex::builder()
-            .configure(Regex::config().utf8(false))
-            .syntax(syntax_config(b))
-            .build_sparse(&b.def.regex)?;
+        let re = new::regex_automata_dfa_sparse(b)?;
         Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
     })
 }
 
 fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::hybrid::{dfa::DFA, regex::Regex};
-
     b.run(verify, || {
-        let re = Regex::builder()
-            .configure(Regex::config().utf8(false))
-            .dfa(DFA::config().skip_cache_capacity_check(true))
-            .syntax(syntax_config(b))
-            .build(&b.def.regex)?;
+        let re = new::regex_automata_hybrid(b)?;
         let mut cache = re.create_cache();
         Ok(Box::new(move |h| Ok(re.find_iter(&mut cache, h).count())))
     })
 }
 
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::nfa::thompson::pikevm::PikeVM;
-
     b.run(verify, || {
-        let re = PikeVM::builder()
-            .configure(PikeVM::config().utf8(false))
-            .syntax(syntax_config(b))
-            .build(&b.def.regex)?;
+        let re = new::regex_automata_pikevm(b)?;
         let mut cache = re.create_cache();
         Ok(Box::new(move |h| Ok(re.find_iter(&mut cache, h).count())))
     })
 }
 
 fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
-    use crate::ffi::re2::Regex;
     use automata::Input;
 
     b.run(verify, || {
-        let re = Regex::new(&b.def.regex)?;
+        let re = new::re2_api(b)?;
         Ok(Box::new(move |h| Ok(re.find_iter(Input::new(h)).count())))
     })
-}
-
-/// For regex-automata based regex engines, this builds a syntax configuration
-/// from a benchmark definition.
-fn syntax_config(b: &Benchmark) -> SyntaxConfig {
-    SyntaxConfig::new()
-        .utf8(false)
-        .unicode(b.def.unicode)
-        .case_insensitive(b.def.case_insensitive)
 }

@@ -2,9 +2,7 @@ use std::convert::TryFrom;
 
 use bstr::ByteSlice;
 
-use automata::SyntaxConfig;
-
-use super::{Benchmark, Results};
+use super::{new, Benchmark, Results};
 
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
@@ -14,6 +12,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
@@ -31,13 +30,8 @@ fn verify(b: &Benchmark, count: usize) -> anyhow::Result<()> {
 }
 
 fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
-    use regex::bytes::RegexBuilder;
-
     let haystack = &*b.haystack;
-    let re = RegexBuilder::new(&b.def.regex)
-        .unicode(b.def.unicode)
-        .case_insensitive(b.def.case_insensitive)
-        .build()?;
+    let re = new::regex_api(b)?;
     b.run(verify, || {
         let mut count = 0;
         for line in haystack.lines() {
@@ -50,13 +44,8 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::dfa::regex::Regex;
-
     let haystack = &*b.haystack;
-    let re = Regex::builder()
-        .configure(Regex::config().utf8(false))
-        .syntax(syntax_config(b))
-        .build(&b.def.regex)?;
+    let re = new::regex_automata_dfa_dense(b)?;
     b.run(verify, || {
         let mut count = 0;
         for line in haystack.lines() {
@@ -69,13 +58,8 @@ fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_dfa_sparse(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::dfa::regex::Regex;
-
     let haystack = &*b.haystack;
-    let re = Regex::builder()
-        .configure(Regex::config().utf8(false))
-        .syntax(syntax_config(b))
-        .build_sparse(&b.def.regex)?;
+    let re = new::regex_automata_dfa_sparse(b)?;
     b.run(verify, || {
         let mut count = 0;
         for line in haystack.lines() {
@@ -88,14 +72,8 @@ fn regex_automata_dfa_sparse(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::hybrid::{dfa::DFA, regex::Regex};
-
     let haystack = &*b.haystack;
-    let re = Regex::builder()
-        .configure(Regex::config().utf8(false))
-        .dfa(DFA::config().skip_cache_capacity_check(true))
-        .syntax(syntax_config(b))
-        .build(&b.def.regex)?;
+    let re = new::regex_automata_hybrid(b)?;
     let mut cache = re.create_cache();
     b.run(verify, || {
         let mut count = 0;
@@ -109,13 +87,8 @@ fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::nfa::thompson::backtrack::BoundedBacktracker;
-
     let haystack = &*b.haystack;
-    let re = BoundedBacktracker::builder()
-        .configure(BoundedBacktracker::config().utf8(false))
-        .syntax(syntax_config(b))
-        .build(&b.def.regex)?;
+    let re = new::regex_automata_backtrack(b)?;
     let mut cache = re.create_cache();
     b.run(verify, || {
         let mut count = 0;
@@ -129,13 +102,8 @@ fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::nfa::thompson::pikevm::PikeVM;
-
     let haystack = &*b.haystack;
-    let re = PikeVM::builder()
-        .configure(PikeVM::config().utf8(false))
-        .syntax(syntax_config(b))
-        .build(&b.def.regex)?;
+    let re = new::regex_automata_pikevm(b)?;
     let mut cache = re.create_cache();
     b.run(verify, || {
         let mut count = 0;
@@ -150,11 +118,10 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
 
 #[cfg(feature = "extre-re2")]
 fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
-    use crate::ffi::re2::Regex;
     use automata::Input;
 
     let haystack = &*b.haystack;
-    let re = Regex::new(&b.def.regex)?;
+    let re = new::re2_api(b)?;
     b.run(verify, || {
         let mut count = 0;
         for line in haystack.lines() {
@@ -164,13 +131,4 @@ fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
         }
         Ok(count)
     })
-}
-
-/// For regex-automata based regex engines, this builds a syntax configuration
-/// from a benchmark definition.
-fn syntax_config(b: &Benchmark) -> SyntaxConfig {
-    SyntaxConfig::new()
-        .utf8(false)
-        .unicode(b.def.unicode)
-        .case_insensitive(b.def.case_insensitive)
 }

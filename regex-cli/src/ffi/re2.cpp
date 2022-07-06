@@ -6,13 +6,13 @@ inappropriate.
 
 Note that CRE2[1] is a thing, but unless it's otherwise impractical, we choose
 to own everything between a regex engine and the code that uses it. This is
-especially important for the benchmarking harness. A third party binding
-layer might do something under our noses that would be bad for benchmarking
-for example, and it might be hard to know about it. For example, CRE2 does
-allocate[2] in every 'cre2_match' call. Of course, bringing in a third party
-binding layer also has complexities of our own. Since we only need a small
-portion of a regex engine's public API, we can reasonably justifying hand
-rolling it.
+especially important for the benchmarking harness. A third party binding layer
+might do something under our noses that would be bad for benchmarking for
+example, and it might be hard to know about it without carefully auditing the
+dependency. For example, CRE2 does allocate[2] in every 'cre2_match' call. Of
+course, bringing in a third party binding layer also has complexities on its
+own. Since we only need a small portion of a regex engine's public API, we can
+reasonably justifying hand rolling it.
 
 [1]: https://github.com/marcomaggi/cre2
 [2]: https://github.com/marcomaggi/cre2/blob/6687e7eee83189ddc2b226e7c58adb360b468492/src/cre2.cpp#L278
@@ -25,31 +25,16 @@ rolling it.
 
 using namespace re2;
 
-// An example that sets RE2 options. We should expose Latin1 and case
-// insensitivty, as those options are tweakable in the benchmark suite.
-// TEST(RE2, Bug18391750) {
-  // // Stray write past end of match_ in nfa.cc, caught by fuzzing + address sanitizer.
-  // const char t[] = {
-      // (char)0x28, (char)0x28, (char)0xfc, (char)0xfc, (char)0x08, (char)0x08,
-      // (char)0x26, (char)0x26, (char)0x28, (char)0xc2, (char)0x9b, (char)0xc5,
-      // (char)0xc5, (char)0xd4, (char)0x8f, (char)0x8f, (char)0x69, (char)0x69,
-      // (char)0xe7, (char)0x29, (char)0x7b, (char)0x37, (char)0x31, (char)0x31,
-      // (char)0x7d, (char)0xae, (char)0x7c, (char)0x7c, (char)0xf3, (char)0x29,
-      // (char)0xae, (char)0xae, (char)0x2e, (char)0x2a, (char)0x29, (char)0x00,
-  // };
-  // RE2::Options opt;
-  // opt.set_encoding(RE2::Options::EncodingLatin1);
-  // opt.set_longest_match(true);
-  // opt.set_dot_nl(true);
-  // opt.set_case_sensitive(false);
-  // RE2 re(t, opt);
-  // ASSERT_TRUE(re.ok());
-  // RE2::PartialMatch(t, re);
-// }
-
 extern "C" {
     // An opaque type representing an RE2 regex. Internally, this is a RE2*.
     typedef void re2_regexp;
+
+    // Options to forward to RE2's constructor. We only permit forwarding a
+    // subset of options. New options can be added as-needed.
+    typedef struct re2_options {
+        bool utf8;
+        bool case_sensitive;
+    } re2_options;
 
     // An opaque type representing a sequence of RE2 StringPieces. Internally,
     // this is a std::vector<re2::StringPiece>*.
@@ -74,11 +59,20 @@ extern "C" {
     } re2_string;
 
     // Create a new RE2 regexp. If one could not be created, return a null
-    // pointer.
-    re2_regexp* re2_regexp_new(re2_string pat) {
+    // pointer. The given options are forwarded to the RE2 constructor.
+    re2_regexp* re2_regexp_new(re2_string pat, re2_options opts) {
         try {
             re2::StringPiece re2_pat(pat.data, pat.length);
-            return reinterpret_cast<re2_regexp*>(new RE2(re2_pat));
+            re2::RE2::Options re2_opts;
+            // N.B. re2::Options::EncodingUTF8 is the default.
+            if (!opts.utf8) {
+                re2_opts.set_encoding(re2::RE2::Options::EncodingLatin1);
+            }
+            // N.B. Case sensitive is the default.
+            if (!opts.case_sensitive) {
+                re2_opts.set_case_sensitive(false);
+            }
+            return reinterpret_cast<re2_regexp*>(new RE2(re2_pat, re2_opts));
         } catch (...) {
             return nullptr;
         }

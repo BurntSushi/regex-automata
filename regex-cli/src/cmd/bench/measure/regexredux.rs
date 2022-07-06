@@ -1,8 +1,6 @@
 use std::fmt::Write;
 
-use automata::SyntaxConfig;
-
-use super::{Benchmark, Results};
+use super::{new, Benchmark, Results};
 
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
@@ -10,6 +8,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/dfa/dense" => regex_automata_dfa_dense(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
@@ -59,7 +58,7 @@ fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
     let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
         let re = Regex::builder()
             .configure(Regex::config().utf8(false))
-            .syntax(syntax_config(b))
+            .syntax(new::automata_syntax_config(b))
             .build(pattern)?;
         let find = move |h: &[u8]| -> anyhow::Result<Option<(usize, usize)>> {
             Ok(re.find(h).map(|m| (m.start(), m.end())))
@@ -76,7 +75,7 @@ fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
         let re = Regex::builder()
             .configure(Regex::config().utf8(false))
             .dfa(DFA::config().skip_cache_capacity_check(true))
-            .syntax(syntax_config(b))
+            .syntax(new::automata_syntax_config(b))
             .build(pattern)?;
         let mut cache = re.create_cache();
         let find = move |h: &[u8]| -> anyhow::Result<Option<(usize, usize)>> {
@@ -93,7 +92,7 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
     let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
         let re = PikeVM::builder()
             .configure(PikeVM::config().utf8(false))
-            .syntax(syntax_config(b))
+            .syntax(new::automata_syntax_config(b))
             .build(pattern)?;
         let mut cache = re.create_cache();
         let mut caps = Captures::new_for_matches_only(re.get_nfa().clone());
@@ -112,22 +111,13 @@ fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
     use automata::Input;
 
     let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
-        let re = Regex::new(pattern)?;
+        let re = Regex::new(pattern, new::re2_options(b))?;
         let find = move |h: &[u8]| {
             Ok(re.find(&Input::new(h)).map(|m| (m.start(), m.end())))
         };
         Ok(Box::new(find))
     };
     b.run(verify, || generic_regex_redux(&b.haystack, compile))
-}
-
-/// For regex-automata based regex engines, this builds a syntax configuration
-/// from a benchmark definition.
-fn syntax_config(b: &Benchmark) -> SyntaxConfig {
-    SyntaxConfig::new()
-        .utf8(false)
-        .unicode(b.def.unicode)
-        .case_insensitive(b.def.case_insensitive)
 }
 
 type RegexFn = Box<dyn FnMut(&[u8]) -> anyhow::Result<Option<(usize, usize)>>>;
