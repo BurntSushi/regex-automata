@@ -1,0 +1,69 @@
+[[benches]]
+type = "count"
+name = "literal-en"
+regex = 'Sherlock Holmes'
+haystack-path = "opensubtitles/en-huge.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  'memchr/memmem',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "literal-ru"
+regex = 'Шерлок Холмс'
+haystack-path = "opensubtitles/ru-huge.txt"
+case-insensitive = false
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  'memchr/memmem',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "literal-en-casei"
+regex = 'sherlock holmes'
+haystack-path = "opensubtitles/en-huge.txt"
+case-insensitive = true
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "literal-ru-casei"
+regex = 'шерлок холмс'
+haystack-path = "opensubtitles/ru-huge.txt"
+case-insensitive = true
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+]
+analysis = 'TODO'

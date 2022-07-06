@@ -1,0 +1,62 @@
+[[benches]]
+type = "grep"
+name = "long-words-unicode"
+regex = '\b\w{25,}\b'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = true
+line-count = 5075
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep"
+name = "long-words-nounicode"
+regex = '\b\w{25,}\b'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 5073
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep"
+name = "bibleref"
+regex = '''
+(?x)
+(?P<Book>(([1234]|I{1,4})[\t\f\pZ]*)?\pL+\.?)
+[\t\f\pZ]+
+(?P<Locations>
+  (
+    (?P<Chapter>1?[0-9]?[0-9])
+    (-(?P<ChapterEnd>\d+)|,\s*(?P<ChapterNext>\\d+))*
+    (:\s*(?P<Verse>\d+))?
+    (-(?P<VerseEnd>\d+)|,\s*(?P<VerseNext>\d+))*
+    \s?
+  )+
+)
+'''
+haystack-path = "opensubtitles/en-huge.txt"
+case-insensitive = false
+unicode = true
+line-count = 161
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+]
+analysis = 'TODO'

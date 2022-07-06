@@ -1,0 +1,15 @@
+[[benches]]
+type = "regex-redux"
+name = "fasta-100000"
+regex = ''
+haystack-path = "regex-redux.txt"
+case-insensitive = false
+unicode = false
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+]
+analysis = 'TODO'

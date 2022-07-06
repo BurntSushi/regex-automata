@@ -1,0 +1,170 @@
+[[benches]]
+type = "compile"
+name = "empty"
+regex = ''
+haystack = "abc"
+case-insensitive = false
+unicode = false
+match-count = 4
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "compile"
+name = "match-every-line-unicode"
+regex = '(?m)^.+$'
+haystack-path = "lines-with-invalid-utf8.txt"
+case-insensitive = false
+unicode = true
+match-count = 3
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+]
+analysis = '''
+TODO
+
+The PikeVM is a bit slow here because the Unicode-aware '.' provokes the
+UTF-8 compiler, which in turn always requires a fairly heavy duty allocation
+that is taking up most of the compilation time.
+'''
+
+[[benches]]
+type = "compile"
+name = "match-every-line-nounicode"
+regex = '(?m)^.+$'
+haystack-path = "lines-with-invalid-utf8.txt"
+case-insensitive = false
+unicode = false
+match-count = 4
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "compile"
+name = "fifty-letters-ascii"
+regex = '[a-zA-Z]{50}'
+haystack = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+]
+analysis = '''
+We use [a-zA-Z] here instead of \w because some regex engines, like RE2, don't
+have any mode in which \w can be made Unicode-aware. But it does support \pL.
+So to make the non-Unicode case analogous to the Unicode case, we just choose
+letters. (ASCII \w is slightly bigger, but it's fine to assume that \w will
+compile at similar speeds.)
+'''
+
+[[benches]]
+type = "compile"
+name = "fifty-letters-unicode"
+regex = '\pL{50}'
+haystack = "ͱͳͷΐάέήίΰαβγδεζηθικλμνξοπρςστυφχψωϊϋόύώϙϛϝϟϡϸϻͱͳͷΐάέή"
+case-insensitive = false
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+]
+analysis = '''
+We use \pL here instead of \w because some regex engines, like RE2, don't
+have any mode in which \w can be made Unicode-aware. But it does support \pL.
+'''
+
+[[benches]]
+type = "compile"
+name = "bibleref"
+# Sadly, not all regex engines support '(?x)', so we smush this monster into
+# one line.
+regex = '(?P<Book>(([1234]|I{1,4})[\t\f\pZ]*)?\pL+\.?)[\t\f\pZ]+(?P<Locations>((?P<Chapter>1?[0-9]?[0-9])(-(?P<ChapterEnd>\d+)|,\s*(?P<ChapterNext>\\d+))*(:\s*(?P<Verse>\d+))?(-(?P<VerseEnd>\d+)|,\s*(?P<VerseNext>\d+))*\s?)+)'
+haystack = '''
+Gen 1:1, 2
+3 King 1:3-4
+II Ki. 3:12-14, 25
+'''
+case-insensitive = false
+unicode = true
+match-count = 3
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "compile"
+name = "graphemes"
+regex = '''
+(?x)
+\p{gcb=CR} \p{gcb=LF}
+|
+\p{gcb=Control}
+|
+\p{gcb=Prepend}*
+(
+  (
+    (\p{gcb=L}* (\p{gcb=V}+ | \p{gcb=LV} \p{gcb=V}* | \p{gcb=LVT}) \p{gcb=T}*)
+    |
+    \p{gcb=L}+
+    |
+    \p{gcb=T}+
+  )
+  |
+  \p{gcb=RI} \p{gcb=RI}
+  |
+  \p{Extended_Pictographic} (\p{gcb=Extend}* \p{gcb=ZWJ} \p{Extended_Pictographic})*
+  |
+  [^\p{gcb=Control} \p{gcb=CR} \p{gcb=LF}]
+)
+[\p{gcb=Extend} \p{gcb=ZWJ} \p{gcb=SpacingMark}]*
+|
+\p{Any}
+'''
+haystack = "a\u0300\u0316\U0001F1FA\U0001F1F8"
+case-insensitive = false
+unicode = true
+match-count = 2
+engines = [
+  'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+]
+analysis = 'TODO'
