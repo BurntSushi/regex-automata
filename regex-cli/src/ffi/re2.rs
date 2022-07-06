@@ -159,8 +159,8 @@ impl Regex {
     }
 }
 
-/// Options that can be passed to Regex::new_with_options to configure a subset
-/// of RE2 knobs.
+/// Options that can be passed to Regex::new to configure a subset of RE2
+/// knobs.
 ///
 /// Note that since this is such a simple type, we just make it repr(C)
 /// directly. It is meant to be equivalent to the re2_options type defined in

@@ -1,4 +1,8 @@
 fn main() {
+    #[cfg(feature = "extre-pcre2")]
+    if std::env::var("CARGO_FEATURE_EXTRE_PCRE2").is_ok() {
+        pkg_config::probe_library("libpcre2-8").unwrap();
+    }
     #[cfg(feature = "extre-re2")]
     if std::env::var("CARGO_FEATURE_EXTRE_RE2").is_ok() {
         // RE2 is a C++ library, so we need to compile our shim layer.

@@ -26,7 +26,8 @@ instrument-pikevm = ["automata/instrument-pikevm"]
 # they are all disabled, since they typically require you to have the regex
 # engine installed in some other way. To enable all external regex engines,
 # enable the extre-all feature.
-extre-all = ["extre-re2"]
+extre-all = ["extre-pcre2", "extre-re2"]
+extre-pcre2 = ["libc", "pkg-config"]
 extre-re2 = ["cc", "libc", "pkg-config"]
 
 [dependencies]
