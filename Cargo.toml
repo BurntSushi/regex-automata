@@ -11,7 +11,7 @@ keywords = ["regex", "dfa", "automata", "automaton", "nfa"]
 license = "Unlicense/MIT"
 categories = ["text-processing"]
 exclude = [
-  "/.github", "/scripts/*", "/regex-cli", "/regex-test",
+  "/.github", "/benchmarks",
 ]
 edition = "2018"
 resolver = "2"

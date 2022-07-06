@@ -12,15 +12,14 @@ originally released under.
 The tests themselves were modified for RE2/Go (and marked as such). A
 couple were modified further by me (Andrew Gallant) and marked with 'Rust'.
 
-I also split some of the tests in 'repetition.dat' set into their own
-'repetition-expensive.dat' set to make them easier to exclude in certain tests
-because they take too long (e.g., when we minimize a DFA).
-
 After some number of years, these tests were transformed into a TOML format
-using the fowler-to-toml script in the 'scripts' directory. To re-generate the
-TOML files, then run the following from the root of this repository:
+using the 'regex-cli generate fowler' command. To re-generate the
+TOML files, run the following from the root of this repository:
 
-  ./scripts/fowler-to-toml tests/data/fowler tests/data/fowler/dat/*.dat
+  regex-cli generate fowler tests/data/fowler tests/data/fowler/dat/*.dat
 
-which brings them into a sensible structured format in which other tests can
-be written.
+(This assumes that you have 'regex-cli' installed. See 'regex-cli/README.md'
+for more information.)
+
+This brings the Fowler tests into a more "sensible" structured format in which
+other tests can be written in a way that they aren't write-only.
