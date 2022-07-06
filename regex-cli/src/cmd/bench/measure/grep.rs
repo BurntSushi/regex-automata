@@ -14,6 +14,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        "re2/api" => re2_api(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -140,6 +141,24 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
         let mut count = 0;
         for line in haystack.lines() {
             if re.is_match(&mut cache, line) {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })
+}
+
+#[cfg(feature = "extre-re2")]
+fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
+    use crate::ffi::re2::Regex;
+    use automata::Input;
+
+    let haystack = &*b.haystack;
+    let re = Regex::new(&b.def.regex)?;
+    b.run(verify, || {
+        let mut count = 0;
+        for line in haystack.lines() {
+            if re.is_match(&Input::new(line)) {
                 count += 1;
             }
         }

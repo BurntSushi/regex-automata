@@ -278,12 +278,12 @@ impl Config {
     /// // thus means that the backtracker can only handle smaller haystacks,
     /// // assuming that the visited capacity remains unchanged.
     /// let re = BoundedBacktracker::new(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 7_036);
+    /// assert_eq!(6_874, re.max_haystack_len());
     /// // But we can increase the visited capacity to handle bigger haystacks!
     /// let re = BoundedBacktracker::builder()
     ///     .configure(BoundedBacktracker::config().visited_capacity(1<<20))
     ///     .build(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 28_148);
+    /// assert_eq!(27_502, re.max_haystack_len());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn visited_capacity(mut self, capacity: usize) -> Config {
@@ -956,12 +956,12 @@ impl BoundedBacktracker {
     /// // thus means that the backtracker can only handle smaller haystacks,
     /// // assuming that the visited capacity remains unchanged.
     /// let re = BoundedBacktracker::new(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 7_036);
+    /// assert_eq!(6_874, re.max_haystack_len());
     /// // But we can increase the visited capacity to handle bigger haystacks!
     /// let re = BoundedBacktracker::builder()
     ///     .configure(BoundedBacktracker::config().visited_capacity(1<<20))
     ///     .build(r"\w+")?;
-    /// assert_eq!(re.max_haystack_len(), 28_148);
+    /// assert_eq!(27_502, re.max_haystack_len());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]

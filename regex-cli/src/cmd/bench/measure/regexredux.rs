@@ -10,6 +10,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/dfa/dense" => regex_automata_dfa_dense(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        "re2/api" => re2_api(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -99,6 +100,21 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
         let find = move |h: &[u8]| -> anyhow::Result<Option<(usize, usize)>> {
             re.find(&mut cache, h, &mut caps);
             Ok(caps.get_match().map(|m| (m.start(), m.end())))
+        };
+        Ok(Box::new(find))
+    };
+    b.run(verify, || generic_regex_redux(&b.haystack, compile))
+}
+
+#[cfg(feature = "extre-re2")]
+fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
+    use crate::ffi::re2::Regex;
+    use automata::Input;
+
+    let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
+        let re = Regex::new(pattern)?;
+        let find = move |h: &[u8]| {
+            Ok(re.find(&Input::new(h)).map(|m| (m.start(), m.end())))
         };
         Ok(Box::new(find))
     };

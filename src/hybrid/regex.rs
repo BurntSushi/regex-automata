@@ -577,7 +577,12 @@ impl Regex {
             None => return Ok(None),
             Some(m) => m,
         };
-        if m.is_empty() {
+        // skip_empty_utf8_splits handles the case of a non-empty match or
+        // even when input.get_utf8() is disabled. But it's also intentionally
+        // a cold function that is forcefully not inlined, in order to make
+        // this function tighter. So we balance this by not calling it unless
+        // it has a chance of modifying the match reported.
+        if m.is_empty() && input.get_utf8() {
             input.skip_empty_utf8_splits(m, |search| {
                 self.try_search_fwd_back(cache, search)
             })

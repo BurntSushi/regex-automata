@@ -596,7 +596,12 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             None => return Ok(None),
             Some(m) => m,
         };
-        if m.is_empty() {
+        // skip_empty_utf8_splits handles the case of a non-empty match or
+        // even when input.get_utf8() is disabled. But it's also intentionally
+        // a cold function that is forcefully not inlined, in order to make
+        // this function tighter. So we balance this by not calling it unless
+        // it has a chance of modifying the match reported.
+        if m.is_empty() && input.get_utf8() {
             input.skip_empty_utf8_splits(m, |search| {
                 self.try_search_fwd_back(search)
             })
@@ -621,6 +626,16 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
             None => return Ok(None),
             Some(end) => end,
         };
+        // This special cases an empty match at the beginning of the search. If
+        // our end matches our start, then since a reverse DFA can't match past
+        // the start, it must follow that our starting position is also our end
+        // position. So short circuit and skip the reverse search.
+        if input.start() == end.offset() {
+            return Ok(Some(Match::new(
+                end.pattern(),
+                end.offset()..end.offset(),
+            )));
+        }
         // N.B. I have tentatively convinced myself that it isn't necessary
         // to specify the specific pattern for the reverse search since the
         // reverse search will always find the same pattern to match as the
