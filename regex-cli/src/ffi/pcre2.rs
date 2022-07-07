@@ -96,6 +96,8 @@ impl Regex {
         }
 
         let mut error_code = 0;
+        // SAFETY: Our pattern is valid and our length is correct. It is also
+        // okay to pass null for the compile context, as PCRE2 documents.
         let mut re = match NonNull::new(unsafe {
             pcre2_compile_8(
                 pattern.as_ptr(),
@@ -128,6 +130,8 @@ impl Regex {
     /// If there was a problem performing JIT compilation, then this returns
     /// an error.
     fn jit_compile(&mut self) -> anyhow::Result<()> {
+        // SAFETY: Our code is a valid pointer and PCRE2_JIT_COMPLETE is a
+        // valid option.
         let error_code = unsafe {
             pcre2_jit_compile_8(self.code.as_ptr(), PCRE2_JIT_COMPLETE)
         };
@@ -629,6 +633,8 @@ fn version() -> String {
         panic!("BUG: {}", Error { error_code: rc });
     }
     let mut buf = vec![0; rc as usize];
+    // SAFETY: See above. We also know our buffer is correctly sized as per
+    // the invariant of calling 'pcre2_config' with a null pointer above.
     let rc = unsafe {
         pcre2_config_8(PCRE2_CONFIG_VERSION, buf.as_mut_ptr() as *mut c_void)
     };
