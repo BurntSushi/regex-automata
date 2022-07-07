@@ -897,15 +897,6 @@ impl BenchmarkDef {
     }
 }
 
-// BREADCRUMBS: Not sure which order, but:
-//
-// Finally, start adding FFI regex engines. We need to add at least PCRE2 and
-// RE2.
-//
-// Fill out the benchmarks.
-//
-// Write analyses? Seems like something I should do later maybe. Sigh.
-
 /// The type of the benchmark. This basically controls what we're measuring and
 /// how to execute the code under test.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize)]
