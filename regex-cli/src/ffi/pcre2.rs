@@ -1,6 +1,4 @@
 #![allow(non_camel_case_types)]
-// TODO: remove this
-#![allow(dead_code)]
 
 use std::ptr::{self, NonNull};
 
