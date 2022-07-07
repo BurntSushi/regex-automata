@@ -11,5 +11,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'

@@ -4,9 +4,13 @@
 
 use std::ptr::{self, NonNull};
 
-use libc::{c_int, c_void};
+use {
+    anyhow::Context,
+    libc::{c_int, c_void},
+    once_cell::sync::Lazy,
+};
 
-use automata::Input;
+use automata::{Input, Match, PatternID, Span};
 
 // The PCRE2 docs say that 32KB is the default, and that 1MB should be big
 // enough for anything. But let's crank the max to 10MB. We can go bigger if
@@ -55,6 +59,32 @@ impl Regex {
     /// Compile the given pattern with the given options. If there was a
     /// problem compiling the pattern, then return an error.
     pub fn new(pattern: &str, opts: Options) -> anyhow::Result<Regex> {
+        // We require at least PCRE2 10.34 because we use make critical use of
+        // PCRE2_MATCH_INVALID_UTF, which was introduced in PCRE2 10.34. If we
+        // really needed to support older versions of PCRE2 we could, but 10.34
+        // was released in Nov 2019 (almost 3 years ago at time of writing).
+        //
+        // The reason we use PCRE2_MATCH_INVALID_UTF is so PCRE2 can search
+        // "might be invalid UTF-8" raw byte slices when Unicode is enabled
+        // without the overhead of checking whether it is UTF-8 or not. This
+        // turns out to be a critical feature in tools like ripgrep! (Which,
+        // at the time of writing, still doesn't make use of this option yet.)
+        static PCRE2_VERSION: Lazy<(u32, u32)> = Lazy::new(|| {
+            version_major_minor().expect("valid PCRE2 version parsing")
+        });
+        anyhow::ensure!(
+            PCRE2_VERSION.0 == 10,
+            "expected PCRE2 major version of 10, but got {} from {}",
+            PCRE2_VERSION.0,
+            version(),
+        );
+        anyhow::ensure!(
+            PCRE2_VERSION.1 >= 34,
+            "expected PCRE2 minor version of at least 34, but got {} from {}",
+            PCRE2_VERSION.1,
+            version(),
+        );
+
         let mut pcre2_opts = 0;
         // Since we support setting an end position past which we shouldn't
         // search, we need to pass this option at compile time.
@@ -111,17 +141,47 @@ impl Regex {
         }
     }
 
+    /// Create a new match data block that is sized to be able to hold all
+    /// possible capturing groups (including the implicit unnamed group) in
+    /// this regex.
     pub fn create_match_data(&self) -> MatchData {
-        MatchData::new(self)
+        MatchData::new(self, true)
     }
 
-    pub fn find(
+    /// Create a new match data block that is sized to hold only the overall
+    /// match span. This is useful when you don't want to pay the cost of
+    /// finding all capturing groups.
+    pub fn create_match_data_for_matches_only(&self) -> MatchData {
+        MatchData::new(self, false)
+    }
+
+    /// Execute a search and write the results into the given match data block
+    /// (which should have been created by one of the 'create_match_data'
+    /// methods on this type). If a match was found, then this returns true. If
+    /// an error occurred while searching, then that is returned.
+    pub fn try_find(
         &self,
         input: &Input<'_, '_>,
         match_data: &mut MatchData,
     ) -> anyhow::Result<bool> {
-        let matched = match_data.find(self, input)?;
+        let matched = match_data.try_find(self, input)?;
         Ok(matched)
+    }
+
+    /// Return an iterator over all non-overlapping successive matches
+    /// in the given input. This iterator only reports overall match
+    /// spans, so callers should pass a match data block created via
+    /// `Regex::create_match_data_for_matches_only`. Doing otherwise would be
+    /// wasteful.
+    ///
+    /// If you need an iterator over capturing groups, you'll need to hand-roll
+    /// it with `Regex::find`.
+    pub fn try_find_iter<'r, 'h, 'm>(
+        &'r self,
+        input: Input<'h, 'r>,
+        match_data: &'m mut MatchData,
+    ) -> TryFindMatches<'r, 'h, 'm> {
+        TryFindMatches { re: self, match_data, input, last_match_end: None }
     }
 }
 
@@ -160,6 +220,12 @@ pub struct MatchData {
     jit_stack: Option<NonNull<pcre2_jit_stack_8>>,
     ovector_ptr: NonNull<usize>,
     ovector_count: u32,
+    // We specifically record whether the ovector in this match data block
+    // corresponds to a match or not. PCRE2 does not appear to clear or write
+    // anything in ovector if there is no match, so there is no other way to
+    // know whether the ovector corresponds to a match without recording the
+    // return value of 'pcre2_match'.
+    matched: bool,
 }
 
 // SAFETY: Match data blocks can be freely sent from one thread to another,
@@ -186,11 +252,25 @@ impl Drop for MatchData {
     }
 }
 
+impl std::fmt::Debug for MatchData {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("MatchData")
+            .field("ovector", &self.ovector())
+            .field("matched", &self.matched)
+            .finish()
+    }
+}
+
 impl MatchData {
     /// Create a new match data block from a compiled PCRE2 code object.
     ///
+    /// When 'full' is true, then the match data block returned will have an
+    /// ovector that is big enough to hold all possible capturing groups.
+    /// Otherwise, the ovector will be big enough to just hold the overall
+    /// match span. Use the latter when you don't care about capturing groups.
+    ///
     /// This panics if memory could not be allocated for the block.
-    fn new(re: &Regex) -> MatchData {
+    fn new(re: &Regex, full: bool) -> MatchData {
         // SAFETY: Passing null is OK and causes PCRE2 to use default memory
         // allocation primitives.
         let match_context = NonNull::new(unsafe {
@@ -201,10 +281,14 @@ impl MatchData {
         // SAFETY: 'code' is valid by construction and passing null is OK as
         // a general context, like above.
         let match_data = NonNull::new(unsafe {
-            pcre2_match_data_create_from_pattern_8(
-                re.code.as_ptr(),
-                ptr::null_mut(),
-            )
+            if full {
+                pcre2_match_data_create_from_pattern_8(
+                    re.code.as_ptr(),
+                    ptr::null_mut(),
+                )
+            } else {
+                pcre2_match_data_create_8(1, ptr::null_mut())
+            }
         })
         .expect("failed to allocate match data block");
 
@@ -252,6 +336,7 @@ impl MatchData {
             jit_stack,
             ovector_ptr,
             ovector_count,
+            matched: false,
         }
     }
 
@@ -262,11 +347,12 @@ impl MatchData {
     /// This returns false if no match occurred.
     ///
     /// Match offsets can be extracted via `ovector`.
-    fn find(
+    fn try_find(
         &mut self,
         re: &Regex,
         input: &Input<'_, '_>,
     ) -> Result<bool, Error> {
+        self.matched = false;
         // The regex-automata handle this case correctly, but I'm not sure if
         // PCRE2 does. The regex-automata iterators rely on the regex engine
         // handling this, so we do it here before jumping into PCRE2.
@@ -307,9 +393,15 @@ impl MatchData {
         };
         if rc == PCRE2_ERROR_NOMATCH {
             Ok(false)
-        } else if rc > 0 {
-            // We don't care that 'rc' is the highest numbered capturing
-            // group that matched, so we throw it away and just return true.
+        } else if rc >= 0 {
+            self.matched = true;
+            // We don't care that 'rc' is the highest numbered capturing group
+            // that matched, so we throw it away and just return true. We also
+            // don't care if the ovector is too small. This particular API
+            // only permits creating ovectors that are big enough to hold all
+            // captures (so rc != 0 in that case) or ovectors that are only
+            // big enough to store the overall match (so rc==0 is expected and
+            // likely common in that case).
             Ok(true)
         } else {
             // We always create match data with
@@ -320,12 +412,55 @@ impl MatchData {
         }
     }
 
+    /// Return the match for this match data block. The match span always
+    /// corresponds to the group span at index 0.
+    ///
+    /// Since this regex engine only supports matching one pattern, the pattern
+    /// ID returned in the match is always `PatternID::ZERO`.
+    pub fn get_match(&self) -> Option<Match> {
+        self.get_group(0).map(|span| Match::new(PatternID::ZERO, span))
+    }
+
+    /// Return the span for the group at the given index, if it participated in
+    /// a match. If the index is invalid, then return None. If this match data
+    /// block does not represent a match, then None is always returned.
+    ///
+    /// The span for the group at index 0 always corresponds to the span
+    /// reported in the 'Match' returned by 'get_match'.
+    pub fn get_group(&self, index: usize) -> Option<Span> {
+        // For an invalid index, we just return None. This matches the behavior
+        // of regex_automata::nfa::thompson::Captures.
+        if index >= self.group_len() {
+            return None;
+        }
+        // Similarly, if this isn't a match, return None.
+        if !self.matched {
+            return None;
+        }
+        // If either of our offsets for this group are PCRE2_UNSET, then this
+        // group didn't participate in the match.
+        let (start, end) =
+            (self.ovector()[index * 2], self.ovector()[index * 2 + 1]);
+        if start == PCRE2_UNSET || end == PCRE2_UNSET {
+            return None;
+        }
+        Some(Span { start, end })
+    }
+
+    /// Return the total number of capturing groups in this allocation. This
+    /// always includes all groups (including the implicit group for the
+    /// overall match), including groups that may not have participated in a
+    /// match.
+    pub fn group_len(&self) -> usize {
+        self.ovector().len() / 2
+    }
+
     /// Return the ovector corresponding to this match data.
     ///
     /// The ovector represents match offsets as pairs. This always returns
     /// N + 1 pairs (so 2*N + 1 offsets), where N is the number of capturing
     /// groups in the original regex.
-    pub fn ovector(&self) -> &[usize] {
+    fn ovector(&self) -> &[usize] {
         // SAFETY: Both our ovector pointer and count are derived directly from
         // the creation of a valid match data block. One interesting question
         // here is whether the contents of the ovector are always initialized.
@@ -337,6 +472,73 @@ impl MatchData {
                 self.ovector_count as usize * 2,
             )
         }
+    }
+}
+
+/// An iterator over all successive non-overlapping matches in a particular
+/// haystack. `'r` represents the lifetime of the regex while `'h` represents
+/// the lifetime of the haystack and `'m` represents the lifetime of the match
+/// data block that PCRE2 uses to write matches to.
+#[derive(Debug)]
+pub struct TryFindMatches<'r, 'h, 'm> {
+    re: &'r Regex,
+    match_data: &'m mut MatchData,
+    input: Input<'h, 'r>,
+    last_match_end: Option<usize>,
+}
+
+impl<'r, 'h, 'm> Iterator for TryFindMatches<'r, 'h, 'm> {
+    type Item = anyhow::Result<Match>;
+
+    #[inline]
+    fn next(&mut self) -> Option<anyhow::Result<Match>> {
+        if let Err(err) = self.re.try_find(&self.input, self.match_data) {
+            return Some(Err(err));
+        }
+        let mut m = self.match_data.get_match()?;
+        if m.is_empty() {
+            m = match self.handle_overlapping_empty_match(m) {
+                Err(err) => return Some(Err(err)),
+                Ok(None) => return None,
+                Ok(Some(m)) => m,
+            };
+        }
+        self.input.set_start(m.end());
+        self.last_match_end = Some(m.end());
+        Some(Ok(m))
+    }
+}
+
+impl<'r, 'h, 'm> TryFindMatches<'r, 'h, 'm> {
+    /// Handles the special case of an empty match by ensuring that 1) the
+    /// iterator always advances and 2) empty matches never overlap with other
+    /// matches.
+    ///
+    /// Note that we mark this cold and forcefully prevent inlining because
+    /// handling empty matches like this is extremely rare and does require
+    /// quite a bit of code, comparatively. Keeping this code out of the main
+    /// iterator function keeps it smaller and more amenable to inlining
+    /// itself.
+    ///
+    /// (This is copied from src/util/iter.rs since PCRE2. We would use the
+    /// iterator helper directly, but PCRE2 has a different error type and I'd
+    /// prefer not to add more generics to the iterator helper.)
+    #[cold]
+    #[inline(never)]
+    fn handle_overlapping_empty_match(
+        &mut self,
+        mut m: Match,
+    ) -> anyhow::Result<Option<Match>> {
+        assert!(m.is_empty());
+        if Some(m.end()) == self.last_match_end {
+            self.input.set_start(self.input.start().checked_add(1).unwrap());
+            self.re.try_find(&self.input, self.match_data)?;
+            m = match self.match_data.get_match() {
+                None => return Ok(None),
+                Some(m) => m,
+            };
+        }
+        Ok(Some(m))
     }
 }
 
@@ -382,6 +584,8 @@ impl std::fmt::Display for Error {
 /// and it isn't avaialble.
 fn is_jit_available() -> bool {
     let mut rc: u32 = 0;
+    // SAFETY: 'rc' is initialized and even if PCRE2_CONFIG_JIT were invalid,
+    // we'd just get an error.
     let error_code = unsafe {
         pcre2_config_8(PCRE2_CONFIG_JIT, &mut rc as *mut _ as *mut c_void)
     };
@@ -390,6 +594,56 @@ fn is_jit_available() -> bool {
         panic!("BUG: {}", Error { error_code });
     }
     rc == 1
+}
+
+/// Returns the major and minor version numbers of PCRE2. If there was a
+/// problem parsing the version string, then an error is returned.
+fn version_major_minor() -> anyhow::Result<(u32, u32)> {
+    static RE: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(r"^(?P<major>[0-9]+)\.(?P<minor>[0-9]+) [-0-9]+$")
+            .unwrap()
+    });
+    let v = version();
+    let caps = match RE.captures(&v) {
+        Some(caps) => caps,
+        None => anyhow::bail!("failed to match PCRE2 version string"),
+    };
+    let major = caps["major"].parse().context("invalid major version")?;
+    let minor = caps["minor"].parse().context("invalid minor version")?;
+    Ok((major, minor))
+}
+
+/// Returns a string corresponding to the current version of PCRE2.
+fn version() -> String {
+    use bstr::ByteSlice;
+
+    // Since version is a string, we have to first call pcre2_config with a
+    // null 'where' argument, which will tell it to return the size of the
+    // string buffer we need to give it on a second call. Isn't C lovely?
+
+    // SAFETY: We're providing a valid config knob. And for CONFIG_VERSION
+    // specifically, PCRE2 documents that a null 'where' argument is OK, which
+    // provokes it to return the size of the string buffer we need to provide
+    // on a second call.
+    let rc = unsafe { pcre2_config_8(PCRE2_CONFIG_VERSION, ptr::null_mut()) };
+    if rc < 0 {
+        // Us providing PCRE2 with a bad option is a bug.
+        panic!("BUG: {}", Error { error_code: rc });
+    }
+    let mut buf = vec![0; rc as usize];
+    let rc = unsafe {
+        pcre2_config_8(PCRE2_CONFIG_VERSION, buf.as_mut_ptr() as *mut c_void)
+    };
+    if rc < 0 {
+        // Us providing PCRE2 with a bad option is a bug.
+        panic!("BUG: {}", Error { error_code: rc });
+    }
+    // PCRE2 docs don't say whether we get a NUL terminated string or not,
+    // but empirically, we do.
+    if buf.last() != Some(&b'\0') {
+        panic!("expected NUL terminated string but got {}", buf.as_bstr());
+    }
+    String::from_utf8(buf[..buf.len() - 1].to_vec()).unwrap()
 }
 
 // Below are our FFI declarations. We just hand-write what we need instead of
@@ -410,6 +664,7 @@ type PCRE2_SPTR8 = *const PCRE2_UCHAR8;
 
 const PCRE2_CASELESS: u32 = 8;
 const PCRE2_CONFIG_JIT: u32 = 1;
+const PCRE2_CONFIG_VERSION: u32 = 11;
 const PCRE2_ERROR_BADDATA: i32 = -29;
 const PCRE2_ERROR_NOMEMORY: i32 = -48;
 const PCRE2_ERROR_NOMATCH: i32 = -1;
@@ -464,6 +719,10 @@ extern "C" {
         ctx: *mut pcre2_general_context_8,
     ) -> *mut pcre2_match_context_8;
     fn pcre2_match_context_free_8(ctx: *mut pcre2_match_context_8);
+    fn pcre2_match_data_create_8(
+        ovecsize: u32,
+        ctx: *mut pcre2_general_context_8,
+    ) -> *mut pcre2_match_data_8;
     fn pcre2_match_data_create_from_pattern_8(
         code: *const pcre2_code_8,
         ctx: *mut pcre2_general_context_8,
@@ -487,12 +746,46 @@ mod tests {
         let re = Regex::new(r"\W+(?:([a-z]+)|([0-9]+))", Options::default())
             .unwrap();
         let mut match_data = re.create_match_data();
-        dbg!(match_data.ovector());
-        assert!(re.find(&Input::new("ABC!@#123"), &mut match_data).unwrap());
-        dbg!(match_data.ovector());
-        dbg!(PCRE2_UNSET);
-        // assert_eq!(Some(Span::from(3..9)), caps.get_group(0));
-        // assert_eq!(None, caps.get_group(1));
-        // assert_eq!(Some(Span::from(6..9)), caps.get_group(2));
+        assert!(re
+            .try_find(&Input::new("ABC!@#123"), &mut match_data)
+            .unwrap());
+        assert_eq!(Some(Span::from(3..9)), match_data.get_group(0));
+        assert_eq!(None, match_data.get_group(1));
+        assert_eq!(Some(Span::from(6..9)), match_data.get_group(2));
+    }
+
+    // Another sanity check that we can create an 'ovector' that only has room
+    // for the overall match and not any of the capturing groups.
+    #[test]
+    fn matches_only() {
+        let re = Regex::new(r"\W+(?:([a-z]+)|([0-9]+))", Options::default())
+            .unwrap();
+        let mut match_data = re.create_match_data_for_matches_only();
+        assert!(re
+            .try_find(&Input::new("ABC!@#123"), &mut match_data)
+            .unwrap());
+        assert_eq!(Some(Span::from(3..9)), match_data.get_group(0));
+        assert_eq!(None, match_data.get_group(1));
+        assert_eq!(None, match_data.get_group(2));
+    }
+
+    // Test that a match data block correctly reports a non-match when the most
+    // recent search executed with it did not turn up a match (even when it was
+    // previously used with a search that did turn up a match).
+    #[test]
+    fn match_data_non_match() {
+        let re = Regex::new(r"\W+(?:([a-z]+)|([0-9]+))", Options::default())
+            .unwrap();
+        let mut match_data = re.create_match_data();
+        // Starts out as a non-match.
+        assert_eq!(None, match_data.get_match());
+        assert!(re
+            .try_find(&Input::new("ABC!@#123"), &mut match_data)
+            .unwrap());
+        // Now we've found a match.
+        assert_eq!(Some(Span::from(3..9)), match_data.get_group(0));
+        assert!(!re.try_find(&Input::new("abc"), &mut match_data).unwrap());
+        // The last search was unsuccessful, so there should be no match.
+        assert_eq!(None, match_data.get_match());
     }
 }

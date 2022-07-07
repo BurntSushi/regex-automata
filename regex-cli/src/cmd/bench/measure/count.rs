@@ -13,6 +13,10 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "memchr/memmem" => memchr_memmem(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/jit" => pcre2_api_jit(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/nojit" => pcre2_api_nojit(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -93,4 +97,46 @@ fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
     let haystack = &*b.haystack;
     let re = new::re2_api(b)?;
     b.run(verify, || Ok(re.find_iter(Input::new(haystack)).count()))
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_jit(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::Input;
+
+    let haystack = &*b.haystack;
+    let re = new::pcre2_api_jit(b)?;
+    let mut md = re.create_match_data_for_matches_only();
+    b.run(verify, || {
+        // We do the same thing for our bounded backtracker. Namely, we check
+        // that no error has occurred on every search. In general, I expect
+        // this to match real world conditions since it is difficult to predict
+        // when a pure backtracking regex engine will return an error.
+        let mut count = 0;
+        for result in re.try_find_iter(Input::new(haystack), &mut md) {
+            result?;
+            count += 1;
+        }
+        Ok(count)
+    })
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_nojit(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::Input;
+
+    let haystack = &*b.haystack;
+    let re = new::pcre2_api_nojit(b)?;
+    let mut md = re.create_match_data_for_matches_only();
+    b.run(verify, || {
+        // We do the same thing for our bounded backtracker. Namely, we check
+        // that no error has occurred on every search. In general, I expect
+        // this to match real world conditions since it is difficult to predict
+        // when a pure backtracking regex engine will return an error.
+        let mut count = 0;
+        for result in re.try_find_iter(Input::new(haystack), &mut md) {
+            result?;
+            count += 1;
+        }
+        Ok(count)
+    })
 }

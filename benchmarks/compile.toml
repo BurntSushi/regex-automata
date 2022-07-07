@@ -13,6 +13,8 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'
 
@@ -31,6 +33,8 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = '''
 TODO
@@ -55,6 +59,8 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'
 
@@ -73,6 +79,8 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = '''
 We use [a-zA-Z] here instead of \w because some regex engines, like RE2, don't
@@ -97,6 +105,8 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = '''
 We use \pL here instead of \w because some regex engines, like RE2, don't
@@ -124,6 +134,8 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'
 

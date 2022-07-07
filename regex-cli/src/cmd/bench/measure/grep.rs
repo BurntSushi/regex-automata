@@ -14,6 +14,10 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/jit" => pcre2_api_jit(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/nojit" => pcre2_api_nojit(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -126,6 +130,42 @@ fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
         let mut count = 0;
         for line in haystack.lines() {
             if re.is_match(&Input::new(line)) {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_jit(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::Input;
+
+    let haystack = &*b.haystack;
+    let re = new::pcre2_api_jit(b)?;
+    let mut md = re.create_match_data_for_matches_only();
+    b.run(verify, || {
+        let mut count = 0;
+        for line in haystack.lines() {
+            if re.try_find(&Input::new(line), &mut md)? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_nojit(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::Input;
+
+    let haystack = &*b.haystack;
+    let re = new::pcre2_api_nojit(b)?;
+    let mut md = re.create_match_data_for_matches_only();
+    b.run(verify, || {
+        let mut count = 0;
+        for line in haystack.lines() {
+            if re.try_find(&Input::new(line), &mut md)? {
                 count += 1;
             }
         }

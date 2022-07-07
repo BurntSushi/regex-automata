@@ -220,8 +220,8 @@ impl Captures {
     /// Return the match for this 'Captures' value. The match span always
     /// corresponds to the group span at index 0.
     ///
-    /// Since this regex only supports matching one pattern, the pattern ID
-    /// returned in the match is always `PatternID::ZERO`.
+    /// Since this regex engine only supports matching one pattern, the pattern
+    /// ID returned in the match is always `PatternID::ZERO`.
     pub fn get_match(&self) -> Option<Match> {
         self.get_group(0).map(|span| Match::new(PatternID::ZERO, span))
     }

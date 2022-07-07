@@ -173,6 +173,33 @@ work will be done without actually doing it.
 ";
         app = app.arg(app::switch("list").help(SHORT).long_help(LONG));
     }
+    {
+        const SHORT: &str =
+            "Verify that all selected benchmarks run successfully.";
+        const LONG: &str = "\
+Verify that all selected benchmarks run successfully.
+
+This checks that all selected benchmarks can run through at least one iteration
+without reporting an error or an incorrect answer. This can be useful for
+quickly debugging a new benchmark or regex engine where the answers aren't
+lining up.
+
+This collects all errors reported and prints them. If no errors occurred, then
+this prints nothing and exits successfully.
+";
+        app = app.arg(app::switch("verify").help(SHORT).long_help(LONG));
+    }
+    {
+        const SHORT: &str = "Print extra information where possible.";
+        const LONG: &str = "\
+Print extra information where possible.
+
+Where possible, this prints extra information. e.g., When using --verify, this
+will print each benchmark that is being tested as it happens, as a way to see
+progress.
+";
+        app = app.arg(app::switch("verbose").help(SHORT).long_help(LONG));
+    }
     app
 }
 
@@ -208,6 +235,33 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         for b in benchmarks.iter() {
             wtr.write_record(&[b.def.full_name(), b.engine.clone()])?;
         }
+        wtr.flush()?;
+        return Ok(());
+    }
+    // Or if we just want to check that every benchmark runs correct, do that.
+    // We spit out an error we find.
+    if runner.verify {
+        let mut errored = false;
+        let mut wtr = csv::Writer::from_writer(std::io::stdout());
+        for b in benchmarks.iter() {
+            let agg = b.aggregate(b.verifier().collect());
+            if let Some(err) = agg.err {
+                errored = true;
+                wtr.write_record(&[
+                    b.def.full_name(),
+                    b.engine.clone(),
+                    err.to_string(),
+                ])?;
+            } else if runner.verbose {
+                wtr.write_record(&[
+                    b.def.full_name(),
+                    b.engine.clone(),
+                    "OK".to_string(),
+                ])?;
+            }
+            wtr.flush()?;
+        }
+        anyhow::ensure!(!errored, "some benchmarks failed");
         return Ok(());
     }
     // Run our benchmarks and emit the results of each as a single CSV record.
@@ -216,13 +270,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         // Run the benchmark, collect the samples and turn the samples into a
         // collection of various aggregate statistics (mean+/-stddev, median,
         // min, max).
-        let agg = b.aggregate(match b.def.benchmark_type {
-            BenchmarkType::Compile => compile::run(b),
-            BenchmarkType::Count => count::run(b),
-            BenchmarkType::CountCaptures => count_captures::run(b),
-            BenchmarkType::Grep => grep::run(b),
-            BenchmarkType::RegexRedux => regexredux::run(b),
-        });
+        let agg = b.aggregate(b.collect());
         // Our aggregate is initially captured in terms of how long it takes to
         // execute each iteration of the benchmark. But for searching, this is
         // not particularly intuitive. Instead, we convert strict timings into
@@ -262,6 +310,11 @@ struct MeasureArgs {
     /// then quit. This also tests that all of the benchmark data can be
     /// deserialized.
     list: bool,
+    /// Whether to just verify all of the benchmarks without collecting any
+    /// measurements.
+    verify: bool,
+    /// When enabled, print extra stuff where appropriate.
+    verbose: bool,
 }
 
 impl MeasureArgs {
@@ -274,6 +327,8 @@ impl MeasureArgs {
             engine_filter: Filter::new([].into_iter()).unwrap(),
             bench_config: BenchmarkConfig::default(),
             list: args.is_present("list"),
+            verify: args.is_present("verify"),
+            verbose: args.is_present("verbose"),
         };
         if let Some(x) = args.value_of_os("dir") {
             margs.dir = PathBuf::from(x);
@@ -941,6 +996,62 @@ struct Benchmark {
 }
 
 impl Benchmark {
+    /// Run and collect the results of this benchmark.
+    ///
+    /// This interrogates the benchmark type and runs the corresponding
+    /// benchmark function to produce results.
+    fn collect(&self) -> anyhow::Result<Results> {
+        match self.def.benchmark_type {
+            BenchmarkType::Compile => compile::run(self),
+            BenchmarkType::Count => count::run(self),
+            BenchmarkType::CountCaptures => count_captures::run(self),
+            BenchmarkType::Grep => grep::run(self),
+            BenchmarkType::RegexRedux => regexredux::run(self),
+        }
+    }
+
+    /// Turn the given results collected from running this benchmark into
+    /// a single set of aggregate statistics describing the samples in the
+    /// results.
+    fn aggregate(&self, result: anyhow::Result<Results>) -> AggregateDuration {
+        match result {
+            Ok(results) => results.to_aggregate(),
+            Err(err) => self.aggregate_error(err.to_string()),
+        }
+    }
+
+    /// Create a new "error" aggregate from this benchmark with the given
+    /// error message. This is useful in cases where the benchmark couldn't
+    /// run or there was some other discrepancy. Folding the error into the
+    /// aggregate value itself avoids recording the error "out of band" and
+    /// also avoids silently squashing it.
+    fn aggregate_error(&self, err: String) -> AggregateDuration {
+        AggregateDuration {
+            full_name: self.def.full_name(),
+            engine: self.engine.clone(),
+            err: Some(err),
+            ..AggregateDuration::default()
+        }
+    }
+
+    /// This creates a new `Benchmark` that is suitable purely for
+    /// verification. Namely, it modifies any config necessary to ensure that
+    /// the benchmark will run only one iteration and report the result.
+    fn verifier(&self) -> Benchmark {
+        let config = BenchmarkConfig {
+            max_iters: 1,
+            max_warmup_iters: 0,
+            approx_max_benchmark_time: Duration::ZERO,
+            approx_max_warmup_time: Duration::ZERO,
+        };
+        Benchmark {
+            config,
+            def: self.def.clone(),
+            haystack: Arc::clone(&self.haystack),
+            engine: self.engine.clone(),
+        }
+    }
+
     /// Run the benchmark given a function to verify that the results are
     /// correct and a function to produce a result.
     ///
@@ -974,30 +1085,6 @@ impl Benchmark {
         }
         results.total = bench_start.elapsed();
         Ok(results)
-    }
-
-    /// Turn the given results collected from running this benchmark into
-    /// a single set of aggregate statistics describing the samples in the
-    /// results.
-    fn aggregate(&self, result: anyhow::Result<Results>) -> AggregateDuration {
-        match result {
-            Ok(results) => results.to_aggregate(),
-            Err(err) => self.aggregate_error(err.to_string()),
-        }
-    }
-
-    /// Create a new "error" aggregate from this benchmark with the given
-    /// error message. This is useful in cases where the benchmark couldn't
-    /// run or there was some other discrepancy. Folding the error into the
-    /// aggregate value itself avoids recording the error "out of band" and
-    /// also avoids silently squashing it.
-    fn aggregate_error(&self, err: String) -> AggregateDuration {
-        AggregateDuration {
-            full_name: self.def.full_name(),
-            engine: self.engine.clone(),
-            err: Some(err),
-            ..AggregateDuration::default()
-        }
     }
 }
 

@@ -148,6 +148,34 @@ pub(super) fn re2_api(
     Ok(re)
 }
 
+/// The PCRE2 regex engine with JIT enabled.
+///
+/// See: https://github.com/PCRE2Project/pcre2
+#[cfg(feature = "extre-pcre2")]
+pub(super) fn pcre2_api_jit(
+    b: &Benchmark,
+) -> anyhow::Result<crate::ffi::pcre2::Regex> {
+    use crate::ffi::pcre2::Regex;
+
+    let re = Regex::new(&b.def.regex, pcre2_options(b))?;
+    Ok(re)
+}
+
+/// The PCRE2 regex engine with JIT disabled.
+///
+/// See: https://github.com/PCRE2Project/pcre2
+#[cfg(feature = "extre-pcre2")]
+pub(super) fn pcre2_api_nojit(
+    b: &Benchmark,
+) -> anyhow::Result<crate::ffi::pcre2::Regex> {
+    use crate::ffi::pcre2::Regex;
+
+    let mut opts = pcre2_options(b);
+    opts.jit = false;
+    let re = Regex::new(&b.def.regex, opts)?;
+    Ok(re)
+}
+
 /// For regex-automata based regex engines, this builds a syntax configuration
 /// from a benchmark definition.
 pub(super) fn automata_syntax_config(b: &Benchmark) -> automata::SyntaxConfig {
@@ -167,5 +195,16 @@ pub(super) fn re2_options(b: &Benchmark) -> crate::ffi::re2::Options {
     crate::ffi::re2::Options {
         utf8: b.def.unicode,
         case_sensitive: !b.def.case_insensitive,
+    }
+}
+
+/// For PCRE2 based regex engines, this creates an "options" value from the
+/// given benchmark. Note that this always enables PCRE2's JIT.
+#[cfg(feature = "extre-pcre2")]
+pub(super) fn pcre2_options(b: &Benchmark) -> crate::ffi::pcre2::Options {
+    crate::ffi::pcre2::Options {
+        jit: true,
+        ucp: b.def.unicode,
+        caseless: b.def.case_insensitive,
     }
 }

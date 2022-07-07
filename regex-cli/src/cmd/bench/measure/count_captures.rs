@@ -9,6 +9,10 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/jit" => pcre2_api_jit(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/nojit" => pcre2_api_nojit(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -113,6 +117,60 @@ fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
         } {
             for i in 0..caps.group_len() {
                 if caps.get_group(i).is_some() {
+                    count += 1;
+                }
+            }
+            // Benchmark definition says we may assume empty matches are
+            // impossible.
+            input.set_start(m.end());
+        }
+        Ok(count)
+    })
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_jit(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::Input;
+
+    let mut input = Input::new(&b.haystack);
+    let re = new::pcre2_api_jit(b)?;
+    let mut md = re.create_match_data();
+    b.run(verify, || {
+        input.set_start(0);
+        let mut count = 0;
+        while let Some(m) = {
+            re.try_find(&input, &mut md)?;
+            md.get_match()
+        } {
+            for i in 0..md.group_len() {
+                if md.get_group(i).is_some() {
+                    count += 1;
+                }
+            }
+            // Benchmark definition says we may assume empty matches are
+            // impossible.
+            input.set_start(m.end());
+        }
+        Ok(count)
+    })
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_nojit(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::Input;
+
+    let mut input = Input::new(&b.haystack);
+    let re = new::pcre2_api_nojit(b)?;
+    let mut md = re.create_match_data();
+    b.run(verify, || {
+        input.set_start(0);
+        let mut count = 0;
+        while let Some(m) = {
+            re.try_find(&input, &mut md)?;
+            md.get_match()
+        } {
+            for i in 0..md.group_len() {
+                if md.get_group(i).is_some() {
                     count += 1;
                 }
             }

@@ -10,6 +10,10 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/jit" => pcre2_api_jit(b),
+        #[cfg(feature = "extre-pcre2")]
+        "pcre2/api/nojit" => pcre2_api_nojit(b),
         name => anyhow::bail!("unknown regex engine '{}'", name),
     }
 }
@@ -114,6 +118,42 @@ fn re2_api(b: &Benchmark) -> anyhow::Result<Results> {
         let re = Regex::new(pattern, new::re2_options(b))?;
         let find = move |h: &[u8]| {
             Ok(re.find(&Input::new(h)).map(|m| (m.start(), m.end())))
+        };
+        Ok(Box::new(find))
+    };
+    b.run(verify, || generic_regex_redux(&b.haystack, compile))
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_jit(b: &Benchmark) -> anyhow::Result<Results> {
+    use crate::ffi::pcre2::Regex;
+    use automata::Input;
+
+    let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
+        let re = Regex::new(pattern, new::pcre2_options(b))?;
+        let mut md = re.create_match_data_for_matches_only();
+        let find = move |h: &[u8]| {
+            re.try_find(&Input::new(h), &mut md)?;
+            Ok(md.get_match().map(|m| (m.start(), m.end())))
+        };
+        Ok(Box::new(find))
+    };
+    b.run(verify, || generic_regex_redux(&b.haystack, compile))
+}
+
+#[cfg(feature = "extre-pcre2")]
+fn pcre2_api_nojit(b: &Benchmark) -> anyhow::Result<Results> {
+    use crate::ffi::pcre2::Regex;
+    use automata::Input;
+
+    let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
+        let mut opts = new::pcre2_options(b);
+        opts.jit = false;
+        let re = Regex::new(pattern, opts)?;
+        let mut md = re.create_match_data_for_matches_only();
+        let find = move |h: &[u8]| {
+            re.try_find(&Input::new(h), &mut md)?;
+            Ok(md.get_match().map(|m| (m.start(), m.end())))
         };
         Ok(Box::new(find))
     };
