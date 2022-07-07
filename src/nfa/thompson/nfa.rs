@@ -121,7 +121,7 @@ use crate::{
 /// search using the Pike VM.
 ///
 /// ```
-/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+/// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
 ///
 /// let vm = PikeVM::new(r"foo[0-9]+")?;
 /// let mut cache = vm.create_cache();
@@ -140,7 +140,7 @@ use crate::{
 /// components of each date via capturing groups.
 ///
 /// ```
-/// use regex_automata::nfa::thompson::{Captures, NFA, pikevm::PikeVM};
+/// use regex_automata::nfa::thompson::{pikevm::PikeVM, Captures};
 ///
 /// let vm = PikeVM::new(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})")?;
 /// let mut cache = vm.create_cache();
@@ -163,10 +163,7 @@ use crate::{
 /// to occur.
 ///
 /// ```
-/// use regex_automata::{
-///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
-///     Span,
-/// };
+/// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
 ///
 /// let vm = PikeVM::new(r"([a-z]){4}")?;
 /// let mut cache = vm.create_cache();
@@ -204,7 +201,7 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
     /// let vm = PikeVM::new(r"foo[0-9]+")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -228,7 +225,7 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
     /// let vm = PikeVM::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -293,7 +290,7 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
+    /// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
     ///
     /// let vm = PikeVM::new_from_nfa(NFA::never_match())?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -348,7 +345,7 @@ impl NFA {
     ///
     /// ```
     /// use regex_automata::{
-    ///     nfa::thompson::{NFA, pikevm::PikeVM},
+    ///     nfa::thompson::pikevm::PikeVM,
     ///     Match, SyntaxConfig
     /// };
     ///
@@ -408,7 +405,7 @@ impl NFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    /// use regex_automata::nfa::thompson::NFA;
     ///
     /// let nfa = NFA::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
     /// assert_eq!(3, nfa.pattern_len());
@@ -611,7 +608,7 @@ impl NFA {
     /// classes.
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::{NFA, State}, PatternID};
+    /// use regex_automata::nfa::thompson::NFA;
     ///
     /// let nfa_unicode = NFA::new(r"\w")?;
     /// let nfa_ascii = NFA::new(r"(?-u)\w")?;
@@ -992,7 +989,7 @@ impl NFA {
     /// panic even if captures aren't enabled on this NFA:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    /// use regex_automata::nfa::thompson::NFA;
     ///
     /// let nfa = NFA::compiler()
     ///     .configure(NFA::config().captures(false))
@@ -2366,7 +2363,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// the date via capturing groups:
 ///
 /// ```
-/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Span};
+/// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
 ///
 /// let vm = PikeVM::new(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")?;
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -2386,7 +2383,7 @@ impl<'a> Iterator for AllCaptureNames<'a> {
 /// capturing groups in order to make the code a bit clearer:
 ///
 /// ```
-/// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Span};
+/// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
 ///
 /// let vm = PikeVM::new(r"^(?P<y>[0-9]{4})-(?P<m>[0-9]{2})-(?P<d>[0-9]{2})$")?;
 /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
@@ -2446,7 +2443,7 @@ impl Captures {
     ///
     /// ```
     /// use regex_automata::{
-    ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
+    ///     nfa::thompson::{pikevm::PikeVM, Captures},
     ///     Span, Match,
     /// };
     ///
@@ -2486,7 +2483,7 @@ impl Captures {
     ///
     /// ```
     /// use regex_automata::{
-    ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
+    ///     nfa::thompson::{pikevm::PikeVM, Captures},
     ///     Match,
     /// };
     ///
@@ -2528,7 +2525,7 @@ impl Captures {
     ///
     /// ```
     /// use regex_automata::{
-    ///     nfa::thompson::{Captures, NFA, pikevm::PikeVM},
+    ///     nfa::thompson::{pikevm::PikeVM, Captures},
     ///     PatternID,
     /// };
     ///
@@ -2828,7 +2825,7 @@ impl Captures {
     /// participate in a match (just like `Captures::iter` does).
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
+    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
     /// let vm = PikeVM::new(
     ///     // Matches first/last names, with an optional middle name.

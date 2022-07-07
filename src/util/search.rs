@@ -273,10 +273,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// normal searching.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, PatternID, Input,
-    /// };
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, Input};
     ///
     /// let vm = PikeVM::new(r"foo[0-9]+")?;
     /// let mut cache = vm.create_cache();

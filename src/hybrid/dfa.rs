@@ -251,11 +251,7 @@ impl DFA {
     /// everywhere for lazy DFAs.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     hybrid::dfa::DFA,
-    ///     nfa::thompson,
-    ///     HalfMatch, SyntaxConfig,
-    /// };
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, SyntaxConfig};
     ///
     /// let re = DFA::builder()
     ///     .syntax(SyntaxConfig::new().utf8(false))
@@ -2855,10 +2851,7 @@ impl Config {
     /// non-ASCII byte.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     hybrid::dfa::DFA,
-    ///     HalfMatch, MatchError, MatchKind,
-    /// };
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().unicode_word_boundary(true))
@@ -2938,7 +2931,7 @@ impl Config {
     /// a user supplied pattern from matching across a line boundary.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    /// use regex_automata::{hybrid::dfa::DFA, MatchError};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().quit(b'\n', true))
@@ -3079,7 +3072,7 @@ impl Config {
     /// a smaller cache capacity.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
     ///
     /// let pattern = r"\p{L}{1000}";
     ///
@@ -3132,7 +3125,7 @@ impl Config {
     /// too small.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
     ///
     /// let pattern = r"\p{L}{1000}";
     ///
@@ -3484,11 +3477,7 @@ impl Config {
 ///   things like `[^a]` that match any byte except for `a` are permitted.
 ///
 /// ```
-/// use regex_automata::{
-///     hybrid::dfa::DFA,
-///     nfa::thompson,
-///     HalfMatch, SyntaxConfig,
-/// };
+/// use regex_automata::{hybrid::dfa::DFA, HalfMatch, SyntaxConfig};
 ///
 /// let dfa = DFA::builder()
 ///     .configure(DFA::config().cache_capacity(5_000))

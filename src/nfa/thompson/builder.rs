@@ -261,13 +261,13 @@ impl State {
 /// // The match state for our pattern.
 /// let mat = builder.add_match()?;
 /// // Now we fill in the transitions between states.
-/// builder.patch(start, range);
-/// builder.patch(range, alt);
+/// builder.patch(start, range)?;
+/// builder.patch(range, alt)?;
 /// // If we added 'end' before 'range', then we'd implement non-greedy
 /// // matching, i.e., '+?'.
-/// builder.patch(alt, range);
-/// builder.patch(alt, end);
-/// builder.patch(end, mat);
+/// builder.patch(alt, range)?;
+/// builder.patch(alt, end)?;
+/// builder.patch(end, mat)?;
 /// // We must explicitly finish pattern and provide the starting state ID for
 /// // this particular pattern.
 /// builder.finish_pattern(start)?;

@@ -515,10 +515,7 @@ impl Config {
     /// non-ASCII byte.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchError, MatchKind,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, MatchError};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().unicode_word_boundary(true))
@@ -597,10 +594,7 @@ impl Config {
     /// a user supplied pattern from matching across a line boundary.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchError,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, dense}, MatchError};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().quit(b'\n', true))
@@ -967,11 +961,7 @@ impl Config {
 ///   things like `[^a]` that match any byte except for `a` are permitted.
 ///
 /// ```
-/// use regex_automata::{
-///     dfa::{Automaton, dense},
-///     nfa::thompson::NFA,
-///     HalfMatch, SyntaxConfig,
-/// };
+/// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, SyntaxConfig};
 ///
 /// let dfa = dense::Builder::new()
 ///     .configure(dense::Config::new().minimize(false))
@@ -2038,7 +2028,7 @@ impl<'a> DFA<&'a [u32]> {
     /// part is serializing the DFA to a file:
     ///
     /// ```no_run
-    /// use regex_automata::dfa::{Automaton, dense::DFA};
+    /// use regex_automata::dfa::dense::DFA;
     ///
     /// let dfa = DFA::new("foo[0-9]+")?;
     ///

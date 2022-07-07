@@ -306,7 +306,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchError, PatternID, Input,
+    ///     HalfMatch, MatchError, Input,
     /// };
     ///
     /// fn find<A: Automaton>(
@@ -545,7 +545,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchError, PatternID, Input,
+    ///     HalfMatch, MatchError, Input,
     /// };
     ///
     /// fn find_byte(slice: &[u8], at: usize, byte: u8) -> Option<usize> {
@@ -838,7 +838,6 @@ pub unsafe trait Automaton {
     ///
     /// ```
     /// use regex_automata::{
-    ///     nfa::thompson,
     ///     dfa::{Automaton, dense},
     ///     util::id::StateID,
     ///     SyntaxConfig,

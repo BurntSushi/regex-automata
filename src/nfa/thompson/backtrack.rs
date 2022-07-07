@@ -109,7 +109,7 @@ impl Config {
     ///     .configure(BoundedBacktracker::config().anchored(false)) // default
     ///     .build(r"^a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(2..3), &mut caps);
+    /// re.try_search(&mut cache, &Input::new(haystack).span(2..3), &mut caps)?;
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
     /// let expected = None;
@@ -119,7 +119,7 @@ impl Config {
     ///     .configure(BoundedBacktracker::config().anchored(true))
     ///     .build(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(2..3), &mut caps);
+    /// re.try_search(&mut cache, &Input::new(haystack).span(2..3), &mut caps)?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
     /// let expected = Some(Match::must(0, 2..3));
@@ -129,7 +129,7 @@ impl Config {
     ///     .configure(BoundedBacktracker::config().anchored(true))
     ///     .build(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(1..3), &mut caps);
+    /// re.try_search(&mut cache, &Input::new(haystack).span(1..3), &mut caps)?;
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
     /// // is found.
@@ -140,7 +140,7 @@ impl Config {
     ///     .configure(BoundedBacktracker::config().anchored(false))
     ///     .build(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(1..3), &mut caps);
+    /// re.try_search(&mut cache, &Input::new(haystack).span(1..3), &mut caps)?;
     /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
     /// // prefix allows the search to match 'a'.
@@ -269,10 +269,7 @@ impl Config {
     /// covered by semver.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     Match, MatchError,
-    /// };
+    /// use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
     ///
     /// // Unicode inflates the size of the underlying NFA quite a bit, and
     /// // thus means that the backtracker can only handle smaller haystacks,

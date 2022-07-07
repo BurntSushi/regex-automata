@@ -285,7 +285,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
     ///
     /// ```
     /// use regex_automata::{
-    ///     nfa::thompson::{pikevm::PikeVM, Captures},
+    ///     nfa::thompson::pikevm::PikeVM,
     ///     util::iter::Searcher,
     ///     Match, Input,
     /// };
@@ -524,15 +524,15 @@ impl<'h, 'p> Searcher<'h, 'p> {
     ///
     /// ```
     /// use regex_automata::{
-    ///     nfa::thompson::{pikevm::PikeVM, Captures},
+    ///     nfa::thompson::pikevm::PikeVM,
     ///     util::iter::Searcher,
-    ///     Input, Span,
+    ///     Input,
     /// };
     ///
     /// let re = PikeVM::new(
     ///     r"(?P<y>[0-9]{4})-(?P<m>[0-9]{2})-(?P<d>[0-9]{2})",
     /// )?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let (mut cache, caps) = (re.create_cache(), re.create_captures());
     ///
     /// let haystack = "2010-03-14 2016-10-08 2020-10-22";
     /// let input = Input::new(haystack);

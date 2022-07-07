@@ -675,7 +675,7 @@ impl Regex {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{Match, hybrid::regex::Regex};
+    /// use regex_automata::hybrid::regex::Regex;
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
     /// assert_eq!(3, re.pattern_len());

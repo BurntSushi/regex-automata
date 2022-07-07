@@ -335,11 +335,7 @@ impl Regex {
     /// everywhere.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::regex::Regex,
-    ///     nfa::thompson,
-    ///     Match, SyntaxConfig,
-    /// };
+    /// use regex_automata::{dfa::regex::Regex, Match, SyntaxConfig};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
@@ -735,7 +731,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{Match, dfa::regex::Regex};
+    /// use regex_automata::dfa::regex::Regex;
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
     /// assert_eq!(3, re.pattern_len());

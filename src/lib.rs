@@ -13,6 +13,7 @@ create issues for this release unless it's for a critical bug.
 
 #![allow(warnings)]
 // #![deny(missing_docs)]
+#![doc(test(attr(deny(warnings))))]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(any(

@@ -51,7 +51,7 @@ use core::convert::TryFrom;
 /// ```
 /// use regex_automata::{
 ///     hybrid::dfa::{Cache, DFA},
-///     HalfMatch, MatchError, PatternID, Input,
+///     HalfMatch, MatchError, Input,
 /// };
 ///
 /// fn find_leftmost_first(

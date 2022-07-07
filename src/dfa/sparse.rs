@@ -384,7 +384,7 @@ impl DFA<Vec<u8>> {
             trans: Transitions {
                 sparse,
                 classes: dfa.byte_classes().clone(),
-                len: dfa.state_len(),
+                state_len: dfa.state_len(),
                 pattern_len: dfa.pattern_len(),
             },
             starts: StartTable::from_dense_dfa(dfa, &remap)?,
@@ -924,7 +924,7 @@ impl<'a> DFA<&'a [u8]> {
     /// a file:
     ///
     /// ```no_run
-    /// use regex_automata::dfa::{Automaton, sparse::DFA};
+    /// use regex_automata::dfa::sparse::DFA;
     ///
     /// let dfa = DFA::new("foo[0-9]+")?;
     ///
@@ -1103,7 +1103,7 @@ impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
             }
             writeln!(f, "  {:?} => {:06?}", sty, start_id.as_usize())?;
         }
-        writeln!(f, "state length: {:?}", self.trans.len)?;
+        writeln!(f, "state length: {:?}", self.trans.state_len)?;
         writeln!(f, ")")?;
         Ok(())
     }
@@ -1263,7 +1263,7 @@ struct Transitions<T> {
     /// least one state---the dead state---even the empty DFA. In particular,
     /// the dead state always has ID 0 and is correspondingly always the first
     /// state. The dead state is never a match state.
-    len: usize,
+    state_len: usize,
     /// The total number of unique patterns represented by these match states.
     pattern_len: usize,
 }
@@ -1293,12 +1293,7 @@ impl<'a> Transitions<&'a [u8]> {
         let sparse = &slice[..len];
         slice = &slice[len..];
 
-        let trans = Transitions {
-            sparse,
-            classes,
-            len: state_len,
-            pattern_len: pattern_len,
-        };
+        let trans = Transitions { sparse, classes, state_len, pattern_len };
         Ok((trans, slice.as_ptr() as usize - slice_start))
     }
 }
@@ -1320,7 +1315,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         dst = &mut dst[..nwrite];
 
         // write state length
-        E::write_u32(u32::try_from(self.len).unwrap(), dst);
+        E::write_u32(u32::try_from(self.state_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
 
         // write pattern length
@@ -1430,7 +1425,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
                 verified.insert(id);
             }
         }
-        if len != self.len {
+        if len != self.state_len {
             return Err(DeserializeError::generic(
                 "mismatching sparse state length",
             ));
@@ -1443,7 +1438,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         Transitions {
             sparse: self.sparse(),
             classes: self.classes.clone(),
-            len: self.len,
+            state_len: self.state_len,
             pattern_len: self.pattern_len,
         }
     }
@@ -1454,7 +1449,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         Transitions {
             sparse: self.sparse().to_vec(),
             classes: self.classes.clone(),
-            len: self.len,
+            state_len: self.state_len,
             pattern_len: self.pattern_len,
         }
     }
