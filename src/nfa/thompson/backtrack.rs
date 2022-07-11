@@ -14,7 +14,11 @@ use alloc::sync::Arc;
 
 use crate::{
     nfa::thompson::{self, Captures, State, NFA},
-    util::{id::StateID, iter, nonmax::NonMaxUsize, prefilter::Prefilter},
+    util::{
+        iter,
+        prefilter::Prefilter,
+        primitives::{NonMaxUsize, StateID},
+    },
     Input, Match, MatchError, MatchKind,
 };
 

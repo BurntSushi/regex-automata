@@ -21,8 +21,8 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses, ByteSet},
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
-        id::{PatternID, StateID as NFAStateID},
         prefilter,
+        primitives::{PatternID, StateID as NFAStateID},
         search::{HalfMatch, Input, MatchError, MatchKind, PatternSet},
         sparse_set::SparseSets,
         start::Start,

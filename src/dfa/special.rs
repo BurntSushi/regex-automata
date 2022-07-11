@@ -2,7 +2,7 @@ use crate::{
     dfa::DEAD,
     util::{
         bytes::{self, DeserializeError, Endian, SerializeError},
-        id::StateID,
+        primitives::StateID,
     },
 };
 

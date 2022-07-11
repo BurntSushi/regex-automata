@@ -185,7 +185,7 @@ assert_eq!(matches, vec![
 
 Note that unlike dense DFAs, sparse DFAs have no alignment requirements.
 Conversely, dense DFAs must be be aligned to the same alignment as a
-[`StateID`](crate::util::id::StateID).
+[`StateID`](crate::util::primitives::StateID).
 
 # Support for `no_std` and `alloc`-only
 
@@ -321,7 +321,8 @@ pub use crate::dfa::error::Error;
 /// of its transitions set to itself. Moreover, the dead state is used as a
 /// sentinel for various things. e.g., In search, reaching a dead state means
 /// that the search must stop.
-const DEAD: crate::util::id::StateID = crate::util::id::StateID::ZERO;
+const DEAD: crate::util::primitives::StateID =
+    crate::util::primitives::StateID::ZERO;
 
 mod accel;
 mod automaton;

@@ -16,10 +16,9 @@ use alloc::{
 use crate::{
     nfa::thompson::{self, Captures, Error, State, NFA},
     util::{
-        id::{PatternID, StateID},
         iter,
-        nonmax::NonMaxUsize,
         prefilter::Prefilter,
+        primitives::{NonMaxUsize, PatternID, StateID},
         search::{Input, Match, MatchError, MatchKind, PatternSet},
         sparse_set::SparseSet,
     },
@@ -734,9 +733,10 @@ impl PikeVM {
     /// A `Captures` value created for a specific `PikeVM` cannot be used with
     /// any other `PikeVM`.
     ///
-    /// See the [`Captures`] documentation for an explanation of its
-    /// alternative constructors that permit the `PikeVM` to do less work
-    /// during a search, and thus might make it faster.
+    /// This is a convenience function for [`Captures::new`], called with the
+    /// NFA used by this Pike VM. See the [`Captures`] documentation for an
+    /// explanation of its alternative constructors that permit the `PikeVM` to
+    /// do less work during a search, and thus might make it faster.
     pub fn create_captures(&self) -> Captures {
         Captures::new(self.get_nfa().clone())
     }

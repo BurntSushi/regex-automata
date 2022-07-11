@@ -10,8 +10,9 @@ use crate::{
     },
     util::{
         alphabet::{self, ByteClassSet},
-        id::{IteratorIDExt, PatternID, PatternIDIter, StateID},
-        nonmax::NonMaxUsize,
+        primitives::{
+            IteratorIndexExt, NonMaxUsize, PatternID, PatternIDIter, StateID,
+        },
         search::{Match, Span},
         utf8,
     },
@@ -1492,8 +1493,8 @@ impl Inner {
     /// The given slice should contain the capturing groups for each pattern,
     /// The capturing groups in turn should correspond to the total number of
     /// capturing groups in the pattern, including the anonymous first capture
-    /// group for each pattern. Any capturing group does have a name, then it
-    /// should be provided.
+    /// group for each pattern. If a capturing group does have a name, then it
+    /// should be provided as a Arc<str>.
     pub(super) fn set_captures(&mut self, captures: &[Vec<Option<Arc<str>>>]) {
         // IDEA: I wonder if it makes sense to split this routine up by
         // defining smaller mutator methods. We are manipulating a lot of state
@@ -1740,7 +1741,7 @@ impl State {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::{State, Transition},
-    ///     util::id::StateID,
+    ///     util::primitives::StateID,
     /// };
     ///
     /// // Capture states are epsilon transitions.
@@ -2419,13 +2420,6 @@ pub struct Captures {
 
 impl Captures {
     /// Create new storage for the offsets of all matching capturing groups.
-    ///
-    /// Note that
-    /// [`PikeVM::create_captures`](crate::nfa::thompson::pikevm::PikeVM::create_captures),
-    /// is a convenience routine that calls this specific constructor. The
-    /// `PikeVM::create_captures` routine can be useful to avoid needing to
-    /// import the `Captures` type explicitly. The PikeVM will also handle
-    /// providing the correct NFA to this constructor.
     ///
     /// This routine provides the most information for matches---namely, the
     /// match spans of capturing groups---but also requires the NFA search
@@ -3112,6 +3106,18 @@ impl<'a> Iterator for CapturesPatternIter<'a> {
 mod tests {
     use super::*;
     use crate::{nfa::thompson::pikevm::PikeVM, Input};
+
+    // This asserts that an NFA state doesn't have its size changed. It is
+    // *really* easy to accidentally increase the size, and thus potentially
+    // dramatically increase the memory usage of every NFA.
+    //
+    // This assert doesn't mean we absolutely cannot increase the size of an
+    // NFA state. We can. It's just here to make sure we do it knowingly and
+    // intentionally.
+    #[test]
+    fn state_has_small_size() {
+        assert_eq!(24, core::mem::size_of::<State>());
+    }
 
     #[test]
     fn always_match() {

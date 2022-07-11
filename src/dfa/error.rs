@@ -3,7 +3,7 @@ use core::convert::TryFrom;
 use crate::{
     nfa,
     util::{
-        id::{PatternID, StateID},
+        primitives::{PatternID, StateID},
         start::Start,
     },
 };

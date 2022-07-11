@@ -16,7 +16,7 @@ use crate::{
         nfa::{Look, PatternIter, SparseTransitions, State, Transition, NFA},
         range_trie::RangeTrie,
     },
-    util::id::{IteratorIDExt, PatternID, StateID},
+    util::primitives::{IteratorIndexExt, PatternID, StateID},
 };
 
 /// The configuration used for a Thompson NFA compiler.
@@ -1539,7 +1539,7 @@ mod tests {
 
     use crate::{
         nfa::thompson::{SparseTransitions, State, Transition, NFA},
-        util::id::{PatternID, StateID},
+        util::primitives::{PatternID, StateID},
     };
 
     fn build(pattern: &str) -> NFA {

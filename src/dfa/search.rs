@@ -4,8 +4,8 @@ use crate::{
         automaton::{Automaton, OverlappingState},
     },
     util::{
-        id::{PatternID, StateID},
         prefilter::Prefilter,
+        primitives::{PatternID, StateID},
         search::{HalfMatch, Input, Span},
     },
     MatchError,

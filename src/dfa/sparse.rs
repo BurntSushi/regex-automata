@@ -60,7 +60,7 @@ use crate::{
         alphabet::ByteClasses,
         bytes::{self, DeserializeError, Endian, SerializeError},
         escape::DebugByte,
-        id::{PatternID, StateID},
+        primitives::{PatternID, StateID},
         search::Input,
         start::Start,
     },
@@ -2153,14 +2153,14 @@ impl<'a> fmt::Debug for State<'a> {
             }
             let (start, end) = self.range(i);
             if start == end {
-                write!(f, "{:?} => {:?}", DebugByte(start), next)?;
+                write!(f, "{:?} => {:?}", DebugByte(start), next.as_usize())?;
             } else {
                 write!(
                     f,
                     "{:?}-{:?} => {:?}",
                     DebugByte(start),
                     DebugByte(end),
-                    next,
+                    next.as_usize(),
                 )?;
             }
             printed = true;
@@ -2170,7 +2170,7 @@ impl<'a> fmt::Debug for State<'a> {
             if printed {
                 write!(f, ", ")?;
             }
-            write!(f, "EOI => {:?}", eoi)?;
+            write!(f, "EOI => {:?}", eoi.as_usize())?;
         }
         Ok(())
     }

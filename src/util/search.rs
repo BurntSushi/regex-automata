@@ -1,7 +1,7 @@
 use core::ops::{Range, RangeBounds};
 
 use crate::util::{
-    escape::DebugByte, id::PatternID, prefilter::Prefilter, utf8,
+    escape::DebugByte, prefilter::Prefilter, primitives::PatternID, utf8,
 };
 
 /// The parameters for a regex search.

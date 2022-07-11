@@ -5,8 +5,8 @@ use crate::{
     },
     nfa::thompson,
     util::{
-        id::PatternID,
         prefilter::Prefilter,
+        primitives::PatternID,
         search::{HalfMatch, Input, MatchError, Span},
     },
 };

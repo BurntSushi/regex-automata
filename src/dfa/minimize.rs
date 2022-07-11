@@ -6,7 +6,7 @@ use crate::{
     dfa::{automaton::Automaton, dense, DEAD},
     util::{
         alphabet,
-        id::{PatternID, StateID},
+        primitives::{PatternID, StateID},
     },
 };
 

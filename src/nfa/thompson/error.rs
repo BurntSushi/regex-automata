@@ -1,4 +1,4 @@
-use crate::util::id::{PatternID, StateID};
+use crate::util::primitives::{PatternID, StateID};
 
 /// An error that can occured during the construction of a thompson NFA.
 ///
@@ -52,7 +52,7 @@ enum ErrorKind {
     /// the NFA. An "invalid" index can be one that is too big (e.g., results
     /// in an integer overflow) or one that is discontinuous from previous
     /// capture group indices added.
-    InvalidCaptureIndex {
+    InvalidCapture {
         /// The invalid index that was given.
         index: usize,
     },
@@ -109,8 +109,8 @@ impl Error {
         Error { kind: ErrorKind::ExceededSizeLimit { limit } }
     }
 
-    pub(crate) fn invalid_capture_index(index: usize) -> Error {
-        Error { kind: ErrorKind::InvalidCaptureIndex { index } }
+    pub(crate) fn invalid_capture(index: usize) -> Error {
+        Error { kind: ErrorKind::InvalidCapture { index } }
     }
 
     pub(crate) fn first_capture_must_be_unnamed() -> Error {
@@ -150,7 +150,7 @@ impl std::error::Error for Error {
             ErrorKind::TooManyPatterns { .. } => None,
             ErrorKind::TooManyStates { .. } => None,
             ErrorKind::ExceededSizeLimit { .. } => None,
-            ErrorKind::InvalidCaptureIndex { .. } => None,
+            ErrorKind::InvalidCapture { .. } => None,
             ErrorKind::FirstCaptureMustBeUnnamed => None,
             ErrorKind::UnicodeWordUnavailable => None,
             ErrorKind::MissingCaptures => None,
@@ -181,7 +181,7 @@ impl core::fmt::Display for Error {
                 "heap usage during NFA compilation exceeded limit of {}",
                 limit,
             ),
-            ErrorKind::InvalidCaptureIndex { index } => write!(
+            ErrorKind::InvalidCapture { index } => write!(
                 f,
                 "capture group index {} is invalid (too big or discontinuous)",
                 index,

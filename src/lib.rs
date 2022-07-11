@@ -27,7 +27,7 @@ compile_error!("regex-automata currently not supported on non-{16,32,64}");
 extern crate alloc;
 
 #[doc(inline)]
-pub use crate::util::id::PatternID;
+pub use crate::util::primitives::PatternID;
 #[cfg(feature = "alloc")]
 pub use crate::util::syntax::SyntaxConfig;
 pub use crate::util::{

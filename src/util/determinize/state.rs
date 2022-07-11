@@ -46,9 +46,11 @@ a copy). Here are the three types described succinctly:
 and no NFA states. Creating a `StateBuilderEmpty` performs no allocs. A
 `StateBuilderEmpty` can only be used to query its underlying memory capacity,
 or to convert into a builder for recording pattern IDs and/or assertions.
+
 * `StateBuilderMatches` represents a state with zero or more pattern IDs, zero
 or more satisfied assertions and zero NFA state IDs. A `StateBuilderMatches`
 can only be used for adding pattern IDs and recording assertions.
+
 * `StateBuilderNFA` represents a state with zero or more pattern IDs, zero or
 more satisfied assertions and zero or more NFA state IDs. A `StateBuilderNFA`
 can only be used for adding NFA state IDs and recording some assertions.
@@ -92,7 +94,7 @@ use crate::{
     nfa::thompson::Look,
     util::{
         bytes::{self, Endian},
-        id::{PatternID, StateID},
+        primitives::{PatternID, StateID},
     },
 };
 

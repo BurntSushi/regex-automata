@@ -10,7 +10,7 @@ use crate::{
         self,
         alphabet::{self, ByteSet},
         determinize::{State, StateBuilderEmpty, StateBuilderNFA},
-        id::{PatternID, StateID},
+        primitives::{PatternID, StateID},
         search::MatchKind,
         sparse_set::{SparseSet, SparseSets},
         start::Start,
@@ -233,7 +233,8 @@ impl<'a> Runner<'a> {
         // class. These representative bytes are fed to the NFA to compute
         // state transitions. This allows us to avoid re-computing state
         // transitions for bytes that are guaranteed to produce identical
-        // results.
+        // results. Since computing the representatives needs to do a little
+        // work, we do it once here because we'll be iterating over them a lot.
         let representatives: Vec<alphabet::Unit> =
             self.dfa.byte_classes().representatives().collect();
         // The set of all DFA state IDs that still need to have their

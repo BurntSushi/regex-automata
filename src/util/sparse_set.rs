@@ -1,6 +1,6 @@
 use alloc::{boxed::Box, vec, vec::Vec};
 
-use crate::util::id::StateID;
+use crate::util::primitives::StateID;
 
 /// A pairse of sparse sets.
 ///

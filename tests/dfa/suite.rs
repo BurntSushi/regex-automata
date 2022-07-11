@@ -366,7 +366,6 @@ fn try_search_overlapping<A: Automaton>(
                 continue;
             }
             let mat = ret::Match { id: end.pattern().as_usize(), span };
-            dbg!(&mat);
             matches.push(mat);
         }
     }

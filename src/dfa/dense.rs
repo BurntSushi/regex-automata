@@ -37,7 +37,7 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses},
         bytes::{self, DeserializeError, Endian, SerializeError},
-        id::{PatternID, StateID},
+        primitives::{PatternID, StateID},
         search::Input,
         start::Start,
     },

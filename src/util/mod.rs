@@ -6,9 +6,9 @@ TODO
 use alloc::vec::Vec;
 
 pub mod alphabet;
-pub mod id;
 pub mod iter;
 pub mod prefilter;
+pub mod primitives;
 
 pub(crate) mod bytes;
 #[cfg(feature = "alloc")]
@@ -16,7 +16,6 @@ pub(crate) mod determinize;
 pub(crate) mod escape;
 #[cfg(feature = "alloc")]
 pub(crate) mod lazy;
-pub(crate) mod nonmax;
 pub(crate) mod search;
 #[cfg(feature = "alloc")]
 pub(crate) mod sparse_set;
