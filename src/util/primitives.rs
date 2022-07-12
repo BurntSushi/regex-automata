@@ -1,3 +1,34 @@
+/*!
+Lower level primitive types that are useful in a variety of circumstances.
+
+# Overview
+
+This list represents the principle types in this module and briefly describes
+when you might want to use them.
+
+* [`PatternID`] - A type that represents the identifier of a regex pattern.
+This is probably the most widely used type in this module (which is why it's
+also re-exported in the crate root).
+* [`StateID`] - A type the represents the identifier of a finite automaton
+state. This is used for both NFAs and DFAs, with the notable exception of
+the hybrid NFA/DFA. (The hybrid NFA/DFA uses a special purpose "lazy" state
+identifier.)
+* [`SmallIndex`] - The internal representation of both a `PatternID` and a
+`StateID`. Its purpose is to serve as a type that can index memory without
+being as big as a `usize` on 64-bit targets. The main idea behind this type
+is that there are many things in regex engines that will, in practice, never
+overflow a 32-bit integer. (For example, like the number of patterns in a regex
+or the number of states in an NFA.) Thus, a `SmallIndex` can be used to index
+memory without peppering `as` casts everywhere. Moreover, it forces callers
+to handle errors in the case where, somehow, the value would otherwise overflow
+either a 32-bit integer or a `usize` (e.g., on 16-bit targets).
+* [`NonMaxUsize`] - Represents a `usize` that cannot be `usize::MAX`. As a
+result, `Option<NonMaxUsize>` has the same size in memory as a `usize`. This
+useful, for example, when representing the offsets of submatches since it
+reduces memory usage by a factor of 2. It is a legal optimization since Rust
+guarantees that slices never have a length that exceeds `isize::MAX`.
+*/
+
 use core::{convert::TryFrom, num::NonZeroUsize};
 
 /// A `usize` that can never be `usize::MAX`.
@@ -44,6 +75,63 @@ impl core::fmt::Debug for NonMaxUsize {
     }
 }
 
+/// A type that represents a "small" index.
+///
+/// The main idea of this type is to provide something that can index memory,
+/// but uses less memory than `usize` on 64-bit systems. Specifically, its
+/// representation is always a `u32` and has `repr(transparent)` enabled. (So
+/// it is safe to transmute between a `u32` and a `SmallIndex`.)
+///
+/// A small index is typically useful in cases where there is no practical way
+/// that the index will overflow a 32-bit integer. A good example of this is
+/// an NFA state. If you could somehow build an NFA with `2^30` states, its
+/// memory usage would be exorbitant and its runtime execution would be so
+/// slow as to be completely worthless. Therefore, this crate generally deems
+/// it acceptable to return an error if it would otherwise build an NFA that
+/// requires a slice longer than what a 32-bit integer can index. In exchange,
+/// we can use 32-bit indices instead of 64-bit indices in various places.
+///
+/// This type ensures this by providing a constructor that will return an error
+/// if its argument cannot fit into the type. This makes it much easier to
+/// handle these sorts of boundary cases that are otherwise extremely subtle.
+///
+/// On all targets, this type guarantees that its value will fit in a `u32`,
+/// `i32`, `usize` and an `isize`. This means that on 16-bit targets, for
+/// example, this type's maximum value will never overflow an `isize`,
+/// which means it will never overflow a `i16` even though its internal
+/// representation is still a `u32`.
+///
+/// The purpose for making the type fit into even signed integer types like
+/// `isize` is to guarantee that the difference between any two small indices
+/// is itself also a small index. This is useful in certain contexts, e.g.,
+/// for delta encoding.
+///
+/// # Other types
+///
+/// The following types wrap `SmallIndex` to provide a more focused use case:
+///
+/// * [`PatternID`] is for representing the identifiers of patterns.
+/// * [`StateID`] is for representing the identifiers of states in finite
+/// automata. It is used for both NFAs and DFAs.
+///
+/// # Representation
+///
+/// This type is always represented internally by a `u32` and is marked as
+/// `repr(transparent)`. Thus, this type always has the same representation as
+/// a `u32`. It is thus safe to transmute between a `u32` and a `SmallIndex`.
+///
+/// # Indexing
+///
+/// For convenience, callers may use a `SmallIndex` to index slices.
+///
+/// # Safety
+///
+/// While a `SmallIndex` is meant to guarantee that its value fits into `usize`
+/// without using as much space as a `usize` on all targets, callers must
+/// not rely on this property for safety. Callers may choose to rely on this
+/// property for correctness however. For example, creating a `SmallIndex` with
+/// an invalid value can be done in entire safe code. This may in turn result
+/// in panics or silent logical errors.
 #[derive(
     Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
 )]
@@ -367,14 +455,8 @@ impl<I: Iterator + ExactSizeIterator> Iterator for WithSmallIndexIter<I> {
     }
 }
 
-macro_rules! define_index_type {
+macro_rules! index_type_impls {
     ($name:ident, $err:ident, $iter:ident, $withiter:ident) => {
-        #[derive(
-            Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
-        )]
-        #[repr(transparent)]
-        pub struct $name(SmallIndex);
-
         impl $name {
             /// The maximum value.
             pub const MAX: $name = $name(SmallIndex::MAX);
@@ -659,13 +741,41 @@ macro_rules! define_index_type {
     };
 }
 
-define_index_type!(
-    PatternID,
-    PatternIDError,
-    PatternIDIter,
-    WithPatternIDIter
-);
-define_index_type!(StateID, StateIDError, StateIDIter, WithStateIDIter);
+/// The identifier of a regex pattern, represented by a `SmallIndex`.
+///
+/// The identifier for a pattern corresponds to its relative position among
+/// other patterns in a single finite state machine. Namely, when building
+/// a multi-pattern regex engine, one must supply a sequence of patterns to
+/// match. The position (starting at 0) of each pattern in that sequence
+/// represents its identifier. This identifier is in turn used to identify and
+/// report matches of that pattern in various APIs.
+///
+/// See the [`SmallIndex`] type for more information about what it means for
+/// a pattern ID to be a "small index."
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
+)]
+#[repr(transparent)]
+pub struct PatternID(SmallIndex);
+
+/// The identifier of a finite automaton state, represented by a `SmallIndex`.
+///
+/// Most regex engines in this crate are built on top of finite automata. Each
+/// state in a finite automaton defines transitions from its state to another.
+/// Those transitions point to other states via their identifiers, i.e., a
+/// `StateID`. Since finite automata tend to contain many transitions, it is
+/// much more memory efficient to define state IDs as small indices.
+///
+/// See the [`SmallIndex`] type for more information about what it means for
+/// a state ID to be a "small index."
+#[derive(
+    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
+)]
+#[repr(transparent)]
+pub struct StateID(SmallIndex);
+
+index_type_impls!(PatternID, PatternIDError, PatternIDIter, WithPatternIDIter);
+index_type_impls!(StateID, StateIDError, StateIDIter, WithStateIDIter);
 
 /// A utility trait that defines a couple of adapters for making it convenient
 /// to access indices as "small index" types. We require ExactSizeIterator so
