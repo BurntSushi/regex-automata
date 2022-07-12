@@ -7,7 +7,7 @@ use crate::{
         error::Error,
         nfa::{self, Look, SparseTransitions, Transition, NFA},
     },
-    util::primitives::{IteratorIndexExt, PatternID, StateID},
+    util::primitives::{IteratorIndexExt, PatternID, SmallIndex, StateID},
 };
 
 /// An intermediate NFA state used during construction.
@@ -335,7 +335,7 @@ pub struct Builder {
     /// NFA. This builder doesn't use this for anything other than validating
     /// that we don't have any capture indices that are too big. (It's likely
     /// that such a thing is only possible on 16-bit systems.)
-    slots: usize,
+    slots: SmallIndex,
     /// The combined memory used by each of the 'State's in 'states'. This
     /// only includes heap usage by each state, and not the size of the state
     /// itself. In other words, this tracks heap memory used that isn't
@@ -364,7 +364,7 @@ impl Builder {
         self.start_pattern.clear();
         self.captures.clear();
         self.group_names.clear();
-        self.slots = 0;
+        self.slots = SmallIndex::ZERO;
         self.memory_states = 0;
     }
 
@@ -462,6 +462,8 @@ impl Builder {
                     let slot = nfa
                         .slot(pattern_id, group_index)
                         .expect("invalid capture index");
+                    let slot =
+                        SmallIndex::new(slot).expect("a small enough slot");
                     remap[sid] = nfa.add(nfa::State::Capture { next, slot });
                 }
                 State::CaptureEnd { pattern_id, group_index, next } => {
@@ -475,6 +477,8 @@ impl Builder {
                         .expect("invalid capture index")
                         .checked_add(1)
                         .unwrap();
+                    let slot =
+                        SmallIndex::new(slot).expect("a small enough slot");
                     remap[sid] = nfa.add(nfa::State::Capture { next, slot });
                 }
                 State::Union { ref alternates } => {
@@ -971,14 +975,19 @@ impl Builder {
             }
             self.captures[pid].push(name);
             // We check that 'slots' remains valid, since slots could in theory
-            // overflow 'usize' without capture indices overflowing usize.
-            // (Although, it seems only likely on 16-bit systems.) Either way,
-            // we check that no overflows occur here. Also, note that we add
-            // 2 because each capture group has two slots (start and end).
-            // Otherwise, the NFA itself ultimately owns the allocation of
-            // slots. We only track it here in the builder to ensure that the
-            // total number ends up being valid.
-            self.slots = match self.slots.checked_add(2) {
+            // overflow without capture indices overflowing usize. (Although,
+            // it seems only likely on 16-bit systems.) Either way, we check
+            // that no overflows occur here. Also, note that we add 2 because
+            // each capture group has two slots (start and end). Otherwise,
+            // the NFA itself ultimately owns the allocation of slots. We only
+            // track it here in the builder to ensure that the total number
+            // ends up being valid.
+            self.slots = match self
+                .slots
+                .as_usize()
+                .checked_add(2)
+                .and_then(|slots| SmallIndex::new(slots).ok())
+            {
                 Some(slots) => slots,
                 None => return Err(Error::invalid_capture(group_index)),
             };

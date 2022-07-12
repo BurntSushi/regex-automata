@@ -17,7 +17,7 @@ use crate::{
     util::{
         iter,
         prefilter::Prefilter,
-        primitives::{NonMaxUsize, StateID},
+        primitives::{NonMaxUsize, SmallIndex, StateID},
     },
     Input, Match, MatchError, MatchKind,
 };
@@ -1486,7 +1486,7 @@ impl BoundedBacktracker {
                     }
                 }
                 Frame::RestoreCapture { slot, offset } => {
-                    caps.set_slot(slot, offset.map(|o| o.get()));
+                    caps.set_slot(slot.as_usize(), offset.map(|o| o.get()));
                 }
             }
         }
@@ -1553,14 +1553,14 @@ impl BoundedBacktracker {
                     cache.stack.push(Frame::Step { sid: alt2, at });
                 }
                 State::Capture { next, slot } => {
-                    if slot < caps.slot_len() {
+                    if slot.as_usize() < caps.slot_len() {
                         cache.stack.push(Frame::RestoreCapture {
                             slot,
                             offset: caps
-                                .get_slot(slot)
+                                .get_slot(slot.as_usize())
                                 .and_then(NonMaxUsize::new),
                         });
-                        caps.set_slot(slot, Some(at));
+                        caps.set_slot(slot.as_usize(), Some(at));
                     }
                     sid = next;
                 }
@@ -1861,7 +1861,7 @@ enum Frame {
     /// different branch that results in a different offset (or perhaps none at
     /// all), then this "restore capture" frame will cause the offset to get
     /// reset.
-    RestoreCapture { slot: usize, offset: Option<NonMaxUsize> },
+    RestoreCapture { slot: SmallIndex, offset: Option<NonMaxUsize> },
 }
 
 /// A bitset that keeps track of whether a particular (StateID, offset) has

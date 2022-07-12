@@ -11,7 +11,8 @@ use crate::{
     util::{
         alphabet::{self, ByteClassSet},
         primitives::{
-            IteratorIndexExt, NonMaxUsize, PatternID, PatternIDIter, StateID,
+            IteratorIndexExt, NonMaxUsize, PatternID, PatternIDIter,
+            SmallIndex, StateID,
         },
         search::{Match, Span},
         utf8,
@@ -585,7 +586,7 @@ impl NFA {
     /// let state = nfa.state(nfa.start_pattern(PatternID::ZERO));
     /// match *state {
     ///     State::Capture { slot, .. } => {
-    ///         assert_eq!(0, slot);
+    ///         assert_eq!(0, slot.as_usize());
     ///     }
     ///     _ => unreachable!("unexpected state"),
     /// }
@@ -1716,7 +1717,7 @@ pub enum State {
     /// offset that is being recorded. Each capturing group has two slots
     /// corresponding to the start and end of the matching portion of that
     /// group.
-    Capture { next: StateID, slot: usize },
+    Capture { next: StateID, slot: SmallIndex },
     /// A state that cannot be transitioned out of. This is useful for cases
     /// where you want to prevent matching from occurring. For example, if your
     /// regex parser permits empty character classes, then one could choose a
@@ -1741,11 +1742,14 @@ impl State {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::{State, Transition},
-    ///     util::primitives::StateID,
+    ///     util::primitives::{StateID, SmallIndex},
     /// };
     ///
     /// // Capture states are epsilon transitions.
-    /// let state = State::Capture { next: StateID::ZERO, slot: 0 };
+    /// let state = State::Capture {
+    ///     next: StateID::ZERO,
+    ///     slot: SmallIndex::ZERO,
+    /// };
     /// assert!(state.is_epsilon());
     ///
     /// // ByteRange states are not.

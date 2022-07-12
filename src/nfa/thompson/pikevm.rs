@@ -18,7 +18,7 @@ use crate::{
     util::{
         iter,
         prefilter::Prefilter,
-        primitives::{NonMaxUsize, PatternID, StateID},
+        primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{Input, Match, MatchError, MatchKind, PatternSet},
         sparse_set::SparseSet,
     },
@@ -1684,7 +1684,7 @@ impl PikeVM {
                     // ultimately won't be copied into the caller-provided
                     // 'Captures' value. So we just skip dealing with them at
                     // all.
-                    if slot < curr_slots.len() {
+                    if slot.as_usize() < curr_slots.len() {
                         instrument!(|c| c.record_stack_push(sid));
                         stack.push(FollowEpsilon::RestoreCapture {
                             slot,
@@ -2102,7 +2102,7 @@ enum FollowEpsilon {
     /// Explore the epsilon transitions from a state ID.
     Explore(StateID),
     /// Reset the given `slot` to the given `offset` (which might be `None`).
-    RestoreCapture { slot: usize, offset: Option<NonMaxUsize> },
+    RestoreCapture { slot: SmallIndex, offset: Option<NonMaxUsize> },
 }
 
 /// Write the given pattern ID and slot values to the given `Captures`.
