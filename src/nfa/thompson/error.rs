@@ -1,4 +1,4 @@
-use crate::util::primitives::{PatternID, StateID};
+use crate::util::primitives::{PatternID, SmallIndex, StateID};
 
 /// An error that can occured during the construction of a thompson NFA.
 ///
@@ -109,8 +109,8 @@ impl Error {
         Error { kind: ErrorKind::ExceededSizeLimit { limit } }
     }
 
-    pub(crate) fn invalid_capture(index: usize) -> Error {
-        Error { kind: ErrorKind::InvalidCapture { index } }
+    pub(crate) fn invalid_capture(index: SmallIndex) -> Error {
+        Error { kind: ErrorKind::InvalidCapture { index: index.as_usize() } }
     }
 
     pub(crate) fn first_capture_must_be_unnamed() -> Error {

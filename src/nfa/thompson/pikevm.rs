@@ -1679,7 +1679,7 @@ impl PikeVM {
                     instrument!(|c| c.record_stack_push(sid));
                     stack.push(FollowEpsilon::Explore(alt2));
                 }
-                State::Capture { next, slot } => {
+                State::Capture { next, slot, .. } => {
                     // There's no need to do anything with slots that
                     // ultimately won't be copied into the caller-provided
                     // 'Captures' value. So we just skip dealing with them at

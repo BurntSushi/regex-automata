@@ -1552,7 +1552,7 @@ impl BoundedBacktracker {
                     sid = alt1;
                     cache.stack.push(Frame::Step { sid: alt2, at });
                 }
-                State::Capture { next, slot } => {
+                State::Capture { next, slot, .. } => {
                     if slot.as_usize() < caps.slot_len() {
                         cache.stack.push(Frame::RestoreCapture {
                             slot,

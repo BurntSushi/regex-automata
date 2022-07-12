@@ -68,7 +68,7 @@ enum State {
         /// pattern. Therefore, in the presence of multiple patterns, both the
         /// pattern ID and the capture group index are required to uniquely
         /// identify a capturing group.
-        group_index: usize,
+        group_index: SmallIndex,
         /// The next state that this state should transition to.
         next: StateID,
     },
@@ -84,7 +84,7 @@ enum State {
         /// pattern. Therefore, in the presence of multiple patterns, both the
         /// pattern ID and the capture group index are required to uniquely
         /// identify a capturing group.
-        group_index: usize,
+        group_index: SmallIndex,
         /// The next state that this state should transition to.
         next: StateID,
     },
@@ -460,11 +460,16 @@ impl Builder {
                     // We can't remove this empty state because of the side
                     // effect of capturing an offset for this capture slot.
                     let slot = nfa
-                        .slot(pattern_id, group_index)
+                        .slot(pattern_id, group_index.as_usize())
                         .expect("invalid capture index");
                     let slot =
                         SmallIndex::new(slot).expect("a small enough slot");
-                    remap[sid] = nfa.add(nfa::State::Capture { next, slot });
+                    remap[sid] = nfa.add(nfa::State::Capture {
+                        next,
+                        pattern_id,
+                        group_index,
+                        slot,
+                    });
                 }
                 State::CaptureEnd { pattern_id, group_index, next } => {
                     // We can't remove this empty state because of the side
@@ -473,13 +478,18 @@ impl Builder {
                     // slot indices are valid for all capture indices when they
                     // are initially added.
                     let slot = nfa
-                        .slot(pattern_id, group_index)
+                        .slot(pattern_id, group_index.as_usize())
                         .expect("invalid capture index")
                         .checked_add(1)
                         .unwrap();
                     let slot =
                         SmallIndex::new(slot).expect("a small enough slot");
-                    remap[sid] = nfa.add(nfa::State::Capture { next, slot });
+                    remap[sid] = nfa.add(nfa::State::Capture {
+                        next,
+                        pattern_id,
+                        group_index,
+                        slot,
+                    });
                 }
                 State::Union { ref alternates } => {
                     if alternates.is_empty() {
@@ -943,8 +953,8 @@ impl Builder {
             return Err(Error::first_capture_must_be_unnamed());
         }
         let pid = self.current_pattern_id();
-        let group_index = match usize::try_from(group_index) {
-            Err(_) => return Err(Error::invalid_capture(core::usize::MAX)),
+        let group_index = match SmallIndex::try_from(group_index) {
+            Err(_) => return Err(Error::invalid_capture(SmallIndex::MAX)),
             Ok(group_index) => group_index,
         };
         // Make sure we have space to insert our (pid,index)|-->name mapping.
@@ -953,7 +963,9 @@ impl Builder {
             // then there must be at least one capturing group per pattern.
             // Moreover, whenever we expand our space here, it should always
             // first be for the first capture group (at index==0).
-            if pid.as_usize() > self.captures.len() || group_index > 0 {
+            if pid.as_usize() > self.captures.len()
+                || group_index.as_usize() > 0
+            {
                 return Err(Error::invalid_capture(group_index));
             }
             self.captures.push(vec![]);
@@ -966,7 +978,7 @@ impl Builder {
         // capture groups. In practice, only the last will be set at search
         // time when a match occurs. For duplicates, we don't need to push
         // anything other than a CaptureStart NFA state.
-        if group_index >= self.captures[pid].len() {
+        if group_index.as_usize() >= self.captures[pid].len() {
             // We also require that the name not be duplicative if one is set.
             if let Some(ref name) = name {
                 if !self.group_names[pid].insert(Arc::clone(name)) {
@@ -1031,15 +1043,15 @@ impl Builder {
         group_index: u32,
     ) -> Result<StateID, Error> {
         let pid = self.current_pattern_id();
-        let group_index = match usize::try_from(group_index) {
-            Err(_) => return Err(Error::invalid_capture(core::usize::MAX)),
+        let group_index = match SmallIndex::try_from(group_index) {
+            Err(_) => return Err(Error::invalid_capture(SmallIndex::MAX)),
             Ok(group_index) => group_index,
         };
         // If we haven't already added this capture group via a corresponding
         // 'add_capture_start' call, then we consider the index given to be
         // invalid.
         if pid.as_usize() >= self.captures.len()
-            || group_index >= self.captures[pid].len()
+            || group_index.as_usize() >= self.captures[pid].len()
         {
             return Err(Error::invalid_capture(group_index));
         }

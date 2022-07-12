@@ -1717,7 +1717,12 @@ pub enum State {
     /// offset that is being recorded. Each capturing group has two slots
     /// corresponding to the start and end of the matching portion of that
     /// group.
-    Capture { next: StateID, slot: SmallIndex },
+    Capture {
+        next: StateID,
+        pattern_id: PatternID,
+        group_index: SmallIndex,
+        slot: SmallIndex,
+    },
     /// A state that cannot be transitioned out of. This is useful for cases
     /// where you want to prevent matching from occurring. For example, if your
     /// regex parser permits empty character classes, then one could choose a
@@ -1742,12 +1747,14 @@ impl State {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::{State, Transition},
-    ///     util::primitives::{StateID, SmallIndex},
+    ///     util::primitives::{PatternID, StateID, SmallIndex},
     /// };
     ///
     /// // Capture states are epsilon transitions.
     /// let state = State::Capture {
     ///     next: StateID::ZERO,
+    ///     pattern_id: PatternID::ZERO,
+    ///     group_index: SmallIndex::ZERO,
     ///     slot: SmallIndex::ZERO,
     /// };
     /// assert!(state.is_epsilon());
@@ -1856,8 +1863,15 @@ impl fmt::Debug for State {
                     alt2.as_usize()
                 )
             }
-            State::Capture { next, slot } => {
-                write!(f, "capture({:?}) => {:?}", slot, next.as_usize())
+            State::Capture { next, pattern_id, group_index, slot } => {
+                write!(
+                    f,
+                    "capture(pid={:?}, group={:?}, slot={:?}) => {:?}",
+                    pattern_id.as_usize(),
+                    group_index.as_usize(),
+                    slot.as_usize(),
+                    next.as_usize(),
+                )
             }
             State::Fail => write!(f, "FAIL"),
             State::Match { pattern_id } => {
