@@ -1486,7 +1486,7 @@ impl BoundedBacktracker {
                     }
                 }
                 Frame::RestoreCapture { slot, offset } => {
-                    caps.set_slot(slot.as_usize(), offset.map(|o| o.get()));
+                    caps.slots_mut()[slot] = offset;
                 }
             }
         }
@@ -1553,14 +1553,12 @@ impl BoundedBacktracker {
                     cache.stack.push(Frame::Step { sid: alt2, at });
                 }
                 State::Capture { next, slot, .. } => {
-                    if slot.as_usize() < caps.slot_len() {
+                    if slot.as_usize() < caps.slots().len() {
                         cache.stack.push(Frame::RestoreCapture {
                             slot,
-                            offset: caps
-                                .get_slot(slot.as_usize())
-                                .and_then(NonMaxUsize::new),
+                            offset: caps.slots()[slot],
                         });
-                        caps.set_slot(slot.as_usize(), Some(at));
+                        caps.slots_mut()[slot] = NonMaxUsize::new(at);
                     }
                     sid = next;
                 }

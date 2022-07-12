@@ -1350,20 +1350,25 @@ pub(super) struct Inner {
     /// mode that only tracks overall match offsets without also tracking all
     /// capture group offsets.
     ///
-    /// While the number of slots required can be computing by adding 2 to the
+    /// When the number of patterns is 1, then the representation degrades to
+    /// what you would expect: for a group index `g`, its corresponding slots
+    /// are at offsets `g * 2` and `g * 2 + 1`. But this simple formula doesn't
+    /// apply when the number of patterns is greater than 1.
+    ///
+    /// While the number of slots required can be computed by adding 2 to the
     /// maximum value found in this mapping, it takes linear time with respect
     /// to the number of patterns to find the maximum value because of our
     /// odd representation. To avoid that inefficiency, the number of slots
-    /// is recorded independently via the 'slots' field. This way, one can
-    /// allocate the space needed for, say, running a Pike VM without iterating
-    /// over all of the patterns.
+    /// is recorded independently via the 'capture_slot_len' field. This way,
+    /// one can allocate the space needed for, say, running a Pike VM without
+    /// iterating over all of the patterns.
     capture_to_slots: Vec<Vec<usize>>,
-    /// As described above, this is the number of slots required handle all
+    /// As described above, this is the number of slots required to handle all
     /// capturing groups during an NFA search.
     ///
     /// Another important number is the number of slots required to handle just
     /// the start/end offsets of an entire match for each pattern. This number
-    /// is always twice the number of patterns.
+    /// is always twice the number of patterns (two slots per pattern).
     ///
     /// This number is always zero if there are no capturing groups in this
     /// NFA.
@@ -2894,7 +2899,7 @@ impl Captures {
     /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert!(caps.is_match());
     /// let slots: Vec<Option<usize>> =
-    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    ///     caps.slots().iter().map(|s| s.map(|x| x.get())).collect();
     /// // Note that the following ordering is not considered an API guarantee.
     /// // The only valid way of mapping a capturing group index to a slot
     /// // index is with the NFA::slot or NFA::slots routines.
@@ -2911,7 +2916,7 @@ impl Captures {
     /// caps.clear();
     /// assert!(!caps.is_match());
     /// let slots: Vec<Option<usize>> =
-    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    ///     caps.slots().iter().map(|s| s.map(|x| x.get())).collect();
     /// assert_eq!(slots, vec![
     ///     None,
     ///     None,
@@ -2952,7 +2957,7 @@ impl Captures {
     /// assert!(caps.is_match());
     /// assert!(caps.pattern().is_some());
     /// let slots: Vec<Option<usize>> =
-    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    ///     caps.slots().iter().map(|s| s.map(|x| x.get())).collect();
     /// // Note that the following ordering is not considered an API guarantee.
     /// // The only valid way of mapping a capturing group index to a slot
     /// // index is with the NFA::slot or NFA::slots routines.
@@ -2970,7 +2975,7 @@ impl Captures {
     /// assert!(!caps.is_match());
     /// assert!(!caps.pattern().is_some());
     /// let slots: Vec<Option<usize>> =
-    ///     (0..caps.slot_len()).map(|i| caps.get_slot(i)).collect();
+    ///     caps.slots().iter().map(|s| s.map(|x| x.get())).collect();
     /// // Note that the following ordering is not considered an API guarantee.
     /// // The only valid way of mapping a capturing group index to a slot
     /// // index is with the NFA::slot or NFA::slots routines.
@@ -2990,6 +2995,17 @@ impl Captures {
         self.pid = pid;
     }
 
+    #[inline]
+    pub fn slots(&self) -> &[Option<NonMaxUsize>] {
+        &self.slots
+    }
+
+    #[inline]
+    pub fn slots_mut(&mut self) -> &mut [Option<NonMaxUsize>] {
+        &mut self.slots
+    }
+
+    /*
     /// Return the slot value corresponding to the given index.
     ///
     /// A "slot" represents one half of the offsets for a capturing group, and
@@ -3057,6 +3073,7 @@ impl Captures {
     pub fn slot_len(&self) -> usize {
         self.slots.len()
     }
+    */
 }
 
 impl core::fmt::Debug for Captures {

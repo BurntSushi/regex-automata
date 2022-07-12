@@ -1221,7 +1221,7 @@ impl PikeVM {
         caps: &mut Captures,
     ) {
         caps.set_pattern(None);
-        cache.setup_search(caps.slot_len());
+        cache.setup_search(caps.slots().len());
         if input.is_done() {
             return;
         }
@@ -1454,7 +1454,7 @@ impl PikeVM {
         at: usize,
         caps: &mut Captures,
     ) {
-        let slot_len = caps.slot_len();
+        let slot_len = caps.slots().len();
         instrument!(|c| c.record_state_set(&curr.set));
         let ActiveStates { ref set, ref mut slot_table } = *curr;
         for sid in set.iter() {
@@ -2109,15 +2109,16 @@ enum FollowEpsilon {
 ///
 /// This is generally what you want to use once a match has been found. This
 /// copies the internal slot data to the public `Captures` type.
+///
+/// The given slots slice must have length equal to the number of slots in the
+/// `Captures` given.
 fn copy_to_captures(
     pid: PatternID,
     slots: &[Option<NonMaxUsize>],
     caps: &mut Captures,
 ) {
     caps.set_pattern(Some(pid));
-    for (i, &slot) in slots.iter().enumerate() {
-        caps.set_slot(i, slot.map(|s| s.get()));
-    }
+    caps.slots_mut().copy_from_slice(slots);
 }
 
 /// A set of counters that "instruments" a PikeVM search. To enable this, you
