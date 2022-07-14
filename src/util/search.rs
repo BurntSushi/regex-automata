@@ -1103,10 +1103,6 @@ impl Match {
     }
 }
 
-// #[derive(Clone)]
-// pub struct SubMatches {
-// }
-
 /// A set of `PatternID`s.
 ///
 /// A set of pattern identifiers is useful for recording which patterns have

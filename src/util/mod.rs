@@ -2,10 +2,9 @@
 TODO
 */
 
-#[cfg(feature = "alloc")]
-use alloc::vec::Vec;
-
 pub mod alphabet;
+#[cfg(feature = "alloc")]
+pub mod captures;
 pub mod iter;
 pub mod prefilter;
 pub mod primitives;

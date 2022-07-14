@@ -801,7 +801,6 @@ impl NFA {
         pid: PatternID,
         name: &str,
     ) -> Option<usize> {
-        assert!(self.pattern_capture_len(pid) > 0, "captures not enabled");
         let indices = self.0.capture_name_to_index.get(pid.as_usize())?;
         indices.get(name).cloned()
     }
@@ -864,9 +863,8 @@ impl NFA {
     /// pattern will always have at least 1 capture group. This capture group
     /// corresponds to an unnamed and implicit group spanning the entire
     /// pattern. When `Config::captures` is disabled, then this routine returns
-    /// `0` for every pattern ID.
-    ///
-    /// If the pattern ID is invalid, then this returns `None`.
+    /// `0` for every pattern ID. Similarly, if the pattern ID is invalid, then
+    /// this returns `0`.
     ///
     /// # Example
     ///
@@ -1292,7 +1290,8 @@ impl NFA {
     pub fn memory_usage(&self) -> usize {
         use core::mem::size_of as s;
 
-        self.0.states.len() * s::<State>()
+        s::<Inner>()
+            + self.0.states.len() * s::<State>()
             + self.0.start_pattern.len() * s::<StateID>()
             + self.0.capture_to_slots.len() * s::<Vec<usize>>()
             + self.0.capture_name_to_index.len() * s::<CaptureNameMap>()
@@ -1505,6 +1504,11 @@ impl Inner {
         // IDEA: I wonder if it makes sense to split this routine up by
         // defining smaller mutator methods. We are manipulating a lot of state
         // here, and the code below looks fairly hairy.
+
+        // CaptureSlots::new(
+        // captures.iter().map(|x| x.iter().map(|y| y.as_ref())),
+        // )
+        // .unwrap();
 
         assert!(
             self.states.is_empty(),

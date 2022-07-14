@@ -383,7 +383,7 @@ impl core::fmt::Display for SmallIndexError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(
             f,
-            "failed to create smallindex from {:?}, which exceeds {:?}",
+            "failed to create small index from {:?}, which exceeds {:?}",
             self.attempted(),
             SmallIndex::MAX,
         )
