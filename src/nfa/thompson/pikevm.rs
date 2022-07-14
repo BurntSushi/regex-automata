@@ -1999,12 +1999,12 @@ impl SlotTable {
     /// (and only that PikeVM).
     fn reset(&mut self, vm: &PikeVM) {
         let nfa = vm.get_nfa();
-        self.slots_per_state = nfa.capture_slot_len();
+        self.slots_per_state = nfa.group_info().slot_len();
         // This is always correct, but may be reduced for a particular search
         // if a 'Captures' has fewer slots, e.g., none at all or only slots
         // for tracking the overall match instead of all slots for every
         // group.
-        self.slots_for_captures = nfa.capture_slot_len();
+        self.slots_for_captures = nfa.group_info().slot_len();
         let len = nfa
             .states()
             .len()

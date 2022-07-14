@@ -4,6 +4,19 @@ use crate::util::primitives::{
     PatternID, PatternIDError, PatternIDIter, SmallIndex, SmallIndexError,
 };
 
+// BREADCRUMBS: Bring 'Captures' type in here, since we should now be able
+// to couple it with 'GroupInfo' instead of 'thompson::NFA'. Indeed, all
+// references to 'nfa' inside of the 'Captures' impl are just to call
+// 'nfa.group_info()'. So the de-coupling is done. Now we just need to
+// rejigger things.
+//
+// We should also continue to think about whether to offer search APIs
+// that just take a `&mut [Option<NonMaxUsize>]` and also return a
+// `Option<PatternID>`. It does mean you don't need a heap alloc for simple
+// cases or when you statically know the number of slots you need based on the
+// regex. And that API can be used to implement the higher level one that
+// uses `&mut Captures`.
+
 /// Represents information about capturing groups in a compiled regex.
 ///
 /// The information encapsulated by this type consists of the following. For
@@ -18,11 +31,9 @@ use crate::util::primitives::{
 /// the start or end of a capturing group. A slot is usually the mechanism
 /// by which a regex engine records offsets for each capturing group during a
 /// search.
-#[cfg(feature = "alloc")]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct GroupInfo(Arc<GroupInfoInner>);
 
-#[cfg(feature = "alloc")]
 impl GroupInfo {
     pub fn new<P, G, N>(pattern_groups: P) -> Result<GroupInfo, GroupInfoError>
     where
@@ -96,16 +107,17 @@ impl GroupInfo {
     ///     r"a(?P<quux>\w+)z(?P<foo>\s+)",
     ///     r"a(?P<foo>\d+)z",
     /// ])?;
-    /// assert_eq!(Some(2), nfa.capture_name_to_index(pid0, "foo"));
+    /// let groups = nfa.group_info();
+    /// assert_eq!(Some(2), groups.to_index(pid0, "foo"));
     /// // Recall that capture index 0 is always unnamed and refers to the
     /// // entire pattern. So the first capturing group present in the pattern
     /// // itself always starts at index 1.
-    /// assert_eq!(Some(1), nfa.capture_name_to_index(pid1, "foo"));
+    /// assert_eq!(Some(1), groups.to_index(pid1, "foo"));
     ///
     /// // And if a name does not exist for a particular pattern, None is
     /// // returned.
-    /// assert!(nfa.capture_name_to_index(pid0, "quux").is_some());
-    /// assert!(nfa.capture_name_to_index(pid1, "quux").is_none());
+    /// assert!(groups.to_index(pid0, "quux").is_some());
+    /// assert!(groups.to_index(pid1, "quux").is_none());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -143,16 +155,17 @@ impl GroupInfo {
     ///     r"a(?P<foo>\w+)z(\s+)x(\d+)",
     ///     r"a(\d+)z(?P<foo>\s+)",
     /// ])?;
-    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 0));
-    /// assert_eq!(Some("foo"), nfa.capture_index_to_name(pid0, 1));
-    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 2));
-    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 3));
+    /// let groups = nfa.group_info();
+    /// assert_eq!(None, groups.to_name(pid0, 0));
+    /// assert_eq!(Some("foo"), groups.to_name(pid0, 1));
+    /// assert_eq!(None, groups.to_name(pid0, 2));
+    /// assert_eq!(None, groups.to_name(pid0, 3));
     ///
-    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 0));
-    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 1));
-    /// assert_eq!(Some("foo"), nfa.capture_index_to_name(pid1, 2));
+    /// assert_eq!(None, groups.to_name(pid1, 0));
+    /// assert_eq!(None, groups.to_name(pid1, 1));
+    /// assert_eq!(Some("foo"), groups.to_name(pid1, 2));
     /// // '3' is not a valid capture index for the second pattern.
-    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 3));
+    /// assert_eq!(None, groups.to_name(pid1, 3));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -185,11 +198,12 @@ impl GroupInfo {
     /// // 5 groups are the explicit groups found in the concrete syntax above.
     /// let expected = vec![None, None, Some("foo"), None, None, Some("bar")];
     /// let got: Vec<Option<&str>> =
-    ///     nfa.pattern_capture_names(PatternID::ZERO).collect();
+    ///     nfa.group_info().pattern_names(PatternID::ZERO).collect();
     /// assert_eq!(expected, got);
     ///
     /// // Using an invalid pattern ID will result in nothing yielded.
-    /// assert_eq!(0, nfa.pattern_capture_names(PatternID::must(999)).count());
+    /// let got = nfa.group_info().pattern_names(PatternID::must(999)).count();
+    /// assert_eq!(0, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -230,7 +244,7 @@ impl GroupInfo {
     ///     (PatternID::must(2), 1, None),
     /// ];
     /// let got: Vec<(PatternID, usize, Option<&str>)> =
-    ///     nfa.all_capture_names().collect();
+    ///     nfa.group_info().all_names().collect();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -250,7 +264,7 @@ impl GroupInfo {
     ///         r"(a)",
     ///     ])?;
     /// // When captures aren't enabled, there's nothing to return.
-    /// assert_eq!(0, nfa.all_capture_names().count());
+    /// assert_eq!(0, nfa.group_info().all_names().count());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -336,15 +350,14 @@ impl GroupInfo {
 /// type or something? Anyway, I didn't give this much thought since it
 /// probably doesn't matter much in the grand scheme of things. But it did
 /// stand out to me as mildly wasteful.
-#[cfg(all(feature = "alloc", feature = "std"))]
+#[cfg(feature = "std")]
 type CaptureNameMap = std::collections::HashMap<Arc<str>, SmallIndex>;
-#[cfg(all(feature = "alloc", not(feature = "std")))]
+#[cfg(not(feature = "std"))]
 type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, SmallIndex>;
 
 /// The inner guts of `GroupInfo`. This type only exists so that it can
 /// be wrapped in an `Arc` to make `GroupInfo` reference counted.
-#[cfg(feature = "alloc")]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct GroupInfoInner {
     slot_ranges: Vec<(SmallIndex, SmallIndex)>,
     name_to_index: Vec<CaptureNameMap>,
@@ -502,7 +515,6 @@ impl GroupInfoInner {
 /// capturing groups satisfy a number of invariants. This includes, but is not
 /// limited to, ensuring that the first capturing group is unnamed and that
 /// there are no duplicate capture groups for a specific pattern.
-#[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 pub struct GroupInfoError {
     kind: GroupInfoErrorKind,
@@ -512,7 +524,6 @@ pub struct GroupInfoError {
 ///
 /// We keep this un-exported because it's not clear how useful it is to
 /// export it.
-#[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
 enum GroupInfoErrorKind {
     /// This occurs when too many patterns have been added. i.e., It would
@@ -557,7 +568,6 @@ enum GroupInfoErrorKind {
     },
 }
 
-#[cfg(feature = "alloc")]
 impl GroupInfoError {
     fn too_many_patterns(err: PatternIDError) -> GroupInfoError {
         GroupInfoError { kind: GroupInfoErrorKind::TooManyPatterns { err } }
@@ -589,7 +599,6 @@ impl GroupInfoError {
     }
 }
 
-#[cfg(feature = "std")]
 impl std::error::Error for GroupInfoError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind {

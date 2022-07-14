@@ -12,8 +12,7 @@ pub use self::{
     compiler::{Compiler, Config},
     error::Error,
     nfa::{
-        AllCaptureNames, Captures, CapturesPatternIter, Look,
-        PatternCaptureNames, PatternIter, SparseTransitions, State,
-        Transition, NFA,
+        Captures, CapturesPatternIter, Look, PatternIter, SparseTransitions,
+        State, Transition, NFA,
     },
 };

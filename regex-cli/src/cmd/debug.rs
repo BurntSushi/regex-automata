@@ -192,7 +192,7 @@ fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
     table.add("nfa memory", nfa.memory_usage());
     table.add("nfa states", nfa.states().len());
     table.add("pattern count", nfa.pattern_len());
-    table.add("capture count", nfa.capture_slot_len() / 2);
+    table.add("capture count", nfa.group_info().slot_len() / 2);
     table.print(stdout())?;
     if !args.is_present("quiet") {
         writeln!(stdout(), "\n{:?}", nfa)?;

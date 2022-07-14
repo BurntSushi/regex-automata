@@ -316,26 +316,6 @@ pub struct Builder {
     /// The first capture group for each pattern is always unnamed and is thus
     /// always None.
     captures: Vec<Vec<Option<Arc<str>>>>,
-    /// A map from pattern ID to a set of group names added for that pattern.
-    /// This is used to detect duplicate capture group names and return an error
-    /// if one is found.
-    ///
-    /// Why go out of our way to disallow duplicate group names? Well, because
-    /// their behavior is not fully specified in the regex crate proper, and
-    /// the NFA itself doesn't really expect them. Technically speaking, if
-    /// duplicate group names found their way into the NFA, nothing would
-    /// blow up. But their behavior would be odd. For example, in the case of
-    /// a duplicate group name, only the most recent group with the name would
-    /// be addressable. Normally, you would expect the most recently *matching*
-    /// group name to be addressable. But this requires extra infrastructure,
-    /// and in general, the regex crate prefers that users implement it
-    /// themselves to make the cost a bit more explicit.
-    group_names: Vec<BTreeSet<Arc<str>>>,
-    /// The total number of slots required to represent capturing groups in the
-    /// NFA. This builder doesn't use this for anything other than validating
-    /// that we don't have any capture indices that are too big. (It's likely
-    /// that such a thing is only possible on 16-bit systems.)
-    slots: SmallIndex,
     /// The combined memory used by each of the 'State's in 'states'. This
     /// only includes heap usage by each state, and not the size of the state
     /// itself. In other words, this tracks heap memory used that isn't
@@ -363,8 +343,6 @@ impl Builder {
         self.states.clear();
         self.start_pattern.clear();
         self.captures.clear();
-        self.group_names.clear();
-        self.slots = SmallIndex::ZERO;
         self.memory_states = 0;
     }
 
@@ -386,7 +364,10 @@ impl Builder {
     ///
     /// # Errors
     ///
-    /// This currently never returns an error, but this is subject to change.
+    /// This returns an error if there was a problem producing the final NFA.
+    /// In particular, this might include an error if the capturing groups
+    /// added to this builder violate any of the invariants documented on
+    /// [`GroupInfo`](crate::util::captures::GroupInfo).
     ///
     /// # Panics
     ///
@@ -422,7 +403,7 @@ impl Builder {
         remap.resize(self.states.len(), StateID::ZERO);
 
         nfa.set_starts(start_anchored, start_unanchored, &self.start_pattern);
-        nfa.set_captures(&self.captures);
+        nfa.set_captures(&self.captures).map_err(Error::captures)?;
         // The idea here is to convert our intermediate states to their final
         // form. The only real complexity here is the process of converting
         // transitions, which are expressed in terms of state IDs. The new
@@ -460,6 +441,7 @@ impl Builder {
                     // We can't remove this empty state because of the side
                     // effect of capturing an offset for this capture slot.
                     let slot = nfa
+                        .group_info()
                         .slot(pattern_id, group_index.as_usize())
                         .expect("invalid capture index");
                     let slot =
@@ -478,6 +460,7 @@ impl Builder {
                     // slot indices are valid for all capture indices when they
                     // are initially added.
                     let slot = nfa
+                        .group_info()
                         .slot(pattern_id, group_index.as_usize())
                         .expect("invalid capture index")
                         .checked_add(1)
@@ -794,21 +777,17 @@ impl Builder {
     /// # Errors
     ///
     /// This returns an error if the state identifier space is exhausted, or if
-    /// the configured heap size limit has been exceeded.
+    /// the configured heap size limit has been exceeded or if the given
+    /// capture index overflows `usize`.
     ///
-    /// This also returns an error if an invalid capture index is given.
-    /// A capture index is invalid if it cannot fit into a `usize` or is
-    /// otherwise discontiguous with other capture indices that have been
-    /// added. Moreover, if any capturing states are added, then at least one
-    /// pair of capturing states must be present for _every_ pattern added to
-    /// this builder. Otherwise, an error will be returned.
+    /// While the above are the only conditions in which this routine can
+    /// currently return an error, it is possible to call this method with an
+    /// inputs that results in the final `build()` step failing to produce an
+    /// NFA. For example, if one adds two distinct capturing groups with the
+    /// same name, then that will result in `build()` failing with an error.
     ///
-    /// An error is also returned if the given capturing group name already
-    /// exists for the current pattern.
-    ///
-    /// Finally, this returns an error if a name is given but the capture
-    /// index is `0`. Currently, the 0th capture index must always correspond
-    /// to the unnamed capturing group for the entire pattern.
+    /// See the [`GroupInfo`](crate::util::captures::GroupInfo) type for
+    /// more information on what qualifies as valid capturing groups.
     ///
     /// # Example
     ///
@@ -824,13 +803,17 @@ impl Builder {
     /// let name = Some(std::sync::Arc::from("foo"));
     /// let mut builder = Builder::new();
     /// builder.start_pattern()?;
-    /// // 0th capture group must always be unnamed.
-    /// builder.add_capture_start(StateID::ZERO, 0, None)?;
+    /// // 0th capture group should always be unnamed.
+    /// let start = builder.add_capture_start(StateID::ZERO, 0, None)?;
     /// // OK
-    /// let result = builder.add_capture_start(StateID::ZERO, 1, name.clone());
-    /// assert!(result.is_ok());
-    /// // Not OK
-    /// let result = builder.add_capture_start(StateID::ZERO, 2, name.clone());
+    /// builder.add_capture_start(StateID::ZERO, 1, name.clone())?;
+    /// // This is not OK, but 'add_capture_start' still succeeds. We don't
+    /// // get an error until we call 'build' below. Without this call, the
+    /// // call to 'build' below would succeed.
+    /// builder.add_capture_start(StateID::ZERO, 2, name.clone())?;
+    /// // Finish our pattern so we can try to build the NFA.
+    /// builder.finish_pattern(start)?;
+    /// let result = builder.build(start, start);
     /// assert!(result.is_err());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -944,32 +927,16 @@ impl Builder {
         group_index: u32,
         name: Option<Arc<str>>,
     ) -> Result<StateID, Error> {
-        // FIXME: It seems like it would be nice to track whether an 'end'
-        // capture is added for each 'start' capture. It will require extra
-        // memory, but it should overall be very little compared to what we're
-        // otherwise using.
-
-        if group_index == 0 && name.is_some() {
-            return Err(Error::first_capture_must_be_unnamed());
-        }
         let pid = self.current_pattern_id();
         let group_index = match SmallIndex::try_from(group_index) {
-            Err(_) => return Err(Error::invalid_capture(SmallIndex::MAX)),
+            Err(_) => return Err(Error::invalid_capture_index(group_index)),
             Ok(group_index) => group_index,
         };
         // Make sure we have space to insert our (pid,index)|-->name mapping.
         if pid.as_usize() >= self.captures.len() {
-            // Note that we require that if you're adding capturing groups,
-            // then there must be at least one capturing group per pattern.
-            // Moreover, whenever we expand our space here, it should always
-            // first be for the first capture group (at index==0).
-            if pid.as_usize() > self.captures.len()
-                || group_index.as_usize() > 0
-            {
-                return Err(Error::invalid_capture(group_index));
+            for _ in 0..=(pid.as_usize() - self.captures.len()) {
+                self.captures.push(vec![]);
             }
-            self.captures.push(vec![]);
-            self.group_names.push(BTreeSet::new());
         }
         // In the case where 'group_index < self.captures[pid].len()', it means
         // that we are adding a duplicate capture group. This is somewhat
@@ -977,32 +944,17 @@ impl Builder {
         // repeated in the syntax. For example, '([a-z]){4}' will produce 4
         // capture groups. In practice, only the last will be set at search
         // time when a match occurs. For duplicates, we don't need to push
-        // anything other than a CaptureStart NFA state.
-        if group_index.as_usize() >= self.captures[pid].len() {
-            // We also require that the name not be duplicative if one is set.
-            if let Some(ref name) = name {
-                if !self.group_names[pid].insert(Arc::clone(name)) {
-                    return Err(Error::duplicate_capture_name(pid, &name));
-                }
+        // anything other than a CaptureStart NFA state. However, we do set
+        // the name such that the last duplicate wins.
+        if group_index.as_usize() < self.captures[pid].len() {
+            self.captures[pid][group_index] = name;
+        } else {
+            // For discontiguous indices, push placeholders for earlier capture
+            // groups that weren't explicitly added.
+            for _ in 0..(group_index.as_usize() - self.captures[pid].len()) {
+                self.captures[pid].push(None);
             }
             self.captures[pid].push(name);
-            // We check that 'slots' remains valid, since slots could in theory
-            // overflow without capture indices overflowing usize. (Although,
-            // it seems only likely on 16-bit systems.) Either way, we check
-            // that no overflows occur here. Also, note that we add 2 because
-            // each capture group has two slots (start and end). Otherwise,
-            // the NFA itself ultimately owns the allocation of slots. We only
-            // track it here in the builder to ensure that the total number
-            // ends up being valid.
-            self.slots = match self
-                .slots
-                .as_usize()
-                .checked_add(2)
-                .and_then(|slots| SmallIndex::new(slots).ok())
-            {
-                Some(slots) => slots,
-                None => return Err(Error::invalid_capture(group_index)),
-            };
         }
         self.add(State::CaptureStart { pattern_id: pid, group_index, next })
     }
@@ -1026,17 +978,17 @@ impl Builder {
     /// # Errors
     ///
     /// This returns an error if the state identifier space is exhausted, or if
-    /// the configured heap size limit has been exceeded.
+    /// the configured heap size limit has been exceeded or if the given
+    /// capture index overflows `usize`.
     ///
-    /// This also returns an error if an invalid capture index is given.
-    /// A capture index is invalid if it cannot fit into a `usize` or is
-    /// otherwise discontiguous with other capture indices that have been
-    /// added. Moreover, if any capturing states are added, then at least one
-    /// pair of capturing states must be present for _every_ pattern added to
-    /// this builder. Otherwise, an error will be returned.
+    /// While the above are the only conditions in which this routine can
+    /// currently return an error, it is possible to call this method with an
+    /// inputs that results in the final `build()` step failing to produce an
+    /// NFA. For example, if one adds two distinct capturing groups with the
+    /// same name, then that will result in `build()` failing with an error.
     ///
-    /// If there was no corresponding "start capture" NFA state added, then
-    /// this returns an error.
+    /// See the [`GroupInfo`](crate::util::captures::GroupInfo) type for
+    /// more information on what qualifies as valid capturing groups.
     pub fn add_capture_end(
         &mut self,
         next: StateID,
@@ -1044,17 +996,9 @@ impl Builder {
     ) -> Result<StateID, Error> {
         let pid = self.current_pattern_id();
         let group_index = match SmallIndex::try_from(group_index) {
-            Err(_) => return Err(Error::invalid_capture(SmallIndex::MAX)),
+            Err(_) => return Err(Error::invalid_capture_index(group_index)),
             Ok(group_index) => group_index,
         };
-        // If we haven't already added this capture group via a corresponding
-        // 'add_capture_start' call, then we consider the index given to be
-        // invalid.
-        if pid.as_usize() >= self.captures.len()
-            || group_index.as_usize() >= self.captures[pid].len()
-        {
-            return Err(Error::invalid_capture(group_index));
-        }
         self.add(State::CaptureEnd { pattern_id: pid, group_index, next })
     }
 

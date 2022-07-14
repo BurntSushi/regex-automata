@@ -10,6 +10,7 @@ use crate::{
     },
     util::{
         alphabet::{self, ByteClassSet},
+        captures::{self, GroupInfo, GroupInfoError},
         primitives::{
             IteratorIndexExt, NonMaxUsize, PatternID, PatternIDIter,
             SmallIndex, StateID,
@@ -624,393 +625,18 @@ impl NFA {
         &self.0.states
     }
 
-    /// Returns the total number of capturing slots in this NFA.
+    /// Returns the capturing group info for this NFA.
     ///
-    /// This value is guaranteed to be a multiple of 2. (Where each capturing
-    /// group across all patterns has precisely two capturing slots in the
-    /// NFA.)
+    /// The [`GroupInfo`] provides a way to map to and from capture index
+    /// and capture name for each pattern. It also provides a mapping from
+    /// each of the capturing groups in every pattern to their corresponding
+    /// slot offsets encoded in [`State::Capture`] states.
     ///
-    /// The number of slots tends to be useful for creating allocations
-    /// that can handle all possible slot values for any of the NFA's
-    /// [`Capture`](State::Capture) states.
-    ///
-    /// # Example
-    ///
-    /// This example shows the relationship between the capturing groups in a
-    /// regex pattern and the number of slots. Remember that when capturing
-    /// is enabled (which it is by default), every pattern always has one
-    /// unnamed capturing group that refers to the entire pattern.
-    ///
-    /// ```
-    /// use regex_automata::nfa::thompson::NFA;
-    ///
-    /// let nfa = NFA::new("(a)(b)(c)")?;
-    /// assert_eq!(8, nfa.capture_slot_len());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
+    /// Note that `GroupInfo` uses reference counting internally, such that
+    /// cloning a `GroupInfo` is very cheap.
     #[inline]
-    pub fn capture_slot_len(&self) -> usize {
-        self.0.capture_slot_len
-    }
-
-    /// Returns the starting slot corresponding to the given capturing group
-    /// for the given pattern. The ending slot is always one more than the
-    /// value returned.
-    ///
-    /// There are no API guarantees for how a capturing group index is mapped
-    /// to a slot number. Callers must use the NFA's public API to look up the
-    /// slot number for a particular capture index.
-    ///
-    /// A capture index is relative to the pattern. So for example, when
-    /// captures are enabled when using a [`Compiler`] to build an NFA (which
-    /// is the default), the capture index of `0` is valid for all patterns in
-    /// the NFA.
-    ///
-    /// If either the pattern ID or the capture index is invalid, then this
-    /// returns None.
-    ///
-    /// This also returns None for all inputs if captures are not enabled for
-    /// this NFA or are not present for the given pattern. To check whether
-    /// captures are both enabled for the NFA and are present for a specific
-    /// pattern, use [`NFA::pattern_capture_len`].
-    ///
-    /// # Example
-    ///
-    /// This example shows that the starting slots for the first capturing
-    /// group of each pattern are distinct.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let nfa = NFA::new_many(&["a", "b"])?;
-    /// assert_ne!(
-    ///     nfa.slot(PatternID::must(0), 0),
-    ///     nfa.slot(PatternID::must(1), 0),
-    /// );
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn slot(&self, pid: PatternID, capture_index: usize) -> Option<usize> {
-        self.0.slot(pid, capture_index)
-    }
-
-    /// Returns the starting and ending slot corresponding to the given
-    /// capturing group for the given pattern. The ending slot is always one
-    /// more than the starting slot returned.
-    ///
-    /// There are no API guarantees for how a capturing group index is mapped
-    /// to a slot number. Callers must use the NFA's public API to look up the
-    /// slot number for a particular capture index.
-    ///
-    /// A capture index is relative to the pattern. So for example, when
-    /// captures are enabled when using a [`Compiler`] to build an NFA (which
-    /// is the default), the capture index of `0` is valid for all patterns in
-    /// the NFA.
-    ///
-    /// Note that this is like [`NFA::slot`], except that it also returns the
-    /// ending slot value for convenience.
-    ///
-    /// If either the pattern ID or the capture index is invalid, then this
-    /// returns None.
-    ///
-    /// This also returns None for all inputs if captures are not enabled for
-    /// this NFA or are not present for the given pattern. To check whether
-    /// captures are both enabled for the NFA and are present for a specific
-    /// pattern, use [`NFA::pattern_capture_len`].
-    ///
-    /// # Example
-    ///
-    /// This example shows that the starting slots for the first capturing
-    /// group of each pattern are distinct.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let nfa = NFA::new_many(&["a", "b"])?;
-    /// assert_ne!(
-    ///     nfa.slots(PatternID::must(0), 0),
-    ///     nfa.slots(PatternID::must(1), 0),
-    /// );
-    ///
-    /// // Also, the start and end slot values are never equivalent.
-    /// let (start, end) = nfa.slots(PatternID::ZERO, 0).unwrap();
-    /// assert_ne!(start, end);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn slots(
-        &self,
-        pid: PatternID,
-        capture_index: usize,
-    ) -> Option<(usize, usize)> {
-        self.0.slot(pid, capture_index).map(|start| {
-            // This will never wrap because NFA construction guarantees that
-            // all slot values fit in a usize at construction time.
-            (start, start.wrapping_add(1))
-        })
-    }
-
-    /// Return the capture group index corresponding to the given name in the
-    /// given pattern. If no such capture group name exists in the given
-    /// pattern, then this returns `None`.
-    ///
-    /// If the given pattern ID is invalid, then this returns `None`.
-    ///
-    /// This also returns `None` for all inputs if captures are not enabled for
-    /// this NFA or are not present for the given pattern. To check whether
-    /// captures are both enabled for the NFA and are present for a specific
-    /// pattern, use [`NFA::pattern_capture_len`].
-    ///
-    /// # Example
-    ///
-    /// This example shows how to find the capture index for the given pattern
-    /// and group name.
-    ///
-    /// Remember that capture indices are relative to the pattern, such that
-    /// the same capture index value may refer to different capturing groups
-    /// for distinct patterns.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let (pid0, pid1) = (PatternID::must(0), PatternID::must(1));
-    ///
-    /// let nfa = NFA::new_many(&[
-    ///     r"a(?P<quux>\w+)z(?P<foo>\s+)",
-    ///     r"a(?P<foo>\d+)z",
-    /// ])?;
-    /// assert_eq!(Some(2), nfa.capture_name_to_index(pid0, "foo"));
-    /// // Recall that capture index 0 is always unnamed and refers to the
-    /// // entire pattern. So the first capturing group present in the pattern
-    /// // itself always starts at index 1.
-    /// assert_eq!(Some(1), nfa.capture_name_to_index(pid1, "foo"));
-    ///
-    /// // And if a name does not exist for a particular pattern, None is
-    /// // returned.
-    /// assert!(nfa.capture_name_to_index(pid0, "quux").is_some());
-    /// assert!(nfa.capture_name_to_index(pid1, "quux").is_none());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn capture_name_to_index(
-        &self,
-        pid: PatternID,
-        name: &str,
-    ) -> Option<usize> {
-        let indices = self.0.capture_name_to_index.get(pid.as_usize())?;
-        indices.get(name).cloned()
-    }
-
-    /// Return the capture name for the given index and given pattern. If the
-    /// corresponding group does not have a name, then this returns `None`.
-    ///
-    /// If the pattern ID is invalid, then this returns `None`.
-    ///
-    /// If the group index is invalid for the given pattern, then this returns
-    /// `None`. A group `index` is valid for a pattern `pid` in an `nfa` if and
-    /// only if `index < nfa.pattern_capture_len(pid)`.
-    ///
-    /// This also returns `None` for all inputs if captures are not enabled for
-    /// this NFA or are not present for the given pattern. To check whether
-    /// captures are both enabled for the NFA and are present for a specific
-    /// pattern, use [`NFA::pattern_capture_len`].
-    ///
-    /// # Example
-    ///
-    /// This example shows how to find the capture group name for the given
-    /// pattern and group index.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let (pid0, pid1) = (PatternID::must(0), PatternID::must(1));
-    ///
-    /// let nfa = NFA::new_many(&[
-    ///     r"a(?P<foo>\w+)z(\s+)x(\d+)",
-    ///     r"a(\d+)z(?P<foo>\s+)",
-    /// ])?;
-    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 0));
-    /// assert_eq!(Some("foo"), nfa.capture_index_to_name(pid0, 1));
-    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 2));
-    /// assert_eq!(None, nfa.capture_index_to_name(pid0, 3));
-    ///
-    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 0));
-    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 1));
-    /// assert_eq!(Some("foo"), nfa.capture_index_to_name(pid1, 2));
-    /// // '3' is not a valid capture index for the second pattern.
-    /// assert_eq!(None, nfa.capture_index_to_name(pid1, 3));
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn capture_index_to_name(
-        &self,
-        pid: PatternID,
-        group_index: usize,
-    ) -> Option<&str> {
-        let pattern_names =
-            self.0.capture_index_to_name.get(pid.as_usize())?;
-        pattern_names.get(group_index)?.as_deref()
-    }
-
-    /// Return the number of capture groups in a pattern.
-    ///
-    /// When [`Config::captures`] is enabled when building an NFA, every
-    /// pattern will always have at least 1 capture group. This capture group
-    /// corresponds to an unnamed and implicit group spanning the entire
-    /// pattern. When `Config::captures` is disabled, then this routine returns
-    /// `0` for every pattern ID. Similarly, if the pattern ID is invalid, then
-    /// this returns `0`.
-    ///
-    /// # Example
-    ///
-    /// This example shows how the values returned by this routine may vary
-    /// for different patterns and NFA configurations.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let nfa = NFA::new(r"(a)(b)(c)")?;
-    /// // There are 3 explicit groups in the pattern's concrete syntax and
-    /// // 1 unnamed and implicit group spanning the entire pattern.
-    /// assert_eq!(4, nfa.pattern_capture_len(PatternID::ZERO));
-    ///
-    /// let nfa = NFA::new(r"abc")?;
-    /// // There is just the unnamed implicit group.
-    /// assert_eq!(1, nfa.pattern_capture_len(PatternID::ZERO));
-    ///
-    /// let nfa = NFA::compiler()
-    ///     .configure(NFA::config().captures(false))
-    ///     .build(r"abc")?;
-    /// // We disabled capturing groups, so there are none.
-    /// assert_eq!(0, nfa.pattern_capture_len(PatternID::ZERO));
-    ///
-    /// let nfa = NFA::compiler()
-    ///     .configure(NFA::config().captures(false))
-    ///     .build(r"(a)(b)(c)")?;
-    /// // We disabled capturing groups, so there are none, even if there are
-    /// // explicit groups in the concrete syntax.
-    /// assert_eq!(0, nfa.pattern_capture_len(PatternID::ZERO));
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn pattern_capture_len(&self, pid: PatternID) -> usize {
-        self.0
-            .capture_index_to_name
-            .get(pid.as_usize())
-            .map(|names| names.len())
-            .unwrap_or(0)
-    }
-
-    /// Return an iterator of all capture groups and their names (if present)
-    /// for a particular pattern.
-    ///
-    /// If the given pattern ID is invalid, then the iterator yields no
-    /// elements.
-    ///
-    /// The iterator returned also yields no elements for all inputs if
-    /// captures are not enabled for this NFA or are not present for the given
-    /// pattern. To check whether captures are both enabled for the NFA and are
-    /// present for a specific pattern, use [`NFA::pattern_capture_len`].
-    ///
-    /// # Example
-    ///
-    /// This example shows how to get a list of all capture group names for
-    /// a particular pattern.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let nfa = NFA::new(r"(a)(?P<foo>b)(c)(d)(?P<bar>e)")?;
-    /// // The first is the implicit group that is always unnammed. The next
-    /// // 5 groups are the explicit groups found in the concrete syntax above.
-    /// let expected = vec![None, None, Some("foo"), None, None, Some("bar")];
-    /// let got: Vec<Option<&str>> =
-    ///     nfa.pattern_capture_names(PatternID::ZERO).collect();
-    /// assert_eq!(expected, got);
-    ///
-    /// // Using an invalid pattern ID will result in nothing yielded.
-    /// assert_eq!(0, nfa.pattern_capture_names(PatternID::must(999)).count());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn pattern_capture_names(
-        &self,
-        pid: PatternID,
-    ) -> PatternCaptureNames<'_> {
-        PatternCaptureNames {
-            it: self
-                .0
-                .capture_index_to_name
-                .get(pid.as_usize())
-                .map(|indices| indices.iter())
-                .unwrap_or([].iter()),
-        }
-    }
-
-    /// Return an iterator of all capture groups for all patterns in this NFA.
-    /// Each item yield is a triple of the group's pattern ID, index in the
-    /// pattern and the group's name, if present.
-    ///
-    /// # Example
-    ///
-    /// This example shows how to get a list of all capture groups found in
-    /// one NFA, potentially spanning multiple patterns.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let nfa = NFA::new_many(&[
-    ///     r"(?P<foo>a)",
-    ///     r"a",
-    ///     r"(a)",
-    /// ])?;
-    /// let expected = vec![
-    ///     (PatternID::must(0), 0, None),
-    ///     (PatternID::must(0), 1, Some("foo")),
-    ///     (PatternID::must(1), 0, None),
-    ///     (PatternID::must(2), 0, None),
-    ///     (PatternID::must(2), 1, None),
-    /// ];
-    /// let got: Vec<(PatternID, usize, Option<&str>)> =
-    ///     nfa.all_capture_names().collect();
-    /// assert_eq!(expected, got);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// Unlike other capturing group related routines, this routine doesn't
-    /// panic even if captures aren't enabled on this NFA:
-    ///
-    /// ```
-    /// use regex_automata::nfa::thompson::NFA;
-    ///
-    /// let nfa = NFA::compiler()
-    ///     .configure(NFA::config().captures(false))
-    ///     .build_many(&[
-    ///         r"(?P<foo>a)",
-    ///         r"a",
-    ///         r"(a)",
-    ///     ])?;
-    /// // When captures aren't enabled, there's nothing to return.
-    /// assert_eq!(0, nfa.all_capture_names().count());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn all_capture_names(&self) -> AllCaptureNames<'_> {
-        AllCaptureNames {
-            nfa: self,
-            pids: PatternID::iter(self.pattern_len()),
-            current_pid: None,
-            names: None,
-        }
+    pub fn group_info(&self) -> &GroupInfo {
+        &self.0.group_info()
     }
 
     /// Returns true if and only if this NFA has at least one
@@ -1293,9 +919,7 @@ impl NFA {
         s::<Inner>()
             + self.0.states.len() * s::<State>()
             + self.0.start_pattern.len() * s::<StateID>()
-            + self.0.capture_to_slots.len() * s::<Vec<usize>>()
-            + self.0.capture_name_to_index.len() * s::<CaptureNameMap>()
-            + self.0.capture_index_to_name.len() * s::<Vec<Option<Arc<str>>>>()
+            + self.0.group_info.memory_usage()
             + self.0.memory_extra
     }
 }
@@ -1332,59 +956,9 @@ pub(super) struct Inner {
     /// contains a single regex, then `start_pattern[0]` and `start_anchored`
     /// are always equivalent.
     start_pattern: Vec<StateID>,
-    /// A map from PatternID to capture group index to its corresponding slot
-    /// for the capture's starting location. The end location is always at
-    /// `slot+1`. Since every capture group has two slots, it follows that all
-    /// slots in this map correspond to starting locations and are thus always
-    /// even.
-    ///
-    /// The way slots are distributed is unfortunately a bit complicated.
-    /// Namely, the first (at index 0, always unnamed and always present)
-    /// capturing group in every pattern is allocated a pair of slots before
-    /// any other capturing group. So for example, the 0th capture group in
-    /// pattern 2 will have a slot index less than the 1st capture group in
-    /// pattern 1. The motivation for this representation is so that all slots
-    /// corresponding to the overall match start/end offsets for each pattern
-    /// appear contiguously. This permits, e.g., the Pike VM to execute in a
-    /// mode that only tracks overall match offsets without also tracking all
-    /// capture group offsets.
-    ///
-    /// When the number of patterns is 1, then the representation degrades to
-    /// what you would expect: for a group index `g`, its corresponding slots
-    /// are at offsets `g * 2` and `g * 2 + 1`. But this simple formula doesn't
-    /// apply when the number of patterns is greater than 1.
-    ///
-    /// While the number of slots required can be computed by adding 2 to the
-    /// maximum value found in this mapping, it takes linear time with respect
-    /// to the number of patterns to find the maximum value because of our
-    /// odd representation. To avoid that inefficiency, the number of slots
-    /// is recorded independently via the 'capture_slot_len' field. This way,
-    /// one can allocate the space needed for, say, running a Pike VM without
-    /// iterating over all of the patterns.
-    capture_to_slots: Vec<Vec<usize>>,
-    /// As described above, this is the number of slots required to handle all
-    /// capturing groups during an NFA search.
-    ///
-    /// Another important number is the number of slots required to handle just
-    /// the start/end offsets of an entire match for each pattern. This number
-    /// is always twice the number of patterns (two slots per pattern).
-    ///
-    /// This number is always zero if there are no capturing groups in this
-    /// NFA.
-    capture_slot_len: usize,
-    /// A map from capture name to its corresponding index. So e.g., given
-    /// a single regex like '(\w+) (\w+) (?P<word>\w+)', the capture name
-    /// 'word' for pattern ID=0 would corresponding to the index '3'. Its
-    /// corresponding slots would then be '3 * 2 = 6' and '3 * 2 + 1 = 7'.
-    capture_name_to_index: Vec<CaptureNameMap>,
-    /// A map from pattern ID to capture group index to name, if one exists.
-    /// This is effectively the inverse of 'capture_name_to_index'. The outer
-    /// vec is indexed by pattern ID, while the inner vec is index by capture
-    /// index offset for the corresponding pattern.
-    ///
-    /// The first capture group for each pattern is always unnamed and is thus
-    /// always None.
-    capture_index_to_name: Vec<Vec<Option<Arc<str>>>>,
+    /// Info about the capturing groups in this NFA. This is responsible for
+    /// mapping groups to slots, mapping groups to names and names to groups.
+    group_info: GroupInfo,
     /// A representation of equivalence classes over the transitions in this
     /// NFA. Two bytes in the same equivalence class must not discriminate
     /// between a match or a non-match. This map can be used to shrink the
@@ -1410,19 +984,9 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    /// Returns the slot value for the given pattern and capture index.
-    ///
-    /// Capture indices are relative to the pattern. e.g., When captures are
-    /// enabled, every pattern has a capture at index `0`.
-    #[inline(always)]
-    pub(super) fn slot(
-        &self,
-        pid: PatternID,
-        capture_index: usize,
-    ) -> Option<usize> {
-        self.capture_to_slots.get(pid.as_usize()).and_then(|pattern_slots| {
-            pattern_slots.get(capture_index).copied()
-        })
+    /// Returns the capturing group info for this NFA.
+    pub(super) fn group_info(&self) -> &GroupInfo {
+        &self.group_info
     }
 
     /// Add the given state to this NFA after allocating a fresh identifier for
@@ -1500,81 +1064,17 @@ impl Inner {
     /// capturing groups in the pattern, including the anonymous first capture
     /// group for each pattern. If a capturing group does have a name, then it
     /// should be provided as a Arc<str>.
-    pub(super) fn set_captures(&mut self, captures: &[Vec<Option<Arc<str>>>]) {
-        // IDEA: I wonder if it makes sense to split this routine up by
-        // defining smaller mutator methods. We are manipulating a lot of state
-        // here, and the code below looks fairly hairy.
-
-        // CaptureSlots::new(
-        // captures.iter().map(|x| x.iter().map(|y| y.as_ref())),
-        // )
-        // .unwrap();
-
-        assert!(
-            self.states.is_empty(),
-            "set_captures must be called before adding states",
-        );
-        let numpats = captures.len();
-        let mut next_slot_pattern = 0usize;
-        // The builder verifies that all capture group indices are valid with
-        // respect to the number of slots required, so this unwrap is OK.
-        let mut next_slot_group = numpats.checked_mul(2).unwrap();
-        for (pid, groups) in captures.iter().with_pattern_ids() {
-            assert_eq!(
-                pid.as_usize(),
-                self.capture_name_to_index.len(),
-                "pattern IDs should be in correspondence",
-            );
-
-            let mut slots = vec![next_slot_pattern];
-            self.memory_extra += mem::size_of::<usize>();
-            // Since next_slot_group will always be greater and we know it's
-            // valid, we know that adding 2 `numpats` times will always
-            // succeed.
-            next_slot_pattern = next_slot_pattern.checked_add(2).unwrap();
-            self.capture_slot_len =
-                cmp::max(self.capture_slot_len, next_slot_pattern);
-            self.capture_name_to_index.push(CaptureNameMap::new());
-            self.capture_index_to_name.push(vec![None]);
-            self.memory_extra += mem::size_of::<Option<Arc<str>>>();
-            // Since we added group[0] above (corresponding to the capture for
-            // the entire pattern), we skip that here.
-            for (cap_idx, group_name) in groups.iter().enumerate().skip(1) {
-                slots.push(next_slot_group);
-                self.memory_extra += mem::size_of::<usize>();
-                // As above, we know all capture indices are valid.
-                next_slot_group = next_slot_group.checked_add(2).unwrap();
-                self.capture_slot_len =
-                    cmp::max(self.capture_slot_len, next_slot_group);
-                if let Some(ref name) = group_name {
-                    // The NFA builder returns an error if a duplicate capture
-                    // group name is inserted, so we can assert that it doesn't
-                    // happen here.
-                    assert!(
-                        !self.capture_name_to_index[pid].contains_key(&*name),
-                        "duplicate group name '{}' found for pattern {}",
-                        name,
-                        pid.as_usize(),
-                    );
-                    self.capture_name_to_index[pid]
-                        .insert(Arc::clone(name), cap_idx);
-                    // Since we're using a hash/btree map, these are more
-                    // like minimum amounts of memory used rather than known
-                    // actual memory used. (Where actual memory used is an
-                    // implementation detail of the hash/btree map itself.)
-                    self.memory_extra += mem::size_of::<Arc<str>>();
-                    self.memory_extra += mem::size_of::<usize>();
-                }
-                assert_eq!(
-                    cap_idx,
-                    self.capture_index_to_name[pid].len(),
-                    "capture indices should be in correspondence",
-                );
-                self.capture_index_to_name[pid].push(group_name.clone());
-                self.memory_extra += mem::size_of::<Option<Arc<str>>>();
-            }
-            self.capture_to_slots.push(slots);
-        }
+    ///
+    /// This returns an error if a corresponding `GroupInfo` could not be
+    /// built.
+    pub(super) fn set_captures(
+        &mut self,
+        captures: &[Vec<Option<Arc<str>>>],
+    ) -> Result<(), GroupInfoError> {
+        self.group_info = GroupInfo::new(
+            captures.iter().map(|x| x.iter().map(|y| y.as_ref())),
+        )?;
+        Ok(())
     }
 
     /// Remap the transitions in every state of this NFA using the given map.
@@ -2280,68 +1780,6 @@ impl<'a> Iterator for PatternIter<'a> {
     }
 }
 
-/// An iterator over capturing groups and their names for a specific pattern.
-///
-/// This iterator is created by [`NFA::pattern_capture_names`].
-///
-/// The lifetime parameter `'a` refers to the lifetime of the NFA from which
-/// this pattern iterator was created.
-#[derive(Debug)]
-pub struct PatternCaptureNames<'a> {
-    it: core::slice::Iter<'a, Option<Arc<str>>>,
-}
-
-impl<'a> Iterator for PatternCaptureNames<'a> {
-    type Item = Option<&'a str>;
-
-    fn next(&mut self) -> Option<Option<&'a str>> {
-        self.it.next().map(|x| x.as_deref())
-    }
-}
-
-/// An iterator over capturing groups and their names for an entire [`NFA`].
-///
-/// This iterator is created by [`NFA::all_capture_names`].
-///
-/// The lifetime parameter `'a` refers to the lifetime of the NFA from which
-/// this pattern iterator was created.
-#[derive(Debug)]
-pub struct AllCaptureNames<'a> {
-    nfa: &'a NFA,
-    pids: PatternIDIter,
-    current_pid: Option<PatternID>,
-    names: Option<core::iter::Enumerate<PatternCaptureNames<'a>>>,
-}
-
-impl<'a> Iterator for AllCaptureNames<'a> {
-    type Item = (PatternID, usize, Option<&'a str>);
-
-    fn next(&mut self) -> Option<(PatternID, usize, Option<&'a str>)> {
-        // If the NFA has no captures, then we never have anything to yield. We
-        // need to consider this case explicitly (at time of writing) because
-        // 'pattern_capture_names' will panic if captures aren't enabled.
-        if self.nfa.0.capture_index_to_name.is_empty() {
-            return None;
-        }
-        if self.current_pid.is_none() {
-            self.current_pid = Some(self.pids.next()?);
-        }
-        let pid = self.current_pid.unwrap();
-        if self.names.is_none() {
-            self.names = Some(self.nfa.pattern_capture_names(pid).enumerate());
-        }
-        let (group_index, name) = match self.names.as_mut().unwrap().next() {
-            Some((group_index, name)) => (group_index, name),
-            None => {
-                self.current_pid = None;
-                self.names = None;
-                return self.next();
-            }
-        };
-        Some((pid, group_index, name))
-    }
-}
-
 /// The span offsets of capturing groups after a match has been found.
 ///
 /// This type represents the primary output of NFA-based regex engines like
@@ -2485,7 +1923,7 @@ impl Captures {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new(nfa: NFA) -> Captures {
-        let slots = nfa.capture_slot_len();
+        let slots = nfa.group_info().slot_len();
         Captures { nfa, pid: None, slots: vec![None; slots] }
     }
 
@@ -2713,7 +2151,8 @@ impl Captures {
     #[inline]
     pub fn get_group(&self, index: usize) -> Option<Span> {
         let pid = self.pattern()?;
-        let (slot_start, slot_end) = self.nfa.slots(pid, index)?;
+        let (slot_start, slot_end) =
+            self.nfa.group_info().slots(pid, index)?;
         let start = self.slots.get(slot_start).copied()??;
         let end = self.slots.get(slot_end).copied()??;
         Some(Span { start: start.get(), end: end.get() })
@@ -2757,7 +2196,7 @@ impl Captures {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn get_group_by_name(&self, name: &str) -> Option<Span> {
-        let index = self.nfa.capture_name_to_index(self.pattern()?, name)?;
+        let index = self.nfa.group_info().to_index(self.pattern()?, name)?;
         self.get_group(index)
     }
 
@@ -2826,7 +2265,7 @@ impl Captures {
     pub fn iter(&self) -> CapturesPatternIter<'_> {
         let names = self
             .pattern()
-            .map(|pid| self.nfa.pattern_capture_names(pid).enumerate());
+            .map(|pid| self.nfa.group_info().pattern_names(pid).enumerate());
         CapturesPatternIter { caps: self, names }
     }
 
@@ -2864,7 +2303,7 @@ impl Captures {
             None => return 0,
             Some(pid) => pid,
         };
-        self.nfa.pattern_capture_len(pid)
+        self.nfa.group_info().group_len(pid)
     }
 }
 
@@ -3008,76 +2447,6 @@ impl Captures {
     pub fn slots_mut(&mut self) -> &mut [Option<NonMaxUsize>] {
         &mut self.slots
     }
-
-    /*
-    /// Return the slot value corresponding to the given index.
-    ///
-    /// A "slot" represents one half of the offsets for a capturing group, and
-    /// the name comes from the [`State::Capture`] state of an NFA. All valid
-    /// `Captures` values must have both slots for a capturing group set to
-    /// `None` or both set to a non-`None` value.
-    ///
-    /// # Panics
-    ///
-    /// This panics if the given `slot` is not valid. A `slot` is valid if
-    /// and only if `slot < caps.slot_len()`.
-    ///
-    /// # Example
-    ///
-    /// This example shows how to use the lower level slot API to access span
-    /// offsets in a `Captures` value. Recall that the way slot indices are
-    /// assigned to capturing groups is specifically an implementation detail.
-    /// The only way to map between them is through the [`NFA::slot`] or
-    /// [`NFA::slots`] routines.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
-    ///
-    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
-    /// let (slot_start, slot_end) =
-    ///     vm.get_nfa().slots(PatternID::ZERO, 0).unwrap();
-    ///
-    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
-    /// assert!(caps.is_match());
-    /// assert_eq!(Some(0), caps.get_slot(slot_start));
-    /// assert_eq!(Some(17), caps.get_slot(slot_end));
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn get_slot(&mut self, slot: usize) -> Option<usize> {
-        self.slots[slot].map(|s| s.get())
-    }
-
-    /// Set the slot value corresponding to the given index to the given
-    /// offset.
-    ///
-    /// A "slot" represents one half of the offsets for a capturing group, and
-    /// the name comes from the [`State::Capture`] state of an NFA. All valid
-    /// `Captures` values must have both slots for a capturing group set to
-    /// `None` or both set to a non-`None` value.
-    ///
-    /// # Panics
-    ///
-    /// This panics if the given `slot` is not valid. A `slot` is valid if
-    /// and only if `slot < caps.slot_len()`.
-    #[inline]
-    pub fn set_slot(&mut self, slot: usize, at: Option<usize>) {
-        // OK because length of a slice must fit into an isize.
-        self.slots[slot] = at.and_then(NonMaxUsize::new);
-    }
-
-    /// Return the total number of slots used for all patterns that this
-    /// `Captures` value can hold.
-    ///
-    /// This value is equivalent to the sum of all capturing groups across all
-    /// patterns from the originating NFA.
-    #[inline]
-    pub fn slot_len(&self) -> usize {
-        self.slots.len()
-    }
-    */
 }
 
 impl core::fmt::Debug for Captures {
@@ -3101,7 +2470,7 @@ struct CapturesDebugMap<'a> {
 impl<'a> core::fmt::Debug for CapturesDebugMap<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut map = f.debug_map();
-        let mut names = self.caps.nfa.pattern_capture_names(self.pid);
+        let mut names = self.caps.nfa.group_info().pattern_names(self.pid);
         for (group_index, maybe_name) in names.enumerate() {
             let span = self.caps.get_group(group_index);
             let debug_span: &dyn core::fmt::Debug = match span {
@@ -3129,7 +2498,7 @@ impl<'a> core::fmt::Debug for CapturesDebugMap<'a> {
 #[derive(Debug)]
 pub struct CapturesPatternIter<'a> {
     caps: &'a Captures,
-    names: Option<core::iter::Enumerate<PatternCaptureNames<'a>>>,
+    names: Option<core::iter::Enumerate<captures::GroupInfoPatternNames<'a>>>,
 }
 
 impl<'a> Iterator for CapturesPatternIter<'a> {

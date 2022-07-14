@@ -144,7 +144,8 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
             let pid = PatternID::must(pid);
             let nicecaps = format_capture_counts(groups, |i| {
                 vm.get_nfa()
-                    .capture_index_to_name(pid, i)
+                    .group_info()
+                    .to_name(pid, i)
                     .map(|n| n.to_string())
             });
             table.add(&format!("counts({})", pid.as_usize()), nicecaps);
@@ -196,7 +197,7 @@ fn search_pikevm(
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; vm.get_nfa().pattern_len()];
     for pid in vm.get_nfa().patterns() {
-        counts[pid] = vec![0; vm.get_nfa().pattern_capture_len(pid)];
+        counts[pid] = vec![0; vm.get_nfa().group_info().group_len(pid)];
     }
     match captures.kind() {
         config::SearchKind::Earliest | config::SearchKind::Leftmost => {
@@ -288,7 +289,7 @@ fn write_thompson_captures(
             write!(buf, ", ").unwrap();
         }
         write!(buf, "{}", group_index).unwrap();
-        if let Some(name) = nfa.capture_index_to_name(pid, group_index) {
+        if let Some(name) = nfa.group_info().to_name(pid, group_index) {
             write!(buf, "/{}", name).unwrap();
         }
         match span {
