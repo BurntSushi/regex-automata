@@ -10,12 +10,10 @@ Currently, this module supports iteration over any regex engine that works
 with the [`HalfMatch`], [`Match`] or [`Captures`] types.
 */
 
-use crate::{
-    nfa::thompson::Captures,
-    util::{
-        prefilter,
-        search::{HalfMatch, Input, Match, MatchError},
-    },
+use crate::util::{
+    captures::Captures,
+    prefilter,
+    search::{HalfMatch, Input, Match, MatchError},
 };
 
 /// A searcher for creating iterators and performing lower level iteration.

@@ -13,8 +13,9 @@ because it does less book-keeping.
 use alloc::sync::Arc;
 
 use crate::{
-    nfa::thompson::{self, Captures, State, NFA},
+    nfa::thompson::{self, State, NFA},
     util::{
+        captures::Captures,
         iter,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, SmallIndex, StateID},
@@ -817,7 +818,7 @@ impl BoundedBacktracker {
     /// alternative constructors that permit the `BoundedBacktracker` to do
     /// less work during a search, and thus might make it faster.
     pub fn create_captures(&self) -> Captures {
-        Captures::new(self.get_nfa().clone())
+        Captures::new(self.get_nfa().group_info().clone())
     }
 
     /// Reset the given cache such that it can be used for searching with the
@@ -1096,7 +1097,9 @@ impl BoundedBacktracker {
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
-        let caps = Captures::new_for_matches_only(self.get_nfa().clone());
+        let caps = Captures::new_for_matches_only(
+            self.get_nfa().group_info().clone(),
+        );
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, caps, it }
     }
@@ -1179,7 +1182,7 @@ impl BoundedBacktracker {
         haystack: H,
     ) -> Result<bool, MatchError> {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        let mut caps = Captures::empty(self.nfa.clone());
+        let mut caps = Captures::empty(self.get_nfa().group_info().clone());
         self.try_search(cache, &input, &mut caps)?;
         Ok(caps.is_match())
     }
@@ -1223,7 +1226,9 @@ impl BoundedBacktracker {
         haystack: &'h H,
     ) -> TryFindMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
-        let caps = Captures::new_for_matches_only(self.get_nfa().clone());
+        let caps = Captures::new_for_matches_only(
+            self.get_nfa().group_info().clone(),
+        );
         let it = iter::Searcher::new(input);
         TryFindMatches { re: self, cache, caps, it }
     }

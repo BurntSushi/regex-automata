@@ -91,7 +91,7 @@ fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::nfa::thompson::{pikevm::PikeVM, Captures};
+    use automata::{nfa::thompson::pikevm::PikeVM, util::captures::Captures};
 
     let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
         let re = PikeVM::builder()
@@ -99,7 +99,8 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
             .syntax(new::automata_syntax_config(b))
             .build(pattern)?;
         let mut cache = re.create_cache();
-        let mut caps = Captures::new_for_matches_only(re.get_nfa().clone());
+        let mut caps =
+            Captures::new_for_matches_only(re.get_nfa().group_info().clone());
         let find = move |h: &[u8]| -> anyhow::Result<Option<(usize, usize)>> {
             re.find(&mut cache, h, &mut caps);
             Ok(caps.get_match().map(|m| (m.start(), m.end())))

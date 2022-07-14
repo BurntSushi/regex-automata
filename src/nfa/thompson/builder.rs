@@ -826,8 +826,11 @@ impl Builder {
     /// use std::sync::Arc;
     ///
     /// use regex_automata::{
-    ///     nfa::thompson::{pikevm::PikeVM, Builder, Captures, Transition},
-    ///     util::primitives::{PatternID, StateID},
+    ///     nfa::thompson::{pikevm::PikeVM, Builder, Transition},
+    ///     util::{
+    ///         captures::Captures,
+    ///         primitives::{PatternID, StateID},
+    ///     },
     ///     Span,
     /// };
     ///

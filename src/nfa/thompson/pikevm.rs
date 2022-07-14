@@ -14,8 +14,9 @@ use alloc::{
 };
 
 use crate::{
-    nfa::thompson::{self, Captures, Error, State, NFA},
+    nfa::thompson::{self, Error, State, NFA},
     util::{
+        captures::Captures,
         iter,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
@@ -738,7 +739,7 @@ impl PikeVM {
     /// explanation of its alternative constructors that permit the `PikeVM` to
     /// do less work during a search, and thus might make it faster.
     pub fn create_captures(&self) -> Captures {
-        Captures::new(self.get_nfa().clone())
+        Captures::new(self.get_nfa().group_info().clone())
     }
 
     /// Reset the given cache such that it can be used for searching with the
@@ -865,7 +866,7 @@ impl PikeVM {
         haystack: H,
     ) -> bool {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        let mut caps = Captures::empty(self.nfa.clone());
+        let mut caps = Captures::empty(self.get_nfa().group_info().clone());
         self.search(cache, &input, &mut caps);
         caps.is_match()
     }
@@ -950,7 +951,9 @@ impl PikeVM {
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
-        let caps = Captures::new_for_matches_only(self.get_nfa().clone());
+        let caps = Captures::new_for_matches_only(
+            self.get_nfa().group_info().clone(),
+        );
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, caps, it }
     }

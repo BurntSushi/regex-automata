@@ -1,5 +1,5 @@
 #[cfg(not(miri))]
-use regex_automata::nfa::thompson::Captures;
+use regex_automata::util::captures::Captures;
 
 mod backtrack;
 mod pikevm;

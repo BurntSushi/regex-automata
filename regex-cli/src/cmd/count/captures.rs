@@ -277,7 +277,7 @@ fn write_api_captures(caps: &regex::bytes::Captures, buf: &mut String) {
 
 fn write_thompson_captures(
     nfa: &automata::nfa::thompson::NFA,
-    caps: &automata::nfa::thompson::Captures,
+    caps: &automata::util::captures::Captures,
     buf: &mut String,
 ) {
     use std::fmt::Write;
