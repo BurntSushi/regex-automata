@@ -15,6 +15,7 @@ create issues for this release unless it's for a critical bug.
 // #![deny(missing_docs)]
 #![doc(test(attr(deny(warnings))))]
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(not(any(
     target_pointer_width = "16",
