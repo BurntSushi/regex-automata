@@ -17,6 +17,7 @@ mod compile;
 mod count;
 mod count_captures;
 mod grep;
+mod grep_captures;
 mod new;
 mod regexredux;
 
@@ -835,6 +836,21 @@ impl BenchmarkDef {
                     "'grep' benchmarks must not have 'capture-count' set",
                 );
             }
+            BenchmarkType::GrepCaptures => {
+                anyhow::ensure!(
+                    self.line_count.is_some(),
+                    "'grep-captures' benchmarks must have 'line-count' set",
+                );
+                anyhow::ensure!(
+                    self.capture_count.is_some(),
+                    "'grep-captures' benchmarks must have 'capture-count' set",
+                );
+                anyhow::ensure!(
+                    self.match_count.is_none(),
+                    "'grep-captures' benchmarks must not have \
+                     'match-count' set",
+                );
+            }
             BenchmarkType::RegexRedux => {
                 anyhow::ensure!(
                     self.regex.is_empty(),
@@ -918,6 +934,10 @@ enum BenchmarkType {
     /// to search every line in the haystack. The regex engine must correctly
     /// report how many lines match.
     Grep,
+    /// Like 'Count', except this counts both the number of lines matched and
+    /// the total number of capturing groups matched. This benchmark only
+    /// includes regex engines that can return capture group spans.
+    GrepCaptures,
     /// This is the 'regex-redux' benchmark[1] from The Benchmark Game.
     ///
     /// Since this benchmark is more than just a simple match count, it
@@ -938,6 +958,7 @@ impl std::fmt::Display for BenchmarkType {
             Count => write!(f, "count"),
             CountCaptures => write!(f, "count-captures"),
             Grep => write!(f, "grep"),
+            GrepCaptures => write!(f, "grep-captures"),
             RegexRedux => write!(f, "regex-redux"),
         }
     }
@@ -997,6 +1018,7 @@ impl Benchmark {
             BenchmarkType::Count => count::run(self),
             BenchmarkType::CountCaptures => count_captures::run(self),
             BenchmarkType::Grep => grep::run(self),
+            BenchmarkType::GrepCaptures => grep_captures::run(self),
             BenchmarkType::RegexRedux => regexredux::run(self),
         }
     }

@@ -328,3 +328,19 @@ engines = [
   'pcre2/api/nojit',
 ]
 analysis = 'TODO'
+
+[[benches]]
+type = "count-captures"
+name = "contiguous-letters"
+regex = '(?:(a+)|(b+)|(c+)|(d+)|(e+)|(f+)|(g+)|(h+)|(i+)|(j+)|(k+)|(l+)|(m+)|(n+)|(o+)|(p+)|(q+)|(r+)|(s+)|(t+)|(u+)|(v+)|(w+)|(x+)|(y+)|(z+))'
+haystack-path = "opensubtitles/en-medium.txt"
+case-insensitive = false
+unicode = false
+capture-count = 81_494
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

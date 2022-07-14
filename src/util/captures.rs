@@ -106,20 +106,6 @@ use crate::util::{
 /// ```
 #[derive(Clone)]
 pub struct Captures {
-    // FIXME: Consider (again) re-orienting this type such that it only has
-    // enough slots to store the pattern with the greatest number of groups.
-    // Since the public API only supports accessing groups for a specific
-    // pattern (other than the lower level slot API), this is OK.
-    //
-    // Main advantage is that accessing a group from a group index becomes much
-    // more straightforward. You don't need any lookup tables. You just do
-    // (group_index * 2, group_index * 2 + 1).
-    //
-    // Main downside is that you can't write directly to a 'Captures' given a
-    // slot index from an 'State::Capture'. The PikeVM doesn't even try that
-    // anyway, but the backtracker does. So the backtracker will need an extra
-    // copy I guess. Both will need some way to copy matching slots values to a
-    // 'Captures', but I think all of the necessary info is already on the NFA.
     group_info: GroupInfo,
     pid: Option<PatternID>,
     slots: Vec<Option<NonMaxUsize>>,
@@ -403,7 +389,14 @@ impl Captures {
     #[inline]
     pub fn get_group(&self, index: usize) -> Option<Span> {
         let pid = self.pattern()?;
-        let (slot_start, slot_end) = self.group_info().slots(pid, index)?;
+        // There's a little bit of work needed to map captures to slots in the
+        // fully general case. But in the overwhelming common case of a single
+        // pattern, we can just do some simple arithmetic.
+        let (slot_start, slot_end) = if self.group_info().pattern_len() == 1 {
+            (index * 2, index * 2 + 1)
+        } else {
+            self.group_info().slots(pid, index)?
+        };
         let start = self.slots.get(slot_start).copied()??;
         let end = self.slots.get(slot_end).copied()??;
         Some(Span { start: start.get(), end: end.get() })
