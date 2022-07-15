@@ -76,3 +76,60 @@ engines = [
   'pcre2/api/nojit',
 ]
 analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "overlapping-words-unicode"
+regex = '(\pL{10})|(\pL{9})|(\pL{8})|(\pL{7})|(\pL{6})|(\pL{5})'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = true
+line-count = 129_089
+capture-count = 673_588
+engines = [
+  # 'regex/api', # abysmally slow
+  # 'regex/automata/backtrack', # haystack is too big
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "overlapping-words-russian"
+regex = '(\pL{10})|(\pL{9})|(\pL{8})|(\pL{7})|(\pL{6})|(\pL{5})'
+haystack-path = "opensubtitles/ru-medium.txt"
+case-insensitive = false
+unicode = true
+line-count = 1_207
+capture-count = 5_718
+engines = [
+  'regex/api',
+  # 'regex/automata/backtrack', # haystack is too big
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "overlapping-words-ascii"
+regex = '([A-Za-z]{10})|([A-Za-z]{9})|([A-Za-z]{8})|([A-Za-z]{7})|([A-Za-z]{6})|([A-Za-z]{5})'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = true
+line-count = 129_073
+capture-count = 673_432
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
