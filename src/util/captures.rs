@@ -8,12 +8,6 @@ use crate::util::{
     search::{Match, Span},
 };
 
-// BREADCRUMBS: Bring 'Captures' type in here, since we should now be able
-// to couple it with 'GroupInfo' instead of 'thompson::NFA'. Indeed, all
-// references to 'nfa' inside of the 'Captures' impl are just to call
-// 'nfa.group_info()'. So the de-coupling is done. Now we just need to
-// rejigger things.
-//
 // We should also continue to think about whether to offer search APIs
 // that just take a `&mut [Option<NonMaxUsize>]` and also return a
 // `Option<PatternID>`. It does mean you don't need a heap alloc for simple
@@ -33,23 +27,24 @@ use crate::util::{
 ///
 /// Values of this type are always created for a specific [`GroupInfo`]. It is
 /// unspecified behavior to use a `Captures` value in a search with any regex
-/// engine that has a different `GroupInfo` than the one it was created with.
+/// engine that has a different `GroupInfo` than the one the `Captures` were
+/// created with.
 ///
 /// # Constructors
 ///
 /// There are three constructors for this type that control what kind of
 /// information is available upon a match:
 ///
-/// * [`Captures::new`]: Will store overall pattern match offsets in addition
+/// * [`Captures::all`]: Will store overall pattern match offsets in addition
 /// to the offsets of capturing groups that participated in the match.
-/// * [`Captures::new_for_matches_only`]: Will store only the overall pattern
+/// * [`Captures::matches`]: Will store only the overall pattern
 /// match offsets. The offsets of capturing groups (even ones that participated
 /// in the match) are not available.
 /// * [`Captures::empty`]: Will only store the pattern ID that matched. No
 /// match offsets are available at all.
 ///
 /// If you aren't sure which to choose, then pick the first one. The first one
-/// is what the convenience routine,
+/// is what convenience routines like,
 /// [`PikeVM::create_captures`](crate::nfa::thompson::pikevm::PikeVM::create_captures),
 /// will use automatically.
 ///
@@ -62,8 +57,8 @@ use crate::util::{
 /// It is worth pointing out that this type is not coupled to any one specific
 /// regex engine. Instead, its coupling is with [`GroupInfo`], which is the
 /// thing that is responsible for mapping capturing groups to "slot" offsets.
-/// Slot offsets are indices into a single sequence of memory at which offsets
-/// are written by regex engines.
+/// Slot offsets are indices into a single sequence of memory at which matching
+/// haystack offsets for the corresponding group are written by regex engines.
 ///
 /// # Example
 ///
@@ -106,8 +101,47 @@ use crate::util::{
 /// ```
 #[derive(Clone)]
 pub struct Captures {
+    /// The group info that these capture groups are coupled to. This is what
+    /// gives the "convenience" of the `Captures` API. Namely, it provides the
+    /// slot mapping and the name|-->index mapping for capture lookups by name.
     group_info: GroupInfo,
+    /// The ID of the pattern that matched. Regex engines must set this to
+    /// None when no match occurs.
     pid: Option<PatternID>,
+    /// The slot values, i.e., submatch offsets.
+    ///
+    /// In theory, the smallest sequence of slots would be something like
+    /// `max(groups(pattern) for pattern in regex) * 2`, but instead, we use
+    /// `sum(groups(pattern) for pattern in regex) * 2`. Why?
+    ///
+    /// Well, the former could be used in theory, because we don't generally
+    /// have any overlapping APIs that involve capturing groups. Therefore,
+    /// there's technically never any need to have slots set for multiple
+    /// patterns. However, this might change some day, in which case, we would
+    /// need to have slots available.
+    ///
+    /// The other reason is that during the execution of some regex engines,
+    /// there exists a point in time where multiple slots for different
+    /// patterns may be written to before knowing which pattern has matched.
+    /// Therefore, the regex engines themselves, in order to support multiple
+    /// patterns correctly, must have all slots available. If `Captures`
+    /// doesn't have all slots available, then regex engines can't write
+    /// directly into the caller provided `Captures` and must instead write
+    /// into some other storage and then copy the slots involved in the match
+    /// at the end of the search.
+    ///
+    /// So overall, at least as of the time of writing, it seems like the path
+    /// of least resistance is to just require allocating all possible slots
+    /// instead of the conceptual minimum. Another way to justify this is that
+    /// the most common case is a single pattern, in which case, there is no
+    /// inefficiency here since the 'max' and 'sum' calculations above are
+    /// equivalent in that case.
+    ///
+    /// N.B. The mapping from group index to slot is maintained by `GroupInfo`
+    /// and is considered an API guarantee. See `GroupInfo` for more details on
+    /// that mapping.
+    ///
+    /// N.B. `Option<NonMaxUsize>` has the same size as a `usize`.
     slots: Vec<Option<NonMaxUsize>>,
 }
 
@@ -115,7 +149,7 @@ impl Captures {
     /// Create new storage for the offsets of all matching capturing groups.
     ///
     /// This routine provides the most information for matches---namely, the
-    /// match spans of capturing groups---but also requires the regex search
+    /// spans of matching capturing groups---but also requires the regex search
     /// routines to do the most work.
     ///
     /// It is unspecified behavior to use the returned `Captures` value in a
@@ -139,7 +173,7 @@ impl Captures {
     ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
     /// )?;
     /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::new(vm.get_nfa().group_info().clone());
+    /// let mut caps = Captures::all(vm.get_nfa().group_info().clone());
     ///
     /// vm.find(&mut cache, "ABC123", &mut caps);
     /// assert!(caps.is_match());
@@ -151,7 +185,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new(group_info: GroupInfo) -> Captures {
+    pub fn all(group_info: GroupInfo) -> Captures {
         let slots = group_info.slot_len();
         Captures { group_info, pid: None, slots: vec![None; slots] }
     }
@@ -180,9 +214,7 @@ impl Captures {
     ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
     /// )?;
     /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::new_for_matches_only(
-    ///     vm.get_nfa().group_info().clone(),
-    /// );
+    /// let mut caps = Captures::matches(vm.get_nfa().group_info().clone());
     ///
     /// vm.find(&mut cache, "ABC123", &mut caps);
     /// assert!(caps.is_match());
@@ -194,7 +226,7 @@ impl Captures {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new_for_matches_only(group_info: GroupInfo) -> Captures {
+    pub fn matches(group_info: GroupInfo) -> Captures {
         // This is OK because we know there are at least this many slots,
         // and GroupInfo construction guarantees that the number of slots fits
         // into a usize.
@@ -278,7 +310,8 @@ impl Captures {
     /// always returns `None`.
     ///
     /// This returns a pattern ID in precisely the cases in which `is_match`
-    /// returns `true`.
+    /// returns `true`. Similarly, the pattern ID returned is always the
+    /// same pattern ID found in the `Match` returned by `get_match`.
     ///
     /// # Example
     ///
@@ -343,25 +376,25 @@ impl Captures {
     /// index given, only if both the overall pattern matched and the capturing
     /// group participated in that match.
     ///
-    /// This returns `None` if `index` is invalid. `index` is valid if and
-    /// only if it's less than [`Captures::group_len`].
+    /// This returns `None` if `index` is invalid. `index` is valid if and only
+    /// if it's less than [`Captures::group_len`] for the matching pattern.
     ///
     /// This always returns `None` when `Captures` was created with
     /// [`Captures::empty`], even if a match was found. This also always
     /// returns `None` for any `index > 0` when `Captures` was created with
-    /// [`Captures::new_for_matches_only`].
+    /// [`Captures::matches`].
     ///
     /// If this routine returns a non-`None` value, then `is_match` is
     /// guaranteed to return `true`, `pattern` is guaranteed to return a
     /// non-`None` value and `get_match` is guaranteed to return a non-`None`
     /// value.
     ///
-    /// By convention, the 0th capture group will always return the same span
-    /// as the span returned by `get_match`. This is because the 0th capture
-    /// group always corresponds to the entirety of the pattern's match.
-    /// (It is similarly always unnamed because it is implicit.) This isn't
-    /// necessarily true of all regex engines. For example, one can hand-compile
-    /// a [`thompson::NFA`](crate::nfa::thompson::NFA) via a
+    /// By convention, the 0th capture group will always return the same
+    /// span as the span returned by `get_match`. This is because the 0th
+    /// capture group always corresponds to the entirety of the pattern's
+    /// match. (It is similarly always unnamed because it is implicit.) This
+    /// isn't necessarily true of all regex engines. For example, one can
+    /// hand-compile a [`thompson::NFA`](crate::nfa::thompson::NFA) via a
     /// [`thompson::Builder`](crate::nfa::thompson::Builder), which isn't
     /// technically forced to make the 0th capturing group always correspond to
     /// the entire match.
@@ -412,7 +445,7 @@ impl Captures {
     /// This always returns `None` when `Captures` was created with
     /// [`Captures::empty`], even if a match was found. This also always
     /// returns `None` for any `index > 0` when `Captures` was created with
-    /// [`Captures::new_for_matches_only`].
+    /// [`Captures::matches`].
     ///
     /// If this routine returns a non-`None` value, then `is_match` is
     /// guaranteed to return `true`, `pattern` is guaranteed to return a
@@ -553,8 +586,54 @@ impl Captures {
     /// Returns a reference to the underlying group info on which these
     /// captures are based.
     ///
+    /// The difference between `GroupInfo` and `Captures` is that the former
+    /// defines the structure of capturing groups where as the latter is what
+    /// stores the actual match information. So where as `Captures` only gives
+    /// you access to the current match, `GroupInfo` lets you query any
+    /// information about all capturing groups, even ones for patterns that
+    /// weren't involved in a match.
+    ///
     /// Note that a `GroupInfo` uses reference counting internally, so it may
     /// be cloned cheaply.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to get all capturing group names from the
+    /// underlying `GroupInfo`. Notice that we don't even need to run a
+    /// search.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
+    ///
+    /// let vm = PikeVM::new_many(&[
+    ///     r"(?P<foo>a)",
+    ///     r"(a)(b)",
+    ///     r"ab",
+    ///     r"(?P<bar>a)(?P<quux>a)",
+    ///     r"(?P<foo>z)",
+    /// ])?;
+    /// let caps = vm.create_captures();
+    ///
+    /// let expected = vec![
+    ///     (PatternID::must(0), 0, None),
+    ///     (PatternID::must(0), 1, Some("foo")),
+    ///     (PatternID::must(1), 0, None),
+    ///     (PatternID::must(1), 1, None),
+    ///     (PatternID::must(1), 2, None),
+    ///     (PatternID::must(2), 0, None),
+    ///     (PatternID::must(3), 0, None),
+    ///     (PatternID::must(3), 1, Some("bar")),
+    ///     (PatternID::must(3), 2, Some("quux")),
+    ///     (PatternID::must(4), 0, None),
+    ///     (PatternID::must(4), 1, Some("foo")),
+    /// ];
+    /// // We could also just use 'vm.get_nfa().group_info()'.
+    /// let got: Vec<(PatternID, usize, Option<&str>)> =
+    ///     caps.group_info().all_names().collect();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn group_info(&self) -> &GroupInfo {
         &self.group_info
     }
@@ -635,6 +714,10 @@ impl Captures {
     /// When the pattern ID is `None`, then this `Captures` value does not
     /// correspond to a match (`is_match` will return `false`). Otherwise, it
     /// corresponds to a match.
+    ///
+    /// This is useful in search implementations where you might want to
+    /// initially call `set_pattern(None)` in order to avoid the cost of
+    /// calling `clear()` if it turns out to not be necessary.
     ///
     /// # Example
     ///

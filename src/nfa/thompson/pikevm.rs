@@ -734,12 +734,12 @@ impl PikeVM {
     /// A `Captures` value created for a specific `PikeVM` cannot be used with
     /// any other `PikeVM`.
     ///
-    /// This is a convenience function for [`Captures::new`], called with the
-    /// NFA used by this Pike VM. See the [`Captures`] documentation for an
-    /// explanation of its alternative constructors that permit the `PikeVM` to
-    /// do less work during a search, and thus might make it faster.
+    /// This is a convenience function for [`Captures::all`]. See the
+    /// [`Captures`] documentation for an explanation of its alternative
+    /// constructors that permit the `PikeVM` to do less work during a search,
+    /// and thus might make it faster.
     pub fn create_captures(&self) -> Captures {
-        Captures::new(self.get_nfa().group_info().clone())
+        Captures::all(self.get_nfa().group_info().clone())
     }
 
     /// Reset the given cache such that it can be used for searching with the
@@ -951,9 +951,7 @@ impl PikeVM {
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
-        let caps = Captures::new_for_matches_only(
-            self.get_nfa().group_info().clone(),
-        );
+        let caps = Captures::matches(self.get_nfa().group_info().clone());
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, caps, it }
     }

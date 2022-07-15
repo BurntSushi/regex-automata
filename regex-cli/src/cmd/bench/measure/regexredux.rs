@@ -99,8 +99,7 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
             .syntax(new::automata_syntax_config(b))
             .build(pattern)?;
         let mut cache = re.create_cache();
-        let mut caps =
-            Captures::new_for_matches_only(re.get_nfa().group_info().clone());
+        let mut caps = Captures::matches(re.get_nfa().group_info().clone());
         let find = move |h: &[u8]| -> anyhow::Result<Option<(usize, usize)>> {
             re.find(&mut cache, h, &mut caps);
             Ok(caps.get_match().map(|m| (m.start(), m.end())))

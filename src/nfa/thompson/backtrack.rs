@@ -18,7 +18,7 @@ use crate::{
         captures::Captures,
         iter,
         prefilter::Prefilter,
-        primitives::{NonMaxUsize, SmallIndex, StateID},
+        primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
     },
     Input, Match, MatchError, MatchKind,
 };
@@ -814,11 +814,12 @@ impl BoundedBacktracker {
     /// A `Captures` value created for a specific `BoundedBacktracker` cannot
     /// be used with any other `BoundedBacktracker`.
     ///
-    /// See the [`Captures`] documentation for an explanation of its
-    /// alternative constructors that permit the `BoundedBacktracker` to do
-    /// less work during a search, and thus might make it faster.
+    /// This is a convenience function for [`Captures::all`]. See the
+    /// [`Captures`] documentation for an explanation of its alternative
+    /// constructors that permit the `BoundedBacktracker` to do less work
+    /// during a search, and thus might make it faster.
     pub fn create_captures(&self) -> Captures {
-        Captures::new(self.get_nfa().group_info().clone())
+        Captures::all(self.get_nfa().group_info().clone())
     }
 
     /// Reset the given cache such that it can be used for searching with the
@@ -1097,9 +1098,7 @@ impl BoundedBacktracker {
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
-        let caps = Captures::new_for_matches_only(
-            self.get_nfa().group_info().clone(),
-        );
+        let caps = Captures::matches(self.get_nfa().group_info().clone());
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, caps, it }
     }
@@ -1182,9 +1181,7 @@ impl BoundedBacktracker {
         haystack: H,
     ) -> Result<bool, MatchError> {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        let mut caps = Captures::empty(self.get_nfa().group_info().clone());
-        self.try_search(cache, &input, &mut caps)?;
-        Ok(caps.is_match())
+        self.try_search_slots(cache, &input, &mut []).map(|pid| pid.is_some())
     }
 
     /// Executes a leftmost forward search and writes the spans of capturing
@@ -1226,9 +1223,7 @@ impl BoundedBacktracker {
         haystack: &'h H,
     ) -> TryFindMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
-        let caps = Captures::new_for_matches_only(
-            self.get_nfa().group_info().clone(),
-        );
+        let caps = Captures::matches(self.get_nfa().group_info().clone());
         let it = iter::Searcher::new(input);
         TryFindMatches { re: self, cache, caps, it }
     }
@@ -1403,18 +1398,110 @@ impl BoundedBacktracker {
         input: &Input<'_, '_>,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
-        self.search_imp(cache, input, caps)?;
-        let m = match caps.get_match() {
-            None => return Ok(()),
-            Some(m) => m,
-        };
-        if m.is_empty() {
-            input.skip_empty_utf8_splits(m, |search| {
-                self.search_imp(cache, search, caps)?;
-                Ok(caps.get_match())
-            })?;
-        }
+        caps.set_pattern(None);
+        let pid = self.try_search_slots(cache, input, caps.slots_mut())?;
+        caps.set_pattern(pid);
         Ok(())
+    }
+
+    /// Executes a leftmost forward search and writes the spans of capturing
+    /// groups that participated in a match into the provided `slots`, and
+    /// returns the matching pattern ID. If no match was found, then `None` is
+    /// returned and the contents of `slots` is unspecified.
+    ///
+    /// This is like [`BoundedBacktracker::try_search`], but it accepts a raw
+    /// slots slice instead of a `Captures` value. This is useful in contexts
+    /// where you don't want or need to allocate a `Captures`.
+    ///
+    /// It is legal to pass _any_ number of slots to this routine. If the regex
+    /// engine would otherwise write a slot offset that doesn't fit in the
+    /// provided slice, then it is simply skipped. In general though, there are
+    /// usually three slice lengths you might want to use:
+    ///
+    /// * An empty slice, if you only care about which pattern matched.
+    /// * A slice with
+    /// [`pattern_len() * 2`](crate::nfa::thompson::NFA::pattern_len)
+    /// slots, if you only care about the overall match spans for each matching
+    /// pattern.
+    /// * A slice with
+    /// [`slot_len()`](crate::util::captures::GroupInfo::slot_len) slots, which
+    /// permits recording match offsets for every capturing group in every
+    /// pattern.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find the overall match offsets in a
+    /// multi-pattern search without allocating a `Captures` value. Indeed, we
+    /// can put our slots right on the stack.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     PatternID, Input,
+    /// };
+    ///
+    /// let re = BoundedBacktracker::new_many(&[
+    ///     r"\pL+",
+    ///     r"\d+",
+    /// ])?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("!@#123");
+    ///
+    /// // We only care about the overall match offsets here, so we just
+    /// // allocate two slots for each pattern. Each slot records the start
+    /// // and end of the match.
+    /// let mut slots = [None; 4];
+    /// let pid = re.try_search_slots(&mut cache, &input, &mut slots)?;
+    /// assert_eq!(Some(PatternID::must(1)), pid);
+    ///
+    /// // The overall match offsets are always at 'pid * 2' and 'pid * 2 + 1'.
+    /// // See 'GroupInfo' for more details on the mapping between groups and
+    /// // slot indices.
+    /// let slot_start = pid.unwrap().as_usize() * 2;
+    /// let slot_end = slot_start + 1;
+    /// assert_eq!(Some(3), slots[slot_start].map(|s| s.get()));
+    /// assert_eq!(Some(6), slots[slot_end].map(|s| s.get()));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn try_search_slots(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
+        let m = match self.search_imp(cache, input, slots)? {
+            None => return Ok(None),
+            Some(pid) => {
+                let slot_start = pid.as_usize() * 2;
+                let slot_end = slot_start + 1;
+                if slot_end >= slots.len() {
+                    return Ok(Some(pid));
+                }
+                // These unwraps are OK because we know we have a match and
+                // we know our caller provided slots are big enough.
+                let start = slots[slot_start].unwrap().get();
+                let end = slots[slot_end].unwrap().get();
+                if start < end {
+                    return Ok(Some(pid));
+                }
+                Match::new(pid, start..end)
+            }
+        };
+        Ok(input
+            .skip_empty_utf8_splits(m, |search| {
+                let pid = match self.search_imp(cache, search, slots)? {
+                    None => return Ok(None),
+                    Some(pid) => pid,
+                };
+                let slot_start = pid.as_usize() * 2;
+                let slot_end = slot_start + 1;
+                let start = slots[slot_start].unwrap().get();
+                let end = slots[slot_end].unwrap().get();
+                Ok(Some(Match::new(pid, start..end)))
+            })?
+            .map(|m| m.pattern()))
     }
 
     /// The implementation of standard leftmost backtracking search.
@@ -1428,17 +1515,22 @@ impl BoundedBacktracker {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        caps: &mut Captures,
-    ) -> Result<(), MatchError> {
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
         // Unlike in the PikeVM, we write our capturing group spans directly
         // into the caller's captures groups. So we have to make sure we're
         // starting with a blank slate first. In the PikeVM, we avoid this
         // by construction: the spans that are copied to every slot in the
-        // 'Captures' value account for presence/absence.
-        caps.clear();
+        // 'Captures' value already account for presence/absence. In this
+        // backtracker, we write directly into the caller provided slots, where
+        // as in the PikeVM, we write into scratch space first and only copy
+        // them to the caller provided slots when a match is found.
+        for slot in slots.iter_mut() {
+            *slot = None;
+        }
         cache.setup_search(&self.nfa, input)?;
         if input.is_done() {
-            return Ok(());
+            return Ok(None);
         }
         let anchored = self.config.get_anchored()
             || self.nfa.is_always_start_anchored()
@@ -1446,24 +1538,24 @@ impl BoundedBacktracker {
         let start_id = match input.get_pattern() {
             // We always use the anchored starting state here, even if doing an
             // unanchored search. The "unanchored" part of it is implemented
-            // in the loop below, by computing the epsilon closure from the
-            // anchored starting state whenever the current state set list is
-            // empty.
+            // in the loop below, by simply trying the next byte offset if the
+            // previous backtracking exploration failed.
             None => self.nfa.start_anchored(),
             Some(pid) => self.nfa.start_pattern(pid),
         };
 
         if anchored {
-            self.backtrack(cache, input, input.start(), start_id, caps);
-            return Ok(());
+            let at = input.start();
+            return Ok(self.backtrack(cache, input, at, start_id, slots));
         }
         for at in input.start()..=input.end() {
-            self.backtrack(cache, input, at, start_id, caps);
-            if caps.is_match() {
-                return Ok(());
+            if let Some(pid) =
+                self.backtrack(cache, input, at, start_id, slots)
+            {
+                return Ok(Some(pid));
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Look for a match starting at `at` in `input` and write the matching
@@ -1479,22 +1571,23 @@ impl BoundedBacktracker {
         input: &Input<'_, '_>,
         at: usize,
         start_id: StateID,
-        caps: &mut Captures,
-    ) {
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
         cache.stack.push(Frame::Step { sid: start_id, at });
         while let Some(frame) = cache.stack.pop() {
             match frame {
                 Frame::Step { sid, at } => {
-                    self.step(cache, input, sid, at, caps);
-                    if caps.is_match() {
-                        return;
+                    if let Some(pid) = self.step(cache, input, sid, at, slots)
+                    {
+                        return Some(pid);
                     }
                 }
                 Frame::RestoreCapture { slot, offset } => {
-                    caps.slots_mut()[slot] = offset;
+                    slots[slot] = offset;
                 }
             }
         }
+        None
     }
 
     // LAMENTATION: The actual backtracking search is implemented in about
@@ -1515,11 +1608,11 @@ impl BoundedBacktracker {
         input: &Input<'_, '_>,
         mut sid: StateID,
         mut at: usize,
-        caps: &mut Captures,
-    ) {
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
         loop {
             if !cache.visited.insert(sid, at) {
-                return;
+                return None;
             }
             match *self.nfa.state(sid) {
                 State::ByteRange { ref trans } => {
@@ -1536,13 +1629,13 @@ impl BoundedBacktracker {
                 }
                 State::Look { look, next } => {
                     if !look.matches(input.haystack(), at) {
-                        return;
+                        return None;
                     }
                     sid = next;
                 }
                 State::Union { ref alternates } => {
                     sid = match alternates.get(0) {
-                        None => return,
+                        None => return None,
                         Some(&sid) => sid,
                     };
                     cache.stack.extend(
@@ -1558,19 +1651,18 @@ impl BoundedBacktracker {
                     cache.stack.push(Frame::Step { sid: alt2, at });
                 }
                 State::Capture { next, slot, .. } => {
-                    if slot.as_usize() < caps.slots().len() {
+                    if slot.as_usize() < slots.len() {
                         cache.stack.push(Frame::RestoreCapture {
                             slot,
-                            offset: caps.slots()[slot],
+                            offset: slots[slot],
                         });
-                        caps.slots_mut()[slot] = NonMaxUsize::new(at);
+                        slots[slot] = NonMaxUsize::new(at);
                     }
                     sid = next;
                 }
-                State::Fail => return,
+                State::Fail => return None,
                 State::Match { pattern_id } => {
-                    caps.set_pattern(Some(pattern_id));
-                    return;
+                    return Some(pattern_id);
                 }
             }
         }

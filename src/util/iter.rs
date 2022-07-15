@@ -41,8 +41,9 @@ use crate::util::{
 /// algorithm described above will work correctly.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
-/// using. This type serves as the common implementation for the class of
-/// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
+/// using. This tries to abstract over the regex engine and is thus a bit more
+/// unwieldy to use.
+///
 /// In particular, a `Searcher` is not itself an iterator. Instead, it provides
 /// `advance` routines that permit moving the search along explicitly. It also
 /// provides various routines, like [`Searcher::into_matches_iter`], that
@@ -657,8 +658,8 @@ impl<'h, 'p> Searcher<'h, 'p> {
 /// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
-/// using. This type serves as the common implementation for the class of
-/// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
+/// using. This tries to abstract over the regex engine and is thus a bit more
+/// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_half_matches_iter`].
 pub struct TryHalfMatchesIter<'h, 'p, F> {
@@ -713,8 +714,8 @@ impl<'h, 'p, F> core::fmt::Debug for TryHalfMatchesIter<'h, 'p, F> {
 /// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
-/// using. This type serves as the common implementation for the class of
-/// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
+/// using. This tries to abstract over the regex engine and is thus a bit more
+/// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_half_matches_iter`] and
 /// then calling [`TryHalfMatchesIter::infallible`].
@@ -755,8 +756,8 @@ where
 /// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
-/// using. This type serves as the common implementation for the class of
-/// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
+/// using. This tries to abstract over the regex engine and is thus a bit more
+/// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_matches_iter`].
 pub struct TryMatchesIter<'h, 'p, F> {
@@ -810,8 +811,8 @@ impl<'h, 'p, F> core::fmt::Debug for TryMatchesIter<'h, 'p, F> {
 /// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
-/// using. This type serves as the common implementation for the class of
-/// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
+/// using. This tries to abstract over the regex engine and is thus a bit more
+/// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_matches_iter`] and
 /// then calling [`TryMatchesIter::infallible`].
@@ -852,8 +853,8 @@ where
 /// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
-/// using. This type serves as the common implementation for the class of
-/// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
+/// using. This tries to abstract over the regex engine and is thus a bit more
+/// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_captures_iter`].
 pub struct TryCapturesIter<'h, 'p, F> {
@@ -921,8 +922,8 @@ impl<'h, 'p, F> core::fmt::Debug for TryCapturesIter<'h, 'p, F> {
 /// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
-/// using. This type serves as the common implementation for the class of
-/// "non-overlapping matches" iterator, and is thus a bit more unwieldy to use.
+/// using. This tries to abstract over the regex engine and is thus a bit more
+/// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_captures_iter`] and then
 /// calling [`TryCapturesIter::infallible`].
