@@ -866,9 +866,7 @@ impl PikeVM {
         haystack: H,
     ) -> bool {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        let mut caps = Captures::empty(self.get_nfa().group_info().clone());
-        self.search(cache, &input, &mut caps);
-        caps.is_match()
+        self.search_slots(cache, &input, &mut []).is_some()
     }
 
     /// Executes a leftmost forward search and writes the spans of capturing
@@ -1134,19 +1132,107 @@ impl PikeVM {
         input: &Input<'_, '_>,
         caps: &mut Captures,
     ) {
-        self.search_imp(cache, input, caps);
-        let m = match caps.get_match() {
-            None => return,
-            Some(m) => m,
+        caps.set_pattern(None);
+        let pid = self.search_slots(cache, input, caps.slots_mut());
+        caps.set_pattern(pid);
+    }
+
+    /// Executes a leftmost forward search and writes the spans of capturing
+    /// groups that participated in a match into the provided `slots`, and
+    /// returns the matching pattern ID. If no match was found, then `None` is
+    /// returned and the contents of `slots` is unspecified.
+    ///
+    /// This is like [`PikeVM::search`], but it accepts a raw slots slice
+    /// instead of a `Captures` value. This is useful in contexts where you
+    /// don't want or need to allocate a `Captures`.
+    ///
+    /// It is legal to pass _any_ number of slots to this routine. If the regex
+    /// engine would otherwise write a slot offset that doesn't fit in the
+    /// provided slice, then it is simply skipped. In general though, there are
+    /// usually three slice lengths you might want to use:
+    ///
+    /// * An empty slice, if you only care about which pattern matched.
+    /// * A slice with
+    /// [`pattern_len() * 2`](crate::nfa::thompson::NFA::pattern_len)
+    /// slots, if you only care about the overall match spans for each matching
+    /// pattern.
+    /// * A slice with
+    /// [`slot_len()`](crate::util::captures::GroupInfo::slot_len) slots, which
+    /// permits recording match offsets for every capturing group in every
+    /// pattern.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find the overall match offsets in a
+    /// multi-pattern search without allocating a `Captures` value. Indeed, we
+    /// can put our slots right on the stack.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID, Input};
+    ///
+    /// let re = PikeVM::new_many(&[
+    ///     r"\pL+",
+    ///     r"\d+",
+    /// ])?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("!@#123");
+    ///
+    /// // We only care about the overall match offsets here, so we just
+    /// // allocate two slots for each pattern. Each slot records the start
+    /// // and end of the match.
+    /// let mut slots = [None; 4];
+    /// let pid = re.search_slots(&mut cache, &input, &mut slots);
+    /// assert_eq!(Some(PatternID::must(1)), pid);
+    ///
+    /// // The overall match offsets are always at 'pid * 2' and 'pid * 2 + 1'.
+    /// // See 'GroupInfo' for more details on the mapping between groups and
+    /// // slot indices.
+    /// let slot_start = pid.unwrap().as_usize() * 2;
+    /// let slot_end = slot_start + 1;
+    /// assert_eq!(Some(3), slots[slot_start].map(|s| s.get()));
+    /// assert_eq!(Some(6), slots[slot_end].map(|s| s.get()));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_slots(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        let m = match self.search_imp(cache, input, slots) {
+            None => return None,
+            Some(pid) => {
+                let slot_start = pid.as_usize() * 2;
+                let slot_end = slot_start + 1;
+                if slot_end >= slots.len() {
+                    return Some(pid);
+                }
+                // These unwraps are OK because we know we have a match and
+                // we know our caller provided slots are big enough.
+                let start = slots[slot_start].unwrap().get();
+                let end = slots[slot_end].unwrap().get();
+                if start < end {
+                    return Some(pid);
+                }
+                Match::new(pid, start..end)
+            }
         };
-        if m.is_empty() {
-            input
-                .skip_empty_utf8_splits(m, |search| {
-                    self.search_imp(cache, search, caps);
-                    Ok(caps.get_match())
-                })
-                .unwrap();
-        }
+        input
+            .skip_empty_utf8_splits(m, |search| {
+                let pid = match self.search_imp(cache, search, slots) {
+                    None => return Ok(None),
+                    Some(pid) => pid,
+                };
+                let slot_start = pid.as_usize() * 2;
+                let slot_end = slot_start + 1;
+                let start = slots[slot_start].unwrap().get();
+                let end = slots[slot_end].unwrap().get();
+                Ok(Some(Match::new(pid, start..end)))
+            })
+            .unwrap()
+            .map(|m| m.pattern())
     }
 
     /// Writes the set of patterns that match anywhere in the given search
@@ -1219,12 +1305,11 @@ impl PikeVM {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-        caps: &mut Captures,
-    ) {
-        caps.set_pattern(None);
-        cache.setup_search(caps.slots().len());
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        cache.setup_search(slots.len());
         if input.is_done() {
-            return;
+            return None;
         }
         // Why do we even care about this? Well, in our 'Captures'
         // representation, we use usize::MAX as a sentinel to indicate "no
@@ -1265,6 +1350,7 @@ impl PikeVM {
         };
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
+        let mut pid = None;
         // Yes, our search doesn't end at input.end(), but includes it. This
         // is necessary because matches are delayed by one byte, just like
         // how the DFA engines work. The delay is used to handle look-behind
@@ -1280,7 +1366,7 @@ impl PikeVM {
             if curr.set.is_empty() {
                 // We have a match and we haven't been instructed to continue
                 // on even after finding a match, so we can quit.
-                if caps.is_match() && !allmatches {
+                if pid.is_some() && !allmatches {
                     break;
                 }
                 // If we're running an anchored search and we've advanced
@@ -1330,10 +1416,10 @@ impl PikeVM {
             // matches their behavior. (Generally, 'allmatches' is useful for
             // overlapping searches or leftmost anchored searches to find the
             // longest possible match by ignoring match priority.)
-            if !caps.is_match() || allmatches {
+            if !pid.is_some() || allmatches {
                 // Since we are adding to the 'curr' active states and since
                 // this is for the start ID, we use a slots slice that is
-                // guaranteed to have the right length but where event element
+                // guaranteed to have the right length but where every element
                 // is absent. This is exactly what we want, because this
                 // epsilon closure is responsible for simulating an unanchored
                 // '(?s:.)*?' prefix. It is specifically outside of any
@@ -1347,18 +1433,21 @@ impl PikeVM {
                 let slots = next.slot_table.all_absent();
                 self.epsilon_closure(stack, slots, curr, input, at, start_id);
             }
-            self.nexts(stack, curr, next, input, at, caps);
+            if let Some(x) = self.nexts(stack, curr, next, input, at, slots) {
+                pid = Some(x);
+            }
             // Unless the caller asked us to return early, we need to mush on
             // to see if we can extend our match. (But note that 'nexts' will
             // quit right after seeing a match when match_kind==LeftmostFirst,
             // as is consist with leftmost-first match priority.)
-            if input.get_earliest() && caps.is_match() {
+            if input.get_earliest() && pid.is_some() {
                 break;
             }
             core::mem::swap(curr, next);
             next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
+        pid
     }
 
     /// The implementation for the 'which_overlapping_matches' API. Basically,
@@ -1453,23 +1542,22 @@ impl PikeVM {
         next: &mut ActiveStates,
         input: &Input<'_, '_>,
         at: usize,
-        caps: &mut Captures,
-    ) {
-        let slot_len = caps.slots().len();
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
         instrument!(|c| c.record_state_set(&curr.set));
+        let mut pid = None;
         let ActiveStates { ref set, ref mut slot_table } = *curr;
         for sid in set.iter() {
-            let pid = match self.next(stack, slot_table, next, input, at, sid)
-            {
+            pid = match self.next(stack, slot_table, next, input, at, sid) {
                 None => continue,
-                Some(pid) => pid,
+                Some(pid) => Some(pid),
             };
-            let slots = slot_table.for_state(sid);
-            copy_to_captures(pid, slots, caps);
+            slots.copy_from_slice(slot_table.for_state(sid));
             if !self.config.get_match_kind().continue_past_first_match() {
                 break;
             }
         }
+        pid
     }
 
     /// Like 'nexts', but for the overlapping case. This doesn't write any
