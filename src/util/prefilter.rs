@@ -3,7 +3,7 @@ use core::{
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
-use crate::Span;
+use crate::util::search::Span;
 
 // DREAM: When writing the prefilter APIs below, I mostly looked at what the
 // regex crate was already doing in order to get regex-automata merged into

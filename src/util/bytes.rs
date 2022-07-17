@@ -1,4 +1,4 @@
-/*
+/*!
 A collection of helper functions, types and traits for serializing automata.
 
 This crate defines its own bespoke serialization mechanism for some structures
