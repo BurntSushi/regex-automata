@@ -574,6 +574,14 @@ macro_rules! index_type_impls {
             }
         }
 
+        // We write our own Debug impl so that we get things like PatternID(5)
+        // instead of PatternID(SmallIndex(5)).
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                f.debug_tuple(stringify!($name)).field(&self.as_u32()).finish()
+            }
+        }
+
         impl<T> core::ops::Index<$name> for [T] {
             type Output = T;
 
@@ -752,9 +760,7 @@ macro_rules! index_type_impls {
 ///
 /// See the [`SmallIndex`] type for more information about what it means for
 /// a pattern ID to be a "small index."
-#[derive(
-    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
-)]
+#[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct PatternID(SmallIndex);
 
@@ -768,9 +774,7 @@ pub struct PatternID(SmallIndex);
 ///
 /// See the [`SmallIndex`] type for more information about what it means for
 /// a state ID to be a "small index."
-#[derive(
-    Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
-)]
+#[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct StateID(SmallIndex);
 

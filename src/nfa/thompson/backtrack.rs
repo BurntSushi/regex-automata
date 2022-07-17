@@ -1406,8 +1406,9 @@ impl BoundedBacktracker {
 
     /// Executes a leftmost forward search and writes the spans of capturing
     /// groups that participated in a match into the provided `slots`, and
-    /// returns the matching pattern ID. If no match was found, then `None` is
-    /// returned and the contents of `slots` is unspecified.
+    /// returns the matching pattern ID. The contents of the slots for patterns
+    /// other than the matching pattern are unspecified. If no match was found,
+    /// then `None` is returned and the contents of all `slots` is unspecified.
     ///
     /// This is like [`BoundedBacktracker::try_search`], but it accepts a raw
     /// slots slice instead of a `Captures` value. This is useful in contexts

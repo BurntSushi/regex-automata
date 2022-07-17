@@ -1139,8 +1139,9 @@ impl PikeVM {
 
     /// Executes a leftmost forward search and writes the spans of capturing
     /// groups that participated in a match into the provided `slots`, and
-    /// returns the matching pattern ID. If no match was found, then `None` is
-    /// returned and the contents of `slots` is unspecified.
+    /// returns the matching pattern ID. The contents of the slots for patterns
+    /// other than the matching pattern are unspecified. If no match was found,
+    /// then `None` is returned and the contents of all `slots` is unspecified.
     ///
     /// This is like [`PikeVM::search`], but it accepts a raw slots slice
     /// instead of a `Captures` value. This is useful in contexts where you
@@ -2192,22 +2193,6 @@ enum FollowEpsilon {
     Explore(StateID),
     /// Reset the given `slot` to the given `offset` (which might be `None`).
     RestoreCapture { slot: SmallIndex, offset: Option<NonMaxUsize> },
-}
-
-/// Write the given pattern ID and slot values to the given `Captures`.
-///
-/// This is generally what you want to use once a match has been found. This
-/// copies the internal slot data to the public `Captures` type.
-///
-/// The given slots slice must have length equal to the number of slots in the
-/// `Captures` given.
-fn copy_to_captures(
-    pid: PatternID,
-    slots: &[Option<NonMaxUsize>],
-    caps: &mut Captures,
-) {
-    caps.set_pattern(Some(pid));
-    caps.slots_mut().copy_from_slice(slots);
 }
 
 /// A set of counters that "instruments" a PikeVM search. To enable this, you

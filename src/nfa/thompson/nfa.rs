@@ -637,6 +637,29 @@ impl NFA {
     ///
     /// Note that `GroupInfo` uses reference counting internally, such that
     /// cloning a `GroupInfo` is very cheap.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to get a list of all capture group names for
+    /// a particular pattern.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new(r"(a)(?P<foo>b)(c)(d)(?P<bar>e)")?;
+    /// // The first is the implicit group that is always unnammed. The next
+    /// // 5 groups are the explicit groups found in the concrete syntax above.
+    /// let expected = vec![None, None, Some("foo"), None, None, Some("bar")];
+    /// let got: Vec<Option<&str>> =
+    ///     nfa.group_info().pattern_names(PatternID::ZERO).collect();
+    /// assert_eq!(expected, got);
+    ///
+    /// // Using an invalid pattern ID will result in nothing yielded.
+    /// let got = nfa.group_info().pattern_names(PatternID::must(999)).count();
+    /// assert_eq!(0, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn group_info(&self) -> &GroupInfo {
         &self.0.group_info()
@@ -1168,10 +1191,6 @@ type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, usize>;
 /// purpose is to cause a side effect: the recording of the current input
 /// position at a particular location in memory. In this sense, an `NFA`
 /// has more power than a theoretical non-deterministic finite automaton.
-/// (Although, strictly speaking, one could write a search implementation that
-/// ignores `Capture` states and reports only the end location of a match, just
-/// like the DFAs do. However, such a limited implementation does not exist in
-/// this crate.)
 ///
 /// For most uses of this crate, it is likely that one may never even need to
 /// be aware of this type at all. The main use cases for looking at `State`s
@@ -1181,7 +1200,10 @@ type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, usize>;
 pub enum State {
     /// A state with a single transition that can only be taken if the current
     /// input symbol is in a particular range of bytes.
-    ByteRange { trans: Transition },
+    ByteRange {
+        /// The transition from this state to the next.
+        trans: Transition,
+    },
     /// A state with possibly many transitions represented in a sparse fashion.
     /// Transitions are non-overlapping and ordered lexicographically by input
     /// range.
@@ -1201,11 +1223,23 @@ pub enum State {
     /// via only epsilon transitions). If the current position in the haystack
     /// satisfies the look-around assertion, then you're permitted to follow
     /// that epsilon transition.
-    Look { look: Look, next: StateID },
+    Look {
+        /// The look-around assertion that must be satisfied before moving
+        /// to `next`.
+        look: Look,
+        /// The state to transition to if the look-around assertion is
+        /// satisfied.
+        next: StateID,
+    },
     /// An alternation such that there exists an epsilon transition to all
     /// states in `alternates`, where matches found via earlier transitions
     /// are preferred over later transitions.
-    Union { alternates: Box<[StateID]> },
+    Union {
+        /// An ordered sequence of unconditional epsilon transitions to other
+        /// states. Transitions earlier in the sequence are preferred over
+        /// transitions later in the sequence.
+        alternates: Box<[StateID]>,
+    },
     /// An alternation such that there exists precisely two unconditional
     /// epsilon transitions, where matches found via `alt1` are preferred over
     /// matches found via `alt2`.
@@ -1214,36 +1248,60 @@ pub enum State {
     /// only two alternates. In this case, we don't need any allocations to
     /// represent the state. This saves a bit of memory and also saves an
     /// additional memory access when traversing the NFA.
-    BinaryUnion { alt1: StateID, alt2: StateID },
+    BinaryUnion {
+        /// An unconditional epsilon transition to another NFA state. This
+        /// is preferred over `alt2`.
+        alt1: StateID,
+        /// An unconditional epsilon transition to another NFA state. Matches
+        /// reported via this transition should only be reported if no matches
+        /// were found by following `alt1`.
+        alt2: StateID,
+    },
     /// An empty state that records a capture location.
     ///
     /// From the perspective of finite automata, this is precisely equivalent
-    /// to an epsilon transition, but serves the purpose of instructing NFA
-    /// simulations to record additional state when the finite state machine
-    /// passes through this epsilon transition.
+    /// to an unconditional epsilon transition, but serves the purpose of
+    /// instructing NFA simulations to record additional state when the finite
+    /// state machine passes through this epsilon transition.
     ///
-    /// These transitions are treated as epsilon transitions with no additional
-    /// effects in DFAs.
-    ///
-    /// 'slot' in this context refers to the specific capture group slot
+    /// `slot` in this context refers to the specific capture group slot
     /// offset that is being recorded. Each capturing group has two slots
     /// corresponding to the start and end of the matching portion of that
     /// group.
+    ///
+    /// The pattern ID and capture group index are also included in this state
+    /// in case they are useful. But mostly, all you'll need is `next` and
+    /// `slot`.
     Capture {
+        /// The state to transtition to, unconditionally.
         next: StateID,
+        /// The pattern ID that this capture belongs to.
         pattern_id: PatternID,
+        /// The capture group index that this capture belongs to. Capture group
+        /// indices are local to each pattern. For example, when capturing
+        /// groups are enabled, every pattern has a capture group at index
+        /// `0`.
         group_index: SmallIndex,
+        /// The slot index for this capture. Every capturing group has two
+        /// slots: one for the start haystack offset and one for the end
+        /// haystack offset. Unlike capture group indices, slot indices are
+        /// global across all patterns in this NFA. That is, each slot belongs
+        /// to a single pattern, but there is only one slot at index `i`.
         slot: SmallIndex,
     },
     /// A state that cannot be transitioned out of. This is useful for cases
     /// where you want to prevent matching from occurring. For example, if your
-    /// regex parser permits empty character classes, then one could choose a
-    /// `Fail` state to represent it.
+    /// regex parser permits empty character classes, then one could choose
+    /// a `Fail` state to represent them. (An empty character class can be
+    /// thought of as an empty set. Since nothing is in an empty set, they can
+    /// never match anything.)
     Fail,
     /// A match state. There is at least one such occurrence of this state for
-    /// each regex compiled into the NFA. The pattern ID in the state indicates
-    /// which pattern matched.
-    Match { pattern_id: PatternID },
+    /// each regex that can match that is in this NFA.
+    Match {
+        /// The matching pattern ID.
+        pattern_id: PatternID,
+    },
 }
 
 impl State {
@@ -1502,9 +1560,9 @@ impl SparseTransitions {
 /// falls in the inclusive range of bytes specified.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct Transition {
-    /// The start of the byte range.
+    /// The inclusive start of the byte range.
     pub start: u8,
-    /// The end of the byte range.
+    /// The inclusive end of the byte range.
     pub end: u8,
     /// The identifier of the state to transition to.
     pub next: StateID,
