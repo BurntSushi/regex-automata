@@ -64,7 +64,7 @@ const VERSION: u32 = 2;
 /// search to return an error. See the corresponding configuration options for
 /// more details on when those error conditions arise.
 #[cfg(feature = "alloc")]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
     // As with other configuration types in this crate, we put all our knobs
     // in options so that we can distinguish between "default" and "not set."
@@ -675,9 +675,9 @@ impl Config {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
-    /// Compare the above with the default lazy DFA configuration where
-    /// start states are _not_ specialized. In this case, the start state
-    /// is not tagged and `sid.is_start()` returns false.
+    /// Compare the above with the default DFA configuration where start states
+    /// are _not_ specialized. In this case, the start state is not tagged at
+    /// all:
     ///
     /// ```
     /// use regex_automata::{dfa::{Automaton, dense::DFA}, Input};
@@ -892,7 +892,7 @@ impl Config {
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
-    pub(crate) fn overwrite(self, o: Config) -> Config {
+    pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             anchored: o.anchored.or(self.anchored),
             accelerate: o.accelerate.or(self.accelerate),

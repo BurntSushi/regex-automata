@@ -56,6 +56,9 @@ enum ErrorKind {
     /// This is another oddball error that can occur if there are too many
     /// patterns spread out across too many match states.
     TooManyMatchPatternIDs,
+    /// An error that occurs if the one-pass DFA got too big during
+    /// construction.
+    OnePassExceededSizeLimit { limit: usize },
     /// An error that occurs if the DFA got too big during determinization.
     DFAExceededSizeLimit { limit: usize },
     /// An error that occurs if auxiliary storage (not the DFA) used during
@@ -93,6 +96,10 @@ impl Error {
         Error { kind: ErrorKind::TooManyMatchPatternIDs }
     }
 
+    pub(crate) fn one_pass_exceeded_size_limit(limit: usize) -> Error {
+        Error { kind: ErrorKind::OnePassExceededSizeLimit { limit } }
+    }
+
     pub(crate) fn dfa_exceeded_size_limit(limit: usize) -> Error {
         Error { kind: ErrorKind::DFAExceededSizeLimit { limit } }
     }
@@ -111,6 +118,7 @@ impl std::error::Error for Error {
             ErrorKind::TooManyStates => None,
             ErrorKind::TooManyStartStates => None,
             ErrorKind::TooManyMatchPatternIDs => None,
+            ErrorKind::OnePassExceededSizeLimit { .. } => None,
             ErrorKind::DFAExceededSizeLimit { .. } => None,
             ErrorKind::DeterminizeExceededSizeLimit { .. } => None,
         }
@@ -151,6 +159,11 @@ impl core::fmt::Display for Error {
                 "compiling DFA with total patterns in all match states \
                  exceeds limit of {}",
                 PatternID::LIMIT,
+            ),
+            ErrorKind::OnePassExceededSizeLimit { limit } => write!(
+                f,
+                "one-pass DFA exceeded size limit of {:?} during building",
+                limit,
             ),
             ErrorKind::DFAExceededSizeLimit { limit } => write!(
                 f,

@@ -744,8 +744,10 @@ impl<'a> ReprVec<'a> {
     }
 }
 
-/// LookSet is a memory-efficient set of look-around assertions. Callers may
-/// idempotently insert or remove any look-around assertion from a set.
+/// LookSet is a memory-efficient set of look-around assertions.
+///
+/// Callers may idempotently insert or remove any look-around assertion from a
+/// set.
 #[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub(crate) struct LookSet {
     set: u8,
@@ -753,12 +755,12 @@ pub(crate) struct LookSet {
 
 impl LookSet {
     /// Return a LookSet from its representation.
-    fn from_repr(repr: u8) -> LookSet {
+    pub(crate) fn from_repr(repr: u8) -> LookSet {
         LookSet { set: repr }
     }
 
     /// Return the internal byte representation of this set.
-    fn to_repr(self) -> u8 {
+    pub(crate) fn to_repr(self) -> u8 {
         self.set
     }
 
