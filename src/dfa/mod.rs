@@ -324,18 +324,21 @@ pub use crate::dfa::error::Error;
 const DEAD: crate::util::primitives::StateID =
     crate::util::primitives::StateID::ZERO;
 
+pub mod dense;
+#[cfg(feature = "alloc")]
+pub mod onepass;
+pub mod regex;
+pub mod sparse;
+
 mod accel;
 mod automaton;
-pub mod dense;
 #[cfg(feature = "alloc")]
 mod determinize;
 #[cfg(feature = "alloc")]
-pub(crate) mod error;
+mod error;
 #[cfg(feature = "alloc")]
 mod minimize;
-pub mod regex;
 mod search;
-pub mod sparse;
 mod special;
 #[cfg(feature = "transducer")]
 mod transducer;
