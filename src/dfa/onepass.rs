@@ -112,7 +112,7 @@ impl<'a> InternalBuilder<'a> {
         } else {
             nfa.byte_class_set().byte_classes()
         };
-        let stride2 = stride2(classes.alphabet_len());
+        let stride2 = classes.stride2();
         let dfa = OnePass { table: vec![], classes: classes.clone(), stride2 };
         let nfa_to_dfa_id = vec![DEAD; nfa.states().len()];
         let uncompiled_nfa_ids = vec![];
@@ -135,23 +135,12 @@ impl<'a> InternalBuilder<'a> {
     fn build(mut self) -> Result<OnePass, Error> {
         assert_eq!(DEAD, self.add_empty_state()?);
 
-        // BREADCRUMBS: It kind of seems like the way we're handling multiple
-        // patterns here is all wrong. In particular, I think we need to
-        // maintain straight linear state when we do our depth first traversal,
-        // instead of putting our state into the stack.
-        //
-        // Otherwise, I'm uneasy about losing the ordering of pattern IDs as
-        // they're encountered. I believe that, at any given position, you
-        // always want the one that appears first, which corresponds to the
-        // natural sort order of pattern IDs. That is, if there are multiple
-        // matches at position 'i', regardless of how long any of them are, the
-        // pattern ID reported is always the smallest one.
-        //
-        // Maybe consider just doing single pattern first? Then go back and add
-        // multi-pattern? Hmmm, nah...
-        //
-        // OK, I think I've fixed the multi-pattern handling, at least unless
-        // my assumptions about ordering above are wrong.
+        // BREADCRUMBS: We need starting states for each pattern. I think we
+        // just need to build a DFA start state for each pattern, then put the
+        // NFA ids in our uncompiled set, and create a new map Vec<StateID>
+        // from pattern ID to the DFA start state.
+
+        // BREADCRUMBS: Add our error types.
 
         self.add_dfa_state_for_nfa_state(self.nfa.start_anchored())?;
         while let Some(nfa_id) = self.uncompiled_nfa_ids.pop() {
@@ -458,6 +447,7 @@ impl Info {
     }
 }
 
+/*
 /// Computes the stride as a power of 2 for a one-pass DFA. The special sauce
 /// here is that every state has 1+alphabet_len entries (each entry is a
 /// u64), where the extra entry comes from match info. Like which look-around
@@ -466,3 +456,4 @@ fn stride2(alphabet_len: usize) -> usize {
     let zeros = (1 + alphabet_len).next_power_of_two().trailing_zeros();
     usize::try_from(zeros).unwrap()
 }
+*/
