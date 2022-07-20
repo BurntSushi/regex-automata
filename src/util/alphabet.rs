@@ -1,4 +1,7 @@
-use core::convert::TryFrom;
+use core::{
+    convert::TryFrom,
+    ops::{Bound, RangeBounds},
+};
 
 use crate::util::{
     bytes::{DeserializeError, SerializeError},
@@ -249,17 +252,45 @@ impl ByteClasses {
     }
 
     /// Returns an iterator over a sequence of representative bytes from each
-    /// equivalence class. Namely, this yields exactly N items, where N is
-    /// equivalent to the number of equivalence classes. Each item is an
-    /// arbitrary byte drawn from each equivalence class.
+    /// equivalence class within the range of bytes given.
+    ///
+    /// When the given range is unbounded on both sides, the iterator yields
+    /// exactly N items, where N is equivalent to the number of equivalence
+    /// classes. Each item is an arbitrary byte drawn from each equivalence
+    /// class.
     ///
     /// This is useful when one is determinizing an NFA and the NFA's alphabet
     /// hasn't been converted to equivalence classes yet. Picking an arbitrary
     /// byte from each equivalence class then permits a full exploration of
     /// the NFA instead of using every possible byte value.
     #[cfg(feature = "alloc")]
-    pub fn representatives(&self) -> ByteClassRepresentatives<'_> {
-        ByteClassRepresentatives { classes: self, byte: 0, last_class: None }
+    pub fn representatives<R: RangeBounds<u8>>(
+        &self,
+        range: R,
+    ) -> ByteClassRepresentatives<'_> {
+        let cur_byte = match range.start_bound() {
+            Bound::Included(&i) => usize::from(i),
+            Bound::Excluded(&i) => usize::from(i).checked_add(1).unwrap(),
+            Bound::Unbounded => 0,
+        };
+        let end_byte = match range.end_bound() {
+            Bound::Included(&i) => {
+                Some(usize::from(i).checked_add(1).unwrap())
+            }
+            Bound::Excluded(&i) => Some(usize::from(i)),
+            Bound::Unbounded => None,
+        };
+        assert_ne!(
+            cur_byte,
+            usize::MAX,
+            "start range must be less than usize::MAX",
+        );
+        ByteClassRepresentatives {
+            classes: self,
+            cur_byte,
+            end_byte,
+            last_class: None,
+        }
     }
 
     /// Returns an iterator of the bytes in the given equivalence class.
@@ -330,7 +361,8 @@ impl<'a> Iterator for ByteClassIter<'a> {
 #[derive(Debug)]
 pub struct ByteClassRepresentatives<'a> {
     classes: &'a ByteClasses,
-    byte: usize,
+    cur_byte: usize,
+    end_byte: Option<usize>,
     last_class: Option<u8>,
 }
 
@@ -339,18 +371,27 @@ impl<'a> Iterator for ByteClassRepresentatives<'a> {
     type Item = Unit;
 
     fn next(&mut self) -> Option<Unit> {
-        while self.byte < 256 {
-            let byte = u8::try_from(self.byte).unwrap();
+        while self.cur_byte < self.end_byte.unwrap_or(256) {
+            let byte = u8::try_from(self.cur_byte).unwrap();
             let class = self.classes.get(byte);
-            self.byte += 1;
+            self.cur_byte += 1;
 
             if self.last_class != Some(class) {
                 self.last_class = Some(class);
                 return Some(Unit::u8(byte));
             }
         }
-        if self.byte == 256 {
-            self.byte += 1;
+        if self.cur_byte != usize::MAX && self.end_byte.is_none() {
+            // Using usize::MAX as a sentinel is OK because we ban usize::MAX
+            // from appearing as a start bound in iterator construction. But
+            // why do it this way? Well, we want to return the EOI class
+            // whenever the end of the given range is unbounded because EOI
+            // isn't really a "byte" per se, so the only way it should be
+            // excluded is if there is a bounded end to the range. Therefore,
+            // when the end is unbounded, we just need to know whether we've
+            // reported EOI or not. When we do, we set cur_byte to a value it
+            // can never otherwise be.
+            self.cur_byte = usize::MAX;
             return Some(self.classes.eoi());
         }
         None
@@ -790,5 +831,92 @@ mod tests {
 
         let elements = classes.elements(Unit::eoi(1)).collect::<Vec<_>>();
         assert_eq!(elements, vec![Unit::eoi(256)]);
+    }
+
+    #[test]
+    fn representatives() {
+        let mut set = ByteClassSet::empty();
+        set.set_range(b'b', b'd');
+        set.set_range(b'g', b'm');
+        set.set_range(b'z', b'z');
+        let classes = set.byte_classes();
+
+        let got: Vec<Unit> = classes.representatives(..).collect();
+        let expected = vec![
+            Unit::U8(b'\x00'),
+            Unit::U8(b'b'),
+            Unit::U8(b'e'),
+            Unit::U8(b'g'),
+            Unit::U8(b'n'),
+            Unit::U8(b'z'),
+            Unit::U8(b'\x7B'),
+            Unit::EOI(7),
+        ];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(..0).collect();
+        assert!(got.is_empty());
+        let got: Vec<Unit> = classes.representatives(1..1).collect();
+        assert!(got.is_empty());
+        let got: Vec<Unit> = classes.representatives(255..255).collect();
+        assert!(got.is_empty());
+
+        // A weird case that is the only guaranteed to way to get an iterator
+        // of just the EOI class by excluding all possible byte values.
+        let got: Vec<Unit> = classes
+            .representatives((
+                core::ops::Bound::Excluded(255),
+                core::ops::Bound::Unbounded,
+            ))
+            .collect();
+        let expected = vec![Unit::EOI(7)];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(..=255).collect();
+        let expected = vec![
+            Unit::U8(b'\x00'),
+            Unit::U8(b'b'),
+            Unit::U8(b'e'),
+            Unit::U8(b'g'),
+            Unit::U8(b'n'),
+            Unit::U8(b'z'),
+            Unit::U8(b'\x7B'),
+        ];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(b'b'..=b'd').collect();
+        let expected = vec![Unit::U8(b'b')];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(b'a'..=b'd').collect();
+        let expected = vec![Unit::U8(b'a'), Unit::U8(b'b')];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(b'b'..=b'e').collect();
+        let expected = vec![Unit::U8(b'b'), Unit::U8(b'e')];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(b'A'..=b'Z').collect();
+        let expected = vec![Unit::U8(b'A')];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(b'A'..=b'z').collect();
+        let expected = vec![
+            Unit::U8(b'A'),
+            Unit::U8(b'b'),
+            Unit::U8(b'e'),
+            Unit::U8(b'g'),
+            Unit::U8(b'n'),
+            Unit::U8(b'z'),
+        ];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(b'z'..).collect();
+        let expected = vec![Unit::U8(b'z'), Unit::U8(b'\x7B'), Unit::EOI(7)];
+        assert_eq!(expected, got);
+
+        let got: Vec<Unit> = classes.representatives(b'z'..=0xFF).collect();
+        let expected = vec![Unit::U8(b'z'), Unit::U8(b'\x7B')];
+        assert_eq!(expected, got);
     }
 }

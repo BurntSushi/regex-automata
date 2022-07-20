@@ -120,18 +120,37 @@ impl<'a> InternalBuilder<'a> {
         let representatives: Vec<u8> = self
             .dfa
             .classes
-            .representatives()
+            .representatives(..)
             .filter_map(|r| r.as_u8())
             .collect();
         let mut seen = SparseSet::new(self.nfa.states().len());
-        let mut stack: Vec<(StateID, PatternInfo)> = vec![];
+        let mut stack: Vec<(StateID, Info)> = vec![];
+
+        // BREADCRUMBS: It kind of seems like the way we're handling multiple
+        // patterns here is all wrong. In particular, I think we need to
+        // maintain straight linear state when we do our depth first traversal,
+        // instead of putting our state into the stack.
+        //
+        // Otherwise, I'm uneasy about losing the ordering of pattern IDs as
+        // they're encountered. I believe that, at any given position, you
+        // always want the one that appears first, which corresponds to the
+        // natural sort order of pattern IDs. That is, if there are multiple
+        // matches at position 'i', regardless of how long any of them are, the
+        // pattern ID reported is always the smallest one.
+        //
+        // Maybe consider just doing single pattern first? Then go back and add
+        // multi-pattern? Hmmm, nah...
+        //
+        // OK, I think I've fixed the multi-pattern handling, at least unless
+        // my assumptions about ordering above are wrong.
 
         self.add_dfa_state_for_nfa_state(self.nfa.start_anchored())?;
         while let Some(nfa_id) = self.uncompiled_nfa_ids.pop() {
             let dfa_id = self.nfa_to_dfa_id[nfa_id];
+            let mut matched = Patterns::empty();
             seen.clear();
-            stack.push((nfa_id, PatternInfo::empty()));
-            while let Some((id, patinfo)) = stack.pop() {
+            stack.push((nfa_id, Info::empty()));
+            while let Some((id, info)) = stack.pop() {
                 match *self.nfa.state(id) {
                     thompson::State::ByteRange { ref trans } => {
                         let mut next_dfa_id = self.nfa_to_dfa_id[trans.next];
@@ -139,7 +158,11 @@ impl<'a> InternalBuilder<'a> {
                             next_dfa_id =
                                 self.add_dfa_state_for_nfa_state(trans.next)?;
                         }
-                        if !patinfo.patterns().is_empty() {
+                        // I wonder if this is wrong? What if we're still
+                        // looking for a match for a different pattern? I think
+                        // that only applies to MatchKind::All, in which case,
+                        // we would mush on anyway.
+                        if !matched.is_empty() {
                             continue;
                         }
                         let mut dfa_state = self.dfa.state_mut(dfa_id);
@@ -154,11 +177,15 @@ impl<'a> InternalBuilder<'a> {
                         // probably use equivalence classes themselves, so it
                         // would just be a straight-forward iteration over
                         // them?
+                        // TODO: Maybe write a method on ByteClasses that
+                        // takes any range of bytes and returns an iterator
+                        // over only representatives in that range. So, like
+                        // the existing 'representatives()', but only for a
+                        // specific range.
                         for &byte in representatives.iter() {
                             let oldtrans =
                                 dfa_state.transitions()[byte as usize];
-                            let newtrans =
-                                Transition::new(next_dfa_id, patinfo.info());
+                            let newtrans = Transition::new(next_dfa_id, info);
                             if oldtrans.state_id() == DEAD {
                                 dfa_state.transitions()[byte as usize] =
                                     newtrans;
@@ -174,46 +201,42 @@ impl<'a> InternalBuilder<'a> {
                         if !seen.insert(next) {
                             return Err(todo!());
                         }
-                        stack.push((
-                            next,
-                            patinfo.set_info(patinfo.info().look_insert(look)),
-                        ));
+                        stack.push((next, info.look_insert(look)));
                     }
                     thompson::State::Union { ref alternates } => {
                         for &sid in alternates.iter().rev() {
                             if !seen.insert(sid) {
                                 return Err(todo!());
                             }
-                            stack.push((sid, patinfo));
+                            stack.push((sid, info));
                         }
                     }
                     thompson::State::BinaryUnion { alt1, alt2 } => {
                         if !seen.insert(alt1) || !seen.insert(alt2) {
                             return Err(todo!());
                         }
-                        stack.push((alt2, patinfo));
-                        stack.push((alt1, patinfo));
+                        stack.push((alt2, info));
+                        stack.push((alt1, info));
                     }
                     thompson::State::Capture { next, slot, .. } => {
                         if !seen.insert(next) {
                             return Err(todo!());
                         }
-                        stack.push((
-                            next,
-                            patinfo.set_info(patinfo.info().slot_insert(slot)),
-                        ));
+                        stack.push((next, info.slot_insert(slot)));
                     }
                     thompson::State::Fail => {
                         continue;
                     }
                     thompson::State::Match { pattern_id } => {
-                        if patinfo.patterns().contains(pattern_id) {
+                        if matched.contains(pattern_id) {
                             return Err(todo!());
                         }
-                        patinfo.set_patterns(
-                            patinfo.patterns().insert(pattern_id),
+                        matched = matched.insert(pattern_id);
+                        self.dfa.state_mut(dfa_id).set_pattern_info(
+                            PatternInfo::empty()
+                                .set_patterns(matched)
+                                .set_info(info),
                         );
-                        self.dfa.state_mut(dfa_id).set_pattern_info(patinfo);
                     }
                 }
             }
@@ -354,6 +377,10 @@ struct Patterns(u32);
 impl Patterns {
     const MAX: usize = 32;
 
+    fn empty() -> Patterns {
+        Patterns(0)
+    }
+
     fn is_empty(self) -> bool {
         self.0 == 0
     }
@@ -383,6 +410,10 @@ impl Info {
     // imply that the actual slot would need to be offset by the number of
     // patterns.
     const MAX_SLOTS: usize = 24;
+
+    fn empty() -> Info {
+        Info(0)
+    }
 
     fn slot_insert(self, slot: SmallIndex) -> Info {
         assert!(slot.as_usize() < Info::MAX_SLOTS);

@@ -236,7 +236,7 @@ impl<'a> Runner<'a> {
         // results. Since computing the representatives needs to do a little
         // work, we do it once here because we'll be iterating over them a lot.
         let representatives: Vec<alphabet::Unit> =
-            self.dfa.byte_classes().representatives().collect();
+            self.dfa.byte_classes().representatives(..).collect();
         // The set of all DFA state IDs that still need to have their
         // transitions set. We start by seeding this with all starting states.
         let mut uncompiled = alloc::vec![];

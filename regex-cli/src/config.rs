@@ -1287,7 +1287,7 @@ The default for this flag is 'none', which sets no size limit.
         nfa: &thompson::NFA,
     ) -> anyhow::Result<dense::DFA<Vec<u32>>> {
         dense::Builder::new()
-            .configure(self.config)
+            .configure(self.config.clone())
             .build_from_nfa(nfa)
             .context("failed to compile dense DFA")
     }
@@ -1383,7 +1383,7 @@ This mode cannot be toggled inside the regex.
             .configure(self.config.clone())
             .syntax(syntax.0)
             .thompson(thompson.0.clone())
-            .dense(dense.config);
+            .dense(dense.config.clone());
         builder
     }
 
