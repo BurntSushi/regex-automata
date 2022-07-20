@@ -92,8 +92,12 @@ struct InternalBuilder<'a> {
     config: Config,
     nfa: &'a NFA,
     dfa: OnePass,
+    classes: ByteClasses,
     nfa_to_dfa_id: Vec<StateID>,
     uncompiled_nfa_ids: Vec<StateID>,
+    seen: SparseSet,
+    stack: Vec<(StateID, Info)>,
+    matched: Patterns,
 }
 
 impl<'a> InternalBuilder<'a> {
@@ -109,22 +113,27 @@ impl<'a> InternalBuilder<'a> {
             nfa.byte_class_set().byte_classes()
         };
         let stride2 = stride2(classes.alphabet_len());
-        let dfa = OnePass { table: vec![], classes, stride2 };
+        let dfa = OnePass { table: vec![], classes: classes.clone(), stride2 };
         let nfa_to_dfa_id = vec![DEAD; nfa.states().len()];
         let uncompiled_nfa_ids = vec![];
-        InternalBuilder { config, nfa, dfa, nfa_to_dfa_id, uncompiled_nfa_ids }
+        let seen = SparseSet::new(nfa.states().len());
+        let stack = vec![];
+        let matched = Patterns::empty();
+        InternalBuilder {
+            config,
+            nfa,
+            dfa,
+            classes,
+            nfa_to_dfa_id,
+            uncompiled_nfa_ids,
+            seen,
+            stack,
+            matched,
+        }
     }
 
     fn build(mut self) -> Result<OnePass, Error> {
         assert_eq!(DEAD, self.add_empty_state()?);
-        let representatives: Vec<u8> = self
-            .dfa
-            .classes
-            .representatives(..)
-            .filter_map(|r| r.as_u8())
-            .collect();
-        let mut seen = SparseSet::new(self.nfa.states().len());
-        let mut stack: Vec<(StateID, Info)> = vec![];
 
         // BREADCRUMBS: It kind of seems like the way we're handling multiple
         // patterns here is all wrong. In particular, I think we need to
@@ -147,94 +156,58 @@ impl<'a> InternalBuilder<'a> {
         self.add_dfa_state_for_nfa_state(self.nfa.start_anchored())?;
         while let Some(nfa_id) = self.uncompiled_nfa_ids.pop() {
             let dfa_id = self.nfa_to_dfa_id[nfa_id];
-            let mut matched = Patterns::empty();
-            seen.clear();
-            stack.push((nfa_id, Info::empty()));
-            while let Some((id, info)) = stack.pop() {
+            self.matched = Patterns::empty();
+            self.seen.clear();
+            self.stack.push((nfa_id, Info::empty()));
+            while let Some((id, info)) = self.stack.pop() {
                 match *self.nfa.state(id) {
                     thompson::State::ByteRange { ref trans } => {
-                        let mut next_dfa_id = self.nfa_to_dfa_id[trans.next];
-                        if next_dfa_id == DEAD {
-                            next_dfa_id =
-                                self.add_dfa_state_for_nfa_state(trans.next)?;
-                        }
-                        // I wonder if this is wrong? What if we're still
-                        // looking for a match for a different pattern? I think
-                        // that only applies to MatchKind::All, in which case,
-                        // we would mush on anyway.
-                        if !matched.is_empty() {
-                            continue;
-                        }
-                        let mut dfa_state = self.dfa.state_mut(dfa_id);
-                        // FIXME: This isn't quite correct... We only want to
-                        // look at equivalence classes within the range of
-                        // bytes in our transition here.
-                        // TODO: Consider factoring out this match arm into
-                        // its own routine, so that we can call it for sparse
-                        // transitions.
-                        // TODO: Think about how this code might look if an
-                        // NFA grew dense states. I guess dense states would
-                        // probably use equivalence classes themselves, so it
-                        // would just be a straight-forward iteration over
-                        // them?
-                        // TODO: Maybe write a method on ByteClasses that
-                        // takes any range of bytes and returns an iterator
-                        // over only representatives in that range. So, like
-                        // the existing 'representatives()', but only for a
-                        // specific range.
-                        for &byte in representatives.iter() {
-                            let oldtrans =
-                                dfa_state.transitions()[byte as usize];
-                            let newtrans = Transition::new(next_dfa_id, info);
-                            if oldtrans.state_id() == DEAD {
-                                dfa_state.transitions()[byte as usize] =
-                                    newtrans;
-                            } else if oldtrans != newtrans {
-                                return Err(todo!());
-                            }
-                        }
+                        self.compile_transition(dfa_id, trans, info)?;
                     }
                     thompson::State::Sparse(ref sparse) => {
-                        todo!()
+                        for trans in sparse.transitions.iter() {
+                            self.compile_transition(dfa_id, trans, info)?;
+                        }
                     }
                     thompson::State::Look { look, next } => {
-                        if !seen.insert(next) {
+                        if !self.seen.insert(next) {
                             return Err(todo!());
                         }
-                        stack.push((next, info.look_insert(look)));
+                        self.stack.push((next, info.look_insert(look)));
                     }
                     thompson::State::Union { ref alternates } => {
                         for &sid in alternates.iter().rev() {
-                            if !seen.insert(sid) {
+                            if !self.seen.insert(sid) {
                                 return Err(todo!());
                             }
-                            stack.push((sid, info));
+                            self.stack.push((sid, info));
                         }
                     }
                     thompson::State::BinaryUnion { alt1, alt2 } => {
-                        if !seen.insert(alt1) || !seen.insert(alt2) {
+                        if !self.seen.insert(alt1) || !self.seen.insert(alt2) {
                             return Err(todo!());
                         }
-                        stack.push((alt2, info));
-                        stack.push((alt1, info));
+                        self.stack.push((alt2, info));
+                        self.stack.push((alt1, info));
                     }
                     thompson::State::Capture { next, slot, .. } => {
-                        if !seen.insert(next) {
+                        if !self.seen.insert(next) {
                             return Err(todo!());
                         }
-                        stack.push((next, info.slot_insert(slot)));
+                        self.stack.push((next, info.slot_insert(slot)));
                     }
                     thompson::State::Fail => {
                         continue;
                     }
                     thompson::State::Match { pattern_id } => {
-                        if matched.contains(pattern_id) {
+                        if !self.matched.is_empty() {
                             return Err(todo!());
                         }
-                        matched = matched.insert(pattern_id);
-                        self.dfa.state_mut(dfa_id).set_pattern_info(
+                        self.matched = self.matched.insert(pattern_id);
+                        self.dfa.set_pattern_info(
+                            dfa_id,
                             PatternInfo::empty()
-                                .set_patterns(matched)
+                                .set_patterns(self.matched)
                                 .set_info(info),
                         );
                     }
@@ -242,6 +215,39 @@ impl<'a> InternalBuilder<'a> {
             }
         }
         Ok(self.dfa)
+    }
+
+    fn compile_transition(
+        &mut self,
+        dfa_id: StateID,
+        trans: &thompson::Transition,
+        info: Info,
+    ) -> Result<(), Error> {
+        let mut next_dfa_id = self.nfa_to_dfa_id[trans.next];
+        if next_dfa_id == DEAD {
+            next_dfa_id = self.add_dfa_state_for_nfa_state(trans.next)?;
+        }
+        // I wonder if this is wrong? What if we're still
+        // looking for a match for a different pattern? I think
+        // that only applies to MatchKind::All, in which case,
+        // we would mush on anyway.
+        if !self.matched.is_empty() {
+            return Ok(());
+        }
+        for byte in self
+            .classes
+            .representatives(trans.start..=trans.end)
+            .filter_map(|r| r.as_u8())
+        {
+            let oldtrans = self.dfa.transition(dfa_id, byte);
+            let newtrans = Transition::new(next_dfa_id, info);
+            if oldtrans.state_id() == DEAD {
+                self.dfa.set_transition(dfa_id, byte, newtrans);
+            } else if oldtrans != newtrans {
+                return Err(todo!());
+            }
+        }
+        Ok(())
     }
 
     fn add_dfa_state_for_nfa_state(
@@ -286,18 +292,36 @@ impl OnePass {
         1 << self.stride2
     }
 
-    fn state_mut(&mut self, id: StateID) -> StateMut<'_> {
-        let offset = id.as_usize();
-        let alphabet_len = self.alphabet_len();
-        let raw = &mut self.table[offset..offset + alphabet_len + 1];
-        StateMut { id, alphabet_len, raw }
+    fn transition(&self, sid: StateID, byte: u8) -> Transition {
+        self.table[sid.as_usize() + byte as usize]
     }
+
+    fn set_transition(&mut self, sid: StateID, byte: u8, to: Transition) {
+        self.table[sid.as_usize() + byte as usize] = to;
+    }
+
+    fn pattern_info(&self, sid: StateID) -> PatternInfo {
+        PatternInfo(self.table[sid.as_usize() + self.alphabet_len()].0)
+    }
+
+    fn set_pattern_info(&mut self, sid: StateID, patinfo: PatternInfo) {
+        let alphabet_len = self.alphabet_len();
+        self.table[sid.as_usize() + alphabet_len] = Transition(patinfo.0);
+    }
+
+    // fn state_mut(&mut self, id: StateID) -> StateMut<'_> {
+    // let offset = id.as_usize();
+    // let alphabet_len = self.alphabet_len();
+    // let raw = &mut self.table[offset..offset + alphabet_len + 1];
+    // StateMut { id, alphabet_len, raw }
+    // }
 
     fn memory_usage(&self) -> usize {
         self.table.len() * core::mem::size_of::<u64>()
     }
 }
 
+/*
 struct StateMut<'a> {
     id: StateID,
     alphabet_len: usize,
@@ -317,6 +341,7 @@ impl<'a> StateMut<'a> {
         &mut self.raw[..self.alphabet_len]
     }
 }
+*/
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Transition(u64);
