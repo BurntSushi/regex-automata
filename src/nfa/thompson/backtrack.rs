@@ -1474,6 +1474,7 @@ impl BoundedBacktracker {
     ) -> Result<Option<PatternID>, MatchError> {
         let m = match self.search_imp(cache, input, slots)? {
             None => return Ok(None),
+            Some(pid) if !input.get_utf8() => return Ok(Some(pid)),
             Some(pid) => {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;

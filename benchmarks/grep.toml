@@ -60,6 +60,63 @@ analysis = 'TODO'
 
 [[benches]]
 type = "grep-captures"
+name = "literal-star-variant1"
+regex = '([*].)|(.[*])'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 4_285
+capture-count = 12_074
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "literal-star-variant2"
+regex = '(\*.)|(.\*)'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 4_285
+capture-count = 12_074
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "literal-star-variant3"
+regex = '([*][^\n*])|([^\n*][*])'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 4_285
+capture-count = 11_880
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
 name = "contiguous-letters"
 regex = '(?:(a+)|(b+)|(c+)|(d+)|(e+)|(f+)|(g+)|(h+)|(i+)|(j+)|(k+)|(l+)|(m+)|(n+)|(o+)|(p+)|(q+)|(r+)|(s+)|(t+)|(u+)|(v+)|(w+)|(x+)|(y+)|(z+))'
 haystack-path = "opensubtitles/en-medium.txt"

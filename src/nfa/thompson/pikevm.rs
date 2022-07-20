@@ -1204,6 +1204,7 @@ impl PikeVM {
     ) -> Option<PatternID> {
         let m = match self.search_imp(cache, input, slots) {
             None => return None,
+            Some(pid) if !input.get_utf8() => return Some(pid),
             Some(pid) => {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;

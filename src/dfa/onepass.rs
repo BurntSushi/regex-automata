@@ -9,8 +9,9 @@ use crate::{
     nfa::thompson::{self, NFA},
     util::{
         alphabet::{self, ByteClasses},
-        primitives::{PatternID, SmallIndex, StateID},
-        search::MatchKind,
+        captures::Captures,
+        primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
+        search::{Input, Match, MatchError, MatchKind},
         sparse_set::SparseSet,
     },
 };
@@ -24,6 +25,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn new() -> Config {
+        Config::default()
+    }
+
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
@@ -83,7 +88,7 @@ impl Builder {
     }
 
     pub fn build_from_nfa(&self, nfa: &NFA) -> Result<OnePass, Error> {
-        todo!()
+        InternalBuilder::new(self.config.clone(), nfa).build()
     }
 }
 
@@ -113,41 +118,40 @@ impl<'a> InternalBuilder<'a> {
             nfa.byte_class_set().byte_classes()
         };
         let stride2 = classes.stride2();
-        let dfa = OnePass { table: vec![], classes: classes.clone(), stride2 };
-        let nfa_to_dfa_id = vec![DEAD; nfa.states().len()];
-        let uncompiled_nfa_ids = vec![];
-        let seen = SparseSet::new(nfa.states().len());
-        let stack = vec![];
-        let matched = Patterns::empty();
+        let dfa = OnePass {
+            nfa: nfa.clone(),
+            table: vec![],
+            starts: vec![],
+            classes: classes.clone(),
+            stride2,
+        };
         InternalBuilder {
             config,
             nfa,
             dfa,
             classes,
-            nfa_to_dfa_id,
-            uncompiled_nfa_ids,
-            seen,
-            stack,
-            matched,
+            nfa_to_dfa_id: vec![DEAD; nfa.states().len()],
+            uncompiled_nfa_ids: vec![],
+            seen: SparseSet::new(nfa.states().len()),
+            stack: vec![],
+            matched: Patterns::empty(),
         }
     }
 
     fn build(mut self) -> Result<OnePass, Error> {
         assert_eq!(DEAD, self.add_empty_state()?);
 
-        // BREADCRUMBS: We need starting states for each pattern. I think we
-        // just need to build a DFA start state for each pattern, then put the
-        // NFA ids in our uncompiled set, and create a new map Vec<StateID>
-        // from pattern ID to the DFA start state.
-
-        // BREADCRUMBS: Add our error types.
-
-        self.add_dfa_state_for_nfa_state(self.nfa.start_anchored())?;
+        self.add_start_state(self.nfa.start_anchored())?;
+        if self.config.get_starts_for_each_pattern() {
+            for pid in self.nfa.patterns() {
+                self.add_start_state(self.nfa.start_pattern(pid))?;
+            }
+        }
         while let Some(nfa_id) = self.uncompiled_nfa_ids.pop() {
             let dfa_id = self.nfa_to_dfa_id[nfa_id];
             self.matched = Patterns::empty();
             self.seen.clear();
-            self.stack.push((nfa_id, Info::empty()));
+            self.stack_push(nfa_id, Info::empty())?;
             while let Some((id, info)) = self.stack.pop() {
                 match *self.nfa.state(id) {
                     thompson::State::ByteRange { ref trans } => {
@@ -159,38 +163,28 @@ impl<'a> InternalBuilder<'a> {
                         }
                     }
                     thompson::State::Look { look, next } => {
-                        if !self.seen.insert(next) {
-                            return Err(todo!());
-                        }
-                        self.stack.push((next, info.look_insert(look)));
+                        self.stack_push(next, info.look_insert(look))?;
                     }
                     thompson::State::Union { ref alternates } => {
                         for &sid in alternates.iter().rev() {
-                            if !self.seen.insert(sid) {
-                                return Err(todo!());
-                            }
-                            self.stack.push((sid, info));
+                            self.stack_push(sid, info)?;
                         }
                     }
                     thompson::State::BinaryUnion { alt1, alt2 } => {
-                        if !self.seen.insert(alt1) || !self.seen.insert(alt2) {
-                            return Err(todo!());
-                        }
-                        self.stack.push((alt2, info));
-                        self.stack.push((alt1, info));
+                        self.stack_push(alt2, info)?;
+                        self.stack_push(alt1, info)?;
                     }
                     thompson::State::Capture { next, slot, .. } => {
-                        if !self.seen.insert(next) {
-                            return Err(todo!());
-                        }
-                        self.stack.push((next, info.slot_insert(slot)));
+                        self.stack_push(next, info.slot_insert(slot))?;
                     }
                     thompson::State::Fail => {
                         continue;
                     }
                     thompson::State::Match { pattern_id } => {
                         if !self.matched.is_empty() {
-                            return Err(todo!());
+                            return Err(Error::one_pass_fail(
+                                "multiple epsilon transitions to match state",
+                            ));
                         }
                         self.matched = self.matched.insert(pattern_id);
                         self.dfa.set_pattern_info(
@@ -204,6 +198,20 @@ impl<'a> InternalBuilder<'a> {
             }
         }
         Ok(self.dfa)
+    }
+
+    fn stack_push(
+        &mut self,
+        nfa_id: StateID,
+        info: Info,
+    ) -> Result<(), Error> {
+        if !self.seen.insert(nfa_id) {
+            return Err(Error::one_pass_fail(
+                "multiple epsilon transitions to same state",
+            ));
+        }
+        self.stack.push((nfa_id, info));
+        Ok(())
     }
 
     fn compile_transition(
@@ -220,6 +228,9 @@ impl<'a> InternalBuilder<'a> {
         // looking for a match for a different pattern? I think
         // that only applies to MatchKind::All, in which case,
         // we would mush on anyway.
+        //
+        // Also, I wonder if it would be better to do this when handling
+        // the Match state. We would clear the stack and just stop.
         if !self.matched.is_empty() {
             return Ok(());
         }
@@ -233,17 +244,22 @@ impl<'a> InternalBuilder<'a> {
             if oldtrans.state_id() == DEAD {
                 self.dfa.set_transition(dfa_id, byte, newtrans);
             } else if oldtrans != newtrans {
-                return Err(todo!());
+                return Err(Error::one_pass_fail("conflicting transition"));
             }
         }
         Ok(())
+    }
+
+    fn add_start_state(&mut self, nfa_id: StateID) -> Result<StateID, Error> {
+        let dfa_id = self.add_dfa_state_for_nfa_state(nfa_id)?;
+        self.dfa.starts.push(dfa_id);
+        Ok(dfa_id)
     }
 
     fn add_dfa_state_for_nfa_state(
         &mut self,
         nfa_id: StateID,
     ) -> Result<StateID, Error> {
-        assert!(!self.nfa.state(nfa_id).is_epsilon());
         let dfa_id = self.add_empty_state()?;
         self.nfa_to_dfa_id[nfa_id] = dfa_id;
         self.uncompiled_nfa_ids.push(nfa_id);
@@ -267,12 +283,110 @@ impl<'a> InternalBuilder<'a> {
 
 #[derive(Debug)]
 pub struct OnePass {
+    nfa: NFA,
     table: Vec<Transition>,
+    starts: Vec<StateID>,
     classes: ByteClasses,
     stride2: usize,
 }
 
 impl OnePass {
+    pub fn new(pattern: &str) -> Result<OnePass, Error> {
+        OnePass::builder().build(pattern)
+    }
+
+    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<OnePass, Error> {
+        OnePass::builder().build_many(patterns)
+    }
+
+    pub fn config() -> Config {
+        Config::new()
+    }
+
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+
+    pub fn search(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        caps: &mut Captures,
+    ) {
+        caps.set_pattern(None);
+        let pid = self.search_slots(cache, input, caps.slots_mut());
+        caps.set_pattern(pid);
+    }
+
+    pub fn search_slots(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        let m = match self.search_imp(cache, input, slots) {
+            None => return None,
+            Some(pid) if !input.get_utf8() => return Some(pid),
+            Some(pid) => {
+                let slot_start = pid.as_usize() * 2;
+                let slot_end = slot_start + 1;
+                if slot_end >= slots.len() {
+                    return Some(pid);
+                }
+                // These unwraps are OK because we know we have a match and
+                // we know our caller provided slots are big enough.
+                let start = slots[slot_start].unwrap().get();
+                let end = slots[slot_end].unwrap().get();
+                if start < end {
+                    return Some(pid);
+                }
+                Match::new(pid, start..end)
+            }
+        };
+        input
+            .skip_empty_utf8_splits(m, |search| {
+                let pid = match self.search_imp(cache, search, slots) {
+                    None => return Ok(None),
+                    Some(pid) => pid,
+                };
+                let slot_start = pid.as_usize() * 2;
+                let slot_end = slot_start + 1;
+                let start = slots[slot_start].unwrap().get();
+                let end = slots[slot_end].unwrap().get();
+                Ok(Some(Match::new(pid, start..end)))
+            })
+            .unwrap()
+            .map(|m| m.pattern())
+    }
+
+    fn search_imp(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        cache.setup_search(slots.len());
+        if input.is_done() {
+            return None;
+        }
+        let start = match input.get_pattern() {
+            None => self.start(),
+            Some(pid) => self.start_pattern(pid),
+        };
+        for at in input.start()..input.end() {
+            todo!()
+        }
+        todo!()
+    }
+
+    fn start(&self) -> StateID {
+        self.starts[0]
+    }
+
+    fn start_pattern(&self, pid: PatternID) -> StateID {
+        self.starts[pid.one_more()]
+    }
+
     fn alphabet_len(&self) -> usize {
         self.classes.alphabet_len()
     }
@@ -282,55 +396,32 @@ impl OnePass {
     }
 
     fn transition(&self, sid: StateID, byte: u8) -> Transition {
-        self.table[sid.as_usize() + byte as usize]
+        let class = self.classes.get(byte);
+        self.table[sid.as_usize() + class as usize]
     }
 
     fn set_transition(&mut self, sid: StateID, byte: u8, to: Transition) {
-        self.table[sid.as_usize() + byte as usize] = to;
+        let class = self.classes.get(byte);
+        self.table[sid.as_usize() + class as usize] = to;
     }
 
     fn pattern_info(&self, sid: StateID) -> PatternInfo {
-        PatternInfo(self.table[sid.as_usize() + self.alphabet_len()].0)
+        let alphabet_len = self.alphabet_len();
+        PatternInfo(self.table[sid.as_usize() + alphabet_len - 1].0)
     }
 
     fn set_pattern_info(&mut self, sid: StateID, patinfo: PatternInfo) {
         let alphabet_len = self.alphabet_len();
-        self.table[sid.as_usize() + alphabet_len] = Transition(patinfo.0);
+        self.table[sid.as_usize() + alphabet_len - 1] = Transition(patinfo.0);
     }
-
-    // fn state_mut(&mut self, id: StateID) -> StateMut<'_> {
-    // let offset = id.as_usize();
-    // let alphabet_len = self.alphabet_len();
-    // let raw = &mut self.table[offset..offset + alphabet_len + 1];
-    // StateMut { id, alphabet_len, raw }
-    // }
 
     fn memory_usage(&self) -> usize {
-        self.table.len() * core::mem::size_of::<u64>()
+        use core::mem::size_of;
+
+        self.table.len() * size_of::<Transition>()
+            + self.starts.len() * size_of::<StateID>()
     }
 }
-
-/*
-struct StateMut<'a> {
-    id: StateID,
-    alphabet_len: usize,
-    raw: &'a mut [Transition],
-}
-
-impl<'a> StateMut<'a> {
-    fn pattern_info(&mut self) -> PatternInfo {
-        PatternInfo(self.raw[self.alphabet_len].0)
-    }
-
-    fn set_pattern_info(&mut self, pattern_info: PatternInfo) {
-        self.raw[self.alphabet_len] = Transition(pattern_info.0);
-    }
-
-    fn transitions(&mut self) -> &mut [Transition] {
-        &mut self.raw[..self.alphabet_len]
-    }
-}
-*/
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Transition(u64);
@@ -445,15 +536,100 @@ impl Info {
     fn look_contains(self, look: thompson::Look) -> bool {
         self.0 & (look.as_repr() as u32) != 0
     }
+
+    fn look_matches(self, haystack: &[u8], at: usize) -> bool {
+        let mut looks = self.0 as u8;
+        while looks != 0 {
+            let look = thompson::Look::from_repr(1 << looks.trailing_zeros())
+                .unwrap();
+            looks &= !look.as_repr();
+            if !look.matches(haystack, at) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
-/*
-/// Computes the stride as a power of 2 for a one-pass DFA. The special sauce
-/// here is that every state has 1+alphabet_len entries (each entry is a
-/// u64), where the extra entry comes from match info. Like which look-around
-/// assertions need to hold and which patterns have matched.
-fn stride2(alphabet_len: usize) -> usize {
-    let zeros = (1 + alphabet_len).next_power_of_two().trailing_zeros();
-    usize::try_from(zeros).unwrap()
+/// A cache represents mutable state that a [`OnePass`] DFA requires during a
+/// search.
+///
+/// For a given [`OnePass`] DFA, its corresponding cache may be created either
+/// via [`OnePass::create_cache`], or via [`Cache::new`]. They are equivalent
+/// in every way, except the former does not require explicitly importing
+/// `Cache`.
+///
+/// A particular `Cache` is coupled with the [`OnePass`] DFA from which it
+/// was created. It may only be used with that `OnePass` DFA. A cache and its
+/// allocations may be re-purposed via [`Cache::reset`], in which case, it can
+/// only be used with the new `OnePass` DFA (and not the old one).
+#[derive(Clone, Debug)]
+pub struct Cache {
+    /// Scratch space used to store slots during a search. Basically, we use
+    /// the caller provided slots to store slots known when a match occurs.
+    /// But after a match occurs, we might continue a search but ultimately
+    /// fail to extend the match. When continuing the search, we need some
+    /// place to store candidate capture offsets without overwriting the slot
+    /// offsets recorded for the most recently seen match.
+    slots: Vec<Option<NonMaxUsize>>,
+    /// The number of slots in the caller-provided 'Captures' value for the
+    /// current search. Setting this to the total number of slots for the
+    /// underlying NFA is always correct, but may be wasteful.
+    slots_for_captures: usize,
 }
-*/
+
+impl Cache {
+    pub fn new(re: &OnePass) -> Cache {
+        let slot_len = re.nfa.group_info().slot_len();
+        Cache { slots: vec![None; slot_len], slots_for_captures: slot_len }
+    }
+
+    pub fn reset(&mut self, re: &OnePass) {
+        self.slots.resize(re.nfa.group_info().slot_len(), None);
+    }
+
+    pub fn memory_usage(&self) -> usize {
+        self.slots.len() * core::mem::size_of::<Option<NonMaxUsize>>()
+    }
+
+    fn slots(&mut self) -> &mut [Option<NonMaxUsize>] {
+        &mut self.slots[..self.slots_for_captures]
+    }
+
+    fn setup_search(&mut self, captures_slot_len: usize) {
+        self.slots_for_captures = captures_slot_len;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fail_conflicting_transition() {
+        let predicate = |err: &str| err.contains("conflicting transition");
+
+        let err = OnePass::new(r"a*[ab]").unwrap_err().to_string();
+        assert!(predicate(&err), "{}", err);
+    }
+
+    #[test]
+    fn fail_multiple_epsilon() {
+        let predicate = |err: &str| {
+            err.contains("multiple epsilon transitions to same state")
+        };
+
+        let err = OnePass::new(r"(^|$)a").unwrap_err().to_string();
+        assert!(predicate(&err), "{}", err);
+    }
+
+    #[test]
+    fn fail_multiple_match() {
+        let predicate = |err: &str| {
+            err.contains("multiple epsilon transitions to match state")
+        };
+
+        let err = OnePass::new_many(&[r"^", r"$"]).unwrap_err().to_string();
+        assert!(predicate(&err), "{}", err);
+    }
+}
