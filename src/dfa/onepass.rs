@@ -141,6 +141,7 @@ impl<'a> InternalBuilder<'a> {
     fn build(mut self) -> Result<OnePass, Error> {
         assert_eq!(DEAD, self.add_empty_state()?);
 
+        let explicit_slot_start = self.nfa.pattern_len() * 2;
         self.add_start_state(self.nfa.start_anchored())?;
         if self.config.get_starts_for_each_pattern() {
             for pid in self.nfa.patterns() {
@@ -175,7 +176,13 @@ impl<'a> InternalBuilder<'a> {
                         self.stack_push(alt1, info)?;
                     }
                     thompson::State::Capture { next, slot, .. } => {
-                        self.stack_push(next, info.slot_insert(slot))?;
+                        let slot = slot.as_usize();
+                        let info = if slot < explicit_slot_start {
+                            info
+                        } else {
+                            info.slot_insert(slot - explicit_slot_start)
+                        };
+                        self.stack_push(next, info)?;
                     }
                     thompson::State::Fail => {
                         continue;
@@ -307,6 +314,14 @@ impl OnePass {
         Builder::new()
     }
 
+    pub fn create_cache(&self) -> Cache {
+        Cache::new(self)
+    }
+
+    pub fn create_captures(&self) -> Captures {
+        Captures::all(self.nfa.group_info().clone())
+    }
+
     pub fn search(
         &self,
         cache: &mut Cache,
@@ -365,18 +380,71 @@ impl OnePass {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
-        cache.setup_search(slots.len());
+        let explicit_start = self.nfa.pattern_len() * 2;
+        cache.setup_search(slots.len().saturating_sub(explicit_start));
         if input.is_done() {
             return None;
         }
-        let start = match input.get_pattern() {
+        for pid in self.nfa.patterns() {
+            let i = pid.as_usize() * 2;
+            if i >= slots.len() {
+                break;
+            }
+            slots[i] = NonMaxUsize::new(input.start());
+        }
+        let haystack = input.haystack();
+        let mut pid = None;
+        let mut sid = match input.get_pattern() {
             None => self.start(),
             Some(pid) => self.start_pattern(pid),
         };
         for at in input.start()..input.end() {
-            todo!()
+            let patinfo = self.pattern_info(sid);
+            if !patinfo.patterns().is_empty()
+                && patinfo.info().look_matches(haystack, at)
+            {
+                // TODO: fix this
+                pid = Some(PatternID::ZERO);
+                if explicit_start < slots.len() {
+                    slots[explicit_start..]
+                        .copy_from_slice(cache.explicit_slots());
+                    patinfo
+                        .info()
+                        .slot_apply(at, &mut slots[explicit_start..]);
+                }
+                if slots.len() >= 2 {
+                    slots[1] = NonMaxUsize::new(at);
+                }
+            }
+
+            let trans = self.transition(sid, haystack[at]);
+            sid = trans.state_id();
+            let info = trans.info();
+            if sid == DEAD || !info.look_matches(haystack, at) {
+                dbg!("DEAD return");
+                return pid;
+            }
+            info.slot_apply(at, cache.explicit_slots());
         }
-        todo!()
+        let patinfo = self.pattern_info(sid);
+        if !patinfo.patterns().is_empty()
+            && patinfo.info().look_matches(haystack, input.end())
+        {
+            // TODO: fix this
+            pid = Some(PatternID::ZERO);
+            if explicit_start < slots.len() {
+                slots[explicit_start..]
+                    .copy_from_slice(cache.explicit_slots());
+                patinfo
+                    .info()
+                    .slot_apply(input.end(), &mut slots[explicit_start..]);
+            }
+            if slots.len() >= 2 {
+                slots[1] = NonMaxUsize::new(input.end());
+            }
+        }
+        dbg!("EOI return");
+        pid
     }
 
     fn start(&self) -> StateID {
@@ -443,6 +511,10 @@ impl Transition {
         // Guaranteed not to overflow because StateID will never overflow
         // u32 or usize.
         self.0 |= (sid.as_usize() as u64) << 32;
+    }
+
+    fn info(&self) -> Info {
+        Info(self.0 as u32)
     }
 }
 
@@ -520,9 +592,28 @@ impl Info {
         Info(0)
     }
 
-    fn slot_insert(self, slot: SmallIndex) -> Info {
-        assert!(slot.as_usize() < Info::MAX_SLOTS);
-        Info(self.0 | (1 << (8 + slot.as_usize())))
+    fn slot_insert(self, slot: usize) -> Info {
+        assert!(slot < Info::MAX_SLOTS);
+        Info(self.0 | (1 << (8 + slot)))
+    }
+
+    fn slot_contains(self, slot: usize) -> bool {
+        self.0 & (1 << (8 + slot)) != 0
+    }
+
+    fn slot_is_empty(self) -> bool {
+        self.0 & !0b1111_1111 == 0
+    }
+
+    fn slot_apply(self, at: usize, slots: &mut [Option<NonMaxUsize>]) {
+        if self.slot_is_empty() {
+            return;
+        }
+        for (i, slot) in slots.iter_mut().enumerate() {
+            if self.slot_contains(i) {
+                *slot = NonMaxUsize::new(at);
+            }
+        }
     }
 
     fn look_is_empty(self) -> bool {
@@ -571,7 +662,7 @@ pub struct Cache {
     /// fail to extend the match. When continuing the search, we need some
     /// place to store candidate capture offsets without overwriting the slot
     /// offsets recorded for the most recently seen match.
-    slots: Vec<Option<NonMaxUsize>>,
+    explicit_slots: Vec<Option<NonMaxUsize>>,
     /// The number of slots in the caller-provided 'Captures' value for the
     /// current search. Setting this to the total number of slots for the
     /// underlying NFA is always correct, but may be wasteful.
@@ -580,24 +671,32 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(re: &OnePass) -> Cache {
-        let slot_len = re.nfa.group_info().slot_len();
-        Cache { slots: vec![None; slot_len], slots_for_captures: slot_len }
+        let mut cache =
+            Cache { explicit_slots: vec![], slots_for_captures: 0 };
+        cache.reset(re);
+        cache
     }
 
     pub fn reset(&mut self, re: &OnePass) {
-        self.slots.resize(re.nfa.group_info().slot_len(), None);
+        let slot_len = re
+            .nfa
+            .group_info()
+            .slot_len()
+            .saturating_sub(re.nfa.pattern_len());
+        self.explicit_slots.resize(slot_len, None);
+        self.slots_for_captures = slot_len;
     }
 
     pub fn memory_usage(&self) -> usize {
-        self.slots.len() * core::mem::size_of::<Option<NonMaxUsize>>()
+        self.explicit_slots.len() * core::mem::size_of::<Option<NonMaxUsize>>()
     }
 
-    fn slots(&mut self) -> &mut [Option<NonMaxUsize>] {
-        &mut self.slots[..self.slots_for_captures]
+    fn explicit_slots(&mut self) -> &mut [Option<NonMaxUsize>] {
+        &mut self.explicit_slots[..self.slots_for_captures]
     }
 
-    fn setup_search(&mut self, captures_slot_len: usize) {
-        self.slots_for_captures = captures_slot_len;
+    fn setup_search(&mut self, explicit_slot_len: usize) {
+        self.slots_for_captures = explicit_slot_len;
     }
 }
 
@@ -631,5 +730,14 @@ mod tests {
 
         let err = OnePass::new_many(&[r"^", r"$"]).unwrap_err().to_string();
         assert!(predicate(&err), "{}", err);
+    }
+
+    #[test]
+    fn scratch() {
+        let re = OnePass::new(r"(a)(b)(c)").unwrap();
+        let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+        let input = Input::new("abc");
+        re.search(&mut cache, &input, &mut caps);
+        dbg!(&caps);
     }
 }
