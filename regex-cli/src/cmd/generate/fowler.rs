@@ -191,6 +191,17 @@ impl core::fmt::Display for TomlTest {
             writeln!(f, "]]")?;
         }
         writeln!(f, "match_limit = 1")?;
+        // If the match starts at 0, then set anchored=true. This gives us more
+        // coverage on the anchored option and lets regex engines like the
+        // one-pass DFA participate a bit more in the test suite.
+        if self
+            .captures
+            .get(0)
+            .and_then(|&s| s)
+            .map_or(false, |span| span.0 == 0)
+        {
+            writeln!(f, "anchored = true")?;
+        }
         if self.unescape {
             writeln!(f, "unescape = true")?;
         }

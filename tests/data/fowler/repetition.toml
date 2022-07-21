@@ -51,6 +51,7 @@ regex = '''((..)|(.))*'''
 input = ''''''
 matches = [[[0, 0], [], [], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition20"
@@ -58,6 +59,7 @@ regex = '''((..)|(.))'''
 input = '''a'''
 matches = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition21"
@@ -79,6 +81,7 @@ regex = '''((..)|(.)){1}'''
 input = '''a'''
 matches = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition25"
@@ -100,6 +103,7 @@ regex = '''((..)|(.))*'''
 input = '''a'''
 matches = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition30"
@@ -107,6 +111,7 @@ regex = '''((..)|(.))'''
 input = '''aa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition31"
@@ -114,6 +119,7 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aa'''
 matches = [[[0, 2], [0, 1], [], [0, 1], [1, 2], [], [1, 2]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition32"
@@ -128,6 +134,7 @@ regex = '''((..)|(.)){1}'''
 input = '''aa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition35"
@@ -135,6 +142,7 @@ regex = '''((..)|(.)){2}'''
 input = '''aa'''
 matches = [[[0, 2], [1, 2], [], [1, 2]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition36"
@@ -149,6 +157,7 @@ regex = '''((..)|(.))*'''
 input = '''aa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition40"
@@ -156,6 +165,7 @@ regex = '''((..)|(.))'''
 input = '''aaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition41"
@@ -163,6 +173,7 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaa'''
 matches = [[[0, 3], [0, 2], [0, 2], [], [2, 3], [], [2, 3]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition42"
@@ -170,6 +181,7 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaa'''
 matches = [[[0, 3], [0, 1], [], [0, 1], [1, 2], [], [1, 2], [2, 3], [], [2, 3]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition44"
@@ -177,6 +189,7 @@ regex = '''((..)|(.)){1}'''
 input = '''aaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -185,6 +198,7 @@ regex = '''((..)|(.)){2}'''
 input = '''aaa'''
 matches = [[[0, 3], [2, 3], [0, 2], [2, 3]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition47"
@@ -192,6 +206,7 @@ regex = '''((..)|(.)){3}'''
 input = '''aaa'''
 matches = [[[0, 3], [2, 3], [], [2, 3]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -200,6 +215,7 @@ regex = '''((..)|(.))*'''
 input = '''aaa'''
 matches = [[[0, 3], [2, 3], [0, 2], [2, 3]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition52"
@@ -207,6 +223,7 @@ regex = '''((..)|(.))'''
 input = '''aaaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition53"
@@ -214,6 +231,7 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaaa'''
 matches = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition54"
@@ -221,6 +239,7 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaaa'''
 matches = [[[0, 4], [0, 2], [0, 2], [], [2, 3], [], [2, 3], [3, 4], [], [3, 4]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition56"
@@ -228,6 +247,7 @@ regex = '''((..)|(.)){1}'''
 input = '''aaaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition57"
@@ -235,6 +255,7 @@ regex = '''((..)|(.)){2}'''
 input = '''aaaa'''
 matches = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -243,6 +264,7 @@ regex = '''((..)|(.)){3}'''
 input = '''aaaa'''
 matches = [[[0, 4], [3, 4], [0, 2], [3, 4]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition61"
@@ -250,6 +272,7 @@ regex = '''((..)|(.))*'''
 input = '''aaaa'''
 matches = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition63"
@@ -257,6 +280,7 @@ regex = '''((..)|(.))'''
 input = '''aaaaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition64"
@@ -264,6 +288,7 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaaaa'''
 matches = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition65"
@@ -271,6 +296,7 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaaaa'''
 matches = [[[0, 5], [0, 2], [0, 2], [], [2, 4], [2, 4], [], [4, 5], [], [4, 5]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition67"
@@ -278,6 +304,7 @@ regex = '''((..)|(.)){1}'''
 input = '''aaaaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition68"
@@ -285,6 +312,7 @@ regex = '''((..)|(.)){2}'''
 input = '''aaaaa'''
 matches = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -293,6 +321,7 @@ regex = '''((..)|(.)){3}'''
 input = '''aaaaa'''
 matches = [[[0, 5], [4, 5], [2, 4], [4, 5]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -301,6 +330,7 @@ regex = '''((..)|(.))*'''
 input = '''aaaaa'''
 matches = [[[0, 5], [4, 5], [2, 4], [4, 5]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition75"
@@ -308,6 +338,7 @@ regex = '''((..)|(.))'''
 input = '''aaaaaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition76"
@@ -315,6 +346,7 @@ regex = '''((..)|(.))((..)|(.))'''
 input = '''aaaaaa'''
 matches = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition77"
@@ -322,6 +354,7 @@ regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 input = '''aaaaaa'''
 matches = [[[0, 6], [0, 2], [0, 2], [], [2, 4], [2, 4], [], [4, 6], [4, 6], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition79"
@@ -329,6 +362,7 @@ regex = '''((..)|(.)){1}'''
 input = '''aaaaaa'''
 matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition80"
@@ -336,6 +370,7 @@ regex = '''((..)|(.)){2}'''
 input = '''aaaaaa'''
 matches = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition81"
@@ -343,6 +378,7 @@ regex = '''((..)|(.)){3}'''
 input = '''aaaaaa'''
 matches = [[[0, 6], [4, 6], [4, 6], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition83"
@@ -350,6 +386,7 @@ regex = '''((..)|(.))*'''
 input = '''aaaaaa'''
 matches = [[[0, 6], [4, 6], [4, 6], []]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive90"
@@ -357,6 +394,7 @@ regex = '''X(.?){0,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive91"
@@ -364,6 +402,7 @@ regex = '''X(.?){1,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive92"
@@ -371,6 +410,7 @@ regex = '''X(.?){2,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive93"
@@ -378,6 +418,7 @@ regex = '''X(.?){3,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive94"
@@ -385,6 +426,7 @@ regex = '''X(.?){4,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive95"
@@ -392,6 +434,7 @@ regex = '''X(.?){5,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive96"
@@ -399,6 +442,7 @@ regex = '''X(.?){6,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive97"
@@ -406,6 +450,7 @@ regex = '''X(.?){7,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [7, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive98"
@@ -413,6 +458,7 @@ regex = '''X(.?){8,}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -421,6 +467,7 @@ regex = '''X(.?){0,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -429,6 +476,7 @@ regex = '''X(.?){1,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -437,6 +485,7 @@ regex = '''X(.?){2,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -445,6 +494,7 @@ regex = '''X(.?){3,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -453,6 +503,7 @@ regex = '''X(.?){4,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -461,6 +512,7 @@ regex = '''X(.?){5,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -469,6 +521,7 @@ regex = '''X(.?){6,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -477,6 +530,7 @@ regex = '''X(.?){7,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive115"
@@ -484,6 +538,7 @@ regex = '''X(.?){8,8}Y'''
 input = '''X1234567Y'''
 matches = [[[0, 9], [8, 8]]]
 match_limit = 1
+anchored = true
 
 # Test added by Rust regex project.
 [[tests]]
@@ -492,6 +547,7 @@ regex = '''(a|ab|c|bcd){0,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
+anchored = true
 
 # Test added by Rust regex project.
 [[tests]]
@@ -500,6 +556,7 @@ regex = '''(a|ab|c|bcd){1,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive130"
@@ -507,6 +564,7 @@ regex = '''(a|ab|c|bcd){2,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive131"
@@ -514,6 +572,7 @@ regex = '''(a|ab|c|bcd){3,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive132"
@@ -529,6 +588,7 @@ regex = '''(a|ab|c|bcd){0,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
+anchored = true
 
 # Test added by Rust regex project.
 [[tests]]
@@ -537,6 +597,7 @@ regex = '''(a|ab|c|bcd){1,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive137"
@@ -544,6 +605,7 @@ regex = '''(a|ab|c|bcd){2,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive138"
@@ -551,6 +613,7 @@ regex = '''(a|ab|c|bcd){3,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive139"
@@ -566,6 +629,7 @@ regex = '''(a|ab|c|bcd)*(d*)'''
 input = '''ababcd'''
 matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
+anchored = true
 
 # Test added by Rust regex project.
 [[tests]]
@@ -574,6 +638,7 @@ regex = '''(a|ab|c|bcd)+(d*)'''
 input = '''ababcd'''
 matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -582,6 +647,7 @@ regex = '''(ab|a|c|bcd){0,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -590,6 +656,7 @@ regex = '''(ab|a|c|bcd){1,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -598,6 +665,7 @@ regex = '''(ab|a|c|bcd){2,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -606,6 +674,7 @@ regex = '''(ab|a|c|bcd){3,}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive156"
@@ -621,6 +690,7 @@ regex = '''(ab|a|c|bcd){0,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -629,6 +699,7 @@ regex = '''(ab|a|c|bcd){1,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -637,6 +708,7 @@ regex = '''(ab|a|c|bcd){2,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -645,6 +717,7 @@ regex = '''(ab|a|c|bcd){3,10}(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 [[tests]]
 name = "repetition-expensive165"
@@ -660,6 +733,7 @@ regex = '''(ab|a|c|bcd)*(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
 # Test added by RE2/Go project.
 [[tests]]
@@ -668,4 +742,5 @@ regex = '''(ab|a|c|bcd)+(d*)'''
 input = '''ababcd'''
 matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
+anchored = true
 
