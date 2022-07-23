@@ -120,9 +120,6 @@ impl Builder {
     }
 
     pub fn build_from_nfa(&self, nfa: &NFA) -> Result<OnePass, Error> {
-        if nfa.pattern_len() > Patterns::MAX {
-            return Err(Error::one_pass_fail("too many patterns (max is 32)"));
-        }
         let implicit_slots = nfa.pattern_len() * 2;
         let explicit_slots =
             nfa.group_info().slot_len().saturating_sub(implicit_slots);
@@ -163,7 +160,7 @@ struct InternalBuilder<'a> {
     uncompiled_nfa_ids: Vec<StateID>,
     seen: SparseSet,
     stack: Vec<(StateID, Info)>,
-    matched: Patterns,
+    matched: bool,
 }
 
 impl<'a> InternalBuilder<'a> {
@@ -196,7 +193,7 @@ impl<'a> InternalBuilder<'a> {
             uncompiled_nfa_ids: vec![],
             seen: SparseSet::new(nfa.states().len()),
             stack: vec![],
-            matched: Patterns::empty(),
+            matched: false,
         }
     }
 
@@ -212,7 +209,7 @@ impl<'a> InternalBuilder<'a> {
         }
         while let Some(nfa_id) = self.uncompiled_nfa_ids.pop() {
             let dfa_id = self.nfa_to_dfa_id[nfa_id];
-            self.matched = Patterns::empty();
+            self.matched = false;
             self.seen.clear();
             self.stack_push(nfa_id, Info::empty())?;
             while let Some((id, info)) = self.stack.pop() {
@@ -250,16 +247,16 @@ impl<'a> InternalBuilder<'a> {
                         continue;
                     }
                     thompson::State::Match { pattern_id } => {
-                        if !self.matched.is_empty() {
+                        if self.matched {
                             return Err(Error::one_pass_fail(
                                 "multiple epsilon transitions to match state",
                             ));
                         }
-                        self.matched = self.matched.insert(pattern_id);
+                        self.matched = true;
                         self.dfa.set_pattern_info(
                             dfa_id,
                             PatternInfo::empty()
-                                .set_patterns(self.matched)
+                                .set_pattern_id(pattern_id)
                                 .set_info(info),
                         );
                         // N.B. It is tempting to just bail out here when
@@ -304,7 +301,7 @@ impl<'a> InternalBuilder<'a> {
         // first DFA, then we shouldn't add any more transitions. This is
         // effectively how preference order and non-greediness is implemented.
         if !self.config.get_match_kind().continue_past_first_match()
-            && !self.matched.is_empty()
+            && self.matched
         {
             return Ok(());
         }
@@ -361,6 +358,11 @@ impl<'a> InternalBuilder<'a> {
         self.dfa
             .table
             .extend(core::iter::repeat(Transition(0)).take(self.dfa.stride()));
+        // The default empty value for 'PatternInfo' is sadly not all zeroes.
+        // Instead, the special sentinel u32::MAX<<32 is used to indicate that
+        // there is no pattern. So we need to explicitly set the pattern info
+        // to the correct "empty" state.
+        self.dfa.set_pattern_info(id, PatternInfo::empty());
         if let Some(size_limit) = self.config.get_size_limit() {
             if self.dfa.memory_usage() > size_limit {
                 return Err(Error::one_pass_exceeded_size_limit(size_limit));
@@ -535,6 +537,12 @@ impl OnePass {
             slots.len().saturating_sub(explicit_start),
         );
         cache.setup_search(explicit_slots);
+        for slot in slots.iter_mut() {
+            *slot = None;
+        }
+        for slot in cache.explicit_slots() {
+            *slot = None;
+        }
         if input.is_done() {
             return None;
         }
@@ -553,12 +561,12 @@ impl OnePass {
         };
         for at in input.start()..input.end() {
             let patinfo = self.pattern_info(sid);
-            if let Some(minpid) = patinfo.patterns().min_pattern_id() {
+            if let Some(foundpid) = patinfo.pattern_id() {
                 if patinfo.info().look_is_empty()
                     || patinfo.info().look_matches(haystack, at)
                 {
-                    pid = Some(minpid);
-                    let i = minpid.as_usize() * 2 + 1;
+                    pid = Some(foundpid);
+                    let i = foundpid.as_usize() * 2 + 1;
                     if i < slots.len() {
                         slots[i] = NonMaxUsize::new(at);
                     }
@@ -585,10 +593,10 @@ impl OnePass {
             }
         }
         let patinfo = self.pattern_info(sid);
-        if let Some(minpid) = patinfo.patterns().min_pattern_id() {
+        if let Some(foundpid) = patinfo.pattern_id() {
             if patinfo.info().look_matches(haystack, input.end()) {
-                pid = Some(minpid);
-                let i = minpid.as_usize() * 2 + 1;
+                pid = Some(foundpid);
+                let i = foundpid.as_usize() * 2 + 1;
                 if i < slots.len() {
                     slots[i] = NonMaxUsize::new(input.end());
                 }
@@ -789,19 +797,24 @@ struct PatternInfo(u64);
 
 impl PatternInfo {
     const MASK_INFO: u64 = u32::MAX as u64;
-    const MASK_PATTERNS: u64 = (u32::MAX as u64) << 32;
+    const MASK_PATTERN_ID: u64 = (u32::MAX as u64) << 32;
 
     fn empty() -> PatternInfo {
-        PatternInfo(0)
+        PatternInfo((u32::MAX as u64) << 32)
     }
 
-    fn patterns(self) -> Patterns {
-        Patterns((self.0 >> 32) as u32)
+    fn pattern_id(self) -> Option<PatternID> {
+        let pid = (self.0 >> 32) as u32;
+        if pid == u32::MAX {
+            None
+        } else {
+            Some(PatternID::new_unchecked(pid as usize))
+        }
     }
 
-    fn set_patterns(self, patterns: Patterns) -> PatternInfo {
+    fn set_pattern_id(self, pid: PatternID) -> PatternInfo {
         PatternInfo(
-            (self.0 & PatternInfo::MASK_INFO) | ((patterns.0 as u64) << 32),
+            (self.0 & PatternInfo::MASK_INFO) | ((pid.as_u32() as u64) << 32),
         )
     }
 
@@ -810,64 +823,7 @@ impl PatternInfo {
     }
 
     fn set_info(self, info: Info) -> PatternInfo {
-        PatternInfo((info.0 as u64) | (self.0 & PatternInfo::MASK_PATTERNS))
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Patterns(u32);
-
-impl Patterns {
-    const MAX: usize = 32;
-
-    fn empty() -> Patterns {
-        Patterns(0)
-    }
-
-    fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-
-    fn contains(self, pid: PatternID) -> bool {
-        assert!(pid.as_usize() < Patterns::MAX);
-        self.0 & (1 << pid.as_u32()) != 0
-    }
-
-    fn insert(self, pid: PatternID) -> Patterns {
-        assert!(pid.as_usize() < Patterns::MAX);
-        Patterns(self.0 | (1 << pid.as_u32()))
-    }
-
-    fn remove(self, pid: PatternID) -> Patterns {
-        Patterns(self.0 & !(1 << pid.as_u32()))
-    }
-
-    fn min_pattern_id(self) -> Option<PatternID> {
-        let pid = self.0.trailing_zeros();
-        if pid >= 32 {
-            None
-        } else {
-            Some(PatternID::new_unchecked(pid as usize))
-        }
-    }
-
-    fn iter(self) -> PatternsIter {
-        PatternsIter { pats: self }
-    }
-}
-
-#[derive(Debug)]
-pub struct PatternsIter {
-    pats: Patterns,
-}
-
-impl Iterator for PatternsIter {
-    type Item = PatternID;
-
-    fn next(&mut self) -> Option<PatternID> {
-        let pid = self.pats.min_pattern_id()?;
-        self.pats = self.pats.remove(pid);
-        Some(pid)
+        PatternInfo((info.0 as u64) | (self.0 & PatternInfo::MASK_PATTERN_ID))
     }
 }
 

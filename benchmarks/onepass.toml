@@ -7,16 +7,18 @@
 # of the one-pass DFA in isolation and in comparison to other engines.
 
 [[benches]]
-type = "grep-captures"
-name = "fn-is-empty"
-regex = '^\s*fn\s+is_empty\(&self\) -> bool \{$'
+type = "grep"
+name = "overhead"
+regex = ''
 haystack-path = "rust-src-tools-3b0d4813.txt"
 case-insensitive = false
 unicode = false
-line-count = 5
-capture-count = 5
+line-count = 239_963
 engines = [
   'regex/api',
+  'regex/automata/dfa/dense',
+  'regex/automata/dfa/sparse',
+  'regex/automata/hybrid',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
   'regex/automata/onepass',
@@ -68,13 +70,34 @@ analysis = 'TODO'
 
 [[benches]]
 type = "grep-captures"
+name = "fn-is-empty"
+regex = '^\s*fn\s+is_empty\(&self\) -> bool \{$'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 5
+capture-count = 5
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
 name = "fn-first-param"
 regex = '^\s*(\w{2})\s+(\w+)\((&self|(\w+):\s+(\w+))'
 haystack-path = "rust-src-tools-3b0d4813.txt"
 case-insensitive = false
 unicode = false
 line-count = 1_632
-capture-count = 8_884
+# capture-count = 8_884
+capture-count = 7_976
 engines = [
   'regex/api',
   'regex/automata/backtrack',
