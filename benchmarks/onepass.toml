@@ -1,0 +1,152 @@
+# These are benchmarks meant to specifically test the one-pass DFA
+# in isolation. These might make it look like it's less useful than it really
+# is. In practice, the one-pass DFA can be used to resolve capturing groups
+# after the more general purpose hybrid NFA/DFA has found a match. So the
+# one-pass DFA will show up in the more general meta regex engine called
+# 'regex/api'. However, it is still useful to be able to measure the speed
+# of the one-pass DFA in isolation and in comparison to other engines.
+
+[[benches]]
+type = "grep-captures"
+name = "fn-is-empty"
+regex = '^\s*fn\s+is_empty\(&self\) -> bool \{$'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 5
+capture-count = 5
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "every-non-empty-line"
+regex = '.+'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 213_755
+capture-count = 213_755
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "every-non-empty-line-anchors"
+regex = '^.+$'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 213_755
+capture-count = 213_755
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "fn-first-param"
+regex = '^\s*(\w{2})\s+(\w+)\((&self|(\w+):\s+(\w+))'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = false
+line-count = 1_632
+capture-count = 8_884
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "first-three-words"
+regex = '^\W*(\w+)\W+(\w+)\W+(\w+)'
+haystack-path = "opensubtitles/en-huge.txt"
+case-insensitive = false
+unicode = false
+line-count = 17_967
+capture-count = 71_868
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "first-three-words-boundaries-ascii"
+regex = '^\W*\b(\w+)\b\W+\b(\w+)\b\W+\b(\w+)\b'
+haystack-path = "opensubtitles/en-huge.txt"
+case-insensitive = false
+unicode = false
+line-count = 17_967
+capture-count = 71_868
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep-captures"
+name = "first-three-words-boundaries-unicode"
+# This regex strains credulity, but we: 1) want to test Unicode, 2) be
+# somewhat similar to the non-Unicode variants of this benchmark, 3) need to
+# be one-pass. Regretably, '\w+\W' is not one-pass because there is overlap
+# between the constituent bytes in the '\w' and '\W' automatons. So instead,
+# we just try to write the ASCII subset of '\W' that we care about, which
+# definitely doesn't overlap with '\w'.
+regex = '''^[ -]*\b(\w+)\b[ .,'-]+\b(\w+)\b[ .,'-]+\b(\w+)\b'''
+haystack-path = "opensubtitles/en-huge.txt"
+case-insensitive = false
+unicode = true
+line-count = 17_657
+capture-count = 70_628
+engines = [
+  'regex/api',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

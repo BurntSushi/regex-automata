@@ -9,6 +9,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/dfa/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        "regex/automata/onepass" => regex_automata_onepass(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -66,6 +67,14 @@ fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
     b.run(verify, || {
         let re = new::regex_automata_pikevm(b)?;
+        let mut cache = re.create_cache();
+        Ok(Box::new(move |h| Ok(re.find_iter(&mut cache, h).count())))
+    })
+}
+
+fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
+    b.run(verify, || {
+        let re = new::regex_automata_onepass(b)?;
         let mut cache = re.create_cache();
         Ok(Box::new(move |h| Ok(re.find_iter(&mut cache, h).count())))
     })

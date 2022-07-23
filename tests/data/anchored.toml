@@ -1,0 +1,57 @@
+# These tests are specifically geared toward searches with 'anchored = true'.
+# While they are interesting in their own right, they are particularly
+# important for testing the one-pass DFA since the one-pass DFA can't work in
+# unanchored contexts.
+#
+# Note that "anchored" in this context does not mean "^". Anchored searches are
+# searches whose matches must begin at the start of the search, which may not
+# be at the start of the haystack. That's why anchored searches---and there are
+# some examples below---can still report multiple matches. This occurs when the
+# matches are adjacent to one another.
+
+[[tests]]
+name = "greedy"
+regex = '(abc)+'
+input = "abcabcabc"
+matches = [
+  [[0, 9], [6, 9]],
+]
+anchored = true
+
+[[tests]]
+name = "nongreedy"
+regex = '(abc)+?'
+input = "abcabcabc"
+matches = [
+  [[0, 3], [0, 3]],
+  [[3, 6], [3, 6]],
+  [[6, 9], [6, 9]],
+]
+anchored = true
+
+# When "all" semantics are used, non-greediness doesn't exist since the longest
+# possible match is always taken.
+[[tests]]
+name = "nongreedy-all"
+regex = '(abc)+?'
+input = "abcabcabc"
+matches = [
+  [[0, 9], [6, 9]],
+]
+anchored = true
+match_kind = "all"
+
+[[tests]]
+name = "word-boundary-unicode-01"
+regex = '\b\w+\b'
+input = 'βββ☃'
+matches = [[0, 6]]
+anchored = true
+
+[[tests]]
+name = "word-boundary-nounicode-01"
+regex = '\b\w+\b'
+input = 'abcβ'
+matches = [[0, 3]]
+anchored = true
+unicode = false

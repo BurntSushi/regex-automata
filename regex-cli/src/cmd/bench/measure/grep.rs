@@ -12,6 +12,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        "regex/automata/onepass" => regex_automata_onepass(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -108,6 +109,21 @@ fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
     let haystack = &*b.haystack;
     let re = new::regex_automata_pikevm(b)?;
+    let mut cache = re.create_cache();
+    b.run(verify, || {
+        let mut count = 0;
+        for line in haystack.lines() {
+            if re.is_match(&mut cache, line) {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })
+}
+
+fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::regex_automata_onepass(b)?;
     let mut cache = re.create_cache();
     b.run(verify, || {
         let mut count = 0;

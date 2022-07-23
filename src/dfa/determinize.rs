@@ -334,7 +334,7 @@ impl<'a> Runner<'a> {
         // We only need to compute anchored start states for each pattern if it
         // was requested to do so.
         if self.dfa.has_starts_for_each_pattern() {
-            for pid in PatternID::iter(self.dfa.pattern_len()) {
+            for pid in self.nfa.patterns() {
                 self.add_start_group(Some(pid), dfa_state_ids)?;
             }
         }

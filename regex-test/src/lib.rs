@@ -426,6 +426,12 @@ impl CompiledRegex {
     pub fn skip() -> CompiledRegex {
         CompiledRegex { match_regex: None }
     }
+
+    /// Returns true if the test runner decided to skip the test when
+    /// attempting to compile the regex.
+    pub fn is_skip(&self) -> bool {
+        self.match_regex.is_none()
+    }
 }
 
 impl std::fmt::Debug for CompiledRegex {
@@ -723,7 +729,12 @@ impl TestRunner {
                 return self;
             }
         };
-        if !test.compiles() {
+        // We fail the test if we didn't expect the regex to compile. However,
+        // it's possible the caller decided to skip the test when attempting
+        // to compile the regex, so we check for that. If the compiled regex
+        // is marked as skipped, then 'test.test(..)' below handles it
+        // correctly.
+        if !test.compiles() && !compiled.is_skip() {
             self.results.fail(test, RegexTestFailureKind::NoCompileError);
             return self;
         }

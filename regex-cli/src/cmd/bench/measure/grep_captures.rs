@@ -9,6 +9,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/api" => regex_api(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        "regex/automata/onepass" => regex_automata_onepass(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -100,6 +101,37 @@ fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
     let haystack = &*b.haystack;
     let re = new::regex_automata_pikevm(b)?;
+    let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    b.run(verify, || {
+        let (mut line_count, mut capture_count) = (0, 0);
+        for line in haystack.lines() {
+            let mut count = 0;
+            let mut input = Input::new(line);
+            while let Some(m) = {
+                re.search(&mut cache, &input, &mut caps);
+                caps.get_match()
+            } {
+                for i in 0..caps.group_len() {
+                    if caps.get_group(i).is_some() {
+                        count += 1;
+                    }
+                }
+                // Benchmark definition says we may assume empty matches are
+                // impossible.
+                input.set_start(m.end());
+            }
+            capture_count += count;
+            if count > 0 {
+                line_count += 1;
+            }
+        }
+        Ok((line_count, capture_count))
+    })
+}
+
+fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::regex_automata_onepass(b)?;
     let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     b.run(verify, || {
         let (mut line_count, mut capture_count) = (0, 0);

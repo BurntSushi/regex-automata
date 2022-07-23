@@ -10,6 +10,7 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses},
         captures::Captures,
+        iter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{Input, Match, MatchError, MatchKind},
         sparse_set::SparseSet,
@@ -22,11 +23,37 @@ pub struct Config {
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
     size_limit: Option<Option<usize>>,
+    utf8: Option<bool>,
 }
 
 impl Config {
     pub fn new() -> Config {
         Config::default()
+    }
+
+    pub fn match_kind(mut self, kind: MatchKind) -> Config {
+        self.match_kind = Some(kind);
+        self
+    }
+
+    pub fn starts_for_each_pattern(mut self, yes: bool) -> Config {
+        self.starts_for_each_pattern = Some(yes);
+        self
+    }
+
+    pub fn byte_classes(mut self, yes: bool) -> Config {
+        self.byte_classes = Some(yes);
+        self
+    }
+
+    pub fn size_limit(mut self, limit: Option<usize>) -> Config {
+        self.size_limit = Some(limit);
+        self
+    }
+
+    pub fn utf8(mut self, yes: bool) -> Config {
+        self.utf8 = Some(yes);
+        self
     }
 
     pub fn get_match_kind(&self) -> MatchKind {
@@ -45,6 +72,10 @@ impl Config {
         self.size_limit.unwrap_or(None)
     }
 
+    pub fn get_utf8(&self) -> bool {
+        self.utf8.unwrap_or(true)
+    }
+
     /// Overwrite the default configuration such that the options in `o` are
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
@@ -57,6 +88,7 @@ impl Config {
                 .or(self.starts_for_each_pattern),
             byte_classes: o.byte_classes.or(self.byte_classes),
             size_limit: o.size_limit.or(self.size_limit),
+            utf8: o.utf8.or(self.utf8),
         }
     }
 }
@@ -88,7 +120,36 @@ impl Builder {
     }
 
     pub fn build_from_nfa(&self, nfa: &NFA) -> Result<OnePass, Error> {
+        if nfa.pattern_len() > Patterns::MAX {
+            return Err(Error::one_pass_fail("too many patterns (max is 32)"));
+        }
+        let implicit_slots = nfa.pattern_len() * 2;
+        let explicit_slots =
+            nfa.group_info().slot_len().saturating_sub(implicit_slots);
+        if explicit_slots > Info::MAX_SLOTS {
+            return Err(Error::one_pass_fail(
+                "too many explicit capturing groups (max is 24)",
+            ));
+        }
         InternalBuilder::new(self.config.clone(), nfa).build()
+    }
+
+    pub fn configure(&mut self, config: Config) -> &mut Builder {
+        self.config = self.config.overwrite(config);
+        self
+    }
+
+    pub fn syntax(
+        &mut self,
+        config: crate::util::syntax::SyntaxConfig,
+    ) -> &mut Builder {
+        self.thompson.syntax(config);
+        self
+    }
+
+    pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
+        self.thompson.configure(config);
+        self
     }
 }
 
@@ -119,6 +180,7 @@ impl<'a> InternalBuilder<'a> {
         };
         let stride2 = classes.stride2();
         let dfa = OnePass {
+            config: config.clone(),
             nfa: nfa.clone(),
             table: vec![],
             starts: vec![],
@@ -200,6 +262,17 @@ impl<'a> InternalBuilder<'a> {
                                 .set_patterns(self.matched)
                                 .set_info(info),
                         );
+                        // N.B. It is tempting to just bail out here when
+                        // compiling a leftmost-first DFA, since we will never
+                        // compile any more transitions in that case. But we
+                        // actually need to keep going in order to verify that
+                        // we actually have a one-pass regex. e.g., We might
+                        // see more Match states (e.g., for other patterns)
+                        // that imply that we don't have a one-pass regex.
+                        // So instead, we mark that we've found a match and
+                        // continue on. When we go to compile a new DFA state,
+                        // we just skip that part. But otherwise check that the
+                        // one-pass property is upheld.
                     }
                 }
             }
@@ -227,19 +300,17 @@ impl<'a> InternalBuilder<'a> {
         trans: &thompson::Transition,
         info: Info,
     ) -> Result<(), Error> {
+        // If we already have seen a match and we are compiling a leftmost
+        // first DFA, then we shouldn't add any more transitions. This is
+        // effectively how preference order and non-greediness is implemented.
+        if !self.config.get_match_kind().continue_past_first_match()
+            && !self.matched.is_empty()
+        {
+            return Ok(());
+        }
         let mut next_dfa_id = self.nfa_to_dfa_id[trans.next];
         if next_dfa_id == DEAD {
             next_dfa_id = self.add_dfa_state_for_nfa_state(trans.next)?;
-        }
-        // I wonder if this is wrong? What if we're still
-        // looking for a match for a different pattern? I think
-        // that only applies to MatchKind::All, in which case,
-        // we would mush on anyway.
-        //
-        // Also, I wonder if it would be better to do this when handling
-        // the Match state. We would clear the stack and just stop.
-        if !self.matched.is_empty() {
-            return Ok(());
         }
         for byte in self
             .classes
@@ -267,6 +338,17 @@ impl<'a> InternalBuilder<'a> {
         &mut self,
         nfa_id: StateID,
     ) -> Result<StateID, Error> {
+        // If we've already built a DFA state for the given NFA state, then
+        // just return that. We definitely do not want to have more than one
+        // DFA state in existence for the same NFA state, since all but one of
+        // them will likely become unreachable. And at least some of them are
+        // likely to wind up being incomplete.
+        let existing_dfa_id = self.nfa_to_dfa_id[nfa_id];
+        if existing_dfa_id != DEAD {
+            return Ok(existing_dfa_id);
+        }
+        // If we don't have any DFA state yet, add it and then add the given
+        // NFA state to the list of states to explore.
         let dfa_id = self.add_empty_state()?;
         self.nfa_to_dfa_id[nfa_id] = dfa_id;
         self.uncompiled_nfa_ids.push(nfa_id);
@@ -290,6 +372,7 @@ impl<'a> InternalBuilder<'a> {
 
 #[derive(Debug)]
 pub struct OnePass {
+    config: Config,
     nfa: NFA,
     table: Vec<Transition>,
     starts: Vec<StateID>,
@@ -322,6 +405,71 @@ impl OnePass {
         Captures::all(self.nfa.group_info().clone())
     }
 
+    #[inline]
+    pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
+        &'p self,
+        haystack: &'h H,
+    ) -> Input<'h, 'p> {
+        let c = self.get_config();
+        Input::new(haystack.as_ref()).utf8(c.get_utf8())
+    }
+
+    #[inline]
+    pub fn get_config(&self) -> &Config {
+        &self.config
+    }
+
+    #[inline]
+    pub fn get_nfa(&self) -> &NFA {
+        &self.nfa
+    }
+
+    #[inline]
+    pub fn is_match<H: AsRef<[u8]>>(
+        &self,
+        cache: &mut Cache,
+        haystack: H,
+    ) -> bool {
+        let input = self.create_input(haystack.as_ref()).earliest(true);
+        self.search_slots(cache, &input, &mut []).is_some()
+    }
+
+    #[inline]
+    pub fn find<H: AsRef<[u8]>>(
+        &self,
+        cache: &mut Cache,
+        haystack: H,
+        caps: &mut Captures,
+    ) {
+        let input = self.create_input(haystack.as_ref());
+        self.search(cache, &input, caps)
+    }
+
+    #[inline]
+    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'h H,
+    ) -> FindMatches<'r, 'c, 'h> {
+        let input = self.create_input(haystack.as_ref());
+        let caps = Captures::matches(self.get_nfa().group_info().clone());
+        let it = iter::Searcher::new(input);
+        FindMatches { re: self, cache, caps, it }
+    }
+
+    #[inline]
+    pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+        &'r self,
+        cache: &'c mut Cache,
+        haystack: &'h H,
+    ) -> CapturesMatches<'r, 'c, 'h> {
+        let input = self.create_input(haystack.as_ref());
+        let caps = self.create_captures();
+        let it = iter::Searcher::new(input);
+        CapturesMatches { re: self, cache, caps, it }
+    }
+
+    #[inline]
     pub fn search(
         &self,
         cache: &mut Cache,
@@ -333,6 +481,7 @@ impl OnePass {
         caps.set_pattern(pid);
     }
 
+    #[inline]
     pub fn search_slots(
         &self,
         cache: &mut Cache,
@@ -381,7 +530,11 @@ impl OnePass {
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
         let explicit_start = self.nfa.pattern_len() * 2;
-        cache.setup_search(slots.len().saturating_sub(explicit_start));
+        let explicit_slots = core::cmp::min(
+            Info::MAX_SLOTS,
+            slots.len().saturating_sub(explicit_start),
+        );
+        cache.setup_search(explicit_slots);
         if input.is_done() {
             return None;
         }
@@ -400,50 +553,54 @@ impl OnePass {
         };
         for at in input.start()..input.end() {
             let patinfo = self.pattern_info(sid);
-            if !patinfo.patterns().is_empty()
-                && patinfo.info().look_matches(haystack, at)
-            {
-                // TODO: fix this
-                pid = Some(PatternID::ZERO);
-                if explicit_start < slots.len() {
-                    slots[explicit_start..]
-                        .copy_from_slice(cache.explicit_slots());
-                    patinfo
-                        .info()
-                        .slot_apply(at, &mut slots[explicit_start..]);
-                }
-                if slots.len() >= 2 {
-                    slots[1] = NonMaxUsize::new(at);
+            if let Some(minpid) = patinfo.patterns().min_pattern_id() {
+                if patinfo.info().look_is_empty()
+                    || patinfo.info().look_matches(haystack, at)
+                {
+                    pid = Some(minpid);
+                    let i = minpid.as_usize() * 2 + 1;
+                    if i < slots.len() {
+                        slots[i] = NonMaxUsize::new(at);
+                    }
+                    if explicit_start < slots.len() {
+                        slots[explicit_start..]
+                            .copy_from_slice(cache.explicit_slots());
+                        patinfo
+                            .info()
+                            .slot_apply(at, &mut slots[explicit_start..]);
+                    }
                 }
             }
 
             let trans = self.transition(sid, haystack[at]);
             sid = trans.state_id();
             let info = trans.info();
-            if sid == DEAD || !info.look_matches(haystack, at) {
-                dbg!("DEAD return");
+            if sid == DEAD
+                || (!info.look_is_empty() && !info.look_matches(haystack, at))
+            {
                 return pid;
             }
-            info.slot_apply(at, cache.explicit_slots());
+            if !info.slot_is_empty() {
+                info.slot_apply(at, cache.explicit_slots());
+            }
         }
         let patinfo = self.pattern_info(sid);
-        if !patinfo.patterns().is_empty()
-            && patinfo.info().look_matches(haystack, input.end())
-        {
-            // TODO: fix this
-            pid = Some(PatternID::ZERO);
-            if explicit_start < slots.len() {
-                slots[explicit_start..]
-                    .copy_from_slice(cache.explicit_slots());
-                patinfo
-                    .info()
-                    .slot_apply(input.end(), &mut slots[explicit_start..]);
-            }
-            if slots.len() >= 2 {
-                slots[1] = NonMaxUsize::new(input.end());
+        if let Some(minpid) = patinfo.patterns().min_pattern_id() {
+            if patinfo.info().look_matches(haystack, input.end()) {
+                pid = Some(minpid);
+                let i = minpid.as_usize() * 2 + 1;
+                if i < slots.len() {
+                    slots[i] = NonMaxUsize::new(input.end());
+                }
+                if explicit_start < slots.len() {
+                    slots[explicit_start..]
+                        .copy_from_slice(cache.explicit_slots());
+                    patinfo
+                        .info()
+                        .slot_apply(input.end(), &mut slots[explicit_start..]);
+                }
             }
         }
-        dbg!("EOI return");
         pid
     }
 
@@ -488,6 +645,115 @@ impl OnePass {
 
         self.table.len() * size_of::<Transition>()
             + self.starts.len() * size_of::<StateID>()
+    }
+}
+
+#[derive(Debug)]
+pub struct FindMatches<'r, 'c, 'h> {
+    re: &'r OnePass,
+    cache: &'c mut Cache,
+    caps: Captures,
+    it: iter::Searcher<'h, 'r>,
+}
+
+impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
+    type Item = Match;
+
+    #[inline]
+    fn next(&mut self) -> Option<Match> {
+        // Splitting 'self' apart seems necessary to appease borrowck.
+        let FindMatches { re, ref mut cache, ref mut caps, ref mut it } =
+            *self;
+        it.advance(|input| {
+            re.search(cache, input, caps);
+            Ok(caps.get_match())
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct CapturesMatches<'r, 'c, 'h> {
+    re: &'r OnePass,
+    cache: &'c mut Cache,
+    caps: Captures,
+    it: iter::Searcher<'h, 'r>,
+}
+
+impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
+    type Item = Captures;
+
+    #[inline]
+    fn next(&mut self) -> Option<Captures> {
+        // Splitting 'self' apart seems necessary to appease borrowck.
+        let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
+            *self;
+        it.advance(|input| {
+            re.search(cache, input, caps);
+            Ok(caps.get_match())
+        });
+        if caps.is_match() {
+            Some(caps.clone())
+        } else {
+            None
+        }
+    }
+}
+
+/// A cache represents mutable state that a [`OnePass`] DFA requires during a
+/// search.
+///
+/// For a given [`OnePass`] DFA, its corresponding cache may be created either
+/// via [`OnePass::create_cache`], or via [`Cache::new`]. They are equivalent
+/// in every way, except the former does not require explicitly importing
+/// `Cache`.
+///
+/// A particular `Cache` is coupled with the [`OnePass`] DFA from which it
+/// was created. It may only be used with that `OnePass` DFA. A cache and its
+/// allocations may be re-purposed via [`Cache::reset`], in which case, it can
+/// only be used with the new `OnePass` DFA (and not the old one).
+#[derive(Clone, Debug)]
+pub struct Cache {
+    /// Scratch space used to store slots during a search. Basically, we use
+    /// the caller provided slots to store slots known when a match occurs.
+    /// But after a match occurs, we might continue a search but ultimately
+    /// fail to extend the match. When continuing the search, we need some
+    /// place to store candidate capture offsets without overwriting the slot
+    /// offsets recorded for the most recently seen match.
+    explicit_slots: Vec<Option<NonMaxUsize>>,
+    /// The number of slots in the caller-provided 'Captures' value for the
+    /// current search. Setting this to the total number of slots for the
+    /// underlying NFA is always correct, but may be wasteful.
+    slots_for_captures: usize,
+}
+
+impl Cache {
+    pub fn new(re: &OnePass) -> Cache {
+        let mut cache =
+            Cache { explicit_slots: vec![], slots_for_captures: 0 };
+        cache.reset(re);
+        cache
+    }
+
+    pub fn reset(&mut self, re: &OnePass) {
+        let slot_len = re
+            .nfa
+            .group_info()
+            .slot_len()
+            .saturating_sub(re.nfa.pattern_len());
+        self.explicit_slots.resize(slot_len, None);
+        self.slots_for_captures = slot_len;
+    }
+
+    pub fn memory_usage(&self) -> usize {
+        self.explicit_slots.len() * core::mem::size_of::<Option<NonMaxUsize>>()
+    }
+
+    fn explicit_slots(&mut self) -> &mut [Option<NonMaxUsize>] {
+        &mut self.explicit_slots[..self.slots_for_captures]
+    }
+
+    fn setup_search(&mut self, explicit_slot_len: usize) {
+        self.slots_for_captures = explicit_slot_len;
     }
 }
 
@@ -571,6 +837,38 @@ impl Patterns {
         assert!(pid.as_usize() < Patterns::MAX);
         Patterns(self.0 | (1 << pid.as_u32()))
     }
+
+    fn remove(self, pid: PatternID) -> Patterns {
+        Patterns(self.0 & !(1 << pid.as_u32()))
+    }
+
+    fn min_pattern_id(self) -> Option<PatternID> {
+        let pid = self.0.trailing_zeros();
+        if pid >= 32 {
+            None
+        } else {
+            Some(PatternID::new_unchecked(pid as usize))
+        }
+    }
+
+    fn iter(self) -> PatternsIter {
+        PatternsIter { pats: self }
+    }
+}
+
+#[derive(Debug)]
+pub struct PatternsIter {
+    pats: Patterns,
+}
+
+impl Iterator for PatternsIter {
+    type Item = PatternID;
+
+    fn next(&mut self) -> Option<PatternID> {
+        let pid = self.pats.min_pattern_id()?;
+        self.pats = self.pats.remove(pid);
+        Some(pid)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -642,64 +940,6 @@ impl Info {
     }
 }
 
-/// A cache represents mutable state that a [`OnePass`] DFA requires during a
-/// search.
-///
-/// For a given [`OnePass`] DFA, its corresponding cache may be created either
-/// via [`OnePass::create_cache`], or via [`Cache::new`]. They are equivalent
-/// in every way, except the former does not require explicitly importing
-/// `Cache`.
-///
-/// A particular `Cache` is coupled with the [`OnePass`] DFA from which it
-/// was created. It may only be used with that `OnePass` DFA. A cache and its
-/// allocations may be re-purposed via [`Cache::reset`], in which case, it can
-/// only be used with the new `OnePass` DFA (and not the old one).
-#[derive(Clone, Debug)]
-pub struct Cache {
-    /// Scratch space used to store slots during a search. Basically, we use
-    /// the caller provided slots to store slots known when a match occurs.
-    /// But after a match occurs, we might continue a search but ultimately
-    /// fail to extend the match. When continuing the search, we need some
-    /// place to store candidate capture offsets without overwriting the slot
-    /// offsets recorded for the most recently seen match.
-    explicit_slots: Vec<Option<NonMaxUsize>>,
-    /// The number of slots in the caller-provided 'Captures' value for the
-    /// current search. Setting this to the total number of slots for the
-    /// underlying NFA is always correct, but may be wasteful.
-    slots_for_captures: usize,
-}
-
-impl Cache {
-    pub fn new(re: &OnePass) -> Cache {
-        let mut cache =
-            Cache { explicit_slots: vec![], slots_for_captures: 0 };
-        cache.reset(re);
-        cache
-    }
-
-    pub fn reset(&mut self, re: &OnePass) {
-        let slot_len = re
-            .nfa
-            .group_info()
-            .slot_len()
-            .saturating_sub(re.nfa.pattern_len());
-        self.explicit_slots.resize(slot_len, None);
-        self.slots_for_captures = slot_len;
-    }
-
-    pub fn memory_usage(&self) -> usize {
-        self.explicit_slots.len() * core::mem::size_of::<Option<NonMaxUsize>>()
-    }
-
-    fn explicit_slots(&mut self) -> &mut [Option<NonMaxUsize>] {
-        &mut self.explicit_slots[..self.slots_for_captures]
-    }
-
-    fn setup_search(&mut self, explicit_slot_len: usize) {
-        self.slots_for_captures = explicit_slot_len;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -734,9 +974,12 @@ mod tests {
 
     #[test]
     fn scratch() {
-        let re = OnePass::new(r"(a)(b)(c)").unwrap();
+        // let re =
+        // OnePass::new_many(&[r"(a)(b)(c+)", r"(x+)(y+)(z+)([\w--z])+"])
+        // .unwrap();
+        let re = OnePass::new_many(&[r"(abc)+?"]).unwrap();
         let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-        let input = Input::new("abc");
+        let input = Input::new("abcabc");
         re.search(&mut cache, &input, &mut caps);
         dbg!(&caps);
     }
