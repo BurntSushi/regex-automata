@@ -14,6 +14,7 @@ pub(crate) mod bytes;
 #[cfg(feature = "alloc")]
 pub(crate) mod determinize;
 pub(crate) mod escape;
+pub(crate) mod int;
 #[cfg(feature = "alloc")]
 pub(crate) mod lazy;
 pub(crate) mod search;

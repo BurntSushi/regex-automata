@@ -34,6 +34,8 @@ use core::{convert::TryFrom, num::NonZeroUsize};
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+use crate::util::int::{Usize, U16, U32, U64};
+
 /// A `usize` that can never be `usize::MAX`.
 ///
 /// This is similar to `core::num::NonZeroUsize`, but instead of not permitting
@@ -145,6 +147,7 @@ impl SmallIndex {
     /// The maximum index value.
     #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
     pub const MAX: SmallIndex =
+        // FIXME: Use as_usize() once const functions in traits are stable.
         SmallIndex::new_unchecked(core::i32::MAX as usize - 1);
 
     /// The maximum index value.
@@ -182,6 +185,7 @@ impl SmallIndex {
     /// for memory safety.
     #[inline]
     pub const fn new_unchecked(index: usize) -> SmallIndex {
+        // FIXME: Use as_u32() once const functions in traits are stable.
         SmallIndex(index as u32)
     }
 
@@ -195,7 +199,16 @@ impl SmallIndex {
     /// overflow `usize`.
     #[inline]
     pub const fn as_usize(&self) -> usize {
+        // FIXME: Use as_usize() once const functions in traits are stable.
         self.0 as usize
+    }
+
+    /// Return this small index as a `u64`. This is guaranteed to never
+    /// overflow.
+    #[inline]
+    pub const fn as_u64(&self) -> u64 {
+        // FIXME: Use u64::from() once const functions in traits are stable.
+        self.0 as u64
     }
 
     /// Return the internal `u32` of this small index. This is guaranteed to
@@ -209,6 +222,7 @@ impl SmallIndex {
     /// This is guaranteed to never overflow an `i32`.
     #[inline]
     pub const fn as_i32(&self) -> i32 {
+        // This is OK because we guarantee that our max value is <= i32::MAX.
         self.0 as i32
     }
 
@@ -218,7 +232,7 @@ impl SmallIndex {
     /// it will always fit in a `usize`, `u32` and a `i32`.
     #[inline]
     pub fn one_more(&self) -> usize {
-        self.0 as usize + 1
+        self.as_usize() + 1
     }
 
     /// Decode this small index from the bytes given using the native endian
@@ -232,9 +246,9 @@ impl SmallIndex {
     ) -> Result<SmallIndex, SmallIndexError> {
         let id = u32::from_ne_bytes(bytes);
         if id > SmallIndex::MAX.as_u32() {
-            return Err(SmallIndexError { attempted: id as u64 });
+            return Err(SmallIndexError { attempted: u64::from(id) });
         }
-        Ok(SmallIndex::new_unchecked(id as usize))
+        Ok(SmallIndex::new_unchecked(id.as_usize()))
     }
 
     /// Decode this small index from the bytes given using the native endian
@@ -244,7 +258,7 @@ impl SmallIndex {
     /// check whether the decoded integer is representable as a small index.
     #[inline]
     pub fn from_ne_bytes_unchecked(bytes: [u8; 4]) -> SmallIndex {
-        SmallIndex::new_unchecked(u32::from_ne_bytes(bytes) as usize)
+        SmallIndex::new_unchecked(u32::from_ne_bytes(bytes).as_usize())
     }
 
     /// Return the underlying small index integer as raw bytes in native endian
@@ -300,7 +314,7 @@ impl<T> core::ops::IndexMut<SmallIndex> for Vec<T> {
 
 impl From<u8> for SmallIndex {
     fn from(index: u8) -> SmallIndex {
-        SmallIndex::new_unchecked(index as usize)
+        SmallIndex::new_unchecked(usize::from(index))
     }
 }
 
@@ -308,10 +322,10 @@ impl TryFrom<u16> for SmallIndex {
     type Error = SmallIndexError;
 
     fn try_from(index: u16) -> Result<SmallIndex, SmallIndexError> {
-        if index as u32 > SmallIndex::MAX.as_u32() {
-            return Err(SmallIndexError { attempted: index as u64 });
+        if u32::from(index) > SmallIndex::MAX.as_u32() {
+            return Err(SmallIndexError { attempted: u64::from(index) });
         }
-        Ok(SmallIndex::new_unchecked(index as usize))
+        Ok(SmallIndex::new_unchecked(index.as_usize()))
     }
 }
 
@@ -320,9 +334,9 @@ impl TryFrom<u32> for SmallIndex {
 
     fn try_from(index: u32) -> Result<SmallIndex, SmallIndexError> {
         if index > SmallIndex::MAX.as_u32() {
-            return Err(SmallIndexError { attempted: index as u64 });
+            return Err(SmallIndexError { attempted: u64::from(index) });
         }
-        Ok(SmallIndex::new_unchecked(index as usize))
+        Ok(SmallIndex::new_unchecked(index.as_usize()))
     }
 }
 
@@ -330,10 +344,10 @@ impl TryFrom<u64> for SmallIndex {
     type Error = SmallIndexError;
 
     fn try_from(index: u64) -> Result<SmallIndex, SmallIndexError> {
-        if index > SmallIndex::MAX.as_u32() as u64 {
+        if index > SmallIndex::MAX.as_u64() {
             return Err(SmallIndexError { attempted: index });
         }
-        Ok(SmallIndex::new_unchecked(index as usize))
+        Ok(SmallIndex::new_unchecked(index.as_usize()))
     }
 }
 
@@ -342,7 +356,7 @@ impl TryFrom<usize> for SmallIndex {
 
     fn try_from(index: usize) -> Result<SmallIndex, SmallIndexError> {
         if index > SmallIndex::MAX.as_usize() {
-            return Err(SmallIndexError { attempted: index as u64 });
+            return Err(SmallIndexError { attempted: index.as_u64() });
         }
         Ok(SmallIndex::new_unchecked(index))
     }
@@ -513,6 +527,13 @@ macro_rules! index_type_impls {
             #[inline]
             pub const fn as_usize(&self) -> usize {
                 self.0.as_usize()
+            }
+
+            /// Return the internal value as a `u64`. This is guaranteed to
+            /// never overflow.
+            #[inline]
+            pub const fn as_u64(&self) -> u64 {
+                self.0.as_u64()
             }
 
             /// Return the internal value as a `u32`. This is guaranteed to

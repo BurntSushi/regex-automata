@@ -1113,10 +1113,12 @@ The default for this flag is 'none', which sets no size limit.
         table.add("translate time", time);
         let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
         table.add("compile nfa time", time);
+        table.add("nfa states", nfa.states().len());
         table.add("nfa memory", nfa.memory_usage());
         let (dfa, time) = util::timeitr(|| self.from_nfa(&nfa))?;
         table.add("compile one-pass dfa time", time);
-        table.add("one-pass dfa memory", dfa.memory_usage());
+        table.add("one-pass states", dfa.state_len());
+        table.add("one-pass memory", dfa.memory_usage());
         table.add("one-pass cache memory", dfa.create_cache().memory_usage());
         table.add("one-pass alphabet length", dfa.alphabet_len());
         table.add("one-pass stride", 1 << dfa.stride2());

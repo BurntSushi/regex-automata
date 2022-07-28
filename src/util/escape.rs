@@ -50,7 +50,7 @@ impl<'a> core::fmt::Debug for DebugHaystack<'a> {
                 | '\x0c'
                 | '\x0e'..='\x19'
                 | '\x7f' => {
-                    write!(f, "\\x{:02x}", ch as u32)?;
+                    write!(f, "\\x{:02x}", u32::from(ch))?;
                 }
                 '\n' | '\r' | '\t' | _ => {
                     write!(f, "{}", ch.escape_debug())?;

@@ -38,6 +38,7 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses},
         bytes::{self, DeserializeError, Endian, SerializeError},
+        int::Pointer,
         primitives::{PatternID, StateID},
         search::Input,
         start::Start,
@@ -3035,7 +3036,7 @@ impl<'a> TransitionTable<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(TransitionTable<&'a [u32]>, usize), DeserializeError> {
-        let slice_start = slice.as_ptr() as usize;
+        let slice_start = slice.as_ptr().as_usize();
 
         let (state_len, nr) =
             bytes::try_read_u32_as_usize(slice, "state length")?;
@@ -3093,12 +3094,12 @@ impl<'a> TransitionTable<&'a [u32]> {
         #[allow(unused_unsafe)]
         let table = unsafe {
             core::slice::from_raw_parts(
-                table_bytes.as_ptr() as *const u32,
+                table_bytes.as_ptr().cast::<u32>(),
                 trans_len,
             )
         };
         let tt = TransitionTable { table, classes, stride2 };
-        Ok((tt, slice.as_ptr() as usize - slice_start))
+        Ok((tt, slice.as_ptr().as_usize() - slice_start))
     }
 }
 
@@ -3378,7 +3379,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
         // representable as a u32.
         unsafe {
             core::slice::from_raw_parts(
-                integers.as_ptr() as *const StateID,
+                integers.as_ptr().cast::<StateID>(),
                 integers.len(),
             )
         }
@@ -3435,7 +3436,7 @@ impl<T: AsMut<[u32]>> TransitionTable<T> {
         // representable as a u32.
         unsafe {
             core::slice::from_raw_parts_mut(
-                integers.as_mut_ptr() as *mut StateID,
+                integers.as_mut_ptr().cast::<StateID>(),
                 integers.len(),
             )
         }
@@ -3596,7 +3597,7 @@ impl<'a> StartTable<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(StartTable<&'a [u32]>, usize), DeserializeError> {
-        let slice_start = slice.as_ptr() as usize;
+        let slice_start = slice.as_ptr().as_usize();
 
         let (stride, nr) =
             bytes::try_read_u32_as_usize(slice, "start table stride")?;
@@ -3645,12 +3646,12 @@ impl<'a> StartTable<&'a [u32]> {
         #[allow(unused_unsafe)]
         let table = unsafe {
             core::slice::from_raw_parts(
-                table_bytes.as_ptr() as *const u32,
+                table_bytes.as_ptr().cast::<u32>(),
                 start_state_len,
             )
         };
         let st = StartTable { table, stride, pattern_len };
-        Ok((st, slice.as_ptr() as usize - slice_start))
+        Ok((st, slice.as_ptr().as_usize() - slice_start))
     }
 }
 
@@ -3769,7 +3770,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         // representable as a u32.
         unsafe {
             core::slice::from_raw_parts(
-                integers.as_ptr() as *const StateID,
+                integers.as_ptr().cast::<StateID>(),
                 integers.len(),
             )
         }
@@ -3816,7 +3817,7 @@ impl<T: AsMut<[u32]>> StartTable<T> {
         // representable as a u32.
         unsafe {
             core::slice::from_raw_parts_mut(
-                integers.as_mut_ptr() as *mut StateID,
+                integers.as_mut_ptr().cast::<StateID>(),
                 integers.len(),
             )
         }
@@ -3895,7 +3896,7 @@ impl<'a> MatchStates<&'a [u32]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(MatchStates<&'a [u32]>, usize), DeserializeError> {
-        let slice_start = slice.as_ptr() as usize;
+        let slice_start = slice.as_ptr().as_usize();
 
         // Read the total number of match states.
         let (state_len, nr) =
@@ -3923,7 +3924,7 @@ impl<'a> MatchStates<&'a [u32]> {
         #[allow(unused_unsafe)]
         let slices = unsafe {
             core::slice::from_raw_parts(
-                slices_bytes.as_ptr() as *const u32,
+                slices_bytes.as_ptr().cast::<u32>(),
                 pair_len,
             )
         };
@@ -3958,13 +3959,13 @@ impl<'a> MatchStates<&'a [u32]> {
         #[allow(unused_unsafe)]
         let pattern_ids = unsafe {
             core::slice::from_raw_parts(
-                pattern_ids_bytes.as_ptr() as *const u32,
+                pattern_ids_bytes.as_ptr().cast::<u32>(),
                 idlen,
             )
         };
 
         let ms = MatchStates { slices, pattern_ids, pattern_len };
-        Ok((ms, slice.as_ptr() as usize - slice_start))
+        Ok((ms, slice.as_ptr().as_usize() - slice_start))
     }
 }
 
@@ -4193,7 +4194,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
         // representable as a u32.
         unsafe {
             core::slice::from_raw_parts(
-                integers.as_ptr() as *const PatternID,
+                integers.as_ptr().cast::<PatternID>(),
                 integers.len(),
             )
         }
@@ -4212,7 +4213,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
         // representable as a u32.
         unsafe {
             core::slice::from_raw_parts(
-                integers.as_ptr() as *const PatternID,
+                integers.as_ptr().cast::<PatternID>(),
                 integers.len(),
             )
         }

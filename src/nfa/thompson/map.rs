@@ -35,7 +35,10 @@
 
 use alloc::{vec, vec::Vec};
 
-use crate::{nfa::thompson::Transition, util::primitives::StateID};
+use crate::{
+    nfa::thompson::Transition,
+    util::{int::U64, primitives::StateID},
+};
 
 // Basic FNV-1a hash constants as described in:
 // https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function
@@ -137,11 +140,11 @@ impl Utf8BoundedMap {
     pub fn hash(&self, key: &[Transition]) -> usize {
         let mut h = INIT;
         for t in key {
-            h = (h ^ (t.start as u64)).wrapping_mul(PRIME);
-            h = (h ^ (t.end as u64)).wrapping_mul(PRIME);
-            h = (h ^ (t.next.as_usize() as u64)).wrapping_mul(PRIME);
+            h = (h ^ u64::from(t.start)).wrapping_mul(PRIME);
+            h = (h ^ u64::from(t.end)).wrapping_mul(PRIME);
+            h = (h ^ t.next.as_u64()).wrapping_mul(PRIME);
         }
-        (h as usize) % self.map.len()
+        h.as_usize() % self.map.len()
     }
 
     /// Retrieve the cached state ID corresponding to the given key. The hash
@@ -252,10 +255,10 @@ impl Utf8SuffixMap {
         const INIT: u64 = 14695981039346656037;
 
         let mut h = INIT;
-        h = (h ^ (key.from.as_usize() as u64)).wrapping_mul(PRIME);
-        h = (h ^ (key.start as u64)).wrapping_mul(PRIME);
-        h = (h ^ (key.end as u64)).wrapping_mul(PRIME);
-        (h as usize) % self.map.len()
+        h = (h ^ key.from.as_u64()).wrapping_mul(PRIME);
+        h = (h ^ u64::from(key.start)).wrapping_mul(PRIME);
+        h = (h ^ u64::from(key.end)).wrapping_mul(PRIME);
+        h.as_usize() % self.map.len()
     }
 
     /// Retrieve the cached state ID corresponding to the given key. The hash

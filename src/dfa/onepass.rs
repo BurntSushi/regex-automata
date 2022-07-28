@@ -10,6 +10,7 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses},
         captures::Captures,
+        int::{U32, U64, U8},
         iter,
         look::Look,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
@@ -646,12 +647,12 @@ impl OnePass {
 
     fn transition(&self, sid: StateID, byte: u8) -> Transition {
         let class = self.classes.get(byte);
-        self.table[sid.as_usize() + class as usize]
+        self.table[sid.as_usize() + class.as_usize()]
     }
 
     fn set_transition(&mut self, sid: StateID, byte: u8, to: Transition) {
         let class = self.classes.get(byte);
-        self.table[sid.as_usize() + class as usize] = to;
+        self.table[sid.as_usize() + class.as_usize()] = to;
     }
 
     fn pattern_info(&self, sid: StateID) -> PatternInfo {
@@ -663,7 +664,7 @@ impl OnePass {
             Transition(patinfo.0);
     }
 
-    pub(crate) fn state_len(&self) -> usize {
+    pub fn state_len(&self) -> usize {
         self.table.len() >> self.stride2
     }
 
@@ -761,7 +762,7 @@ struct Transition(u64);
 
 impl Transition {
     fn new(sid: StateID, info: Info) -> Transition {
-        Transition(((sid.as_u32() as u64) << 32) | (info.0 as u64))
+        Transition((sid.as_u64() << 32) | u64::from(info.0))
     }
 
     fn state_id(&self) -> StateID {
@@ -769,7 +770,7 @@ impl Transition {
         // by construction. The cast to usize is also correct, even on 16-bit
         // targets because, again, we know the upper 32 bits is a valid
         // StateID, which can never overflow usize on any supported target.
-        StateID::new_unchecked((self.0 >> 32) as usize)
+        StateID::new_unchecked((self.0 >> 32).as_usize())
     }
 
     fn set_state_id(&mut self, sid: StateID) {
@@ -777,7 +778,7 @@ impl Transition {
     }
 
     fn info(&self) -> Info {
-        Info(self.0 as u32)
+        Info(self.0.low_u32())
     }
 }
 
@@ -785,19 +786,19 @@ impl Transition {
 struct PatternInfo(u64);
 
 impl PatternInfo {
-    const MASK_INFO: u64 = u32::MAX as u64;
-    const MASK_PATTERN_ID: u64 = (u32::MAX as u64) << 32;
+    const MASK_INFO: u64 = 0x00000000_FFFFFFFF;
+    const MASK_PATTERN_ID: u64 = 0xFFFFFFFF_00000000;
 
     fn empty() -> PatternInfo {
-        PatternInfo((u32::MAX as u64) << 32)
+        PatternInfo(u64::from(u32::MAX) << 32)
     }
 
     fn pattern_id(self) -> Option<PatternID> {
-        let pid = (self.0 >> 32) as u32;
+        let pid = self.0.high_u32();
         if pid == u32::MAX {
             None
         } else {
-            Some(PatternID::new_unchecked(pid as usize))
+            Some(PatternID::new_unchecked(pid.as_usize()))
         }
     }
 
@@ -806,22 +807,21 @@ impl PatternInfo {
     /// will likely produce an incorrect result or possibly even a panic or
     /// an overflow. But safety will not be violated.
     fn pattern_id_unchecked(self) -> PatternID {
-        let pid = (self.0 >> 32) as u32;
-        PatternID::new_unchecked(pid as usize)
+        PatternID::new_unchecked(self.0.high_u32().as_usize())
     }
 
     fn set_pattern_id(self, pid: PatternID) -> PatternInfo {
-        PatternInfo(
-            (self.0 & PatternInfo::MASK_INFO) | ((pid.as_u32() as u64) << 32),
-        )
+        PatternInfo((self.0 & PatternInfo::MASK_INFO) | (pid.as_u64() << 32))
     }
 
     fn info(self) -> Info {
-        Info(self.0 as u32)
+        Info(self.0.low_u32())
     }
 
     fn set_info(self, info: Info) -> PatternInfo {
-        PatternInfo((info.0 as u64) | (self.0 & PatternInfo::MASK_PATTERN_ID))
+        PatternInfo(
+            u64::from(info.0) | (self.0 & PatternInfo::MASK_PATTERN_ID),
+        )
     }
 }
 
@@ -877,18 +877,18 @@ impl Info {
     }
 
     fn look_insert(self, look: Look) -> Info {
-        Info(self.0 | (look.as_repr() as u32))
+        Info(self.0 | u32::from(look.as_repr()))
     }
 
     fn look_contains(self, look: Look) -> bool {
-        self.0 & (look.as_repr() as u32) != 0
+        self.0 & u32::from(look.as_repr()) != 0
     }
 
     fn look_matches(self, haystack: &[u8], at: usize) -> bool {
         if self.look_is_empty() {
             return true;
         }
-        let mut looks = self.0 as u8;
+        let mut looks = self.0.low_u8();
         while looks != 0 {
             let look = Look::from_repr(1 << looks.trailing_zeros()).unwrap();
             looks &= !look.as_repr();

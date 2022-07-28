@@ -80,6 +80,8 @@ impl Start {
     /// be less than `Start::len()`.
     #[inline(always)]
     pub(crate) fn as_usize(&self) -> usize {
+        // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
+        // actual int.
         *self as usize
     }
 }
@@ -87,6 +89,7 @@ impl Start {
 #[inline(always)]
 fn byte_to_start(byte: u8) -> Start {
     const fn make_mapping() -> [Start; 256] {
+        // FIXME: Use as_usize() once const functions in traits are stable.
         let mut map = [Start::NonWordByte; 256];
 
         map[b'\n' as usize] = Start::Line;

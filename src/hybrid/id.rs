@@ -194,6 +194,7 @@ impl LazyStateID {
     /// sacrifice memory safety.
     #[inline]
     const fn new_unchecked(id: usize) -> LazyStateID {
+        // FIXME: Use as_u32() once const functions in traits are stable.
         LazyStateID(id as u32)
     }
 
@@ -222,6 +223,7 @@ impl LazyStateID {
     /// be tagged (and thus greater than LazyStateID::MAX).
     #[inline]
     pub(crate) const fn as_usize_unchecked(&self) -> usize {
+        // FIXME: Use as_usize() once const functions in traits are stable.
         self.0 as usize
     }
 

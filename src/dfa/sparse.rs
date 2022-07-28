@@ -60,6 +60,7 @@ use crate::{
         alphabet::ByteClasses,
         bytes::{self, DeserializeError, Endian, SerializeError},
         escape::DebugByte,
+        int::{Pointer, U16, U32},
         primitives::{PatternID, StateID},
         search::Input,
         start::Start,
@@ -1272,7 +1273,7 @@ impl<'a> Transitions<&'a [u8]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(Transitions<&'a [u8]>, usize), DeserializeError> {
-        let slice_start = slice.as_ptr() as usize;
+        let slice_start = slice.as_ptr().as_usize();
 
         let (state_len, nr) =
             bytes::try_read_u32_as_usize(&slice, "state length")?;
@@ -1294,7 +1295,7 @@ impl<'a> Transitions<&'a [u8]> {
         slice = &slice[len..];
 
         let trans = Transitions { sparse, classes, state_len, pattern_len };
-        Ok((trans, slice.as_ptr() as usize - slice_start))
+        Ok((trans, slice.as_ptr().as_usize() - slice_start))
     }
 }
 
@@ -1466,7 +1467,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
     #[inline(always)]
     fn state(&self, id: StateID) -> State<'_> {
         let mut state = &self.sparse()[id.as_usize()..];
-        let mut ntrans = bytes::read_u16(&state) as usize;
+        let mut ntrans = bytes::read_u16(&state).as_usize();
         let is_match = (1 << 15) & ntrans != 0;
         ntrans &= !(1 << 15);
         state = &state[2..];
@@ -1474,7 +1475,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         let (input_ranges, state) = state.split_at(ntrans * 2);
         let (next, state) = state.split_at(ntrans * StateID::SIZE);
         let (pattern_ids, state) = if is_match {
-            let npats = bytes::read_u32(&state) as usize;
+            let npats = bytes::read_u32(&state).as_usize();
             state[4..].split_at(npats * 4)
         } else {
             (&[][..], state)
@@ -1636,7 +1637,7 @@ impl<T: AsMut<[u8]>> Transitions<T> {
     /// This panics if the state is invalid.
     fn state_mut(&mut self, id: StateID) -> StateMut<'_> {
         let mut state = &mut self.sparse_mut()[id.as_usize()..];
-        let mut ntrans = bytes::read_u16(&state) as usize;
+        let mut ntrans = bytes::read_u16(&state).as_usize();
         let is_match = (1 << 15) & ntrans != 0;
         ntrans &= !(1 << 15);
         state = &mut state[2..];
@@ -1644,7 +1645,7 @@ impl<T: AsMut<[u8]>> Transitions<T> {
         let (input_ranges, state) = state.split_at_mut(ntrans * 2);
         let (next, state) = state.split_at_mut(ntrans * StateID::SIZE);
         let (pattern_ids, state) = if is_match {
-            let npats = bytes::read_u32(&state) as usize;
+            let npats = bytes::read_u32(&state).as_usize();
             state[4..].split_at_mut(npats * 4)
         } else {
             (&mut [][..], state)
@@ -1740,7 +1741,7 @@ impl<'a> StartTable<&'a [u8]> {
     unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(StartTable<&'a [u8]>, usize), DeserializeError> {
-        let slice_start = slice.as_ptr() as usize;
+        let slice_start = slice.as_ptr().as_usize();
 
         let (stride, nr) =
             bytes::try_read_u32_as_usize(slice, "sparse start table stride")?;
@@ -1786,7 +1787,7 @@ impl<'a> StartTable<&'a [u8]> {
         slice = &slice[table_bytes_len..];
 
         let sl = StartTable { table: table_bytes, stride, pattern_len };
-        Ok((sl, slice.as_ptr() as usize - slice_start))
+        Ok((sl, slice.as_ptr().as_usize() - slice_start))
     }
 }
 

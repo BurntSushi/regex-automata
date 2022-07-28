@@ -43,8 +43,9 @@ use core::{
 #[cfg(feature = "alloc")]
 use alloc::{vec, vec::Vec};
 
-use crate::util::primitives::{
-    PatternID, PatternIDError, StateID, StateIDError,
+use crate::util::{
+    int::{Pointer, U64},
+    primitives::{PatternID, PatternIDError, StateID, StateIDError},
 };
 
 /// An error that occurs when serializing an object from this crate.
@@ -257,7 +258,7 @@ impl core::fmt::Display for DeserializeError {
 /// sufficient to perform the cast for any `T`.
 pub fn check_alignment<T>(slice: &[u8]) -> Result<(), DeserializeError> {
     let alignment = core::mem::align_of::<T>();
-    let address = slice.as_ptr() as usize;
+    let address = slice.as_ptr().as_usize();
     if address % alignment == 0 {
         return Ok(());
     }
@@ -308,7 +309,7 @@ pub fn alloc_aligned_buffer<T>(size: usize) -> (Vec<u8>, usize) {
     // than it's worth.
     let buf = vec![0; size];
     let align = core::mem::align_of::<T>();
-    let address = buf.as_ptr() as usize;
+    let address = buf.as_ptr().as_usize();
     if address % align == 0 {
         return (buf, 0);
     }
@@ -318,7 +319,7 @@ pub fn alloc_aligned_buffer<T>(size: usize) -> (Vec<u8>, usize) {
     // different alignment.
     let extra = align - 1;
     let mut buf = vec![0; size + extra];
-    let address = buf.as_ptr() as usize;
+    let address = buf.as_ptr().as_usize();
     // The code below handles the case where 'address' is aligned to T, so if
     // we got lucky and 'address' is now aligned to T (when it previously
     // wasn't), then we're done.
@@ -340,7 +341,7 @@ pub fn alloc_aligned_buffer<T>(size: usize) -> (Vec<u8>, usize) {
     assert_eq!(size + padding, buf.len());
     assert_eq!(
         0,
-        buf[padding..].as_ptr() as usize % align,
+        buf[padding..].as_ptr().as_usize() % align,
         "expected end of initial padding to be aligned to {}",
         align,
     );
@@ -719,14 +720,14 @@ pub fn write_varu64(
         if i >= dst.len() {
             return Err(SerializeError::buffer_too_small(what));
         }
-        dst[i] = (n as u8) | 0b1000_0000;
+        dst[i] = n.low_u8() | 0b1000_0000;
         n >>= 7;
         i += 1;
     }
     if i >= dst.len() {
         return Err(SerializeError::buffer_too_small(what));
     }
-    dst[i] = n as u8;
+    dst[i] = n.low_u8();
     Ok(i + 1)
 }
 

@@ -32,6 +32,7 @@ pub(crate) fn next(text: &[u8], i: usize) -> usize {
 #[inline(always)]
 pub(crate) fn is_word_byte(b: u8) -> bool {
     const fn mkwordset() -> [bool; 256] {
+        // FIXME: Use as_usize() once const functions in traits are stable.
         let mut set = [false; 256];
         set[b'_' as usize] = true;
 
@@ -70,7 +71,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<Result<char, u8>> {
     let len = match len(bytes[0]) {
         None => return Some(Err(bytes[0])),
         Some(len) if len > bytes.len() => return Some(Err(bytes[0])),
-        Some(1) => return Some(Ok(bytes[0] as char)),
+        Some(1) => return Some(Ok(char::from(bytes[0]))),
         Some(len) => len,
     };
     match core::str::from_utf8(&bytes[..len]) {

@@ -92,6 +92,7 @@ use alloc::{sync::Arc, vec::Vec};
 
 use crate::util::{
     bytes::{self, Endian},
+    int::{I32, U32},
     look::{Look, LookSet},
     primitives::{PatternID, StateID},
 };
@@ -553,7 +554,7 @@ impl<'a> Repr<'a> {
             // This is OK since we only ever serialize valid StateIDs to
             // states. And since state IDs can never exceed an isize, they must
             // always be able to fit into a usize, and thus cast is OK.
-            f(StateID::new_unchecked(sid as usize))
+            f(StateID::new_unchecked(sid.as_usize()))
         }
     }
 
@@ -746,7 +747,7 @@ impl<'a> ReprVec<'a> {
 ///
 /// https://developers.google.com/protocol-buffers/docs/encoding#varints
 fn write_vari32(data: &mut Vec<u8>, n: i32) {
-    let mut un = (n as u32) << 1;
+    let mut un = n.to_bits() << 1;
     if n < 0 {
         un = !un;
     }
@@ -759,7 +760,7 @@ fn write_vari32(data: &mut Vec<u8>, n: i32) {
 /// https://developers.google.com/protocol-buffers/docs/encoding#varints
 fn read_vari32(data: &[u8]) -> (i32, usize) {
     let (un, i) = read_varu32(data);
-    let mut n = (un >> 1) as i32;
+    let mut n = i32::from_bits(un >> 1);
     if un & 1 != 0 {
         n = !n;
     }
@@ -775,10 +776,10 @@ fn read_vari32(data: &[u8]) -> (i32, usize) {
 /// https://developers.google.com/protocol-buffers/docs/encoding#varints
 fn write_varu32(data: &mut Vec<u8>, mut n: u32) {
     while n >= 0b1000_0000 {
-        data.push((n as u8) | 0b1000_0000);
+        data.push(n.low_u8() | 0b1000_0000);
         n >>= 7;
     }
-    data.push(n as u8);
+    data.push(n.low_u8());
 }
 
 /// Read an unsigned 32-bit varint. Also, return the number of bytes read.
@@ -792,9 +793,9 @@ fn read_varu32(data: &[u8]) -> (u32, usize) {
     let mut shift: u32 = 0;
     for (i, &b) in data.iter().enumerate() {
         if b < 0b1000_0000 {
-            return (n | ((b as u32) << shift), i + 1);
+            return (n | (u32::from(b) << shift), i + 1);
         }
-        n |= ((b as u32) & 0b0111_1111) << shift;
+        n |= (u32::from(b) & 0b0111_1111) << shift;
         shift += 7;
     }
     (0, 0)

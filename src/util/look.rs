@@ -1,6 +1,6 @@
 use core::convert::TryFrom;
 
-use crate::util::{alphabet::ByteClassSet, utf8};
+use crate::util::{alphabet::ByteClassSet, int::U32, utf8};
 
 /// A look-around assertion.
 ///
@@ -58,12 +58,15 @@ impl Look {
             let mut i = 0;
             while i < Look::COUNT {
                 let look = Look::from_index_unchecked(i);
+                // FIXME: Use as_usize() once const functions in traits are
+                // stable.
                 map[look.as_repr() as usize] = Some(look);
                 i += 1;
             }
             map
         }
         const MAP: [Option<Look>; CAPACITY] = mkmap();
+        // FIXME: Use as_usize() once const functions in traits are stable.
         MAP[n as usize]
     }
 
@@ -94,6 +97,8 @@ impl Look {
     /// constructor is guaranteed to return the same look-around variant that
     /// one started with.
     pub const fn as_repr(self) -> u8 {
+        // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
+        // actual int.
         self as u8
     }
 
@@ -101,6 +106,8 @@ impl Look {
         // OK since trailing zeroes will always be <= u8::MAX. (The only
         // way this would be false is if we defined more than 255 distinct
         // look-around assertions, which seems highly improbable.)
+        //
+        // FIXME: Use as_usize() once const functions in traits are stable.
         self.as_repr().trailing_zeros() as usize
     }
 
@@ -236,6 +243,8 @@ impl LookSet {
     /// Returns the number of elements in this set.
     pub const fn len(self) -> usize {
         // OK because max length is <= u8::MAX.
+        //
+        // FIXME: Use as_usize() once const functions in traits are stable.
         self.bits.count_ones() as usize
     }
 
@@ -296,8 +305,8 @@ impl Iterator for LookSetIter {
 
     fn next(&mut self) -> Option<Look> {
         // We'll never have more than u8::MAX distinct look-around assertions,
-        // so the 'as' cast here is fine.
-        let index = self.set.bits.trailing_zeros() as usize;
+        // so 'index' will always fit into a usize.
+        let index = self.set.bits.trailing_zeros().as_usize();
         let look = Look::from_index(index)?;
         self.set = self.set.remove(look);
         Some(look)

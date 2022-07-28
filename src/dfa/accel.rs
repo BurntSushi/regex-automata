@@ -54,7 +54,10 @@ use core::convert::{TryFrom, TryInto};
 #[cfg(feature = "alloc")]
 use alloc::{vec, vec::Vec};
 
-use crate::util::bytes::{self, DeserializeError, Endian, SerializeError};
+use crate::util::{
+    bytes::{self, DeserializeError, Endian, SerializeError},
+    int::Pointer,
+};
 
 /// The base type used to represent a collection of accelerators.
 ///
@@ -185,7 +188,7 @@ impl<'a> Accels<&'a [AccelTy]> {
     pub unsafe fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(Accels<&'a [AccelTy]>, usize), DeserializeError> {
-        let slice_start = slice.as_ptr() as usize;
+        let slice_start = slice.as_ptr().as_usize();
 
         let (accel_len, _) =
             bytes::try_read_u32_as_usize(slice, "accelerators length")?;
@@ -212,11 +215,11 @@ impl<'a> Accels<&'a [AccelTy]> {
         #[allow(unused_unsafe)]
         let accels = unsafe {
             core::slice::from_raw_parts(
-                accel_tys.as_ptr() as *const AccelTy,
+                accel_tys.as_ptr().cast::<AccelTy>(),
                 accel_tys_len,
             )
         };
-        Ok((Accels { accels }, slice.as_ptr() as usize - slice_start))
+        Ok((Accels { accels }, slice.as_ptr().as_usize() - slice_start))
     }
 }
 
@@ -239,7 +242,7 @@ impl<A: AsRef<[AccelTy]>> Accels<A> {
         // and u8 always has a smaller alignment.
         unsafe {
             core::slice::from_raw_parts(
-                accels.as_ptr() as *const u8,
+                accels.as_ptr().cast::<u8>(),
                 accels.len() * ACCEL_TY_SIZE,
             )
         }
