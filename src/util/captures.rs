@@ -1113,6 +1113,11 @@ impl GroupInfo {
     /// each pattern. The `Option<String>` corresponds to the name of the
     /// capturing group, if present.
     ///
+    /// It is legal to pass an empty iterator to this constructor. It will
+    /// return an empty group info with zero slots. An empty group info is
+    /// useful for cases where you have no patterns or for cases where slots
+    /// aren't being used at all (e.g., for most DFAs in this crate).
+    ///
     /// # Errors
     ///
     /// This constructor returns an error if the given capturing groups are
@@ -1149,6 +1154,22 @@ impl GroupInfo {
     /// assert_eq!(4, info.pattern_len());
     /// // 2 slots per group
     /// assert_eq!(22, info.slot_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: empty `GroupInfo`
+    ///
+    /// This example shows how to build a new `GroupInfo` and query it for
+    /// information.
+    ///
+    /// ```
+    /// use regex_automata::util::captures::GroupInfo;
+    ///
+    /// let info = GroupInfo::new(Vec::<Vec<Option<&str>>>::new())?;
+    /// // Everything is zero.
+    /// assert_eq!(0, info.pattern_len());
+    /// assert_eq!(0, info.slot_len());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1618,6 +1639,41 @@ impl GroupInfo {
     #[inline]
     pub fn slot_len(&self) -> usize {
         self.0.small_slot_len().as_usize()
+    }
+
+    /// Returns the total number of slots for explicit capturing groups.
+    ///
+    /// This is like [`GroupInfo::slot_len`], except it doesn't include the
+    /// implicit slots for each pattern. (There are always 2 implicit slots for
+    /// each pattern.)
+    ///
+    /// For a non-empty `GroupInfo`, it is always the case that `slot_len` is
+    /// strictly greater than `explicit_slot_len`. For an empty `GroupInfo`,
+    /// both the total number of slots and the number of explicit slots is
+    /// `0`.
+    ///
+    /// # Example
+    ///
+    /// This example shows the relationship between the number of capturing
+    /// groups, implicit slots and explicit slots.
+    ///
+    /// ```
+    /// use regex_automata::util::captures::GroupInfo;
+    ///
+    /// // There are 11 total groups here.
+    /// let info = GroupInfo::new(vec![vec![None, Some("foo"), Some("bar")]])?;
+    /// // 2 slots per group gives us 11*2=22 slots.
+    /// assert_eq!(6, info.slot_len());
+    /// // 2 explicit capturing groups gives us 2*2=4 explicit slots.
+    /// assert_eq!(4, info.explicit_slot_len());
+    /// // 2 implicit slots per pattern gives us 2 implicit slots.
+    /// assert_eq!(2, info.slot_len() - info.explicit_slot_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn explicit_slot_len(&self) -> usize {
+        self.slot_len().saturating_sub(self.pattern_len() * 2)
     }
 
     /// Returns the memory usage, in bytes, of this `GroupInfo`.

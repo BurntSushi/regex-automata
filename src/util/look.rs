@@ -51,6 +51,7 @@ impl Look {
     /// Create a look-around assertion from its corresponding integer (as
     /// defined in `Look`). If the given integer does not correspond to any
     /// assertion, then `None` is returned.
+    #[inline]
     pub const fn from_repr(n: u8) -> Option<Look> {
         const CAPACITY: usize = 256;
         const fn mkmap() -> [Option<Look>; CAPACITY] {
@@ -70,6 +71,7 @@ impl Look {
         MAP[n as usize]
     }
 
+    #[inline]
     pub const fn from_index(index: usize) -> Option<Look> {
         if index < Look::COUNT {
             Some(Look::from_index_unchecked(index))
@@ -78,6 +80,7 @@ impl Look {
         }
     }
 
+    #[inline]
     pub const fn from_index_unchecked(index: usize) -> Look {
         const BY_INDEX: [Look; Look::COUNT] = [
             Look::Start,
@@ -96,12 +99,14 @@ impl Look {
     /// as an integer. Giving the return value to the [`Look::from_repr`]
     /// constructor is guaranteed to return the same look-around variant that
     /// one started with.
+    #[inline]
     pub const fn as_repr(self) -> u8 {
         // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
         // actual int.
         self as u8
     }
 
+    #[inline]
     pub const fn as_index(self) -> usize {
         // OK since trailing zeroes will always be <= u8::MAX. (The only
         // way this would be false is if we defined more than 255 distinct
@@ -111,6 +116,7 @@ impl Look {
         self.as_repr().trailing_zeros() as usize
     }
 
+    #[inline]
     pub const fn as_char(self) -> char {
         match self {
             Look::Start => 'A',
@@ -126,6 +132,7 @@ impl Look {
 
     /// Flip the look-around assertion to its equivalent for reverse searches.
     /// For example, `StartLine` gets translated to `EndLine`.
+    #[inline]
     pub const fn reversed(self) -> Look {
         match self {
             Look::Start => Look::End,
@@ -143,6 +150,7 @@ impl Look {
     /// look-around assertion.
     ///
     /// This panics if `at > haystack.len()`.
+    #[inline]
     pub fn matches(self, haystack: &[u8], at: usize) -> bool {
         match self {
             Look::Start => is_start(haystack, at),
@@ -217,30 +225,36 @@ pub struct LookSet {
 impl LookSet {
     pub const CAPACITY: usize = 8;
 
+    #[inline]
     pub const fn empty() -> LookSet {
         LookSet { bits: 0 }
     }
 
+    #[inline]
     pub const fn full() -> LookSet {
         LookSet { bits: !0 }
     }
 
     /// Return a LookSet from its representation.
+    #[inline]
     pub const fn from_repr(repr: u8) -> LookSet {
         LookSet { bits: repr }
     }
 
     /// Return the internal byte representation of this set.
+    #[inline]
     pub const fn to_repr(self) -> u8 {
         self.bits
     }
 
     /// Return true if and only if this set is empty.
+    #[inline]
     pub const fn is_empty(self) -> bool {
         self.bits == 0
     }
 
     /// Returns the number of elements in this set.
+    #[inline]
     pub const fn len(self) -> usize {
         // OK because max length is <= u8::MAX.
         //
@@ -250,36 +264,52 @@ impl LookSet {
 
     /// Insert the given look-around assertion into this set. If the assertion
     /// already exists, then this is a no-op.
+    #[inline]
     pub const fn insert(self, look: Look) -> LookSet {
         LookSet { bits: self.bits | look.as_repr() }
     }
 
     /// Remove the given look-around assertion from this set. If the assertion
     /// is not in this set, then this is a no-op.
+    #[inline]
     pub const fn remove(self, look: Look) -> LookSet {
         LookSet { bits: self.bits & !look.as_repr() }
     }
 
     /// Return true if and only if the given assertion is in this set.
+    #[inline]
     pub const fn contains(self, look: Look) -> bool {
         look.as_repr() & self.bits != 0
     }
 
     /// Subtract the given `other` set from the `self` set and return a new
     /// set.
+    #[inline]
     pub const fn subtract(self, other: LookSet) -> LookSet {
         LookSet { bits: self.bits & !other.bits }
     }
 
     /// Return the intersection of the given `other` set with the `self` set
     /// and return the resulting set.
+    #[inline]
     pub const fn intersect(self, other: LookSet) -> LookSet {
         LookSet { bits: self.bits & other.bits }
     }
 
     /// Returns an iterator over all of the look-around assertions in this set.
+    #[inline]
     pub const fn iter(self) -> LookSetIter {
         LookSetIter { set: self }
+    }
+
+    #[inline]
+    pub fn matches(self, haystack: &[u8], at: usize) -> bool {
+        for look in self.iter() {
+            if !look.matches(haystack, at) {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -303,6 +333,7 @@ pub struct LookSetIter {
 impl Iterator for LookSetIter {
     type Item = Look;
 
+    #[inline]
     fn next(&mut self) -> Option<Look> {
         // We'll never have more than u8::MAX distinct look-around assertions,
         // so 'index' will always fit into a usize.

@@ -61,6 +61,15 @@ enum ErrorKind {
     /// An error that occurs if auxiliary storage (not the DFA) used during
     /// determinization got too big.
     DeterminizeExceededSizeLimit { limit: usize },
+    /// An error that occurs if too many states would be built for the one-pass
+    /// DFA specifically. The one-pass DFA has a smaller limit because it packs
+    /// state IDs into a compact representation.
+    OnePassTooManyStates { limit: u64 },
+    /// An error that occurs when a one-pass DFA is attempted to be built with
+    /// an NFA that has too many patterns. Like state IDs, pattern IDs are
+    /// packed into a smaller representation that doesn't support the full
+    /// pattern ID range.
+    OnePassTooManyPatterns { limit: u64 },
     /// An error that occurs if the one-pass DFA got too big during
     /// construction.
     OnePassExceededSizeLimit { limit: usize },
@@ -107,6 +116,14 @@ impl Error {
         Error { kind: ErrorKind::DeterminizeExceededSizeLimit { limit } }
     }
 
+    pub(crate) fn one_pass_too_many_states(limit: u64) -> Error {
+        Error { kind: ErrorKind::OnePassTooManyStates { limit } }
+    }
+
+    pub(crate) fn one_pass_too_many_patterns(limit: u64) -> Error {
+        Error { kind: ErrorKind::OnePassTooManyPatterns { limit } }
+    }
+
     pub(crate) fn one_pass_exceeded_size_limit(limit: usize) -> Error {
         Error { kind: ErrorKind::OnePassExceededSizeLimit { limit } }
     }
@@ -127,6 +144,8 @@ impl std::error::Error for Error {
             ErrorKind::TooManyMatchPatternIDs => None,
             ErrorKind::DFAExceededSizeLimit { .. } => None,
             ErrorKind::DeterminizeExceededSizeLimit { .. } => None,
+            ErrorKind::OnePassTooManyStates { .. } => None,
+            ErrorKind::OnePassTooManyPatterns { .. } => None,
             ErrorKind::OnePassExceededSizeLimit { .. } => None,
             ErrorKind::OnePassFail { .. } => None,
         }
@@ -176,6 +195,16 @@ impl core::fmt::Display for Error {
             ErrorKind::DeterminizeExceededSizeLimit { limit } => {
                 write!(f, "determinization exceeded size limit of {:?}", limit)
             }
+            ErrorKind::OnePassTooManyStates { limit } => write!(
+                f,
+                "one-pass DFA exceeded a limit of {:?} for number of states",
+                limit,
+            ),
+            ErrorKind::OnePassTooManyPatterns { limit } => write!(
+                f,
+                "one-pass DFA exceeded a limit of {:?} for number of patterns",
+                limit,
+            ),
             ErrorKind::OnePassExceededSizeLimit { limit } => write!(
                 f,
                 "one-pass DFA exceeded size limit of {:?} during building",

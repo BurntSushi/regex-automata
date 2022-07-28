@@ -10,9 +10,9 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses},
         captures::Captures,
-        int::{U32, U64, U8},
+        int::{Usize, U32, U64, U8},
         iter,
-        look::Look,
+        look::{Look, LookSet},
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{Input, Match, MatchError, MatchKind},
         sparse_set::SparseSet,
@@ -122,14 +122,6 @@ impl Builder {
     }
 
     pub fn build_from_nfa(&self, nfa: &NFA) -> Result<OnePass, Error> {
-        let implicit_slots = nfa.pattern_len() * 2;
-        let explicit_slots =
-            nfa.group_info().slot_len().saturating_sub(implicit_slots);
-        if explicit_slots > Info::MAX_SLOTS {
-            return Err(Error::one_pass_fail(
-                "too many explicit capturing groups (max is 24)",
-            ));
-        }
         InternalBuilder::new(self.config.clone(), nfa).build()
     }
 
@@ -212,6 +204,16 @@ impl<'a> InternalBuilder<'a> {
     }
 
     fn build(mut self) -> Result<OnePass, Error> {
+        if self.nfa.pattern_len().as_u64() > PatternInfo::PATTERN_ID_LIMIT {
+            return Err(Error::one_pass_too_many_patterns(
+                PatternInfo::PATTERN_ID_LIMIT,
+            ));
+        }
+        if self.nfa.group_info().explicit_slot_len() > Slots::LIMIT {
+            return Err(Error::one_pass_fail(
+                "too many explicit capturing groups (max is 24)",
+            ));
+        }
         assert_eq!(DEAD, self.add_empty_state()?);
 
         let explicit_slot_start = self.nfa.pattern_len() * 2;
@@ -237,7 +239,8 @@ impl<'a> InternalBuilder<'a> {
                         }
                     }
                     thompson::State::Look { look, next } => {
-                        self.stack_push(next, info.look_insert(look))?;
+                        let looks = info.looks().insert(look);
+                        self.stack_push(next, info.set_looks(looks))?;
                     }
                     thompson::State::Union { ref alternates } => {
                         for &sid in alternates.iter().rev() {
@@ -253,7 +256,8 @@ impl<'a> InternalBuilder<'a> {
                         let info = if slot < explicit_slot_start {
                             info
                         } else {
-                            info.slot_insert(slot - explicit_slot_start)
+                            let offset = slot - explicit_slot_start;
+                            info.set_slots(info.slots().insert(offset))
                         };
                         self.stack_push(next, info)?;
                     }
@@ -389,6 +393,11 @@ impl<'a> InternalBuilder<'a> {
     fn add_empty_state(&mut self) -> Result<StateID, Error> {
         let next = self.dfa.table.len();
         let id = StateID::new(next).map_err(|_| Error::too_many_states())?;
+        let id_limit = 1 << Transition::STATE_ID_BITS;
+        if id.as_u64() > id_limit {
+            let state_limit = id_limit / self.dfa.stride().as_u64();
+            return Err(Error::one_pass_too_many_states(state_limit));
+        }
         self.dfa
             .table
             .extend(core::iter::repeat(Transition(0)).take(self.dfa.stride()));
@@ -547,7 +556,7 @@ impl OnePass {
     ) -> Option<PatternID> {
         let explicit_start = self.nfa.pattern_len() * 2;
         let explicit_slots = core::cmp::min(
-            Info::MAX_SLOTS,
+            Slots::LIMIT,
             slots.len().saturating_sub(explicit_start),
         );
         cache.setup_search(explicit_slots);
@@ -588,7 +597,8 @@ impl OnePass {
                             .copy_from_slice(cache.explicit_slots());
                         patinfo
                             .info()
-                            .slot_apply(at, &mut slots[explicit_start..]);
+                            .slots()
+                            .apply(at, &mut slots[explicit_start..]);
                     }
                     if input.get_earliest() {
                         return pid;
@@ -602,7 +612,7 @@ impl OnePass {
             if sid == DEAD || !info.look_matches(haystack, at) {
                 return pid;
             }
-            info.slot_apply(at, cache.explicit_slots());
+            info.slots().apply(at, cache.explicit_slots());
         }
         if sid >= self.min_match_id {
             let patinfo = self.pattern_info(sid);
@@ -618,7 +628,8 @@ impl OnePass {
                         .copy_from_slice(cache.explicit_slots());
                     patinfo
                         .info()
-                        .slot_apply(input.end(), &mut slots[explicit_start..]);
+                        .slots()
+                        .apply(input.end(), &mut slots[explicit_start..]);
                 }
             }
         }
@@ -721,27 +732,22 @@ pub struct Cache {
     /// offsets recorded for the most recently seen match.
     explicit_slots: Vec<Option<NonMaxUsize>>,
     /// The number of slots in the caller-provided 'Captures' value for the
-    /// current search. Setting this to the total number of slots for the
-    /// underlying NFA is always correct, but may be wasteful.
-    slots_for_captures: usize,
+    /// current search. This is always at most 'explicit_slots.len()', but
+    /// might be less than it, if the caller provided fewer slots to fill.
+    explicit_slot_len: usize,
 }
 
 impl Cache {
     pub fn new(re: &OnePass) -> Cache {
-        let mut cache =
-            Cache { explicit_slots: vec![], slots_for_captures: 0 };
+        let mut cache = Cache { explicit_slots: vec![], explicit_slot_len: 0 };
         cache.reset(re);
         cache
     }
 
     pub fn reset(&mut self, re: &OnePass) {
-        let slot_len = re
-            .nfa
-            .group_info()
-            .slot_len()
-            .saturating_sub(2 * re.nfa.pattern_len());
-        self.explicit_slots.resize(slot_len, None);
-        self.slots_for_captures = slot_len;
+        let explicit_slot_len = re.get_nfa().group_info().explicit_slot_len();
+        self.explicit_slots.resize(explicit_slot_len, None);
+        self.explicit_slot_len = explicit_slot_len;
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -749,20 +755,35 @@ impl Cache {
     }
 
     fn explicit_slots(&mut self) -> &mut [Option<NonMaxUsize>] {
-        &mut self.explicit_slots[..self.slots_for_captures]
+        &mut self.explicit_slots[..self.explicit_slot_len]
     }
 
     fn setup_search(&mut self, explicit_slot_len: usize) {
-        self.slots_for_captures = explicit_slot_len;
+        self.explicit_slot_len = explicit_slot_len;
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// BREADCRUMBS: Next step I think is to write the Debug impl for OnePass
+// itself. For other FSMs, we usually emit contiguous ranges of bytes that
+// go to the same transition, but that's a little trickier here because a
+// transition also has captures/looks in it. Let's try without first, and if we
+// absolutely have to show ranges, we can figure it out.
+
+#[derive(Clone, Copy, Eq, PartialEq)]
 struct Transition(u64);
 
 impl Transition {
+    const STATE_ID_BITS: u64 = 24;
+    const STATE_ID_SHIFT: u64 = 64 - Transition::STATE_ID_BITS;
+    const MASK_STATE_ID: u64 = 0xFFFFFF00_00000000;
+    const MASK_INFO: u64 = 0x000000FF_FFFFFFFF;
+
     fn new(sid: StateID, info: Info) -> Transition {
-        Transition((sid.as_u64() << 32) | u64::from(info.0))
+        Transition((sid.as_u64() << Transition::STATE_ID_SHIFT) | info.0)
+    }
+
+    fn is_dead(self) -> bool {
+        self.state_id() == DEAD
     }
 
     fn state_id(&self) -> StateID {
@@ -770,7 +791,9 @@ impl Transition {
         // by construction. The cast to usize is also correct, even on 16-bit
         // targets because, again, we know the upper 32 bits is a valid
         // StateID, which can never overflow usize on any supported target.
-        StateID::new_unchecked((self.0 >> 32).as_usize())
+        StateID::new_unchecked(
+            (self.0 >> Transition::STATE_ID_SHIFT).as_usize(),
+        )
     }
 
     fn set_state_id(&mut self, sid: StateID) {
@@ -778,24 +801,46 @@ impl Transition {
     }
 
     fn info(&self) -> Info {
-        Info(self.0.low_u32())
+        Info(self.0 & Transition::MASK_INFO)
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+impl core::fmt::Debug for Transition {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if self.is_dead() {
+            return write!(f, "0");
+        }
+        write!(f, "{}", self.state_id().as_usize())?;
+        if !self.info().is_empty() {
+            write!(f, "-{:?}", self.info())?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
 struct PatternInfo(u64);
 
 impl PatternInfo {
-    const MASK_INFO: u64 = 0x00000000_FFFFFFFF;
-    const MASK_PATTERN_ID: u64 = 0xFFFFFFFF_00000000;
+    const PATTERN_ID_BITS: u64 = 24;
+    const PATTERN_ID_SHIFT: u64 = 64 - PatternInfo::PATTERN_ID_BITS;
+    const PATTERN_ID_LIMIT: u64 = (1 << PatternInfo::PATTERN_ID_BITS) - 1;
+    const MASK_PATTERN_ID: u64 = 0xFFFFFF00_00000000;
+    const MASK_INFO: u64 = 0x000000FF_FFFFFFFF;
 
     fn empty() -> PatternInfo {
-        PatternInfo(u64::from(u32::MAX) << 32)
+        PatternInfo(
+            PatternInfo::PATTERN_ID_LIMIT << PatternInfo::PATTERN_ID_SHIFT,
+        )
+    }
+
+    fn is_empty(self) -> bool {
+        self.pattern_id().is_none() && self.info().is_empty()
     }
 
     fn pattern_id(self) -> Option<PatternID> {
-        let pid = self.0.high_u32();
-        if pid == u32::MAX {
+        let pid = self.0 >> PatternInfo::PATTERN_ID_SHIFT;
+        if pid == PatternInfo::PATTERN_ID_LIMIT {
             None
         } else {
             Some(PatternID::new_unchecked(pid.as_usize()))
@@ -807,102 +852,155 @@ impl PatternInfo {
     /// will likely produce an incorrect result or possibly even a panic or
     /// an overflow. But safety will not be violated.
     fn pattern_id_unchecked(self) -> PatternID {
-        PatternID::new_unchecked(self.0.high_u32().as_usize())
+        let pid = self.0 >> PatternInfo::PATTERN_ID_SHIFT;
+        PatternID::new_unchecked(pid.as_usize())
     }
 
     fn set_pattern_id(self, pid: PatternID) -> PatternInfo {
-        PatternInfo((self.0 & PatternInfo::MASK_INFO) | (pid.as_u64() << 32))
+        PatternInfo(
+            (pid.as_u64() << PatternInfo::PATTERN_ID_SHIFT)
+                | (self.0 & PatternInfo::MASK_INFO),
+        )
     }
 
     fn info(self) -> Info {
-        Info(self.0.low_u32())
+        Info(self.0 & PatternInfo::MASK_INFO)
     }
 
     fn set_info(self, info: Info) -> PatternInfo {
         PatternInfo(
-            u64::from(info.0) | (self.0 & PatternInfo::MASK_PATTERN_ID),
+            (self.0 & PatternInfo::MASK_PATTERN_ID) | u64::from(info.0),
         )
     }
 }
 
+impl core::fmt::Debug for PatternInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if self.is_empty() {
+            return write!(f, "N/A");
+        }
+        if let Some(pid) = self.pattern_id() {
+            write!(f, "{}", pid.as_usize())?;
+        }
+        if !self.info().is_empty() {
+            if self.pattern_id().is_some() {
+                write!(f, "-")?;
+            }
+            write!(f, "{:?}", self.info())?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
-struct Info(u32);
+struct Info(u64);
 
 impl Info {
-    // Our 'Info' is 32 bits. 8 bits are dedicated to assertions. The remaining
-    // 24 are dedicated to slots.
-    //
-    // TODO: It seems like we should be able to support all slots for overall
-    // matches for each pattern in the search loop itself. And the slots set
-    // here need only refer to explicit capture groups. But I'm not sure, so
-    // let's just do the simple thing for now. This optimization would also
-    // imply that the actual slot would need to be offset by the number of
-    // patterns.
-    const MAX_SLOTS: usize = 24;
+    const SLOT_MASK: u64 = 0x000000FF_FFFFFF00;
+    const SLOT_SHIFT: u64 = 8;
+    const LOOK_MASK: u64 = 0x00000000_000000FF;
 
     fn empty() -> Info {
         Info(0)
     }
 
-    fn slot_insert(self, slot: usize) -> Info {
-        assert!(slot < Info::MAX_SLOTS);
-        Info(self.0 | (1 << (8 + slot)))
+    fn is_empty(self) -> bool {
+        self.0 == 0
     }
 
-    fn slot_contains(self, slot: usize) -> bool {
-        self.0 & (1 << (8 + slot)) != 0
+    fn slots(self) -> Slots {
+        Slots((self.0 >> Info::SLOT_SHIFT).low_u32())
     }
 
-    fn slot_is_empty(self) -> bool {
-        self.0 & !0b1111_1111 == 0
+    fn set_slots(self, slots: Slots) -> Info {
+        Info(
+            (u64::from(slots.0) << Info::SLOT_SHIFT)
+                | (self.0 & Info::LOOK_MASK),
+        )
     }
 
-    fn slot_len(self) -> usize {
-        usize::try_from((self.0 & !0xFF).count_ones()).unwrap()
+    fn looks(self) -> LookSet {
+        LookSet::from_repr(self.0.low_u8())
     }
 
-    fn slot_apply(self, at: usize, slots: &mut [Option<NonMaxUsize>]) {
-        if self.slot_is_empty() {
-            return;
-        }
-        for (i, slot) in slots.iter_mut().enumerate() {
-            if self.slot_contains(i) {
-                *slot = NonMaxUsize::new(at);
-            }
-        }
+    fn set_looks(self, look_set: LookSet) -> Info {
+        Info((self.0 & Info::SLOT_MASK) | u64::from(look_set.to_repr()))
     }
 
-    fn look_is_empty(self) -> bool {
-        self.0 & 0b1111_1111 == 0
-    }
-
-    fn look_insert(self, look: Look) -> Info {
-        Info(self.0 | u32::from(look.as_repr()))
-    }
-
-    fn look_contains(self, look: Look) -> bool {
-        self.0 & u32::from(look.as_repr()) != 0
-    }
-
+    /// A light wrapper around 'looks().matches()' that avoids the 'matches()'
+    /// call when the look set is empty. In theory, if 'looks().matches()'
+    /// would always get inlined, then this wouldn't be a problem. But since
+    /// 'looks().matches()' is a public API, it isn't appropriate to tag it
+    /// with 'inline(always)'. So we write this little hack instead.
+    #[inline(always)]
     fn look_matches(self, haystack: &[u8], at: usize) -> bool {
-        if self.look_is_empty() {
+        if self.looks().is_empty() {
             return true;
         }
-        let mut looks = self.0.low_u8();
-        while looks != 0 {
-            let look = Look::from_repr(1 << looks.trailing_zeros()).unwrap();
-            looks &= !look.as_repr();
-            if !look.matches(haystack, at) {
-                return false;
-            }
-        }
-        true
+        self.looks().matches(haystack, at)
     }
 }
 
 impl core::fmt::Debug for Info {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        todo!()
+        let mut wrote = false;
+        if !self.slots().is_empty() {
+            write!(f, "{:?}", self.slots())?;
+            wrote = true;
+        }
+        if !self.looks().is_empty() {
+            write!(f, "{:?}", self.looks())?;
+            wrote = true;
+        }
+        if !wrote {
+            write!(f, "N/A")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Slots(u32);
+
+impl Slots {
+    const LIMIT: usize = 32;
+
+    fn empty() -> Slots {
+        Slots(0)
+    }
+
+    fn insert(self, slot: usize) -> Slots {
+        assert!(slot < Slots::LIMIT);
+        Slots(self.0 | (1 << slot.as_u32()))
+    }
+
+    fn contains(self, slot: usize) -> bool {
+        self.0 & (1 << slot.as_u32()) != 0
+    }
+
+    fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    fn len(self) -> usize {
+        self.0.count_ones().as_usize()
+    }
+
+    fn apply(self, at: usize, caller_slots: &mut [Option<NonMaxUsize>]) {
+        if self.is_empty() {
+            return;
+        }
+        for (i, slot) in caller_slots.iter_mut().enumerate() {
+            if self.contains(i) {
+                *slot = NonMaxUsize::new(at);
+            }
+        }
+    }
+}
+
+impl core::fmt::Debug for Slots {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(f, "S{}", self.len())
     }
 }
 
@@ -938,15 +1036,20 @@ mod tests {
         assert!(predicate(&err), "{}", err);
     }
 
+    // This test is meant to build a one-pass regex with the maximum number of
+    // possible slots.
+    //
+    // NOTE: Remember that the slot limit only applies to explicit capturing
+    // groups. Any number of implicit capturing groups is supported (up to the
+    // maximum number of supported patterns), since implicit groups are handled
+    // by the search loop itself.
     #[test]
-    fn scratch() {
-        // let re =
-        // OnePass::new_many(&[r"(a)(b)(c+)", r"(x+)(y+)(z+)([\w--z])+"])
-        // .unwrap();
-        let re = OnePass::new_many(&[r"(abc)+?"]).unwrap();
-        let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-        let input = Input::new("abcabc");
-        re.search(&mut cache, &input, &mut caps);
-        dbg!(&caps);
+    fn max_slots() {
+        // One too many...
+        let pat = r"(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)(n)(o)(p)(q)";
+        assert!(OnePass::new(pat).is_err());
+        // Just right.
+        let pat = r"(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)(n)(o)(p)";
+        assert!(OnePass::new(pat).is_ok());
     }
 }
