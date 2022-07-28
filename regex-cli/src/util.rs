@@ -418,10 +418,10 @@ impl std::str::FromStr for Throughput {
             .parse()
             .context("invalid throughput decimal number")?;
         match &caps["units"] {
-            "B" => bytes_per_second *= 1.0,
-            "KB" => bytes_per_second *= 1_000.0,
-            "MB" => bytes_per_second *= 1_000_000.0,
-            "GB" => bytes_per_second *= 1_000_000_000.0,
+            "B" => bytes_per_second *= (1 << 0) as f64,
+            "KB" => bytes_per_second *= (1 << 10) as f64,
+            "MB" => bytes_per_second *= (1 << 20) as f64,
+            "GB" => bytes_per_second *= (1 << 30) as f64,
             unit => unreachable!("impossible unit '{}'", unit),
         }
         Ok(Throughput(bytes_per_second))
