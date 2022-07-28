@@ -90,12 +90,10 @@ use core::{convert::TryFrom, mem};
 
 use alloc::{sync::Arc, vec::Vec};
 
-use crate::{
-    nfa::thompson::Look,
-    util::{
-        bytes::{self, Endian},
-        primitives::{PatternID, StateID},
-    },
+use crate::util::{
+    bytes::{self, Endian},
+    look::{Look, LookSet},
+    primitives::{PatternID, StateID},
 };
 
 /// A DFA state that, at its core, is represented by an ordered set of NFA
@@ -744,83 +742,6 @@ impl<'a> ReprVec<'a> {
     }
 }
 
-/// LookSet is a memory-efficient set of look-around assertions.
-///
-/// Callers may idempotently insert or remove any look-around assertion from a
-/// set.
-#[derive(Clone, Copy, Default, Eq, PartialEq)]
-pub(crate) struct LookSet {
-    set: u8,
-}
-
-impl LookSet {
-    /// Return a LookSet from its representation.
-    pub(crate) fn from_repr(repr: u8) -> LookSet {
-        LookSet { set: repr }
-    }
-
-    /// Return the internal byte representation of this set.
-    pub(crate) fn to_repr(self) -> u8 {
-        self.set
-    }
-
-    /// Return true if and only if this set is empty.
-    pub(crate) fn is_empty(self) -> bool {
-        self.set == 0
-    }
-
-    /// Clears this set such that it has no assertions in it.
-    pub(crate) fn clear(self) -> LookSet {
-        LookSet { set: 0 }
-    }
-
-    /// Insert the given look-around assertion into this set. If the assertion
-    /// already exists, then this is a no-op.
-    pub(crate) fn insert(self, look: Look) -> LookSet {
-        LookSet { set: self.set | look.as_repr() }
-    }
-
-    /// Remove the given look-around assertion from this set. If the assertion
-    /// is not in this set, then this is a no-op.
-    #[cfg(test)]
-    pub(crate) fn remove(self, look: Look) -> LookSet {
-        LookSet { set: self.set & !look.as_repr() }
-    }
-
-    /// Return true if and only if the given assertion is in this set.
-    pub(crate) fn contains(self, look: Look) -> bool {
-        look.as_repr() & self.set != 0
-    }
-
-    /// Subtract the given `other` set from the `self` set and return a new
-    /// set.
-    pub(crate) fn subtract(self, other: LookSet) -> LookSet {
-        LookSet { set: self.set & !other.set }
-    }
-
-    /// Return the intersection of the given `other` set with the `self` set
-    /// and return the resulting set.
-    pub(crate) fn intersect(self, other: LookSet) -> LookSet {
-        LookSet { set: self.set & other.set }
-    }
-}
-
-impl core::fmt::Debug for LookSet {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let mut members = vec![];
-        for i in 0..8 {
-            let look = match Look::from_repr(1 << i) {
-                None => continue,
-                Some(look) => look,
-            };
-            if self.contains(look) {
-                members.push(look);
-            }
-        }
-        f.debug_tuple("LookSet").field(&members).finish()
-    }
-}
-
 /// Write a signed 32-bit integer using zig-zag encoding.
 ///
 /// https://developers.google.com/protocol-buffers/docs/encoding#varints
@@ -993,58 +914,5 @@ mod tests {
             deduped.push(pid);
         }
         deduped
-    }
-
-    #[test]
-    fn look_set() {
-        let mut f = LookSet::default();
-        assert!(!f.contains(Look::StartText));
-        assert!(!f.contains(Look::EndText));
-        assert!(!f.contains(Look::StartLine));
-        assert!(!f.contains(Look::EndLine));
-        assert!(!f.contains(Look::WordBoundaryUnicode));
-        assert!(!f.contains(Look::WordBoundaryUnicodeNegate));
-        assert!(!f.contains(Look::WordBoundaryAscii));
-        assert!(!f.contains(Look::WordBoundaryAsciiNegate));
-
-        f = f.insert(Look::StartText);
-        assert!(f.contains(Look::StartText));
-        f = f.remove(Look::StartText);
-        assert!(!f.contains(Look::StartText));
-
-        f = f.insert(Look::EndText);
-        assert!(f.contains(Look::EndText));
-        f = f.remove(Look::EndText);
-        assert!(!f.contains(Look::EndText));
-
-        f = f.insert(Look::StartLine);
-        assert!(f.contains(Look::StartLine));
-        f = f.remove(Look::StartLine);
-        assert!(!f.contains(Look::StartLine));
-
-        f = f.insert(Look::EndLine);
-        assert!(f.contains(Look::EndLine));
-        f = f.remove(Look::EndLine);
-        assert!(!f.contains(Look::EndLine));
-
-        f = f.insert(Look::WordBoundaryUnicode);
-        assert!(f.contains(Look::WordBoundaryUnicode));
-        f = f.remove(Look::WordBoundaryUnicode);
-        assert!(!f.contains(Look::WordBoundaryUnicode));
-
-        f = f.insert(Look::WordBoundaryUnicodeNegate);
-        assert!(f.contains(Look::WordBoundaryUnicodeNegate));
-        f = f.remove(Look::WordBoundaryUnicodeNegate);
-        assert!(!f.contains(Look::WordBoundaryUnicodeNegate));
-
-        f = f.insert(Look::WordBoundaryAscii);
-        assert!(f.contains(Look::WordBoundaryAscii));
-        f = f.remove(Look::WordBoundaryAscii);
-        assert!(!f.contains(Look::WordBoundaryAscii));
-
-        f = f.insert(Look::WordBoundaryAsciiNegate);
-        assert!(f.contains(Look::WordBoundaryAsciiNegate));
-        f = f.remove(Look::WordBoundaryAsciiNegate);
-        assert!(!f.contains(Look::WordBoundaryAsciiNegate));
     }
 }

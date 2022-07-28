@@ -5,9 +5,12 @@ use alloc::{collections::BTreeSet, sync::Arc, vec::Vec};
 use crate::{
     nfa::thompson::{
         error::Error,
-        nfa::{self, Look, SparseTransitions, Transition, NFA},
+        nfa::{self, SparseTransitions, Transition, NFA},
     },
-    util::primitives::{IteratorIndexExt, PatternID, SmallIndex, StateID},
+    util::{
+        look::Look,
+        primitives::{IteratorIndexExt, PatternID, SmallIndex, StateID},
+    },
 };
 
 /// An intermediate NFA state used during construction.

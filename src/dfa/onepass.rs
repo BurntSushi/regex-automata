@@ -11,6 +11,7 @@ use crate::{
         alphabet::{self, ByteClasses},
         captures::Captures,
         iter,
+        look::Look,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{Input, Match, MatchError, MatchKind},
         sparse_set::SparseSet,
@@ -875,11 +876,11 @@ impl Info {
         self.0 & 0b1111_1111 == 0
     }
 
-    fn look_insert(self, look: thompson::Look) -> Info {
+    fn look_insert(self, look: Look) -> Info {
         Info(self.0 | (look.as_repr() as u32))
     }
 
-    fn look_contains(self, look: thompson::Look) -> bool {
+    fn look_contains(self, look: Look) -> bool {
         self.0 & (look.as_repr() as u32) != 0
     }
 
@@ -889,8 +890,7 @@ impl Info {
         }
         let mut looks = self.0 as u8;
         while looks != 0 {
-            let look = thompson::Look::from_repr(1 << looks.trailing_zeros())
-                .unwrap();
+            let look = Look::from_repr(1 << looks.trailing_zeros()).unwrap();
             looks &= !look.as_repr();
             if !look.matches(haystack, at) {
                 return false;

@@ -13,10 +13,13 @@ use crate::{
         builder::Builder,
         error::Error,
         map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
-        nfa::{Look, PatternIter, SparseTransitions, State, Transition, NFA},
+        nfa::{PatternIter, SparseTransitions, State, Transition, NFA},
         range_trie::RangeTrie,
     },
-    util::primitives::{IteratorIndexExt, PatternID, StateID},
+    util::{
+        look::Look,
+        primitives::{IteratorIndexExt, PatternID, StateID},
+    },
 };
 
 /// The configuration used for a Thompson NFA compiler.

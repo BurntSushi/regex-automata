@@ -6,6 +6,7 @@ pub mod alphabet;
 #[cfg(feature = "alloc")]
 pub mod captures;
 pub mod iter;
+pub mod look;
 pub mod prefilter;
 pub mod primitives;
 
