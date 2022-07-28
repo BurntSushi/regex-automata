@@ -7,7 +7,7 @@ case-insensitive = false
 unicode = false
 engines = [
   'regex/api',
-  'regex/automata/dfa/dense',
+  'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   're2/api',

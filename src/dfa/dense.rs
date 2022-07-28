@@ -21,7 +21,8 @@ use alloc::{
 #[cfg(feature = "alloc")]
 use crate::{
     dfa::{
-        accel::Accel, determinize, error::Error, minimize::Minimizer, sparse,
+        accel::Accel, determinize, error::Error, minimize::Minimizer,
+        remapper::Remapper, sparse,
     },
     nfa::thompson,
     util::alphabet::ByteSet,
@@ -2275,6 +2276,34 @@ impl OwnedDFA {
         self.tt.swap(id1, id2);
     }
 
+    /// Remap all of the state identifiers in this DFA according to the map
+    /// function given. This includes all transitions and all starting state
+    /// identifiers.
+    pub(crate) fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
+        // We could loop over each state ID and call 'remap_state' here, but
+        // this is more direct: just map every transition directly.
+        for i in 0..self.tt.table().len() {
+            let next = self.tt.table()[i];
+            self.tt.table_mut()[i] = map(next);
+        }
+        for i in 0..self.st.table().len() {
+            let start = self.st.table()[i];
+            self.st.table_mut()[i] = map(start);
+        }
+    }
+
+    /// Remap the transitions for the state given according to the function
+    /// given. This applies the given map function to every transition in the
+    /// given state and changes the transition in place to the result of the
+    /// map function for that transition.
+    pub(crate) fn remap_state(
+        &mut self,
+        id: StateID,
+        map: impl Fn(StateID) -> StateID,
+    ) {
+        self.tt.remap(id, map);
+    }
+
     /// Truncate the states in this DFA to the given length.
     ///
     /// This routine does not do anything to check the correctness of this
@@ -2282,13 +2311,6 @@ impl OwnedDFA {
     /// states are updated appropriately.
     pub(crate) fn truncate_states(&mut self, len: usize) {
         self.tt.truncate(len);
-    }
-
-    /// Return a mutable representation of the state corresponding to the given
-    /// id. This is useful for implementing routines that manipulate DFA states
-    /// (e.g., swapping states).
-    pub(crate) fn state_mut(&mut self, id: StateID) -> StateMut<'_> {
-        self.tt.state_mut(id)
     }
 
     /// Minimize this DFA in place using Hopcroft's algorithm.
@@ -2347,7 +2369,7 @@ impl OwnedDFA {
         // A remapper keeps track of state ID changes. Once we're done
         // shuffling, the remapper is used to rewrite all transitions in the
         // DFA based on the new positions of states.
-        let mut remapper = Remapper::from_dfa(self);
+        let mut remapper = Remapper::new(self);
 
         // As we swap states, if they are match states, we need to swap their
         // pattern ID lists too (for multi-regexes). We do this by converting
@@ -2573,7 +2595,7 @@ impl OwnedDFA {
         // IDs and swapping them changes their IDs, we need to record every
         // swap we make so that we can remap IDs. The remapper handles this
         // book-keeping for us.
-        let mut remapper = Remapper::from_dfa(self);
+        let mut remapper = Remapper::new(self);
 
         // Shuffle matching states.
         if matches.is_empty() {
@@ -3177,6 +3199,18 @@ impl TransitionTable<Vec<u32>> {
         }
     }
 
+    /// Remap the transitions for the state given according to the function
+    /// given. This applies the given map function to every transition in the
+    /// given state and changes the transition in place to the result of the
+    /// map function for that transition.
+    fn remap(&mut self, id: StateID, map: impl Fn(StateID) -> StateID) {
+        for byte in 0..self.alphabet_len() {
+            let i = id.as_usize() + byte;
+            let next = self.table()[i];
+            self.table_mut()[id.as_usize() + byte] = map(next);
+        }
+    }
+
     /// Truncate the states in this transition table to the given length.
     ///
     /// This routine does not do anything to check the correctness of this
@@ -3184,19 +3218,6 @@ impl TransitionTable<Vec<u32>> {
     /// states are updated appropriately.
     fn truncate(&mut self, len: usize) {
         self.table.truncate(len << self.stride2);
-    }
-
-    /// Return a mutable representation of the state corresponding to the given
-    /// id. This is useful for implementing routines that manipulate DFA states
-    /// (e.g., swapping states).
-    fn state_mut(&mut self, id: StateID) -> StateMut<'_> {
-        let alphabet_len = self.alphabet_len();
-        let i = id.as_usize();
-        StateMut {
-            id,
-            stride2: self.stride2,
-            transitions: &mut self.table_mut()[i..i + alphabet_len],
-        }
     }
 }
 
@@ -4320,47 +4341,6 @@ impl<'a> fmt::Debug for State<'a> {
     }
 }
 
-/// A mutable representation of a single DFA state.
-///
-/// `'a` correspondings to the lifetime of a DFA's transition table.
-#[cfg(feature = "alloc")]
-pub(crate) struct StateMut<'a> {
-    id: StateID,
-    stride2: usize,
-    transitions: &'a mut [StateID],
-}
-
-#[cfg(feature = "alloc")]
-impl<'a> StateMut<'a> {
-    /// Return an iterator over all transitions in this state. This yields
-    /// a number of transitions equivalent to the alphabet length of the
-    /// corresponding DFA.
-    ///
-    /// Each transition is represented by a tuple. The first element is the
-    /// input byte for that transition and the second element is a mutable
-    /// reference to the transition itself.
-    pub(crate) fn iter_mut(&mut self) -> StateTransitionIterMut<'_> {
-        StateTransitionIterMut {
-            len: self.transitions.len(),
-            it: self.transitions.iter_mut().enumerate(),
-        }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<'a> fmt::Debug for StateMut<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(
-            &State {
-                id: self.id,
-                stride2: self.stride2,
-                transitions: self.transitions,
-            },
-            f,
-        )
-    }
-}
-
 /// An iterator over all transitions in a single DFA state. This yields
 /// a number of transitions equivalent to the alphabet length of the
 /// corresponding DFA.
@@ -4378,36 +4358,6 @@ impl<'a> Iterator for StateTransitionIter<'a> {
 
     fn next(&mut self) -> Option<(alphabet::Unit, StateID)> {
         self.it.next().map(|(i, &id)| {
-            let unit = if i + 1 == self.len {
-                alphabet::Unit::eoi(i)
-            } else {
-                let b = u8::try_from(i)
-                    .expect("raw byte alphabet is never exceeded");
-                alphabet::Unit::u8(b)
-            };
-            (unit, id)
-        })
-    }
-}
-
-/// A mutable iterator over all transitions in a DFA state.
-///
-/// Each transition is represented by a tuple. The first element is the
-/// input byte for that transition and the second element is a mutable
-/// reference to the transition itself.
-#[cfg(feature = "alloc")]
-#[derive(Debug)]
-pub(crate) struct StateTransitionIterMut<'a> {
-    len: usize,
-    it: iter::Enumerate<slice::IterMut<'a, StateID>>,
-}
-
-#[cfg(feature = "alloc")]
-impl<'a> Iterator for StateTransitionIterMut<'a> {
-    type Item = (alphabet::Unit, &'a mut StateID);
-
-    fn next(&mut self) -> Option<(alphabet::Unit, &'a mut StateID)> {
-        self.it.next().map(|(i, id)| {
             let unit = if i + 1 == self.len {
                 alphabet::Unit::eoi(i)
             } else {
@@ -4463,103 +4413,6 @@ impl<'a> Iterator for StateSparseTransitionIter<'a> {
             }
         }
         None
-    }
-}
-
-/// An iterator over pattern IDs for a single match state.
-#[derive(Debug)]
-pub(crate) struct PatternIDIter<'a>(slice::Iter<'a, PatternID>);
-
-impl<'a> Iterator for PatternIDIter<'a> {
-    type Item = PatternID;
-
-    fn next(&mut self) -> Option<PatternID> {
-        self.0.next().copied()
-    }
-}
-
-/// Remapper is an abstraction the manages the remapping of state IDs in a
-/// dense DFA. This is useful when one wants to shuffle states into different
-/// positions in the DFA.
-///
-/// One of the key complexities this manages is the ability to correctly move
-/// one state multiple times.
-///
-/// Once shuffling is complete, `remap` should be called, which will rewrite
-/// all pertinent transitions to updated state IDs.
-#[cfg(feature = "alloc")]
-#[derive(Debug)]
-struct Remapper {
-    /// A map from the index of a state to its pre-multiplied identifier.
-    ///
-    /// When a state is swapped with another, then their corresponding
-    /// locations in this map are also swapped. Thus, its new position will
-    /// still point to its old pre-multiplied StateID.
-    ///
-    /// While there is a bit more to it, this then allows us to rewrite the
-    /// state IDs in a DFA's transition table in a single pass. This is done
-    /// by iterating over every ID in this map, then iterating over each
-    /// transition for the state at that ID and re-mapping the transition from
-    /// `old_id` to `map[dfa.to_index(old_id)]`. That is, we find the position
-    /// in this map where `old_id` *started*, and set it to where it ended up
-    /// after all swaps have been completed.
-    map: Vec<StateID>,
-}
-
-#[cfg(feature = "alloc")]
-impl Remapper {
-    fn from_dfa(dfa: &OwnedDFA) -> Remapper {
-        Remapper {
-            map: (0..dfa.state_len()).map(|i| dfa.from_index(i)).collect(),
-        }
-    }
-
-    fn swap(&mut self, dfa: &mut OwnedDFA, id1: StateID, id2: StateID) {
-        dfa.swap_states(id1, id2);
-        self.map.swap(dfa.to_index(id1), dfa.to_index(id2));
-    }
-
-    fn remap(mut self, dfa: &mut OwnedDFA) {
-        // Update the map to account for states that have been swapped
-        // multiple times. For example, if (A, C) and (C, G) are swapped, then
-        // transitions previously pointing to A should now point to G. But if
-        // we don't update our map, they will erroneously be set to C. All we
-        // do is follow the swaps in our map until we see our original state
-        // ID.
-        let oldmap = self.map.clone();
-        for i in 0..dfa.state_len() {
-            let cur_id = dfa.from_index(i);
-            let mut new = oldmap[i];
-            if cur_id == new {
-                continue;
-            }
-            loop {
-                let id = oldmap[dfa.to_index(new)];
-                if cur_id == id {
-                    self.map[i] = new;
-                    break;
-                }
-                new = id;
-            }
-        }
-
-        // To work around the borrow checker for converting state IDs to
-        // indices. We cannot borrow self while mutably iterating over a
-        // state's transitions. Otherwise, we'd just use dfa.to_index(..).
-        let stride2 = dfa.stride2();
-        let to_index = |id: StateID| -> usize { id.as_usize() >> stride2 };
-
-        // Now that we've finished shuffling, we need to remap all of our
-        // transitions. We don't need to handle re-mapping accelerated states
-        // since `accels` is only populated after shuffling.
-        for &id in self.map.iter() {
-            for (_, next_id) in dfa.state_mut(id).iter_mut() {
-                *next_id = self.map[to_index(*next_id)];
-            }
-        }
-        for start_id in dfa.st.table_mut().iter_mut() {
-            *start_id = self.map[to_index(*start_id)];
-        }
     }
 }
 

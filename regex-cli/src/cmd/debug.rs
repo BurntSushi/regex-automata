@@ -73,10 +73,18 @@ fn define_dfa() -> App {
     sparse = config::Thompson::define(sparse);
     sparse = config::Dense::define(sparse);
 
+    let mut onepass = app::leaf("onepass")
+        .about("Print a debug representation of a one-pass DFA object.");
+    onepass = config::Patterns::define(onepass);
+    onepass = config::Syntax::define(onepass);
+    onepass = config::Thompson::define(onepass);
+    onepass = config::OnePass::define(onepass);
+
     app::command("dfa")
         .about("Print a debug representation of a DFA object.")
         .subcommand(dense)
         .subcommand(sparse)
+        .subcommand(onepass)
         .subcommand(define_dfa_regex())
 }
 
@@ -204,6 +212,7 @@ fn run_dfa(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
         "dense" => run_dfa_dense(args),
         "sparse" => run_dfa_sparse(args),
+        "onepass" => run_dfa_onepass(args),
         "regex" => run_dfa_regex(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
@@ -238,6 +247,23 @@ fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
     let dfa = cdense.from_patterns_sparse(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
+    table.print(stdout())?;
+    if !args.is_present("quiet") {
+        writeln!(stdout(), "\n{:?}", dfa)?;
+    }
+    Ok(())
+}
+
+fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cthompson = config::Thompson::get(args)?;
+    let conepass = config::OnePass::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+
+    let dfa =
+        conepass.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
     table.print(stdout())?;
     if !args.is_present("quiet") {
         writeln!(stdout(), "\n{:?}", dfa)?;

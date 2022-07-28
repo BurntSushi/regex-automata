@@ -5,7 +5,7 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
-        "regex/automata/dfa/dense" => regex_automata_dfa_dense(b),
+        "regex/automata/dense" => regex_automata_dfa_dense(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         #[cfg(feature = "extre-re2")]

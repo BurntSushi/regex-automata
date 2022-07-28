@@ -8,8 +8,8 @@ unicode = false
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dfa/dense',
-  'regex/automata/dfa/sparse',
+  'regex/automata/dense',
+  'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'memchr/memmem',
@@ -26,8 +26,8 @@ unicode = true
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dfa/dense',
-  'regex/automata/dfa/sparse',
+  'regex/automata/dense',
+  'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'memchr/memmem',
@@ -44,8 +44,8 @@ unicode = false
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dfa/dense',
-  'regex/automata/dfa/sparse',
+  'regex/automata/dense',
+  'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
 ]
@@ -61,8 +61,8 @@ unicode = true
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dfa/dense',
-  'regex/automata/dfa/sparse',
+  'regex/automata/dense',
+  'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
 ]

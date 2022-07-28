@@ -338,6 +338,8 @@ mod determinize;
 mod error;
 #[cfg(feature = "alloc")]
 mod minimize;
+#[cfg(feature = "alloc")]
+mod remapper;
 mod search;
 mod special;
 #[cfg(feature = "transducer")]

@@ -41,10 +41,10 @@ fn suite() -> Result<ret::RegexTests> {
     Ok(tests)
 }
 
-/// Convert Thompson captures into the test suite's capture values.
+/// Convert capture matches into the test suite's capture values.
 ///
-/// The given Thompson captures must represent a valid match, where the first
-/// capturing group has a non-None span. Otherwise this panics.
+/// The given captures must represent a valid match, where the first capturing
+/// group has a non-None span. Otherwise this panics.
 #[cfg(not(miri))]
 fn testify_captures(
     caps: &regex_automata::util::captures::Captures,

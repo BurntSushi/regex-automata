@@ -5,8 +5,8 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
-        "regex/automata/dfa/dense" => regex_automata_dfa_dense(b),
-        "regex/automata/dfa/sparse" => regex_automata_dfa_sparse(b),
+        "regex/automata/dense" => regex_automata_dfa_dense(b),
+        "regex/automata/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "regex/automata/onepass" => regex_automata_onepass(b),
@@ -76,7 +76,22 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
     b.run(verify, || {
         let re = new::regex_automata_onepass(b)?;
         let mut cache = re.create_cache();
-        Ok(Box::new(move |h| Ok(re.find_iter(&mut cache, h).count())))
+        Ok(Box::new(move |h| {
+            use automata::util::iter::Searcher;
+
+            // The one-pass DFA only does anchored searches, so it doesn't
+            // provide an iterator API. Technically though, we can still report
+            // multiple matches if the regex matches are directly adjacent. So
+            // we just build our own iterator.
+            let mut caps = re.create_captures();
+            let it = Searcher::new(re.create_input(h))
+                .into_matches_iter(|input| {
+                    re.search(&mut cache, input, &mut caps);
+                    Ok(caps.get_match())
+                })
+                .infallible();
+            Ok(it.count())
+        }))
     })
 }
 

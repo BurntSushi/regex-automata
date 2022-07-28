@@ -5,8 +5,8 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
-        "regex/automata/dfa/dense" => regex_automata_dfa_dense(b),
-        "regex/automata/dfa/sparse" => regex_automata_dfa_sparse(b),
+        "regex/automata/dense" => regex_automata_dfa_dense(b),
+        "regex/automata/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),

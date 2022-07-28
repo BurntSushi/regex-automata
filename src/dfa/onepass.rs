@@ -5,7 +5,7 @@ use core::convert::TryFrom;
 use alloc::vec;
 
 use crate::{
-    dfa::{error::Error, DEAD},
+    dfa::{error::Error, remapper::Remapper, DEAD},
     nfa::thompson::{self, NFA},
     util::{
         alphabet::{self, ByteClasses},
@@ -175,14 +175,26 @@ impl<'a> InternalBuilder<'a> {
         } else {
             nfa.byte_class_set().byte_classes()
         };
+        // Normally a DFA alphabet includes the EOI symbol, but we don't need
+        // that in the one-pass DFA since we handle look-around explicitly
+        // without encoding it into the DFA. Thus, we don't need to delay
+        // matches by 1 byte. However, we reuse the space that *would* be used
+        // by the EOI transition by putting match information there (like which
+        // pattern matches and which look-around assertions need to hold). So
+        // this means our real alphabet length is 1 fewer than what the byte
+        // classes report, since we don't use EOI.
+        let alphabet_len = classes.alphabet_len().checked_sub(1).unwrap();
         let stride2 = classes.stride2();
         let dfa = OnePass {
             config: config.clone(),
             nfa: nfa.clone(),
             table: vec![],
             starts: vec![],
+            min_match_id: DEAD,
             classes: classes.clone(),
+            alphabet_len,
             stride2,
+            patinfo_offset: classes.alphabet_len() - 1,
         };
         InternalBuilder {
             config,
@@ -274,6 +286,26 @@ impl<'a> InternalBuilder<'a> {
                 }
             }
         }
+        self.dfa.min_match_id = StateID::new_unchecked(self.dfa.table.len());
+        let mut match_ids = vec![];
+        for i in 0..self.dfa.state_len() {
+            let id = StateID::new_unchecked(i << self.dfa.stride2());
+            let is_match = self.dfa.pattern_info(id).pattern_id().is_some();
+            if is_match {
+                match_ids.push(id);
+            }
+        }
+        let mut remapper = Remapper::new(&self.dfa);
+        let mut next_dest =
+            StateID::new_unchecked(self.dfa.table.len() - self.dfa.stride());
+        for id in match_ids.into_iter().rev() {
+            remapper.swap(&mut self.dfa, next_dest, id);
+            self.dfa.min_match_id = next_dest;
+            next_dest = StateID::new_unchecked(
+                next_dest.as_usize() - self.dfa.stride(),
+            );
+        }
+        remapper.remap(&mut self.dfa);
         Ok(self.dfa)
     }
 
@@ -378,8 +410,12 @@ pub struct OnePass {
     nfa: NFA,
     table: Vec<Transition>,
     starts: Vec<StateID>,
+    /// Every state ID >= this value corresponds to a match state.
+    min_match_id: StateID,
     classes: ByteClasses,
+    alphabet_len: usize,
     stride2: usize,
+    patinfo_offset: usize,
 }
 
 impl OnePass {
@@ -445,30 +481,6 @@ impl OnePass {
     ) {
         let input = self.create_input(haystack.as_ref());
         self.search(cache, &input, caps)
-    }
-
-    #[inline]
-    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'h H,
-    ) -> FindMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
-        let caps = Captures::matches(self.get_nfa().group_info().clone());
-        let it = iter::Searcher::new(input);
-        FindMatches { re: self, cache, caps, it }
-    }
-
-    #[inline]
-    pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'h H,
-    ) -> CapturesMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
-        let caps = self.create_captures();
-        let it = iter::Searcher::new(input);
-        CapturesMatches { re: self, cache, caps, it }
     }
 
     #[inline]
@@ -560,11 +572,10 @@ impl OnePass {
             Some(pid) => self.start_pattern(pid),
         };
         for at in input.start()..input.end() {
-            let patinfo = self.pattern_info(sid);
-            if let Some(foundpid) = patinfo.pattern_id() {
-                if patinfo.info().look_is_empty()
-                    || patinfo.info().look_matches(haystack, at)
-                {
+            if sid >= self.min_match_id {
+                let patinfo = self.pattern_info(sid);
+                let foundpid = patinfo.pattern_id_unchecked();
+                if patinfo.info().look_matches(haystack, at) {
                     pid = Some(foundpid);
                     let i = foundpid.as_usize() * 2 + 1;
                     if i < slots.len() {
@@ -577,23 +588,23 @@ impl OnePass {
                             .info()
                             .slot_apply(at, &mut slots[explicit_start..]);
                     }
+                    if input.get_earliest() {
+                        return pid;
+                    }
                 }
             }
 
             let trans = self.transition(sid, haystack[at]);
             sid = trans.state_id();
             let info = trans.info();
-            if sid == DEAD
-                || (!info.look_is_empty() && !info.look_matches(haystack, at))
-            {
+            if sid == DEAD || !info.look_matches(haystack, at) {
                 return pid;
             }
-            if !info.slot_is_empty() {
-                info.slot_apply(at, cache.explicit_slots());
-            }
+            info.slot_apply(at, cache.explicit_slots());
         }
-        let patinfo = self.pattern_info(sid);
-        if let Some(foundpid) = patinfo.pattern_id() {
+        if sid >= self.min_match_id {
+            let patinfo = self.pattern_info(sid);
+            let foundpid = patinfo.pattern_id_unchecked();
             if patinfo.info().look_matches(haystack, input.end()) {
                 pid = Some(foundpid);
                 let i = foundpid.as_usize() * 2 + 1;
@@ -620,12 +631,16 @@ impl OnePass {
         self.starts[pid.one_more()]
     }
 
-    fn alphabet_len(&self) -> usize {
-        self.classes.alphabet_len()
+    pub fn alphabet_len(&self) -> usize {
+        self.alphabet_len
     }
 
-    fn stride(&self) -> usize {
+    pub fn stride(&self) -> usize {
         1 << self.stride2
+    }
+
+    pub fn pattern_len(&self) -> usize {
+        self.nfa.pattern_len()
     }
 
     fn transition(&self, sid: StateID, byte: u8) -> Transition {
@@ -639,71 +654,46 @@ impl OnePass {
     }
 
     fn pattern_info(&self, sid: StateID) -> PatternInfo {
-        let alphabet_len = self.alphabet_len();
-        PatternInfo(self.table[sid.as_usize() + alphabet_len - 1].0)
+        PatternInfo(self.table[sid.as_usize() + self.patinfo_offset].0)
     }
 
     fn set_pattern_info(&mut self, sid: StateID, patinfo: PatternInfo) {
-        let alphabet_len = self.alphabet_len();
-        self.table[sid.as_usize() + alphabet_len - 1] = Transition(patinfo.0);
+        self.table[sid.as_usize() + self.patinfo_offset] =
+            Transition(patinfo.0);
     }
 
-    fn memory_usage(&self) -> usize {
+    pub(crate) fn state_len(&self) -> usize {
+        self.table.len() >> self.stride2
+    }
+
+    pub fn stride2(&self) -> usize {
+        self.stride2
+    }
+
+    pub(crate) fn swap_states(&mut self, id1: StateID, id2: StateID) {
+        for b in 0..self.stride() {
+            self.table.swap(id1.as_usize() + b, id2.as_usize() + b);
+        }
+    }
+
+    pub(crate) fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
+        for i in 0..self.state_len() {
+            let id = StateID::new_unchecked(i << self.stride2());
+            for b in 0..self.alphabet_len() {
+                let next = self.table[id.as_usize() + b].state_id();
+                self.table[id.as_usize() + b].set_state_id(map(next));
+            }
+        }
+        for i in 0..self.starts.len() {
+            self.starts[i] = map(self.starts[i]);
+        }
+    }
+
+    pub fn memory_usage(&self) -> usize {
         use core::mem::size_of;
 
         self.table.len() * size_of::<Transition>()
             + self.starts.len() * size_of::<StateID>()
-    }
-}
-
-#[derive(Debug)]
-pub struct FindMatches<'r, 'c, 'h> {
-    re: &'r OnePass,
-    cache: &'c mut Cache,
-    caps: Captures,
-    it: iter::Searcher<'h, 'r>,
-}
-
-impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
-    type Item = Match;
-
-    #[inline]
-    fn next(&mut self) -> Option<Match> {
-        // Splitting 'self' apart seems necessary to appease borrowck.
-        let FindMatches { re, ref mut cache, ref mut caps, ref mut it } =
-            *self;
-        it.advance(|input| {
-            re.search(cache, input, caps);
-            Ok(caps.get_match())
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct CapturesMatches<'r, 'c, 'h> {
-    re: &'r OnePass,
-    cache: &'c mut Cache,
-    caps: Captures,
-    it: iter::Searcher<'h, 'r>,
-}
-
-impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
-    type Item = Captures;
-
-    #[inline]
-    fn next(&mut self) -> Option<Captures> {
-        // Splitting 'self' apart seems necessary to appease borrowck.
-        let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
-            *self;
-        it.advance(|input| {
-            re.search(cache, input, caps);
-            Ok(caps.get_match())
-        });
-        if caps.is_match() {
-            Some(caps.clone())
-        } else {
-            None
-        }
     }
 }
 
@@ -747,7 +737,7 @@ impl Cache {
             .nfa
             .group_info()
             .slot_len()
-            .saturating_sub(re.nfa.pattern_len());
+            .saturating_sub(2 * re.nfa.pattern_len());
         self.explicit_slots.resize(slot_len, None);
         self.slots_for_captures = slot_len;
     }
@@ -782,9 +772,7 @@ impl Transition {
     }
 
     fn set_state_id(&mut self, sid: StateID) {
-        // Guaranteed not to overflow because StateID will never overflow
-        // u32 or usize.
-        self.0 |= (sid.as_usize() as u64) << 32;
+        *self = Transition::new(sid, self.info());
     }
 
     fn info(&self) -> Info {
@@ -812,6 +800,15 @@ impl PatternInfo {
         }
     }
 
+    /// Returns the pattern ID without checking whether it's valid. If this is
+    /// called and there is no pattern ID in this `PatternInfo`, then this
+    /// will likely produce an incorrect result or possibly even a panic or
+    /// an overflow. But safety will not be violated.
+    fn pattern_id_unchecked(self) -> PatternID {
+        let pid = (self.0 >> 32) as u32;
+        PatternID::new_unchecked(pid as usize)
+    }
+
     fn set_pattern_id(self, pid: PatternID) -> PatternInfo {
         PatternInfo(
             (self.0 & PatternInfo::MASK_INFO) | ((pid.as_u32() as u64) << 32),
@@ -827,7 +824,7 @@ impl PatternInfo {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 struct Info(u32);
 
 impl Info {
@@ -859,6 +856,10 @@ impl Info {
         self.0 & !0b1111_1111 == 0
     }
 
+    fn slot_len(self) -> usize {
+        usize::try_from((self.0 & !0xFF).count_ones()).unwrap()
+    }
+
     fn slot_apply(self, at: usize, slots: &mut [Option<NonMaxUsize>]) {
         if self.slot_is_empty() {
             return;
@@ -883,6 +884,9 @@ impl Info {
     }
 
     fn look_matches(self, haystack: &[u8], at: usize) -> bool {
+        if self.look_is_empty() {
+            return true;
+        }
         let mut looks = self.0 as u8;
         while looks != 0 {
             let look = thompson::Look::from_repr(1 << looks.trailing_zeros())
@@ -893,6 +897,12 @@ impl Info {
             }
         }
         true
+    }
+}
+
+impl core::fmt::Debug for Info {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        todo!()
     }
 }
 

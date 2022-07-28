@@ -18,6 +18,20 @@ matches = [
 ]
 anchored = true
 
+# When a "earliest" search is used, greediness doesn't really exist because
+# matches are reported as soon as they are known.
+[[tests]]
+name = "greedy-earliest"
+regex = '(abc)+'
+input = "abcabcabc"
+matches = [
+  [[0, 3], [0, 3]],
+  [[3, 6], [3, 6]],
+  [[6, 9], [6, 9]],
+]
+anchored = true
+search_kind = "earliest"
+
 [[tests]]
 name = "nongreedy"
 regex = '(abc)+?'

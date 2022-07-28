@@ -2,7 +2,7 @@ use std::{borrow::Borrow, convert::TryFrom, fs, path::PathBuf};
 
 use anyhow::Context;
 use automata::{
-    dfa::{self, dense, sparse},
+    dfa::{self, dense, onepass, sparse},
     hybrid,
     nfa::thompson::{self, backtrack, pikevm},
     MatchKind,
@@ -756,110 +756,6 @@ groups (such as a search with the PikeVM).
 }
 
 #[derive(Debug)]
-pub struct Backtrack {
-    config: backtrack::Config,
-}
-
-impl Backtrack {
-    pub fn define(mut app: App) -> App {
-        {
-            const SHORT: &str = "Build an anchored bounded backtracker.";
-            const LONG: &str = "\
-Build an anchored bounded backtracker.
-
-When enabled, the regex only executes anchored searches, even if the underlying
-NFA has an unanchored start state. This means that the regex can only find
-matches that begin where the search starts. When disabled (the default), the
-regex will have an \"unanchored\" prefix that permits it to match anywhere.
-";
-            app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
-            );
-        }
-        {
-            const SHORT: &str = "Disable UTF-8 handling for iterators.";
-            const LONG: &str = "\
-Disable UTF-8 handling for match iterators when an empty match is seen.
-
-When UTF-8 mode is enabled for regexes (the default) and an empty match is
-seen, the iterators will always start the next search at the next UTF-8 encoded
-codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
-searches are started at the next byte offset.
-
-Generally speaking, UTF-8 mode for regexes should only be used when you know
-you are searching valid UTF-8. Typically, this should only be disabled in
-precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
-together.
-
-This mode cannot be toggled inside the regex.
-";
-            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
-        }
-        {
-            const SHORT: &str =
-                "Set the visited set capacity used to bound backtracking.";
-            const LONG: &str = "\
-Set the visited set capacity used to bound backtracking.
-
-The visited capacity represents the amount of heap memory (in bytes) to
-allocate toward tracking which parts of the backtracking search have been done
-before. The heap memory needed for any particular search is proportional to
-'haystack.len() * nfa.states().len()', whichc an be quite large. Therefore, the
-bounded backtracker is typically only able to run on shorter haystacks.
-
-For a given regex, increasing the visited capacity means that the
-maximum haystack length that can be searched is increased.
-
-The default capacity is a reasonable but empirically chosen size.
-";
-            app =
-                app.arg(flag("visited-capacity").help(SHORT).long_help(LONG));
-        }
-        app
-    }
-
-    pub fn get(args: &Args) -> anyhow::Result<Backtrack> {
-        let mut config = backtrack::Config::new()
-            .anchored(args.is_present("anchored"))
-            .utf8(!args.is_present("no-utf8-iter"));
-        if let Some(x) = args.value_of_lossy("visited-capacity") {
-            let limit =
-                x.parse().context("failed to parse --visited-capacity")?;
-            config = config.visited_capacity(limit);
-        }
-        Ok(Backtrack { config })
-    }
-
-    pub fn builder(
-        &self,
-        syntax: &Syntax,
-        thompson: &Thompson,
-    ) -> backtrack::Builder {
-        let mut builder = backtrack::BoundedBacktracker::builder();
-        builder
-            .configure(self.config.clone())
-            .syntax(syntax.0)
-            .thompson(thompson.0.clone());
-        builder
-    }
-
-    pub fn from_patterns(
-        &self,
-        table: &mut Table,
-        syntax: &Syntax,
-        thompson: &Thompson,
-        patterns: &Patterns,
-    ) -> anyhow::Result<backtrack::BoundedBacktracker> {
-        let patterns = patterns.as_strings();
-        let b = self.builder(syntax, thompson);
-        let (vm, time) = util::timeitr(|| b.build_many(patterns))?;
-        table.add("build bounded backtracker time", time);
-        Ok(vm)
-    }
-}
-
-#[derive(Debug)]
 pub struct PikeVM {
     config: pikevm::Config,
 }
@@ -966,6 +862,266 @@ all the time.
         let (vm, time) = util::timeitr(|| b.build_many(patterns))?;
         table.add("build pike vm time", time);
         Ok(vm)
+    }
+}
+
+#[derive(Debug)]
+pub struct Backtrack {
+    config: backtrack::Config,
+}
+
+impl Backtrack {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Build an anchored bounded backtracker.";
+            const LONG: &str = "\
+Build an anchored bounded backtracker.
+
+When enabled, the regex only executes anchored searches, even if the underlying
+NFA has an unanchored start state. This means that the regex can only find
+matches that begin where the search starts. When disabled (the default), the
+regex will have an \"unanchored\" prefix that permits it to match anywhere.
+";
+            app = app.arg(
+                switch("anchored").short("a").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Disable UTF-8 handling for iterators.";
+            const LONG: &str = "\
+Disable UTF-8 handling for match iterators when an empty match is seen.
+
+When UTF-8 mode is enabled for regexes (the default) and an empty match is
+seen, the iterators will always start the next search at the next UTF-8 encoded
+codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
+searches are started at the next byte offset.
+
+Generally speaking, UTF-8 mode for regexes should only be used when you know
+you are searching valid UTF-8. Typically, this should only be disabled in
+precisely the cases where the regex itself is permitted to match invalid UTF-8.
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+together.
+
+This mode cannot be toggled inside the regex.
+";
+            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str =
+                "Set the visited set capacity used to bound backtracking.";
+            const LONG: &str = "\
+Set the visited set capacity used to bound backtracking.
+
+The visited capacity represents the amount of heap memory (in bytes) to
+allocate toward tracking which parts of the backtracking search have been done
+before. The heap memory needed for any particular search is proportional to
+'haystack.len() * nfa.states().len()', whichc an be quite large. Therefore, the
+bounded backtracker is typically only able to run on shorter haystacks.
+
+For a given regex, increasing the visited capacity means that the
+maximum haystack length that can be searched is increased.
+
+The default capacity is a reasonable but empirically chosen size.
+";
+            app =
+                app.arg(flag("visited-capacity").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<Backtrack> {
+        let mut config = backtrack::Config::new()
+            .anchored(args.is_present("anchored"))
+            .utf8(!args.is_present("no-utf8-iter"));
+        if let Some(x) = args.value_of_lossy("visited-capacity") {
+            let limit =
+                x.parse().context("failed to parse --visited-capacity")?;
+            config = config.visited_capacity(limit);
+        }
+        Ok(Backtrack { config })
+    }
+
+    pub fn builder(
+        &self,
+        syntax: &Syntax,
+        thompson: &Thompson,
+    ) -> backtrack::Builder {
+        let mut builder = backtrack::BoundedBacktracker::builder();
+        builder
+            .configure(self.config.clone())
+            .syntax(syntax.0)
+            .thompson(thompson.0.clone());
+        builder
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        thompson: &Thompson,
+        patterns: &Patterns,
+    ) -> anyhow::Result<backtrack::BoundedBacktracker> {
+        let patterns = patterns.as_strings();
+        let b = self.builder(syntax, thompson);
+        let (vm, time) = util::timeitr(|| b.build_many(patterns))?;
+        table.add("build bounded backtracker time", time);
+        Ok(vm)
+    }
+}
+
+#[derive(Debug)]
+pub struct OnePass {
+    config: onepass::Config,
+}
+
+impl OnePass {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Disable the use of equivalence classes.";
+            const LONG: &str = "\
+Disable the use of equivalence classes.
+
+When disabled, every state in the one-pass DFA will always have 256 transitions
+When enabled (the default), transitions are grouped into equivalence classes
+where every byte in the same class cannot possibly differentiate between a
+match and a non-match.
+
+Enabling byte classes is always a good idea, since it both decreases the
+amount of space required and also the amount of time it takes to build the DFA
+(since there are fewer transitions to create). The only reason to disable byte
+classes is for debugging the representation of a DFA, since equivalence class
+identifiers will be used for the transitions instead of the actual bytes.
+";
+            app = app.arg(
+                switch("no-byte-classes")
+                    .short("C")
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Choose the match kind.";
+            const LONG: &str = "\
+Choose the match kind.
+
+This permits setting the match kind to either 'leftmost-first' (the default)
+or 'all'. The former will attempt to find the longest match starting at the
+leftmost position, but prioritizing alternations in the regex that appear
+first. For example, with leftmost-first enabled, 'Sam|Samwise' will match 'Sam'
+in 'Samwise' while 'Samwise|Sam' would match 'Samwise'.
+
+'all' match semantics will include all possible matches, including the longest
+possible match. Note that when 'all' is used, there is no distinction between
+greedy and non-greedy regexes. Everything is greedy all the time.
+";
+            app = app.arg(
+                flag("match-kind").short("k").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Add start states for each pattern.";
+            const LONG: &str = "\
+Whether to compile a separate start state for each pattern in the automaton.
+
+When enabled, a separate anchored start state is added for each pattern in the
+one-pass DFA. When this start state is used, then the DFA will only search for
+matches for the pattern, even if there are other patterns in the DFA.
+
+The main downside of this option is that it can potentially increase the size
+of the DFA and/or increase the time it takes to build the DFA.
+
+The main reason one might want to enable this (it's disabled by
+default) for one-pass DFAs specifically is to enable searching for specific
+patterns instead of any pattern. Otherwise, you would need to compile a new
+DFA for each pattern.
+
+By default this is disabled.
+";
+            app = app.arg(
+                switch("starts-for-each-pattern").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str =
+                "Set a size limit, in bytes, on the compiled one-pass DFA.";
+            const LONG: &str = "\
+Set a size limit, in bytes, on the compiled one-pass DFA.
+
+This size limit is expressed in bytes and is applied when attempting to convert
+an NFA into a one-pass DFA. If the DFA's heap usage, and only the DFA, exceeds
+this configured limit, then construction is stopped and an error is returned.
+
+This limit does not apply to auxiliary storage used during construction that
+isn't part of the generated DFA.
+
+The default for this flag is 'none', which sets no size limit.
+";
+            app = app.arg(flag("dfa-size-limit").help(SHORT).long_help(LONG));
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<OnePass> {
+        let kind = match args.value_of_lossy("match-kind") {
+            None => MatchKind::LeftmostFirst,
+            Some(value) => match &*value {
+                "all" => MatchKind::All,
+                "leftmost-first" => MatchKind::LeftmostFirst,
+                unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
+            },
+        };
+        let mut c = onepass::Config::new()
+            .byte_classes(!args.is_present("no-byte-classes"))
+            .match_kind(kind)
+            .starts_for_each_pattern(
+                args.is_present("starts-for-each-pattern"),
+            );
+        if let Some(x) = args.value_of_lossy("dfa-size-limit") {
+            if x.to_lowercase() == "none" {
+                c = c.size_limit(None);
+            } else {
+                let limit =
+                    x.parse().context("failed to parse --dfa-size-limit")?;
+                c = c.size_limit(Some(limit));
+            }
+        }
+        Ok(OnePass { config: c })
+    }
+
+    pub fn from_nfa(
+        &self,
+        nfa: &thompson::NFA,
+    ) -> anyhow::Result<onepass::OnePass> {
+        onepass::Builder::new()
+            .configure(self.config.clone())
+            .build_from_nfa(nfa)
+            .context("failed to compile one-pass DFA")
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        thompson: &Thompson,
+        patterns: &Patterns,
+    ) -> anyhow::Result<onepass::OnePass> {
+        let patterns = patterns.as_strings();
+
+        let (asts, time) = util::timeitr(|| syntax.asts(patterns))?;
+        table.add("parse time", time);
+        let (hirs, time) = util::timeitr(|| syntax.hirs(patterns, &asts))?;
+        table.add("translate time", time);
+        let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
+        table.add("compile nfa time", time);
+        table.add("nfa memory", nfa.memory_usage());
+        let (dfa, time) = util::timeitr(|| self.from_nfa(&nfa))?;
+        table.add("compile one-pass dfa time", time);
+        table.add("one-pass dfa memory", dfa.memory_usage());
+        table.add("one-pass cache memory", dfa.create_cache().memory_usage());
+        table.add("one-pass alphabet length", dfa.alphabet_len());
+        table.add("one-pass stride", 1 << dfa.stride2());
+
+        Ok(dfa)
     }
 }
 

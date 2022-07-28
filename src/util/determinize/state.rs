@@ -748,7 +748,7 @@ impl<'a> ReprVec<'a> {
 ///
 /// Callers may idempotently insert or remove any look-around assertion from a
 /// set.
-#[derive(Clone, Copy, Default, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub(crate) struct LookSet {
     set: u8,
 }

@@ -404,11 +404,23 @@ impl DFA {
     /// Returns the memory usage, in bytes, of this lazy DFA.
     ///
     /// This does **not** include the stack size used up by this lazy DFA. To
-    /// compute that, use `std::mem::size_of::<DFA>()`. This also does
-    /// not include the size of the `Cache` used.
+    /// compute that, use `std::mem::size_of::<DFA>()`. This also does not
+    /// include the size of the `Cache` used.
+    ///
+    /// This also does not include any heap memory used by the NFA inside of
+    /// this hybrid NFA/DFA. This is because the NFA's ownership is shared, and
+    /// thus not owned by this hybrid NFA/DFA. More practically, several regex
+    /// engines in this crate embed an NFA, and reporting the NFA's memory
+    /// usage in all of them would likely result in reporting higher heap
+    /// memory than is actually used.
     pub fn memory_usage(&self) -> usize {
-        // Everything else is on the stack.
-        self.nfa.memory_usage()
+        // The only thing that uses heap memory in a DFA is the NFA. But the
+        // NFA has shared ownership, so reporting its memory as part of the
+        // hybrid DFA is likely to lead to double-counting the NFA memory
+        // somehow. In particular, this DFA does not really own an NFA, so
+        // including it in the DFA's memory usage doesn't seem semantically
+        // correct.
+        0
     }
 }
 

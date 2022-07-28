@@ -72,6 +72,17 @@ fn compiler(
             Ok(re) => re,
             Err(err) => {
                 let msg = err.to_string();
+                // This is pretty gross, but when a regex fails to compile as
+                // a one-pass regex, then we want to be OK with that and just
+                // skip the test. But we have to be careful to only skip it
+                // when the expected result is that the regex compiles. If
+                // the test is specifically checking that the regex does not
+                // compile, then we should bubble up that error and allow the
+                // test to pass.
+                //
+                // Since our error types are all generally opaque, we just
+                // look for an error string. Not great, but not the end of the
+                // world.
                 if test.compiles() && msg.contains("not one-pass") {
                     return Ok(CompiledRegex::skip());
                 }
@@ -93,34 +104,10 @@ fn run_test(
     match test.additional_name() {
         "is_match" => TestResult::matched(re.is_match(cache, test.input())),
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest => {
-                let input = re.create_input(test.input()).earliest(true);
-                let mut caps = re.create_captures();
-                let it = iter::Searcher::new(input)
-                    .into_matches_iter(|input| {
-                        re.search(cache, input, &mut caps);
-                        Ok(caps.get_match())
-                    })
-                    .infallible()
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
-            }
-            ret::SearchKind::Leftmost => {
-                /*
-                let it = re
-                    .find_iter(cache, test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
-                */
-                let input = re.create_input(test.input()).earliest(false);
+            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+                let input = re
+                    .create_input(test.input())
+                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
                 let mut caps = re.create_captures();
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| {
@@ -157,13 +144,6 @@ fn run_test(
                 TestResult::captures(it)
             }
             ret::SearchKind::Leftmost => {
-                /*
-                let it = re
-                    .captures_iter(cache, test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|caps| testify_captures(&caps));
-                TestResult::captures(it)
-                */
                 let input = re.create_input(test.input()).earliest(false);
                 let it = iter::Searcher::new(input)
                     .into_captures_iter(re.create_captures(), |input, caps| {
