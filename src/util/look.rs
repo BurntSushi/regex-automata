@@ -11,38 +11,38 @@ use crate::util::{alphabet::ByteClassSet, utf8};
 /// look-behind and look-ahead (`WordBoundary*`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Look {
-    /// The previous position is either `\n` or the current position is the
-    /// beginning of the haystack (at position `0`).
-    StartLine = 1 << 0,
-    /// The next position is either `\n` or the current position is the end of
-    /// the haystack (at position `haystack.len()`).
-    EndLine = 1 << 1,
     /// The current position is the beginning of the haystack (at position
     /// `0`).
-    StartText = 1 << 2,
+    Start = 1 << 0,
     /// The current position is the end of the haystack (at position
     /// `haystack.len()`).
-    EndText = 1 << 3,
-    /// When tested at position `i`, where `p=decode_utf8_rev(&haystack[..i])`
-    /// and `n=decode_utf8(&haystack[i..])`, this assertion passes if and only
-    /// if `is_word(p) != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
-    /// `i=haystack.len()`, then `is_word(n)=false`.
-    WordBoundaryUnicode = 1 << 4,
-    /// Same as for `WordBoundaryUnicode`, but requires that
-    /// `is_word(p) == is_word(n)`.
-    WordBoundaryUnicodeNegate = 1 << 5,
+    End = 1 << 1,
+    /// The previous position is either `\n` or the current position is the
+    /// beginning of the haystack (at position `0`).
+    StartLF = 1 << 2,
+    /// The next position is either `\n` or the current position is the end of
+    /// the haystack (at position `haystack.len()`).
+    EndLF = 1 << 3,
     /// When tested at position `i`, where `p=haystack[i-1]` and
     /// `n=haystack[i]`, this assertion passes if and only if `is_word(p)
     /// != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
     /// `i=haystack.len()`, then `is_word(n)=false`.
-    WordBoundaryAscii = 1 << 6,
+    WordAscii = 1 << 4,
     /// Same as for `WordBoundaryAscii`, but requires that
     /// `is_word(p) == is_word(n)`.
     ///
     /// Note that it is possible for this assertion to match at positions that
     /// split the UTF-8 encoding of a codepoint. For this reason, this may only
     /// be used when UTF-8 mode is disabled in the regex syntax.
-    WordBoundaryAsciiNegate = 1 << 7,
+    WordAsciiNegate = 1 << 5,
+    /// When tested at position `i`, where `p=decode_utf8_rev(&haystack[..i])`
+    /// and `n=decode_utf8(&haystack[i..])`, this assertion passes if and only
+    /// if `is_word(p) != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
+    /// `i=haystack.len()`, then `is_word(n)=false`.
+    WordUnicode = 1 << 6,
+    /// Same as for `WordBoundaryUnicode`, but requires that
+    /// `is_word(p) == is_word(n)`.
+    WordUnicodeNegate = 1 << 7,
 }
 
 impl Look {
@@ -77,14 +77,14 @@ impl Look {
 
     pub const fn from_index_unchecked(index: usize) -> Look {
         const BY_INDEX: [Look; Look::COUNT] = [
-            Look::StartLine,
-            Look::EndLine,
-            Look::StartText,
-            Look::EndText,
-            Look::WordBoundaryUnicode,
-            Look::WordBoundaryUnicodeNegate,
-            Look::WordBoundaryAscii,
-            Look::WordBoundaryAsciiNegate,
+            Look::Start,
+            Look::End,
+            Look::StartLF,
+            Look::EndLF,
+            Look::WordAscii,
+            Look::WordAsciiNegate,
+            Look::WordUnicode,
+            Look::WordUnicodeNegate,
         ];
         BY_INDEX[index]
     }
@@ -108,14 +108,14 @@ impl Look {
     /// For example, `StartLine` gets translated to `EndLine`.
     pub const fn reversed(&self) -> Look {
         match *self {
-            Look::StartLine => Look::EndLine,
-            Look::EndLine => Look::StartLine,
-            Look::StartText => Look::EndText,
-            Look::EndText => Look::StartText,
-            Look::WordBoundaryUnicode => Look::WordBoundaryUnicode,
-            Look::WordBoundaryUnicodeNegate => Look::WordBoundaryUnicodeNegate,
-            Look::WordBoundaryAscii => Look::WordBoundaryAscii,
-            Look::WordBoundaryAsciiNegate => Look::WordBoundaryAsciiNegate,
+            Look::Start => Look::End,
+            Look::End => Look::Start,
+            Look::StartLF => Look::EndLF,
+            Look::EndLF => Look::StartLF,
+            Look::WordAscii => Look::WordAscii,
+            Look::WordAsciiNegate => Look::WordAsciiNegate,
+            Look::WordUnicode => Look::WordUnicode,
+            Look::WordUnicodeNegate => Look::WordUnicodeNegate,
         }
     }
 
@@ -125,70 +125,14 @@ impl Look {
     /// This panics if `at > haystack.len()`.
     pub fn matches(&self, haystack: &[u8], at: usize) -> bool {
         match *self {
-            Look::StartLine => at == 0 || haystack[at - 1] == b'\n',
-            Look::EndLine => at == haystack.len() || haystack[at] == b'\n',
-            Look::StartText => at == 0,
-            Look::EndText => at == haystack.len(),
-            Look::WordBoundaryUnicode => {
-                let word_before = utf8::is_word_char_rev(haystack, at);
-                let word_after = utf8::is_word_char_fwd(haystack, at);
-                word_before != word_after
-            }
-            Look::WordBoundaryUnicodeNegate => {
-                // This is pretty subtle. Why do we need to do UTF-8 decoding
-                // here? Well... at time of writing, the is_word_char_{fwd,rev}
-                // routines will only return true if there is a valid UTF-8
-                // encoding of a "word" codepoint, and false in every other
-                // case (including invalid UTF-8). This means that in regions
-                // of invalid UTF-8 (which might be a subset of valid UTF-8!),
-                // it would result in \B matching. While this would be
-                // questionable in the context of truly invalid UTF-8, it is
-                // *certainly* wrong to report match boundaries that split the
-                // encoding of a codepoint. So to work around this, we ensure
-                // that we can decode a codepoint on either side of `at`. If
-                // either direction fails, then we don't permit \B to match at
-                // all.
-                //
-                // Now, this isn't exactly optimal from a perf perspective. We
-                // could try and detect this in is_word_char_{fwd,rev}, but
-                // it's not clear if it's worth it. \B is, after all, rarely
-                // used.
-                //
-                // And in particular, we do *not* have to do this with \b,
-                // because \b *requires* that at least one side of `at` be a
-                // "word" codepoint, which in turn implies one side of `at`
-                // must be valid UTF-8. This in turn implies that \b can never
-                // split a valid UTF-8 encoding of a codepoint. In the case
-                // where one side of `at` is truly invalid UTF-8 and the other
-                // side IS a word codepoint, then we want \b to match since it
-                // represents a valid UTF-8 boundary. It also makes sense. For
-                // example, you'd want \b\w+\b to match 'abc' in '\xFFabc\xFF'.
-                let word_before = at > 0
-                    && match utf8::decode_last(&haystack[..at]) {
-                        None | Some(Err(_)) => return false,
-                        Some(Ok(_)) => utf8::is_word_char_rev(haystack, at),
-                    };
-                let word_after = at < haystack.len()
-                    && match utf8::decode(&haystack[at..]) {
-                        None | Some(Err(_)) => return false,
-                        Some(Ok(_)) => utf8::is_word_char_fwd(haystack, at),
-                    };
-                word_before == word_after
-            }
-            Look::WordBoundaryAscii => {
-                let word_before =
-                    at > 0 && utf8::is_word_byte(haystack[at - 1]);
-                let word_after =
-                    at < haystack.len() && utf8::is_word_byte(haystack[at]);
-                word_before != word_after
-            }
-            Look::WordBoundaryAsciiNegate => {
-                let word_before =
-                    at > 0 && utf8::is_word_byte(haystack[at - 1]);
-                let word_after =
-                    at < haystack.len() && utf8::is_word_byte(haystack[at]);
-                word_before == word_after
-            }
+            Look::Start => is_start(haystack, at),
+            Look::End => is_end(haystack, at),
+            Look::StartLF => is_start_lf(haystack, at),
+            Look::EndLF => is_end_lf(haystack, at),
+            Look::WordAscii => is_word_ascii(haystack, at),
+            Look::WordAsciiNegate => is_word_ascii_negate(haystack, at),
+            Look::WordUnicode => is_word_unicode(haystack, at),
+            Look::WordUnicodeNegate => is_word_unicode_negate(haystack, at),
         }
     }
 
@@ -196,14 +140,14 @@ impl Look {
     /// is consistent with this look-around assertion.
     pub(crate) fn add_to_byteset(&self, set: &mut ByteClassSet) {
         match *self {
-            Look::StartText | Look::EndText => {}
-            Look::StartLine | Look::EndLine => {
+            Look::Start | Look::End => {}
+            Look::StartLF | Look::EndLF => {
                 set.set_range(b'\n', b'\n');
             }
-            Look::WordBoundaryUnicode
-            | Look::WordBoundaryUnicodeNegate
-            | Look::WordBoundaryAscii
-            | Look::WordBoundaryAsciiNegate => {
+            Look::WordAscii
+            | Look::WordAsciiNegate
+            | Look::WordUnicode
+            | Look::WordUnicodeNegate => {
                 // We need to mark all ranges of bytes whose pairs result in
                 // evaluating \b differently. This isn't technically correct
                 // for Unicode word boundaries, but DFAs can't handle those
@@ -354,20 +298,85 @@ impl Iterator for LookSetIter {
     }
 }
 
-pub fn is_start_line_lf(haystack: &[u8], at: usize) -> bool {
-    at == 0 || haystack[at - 1] == b'\n'
-}
-
-pub fn is_end_line_lf(haystack: &[u8], at: usize) -> bool {
-    at == haystack.len() || haystack[at] == b'\n'
-}
-
+#[inline]
 pub fn is_start(haystack: &[u8], at: usize) -> bool {
     at == 0
 }
 
+#[inline]
 pub fn is_end(haystack: &[u8], at: usize) -> bool {
     at == haystack.len()
+}
+
+#[inline]
+pub fn is_start_lf(haystack: &[u8], at: usize) -> bool {
+    at == 0 || haystack[at - 1] == b'\n'
+}
+
+#[inline]
+pub fn is_end_lf(haystack: &[u8], at: usize) -> bool {
+    at == haystack.len() || haystack[at] == b'\n'
+}
+
+#[inline]
+pub fn is_word_ascii(haystack: &[u8], at: usize) -> bool {
+    let word_before = at > 0 && utf8::is_word_byte(haystack[at - 1]);
+    let word_after = at < haystack.len() && utf8::is_word_byte(haystack[at]);
+    word_before != word_after
+}
+
+#[inline]
+pub fn is_word_ascii_negate(haystack: &[u8], at: usize) -> bool {
+    !is_word_ascii(haystack, at)
+}
+
+#[inline]
+pub fn is_word_unicode(haystack: &[u8], at: usize) -> bool {
+    let word_before = utf8::is_word_char_rev(haystack, at);
+    let word_after = utf8::is_word_char_fwd(haystack, at);
+    word_before != word_after
+}
+
+#[inline]
+pub fn is_word_unicode_negate(haystack: &[u8], at: usize) -> bool {
+    // This is pretty subtle. Why do we need to do UTF-8 decoding here? Well...
+    // at time of writing, the is_word_char_{fwd,rev} routines will only return
+    // true if there is a valid UTF-8 encoding of a "word" codepoint, and
+    // false in every other case (including invalid UTF-8). This means that in
+    // regions of invalid UTF-8 (which might be a subset of valid UTF-8!), it
+    // would result in \B matching. While this would be questionable in the
+    // context of truly invalid UTF-8, it is *certainly* wrong to report match
+    // boundaries that split the encoding of a codepoint. So to work around
+    // this, we ensure that we can decode a codepoint on either side of `at`.
+    // If either direction fails, then we don't permit \B to match at all.
+    //
+    // Now, this isn't exactly optimal from a perf perspective. We could try
+    // and detect this in is_word_char_{fwd,rev}, but it's not clear if it's
+    // worth it. \B is, after all, rarely used.
+    //
+    // And in particular, we do *not* have to do this with \b, because \b
+    // *requires* that at least one side of `at` be a "word" codepoint, which
+    // in turn implies one side of `at` must be valid UTF-8. This in turn
+    // implies that \b can never split a valid UTF-8 encoding of a codepoint.
+    // In the case where one side of `at` is truly invalid UTF-8 and the other
+    // side IS a word codepoint, then we want \b to match since it represents
+    // a valid UTF-8 boundary. It also makes sense. For example, you'd want
+    // \b\w+\b to match 'abc' in '\xFFabc\xFF'.
+    //
+    // Note also that this is not just '!is_word_unicode(..)' like it is for
+    // the ASCII case. For example, neither \b nor \B is satisfied within
+    // invalid UTF-8 sequences.
+    let word_before = at > 0
+        && match utf8::decode_last(&haystack[..at]) {
+            None | Some(Err(_)) => return false,
+            Some(Ok(_)) => utf8::is_word_char_rev(haystack, at),
+        };
+    let word_after = at < haystack.len()
+        && match utf8::decode(&haystack[at..]) {
+            None | Some(Err(_)) => return false,
+            Some(Ok(_)) => utf8::is_word_char_fwd(haystack, at),
+        };
+    word_before == word_after
 }
 
 #[cfg(test)]
@@ -380,7 +389,7 @@ mod tests {
 
     #[test]
     fn look_matches_start_line() {
-        let look = Look::StartLine;
+        let look = Look::StartLF;
 
         assert!(look.matches(B(""), 0));
         assert!(look.matches(B("\n"), 0));
@@ -394,7 +403,7 @@ mod tests {
 
     #[test]
     fn look_matches_end_line() {
-        let look = Look::EndLine;
+        let look = Look::EndLF;
 
         assert!(look.matches(B(""), 0));
         assert!(look.matches(B("\n"), 1));
@@ -410,7 +419,7 @@ mod tests {
 
     #[test]
     fn look_matches_start_text() {
-        let look = Look::StartText;
+        let look = Look::Start;
 
         assert!(look.matches(B(""), 0));
         assert!(look.matches(B("\n"), 0));
@@ -424,7 +433,7 @@ mod tests {
 
     #[test]
     fn look_matches_end_text() {
-        let look = Look::EndText;
+        let look = Look::End;
 
         assert!(look.matches(B(""), 0));
         assert!(look.matches(B("\n"), 1));
@@ -441,7 +450,7 @@ mod tests {
     #[test]
     #[cfg(not(miri))]
     fn look_matches_word_unicode() {
-        let look = Look::WordBoundaryUnicode;
+        let look = Look::WordUnicode;
 
         // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
         // \xF0\x90\x86\x80 = 𐆀 (not in \w)
@@ -492,7 +501,7 @@ mod tests {
 
     #[test]
     fn look_matches_word_ascii() {
-        let look = Look::WordBoundaryAscii;
+        let look = Look::WordAscii;
 
         // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
         // \xF0\x90\x86\x80 = 𐆀 (not in \w)
@@ -546,7 +555,7 @@ mod tests {
     #[test]
     #[cfg(not(miri))]
     fn look_matches_word_unicode_negate() {
-        let look = Look::WordBoundaryUnicodeNegate;
+        let look = Look::WordUnicodeNegate;
 
         // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
         // \xF0\x90\x86\x80 = 𐆀 (not in \w)
@@ -604,7 +613,7 @@ mod tests {
 
     #[test]
     fn look_matches_word_ascii_negate() {
-        let look = Look::WordBoundaryAsciiNegate;
+        let look = Look::WordAsciiNegate;
 
         // \xF0\x9D\x9B\x83 = 𝛃 (in \w)
         // \xF0\x90\x86\x80 = 𐆀 (not in \w)
@@ -658,54 +667,54 @@ mod tests {
     #[test]
     fn look_set() {
         let mut f = LookSet::default();
-        assert!(!f.contains(Look::StartText));
-        assert!(!f.contains(Look::EndText));
-        assert!(!f.contains(Look::StartLine));
-        assert!(!f.contains(Look::EndLine));
-        assert!(!f.contains(Look::WordBoundaryUnicode));
-        assert!(!f.contains(Look::WordBoundaryUnicodeNegate));
-        assert!(!f.contains(Look::WordBoundaryAscii));
-        assert!(!f.contains(Look::WordBoundaryAsciiNegate));
+        assert!(!f.contains(Look::Start));
+        assert!(!f.contains(Look::End));
+        assert!(!f.contains(Look::StartLF));
+        assert!(!f.contains(Look::EndLF));
+        assert!(!f.contains(Look::WordUnicode));
+        assert!(!f.contains(Look::WordUnicodeNegate));
+        assert!(!f.contains(Look::WordAscii));
+        assert!(!f.contains(Look::WordAsciiNegate));
 
-        f = f.insert(Look::StartText);
-        assert!(f.contains(Look::StartText));
-        f = f.remove(Look::StartText);
-        assert!(!f.contains(Look::StartText));
+        f = f.insert(Look::Start);
+        assert!(f.contains(Look::Start));
+        f = f.remove(Look::Start);
+        assert!(!f.contains(Look::Start));
 
-        f = f.insert(Look::EndText);
-        assert!(f.contains(Look::EndText));
-        f = f.remove(Look::EndText);
-        assert!(!f.contains(Look::EndText));
+        f = f.insert(Look::End);
+        assert!(f.contains(Look::End));
+        f = f.remove(Look::End);
+        assert!(!f.contains(Look::End));
 
-        f = f.insert(Look::StartLine);
-        assert!(f.contains(Look::StartLine));
-        f = f.remove(Look::StartLine);
-        assert!(!f.contains(Look::StartLine));
+        f = f.insert(Look::StartLF);
+        assert!(f.contains(Look::StartLF));
+        f = f.remove(Look::StartLF);
+        assert!(!f.contains(Look::StartLF));
 
-        f = f.insert(Look::EndLine);
-        assert!(f.contains(Look::EndLine));
-        f = f.remove(Look::EndLine);
-        assert!(!f.contains(Look::EndLine));
+        f = f.insert(Look::EndLF);
+        assert!(f.contains(Look::EndLF));
+        f = f.remove(Look::EndLF);
+        assert!(!f.contains(Look::EndLF));
 
-        f = f.insert(Look::WordBoundaryUnicode);
-        assert!(f.contains(Look::WordBoundaryUnicode));
-        f = f.remove(Look::WordBoundaryUnicode);
-        assert!(!f.contains(Look::WordBoundaryUnicode));
+        f = f.insert(Look::WordUnicode);
+        assert!(f.contains(Look::WordUnicode));
+        f = f.remove(Look::WordUnicode);
+        assert!(!f.contains(Look::WordUnicode));
 
-        f = f.insert(Look::WordBoundaryUnicodeNegate);
-        assert!(f.contains(Look::WordBoundaryUnicodeNegate));
-        f = f.remove(Look::WordBoundaryUnicodeNegate);
-        assert!(!f.contains(Look::WordBoundaryUnicodeNegate));
+        f = f.insert(Look::WordUnicodeNegate);
+        assert!(f.contains(Look::WordUnicodeNegate));
+        f = f.remove(Look::WordUnicodeNegate);
+        assert!(!f.contains(Look::WordUnicodeNegate));
 
-        f = f.insert(Look::WordBoundaryAscii);
-        assert!(f.contains(Look::WordBoundaryAscii));
-        f = f.remove(Look::WordBoundaryAscii);
-        assert!(!f.contains(Look::WordBoundaryAscii));
+        f = f.insert(Look::WordAscii);
+        assert!(f.contains(Look::WordAscii));
+        f = f.remove(Look::WordAscii);
+        assert!(!f.contains(Look::WordAscii));
 
-        f = f.insert(Look::WordBoundaryAsciiNegate);
-        assert!(f.contains(Look::WordBoundaryAsciiNegate));
-        f = f.remove(Look::WordBoundaryAsciiNegate);
-        assert!(!f.contains(Look::WordBoundaryAsciiNegate));
+        f = f.insert(Look::WordAsciiNegate);
+        assert!(f.contains(Look::WordAsciiNegate));
+        f = f.remove(Look::WordAsciiNegate);
+        assert!(!f.contains(Look::WordAsciiNegate));
     }
 
     #[test]
@@ -716,15 +725,14 @@ mod tests {
         let set = LookSet::full();
         assert_eq!(8, set.iter().count());
 
-        let set = LookSet::empty()
-            .insert(Look::StartLine)
-            .insert(Look::WordBoundaryUnicode);
+        let set =
+            LookSet::empty().insert(Look::StartLF).insert(Look::WordUnicode);
         assert_eq!(2, set.iter().count());
 
-        let set = LookSet::empty().insert(Look::StartLine);
+        let set = LookSet::empty().insert(Look::StartLF);
         assert_eq!(1, set.iter().count());
 
-        let set = LookSet::empty().insert(Look::WordBoundaryAsciiNegate);
+        let set = LookSet::empty().insert(Look::WordAsciiNegate);
         assert_eq!(1, set.iter().count());
     }
 }

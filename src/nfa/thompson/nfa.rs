@@ -1036,18 +1036,13 @@ impl Inner {
                 self.facts.has_look = true;
                 look.add_to_byteset(&mut self.byte_class_set);
                 match look {
-                    Look::StartLine
-                    | Look::EndLine
-                    | Look::StartText
-                    | Look::EndText => {
+                    Look::StartLF | Look::EndLF | Look::Start | Look::End => {
                         self.facts.has_anchor = true;
                     }
-                    Look::WordBoundaryUnicode
-                    | Look::WordBoundaryUnicodeNegate => {
+                    Look::WordUnicode | Look::WordUnicodeNegate => {
                         self.facts.has_word_boundary_unicode = true;
                     }
-                    Look::WordBoundaryAscii
-                    | Look::WordBoundaryAsciiNegate => {
+                    Look::WordAscii | Look::WordAsciiNegate => {
                         self.facts.has_word_boundary_ascii = true;
                     }
                 }

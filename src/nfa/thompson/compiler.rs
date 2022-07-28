@@ -1212,10 +1212,10 @@ impl Compiler {
     /// Compile the given HIR anchor to an NFA look-around assertion.
     fn c_anchor(&self, anchor: &hir::Anchor) -> Result<ThompsonRef, Error> {
         let look = match *anchor {
-            hir::Anchor::StartLine => Look::StartLine,
-            hir::Anchor::EndLine => Look::EndLine,
-            hir::Anchor::StartText => Look::StartText,
-            hir::Anchor::EndText => Look::EndText,
+            hir::Anchor::StartLine => Look::StartLF,
+            hir::Anchor::EndLine => Look::EndLF,
+            hir::Anchor::StartText => Look::Start,
+            hir::Anchor::EndText => Look::End,
         };
         let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })
@@ -1227,12 +1227,10 @@ impl Compiler {
         wb: &hir::WordBoundary,
     ) -> Result<ThompsonRef, Error> {
         let look = match *wb {
-            hir::WordBoundary::Unicode => Look::WordBoundaryUnicode,
-            hir::WordBoundary::UnicodeNegate => {
-                Look::WordBoundaryUnicodeNegate
-            }
-            hir::WordBoundary::Ascii => Look::WordBoundaryAscii,
-            hir::WordBoundary::AsciiNegate => Look::WordBoundaryAsciiNegate,
+            hir::WordBoundary::Unicode => Look::WordUnicode,
+            hir::WordBoundary::UnicodeNegate => Look::WordUnicodeNegate,
+            hir::WordBoundary::Ascii => Look::WordAscii,
+            hir::WordBoundary::AsciiNegate => Look::WordAsciiNegate,
         };
         let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })

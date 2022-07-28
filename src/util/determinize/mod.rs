@@ -126,20 +126,20 @@ pub(crate) fn next(
         let mut look_have = state.look_have().clone();
         match unit.as_u8() {
             Some(b'\n') => {
-                look_have = look_have.insert(Look::EndLine);
+                look_have = look_have.insert(Look::EndLF);
             }
             Some(_) => {}
             None => {
-                look_have = look_have.insert(Look::EndText);
-                look_have = look_have.insert(Look::EndLine);
+                look_have = look_have.insert(Look::End);
+                look_have = look_have.insert(Look::EndLF);
             }
         }
         if state.is_from_word() == unit.is_word_byte() {
-            look_have = look_have.insert(Look::WordBoundaryUnicodeNegate);
-            look_have = look_have.insert(Look::WordBoundaryAsciiNegate);
+            look_have = look_have.insert(Look::WordUnicodeNegate);
+            look_have = look_have.insert(Look::WordAsciiNegate);
         } else {
-            look_have = look_have.insert(Look::WordBoundaryUnicode);
-            look_have = look_have.insert(Look::WordBoundaryAscii);
+            look_have = look_have.insert(Look::WordUnicode);
+            look_have = look_have.insert(Look::WordAscii);
         }
         // If we have new assertions satisfied that are among the set of
         // assertions that exist in this state (that is, just because we
@@ -181,7 +181,7 @@ pub(crate) fn next(
             // Why only handle StartLine here and not StartText? That's
             // because StartText can only impact the starting state, which
             // is speical cased in start state handling.
-            builder.set_look_have(|have| have.insert(Look::StartLine));
+            builder.set_look_have(|have| have.insert(Look::StartLF));
         }
     }
     for nfa_id in sparses.set1.iter() {
@@ -459,11 +459,11 @@ pub(crate) fn set_lookbehind_from_start(
         }
         Start::Text => {
             builder.set_look_have(|have| {
-                have.insert(Look::StartText).insert(Look::StartLine)
+                have.insert(Look::Start).insert(Look::StartLF)
             });
         }
         Start::Line => {
-            builder.set_look_have(|have| have.insert(Look::StartLine));
+            builder.set_look_have(|have| have.insert(Look::StartLF));
         }
     }
 }
