@@ -1076,7 +1076,7 @@ impl Inner {
     ) {
         self.start_anchored = start_anchored;
         self.start_unanchored = start_unanchored;
-        self.start_pattern = start_pattern.to_owned();
+        self.start_pattern = start_pattern.to_vec();
     }
 
     /// Set the capturing groups for this NFA.

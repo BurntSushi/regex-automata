@@ -31,6 +31,9 @@ guarantees that slices never have a length that exceeds `isize::MAX`.
 
 use core::{convert::TryFrom, num::NonZeroUsize};
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 /// A `usize` that can never be `usize::MAX`.
 ///
 /// This is similar to `core::num::NonZeroUsize`, but instead of not permitting

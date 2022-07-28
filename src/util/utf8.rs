@@ -1,3 +1,6 @@
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 /// Returns the smallest possible index of the next valid UTF-8 sequence
 /// starting after `i`.
 ///

@@ -1,6 +1,6 @@
 use core::{convert::TryFrom, mem};
 
-use alloc::{collections::BTreeSet, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeSet, sync::Arc, vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{
@@ -431,7 +431,7 @@ impl Builder {
                         }),
                         _ => {
                             let transitions =
-                                transitions.to_owned().into_boxed_slice();
+                                transitions.to_vec().into_boxed_slice();
                             let sparse = SparseTransitions { transitions };
                             nfa.add(nfa::State::Sparse(sparse))
                         }
@@ -489,7 +489,7 @@ impl Builder {
                         });
                     } else {
                         let alternates =
-                            alternates.to_owned().into_boxed_slice();
+                            alternates.to_vec().into_boxed_slice();
                         remap[sid] = nfa.add(nfa::State::Union { alternates });
                     }
                 }
@@ -505,7 +505,7 @@ impl Builder {
                         });
                     } else {
                         let mut alternates =
-                            alternates.to_owned().into_boxed_slice();
+                            alternates.to_vec().into_boxed_slice();
                         alternates.reverse();
                         remap[sid] = nfa.add(nfa::State::Union { alternates });
                     }

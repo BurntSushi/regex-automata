@@ -104,10 +104,23 @@ impl Look {
         self.as_repr().trailing_zeros() as usize
     }
 
+    pub const fn as_char(self) -> char {
+        match self {
+            Look::Start => 'A',
+            Look::End => 'z',
+            Look::StartLF => '^',
+            Look::EndLF => '$',
+            Look::WordAscii => 'b',
+            Look::WordAsciiNegate => 'B',
+            Look::WordUnicode => '𝛃',
+            Look::WordUnicodeNegate => '𝚩',
+        }
+    }
+
     /// Flip the look-around assertion to its equivalent for reverse searches.
     /// For example, `StartLine` gets translated to `EndLine`.
-    pub const fn reversed(&self) -> Look {
-        match *self {
+    pub const fn reversed(self) -> Look {
+        match self {
             Look::Start => Look::End,
             Look::End => Look::Start,
             Look::StartLF => Look::EndLF,
@@ -123,8 +136,8 @@ impl Look {
     /// look-around assertion.
     ///
     /// This panics if `at > haystack.len()`.
-    pub fn matches(&self, haystack: &[u8], at: usize) -> bool {
-        match *self {
+    pub fn matches(self, haystack: &[u8], at: usize) -> bool {
+        match self {
             Look::Start => is_start(haystack, at),
             Look::End => is_end(haystack, at),
             Look::StartLF => is_start_lf(haystack, at),
@@ -138,8 +151,8 @@ impl Look {
 
     /// Split up the given byte classes into equivalence classes in a way that
     /// is consistent with this look-around assertion.
-    pub(crate) fn add_to_byteset(&self, set: &mut ByteClassSet) {
-        match *self {
+    pub(crate) fn add_to_byteset(self, set: &mut ByteClassSet) {
+        match self {
             Look::Start | Look::End => {}
             Look::StartLF | Look::EndLF => {
                 set.set_range(b'\n', b'\n');
@@ -263,17 +276,10 @@ impl LookSet {
 
 impl core::fmt::Debug for LookSet {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        let mut members = vec![];
-        for i in 0..8 {
-            let look = match Look::from_repr(1 << i) {
-                None => continue,
-                Some(look) => look,
-            };
-            if self.contains(look) {
-                members.push(look);
-            }
+        for look in self.iter() {
+            write!(f, "{}", look.as_char())?;
         }
-        f.debug_tuple("LookSet").field(&members).finish()
+        Ok(())
     }
 }
 

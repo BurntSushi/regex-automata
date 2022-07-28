@@ -10,7 +10,7 @@ is can be faster than the [`PikeVM`](thompson::pikevm::PikeVM) in many cases
 because it does less book-keeping.
 */
 
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{self, State, NFA},

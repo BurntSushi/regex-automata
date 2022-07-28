@@ -2,7 +2,7 @@
 
 use core::convert::TryFrom;
 
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use crate::{
     dfa::{error::Error, remapper::Remapper, DEAD},

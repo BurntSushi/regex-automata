@@ -1,6 +1,6 @@
 use core::{borrow::Borrow, cell::RefCell, convert::TryFrom};
 
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use regex_syntax::{
     hir::{self, Hir},

@@ -34,7 +34,7 @@ underlying `GroupInfo`.
 
 use core::ops::Range;
 
-use alloc::sync::Arc;
+use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 
 use crate::util::{
     primitives::{
@@ -1892,7 +1892,7 @@ impl GroupInfoError {
         GroupInfoError {
             kind: GroupInfoErrorKind::Duplicate {
                 pattern,
-                name: name.to_string(),
+                name: String::from(name),
             },
         }
     }

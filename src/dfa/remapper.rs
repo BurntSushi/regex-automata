@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use crate::{
     dfa::{dense::OwnedDFA, onepass::OnePass},
     util::primitives::StateID,
