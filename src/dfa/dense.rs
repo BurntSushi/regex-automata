@@ -2229,11 +2229,11 @@ impl<'a> DFA<&'a [u32]> {
     }
 }
 
-/// The following methods implement mutable routines on the internal
-/// representation of a DFA. As such, we must fix the first type parameter to a
-/// `Vec<u32>` since a generic `T: AsRef<[u32]>` does not permit mutation. We
-/// can get away with this because these methods are internal to the crate and
-/// are exclusively used during construction of the DFA.
+// The following methods implement mutable routines on the internal
+// representation of a DFA. As such, we must fix the first type parameter to a
+// `Vec<u32>` since a generic `T: AsRef<[u32]>` does not permit mutation. We
+// can get away with this because these methods are internal to the crate and
+// are exclusively used during construction of the DFA.
 #[cfg(feature = "alloc")]
 impl OwnedDFA {
     /// Add a start state of this DFA.
@@ -2657,7 +2657,7 @@ impl OwnedDFA {
     }
 }
 
-/// A variety of generic internal methods for accessing DFA internals.
+// A variety of generic internal methods for accessing DFA internals.
 impl<T: AsRef<[u32]>> DFA<T> {
     /// Return the byte classes used by this DFA.
     pub(crate) fn byte_classes(&self) -> &ByteClasses {
@@ -4323,19 +4323,19 @@ impl<'a> State<'a> {
 
 impl<'a> fmt::Debug for State<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, (start, end, id)) in self.sparse_transitions().enumerate() {
-            let index = if f.alternate() {
-                id.as_usize()
+        for (i, (start, end, sid)) in self.sparse_transitions().enumerate() {
+            let id = if f.alternate() {
+                sid.as_usize()
             } else {
-                id.as_usize() >> self.stride2
+                sid.as_usize() >> self.stride2
             };
             if i > 0 {
                 write!(f, ", ")?;
             }
             if start == end {
-                write!(f, "{:?} => {:?}", start, index)?;
+                write!(f, "{:?} => {:?}", start, id)?;
             } else {
-                write!(f, "{:?}-{:?} => {:?}", start, end, index)?;
+                write!(f, "{:?}-{:?} => {:?}", start, end, id)?;
             }
         }
         Ok(())

@@ -1090,7 +1090,7 @@ The default for this flag is 'none', which sets no size limit.
 
     pub fn from_nfa(
         &self,
-        nfa: &thompson::NFA,
+        nfa: thompson::NFA,
     ) -> anyhow::Result<onepass::OnePass> {
         onepass::Builder::new()
             .configure(self.config.clone())
@@ -1115,7 +1115,7 @@ The default for this flag is 'none', which sets no size limit.
         table.add("compile nfa time", time);
         table.add("nfa states", nfa.states().len());
         table.add("nfa memory", nfa.memory_usage());
-        let (dfa, time) = util::timeitr(|| self.from_nfa(&nfa))?;
+        let (dfa, time) = util::timeitr(|| self.from_nfa(nfa))?;
         table.add("compile one-pass dfa time", time);
         table.add("one-pass states", dfa.state_len());
         table.add("one-pass memory", dfa.memory_usage());

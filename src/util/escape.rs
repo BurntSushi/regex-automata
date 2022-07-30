@@ -6,6 +6,12 @@ pub(crate) struct DebugByte(pub(crate) u8);
 
 impl core::fmt::Debug for DebugByte {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        // Special case ASCII space. It's too hard to read otherwise, so
+        // put quotes around it. I sometimes wonder whether just '\x20' would
+        // be better...
+        if self.0 == b' ' {
+            return write!(f, "' '");
+        }
         // 10 bytes is enough to cover any output from ascii::escape_default.
         let mut bytes = [0u8; 10];
         let mut len = 0;

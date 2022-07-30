@@ -10,6 +10,7 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses},
         captures::Captures,
+        escape::DebugByte,
         int::{Usize, U32, U64, U8},
         iter,
         look::{Look, LookSet},
@@ -118,11 +119,11 @@ impl Builder {
         patterns: &[P],
     ) -> Result<OnePass, Error> {
         let nfa = self.thompson.build_many(patterns).map_err(Error::nfa)?;
-        self.build_from_nfa(&nfa)
+        self.build_from_nfa(nfa)
     }
 
-    pub fn build_from_nfa(&self, nfa: &NFA) -> Result<OnePass, Error> {
-        InternalBuilder::new(self.config.clone(), nfa).build()
+    pub fn build_from_nfa(&self, nfa: NFA) -> Result<OnePass, Error> {
+        InternalBuilder::new(self.config.clone(), &nfa).build()
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {
@@ -415,7 +416,7 @@ impl<'a> InternalBuilder<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct OnePass {
     config: Config,
     nfa: NFA,
@@ -430,26 +431,60 @@ pub struct OnePass {
 }
 
 impl OnePass {
+    #[inline]
     pub fn new(pattern: &str) -> Result<OnePass, Error> {
         OnePass::builder().build(pattern)
     }
 
+    #[inline]
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<OnePass, Error> {
         OnePass::builder().build_many(patterns)
     }
 
+    /// Create a new one-pass DFA that matches every input.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{dfa::onepass::OnePass, Match};
+    ///
+    /// let dfa = OnePass::always_match()?;
+    /// let mut cache = dfa.create_cache();
+    /// let mut caps = dfa.create_captures();
+    ///
+    /// let expected = Match::must(0, 0..0);
+    /// dfa.find(&mut cache, "", &mut caps);
+    /// assert_eq!(Some(expected), caps.get_match());
+    /// dfa.find(&mut cache, "foo", &mut caps);
+    /// assert_eq!(Some(expected), caps.get_match());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn always_match() -> Result<OnePass, Error> {
+        let nfa = thompson::NFA::always_match();
+        Builder::new().build_from_nfa(nfa)
+    }
+
+    #[inline]
     pub fn config() -> Config {
         Config::new()
     }
 
+    #[inline]
     pub fn builder() -> Builder {
         Builder::new()
     }
 
+    #[inline]
     pub fn create_cache(&self) -> Cache {
         Cache::new(self)
     }
 
+    #[inline]
+    pub fn reset_cache(&self, cache: &mut Cache) {
+        cache.reset(self);
+    }
+
+    #[inline]
     pub fn create_captures(&self) -> Captures {
         Captures::all(self.nfa.group_info().clone())
     }
@@ -464,6 +499,11 @@ impl OnePass {
     }
 
     #[inline]
+    pub fn pattern_len(&self) -> usize {
+        self.get_nfa().pattern_len()
+    }
+
+    #[inline]
     pub fn get_config(&self) -> &Config {
         &self.config
     }
@@ -473,6 +513,16 @@ impl OnePass {
         &self.nfa
     }
 
+    #[inline]
+    pub fn memory_usage(&self) -> usize {
+        use core::mem::size_of;
+
+        self.table.len() * size_of::<Transition>()
+            + self.starts.len() * size_of::<StateID>()
+    }
+}
+
+impl OnePass {
     #[inline]
     pub fn is_match<H: AsRef<[u8]>>(
         &self,
@@ -652,10 +702,6 @@ impl OnePass {
         1 << self.stride2
     }
 
-    pub fn pattern_len(&self) -> usize {
-        self.nfa.pattern_len()
-    }
-
     fn transition(&self, sid: StateID, byte: u8) -> Transition {
         let class = self.classes.get(byte);
         self.table[sid.as_usize() + class.as_usize()]
@@ -664,6 +710,16 @@ impl OnePass {
     fn set_transition(&mut self, sid: StateID, byte: u8, to: Transition) {
         let class = self.classes.get(byte);
         self.table[sid.as_usize() + class.as_usize()] = to;
+    }
+
+    fn sparse_transitions(&self, sid: StateID) -> SparseTransitionIter<'_> {
+        let start = sid.as_usize();
+        let end = start + self.alphabet_len();
+        SparseTransitionIter {
+            it: self.table[start..end].iter().enumerate(),
+            cur: None,
+        }
+        // SparseTransitionIter { dfa: self, sid, cur: None }
     }
 
     fn pattern_info(&self, sid: StateID) -> PatternInfo {
@@ -701,12 +757,135 @@ impl OnePass {
             self.starts[i] = map(self.starts[i]);
         }
     }
+}
 
-    pub fn memory_usage(&self) -> usize {
-        use core::mem::size_of;
+impl core::fmt::Debug for OnePass {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        fn debug_id(
+            f: &core::fmt::Formatter,
+            dfa: &OnePass,
+            sid: StateID,
+        ) -> usize {
+            if f.alternate() {
+                sid.as_usize()
+            } else {
+                sid.as_usize() >> dfa.stride2()
+            }
+        }
 
-        self.table.len() * size_of::<Transition>()
-            + self.starts.len() * size_of::<StateID>()
+        fn debug_state_transitions(
+            f: &mut core::fmt::Formatter,
+            dfa: &OnePass,
+            sid: StateID,
+        ) -> core::fmt::Result {
+            for (i, (start, end, trans)) in
+                dfa.sparse_transitions(sid).enumerate()
+            {
+                let next = trans.state_id();
+                if next == DEAD {
+                    continue;
+                }
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                if start == end {
+                    write!(
+                        f,
+                        "{:?} => {:?}",
+                        DebugByte(start),
+                        debug_id(f, dfa, sid)
+                    )?;
+                } else {
+                    write!(
+                        f,
+                        "{:?}-{:?} => {:?}",
+                        DebugByte(start),
+                        DebugByte(end),
+                        debug_id(f, dfa, sid),
+                    )?;
+                }
+                if !trans.info().is_empty() {
+                    write!(f, " ({:?})", trans.info())?;
+                }
+            }
+            Ok(())
+        }
+
+        writeln!(f, "onepass::DFA(")?;
+        for index in 0..self.state_len() {
+            let sid = StateID::must(index << self.stride2());
+            let patinfo = self.pattern_info(sid);
+            if sid == DEAD {
+                write!(f, "D ")?;
+            } else if patinfo.pattern_id().is_some() {
+                write!(f, "* ")?;
+            } else {
+                write!(f, "  ")?;
+            }
+            write!(f, "{:06?}", debug_id(f, self, sid))?;
+            if !patinfo.is_empty() {
+                write!(f, " ({:?})", patinfo)?;
+            }
+            write!(f, ": ")?;
+            debug_state_transitions(f, self, sid)?;
+            write!(f, "\n")?;
+        }
+        writeln!(f, "")?;
+        for (i, &sid) in self.starts.iter().enumerate() {
+            if i == 0 {
+                writeln!(f, "START(ALL): {:?}", debug_id(f, self, sid))?;
+            } else {
+                writeln!(
+                    f,
+                    "START(pattern: {:?}): {:?}",
+                    i - 1,
+                    debug_id(f, self, sid)
+                )?;
+            }
+        }
+        writeln!(f, "state length: {:?}", self.state_len())?;
+        writeln!(f, "pattern length: {:?}", self.pattern_len())?;
+        writeln!(f, ")")?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct SparseTransitionIter<'a> {
+    it: core::iter::Enumerate<core::slice::Iter<'a, Transition>>,
+    cur: Option<(u8, u8, Transition)>,
+}
+
+impl<'a> Iterator for SparseTransitionIter<'a> {
+    type Item = (u8, u8, Transition);
+
+    fn next(&mut self) -> Option<(u8, u8, Transition)> {
+        while let Some((b, &trans)) = self.it.next() {
+            // Fine because we'll never have more than u8::MAX transitions in
+            // one state.
+            let b = b.as_u8();
+            let (prev_start, prev_end, prev_trans) = match self.cur {
+                Some(t) => t,
+                None => {
+                    self.cur = Some((b, b, trans));
+                    continue;
+                }
+            };
+            if prev_trans == trans {
+                self.cur = Some((prev_start, b, prev_trans));
+            } else {
+                self.cur = Some((b, b, trans));
+                if prev_trans.state_id() != DEAD {
+                    return Some((prev_start, prev_end, prev_trans));
+                }
+            }
+        }
+        if let Some((start, end, trans)) = self.cur.take() {
+            if trans.state_id() != DEAD {
+                return Some((start, end, trans));
+            }
+        }
+        None
     }
 }
 
@@ -762,12 +941,6 @@ impl Cache {
         self.explicit_slot_len = explicit_slot_len;
     }
 }
-
-// BREADCRUMBS: Next step I think is to write the Debug impl for OnePass
-// itself. For other FSMs, we usually emit contiguous ranges of bytes that
-// go to the same transition, but that's a little trickier here because a
-// transition also has captures/looks in it. Let's try without first, and if we
-// absolutely have to show ranges, we can figure it out.
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 struct Transition(u64);
@@ -884,7 +1057,7 @@ impl core::fmt::Debug for PatternInfo {
         }
         if !self.info().is_empty() {
             if self.pattern_id().is_some() {
-                write!(f, "-")?;
+                write!(f, "/")?;
             }
             write!(f, "{:?}", self.info())?;
         }
@@ -949,6 +1122,9 @@ impl core::fmt::Debug for Info {
             wrote = true;
         }
         if !self.looks().is_empty() {
+            if wrote {
+                write!(f, "/")?;
+            }
             write!(f, "{:?}", self.looks())?;
             wrote = true;
         }
@@ -970,11 +1146,17 @@ impl Slots {
     }
 
     fn insert(self, slot: usize) -> Slots {
-        assert!(slot < Slots::LIMIT);
+        debug_assert!(slot < Slots::LIMIT);
         Slots(self.0 | (1 << slot.as_u32()))
     }
 
+    fn remove(self, slot: usize) -> Slots {
+        debug_assert!(slot < Slots::LIMIT);
+        Slots(self.0 & !(1 << slot.as_u32()))
+    }
+
     fn contains(self, slot: usize) -> bool {
+        debug_assert!(slot < Slots::LIMIT);
         self.0 & (1 << slot.as_u32()) != 0
     }
 
@@ -986,21 +1168,50 @@ impl Slots {
         self.0.count_ones().as_usize()
     }
 
+    fn iter(self) -> SlotsIter {
+        SlotsIter { slots: self }
+    }
+
     fn apply(self, at: usize, caller_slots: &mut [Option<NonMaxUsize>]) {
         if self.is_empty() {
             return;
         }
-        for (i, slot) in caller_slots.iter_mut().enumerate() {
-            if self.contains(i) {
-                *slot = NonMaxUsize::new(at);
+        let at = NonMaxUsize::new(at);
+        for slot in self.iter() {
+            if slot >= caller_slots.len() {
+                break;
             }
+            caller_slots[slot] = at;
         }
     }
 }
 
 impl core::fmt::Debug for Slots {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        write!(f, "S{}", self.len())
+        write!(f, "S")?;
+        for slot in self.iter() {
+            write!(f, "-{:?}", slot)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct SlotsIter {
+    slots: Slots,
+}
+
+impl Iterator for SlotsIter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        // Number of zeroes here is always <= u8::MAX, and so fits in a usize.
+        let slot = self.slots.0.trailing_zeros().as_usize();
+        if slot >= Slots::LIMIT {
+            return None;
+        }
+        self.slots = self.slots.remove(slot);
+        Some(slot)
     }
 }
 
