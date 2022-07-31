@@ -32,6 +32,13 @@ use crate::{
     },
 };
 
+/// The configuration used for building a [one-pass DFA](DFA).
+///
+/// A one-pass DFA configuration is a simple data object that is typically used
+/// with [`Builder::configure`]. It can be cheaply cloned.
+///
+/// A default configuration can be created either with `Config::new`, or
+/// perhaps more conveniently, with [`DFA::config`].
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     match_kind: Option<MatchKind>,
@@ -42,51 +49,317 @@ pub struct Config {
 }
 
 impl Config {
+    /// Return a new default one-pass DFA configuration.
     pub fn new() -> Config {
         Config::default()
     }
 
+    /// Set the desired match semantics.
+    ///
+    /// The default is [`MatchKind::LeftmostFirst`], which corresponds to the
+    /// match semantics of Perl-like regex engines. That is, when multiple
+    /// patterns would match at the same leftmost position, the pattern that
+    /// appears first in the concrete syntax is chosen.
+    ///
+    /// Currently, the only other kind of match semantics supported is
+    /// [`MatchKind::All`]. This corresponds to "classical DFA" construction
+    /// where all possible matches are visited.
+    ///
+    /// When it comes to the one-pass DFA, it is rarer for preference order and
+    /// "longest match" to actually disagree. Since if they did disagree, then
+    /// the regex typically isn't one-pass. For example, searching `Samwise`
+    /// for `Sam|Samwise` will report `Sam` for leftmost-first matching and
+    /// `Samwise` for "longest match" or "all" matching. However, this regex is
+    /// not one-pass if taken literally. The equivalent regex, `Sam(?:|wise)`
+    /// is one-pass and `Sam|Samwise` may be optimized to it.
+    ///
+    /// The other main difference is that "all" match semantics don't support
+    /// non-greedy matches. "All" match semantics always try to match as much
+    /// as possible.
     pub fn match_kind(mut self, kind: MatchKind) -> Config {
         self.match_kind = Some(kind);
         self
     }
 
+    /// Whether to enable UTF-8 mode or not.
+    ///
+    /// When UTF-8 mode is enabled (the default) and an empty match is seen,
+    /// the search APIs of a one-pass DFA will never report a match that would
+    /// otherwise split a valid UTF-8 code unit sequence.
+    ///
+    /// If this mode is enabled and invalid UTF-8 is given to search, then
+    /// behavior is unspecified.
+    ///
+    /// Generally speaking, one should enable this when
+    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
+    /// is enabled, and disable it otherwise.
+    ///
+    /// # Example
+    ///
+    /// This example demonstrates the differences between when this option is
+    /// enabled and disabled. The differences only arise when the one-pass DFA
+    /// can return matches of length zero.
+    ///
+    /// In this first snippet, we show the results when UTF-8 mode is disabled.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::onepass::DFA, Match};
+    ///
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().utf8(false))
+    ///     .build(r"")?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
+    /// let mut input = re.create_input("a☃z");
+    ///
+    /// // The empty string matches at every position.
+    ///
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
+    ///
+    /// input.set_start(1);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
+    ///
+    /// input.set_start(2);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
+    ///
+    /// input.set_start(3);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
+    ///
+    /// input.set_start(4);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 4..4)), caps.get_match());
+    ///
+    /// input.set_start(5);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 5..5)), caps.get_match());
+    ///
+    /// // 6 > input.haystack.len(), so there's no match here.
+    /// input.set_start(6);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// And in this snippet, we execute the same search on the same haystack,
+    /// but with UTF-8 mode enabled. Notice that when we search at offsets that
+    /// would otherwise return a match that splits the encoding of `☃`, we
+    /// get no match.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::onepass::DFA, Match};
+    ///
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().utf8(true))
+    ///     .build(r"")?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
+    /// let mut input = re.create_input("a☃z");
+    ///
+    /// // 0 occurs just before 'a', where the empty string matches.
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
+    ///
+    /// // 1 occurs just before the snowman.
+    /// input.set_start(1);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
+    ///
+    /// // 2 splits the first and second bytes of the snowman.
+    /// input.set_start(2);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// // 3 splits the second and third bytes of the snowman.
+    /// input.set_start(3);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// // 4 is right past the snowman and before the 'z'
+    /// input.set_start(4);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 4..4)), caps.get_match());
+    ///
+    /// // 5 == input.haystack.len(), at which point, the empty string matches.
+    /// input.set_start(5);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 5..5)), caps.get_match());
+    ///
+    /// // 6 > input.haystack.len(), so there's no match here.
+    /// input.set_start(6);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn utf8(mut self, yes: bool) -> Config {
         self.utf8 = Some(yes);
         self
     }
 
+    /// Whether to compile a separate start state for each pattern in the
+    /// one-pass DFA.
+    ///
+    /// When enabled, a separate **anchored** start state is added for each
+    /// pattern in the DFA. When this start state is used, then the DFA will
+    /// only search for matches for the pattern specified, even if there are
+    /// other patterns in the DFA.
+    ///
+    /// The main downside of this option is that it can potentially increase
+    /// the size of the DFA and/or increase the time it takes to build the DFA.
+    ///
+    /// You might want to enable this option when you want to both search for
+    /// anchored matches of any pattern or to search for anchored matches of
+    /// one particular pattern while using the same DFA. (Otherwise, you would
+    /// need to compile a new DFA for each pattern.)
+    ///
+    /// By default this is disabled.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build a multi-regex and then search for
+    /// matches for a any of the patterns or matches for a specific pattern.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::onepass::DFA, Input, Match, PatternID};
+    ///
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().starts_for_each_pattern(true))
+    ///     .build_many(&["[a-z]+", "[0-9]+"])?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let haystack = "123abc";
+    ///
+    /// // A normal multi-pattern search will show pattern 1 matches.
+    /// re.search(&mut cache, &Input::new(haystack), &mut caps);
+    /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
+    ///
+    /// // If we only want to report pattern 0 matches, then we'll get no
+    /// // match here.
+    /// re.search(
+    ///     &mut cache,
+    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))),
+    ///     &mut caps,
+    /// );
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn starts_for_each_pattern(mut self, yes: bool) -> Config {
         self.starts_for_each_pattern = Some(yes);
         self
     }
 
+    /// Whether to attempt to shrink the size of the DFA's alphabet or not.
+    ///
+    /// This option is enabled by default and should never be disabled unless
+    /// one is debugging a one-pass DFA.
+    ///
+    /// When enabled, the DFA will use a map from all possible bytes to their
+    /// corresponding equivalence class. Each equivalence class represents a
+    /// set of bytes that does not discriminate between a match and a non-match
+    /// in the DFA. For example, the pattern `[ab]+` has at least two
+    /// equivalence classes: a set containing `a` and `b` and a set containing
+    /// every byte except for `a` and `b`. `a` and `b` are in the same
+    /// equivalence class because they never discriminate between a match and a
+    /// non-match.
+    ///
+    /// The advantage of this map is that the size of the transition table
+    /// can be reduced drastically from (approximately) `#states * 256 *
+    /// sizeof(StateID)` to `#states * k * sizeof(StateID)` where `k` is the
+    /// number of equivalence classes (rounded up to the nearest power of 2).
+    /// As a result, total space usage can decrease substantially. Moreover,
+    /// since a smaller alphabet is used, DFA compilation becomes faster as
+    /// well.
+    ///
+    /// **WARNING:** This is only useful for debugging DFAs. Disabling this
+    /// does not yield any speed advantages. Namely, even when this is
+    /// disabled, a byte class map is still used while searching. The only
+    /// difference is that every byte will be forced into its own distinct
+    /// equivalence class. This is useful for debugging the actual generated
+    /// transitions because it lets one see the transitions defined on actual
+    /// bytes instead of the equivalence classes.
     pub fn byte_classes(mut self, yes: bool) -> Config {
         self.byte_classes = Some(yes);
         self
     }
 
+    /// Set a size limit on the total heap used by a one-pass DFA.
+    ///
+    /// This size limit is expressed in bytes and is applied during
+    /// construction of a one-pass DFA. If the DFA's heap usage exceeds
+    /// this configured limit, then construction is stopped and an error is
+    /// returned.
+    ///
+    /// The default is no limit.
+    ///
+    /// # Example
+    ///
+    /// This example shows a one-pass DFA that fails to build because of
+    /// a configured size limit. This particular example also serves as a
+    /// cautionary tale demonstrating just how big DFAs with large Unicode
+    /// character classes can get.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::onepass::DFA, Match};
+    ///
+    /// // 6MB isn't enough!
+    /// DFA::builder()
+    ///     .configure(DFA::config().size_limit(Some(6_000_000)))
+    ///     .build(r"\w{20}")
+    ///     .unwrap_err();
+    ///
+    /// // ... but 7MB probably is!
+    /// // (Note that DFA sizes aren't necessarily stable between releases.)
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().size_limit(Some(7_000_000)))
+    ///     .build(r"\w{20}")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let haystack = "A".repeat(20);
+    /// re.find(&mut cache, &haystack, &mut caps);
+    /// assert_eq!(Some(Match::must(0, 0..20)), caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// While one needs a little more than 3MB to represent `\w{20}`, it
+    /// turns out that you only need a little more than 4KB to represent
+    /// `(?-u:\w{20})`. So only use Unicode if you need it!
     pub fn size_limit(mut self, limit: Option<usize>) -> Config {
         self.size_limit = Some(limit);
         self
     }
 
+    /// Returns the match semantics set in this configuration.
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
+    /// Returns whether UTF-8 mode should be enabled for searches.
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
     }
 
+    /// Returns whether this configuration has enabled anchored starting states
+    /// for every pattern in the DFA.
     pub fn get_starts_for_each_pattern(&self) -> bool {
         self.starts_for_each_pattern.unwrap_or(false)
     }
 
+    /// Returns whether this configuration has enabled byte classes or not.
+    /// This is typically a debugging oriented option, as disabling it confers
+    /// no speed benefit.
     pub fn get_byte_classes(&self) -> bool {
         self.byte_classes.unwrap_or(true)
     }
 
+    /// Returns the DFA size limit of this configuration if one was set.
+    /// The size limit is total number of bytes on the heap that a DFA is
+    /// permitted to use. If the DFA exceeds this limit during construction,
+    /// then construction is stopped and an error is returned.
     pub fn get_size_limit(&self) -> Option<usize> {
         self.size_limit.unwrap_or(None)
     }
@@ -108,6 +381,51 @@ impl Config {
     }
 }
 
+/// A builder for a [one-pass DFA](DFA).
+///
+/// This builder permits configuring options for the syntax of a pattern, the
+/// NFA construction and the DFA construction. This builder is different from a
+/// general purpose regex builder in that it permits fine grain configuration
+/// of the construction process. The trade off for this is complexity, and
+/// the possibility of setting a configuration that might not make sense. For
+/// example, there are two different UTF-8 modes:
+///
+/// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
+/// pattern itself can contain sub-expressions that match invalid UTF-8.
+/// * [`Config::utf8`] controls whether empty matches that split a Unicode
+/// codepoint are reported or not.
+///
+/// Generally speaking, callers will want to either enable all of these or
+/// disable all of these.
+///
+/// # Example
+///
+/// This example shows how to disable UTF-8 mode in the syntax and the regex
+/// itself. This is generally what you want for matching on arbitrary bytes.
+///
+/// ```
+/// use regex_automata::{dfa::onepass::DFA, Match, SyntaxConfig};
+///
+/// let re = DFA::builder()
+///     .configure(DFA::config().utf8(false))
+///     .syntax(SyntaxConfig::new().utf8(false))
+///     .build(r"foo(?-u:[^b])ar.*")?;
+/// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+///
+/// let haystack = b"foo\xFFarzz\xE2\x98\xFF\n";
+/// re.find(&mut cache, haystack, &mut caps);
+/// // Notice that `(?-u:[^b])` matches invalid UTF-8,
+/// // but the subsequent `.*` does not! Disabling UTF-8
+/// // on the syntax permits this.
+/// //
+/// // N.B. This example does not show the impact of
+/// // disabling UTF-8 mode on a one-pass DFA Config,
+/// //  since that only impacts regexes that can
+/// // produce matches of length 0.
+/// assert_eq!(Some(Match::must(0, 0..8)), caps.get_match());
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
@@ -115,6 +433,7 @@ pub struct Builder {
 }
 
 impl Builder {
+    /// Create a new one-pass DFA builder with the default configuration.
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
@@ -122,10 +441,18 @@ impl Builder {
         }
     }
 
+    /// Build a one-pass DFA from the given pattern.
+    ///
+    /// If there was a problem parsing or compiling the pattern, then an error
+    /// is returned.
     pub fn build(&self, pattern: &str) -> Result<DFA, Error> {
         self.build_many(&[pattern])
     }
 
+    /// Build a one-pass DFA from the given patterns.
+    ///
+    /// When matches are returned, the pattern ID corresponds to the index of
+    /// the pattern in the slice given.
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -134,15 +461,62 @@ impl Builder {
         self.build_from_nfa(nfa)
     }
 
+    /// Build a DFA from the given NFA.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build a DFA if you already have an NFA in
+    /// hand.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::onepass::DFA, nfa::thompson::NFA, Match};
+    ///
+    /// // This shows how to set non-default options for building an NFA.
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().shrink(true))
+    ///     .build(r"[a-z0-9]+")?;
+    /// let re = DFA::builder().build_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// re.find(&mut cache, "foo123bar", &mut caps);
+    /// assert_eq!(Some(Match::must(0, 0..9)), caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_from_nfa(&self, nfa: NFA) -> Result<DFA, Error> {
+        // Why take ownership if we're just going to pass a reference to the
+        // NFA to our internal builder? Well, the first thing to note is that
+        // an NFA uses reference counting internally, so either choice is going
+        // to be cheap. So there isn't much cost either way.
+        //
+        // The real reason is that a one-pass DFA, semantically, shares
+        // ownership of an NFA. This is unlike other DFAs that don't share
+        // ownership of an NFA at all, primarily because they want to be
+        // self-contained in order to support cheap (de)serialization.
+        //
+        // But then why pass a '&nfa' below if we want to share ownership?
+        // Well, it turns out that using a '&NFA' in our internal builder
+        // separates its lifetime from the DFA we're building, and this turns
+        // out to make code a bit more composable. e.g., We can iterate over
+        // things inside the NFA while borrowing the builder as mutable because
+        // we know the NFA cannot be mutated. So TL;DR --- this weirdness is
+        // "because borrow checker."
         InternalBuilder::new(self.config.clone(), &nfa).build()
     }
 
+    /// Apply the given one-pass DFA configuration options to this builder.
     pub fn configure(&mut self, config: Config) -> &mut Builder {
         self.config = self.config.overwrite(config);
         self
     }
 
+    /// Set the syntax configuration for this builder using
+    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    ///
+    /// This permits setting things like case insensitivity, Unicode and multi
+    /// line mode.
+    ///
+    /// These settings only apply when constructing a one-pass DFA directly
+    /// from a pattern.
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::SyntaxConfig,
@@ -151,6 +525,14 @@ impl Builder {
         self
     }
 
+    /// Set the Thompson NFA configuration for this builder using
+    /// [`nfa::thompson::Config`](crate::nfa::thompson::Config).
+    ///
+    /// This permits setting things like whether additional time should be
+    /// spent shrinking the size of the NFA.
+    ///
+    /// These settings only apply when constructing a DFA directly from a
+    /// pattern.
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.thompson.configure(config);
         self
@@ -428,6 +810,30 @@ impl<'a> InternalBuilder<'a> {
     }
 }
 
+/// A one-pass DFA for executing a subset of regex searches with capturing
+/// groups.
+///
+/// TODO
+///
+/// # Example
+///
+/// This example shows that the one-pass DFA implements Unicode word boundaries
+/// correctly while simultaneously reporting spans for capturing groups that
+/// participate in a match. (This is the only DFA that implements full support
+/// for Unicode word boundaries.)
+///
+/// ```
+/// use regex_automata::{dfa::onepass::DFA, Match, Span};
+///
+/// let re = DFA::new(r"\b(?P<first>\w+)[[:space:]]+(?P<last>\w+)\b")?;
+/// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+///
+/// re.find(&mut cache, "Шерлок Холмс", &mut caps);
+/// assert_eq!(Some(Match::must(0, 0..23)), caps.get_match());
+/// assert_eq!(Some(Span::from(0..12)), caps.get_group_by_name("first"));
+/// assert_eq!(Some(Span::from(13..23)), caps.get_group_by_name("last"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone)]
 pub struct DFA {
     config: Config,
@@ -1092,7 +1498,7 @@ impl DFA {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
-        let m = match self.search_imp(cache, input, slots) {
+        match self.search_imp(cache, input, slots) {
             None => return None,
             Some(pid) if !input.get_utf8() => return Some(pid),
             Some(pid) => {
@@ -1105,26 +1511,15 @@ impl DFA {
                 // we know our caller provided slots are big enough.
                 let start = slots[slot_start].unwrap().get();
                 let end = slots[slot_end].unwrap().get();
-                if start < end {
-                    return Some(pid);
+                // If our match splits a codepoint, then we cannot report is
+                // as a match. And since one-pass DFAs only support anchored
+                // searches, we don't try to skip ahead to find the next match.
+                if start == end && !input.is_char_boundary(start) {
+                    return None;
                 }
-                Match::new(pid, start..end)
+                Some(pid)
             }
-        };
-        input
-            .skip_empty_utf8_splits(m, |search| {
-                let pid = match self.search_imp(cache, search, slots) {
-                    None => return Ok(None),
-                    Some(pid) => pid,
-                };
-                let slot_start = pid.as_usize() * 2;
-                let slot_end = slot_start + 1;
-                let start = slots[slot_start].unwrap().get();
-                let end = slots[slot_end].unwrap().get();
-                Ok(Some(Match::new(pid, start..end)))
-            })
-            .unwrap()
-            .map(|m| m.pattern())
+        }
     }
 }
 

@@ -454,8 +454,8 @@ impl Config {
     /// in the DFA. For example, the pattern `[ab]+` has at least two
     /// equivalence classes: a set containing `a` and `b` and a set containing
     /// every byte except for `a` and `b`. `a` and `b` are in the same
-    /// equivalence classes because they never discriminate between a match
-    /// and a non-match.
+    /// equivalence class because they never discriminate between a match and a
+    /// non-match.
     ///
     /// The advantage of this map is that the size of the transition table
     /// can be reduced drastically from `#states * 256 * sizeof(StateID)` to

@@ -207,3 +207,37 @@ input = '\xFFa\xFF'
 matches = []
 unescape = true
 utf8 = true
+
+# This test fails on every regex engine except for one-pass, and it reveals
+# a fundamental API problem: whether a search is anchored or not should be
+# a property of the 'Input' configuration. Some regex engines can *only*
+# do anchored searches (like one-pass), and that's fine, but otherwise, every
+# regex engine should always support 'unanchored' or 'anchored' searches.
+#
+# This test highlights why. See, we moved "skip over empty matches that split
+# a codepoint" down into the core regex engine search APIs. But the way it's
+# implemented assumes the search is unanchored. But today, whether it's
+# anchored or not depends on the regex engine config *and also* the 'Input'
+# config (e.g., if a specific pattern is selected). Which just makes every
+# complicated. Instead, we should just have a 'input.get_anchored()' option.
+#
+# Fixing this for the PikeVM and the backtracker should be pretty easy, since
+# it's pretty much already coded as-if 'anchored' was an 'Input' option.
+#
+# Fixing the non-one-pass DFAs is a little trickier, since we'll need to
+# add another explicit anchored starting state for all patterns. This is
+# pretty annoying, and I'm also curious how much this might increase automaton
+# size... We could make this configurable for the DFAs (with both anchored and
+# unanchored enabled by default)... And then panic if an anchored search is
+# requested when the DFA doesn't have an anchored starting state?
+#
+# Hmm, in experiments, it doesn't seem to make the DFA that much bigger. Oh...
+# For \w{10} it doubles the size... Sigh. Yup, needs to be configurable. Arrg.
+# [[tests]]
+# name = "anchored-iter-empty-utf8"
+# regex = ''
+# input = 'a☃z'
+# matches = [[0, 0], [1, 1]]
+# unescape = false
+# utf8 = true
+# anchored = true

@@ -56,10 +56,13 @@ thread_local! {
     static COUNTERS: RefCell<Counters> = RefCell::new(Counters::empty());
 }
 
-/// The configuration used for building a `PikeVM`.
+/// The configuration used for building a [`PikeVM`].
 ///
-/// A `PikeVM` configuration is a simple data object that is typically used
-/// with [`Builder::configure`].
+/// A PikeVM configuration is a simple data object that is typically used with
+/// [`Builder::configure`]. It can be cheaply cloned.
+///
+/// A default configuration can be created either with `Config::new`, or
+/// perhaps more conveniently, with [`PikeVM::config`].
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     anchored: Option<bool>,
@@ -323,9 +326,8 @@ impl Config {
 ///
 /// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
 /// pattern itself can contain sub-expressions that match invalid UTF-8.
-/// * [`Config::utf8`] controls how the regex iterators themselves advance
-/// the starting position of the next search when a match with zero length is
-/// found.
+/// * [`Config::utf8`] controls whether empty matches that split a Unicode
+/// codepoint are reported or not.
 ///
 /// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.

@@ -12,7 +12,7 @@ example, and it might be hard to know about it without carefully auditing the
 dependency. For example, CRE2 does allocate[2] in every 'cre2_match' call. Of
 course, bringing in a third party binding layer also has complexities on its
 own. Since we only need a small portion of a regex engine's public API, we can
-reasonably justifying hand rolling it.
+reasonably justify hand rolling it.
 
 [1]: https://github.com/marcomaggi/cre2
 [2]: https://github.com/marcomaggi/cre2/blob/6687e7eee83189ddc2b226e7c58adb360b468492/src/cre2.cpp#L278
