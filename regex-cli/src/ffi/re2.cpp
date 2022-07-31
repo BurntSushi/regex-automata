@@ -64,6 +64,11 @@ extern "C" {
         try {
             re2::StringPiece re2_pat(pat.data, pat.length);
             re2::RE2::Options re2_opts;
+            // This tends to be quite noisy, although it is useful for getting
+            // info from RE2 when it's doing sub-optimal things. Like not being
+            // able to use its lazy DFA. So it can be useful for turning this
+            // on if you're specifically interested in benchmarking RE2.
+            re2_opts.set_log_errors(false);
             // N.B. re2::Options::EncodingUTF8 is the default.
             if (!opts.utf8) {
                 re2_opts.set_encoding(re2::RE2::Options::EncodingLatin1);
