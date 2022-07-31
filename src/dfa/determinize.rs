@@ -275,7 +275,7 @@ impl<'a> Runner<'a> {
         let mut total_pat_len = 0;
         for (i, state) in self.builder_states.into_iter().enumerate() {
             if let Some(pat_ids) = state.match_pattern_ids() {
-                let id = self.dfa.from_index(i);
+                let id = self.dfa.to_state_id(i);
                 total_pat_len += pat_ids.len();
                 matches.insert(id, pat_ids);
             }

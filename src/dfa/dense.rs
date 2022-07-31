@@ -2453,7 +2453,7 @@ impl OwnedDFA {
         if cnormal > 0 {
             // our next available starting and normal states for swapping.
             let mut next_start_id = self.special.min_start;
-            let mut cur_id = self.from_index(self.state_len() - 1);
+            let mut cur_id = self.to_state_id(self.state_len() - 1);
             // This is guaranteed to exist since cnormal > 0.
             let mut next_norm_id =
                 self.tt.next_state_id(self.special.max_start);
@@ -2555,7 +2555,7 @@ impl OwnedDFA {
         mut matches: BTreeMap<StateID, Vec<PatternID>>,
     ) -> Result<(), Error> {
         // The determinizer always adds a quit state and it is always second.
-        self.special.quit_id = self.from_index(1);
+        self.special.quit_id = self.to_state_id(1);
         // If all we have are the dead and quit states, then we're done and
         // the DFA will never produce a match.
         if self.state_len() <= 2 {
@@ -2606,7 +2606,7 @@ impl OwnedDFA {
             // The determinizer guarantees that the first two states are the
             // dead and quit states, respectively. We want our match states to
             // come right after quit.
-            let mut next_id = self.from_index(2);
+            let mut next_id = self.to_state_id(2);
             let mut new_matches = BTreeMap::new();
             self.special.min_match = next_id;
             for (id, pids) in matches {
@@ -2628,7 +2628,7 @@ impl OwnedDFA {
 
         // Shuffle starting states.
         {
-            let mut next_id = self.from_index(2);
+            let mut next_id = self.to_state_id(2);
             if self.special.matches() {
                 next_id = self.tt.next_state_id(self.special.max_match);
             }
@@ -2722,7 +2722,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// Returns the ID of the quit state for this DFA.
     #[cfg(feature = "alloc")]
     pub(crate) fn quit_id(&self) -> StateID {
-        self.from_index(1)
+        self.to_state_id(1)
     }
 
     /// Convert the given state identifier to the state's index. The state's
@@ -2740,8 +2740,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
     /// to some other information (such as a remapped state ID).
     #[cfg(feature = "alloc")]
-    pub(crate) fn from_index(&self, index: usize) -> StateID {
-        self.tt.from_index(index)
+    pub(crate) fn to_state_id(&self, index: usize) -> StateID {
+        self.tt.to_state_id(index)
     }
 
     /// Return the table of state IDs for this DFA's start states.
@@ -3348,7 +3348,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     ///
     /// If the given index is not in the specified range, then this may panic
     /// or produce an incorrect state ID.
-    fn from_index(&self, index: usize) -> StateID {
+    fn to_state_id(&self, index: usize) -> StateID {
         // CORRECTNESS: If the given index is not valid, then it is not
         // required for this to panic or return a valid state ID.
         StateID::new_unchecked(index << self.stride2)
@@ -3361,7 +3361,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     /// returned is guaranteed to be invalid.
     #[cfg(feature = "alloc")]
     fn next_state_id(&self, id: StateID) -> StateID {
-        self.from_index(self.to_index(id).checked_add(1).unwrap())
+        self.to_state_id(self.to_index(id).checked_add(1).unwrap())
     }
 
     /// Returns the state ID for the state immediately preceding the one given.
@@ -3369,7 +3369,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     /// If the dead ID given (which is zero), then this panics.
     #[cfg(feature = "alloc")]
     fn prev_state_id(&self, id: StateID) -> StateID {
-        self.from_index(self.to_index(id).checked_sub(1).unwrap())
+        self.to_state_id(self.to_index(id).checked_sub(1).unwrap())
     }
 
     /// Returns the table as a slice of state IDs.
@@ -4243,7 +4243,7 @@ impl<'a, T: AsRef<[u32]>> Iterator for StateIter<'a, T> {
 
     fn next(&mut self) -> Option<State<'a>> {
         self.it.next().map(|(index, _)| {
-            let id = self.tt.from_index(index);
+            let id = self.tt.to_state_id(index);
             self.tt.state(id)
         })
     }

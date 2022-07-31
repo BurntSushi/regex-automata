@@ -7,7 +7,7 @@ use crate::{
 };
 
 use automata::{
-    dfa::onepass::{self, OnePass},
+    dfa::onepass::{self, DFA},
     nfa::thompson::{
         backtrack::{self, BoundedBacktracker},
         pikevm::{self, PikeVM},
@@ -307,7 +307,7 @@ fn search_api_regex(
 }
 
 fn search_onepass(
-    re: &OnePass,
+    re: &DFA,
     cache: &mut onepass::Cache,
     captures: &config::Captures,
     haystack: &[u8],

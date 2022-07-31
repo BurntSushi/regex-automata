@@ -1091,7 +1091,7 @@ The default for this flag is 'none', which sets no size limit.
     pub fn from_nfa(
         &self,
         nfa: thompson::NFA,
-    ) -> anyhow::Result<onepass::OnePass> {
+    ) -> anyhow::Result<onepass::DFA> {
         onepass::Builder::new()
             .configure(self.config.clone())
             .build_from_nfa(nfa)
@@ -1104,7 +1104,7 @@ The default for this flag is 'none', which sets no size limit.
         syntax: &Syntax,
         thompson: &Thompson,
         patterns: &Patterns,
-    ) -> anyhow::Result<onepass::OnePass> {
+    ) -> anyhow::Result<onepass::DFA> {
         let patterns = patterns.as_strings();
 
         let (asts, time) = util::timeitr(|| syntax.asts(patterns))?;

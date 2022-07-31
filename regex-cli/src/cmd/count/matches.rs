@@ -623,7 +623,7 @@ fn search_dfa_regex<A: Automaton>(
 }
 
 fn search_dfa_onepass(
-    re: &dfa::onepass::OnePass,
+    re: &dfa::onepass::DFA,
     cache: &mut dfa::onepass::Cache,
     find: &config::Find,
     haystack: &[u8],

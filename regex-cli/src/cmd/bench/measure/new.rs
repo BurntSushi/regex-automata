@@ -128,13 +128,13 @@ pub(super) fn regex_automata_backtrack(
 /// regexes with at most 12 total explicit capturing groups.
 pub(super) fn regex_automata_onepass(
     b: &Benchmark,
-) -> anyhow::Result<automata::dfa::onepass::OnePass> {
-    use automata::dfa::onepass::OnePass;
+) -> anyhow::Result<automata::dfa::onepass::DFA> {
+    use automata::dfa::onepass::DFA;
 
-    let re = OnePass::builder()
+    let re = DFA::builder()
         // Disabling UTF-8 here just means that iterators built by this regex
         // may report matches that split a UTF-8 encoding of a codepoint.
-        .configure(OnePass::config().utf8(false))
+        .configure(DFA::config().utf8(false))
         .syntax(automata_syntax_config(b))
         .build(&b.def.regex)?;
     Ok(re)

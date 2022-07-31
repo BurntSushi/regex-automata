@@ -1,5 +1,5 @@
 use regex_automata::{
-    dfa::onepass::{self, OnePass},
+    dfa::onepass::{self, DFA},
     nfa::thompson,
     util::iter,
     MatchKind, SyntaxConfig,
@@ -17,7 +17,7 @@ const EXPANSIONS: &[&str] = &["is_match", "find", "captures"];
 /// Tests the default configuration of the hybrid NFA/DFA.
 #[test]
 fn default() -> Result<()> {
-    let builder = OnePass::builder();
+    let builder = DFA::builder();
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), compiler(builder))
@@ -29,8 +29,8 @@ fn default() -> Result<()> {
 /// tests.
 #[test]
 fn starts_for_each_pattern() -> Result<()> {
-    let mut builder = OnePass::builder();
-    builder.configure(OnePass::config().starts_for_each_pattern(true));
+    let mut builder = DFA::builder();
+    builder.configure(DFA::config().starts_for_each_pattern(true));
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), compiler(builder))
@@ -45,8 +45,8 @@ fn starts_for_each_pattern() -> Result<()> {
 /// class.
 #[test]
 fn no_byte_classes() -> Result<()> {
-    let mut builder = OnePass::builder();
-    builder.configure(OnePass::config().byte_classes(false));
+    let mut builder = DFA::builder();
+    builder.configure(DFA::config().byte_classes(false));
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
         .test_iter(suite()?.iter(), compiler(builder))
@@ -97,7 +97,7 @@ fn compiler(
 }
 
 fn run_test(
-    re: &OnePass,
+    re: &DFA,
     cache: &mut onepass::Cache,
     test: &RegexTest,
 ) -> TestResult {
@@ -185,7 +185,7 @@ fn configure_onepass_builder(
         ret::MatchKind::LeftmostLongest => return false,
     };
 
-    let config = OnePass::config().match_kind(match_kind).utf8(test.utf8());
+    let config = DFA::config().match_kind(match_kind).utf8(test.utf8());
     builder
         .configure(config)
         .syntax(config_syntax(test))

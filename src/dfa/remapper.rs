@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use crate::{
-    dfa::{dense::OwnedDFA, onepass::OnePass},
+    dfa::{dense::OwnedDFA, onepass::DFA},
     util::primitives::StateID,
 };
 
@@ -214,20 +214,20 @@ impl Remappable for OwnedDFA {
     }
 }
 
-impl Remappable for OnePass {
+impl Remappable for DFA {
     fn state_len(&self) -> usize {
-        OnePass::state_len(self)
+        DFA::state_len(self)
     }
 
     fn stride2(&self) -> usize {
-        OnePass::stride2(self)
+        DFA::stride2(self)
     }
 
     fn swap_states(&mut self, id1: StateID, id2: StateID) {
-        OnePass::swap_states(self, id1, id2)
+        DFA::swap_states(self, id1, id2)
     }
 
     fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
-        OnePass::remap(self, map)
+        DFA::remap(self, map)
     }
 }

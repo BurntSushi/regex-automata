@@ -482,7 +482,9 @@ impl Builder {
 /// includes (and is currently limited to) Unicode word boundaries. So if your
 /// pattern has Unicode word boundaries, you typically can't use a DFA-based
 /// regex engine at all (unless you
-/// [enable heuristic support for it](crate::hybrid::dfa::Config::unicode_word_boundary)).
+/// [enable heuristic support for it](crate::hybrid::dfa::Config::unicode_word_boundary)). (The [one-pass DFA](crate::dfa::onepass::DFA) can handle Unicode word
+/// boundaries, but in a cruel sort of joke, many Unicode features tend to
+/// result in making the regex _not_ one-pass.)
 ///
 /// # Example
 ///
@@ -556,6 +558,9 @@ impl PikeVM {
         PikeVM::builder().build_many(patterns)
     }
 
+    /// Like `new`, but builds a PikeVM directly from an NFA. This is useful
+    /// if you already have an NFA, or even if you hand-assembled the NFA.
+    ///
     /// # Example
     ///
     /// This shows how to hand assemble a regular expression via its HIR,
@@ -718,16 +723,6 @@ impl PikeVM {
             .utf8(c.get_utf8())
     }
 
-    /// Create a new cache for this `PikeVM`.
-    ///
-    /// The cache returned should only be used for searches for this
-    /// `PikeVM`. If you want to reuse the cache for another `PikeVM`, then
-    /// you must call [`Cache::reset`] with that `PikeVM` (or, equivalently,
-    /// [`PikeVM::reset_cache`]).
-    pub fn create_cache(&self) -> Cache {
-        Cache::new(self)
-    }
-
     /// Create a new empty set of capturing groups that is guaranteed to be
     /// valid for the search APIs on this `PikeVM`.
     ///
@@ -740,6 +735,16 @@ impl PikeVM {
     /// and thus might make it faster.
     pub fn create_captures(&self) -> Captures {
         Captures::all(self.get_nfa().group_info().clone())
+    }
+
+    /// Create a new cache for this `PikeVM`.
+    ///
+    /// The cache returned should only be used for searches for this
+    /// `PikeVM`. If you want to reuse the cache for another `PikeVM`, then
+    /// you must call [`Cache::reset`] with that `PikeVM` (or, equivalently,
+    /// [`PikeVM::reset_cache`]).
+    pub fn create_cache(&self) -> Cache {
+        Cache::new(self)
     }
 
     /// Reset the given cache such that it can be used for searching with the
@@ -770,7 +775,7 @@ impl PikeVM {
     /// //
     /// // Similarly, after this reset, using the cache with 're1' is also not
     /// // allowed.
-    /// cache.reset(&re2);
+    /// re2.reset_cache(&mut cache);
     /// assert_eq!(
     ///     Some(Match::must(0, 0..3)),
     ///     re2.find_iter(&mut cache, "☃").next(),
@@ -1909,8 +1914,8 @@ impl Cache {
         }
     }
 
-    /// Reset this cache such that it can be used for searching with different
-    /// [`PikeVM`].
+    /// Reset this cache such that it can be used for searching with a
+    /// different [`PikeVM`].
     ///
     /// A cache reset permits reusing memory already allocated in this cache
     /// with a different `PikeVM`.
