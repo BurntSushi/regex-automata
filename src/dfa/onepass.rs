@@ -6,11 +6,43 @@
 //
 // Clean up search routine... Benchmark carefully.
 //
-// Write down future perf notes: 1) more state shuffling, e.g., separate
-// states with captures/looks, 2) maybe move match states to beginning, 3) see
-// if we can arrange search loop to have one 'if sid < specialmax' like other
-// DFAs, 4) move 'PatternInfo' out of transition table, since it's only set
-// for match states.
+// Write down future perf notes: 1) more state shuffling, e.g., separate states
+// with captures/looks, 2) maybe move match states to beginning, 3) see if we
+// can arrange search loop to have one 'if sid < specialmax' like other DFAs,
+// 4) move 'PatternInfo' out of transition table, since it's only set for match
+// states.
+//
+// After that is revamping literal extraction and figuring out how to weave
+// that into a meta regex engine. I seem to recall thinking about whether to do
+// literal extraction at the HIR or NFA level and deciding firmly on the HIR.
+// I'm not sure why though. I think it might be for the suffix case? That is,
+// we really want to be able to find suffix literals for the "reverse suffix
+// search" optimization. Doing that on a forward NFA seems a little tricky
+// unless all our edges are bidirectional. Which they aren't.
+//
+// I did have a brief idea that perhaps the "builder" intermediate NFA should
+// be a more traditional graph that uses pointers instead of state IDs. That
+// would make doing optimizations on the NFA much eaiser. It would also
+// potentially make bidirectional edges plausible. But how far down that rabbit
+// hole do we want to go?
+//
+// I think my next step was to experiment with adding 'String'/'Vec<u8>' to the
+// HIR instead of requiring Concat(char, char, ...). The reason why is because
+// I want to attach more metadata to HIR expressions, and adding all of that
+// for every single literal char in a regex pattern seems excessive.
+//
+// Another idea is to push the meta data down into HirKind such that it's only
+// attached to things with sub-expressions but never to primitives. Since in
+// the case of primitives, any inductive metadata is just the base case and
+// should be cheap to compute... But char classes ruin this. Some properties
+// on char classes might require visiting all of its ranges? Today they don't.
+// Indeed, a "min" or "max" length would seemingly require this... Unless
+// cp1 >= cp2 implies utf8(cp1).len() > utf8(cp2).len(). But even so, we could
+// just make an exception for classes and attach meta data to it. The important
+// bit is that we aren't doing it for literally every char.
+//
+// There are grander refactorings to the HIR possible. But its current
+// simplicity is nice.
 
 use core::convert::TryFrom;
 
@@ -539,20 +571,76 @@ impl Builder {
     }
 }
 
+/// An internal builder for encapsulating the state necessary to build a
+/// one-pass DFA. Typical use is just `InternalBuilder::new(..).build()`.
+///
+/// There is no separate pass for determining whether the NFA is one-pass or
+/// not. We just try to build the DFA. If during construction we discover that
+/// it is not one-pass, we bail out. This is likely to lead to some undesirable
+/// expense in some cases, so it might make sense to try an identify common
+/// patterns in the NFA that make it definitively not one-pass. That way, we
+/// can avoid ever trying to build a one-pass DFA in the first place. For
+/// example, '\w*\s' is not one-pass, and since '\w' is Unicode-aware by
+/// default, it's probably not a trivial cost to try and build a one-pass DFA
+/// for it and then fail.
+///
+/// Note that some (immutable) fields are duplicated here. For example, the
+/// 'nfa' and 'classes' fields are both in the 'DFA'. They are the same thing,
+/// but we duplicate them because it makes composition easier below. Otherwise,
+/// since the borrow checker can't see through method calls, the mutable borrow
+/// we use to mutate the DFA winds up preventing borrowing from any other part
+/// of the DFA, even though we aren't mutating those parts. We only do this
+/// because the duplication is cheap.
 #[derive(Debug)]
 struct InternalBuilder<'a> {
-    config: Config,
-    nfa: &'a NFA,
+    /// The DFA we're building.
     dfa: DFA,
-    classes: ByteClasses,
-    nfa_to_dfa_id: Vec<StateID>,
+    /// An unordered collection of NFA state IDs that we haven't yet tried to
+    /// build into a DFA state yet.
+    ///
+    /// This collection does not ultimately wind up including every NFA state
+    /// ID. Instead, each ID represents a "start" state for a sub-graph of the
+    /// NFA. The set of NFA states we then use to build a DFA state consists
+    /// of that "start" state and all states reachable from it via epsilon
+    /// transitions.
     uncompiled_nfa_ids: Vec<StateID>,
-    seen: SparseSet,
+    /// A map from NFA state ID to DFA state ID. This is useful for easily
+    /// determining whether an NFA state has been used as a "starting" point
+    /// to build a DFA state yet. If it hasn't, then it is mapped to DEAD,
+    /// and since DEAD is specially added and never corresponds to any NFA
+    /// state, it follows that a mapping to DEAD implies the NFA state has
+    /// no corresponding DFA state yet.
+    nfa_to_dfa_id: Vec<StateID>,
+    /// A stack used to traverse the NFA states that make up a single DFA
+    /// state. Traversal occurs until the stack is empty, and we only push to
+    /// the stack when the state ID isn't in 'seen'. Actually, even more than
+    /// that, if we try to push something on to this stack that is already in
+    /// 'seen', then we bail out on construction completely, since it implies
+    /// that the NFA is not one-pass.
     stack: Vec<(StateID, Info)>,
+    /// The set of NFA states that we've visited via 'stack'.
+    seen: SparseSet,
+    /// Whether a match NFA state has been observed while constructing a
+    /// one-pass DFA state. Once a match state is seen, assuming we are using
+    /// leftmost-first match semantics, then we don't add any more transitions
+    /// to the DFA state we're building.
     matched: bool,
+    /// The config passed to the builder.
+    ///
+    /// This is duplicated in dfa.config.
+    config: Config,
+    /// The NFA we're building a one-pass DFA from.
+    ///
+    /// This is duplicated in dfa.nfa.
+    nfa: &'a NFA,
+    /// The equivalence classes that make up the alphabet for this DFA>
+    ///
+    /// This is duplicated in dfa.classes.
+    classes: ByteClasses,
 }
 
 impl<'a> InternalBuilder<'a> {
+    /// Create a new builder with an initial empty DFA.
     fn new(config: Config, nfa: &'a NFA) -> InternalBuilder {
         let classes = if !config.get_byte_classes() {
             // A one-pass DFA will always use the equivalence class map, but
@@ -579,25 +667,35 @@ impl<'a> InternalBuilder<'a> {
             nfa: nfa.clone(),
             table: vec![],
             starts: vec![],
-            min_match_id: DEAD,
+            // Since one-pass DFAs have a smaller state ID max than
+            // StateID::MAX, it follows that StateID::MAX is a valid initial
+            // value for min_match_id since no state ID can ever be greater
+            // than it. In the case of a one-pass DFA with no match states, the
+            // min_match_id will keep this sentinel value.
+            min_match_id: StateID::MAX,
             classes: classes.clone(),
             alphabet_len,
             stride2,
-            patinfo_offset: classes.alphabet_len() - 1,
+            patinfo_offset: alphabet_len,
         };
         InternalBuilder {
+            dfa,
+            uncompiled_nfa_ids: vec![],
+            nfa_to_dfa_id: vec![DEAD; nfa.states().len()],
+            stack: vec![],
+            seen: SparseSet::new(nfa.states().len()),
+            matched: false,
             config,
             nfa,
-            dfa,
             classes,
-            nfa_to_dfa_id: vec![DEAD; nfa.states().len()],
-            uncompiled_nfa_ids: vec![],
-            seen: SparseSet::new(nfa.states().len()),
-            stack: vec![],
-            matched: false,
         }
     }
 
+    /// Build the DFA from the NFA given to this builder. If the NFA is not
+    /// one-pass, then return an error. An error may also be returned if a
+    /// particular limit is exceeded. (Some limits, like the total heap memory
+    /// used, are configurable. Others, like the total patterns or slots, are
+    /// hard-coded based on representational limitations.)
     fn build(mut self) -> Result<DFA, Error> {
         if self.nfa.pattern_len().as_u64() > PatternInfo::PATTERN_ID_LIMIT {
             return Err(Error::one_pass_too_many_patterns(
@@ -611,17 +709,35 @@ impl<'a> InternalBuilder<'a> {
         }
         assert_eq!(DEAD, self.add_empty_state()?);
 
+        // This is where the explicit slots start. We care about this because
+        // we only need to track explicit slots. The implicit slots---two for
+        // each pattern---are tracked as part of the search routine itself.
         let explicit_slot_start = self.nfa.pattern_len() * 2;
-        self.add_start_state(self.nfa.start_anchored())?;
+        self.add_start_state(None, self.nfa.start_anchored())?;
         if self.config.get_starts_for_each_pattern() {
             for pid in self.nfa.patterns() {
-                self.add_start_state(self.nfa.start_pattern(pid))?;
+                self.add_start_state(Some(pid), self.nfa.start_pattern(pid))?;
             }
         }
+        // NOTE: One wonders what the effects of treating 'uncompiled_nfa_ids'
+        // as a stack are. It is really an unordered *set* of NFA state IDs.
+        // If it, for example, in practice led to discovering whether a regex
+        // was or wasn't one-pass later than if we processed NFA state IDs in
+        // ascending order, then that would make this routine more costly in
+        // the somewhat common case of a regex that isn't one-pass.
         while let Some(nfa_id) = self.uncompiled_nfa_ids.pop() {
             let dfa_id = self.nfa_to_dfa_id[nfa_id];
+            // Once we see a match, we keep going, but don't add any new
+            // transitions. Normally we'd just stop, but we have to keep
+            // going in order to verify that our regex is actually one-pass.
             self.matched = false;
+            // The NFA states we've already explored for this DFA state.
             self.seen.clear();
+            // The NFA states to explore via epsilon transitions. If we ever
+            // try to push an NFA state that we've already seen, then the NFA
+            // is not one-pass because it implies there are multiple epsilon
+            // transition paths that lead to the same NFA state. In other
+            // words, there is ambiguity.
             self.stack_push(nfa_id, Info::empty())?;
             while let Some((id, info)) = self.stack.pop() {
                 match *self.nfa.state(id) {
@@ -649,8 +765,15 @@ impl<'a> InternalBuilder<'a> {
                     thompson::State::Capture { next, slot, .. } => {
                         let slot = slot.as_usize();
                         let info = if slot < explicit_slot_start {
+                            // If this is an implicit slot, we don't care
+                            // about it, since we handle implicit slots in
+                            // the search routine. We can get away with that
+                            // because there are 2 implicit slots for every
+                            // pattern.
                             info
                         } else {
+                            // Offset our explicit slots so that they start
+                            // at index 0.
                             let offset = slot - explicit_slot_start;
                             info.set_slots(info.slots().insert(offset))
                         };
@@ -660,12 +783,21 @@ impl<'a> InternalBuilder<'a> {
                         continue;
                     }
                     thompson::State::Match { pattern_id } => {
+                        // If we found two different paths to a match state
+                        // for the same DFA state, then we have ambiguity.
+                        // Thus, it's not one-pass.
                         if self.matched {
                             return Err(Error::one_pass_fail(
                                 "multiple epsilon transitions to match state",
                             ));
                         }
                         self.matched = true;
+                        // Shove the matching pattern ID and the 'info' into
+                        // the current DFA state's pattern info. The 'info'
+                        // includes the slots we need to capture before
+                        // reporting the match and also the conditional epsilon
+                        // transitions we need to check before we can report a
+                        // match.
                         self.dfa.set_pattern_info(
                             dfa_id,
                             PatternInfo::empty()
@@ -687,43 +819,48 @@ impl<'a> InternalBuilder<'a> {
                 }
             }
         }
-        self.dfa.min_match_id = StateID::new_unchecked(self.dfa.table.len());
-        let mut match_ids = vec![];
-        for i in 0..self.dfa.state_len() {
-            let id = StateID::new_unchecked(i << self.dfa.stride2());
-            let is_match = self.dfa.pattern_info(id).pattern_id().is_some();
-            if is_match {
-                match_ids.push(id);
-            }
-        }
-        let mut remapper = Remapper::new(&self.dfa);
-        let mut next_dest =
-            StateID::new_unchecked(self.dfa.table.len() - self.dfa.stride());
-        for id in match_ids.into_iter().rev() {
-            remapper.swap(&mut self.dfa, next_dest, id);
-            self.dfa.min_match_id = next_dest;
-            next_dest = StateID::new_unchecked(
-                next_dest.as_usize() - self.dfa.stride(),
-            );
-        }
-        remapper.remap(&mut self.dfa);
+        self.shuffle_states();
         Ok(self.dfa)
     }
 
-    fn stack_push(
-        &mut self,
-        nfa_id: StateID,
-        info: Info,
-    ) -> Result<(), Error> {
-        if !self.seen.insert(nfa_id) {
-            return Err(Error::one_pass_fail(
-                "multiple epsilon transitions to same state",
-            ));
+    /// Shuffle all match states to the end of the transition table and set
+    /// 'min_match_id' to the ID of the first such match state.
+    ///
+    /// The point of this is to make it extremely cheap to determine whether
+    /// a state is a match state or not. We need to check on this on every
+    /// transition during a search, so it being cheap is important. This
+    /// permits us to check it by simply comparing two state identifiers, as
+    /// opposed to looking for the pattern ID in the state's `PatternInfo`.
+    /// (Which requires a memory load and some light arithmetic.)
+    fn shuffle_states(&mut self) {
+        let mut remapper = Remapper::new(&self.dfa);
+        let mut next_dest = self.dfa.last_state_id();
+        for i in (0..self.dfa.state_len()).rev() {
+            let id = self.dfa.to_state_id(i);
+            let is_match = self.dfa.pattern_info(id).pattern_id().is_some();
+            if !is_match {
+                continue;
+            }
+            remapper.swap(&mut self.dfa, next_dest, id);
+            self.dfa.min_match_id = next_dest;
+            next_dest = self.dfa.prev_state_id(next_dest).expect(
+                "match states should be a proper subset of all states",
+            );
         }
-        self.stack.push((nfa_id, info));
-        Ok(())
+        remapper.remap(&mut self.dfa);
     }
 
+    /// Compile the given NFA transition into the DFA state given.
+    ///
+    /// 'Info' corresponds to any conditional epsilon transitions that need to
+    /// be satisfied to follow this transition, and any slots that need to be
+    /// saved if the transition is followed.
+    ///
+    /// If this transition indicates that the NFA is not one-pass, then
+    /// this returns an error. (This occurs, for example, if the DFA state
+    /// already has a transition defined for the same input symbols as the
+    /// given transition, *and* the result of the old and new transitions is
+    /// different.)
     fn compile_transition(
         &mut self,
         dfa_id: StateID,
@@ -738,10 +875,7 @@ impl<'a> InternalBuilder<'a> {
         {
             return Ok(());
         }
-        let mut next_dfa_id = self.nfa_to_dfa_id[trans.next];
-        if next_dfa_id == DEAD {
-            next_dfa_id = self.add_dfa_state_for_nfa_state(trans.next)?;
-        }
+        let next_dfa_id = self.add_dfa_state_for_nfa_state(trans.next)?;
         for byte in self
             .classes
             .representatives(trans.start..=trans.end)
@@ -749,6 +883,11 @@ impl<'a> InternalBuilder<'a> {
         {
             let oldtrans = self.dfa.transition(dfa_id, byte);
             let newtrans = Transition::new(next_dfa_id, info);
+            // If the old transition points to the DEAD state, then we know
+            // 'byte' has not been mapped to any transition for this DFA state
+            // yet. So set it unconditionally. Otherwise, we require that the
+            // old and new transitions are equivalent. Otherwise, there is
+            // ambiguity and thus the regex is not one-pass.
             if oldtrans.state_id() == DEAD {
                 self.dfa.set_transition(dfa_id, byte, newtrans);
             } else if oldtrans != newtrans {
@@ -758,12 +897,44 @@ impl<'a> InternalBuilder<'a> {
         Ok(())
     }
 
-    fn add_start_state(&mut self, nfa_id: StateID) -> Result<StateID, Error> {
+    /// Add a start state to the DFA corresponding to the given NFA starting
+    /// state ID.
+    ///
+    /// If adding a state would blow any limits (configured or hard-coded),
+    /// then an error is returned.
+    ///
+    /// If the starting state is an anchored state for a particular pattern,
+    /// then callers must provide the pattern ID for that starting state.
+    /// Callers must also ensure that the first starting state added is the
+    /// start state for all patterns, and then each anchored starting state for
+    /// each pattern (if necessary) added in order. Otherwise, this panics.
+    fn add_start_state(
+        &mut self,
+        pid: Option<PatternID>,
+        nfa_id: StateID,
+    ) -> Result<StateID, Error> {
+        match pid {
+            // With no pid, this should be the start state for all patterns
+            // and thus be the first one.
+            None => assert!(self.dfa.starts.is_empty()),
+            // With a pid, we want it to be at self.dfa.starts[pid+1].
+            Some(pid) => assert!(self.dfa.starts.len() == pid.one_more()),
+        }
         let dfa_id = self.add_dfa_state_for_nfa_state(nfa_id)?;
         self.dfa.starts.push(dfa_id);
         Ok(dfa_id)
     }
 
+    /// Add a new DFA state corresponding to the given NFA state. If adding a
+    /// state would blow any limits (configured or hard-coded), then an error
+    /// is returned. If a DFA state already exists for the given NFA state,
+    /// then that DFA state's ID is returned and no new states are added.
+    ///
+    /// It is not expected that this routine is called for every NFA state.
+    /// Instead, an NFA state ID will usually correspond to the "start" state
+    /// for a sub-graph of the NFA, where all states in the sub-graph are
+    /// reachable via epsilon transitions (conditional or unconditional). That
+    /// sub-graph of NFA states is ultimately what produces a single DFA state.
     fn add_dfa_state_for_nfa_state(
         &mut self,
         nfa_id: StateID,
@@ -785,21 +956,26 @@ impl<'a> InternalBuilder<'a> {
         Ok(dfa_id)
     }
 
+    /// Unconditionally add a new empty DFA state. If adding it would exceed
+    /// any limits (configured or hard-coded), then an error is returned. The
+    /// ID of the new state is returned on success.
+    ///
+    /// The added state is *not* a match state.
     fn add_empty_state(&mut self) -> Result<StateID, Error> {
         let next = self.dfa.table.len();
         let id = StateID::new(next).map_err(|_| Error::too_many_states())?;
-        let id_limit = 1 << Transition::STATE_ID_BITS;
-        if id.as_u64() > id_limit {
-            let state_limit = id_limit / self.dfa.stride().as_u64();
+        if id.as_u64() > Transition::STATE_ID_LIMIT {
+            let state_limit =
+                Transition::STATE_ID_LIMIT / self.dfa.stride().as_u64();
             return Err(Error::one_pass_too_many_states(state_limit));
         }
         self.dfa
             .table
             .extend(core::iter::repeat(Transition(0)).take(self.dfa.stride()));
         // The default empty value for 'PatternInfo' is sadly not all zeroes.
-        // Instead, the special sentinel u32::MAX<<32 is used to indicate that
-        // there is no pattern. So we need to explicitly set the pattern info
-        // to the correct "empty" state.
+        // Instead, a special sentinel is used to indicate that there is no
+        // pattern. So we need to explicitly set the pattern info to the
+        // correct "empty" PatternInfo.
         self.dfa.set_pattern_info(id, PatternInfo::empty());
         if let Some(size_limit) = self.config.get_size_limit() {
             if self.dfa.memory_usage() > size_limit {
@@ -808,12 +984,34 @@ impl<'a> InternalBuilder<'a> {
         }
         Ok(id)
     }
+
+    /// Push the given NFA state ID and its corresponding info (slots and
+    /// conditional epsilon transitions) on to a stack for use in a depth first
+    /// traversal of a sub-graph of the NFA.
+    ///
+    /// If the given NFA state ID has already been pushed on to the stack, then
+    /// it indicates the regex is not one-pass and this correspondingly returns
+    /// an error.
+    fn stack_push(
+        &mut self,
+        nfa_id: StateID,
+        info: Info,
+    ) -> Result<(), Error> {
+        if !self.seen.insert(nfa_id) {
+            return Err(Error::one_pass_fail(
+                "multiple epsilon transitions to same state",
+            ));
+        }
+        self.stack.push((nfa_id, info));
+        Ok(())
+    }
 }
 
-/// A one-pass DFA for executing a subset of regex searches with capturing
-/// groups.
+/// A one-pass DFA for executing a subset of anchored regex searches while
+/// resolving capturing groups.
 ///
-/// TODO
+/// A one-pass DFA can be built from an NFA that is one-pass. An NFA is one-pass
+/// when there is never any ambiguity
 ///
 /// # Example
 ///
@@ -836,15 +1034,58 @@ impl<'a> InternalBuilder<'a> {
 /// ```
 #[derive(Clone)]
 pub struct DFA {
+    /// The configuration provided by the caller.
     config: Config,
+    /// The NFA used to build this DFA.
+    ///
+    /// NOTE: We probably don't need to store the NFA here, but we use enough
+    /// bits from it that it's convenient to do so. And there really isn't much
+    /// cost to doing so either, since an NFA is reference counted internally.
     nfa: NFA,
+    /// The transition table. Given a state ID 's' and a byte of haystack 'b',
+    /// the next state is 'table[sid + classes[byte]]'.
+    ///
+    /// The stride of this table (i.e., the number of columns) is always
+    /// a power of 2, even if the alphabet length is smaller. This makes
+    /// converting between state IDs and state indices very cheap.
     table: Vec<Transition>,
+    /// The DFA state IDs of the starting states.
+    ///
+    /// starts[0] is always present and corresponds to the starting state when
+    /// searching for matches of any pattern in the DFA.
+    ///
+    /// starts[i] where i>0 corresponds to the starting state for the pattern
+    /// ID 'i-1'. These starting states are optional.
     starts: Vec<StateID>,
     /// Every state ID >= this value corresponds to a match state.
+    ///
+    /// This is what a search uses to detect whether a state is a match state
+    /// or not. It requires only a simple comparison instead of bit-unpacking
+    /// the PatternInfo from every state.
     min_match_id: StateID,
+    /// The alphabet of this DFA, split into equivalence classes. Bytes in the
+    /// same equivalence class can never discriminate between a match and a
+    /// non-match.
     classes: ByteClasses,
+    /// The number of elements in each state in the transition table. This may
+    /// be less than the stride, since the stride is always a power of 2 and
+    /// the alphabet length can be anything up to and including 256.
     alphabet_len: usize,
+    /// The number of columns in the transition table, expressed as a power of
+    /// 2.
     stride2: usize,
+    /// The offset at which the PatternInfo for a match state is stored in the
+    /// transition table.
+    ///
+    /// PERF: One wonders whether it would be better to put this in a separate
+    /// allocation, since only match states have a non-empty PatternInfo and
+    /// the number of match states tends be dwarfed by the number of non-match
+    /// states. So this would save '8*len(non_match_states)' for each DFA. The
+    /// question is whether moving this to a different allocation will lead to
+    /// a perf hit during searches. You might think dealing with match states
+    /// is rare, but some regexes spend a lot of time in match states gobbling
+    /// up input. But... match state handling is already somewhat expensive,
+    /// so maybe this wouldn't do much? Either way, it's worth experimenting.
     patinfo_offset: usize,
 }
 
@@ -1157,7 +1398,7 @@ impl DFA {
     /// being informational.
     #[inline]
     pub fn state_len(&self) -> usize {
-        self.table.len() >> self.stride2
+        self.table.len() >> self.stride2()
     }
 
     /// Returns the total number of elements in the alphabet for this DFA.
@@ -1234,7 +1475,7 @@ impl DFA {
     /// being informational.
     #[inline]
     pub fn stride(&self) -> usize {
-        1 << self.stride2
+        1 << self.stride2()
     }
 
     /// Returns the memory usage, in bytes, of this DFA.
@@ -1654,13 +1895,52 @@ impl DFA {
             Transition(patinfo.0);
     }
 
-    pub(crate) fn swap_states(&mut self, id1: StateID, id2: StateID) {
+    fn to_index(&self, id: StateID) -> usize {
+        id.as_usize() >> self.stride2()
+    }
+
+    fn to_state_id(&self, index: usize) -> StateID {
+        // CORRECTNESS: If the given index is not valid, then it is not
+        // required for this to panic or return a valid state ID. We'll "just"
+        // wind up with panics or silent logic errors at some other point.
+        StateID::new_unchecked(index << self.stride2())
+    }
+
+    /// Returns the state ID prior to the one given. This returns None if the
+    /// given ID is the first DFA state.
+    fn prev_state_id(&self, id: StateID) -> Option<StateID> {
+        if id == DEAD {
+            None
+        } else {
+            // CORRECTNESS: Since 'id' is not the first state and since all
+            // states have the same stride, it follows that subtracting the
+            // stride from a valid state ID must yield the previous state ID.
+            Some(StateID::new_unchecked(
+                id.as_usize().checked_sub(self.stride()).unwrap(),
+            ))
+        }
+    }
+
+    /// Returns the state ID of the last state in this DFA's transition table.
+    /// "last" in this context means the last state to appear in memory, i.e.,
+    /// the one with the greatest ID.
+    fn last_state_id(&self) -> StateID {
+        // CORRECTNESS: A DFA table is always non-empty since it always at
+        // least contains a DEAD state. Since every state has the same stride,
+        // it follows that subtracting it from the length of the table will
+        // give us the ID of the last state in the table.
+        StateID::new_unchecked(
+            self.table.len().checked_sub(self.stride()).unwrap(),
+        )
+    }
+
+    pub(super) fn swap_states(&mut self, id1: StateID, id2: StateID) {
         for b in 0..self.stride() {
             self.table.swap(id1.as_usize() + b, id2.as_usize() + b);
         }
     }
 
-    pub(crate) fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
+    pub(super) fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
         for i in 0..self.state_len() {
             let id = StateID::new_unchecked(i << self.stride2());
             for b in 0..self.alphabet_len() {
@@ -1910,8 +2190,9 @@ struct Transition(u64);
 impl Transition {
     const STATE_ID_BITS: u64 = 24;
     const STATE_ID_SHIFT: u64 = 64 - Transition::STATE_ID_BITS;
-    const MASK_STATE_ID: u64 = 0xFFFFFF00_00000000;
-    const MASK_INFO: u64 = 0x000000FF_FFFFFFFF;
+    const STATE_ID_LIMIT: u64 = 1 << Transition::STATE_ID_BITS;
+    const STATE_ID_MASK: u64 = 0xFFFFFF00_00000000;
+    const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
     fn new(sid: StateID, info: Info) -> Transition {
         Transition((sid.as_u64() << Transition::STATE_ID_SHIFT) | info.0)
@@ -1936,7 +2217,7 @@ impl Transition {
     }
 
     fn info(&self) -> Info {
-        Info(self.0 & Transition::MASK_INFO)
+        Info(self.0 & Transition::INFO_MASK)
     }
 }
 
@@ -1959,13 +2240,14 @@ struct PatternInfo(u64);
 impl PatternInfo {
     const PATTERN_ID_BITS: u64 = 24;
     const PATTERN_ID_SHIFT: u64 = 64 - PatternInfo::PATTERN_ID_BITS;
-    const PATTERN_ID_LIMIT: u64 = (1 << PatternInfo::PATTERN_ID_BITS) - 1;
-    const MASK_PATTERN_ID: u64 = 0xFFFFFF00_00000000;
-    const MASK_INFO: u64 = 0x000000FF_FFFFFFFF;
+    const PATTERN_ID_NONE: u64 = 0x00000000_00FFFFFF;
+    const PATTERN_ID_LIMIT: u64 = PatternInfo::PATTERN_ID_NONE;
+    const PATTERN_ID_MASK: u64 = 0xFFFFFF00_00000000;
+    const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
     fn empty() -> PatternInfo {
         PatternInfo(
-            PatternInfo::PATTERN_ID_LIMIT << PatternInfo::PATTERN_ID_SHIFT,
+            PatternInfo::PATTERN_ID_NONE << PatternInfo::PATTERN_ID_SHIFT,
         )
     }
 
@@ -1994,17 +2276,17 @@ impl PatternInfo {
     fn set_pattern_id(self, pid: PatternID) -> PatternInfo {
         PatternInfo(
             (pid.as_u64() << PatternInfo::PATTERN_ID_SHIFT)
-                | (self.0 & PatternInfo::MASK_INFO),
+                | (self.0 & PatternInfo::INFO_MASK),
         )
     }
 
     fn info(self) -> Info {
-        Info(self.0 & PatternInfo::MASK_INFO)
+        Info(self.0 & PatternInfo::INFO_MASK)
     }
 
     fn set_info(self, info: Info) -> PatternInfo {
         PatternInfo(
-            (self.0 & PatternInfo::MASK_PATTERN_ID) | u64::from(info.0),
+            (self.0 & PatternInfo::PATTERN_ID_MASK) | u64::from(info.0),
         )
     }
 }

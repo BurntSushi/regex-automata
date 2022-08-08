@@ -208,6 +208,8 @@ matches = []
 unescape = true
 utf8 = true
 
+# FIXME
+#
 # This test fails on every regex engine except for one-pass, and it reveals
 # a fundamental API problem: whether a search is anchored or not should be
 # a property of the 'Input' configuration. Some regex engines can *only*

@@ -99,7 +99,7 @@ fn define_nfa_thompson() -> App {
 }
 
 fn run_api(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_api, |cmd, args| match cmd {
         "regex" => run_api_regex(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
@@ -135,7 +135,7 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_dfa(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_dfa, |cmd, args| match cmd {
         "onepass" => run_dfa_onepass(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
@@ -182,14 +182,14 @@ fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_nfa(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_nfa, |cmd, args| match cmd {
         "thompson" => run_nfa_thompson(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
 
 fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_nfa_thompson, |cmd, args| match cmd {
         "backtrack" => run_nfa_thompson_backtrack(args),
         "pikevm" => run_nfa_thompson_pikevm(args),
         _ => Err(util::UnrecognizedCommandError.into()),

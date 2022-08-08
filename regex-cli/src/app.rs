@@ -77,6 +77,7 @@ pub fn command(name: &'static str) -> App {
         .version(clap::crate_version!())
         .template(TEMPLATE_SUBCOMMAND)
         .setting(clap::AppSettings::UnifiedHelpMessage)
+        .setting(clap::AppSettings::DisableHelpSubcommand)
 }
 
 /// Convenience function for creating a new Clap sub-command.
@@ -89,6 +90,7 @@ pub fn leaf(name: &'static str) -> App {
         .version(clap::crate_version!())
         .template(TEMPLATE_LEAF)
         .setting(clap::AppSettings::UnifiedHelpMessage)
+        .setting(clap::AppSettings::DisableHelpSubcommand)
 }
 
 /// Convenience function for defining a Clap positional argument with the

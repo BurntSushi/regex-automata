@@ -260,9 +260,10 @@ impl ByteClasses {
     /// class.
     ///
     /// This is useful when one is determinizing an NFA and the NFA's alphabet
-    /// hasn't been converted to equivalence classes yet. Picking an arbitrary
-    /// byte from each equivalence class then permits a full exploration of
-    /// the NFA instead of using every possible byte value.
+    /// hasn't been converted to equivalence classes. Picking an arbitrary byte
+    /// from each equivalence class then permits a full exploration of the NFA
+    /// instead of using every possible byte value and thus potentially saves
+    /// quite a lot of redundant work.
     #[cfg(feature = "alloc")]
     pub fn representatives<R: RangeBounds<u8>>(
         &self,

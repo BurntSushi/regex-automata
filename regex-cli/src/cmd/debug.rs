@@ -178,7 +178,7 @@ fn run_hir(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_nfa(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_nfa, |cmd, args| match cmd {
         "thompson" => run_nfa_thompson(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
@@ -209,7 +209,7 @@ fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_dfa(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_dfa, |cmd, args| match cmd {
         "dense" => run_dfa_dense(args),
         "sparse" => run_dfa_sparse(args),
         "onepass" => run_dfa_onepass(args),
@@ -272,7 +272,7 @@ fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_dfa_regex(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_dfa_regex, |cmd, args| match cmd {
         "dense" => run_dfa_regex_dense(args),
         "sparse" => run_dfa_regex_sparse(args),
         _ => Err(util::UnrecognizedCommandError.into()),
@@ -318,7 +318,7 @@ fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_hybrid(args: &Args) -> anyhow::Result<()> {
-    util::run_subcommand(args, define, |cmd, args| match cmd {
+    util::run_subcommand(args, define_hybrid, |cmd, args| match cmd {
         "dense" => run_hybrid_dense(args),
         "regex" => run_hybrid_regex(args),
         _ => Err(util::UnrecognizedCommandError.into()),
