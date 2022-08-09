@@ -26,6 +26,11 @@ DFAs implement. (A `regex::Regex` is generic over this trait.)
 [`dense::DFA::to_bytes_little_endian`]) and cheap deserialization (e.g.,
 [`dense::DFA::from_bytes`]).
 
+There is also a [`onepass`] module that provides a [one-pass
+DFA](onepass::DFA). The unique advantage of this DFA is that, for the class
+of regexes it can be built with, it supports reporting the spans of matching
+capturing groups. It is the only DFA in this crate capable of such a thing.
+
 # Example: basic regex searching
 
 This example shows how to compile a regex using the default configuration

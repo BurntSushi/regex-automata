@@ -4,7 +4,7 @@ Types and routines specific to dense DFAs.
 This module is the home of [`dense::DFA`](DFA).
 
 This module also contains a [`dense::Builder`](Builder) and a
-[`dense::Config`](Config) for configuring and building a dense DFA.
+[`dense::Config`](Config) for building and configuring a dense DFA.
 */
 
 #[cfg(feature = "alloc")]

@@ -1,3 +1,44 @@
+/*!
+A DFA that can return spans for matching capturing groups.
+
+This module is the home of a [one-pass DFA](DFA).
+
+This module also contains a [`Builder`] and a [`Config`] for building and
+configuring a one-pass DFA.
+*/
+
+// A note on naming and credit:
+//
+// As far as I know, Russ Cox came up with the practical vision and
+// implementation of a "one-pass regex engine." He mentions and describes it
+// briefly in the third article of his regexp article series:
+// https://swtch.com/~rsc/regexp/regexp3.html
+//
+// That first implementation is in RE2, and the implementation below is most
+// heavily inspired by RE2's. The key thing they have in common is that their
+// transitions are defined over an alphabet of bytes. In contrast, Go's
+// regex engine also has a one-pass engine, but its transitions are more firmly
+// rooted on Unicode codepoints. The ideas are the same, but the implementations
+// are different.
+//
+// So, RE2 tends to call this a "one-pass NFA." Here, we call it a "one-pass
+// DFA." They're both true in their own ways:
+//
+// * The "one-pass" criterion is generally a property of the NFA itself. In
+// particular, it is said that an NFA is one-pass if, after each byte of input
+// during a search, there is at most one "VM thread" remaining to take for the
+// next byte of input. That is, there is never any ambiguity as to the path to
+// take through the NFA during a search.
+//
+// * On the other hand, once a one-pass NFA has its representation converted
+// to something where a constant number of instructions is used for each byte
+// of input, the implementation looks a lot more like a DFA. It's technically
+// more powerful than a DFA since it has side effects (storing offsets inside
+// of slots activated by a transition), but it is far closer to a DFA than an
+// NFA simulation.
+//
+// Thus, in this crate, we call it a one-pass DFA.
+
 use core::convert::TryFrom;
 
 use alloc::{vec, vec::Vec};
@@ -571,7 +612,7 @@ struct InternalBuilder<'a> {
     /// that, if we try to push something on to this stack that is already in
     /// 'seen', then we bail out on construction completely, since it implies
     /// that the NFA is not one-pass.
-    stack: Vec<(StateID, Info)>,
+    stack: Vec<(StateID, Epsilons)>,
     /// The set of NFA states that we've visited via 'stack'.
     seen: SparseSet,
     /// Whether a match NFA state has been observed while constructing a
@@ -630,7 +671,7 @@ impl<'a> InternalBuilder<'a> {
             classes: classes.clone(),
             alphabet_len,
             stride2,
-            patinfo_offset: alphabet_len,
+            pateps_offset: alphabet_len,
         };
         InternalBuilder {
             dfa,
@@ -651,9 +692,10 @@ impl<'a> InternalBuilder<'a> {
     /// used, are configurable. Others, like the total patterns or slots, are
     /// hard-coded based on representational limitations.)
     fn build(mut self) -> Result<DFA, Error> {
-        if self.nfa.pattern_len().as_u64() > PatternInfo::PATTERN_ID_LIMIT {
+        if self.nfa.pattern_len().as_u64() > PatternEpsilons::PATTERN_ID_LIMIT
+        {
             return Err(Error::one_pass_too_many_patterns(
-                PatternInfo::PATTERN_ID_LIMIT,
+                PatternEpsilons::PATTERN_ID_LIMIT,
             ));
         }
         if self.nfa.group_info().explicit_slot_len() > Slots::LIMIT {
@@ -692,46 +734,46 @@ impl<'a> InternalBuilder<'a> {
             // is not one-pass because it implies there are multiple epsilon
             // transition paths that lead to the same NFA state. In other
             // words, there is ambiguity.
-            self.stack_push(nfa_id, Info::empty())?;
-            while let Some((id, info)) = self.stack.pop() {
+            self.stack_push(nfa_id, Epsilons::empty())?;
+            while let Some((id, epsilons)) = self.stack.pop() {
                 match *self.nfa.state(id) {
                     thompson::State::ByteRange { ref trans } => {
-                        self.compile_transition(dfa_id, trans, info)?;
+                        self.compile_transition(dfa_id, trans, epsilons)?;
                     }
                     thompson::State::Sparse(ref sparse) => {
                         for trans in sparse.transitions.iter() {
-                            self.compile_transition(dfa_id, trans, info)?;
+                            self.compile_transition(dfa_id, trans, epsilons)?;
                         }
                     }
                     thompson::State::Look { look, next } => {
-                        let looks = info.looks().insert(look);
-                        self.stack_push(next, info.set_looks(looks))?;
+                        let looks = epsilons.looks().insert(look);
+                        self.stack_push(next, epsilons.set_looks(looks))?;
                     }
                     thompson::State::Union { ref alternates } => {
                         for &sid in alternates.iter().rev() {
-                            self.stack_push(sid, info)?;
+                            self.stack_push(sid, epsilons)?;
                         }
                     }
                     thompson::State::BinaryUnion { alt1, alt2 } => {
-                        self.stack_push(alt2, info)?;
-                        self.stack_push(alt1, info)?;
+                        self.stack_push(alt2, epsilons)?;
+                        self.stack_push(alt1, epsilons)?;
                     }
                     thompson::State::Capture { next, slot, .. } => {
                         let slot = slot.as_usize();
-                        let info = if slot < explicit_slot_start {
+                        let epsilons = if slot < explicit_slot_start {
                             // If this is an implicit slot, we don't care
                             // about it, since we handle implicit slots in
                             // the search routine. We can get away with that
                             // because there are 2 implicit slots for every
                             // pattern.
-                            info
+                            epsilons
                         } else {
                             // Offset our explicit slots so that they start
                             // at index 0.
                             let offset = slot - explicit_slot_start;
-                            info.set_slots(info.slots().insert(offset))
+                            epsilons.set_slots(epsilons.slots().insert(offset))
                         };
-                        self.stack_push(next, info)?;
+                        self.stack_push(next, epsilons)?;
                     }
                     thompson::State::Fail => {
                         continue;
@@ -746,17 +788,17 @@ impl<'a> InternalBuilder<'a> {
                             ));
                         }
                         self.matched = true;
-                        // Shove the matching pattern ID and the 'info' into
-                        // the current DFA state's pattern info. The 'info'
-                        // includes the slots we need to capture before
-                        // reporting the match and also the conditional epsilon
-                        // transitions we need to check before we can report a
-                        // match.
-                        self.dfa.set_pattern_info(
+                        // Shove the matching pattern ID and the 'epsilons'
+                        // into the current DFA state's pattern epsilons. The
+                        // 'epsilons' includes the slots we need to capture
+                        // before reporting the match and also the conditional
+                        // epsilon transitions we need to check before we can
+                        // report a match.
+                        self.dfa.set_pattern_epsilons(
                             dfa_id,
-                            PatternInfo::empty()
+                            PatternEpsilons::empty()
                                 .set_pattern_id(pattern_id)
-                                .set_info(info),
+                                .set_epsilons(epsilons),
                         );
                         // N.B. It is tempting to just bail out here when
                         // compiling a leftmost-first DFA, since we will never
@@ -791,7 +833,8 @@ impl<'a> InternalBuilder<'a> {
         let mut next_dest = self.dfa.last_state_id();
         for i in (0..self.dfa.state_len()).rev() {
             let id = self.dfa.to_state_id(i);
-            let is_match = self.dfa.pattern_info(id).pattern_id().is_some();
+            let is_match =
+                self.dfa.pattern_epsilons(id).pattern_id().is_some();
             if !is_match {
                 continue;
             }
@@ -819,7 +862,7 @@ impl<'a> InternalBuilder<'a> {
         &mut self,
         dfa_id: StateID,
         trans: &thompson::Transition,
-        info: Info,
+        epsilons: Epsilons,
     ) -> Result<(), Error> {
         // If we already have seen a match and we are compiling a leftmost
         // first DFA, then we shouldn't add any more transitions. This is
@@ -836,7 +879,7 @@ impl<'a> InternalBuilder<'a> {
             .filter_map(|r| r.as_u8())
         {
             let oldtrans = self.dfa.transition(dfa_id, byte);
-            let newtrans = Transition::new(next_dfa_id, info);
+            let newtrans = Transition::new(next_dfa_id, epsilons);
             // If the old transition points to the DEAD state, then we know
             // 'byte' has not been mapped to any transition for this DFA state
             // yet. So set it unconditionally. Otherwise, we require that the
@@ -928,9 +971,9 @@ impl<'a> InternalBuilder<'a> {
             .extend(core::iter::repeat(Transition(0)).take(self.dfa.stride()));
         // The default empty value for 'PatternInfo' is sadly not all zeroes.
         // Instead, a special sentinel is used to indicate that there is no
-        // pattern. So we need to explicitly set the pattern info to the
+        // pattern. So we need to explicitly set the pattern epsilons to the
         // correct "empty" PatternInfo.
-        self.dfa.set_pattern_info(id, PatternInfo::empty());
+        self.dfa.set_pattern_epsilons(id, PatternEpsilons::empty());
         if let Some(size_limit) = self.config.get_size_limit() {
             if self.dfa.memory_usage() > size_limit {
                 return Err(Error::one_pass_exceeded_size_limit(size_limit));
@@ -939,7 +982,7 @@ impl<'a> InternalBuilder<'a> {
         Ok(id)
     }
 
-    /// Push the given NFA state ID and its corresponding info (slots and
+    /// Push the given NFA state ID and its corresponding epsilons (slots and
     /// conditional epsilon transitions) on to a stack for use in a depth first
     /// traversal of a sub-graph of the NFA.
     ///
@@ -949,14 +992,14 @@ impl<'a> InternalBuilder<'a> {
     fn stack_push(
         &mut self,
         nfa_id: StateID,
-        info: Info,
+        epsilons: Epsilons,
     ) -> Result<(), Error> {
         if !self.seen.insert(nfa_id) {
             return Err(Error::one_pass_fail(
                 "multiple epsilon transitions to same state",
             ));
         }
-        self.stack.push((nfa_id, info));
+        self.stack.push((nfa_id, epsilons));
         Ok(())
     }
 }
@@ -1018,6 +1061,17 @@ impl<'a> InternalBuilder<'a> {
 /// between UTF-8 automata, the use of Unicode character classes will tend to
 /// vastly increase the likelihood of a regex not being one-pass.
 ///
+/// # How does one know if a regex is one-pass or not?
+///
+/// At the time of writing, the only way to know is to try and build a one-pass
+/// DFA. The one-pass property is checked while constructing the DFA.
+///
+/// This does mean that you might potentially waste some CPU cycles and memory
+/// by optimistically trying to build a one-pass DFA. But this is currently the
+/// only way. In the future, building a one-pass DFA might be able to use some
+/// heuristics to detect common violations of the one-pass property and bail
+/// more quickly.
+///
 /// # Example
 ///
 /// This example shows that the one-pass DFA implements Unicode word boundaries
@@ -1035,6 +1089,33 @@ impl<'a> InternalBuilder<'a> {
 /// assert_eq!(Some(Match::must(0, 0..23)), caps.get_match());
 /// assert_eq!(Some(Span::from(0..12)), caps.get_group_by_name("first"));
 /// assert_eq!(Some(Span::from(13..23)), caps.get_group_by_name("last"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Example: iteration
+///
+/// Unlike other regex engines in this crate, this one does not provide
+/// iterator search functions. This is because a one-pass DFA only supports
+/// anchored searches, and so iterator functions are generally not applicable.
+///
+/// However, if you know that all of your matches are
+/// directly adjacent, then an iterator can be used. The
+/// [`util::iter::Searcher`](crate::util::iter::Searcher) type can be used for
+/// this purpose:
+///
+/// ```
+/// use regex_automata::{dfa::onepass::DFA, util::iter::Searcher, Span};
+///
+/// let re = DFA::new(r"\w(\d)\w")?;
+/// let (mut cache, caps) = (re.create_cache(), re.create_captures());
+/// let input = re.create_input("a1zb2yc3x");
+///
+/// let mut it = Searcher::new(input).into_captures_iter(caps, |input, caps| {
+///     Ok(re.search(&mut cache, input, caps))
+/// }).infallible();
+/// let caps0 = it.next().unwrap();
+/// assert_eq!(Some(Span::from(1..2)), caps0.get_group(1));
+///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
@@ -1097,7 +1178,7 @@ pub struct DFA {
     /// is rare, but some regexes spend a lot of time in match states gobbling
     /// up input. But... match state handling is already somewhat expensive,
     /// so maybe this wouldn't do much? Either way, it's worth experimenting.
-    patinfo_offset: usize,
+    pateps_offset: usize,
 }
 
 impl DFA {
@@ -1832,9 +1913,9 @@ impl DFA {
         };
         for at in input.start()..input.end() {
             if sid >= self.min_match_id {
-                let patinfo = self.pattern_info(sid);
-                let foundpid = patinfo.pattern_id_unchecked();
-                if patinfo.info().look_matches(haystack, at) {
+                let pateps = self.pattern_epsilons(sid);
+                let foundpid = pateps.pattern_id_unchecked();
+                if pateps.epsilons().look_matches(haystack, at) {
                     pid = Some(foundpid);
                     let i = foundpid.as_usize() * 2 + 1;
                     if i < slots.len() {
@@ -1843,8 +1924,8 @@ impl DFA {
                     if explicit_start < slots.len() {
                         slots[explicit_start..]
                             .copy_from_slice(cache.explicit_slots());
-                        patinfo
-                            .info()
+                        pateps
+                            .epsilons()
                             .slots()
                             .apply(at, &mut slots[explicit_start..]);
                     }
@@ -1856,16 +1937,16 @@ impl DFA {
 
             let trans = self.transition(sid, haystack[at]);
             sid = trans.state_id();
-            let info = trans.info();
-            if sid == DEAD || !info.look_matches(haystack, at) {
+            let epsilons = trans.epsilons();
+            if sid == DEAD || !epsilons.look_matches(haystack, at) {
                 return pid;
             }
-            info.slots().apply(at, cache.explicit_slots());
+            epsilons.slots().apply(at, cache.explicit_slots());
         }
         if sid >= self.min_match_id {
-            let patinfo = self.pattern_info(sid);
-            let foundpid = patinfo.pattern_id_unchecked();
-            if patinfo.info().look_matches(haystack, input.end()) {
+            let pateps = self.pattern_epsilons(sid);
+            let foundpid = pateps.pattern_id_unchecked();
+            if pateps.epsilons().look_matches(haystack, input.end()) {
                 pid = Some(foundpid);
                 let i = foundpid.as_usize() * 2 + 1;
                 if i < slots.len() {
@@ -1874,8 +1955,8 @@ impl DFA {
                 if explicit_start < slots.len() {
                     slots[explicit_start..]
                         .copy_from_slice(cache.explicit_slots());
-                    patinfo
-                        .info()
+                    pateps
+                        .epsilons()
                         .slots()
                         .apply(input.end(), &mut slots[explicit_start..]);
                 }
@@ -1936,18 +2017,17 @@ impl DFA {
         }
     }
 
-    /// Return the pattern info for the given state ID.
+    /// Return the pattern epsilons for the given state ID.
     ///
     /// If the given state ID does not correspond to a match state ID, then the
-    /// pattern info returned is empty.
-    fn pattern_info(&self, sid: StateID) -> PatternInfo {
-        PatternInfo(self.table[sid.as_usize() + self.patinfo_offset].0)
+    /// pattern epsilons returned is empty.
+    fn pattern_epsilons(&self, sid: StateID) -> PatternEpsilons {
+        PatternEpsilons(self.table[sid.as_usize() + self.pateps_offset].0)
     }
 
-    /// Set the pattern info for the given state ID.
-    fn set_pattern_info(&mut self, sid: StateID, patinfo: PatternInfo) {
-        self.table[sid.as_usize() + self.patinfo_offset] =
-            Transition(patinfo.0);
+    /// Set the pattern epsilons for the given state ID.
+    fn set_pattern_epsilons(&mut self, sid: StateID, pateps: PatternEpsilons) {
+        self.table[sid.as_usize() + self.pateps_offset] = Transition(pateps.0);
     }
 
     /// Map the given state ID to its index. The index of a state is an
@@ -2064,8 +2144,8 @@ impl core::fmt::Debug for DFA {
                         debug_id(f, dfa, next),
                     )?;
                 }
-                if !trans.info().is_empty() {
-                    write!(f, " ({:?})", trans.info())?;
+                if !trans.epsilons().is_empty() {
+                    write!(f, " ({:?})", trans.epsilons())?;
                 }
             }
             Ok(())
@@ -2074,17 +2154,17 @@ impl core::fmt::Debug for DFA {
         writeln!(f, "onepass::DFA(")?;
         for index in 0..self.state_len() {
             let sid = StateID::must(index << self.stride2());
-            let patinfo = self.pattern_info(sid);
+            let pateps = self.pattern_epsilons(sid);
             if sid == DEAD {
                 write!(f, "D ")?;
-            } else if patinfo.pattern_id().is_some() {
+            } else if pateps.pattern_id().is_some() {
                 write!(f, "* ")?;
             } else {
                 write!(f, "  ")?;
             }
             write!(f, "{:06?}", debug_id(f, self, sid))?;
-            if !patinfo.is_empty() {
-                write!(f, " ({:?})", patinfo)?;
+            if !pateps.is_empty() {
+                write!(f, " ({:?})", pateps)?;
             }
             write!(f, ": ")?;
             debug_state_transitions(f, self, sid)?;
@@ -2257,7 +2337,7 @@ impl Cache {
 /// Represents a single transition in a one-pass DFA.
 ///
 /// The high 24 bits corresponds to the state ID. The low 48 bits corresponds
-/// to the transition "info," which contains the slots that should be saved
+/// to the transition epsilons, which contains the slots that should be saved
 /// when this transition is followed and the conditional epsilon transitions
 /// that must be satisfied in order to follow this transition.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -2270,9 +2350,9 @@ impl Transition {
     const STATE_ID_MASK: u64 = 0xFFFFFF00_00000000;
     const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
-    /// Return a new transition to the given state ID with the given info.
-    fn new(sid: StateID, info: Info) -> Transition {
-        Transition((sid.as_u64() << Transition::STATE_ID_SHIFT) | info.0)
+    /// Return a new transition to the given state ID with the given epsilons.
+    fn new(sid: StateID, epsilons: Epsilons) -> Transition {
+        Transition((sid.as_u64() << Transition::STATE_ID_SHIFT) | epsilons.0)
     }
 
     /// Returns true if and only if this transition points to the DEAD state.
@@ -2293,12 +2373,12 @@ impl Transition {
 
     /// Set the "next" state ID in this transition.
     fn set_state_id(&mut self, sid: StateID) {
-        *self = Transition::new(sid, self.info());
+        *self = Transition::new(sid, self.epsilons());
     }
 
-    /// Return the "info" embedded in this transition.
-    fn info(&self) -> Info {
-        Info(self.0 & Transition::INFO_MASK)
+    /// Return the epsilons embedded in this transition.
+    fn epsilons(&self) -> Epsilons {
+        Epsilons(self.0 & Transition::INFO_MASK)
     }
 }
 
@@ -2308,21 +2388,21 @@ impl core::fmt::Debug for Transition {
             return write!(f, "0");
         }
         write!(f, "{}", self.state_id().as_usize())?;
-        if !self.info().is_empty() {
-            write!(f, "-{:?}", self.info())?;
+        if !self.epsilons().is_empty() {
+            write!(f, "-{:?}", self.epsilons())?;
         }
         Ok(())
     }
 }
 
-/// A representation of a match state's pattern ID along with the "info" for
+/// A representation of a match state's pattern ID along with the epsilons for
 /// when a match occurs.
 ///
 /// A match state in a one-pass DFA, unlike in a more general DFA, has exactly
 /// one pattern ID. If it had more, then the original NFA would not have been
 /// one-pass.
 ///
-/// The "info" part of this corresponds to what was found in the epsilon
+/// The "epsilons" part of this corresponds to what was found in the epsilon
 /// transitions between the transition taken in the last byte of input and the
 /// ultimate match state. This might include saving slots and/or conditional
 /// epsilon transitions that must be satisfied before one can report the match.
@@ -2330,36 +2410,37 @@ impl core::fmt::Debug for Transition {
 /// Technically, every state has room for a 'PatternInfo', but it is only ever
 /// non-empty for match states.
 #[derive(Clone, Copy)]
-struct PatternInfo(u64);
+struct PatternEpsilons(u64);
 
-impl PatternInfo {
+impl PatternEpsilons {
     const PATTERN_ID_BITS: u64 = 24;
-    const PATTERN_ID_SHIFT: u64 = 64 - PatternInfo::PATTERN_ID_BITS;
+    const PATTERN_ID_SHIFT: u64 = 64 - PatternEpsilons::PATTERN_ID_BITS;
     // A sentinel value indicating that this is not a match state. We don't
     // use 0 since 0 is a valid pattern ID.
     const PATTERN_ID_NONE: u64 = 0x00000000_00FFFFFF;
-    const PATTERN_ID_LIMIT: u64 = PatternInfo::PATTERN_ID_NONE;
+    const PATTERN_ID_LIMIT: u64 = PatternEpsilons::PATTERN_ID_NONE;
     const PATTERN_ID_MASK: u64 = 0xFFFFFF00_00000000;
     const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
-    /// Return a new empty pattern info that has no pattern ID and has an empty
-    /// "info." This is suitable for non-match states.
-    fn empty() -> PatternInfo {
-        PatternInfo(
-            PatternInfo::PATTERN_ID_NONE << PatternInfo::PATTERN_ID_SHIFT,
+    /// Return a new empty pattern epsilons that has no pattern ID and has no
+    /// epsilons. This is suitable for non-match states.
+    fn empty() -> PatternEpsilons {
+        PatternEpsilons(
+            PatternEpsilons::PATTERN_ID_NONE
+                << PatternEpsilons::PATTERN_ID_SHIFT,
         )
     }
 
-    /// Whether this pattern info is empty or not. It's empty when it has no
-    /// pattern ID and an empty info.
+    /// Whether this pattern epsilons is empty or not. It's empty when it has
+    /// no pattern ID and an empty epsilons.
     fn is_empty(self) -> bool {
-        self.pattern_id().is_none() && self.info().is_empty()
+        self.pattern_id().is_none() && self.epsilons().is_empty()
     }
 
-    /// Return the pattern ID in this pattern info if one exists.
+    /// Return the pattern ID in this pattern epsilons if one exists.
     fn pattern_id(self) -> Option<PatternID> {
-        let pid = self.0 >> PatternInfo::PATTERN_ID_SHIFT;
-        if pid == PatternInfo::PATTERN_ID_LIMIT {
+        let pid = self.0 >> PatternEpsilons::PATTERN_ID_SHIFT;
+        if pid == PatternEpsilons::PATTERN_ID_LIMIT {
             None
         } else {
             Some(PatternID::new_unchecked(pid.as_usize()))
@@ -2374,32 +2455,35 @@ impl PatternInfo {
     /// This is useful when you know a particular state is a match state. If
     /// it's a match state, then it must have a pattern ID.
     fn pattern_id_unchecked(self) -> PatternID {
-        let pid = self.0 >> PatternInfo::PATTERN_ID_SHIFT;
+        let pid = self.0 >> PatternEpsilons::PATTERN_ID_SHIFT;
         PatternID::new_unchecked(pid.as_usize())
     }
 
-    /// Return a new pattern info with the given pattern ID, but the same info.
-    fn set_pattern_id(self, pid: PatternID) -> PatternInfo {
-        PatternInfo(
-            (pid.as_u64() << PatternInfo::PATTERN_ID_SHIFT)
-                | (self.0 & PatternInfo::INFO_MASK),
+    /// Return a new pattern epsilons with the given pattern ID, but the same
+    /// epsilons.
+    fn set_pattern_id(self, pid: PatternID) -> PatternEpsilons {
+        PatternEpsilons(
+            (pid.as_u64() << PatternEpsilons::PATTERN_ID_SHIFT)
+                | (self.0 & PatternEpsilons::INFO_MASK),
         )
     }
 
-    /// Return the "info" part of this pattern info.
-    fn info(self) -> Info {
-        Info(self.0 & PatternInfo::INFO_MASK)
+    /// Return the epsilons part of this pattern epsilons.
+    fn epsilons(self) -> Epsilons {
+        Epsilons(self.0 & PatternEpsilons::INFO_MASK)
     }
 
-    /// Return a new pattern info with the given info, but the same pattern ID.
-    fn set_info(self, info: Info) -> PatternInfo {
-        PatternInfo(
-            (self.0 & PatternInfo::PATTERN_ID_MASK) | u64::from(info.0),
+    /// Return a new pattern epsilons with the given epsilons, but the same
+    /// pattern ID.
+    fn set_epsilons(self, epsilons: Epsilons) -> PatternEpsilons {
+        PatternEpsilons(
+            (self.0 & PatternEpsilons::PATTERN_ID_MASK)
+                | u64::from(epsilons.0),
         )
     }
 }
 
-impl core::fmt::Debug for PatternInfo {
+impl core::fmt::Debug for PatternEpsilons {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         if self.is_empty() {
             return write!(f, "N/A");
@@ -2407,49 +2491,74 @@ impl core::fmt::Debug for PatternInfo {
         if let Some(pid) = self.pattern_id() {
             write!(f, "{}", pid.as_usize())?;
         }
-        if !self.info().is_empty() {
+        if !self.epsilons().is_empty() {
             if self.pattern_id().is_some() {
                 write!(f, "/")?;
             }
-            write!(f, "{:?}", self.info())?;
+            write!(f, "{:?}", self.epsilons())?;
         }
         Ok(())
     }
 }
 
+/// Epsilons represents all of the NFA epsilons transitions that went into a
+/// single transition in a single DFA state. In this case, it only represents
+/// the epsilon transitions that have some kind of non-consumin side effect:
+/// either the transition requires storing the current position of the search
+/// into a slot, or the transition is conditional and requires the current
+/// position in the input to satisfy an assertion before the transition may be
+/// taken.
+///
+/// This folds the cumulative effect of a group of NFA states (all connected
+/// by epsilon transitions) down into a single set of bits. While these bits
+/// can represent all possible conditional epsilon transitions, it only permits
+/// storing up to a somewhat small number of slots.
+///
+/// Epsilons is represented as a 48-bit integer. For example, it is packed into
+/// the lower 48 bits of a `Transition`. (Where the high 24 bits contains a
+/// `StateID`.)
 #[derive(Clone, Copy)]
-struct Info(u64);
+struct Epsilons(u64);
 
-impl Info {
+impl Epsilons {
     const SLOT_MASK: u64 = 0x000000FF_FFFFFF00;
     const SLOT_SHIFT: u64 = 8;
     const LOOK_MASK: u64 = 0x00000000_000000FF;
 
-    fn empty() -> Info {
-        Info(0)
+    /// Create a new empty epsilons. It has no slots and no assertions that
+    /// need to be satisfied.
+    fn empty() -> Epsilons {
+        Epsilons(0)
     }
 
+    /// Returns true if this epsilons contains no slots and no assertions.
     fn is_empty(self) -> bool {
         self.0 == 0
     }
 
+    /// Returns the slot epsilon transitions.
     fn slots(self) -> Slots {
-        Slots((self.0 >> Info::SLOT_SHIFT).low_u32())
+        Slots((self.0 >> Epsilons::SLOT_SHIFT).low_u32())
     }
 
-    fn set_slots(self, slots: Slots) -> Info {
-        Info(
-            (u64::from(slots.0) << Info::SLOT_SHIFT)
-                | (self.0 & Info::LOOK_MASK),
+    /// Set the slot epsilon transitions.
+    fn set_slots(self, slots: Slots) -> Epsilons {
+        Epsilons(
+            (u64::from(slots.0) << Epsilons::SLOT_SHIFT)
+                | (self.0 & Epsilons::LOOK_MASK),
         )
     }
 
+    /// Return the set of look-around assertions in these epsilon transitions.
     fn looks(self) -> LookSet {
         LookSet::from_repr(self.0.low_u8())
     }
 
-    fn set_looks(self, look_set: LookSet) -> Info {
-        Info((self.0 & Info::SLOT_MASK) | u64::from(look_set.to_repr()))
+    /// Set the look-around assertions on these epsilon transitions.
+    fn set_looks(self, look_set: LookSet) -> Epsilons {
+        Epsilons(
+            (self.0 & Epsilons::SLOT_MASK) | u64::from(look_set.to_repr()),
+        )
     }
 
     /// A light wrapper around 'looks().matches()' that avoids the 'matches()'
@@ -2466,7 +2575,7 @@ impl Info {
     }
 }
 
-impl core::fmt::Debug for Info {
+impl core::fmt::Debug for Epsilons {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut wrote = false;
         if !self.slots().is_empty() {
@@ -2487,53 +2596,105 @@ impl core::fmt::Debug for Info {
     }
 }
 
+/// The set of epsilon transitions indicating that the current position in a
+/// search should be saved to a slot.
+///
+/// This *only* represents explicit slots. So for example, the pattern
+/// `[a-z]+([0-9]+)([a-z]+)` has:
+///
+/// * 3 capturing groups, thus 6 slots.
+/// * 1 implicit capturing group, thus 2 implicit slots.
+/// * 2 explicit capturing groups, thus 4 explicit slots.
+///
+/// While implicit slots are represented by epsilon transitions in an NFA, we
+/// do not explicitly represent them here. Instead, implicit slots are assumed
+/// to be present and handled automatically in the search code. Therefore,
+/// that means we only need to represent explicit slots in our epsilon
+/// transitions.
+///
+/// Its representation is a bit set. The bit 'i' is set if and only if there
+/// exists an explicit slot at index 'c', where 'c = (#patterns * 2) + i'. That
+/// is, the bit 'i' corresponds to the first explicit slot and the first
+/// explicit slot appears immediately following the last implicit slot. (If
+/// this is confusing, see `GroupInfo` for more details on how slots works.)
+///
+/// A single `Slots` represents all the active slots in a sub-graph of an NFA,
+/// where all the states are connected by epsilon transitions. In effect, when
+/// traversing the one-pass DFA during a search, all slots set in a particular
+/// transition must be captured by recording the current search position.
+///
+/// The API of `Slots` requires the caller to handle the explicit slot offset.
+/// That is, a `Slots` doesn't know where the explicit slots start for a
+/// particular NFA. Thus, if the callers see's the bit 'i' is set, then they
+/// need to do the arithmetic above to find 'c', which is the real actual slot
+/// index in the corresponding NFA.
 #[derive(Clone, Copy)]
 struct Slots(u32);
 
 impl Slots {
     const LIMIT: usize = 32;
 
+    /// Return an empty set of slots.
     fn empty() -> Slots {
         Slots(0)
     }
 
+    /// Insert the slot at the given bit index.
     fn insert(self, slot: usize) -> Slots {
         debug_assert!(slot < Slots::LIMIT);
         Slots(self.0 | (1 << slot.as_u32()))
     }
 
+    /// Remove the slot at the given bit index.
     fn remove(self, slot: usize) -> Slots {
         debug_assert!(slot < Slots::LIMIT);
         Slots(self.0 & !(1 << slot.as_u32()))
     }
 
+    /// Returns true if and only if the given bit index is set.
     fn contains(self, slot: usize) -> bool {
         debug_assert!(slot < Slots::LIMIT);
         self.0 & (1 << slot.as_u32()) != 0
     }
 
+    /// Returns true if and only if this set contains no slots.
     fn is_empty(self) -> bool {
         self.0 == 0
     }
 
+    /// Returns the number of slots in this set.
     fn len(self) -> usize {
         self.0.count_ones().as_usize()
     }
 
+    /// Returns an iterator over all of the set bits in this set.
     fn iter(self) -> SlotsIter {
         SlotsIter { slots: self }
     }
 
-    fn apply(self, at: usize, caller_slots: &mut [Option<NonMaxUsize>]) {
+    /// For the position `at` in the current haystack, copy it to
+    /// `caller_explicit_slots` for all slots that are in this set.
+    ///
+    /// Callers may pass a slice of any length. Slots in this set bigger than
+    /// the length of the given explicit slots are simply skipped.
+    ///
+    /// The slice *must* correspond only to the explicit slots and the first
+    /// element of the slice must always correspond to the first explicit slot
+    /// in the corresponding NFA.
+    fn apply(
+        self,
+        at: usize,
+        caller_explicit_slots: &mut [Option<NonMaxUsize>],
+    ) {
         if self.is_empty() {
             return;
         }
         let at = NonMaxUsize::new(at);
         for slot in self.iter() {
-            if slot >= caller_slots.len() {
+            if slot >= caller_explicit_slots.len() {
                 break;
             }
-            caller_slots[slot] = at;
+            caller_explicit_slots[slot] = at;
         }
     }
 }
@@ -2548,6 +2709,10 @@ impl core::fmt::Debug for Slots {
     }
 }
 
+/// An iterator over all of the bits set in a slot set.
+///
+/// This returns the bit index that is set, so callers may need to offset it
+/// to get the actual NFA slot index.
 #[derive(Debug)]
 struct SlotsIter {
     slots: Slots,
