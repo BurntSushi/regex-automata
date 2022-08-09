@@ -1,49 +1,3 @@
-#![allow(warnings)]
-
-// BREADCRUMBS:
-//
-// Finish documenting module. Including internal docs.
-//
-// Clean up search routine... Benchmark carefully.
-//
-// Write down future perf notes: 1) more state shuffling, e.g., separate states
-// with captures/looks, 2) maybe move match states to beginning, 3) see if we
-// can arrange search loop to have one 'if sid < specialmax' like other DFAs,
-// 4) move 'PatternInfo' out of transition table, since it's only set for match
-// states.
-//
-// After that is revamping literal extraction and figuring out how to weave
-// that into a meta regex engine. I seem to recall thinking about whether to do
-// literal extraction at the HIR or NFA level and deciding firmly on the HIR.
-// I'm not sure why though. I think it might be for the suffix case? That is,
-// we really want to be able to find suffix literals for the "reverse suffix
-// search" optimization. Doing that on a forward NFA seems a little tricky
-// unless all our edges are bidirectional. Which they aren't.
-//
-// I did have a brief idea that perhaps the "builder" intermediate NFA should
-// be a more traditional graph that uses pointers instead of state IDs. That
-// would make doing optimizations on the NFA much eaiser. It would also
-// potentially make bidirectional edges plausible. But how far down that rabbit
-// hole do we want to go?
-//
-// I think my next step was to experiment with adding 'String'/'Vec<u8>' to the
-// HIR instead of requiring Concat(char, char, ...). The reason why is because
-// I want to attach more metadata to HIR expressions, and adding all of that
-// for every single literal char in a regex pattern seems excessive.
-//
-// Another idea is to push the meta data down into HirKind such that it's only
-// attached to things with sub-expressions but never to primitives. Since in
-// the case of primitives, any inductive metadata is just the base case and
-// should be cheap to compute... But char classes ruin this. Some properties
-// on char classes might require visiting all of its ranges? Today they don't.
-// Indeed, a "min" or "max" length would seemingly require this... Unless
-// cp1 >= cp2 implies utf8(cp1).len() > utf8(cp2).len(). But even so, we could
-// just make an exception for classes and attach meta data to it. The important
-// bit is that we aren't doing it for literally every char.
-//
-// There are grander refactorings to the HIR possible. But its current
-// simplicity is nice.
-
 use core::convert::TryFrom;
 
 use alloc::{vec, vec::Vec};
@@ -1010,8 +964,59 @@ impl<'a> InternalBuilder<'a> {
 /// A one-pass DFA for executing a subset of anchored regex searches while
 /// resolving capturing groups.
 ///
-/// A one-pass DFA can be built from an NFA that is one-pass. An NFA is one-pass
-/// when there is never any ambiguity
+/// A one-pass DFA can be built from an NFA that is one-pass. An NFA is
+/// one-pass when there is never any ambiguity about how to continue a search.
+/// For example, `a*a` is not one-pass becuase during a search, it's not
+/// possible to know whether to continue matching the `a*` or to move on to
+/// the single `a`. However, `a*b` is one-pass, because for every byte in the
+/// input, it's always clear when to move on from `a*` to `b`.
+///
+/// # Only anchored searches are supported
+///
+/// In this crate, especially for DFAs, unanchored searches are implemented by
+/// treating the pattern as if it had a `(?s-u:.)*?` prefix. While the prefix
+/// is one-pass on its own, adding anything after it, e.g., `(?s-u:.)*?a` will
+/// make the overall pattern not one-pass. Why? Because the `(?s-u:.)` matches
+/// any byte, and there is therefore ambiguity as to when the prefix should
+/// stop matching and something else should start matching.
+///
+/// Therefore, one-pass DFAs do not support unanchored searches. In addition
+/// to many regexes simply not being one-pass, it implies that one-pass DFAs
+/// have limited utility. With that said, when a one-pass DFA can be used, it
+/// can potentially provide a dramatic speed up over alternatives like the
+/// [`BoundedBacktracker`](crate::nfa::thompson::backtrack::BoundedBacktracker)
+/// and the [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM). In particular,
+/// a one-pass DFA is the only DFA capable of reporting the spans of matching
+/// capturing groups.
+///
+/// # Other limitations
+///
+/// In addition to the [configurable heap limit](Config::size_limit) and
+/// the requirement that a regex pattern be one-pass, there are some other
+/// limitations:
+///
+/// * There is an internal limit on the total number of explicit capturing
+/// groups that appear across all patterns. It is somewhat small and there is
+/// no way to configure it. If your pattern(s) exceed this limit, then building
+/// a one-pass DFA will fail.
+/// * If the number of patterns exceeds an internal unconfigurable limit, then
+/// building a one-pass DFA will fail. This limit is quite large and you're
+/// unlikely to hit it.
+/// * If the total number of states exceeds an internal unconfigurable limit,
+/// then building a one-pass DFA will fail. This limit is quite large and
+/// you're unlikely to hit it.
+///
+/// # Other examples of regexes that aren't one-pass
+///
+/// One particularly unfortunate example is that enabling Unicode can cause
+/// regexes that were one-pass to no longer be one-pass. Consider the regex
+/// `(?-u)\w*\s` for example. It is one-pass because there is exactly no
+/// overlap between the ASCII definitions of `\w` and `\s`. But `\w*\s` (i.e.,
+/// with Unicode enabled) is *not* one-pass because `\w` and `\s` are actually
+/// UTF-8 automatons. And while the *codepoints* in `\w` and `\s` do not
+/// overlap, the underlying UTF-8 encodings do. Indeed, because of the overlap
+/// between UTF-8 automata, the use of Unicode character classes will tend to
+/// vastly increase the likelihood of a regex not being one-pass.
 ///
 /// # Example
 ///
@@ -1771,6 +1776,26 @@ impl DFA {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
+        // PERF: Some ideas. I ran out of steam after my initial impl to try
+        // many of these.
+        //
+        // 1) Try doing more state shuffling. Right now, all we do is push
+        // match states to the end of the transition table so that we can do
+        // 'if sid >= self.min_match_id' to know whether we're in a match
+        // state or not. But what about doing something like dense DFAs and
+        // pushing dead, match and states with captures/looks all toward the
+        // beginning of the transition table. Then we could do 'if sid <=
+        // self.max_special_id', in which case, we need to do some special
+        // handling of some sort. Otherwise, we get the happy path, just
+        // like in a DFA search. The main argument against this is that the
+        // one-pass DFA is likely to be used most often with capturing groups
+        // and if capturing groups are common, then this might wind up being a
+        // pessimization.
+        //
+        // 2) Consider moving 'PatternInfo' out of the transition table. It is
+        // only needed for match states and usually a small minority of states
+        // are match states. Therefore, we're using an extra 'u64' for most
+        // states.
         let explicit_start = self.nfa.pattern_len() * 2;
         let explicit_slots = core::cmp::min(
             Slots::LIMIT,
@@ -1855,10 +1880,14 @@ impl DFA {
 }
 
 impl DFA {
+    /// Returns the anchored start state for matching any pattern in this DFA.
     fn start(&self) -> StateID {
         self.starts[0]
     }
 
+    /// Returns the anchored start state for matching the given pattern. If
+    /// the given pattern is not in this DFA or if 'starts_for_each_pattern'
+    /// was not enabled, then this panics.
     fn start_pattern(&self, pid: PatternID) -> StateID {
         assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
         self.starts.get(pid.one_more()).copied().expect(
@@ -1867,16 +1896,31 @@ impl DFA {
         )
     }
 
+    /// Returns the transition from the given state ID and byte of input. The
+    /// transition includes the next state ID, the slots that should be saved
+    /// and any conditional epsilon transitions that must be satisfied in order
+    /// to take this transition.
     fn transition(&self, sid: StateID, byte: u8) -> Transition {
         let class = self.classes.get(byte);
         self.table[sid.as_usize() + class.as_usize()]
     }
 
+    /// Set the transition from the given state ID and byte of input to the
+    /// transition given.
     fn set_transition(&mut self, sid: StateID, byte: u8, to: Transition) {
         let class = self.classes.get(byte);
         self.table[sid.as_usize() + class.as_usize()] = to;
     }
 
+    /// Return an iterator of "sparse" transitions for the given state ID.
+    /// "sparse" in this context means that consecutive transitions that are
+    /// equivalent are returned as one group, and transitions to the DEAD state
+    /// are ignored.
+    ///
+    /// This winds up being useful for debug printing, since it's much terser
+    /// to display runs of equivalent transitions than the transition for every
+    /// possible byte value. Indeed, in practice, it's very common for runs
+    /// of equivalent transitions to appear.
     fn sparse_transitions(&self, sid: StateID) -> SparseTransitionIter<'_> {
         let start = sid.as_usize();
         let end = start + self.alphabet_len();
@@ -1886,19 +1930,30 @@ impl DFA {
         }
     }
 
+    /// Return the pattern info for the given state ID.
+    ///
+    /// If the given state ID does not correspond to a match state ID, then the
+    /// pattern info returned is empty.
     fn pattern_info(&self, sid: StateID) -> PatternInfo {
         PatternInfo(self.table[sid.as_usize() + self.patinfo_offset].0)
     }
 
+    /// Set the pattern info for the given state ID.
     fn set_pattern_info(&mut self, sid: StateID, patinfo: PatternInfo) {
         self.table[sid.as_usize() + self.patinfo_offset] =
             Transition(patinfo.0);
     }
 
+    /// Map the given state ID to its index. The index of a state is an
+    /// incrementing integer starting at 0 determined by the order in which the
+    /// state was added.
     fn to_index(&self, id: StateID) -> usize {
         id.as_usize() >> self.stride2()
     }
 
+    /// Map the given state index to its ID. The ID is a "pre-multiplied"
+    /// index into the DFA transition table. This avoids a multiplication
+    /// at search time.
     fn to_state_id(&self, index: usize) -> StateID {
         // CORRECTNESS: If the given index is not valid, then it is not
         // required for this to panic or return a valid state ID. We'll "just"
@@ -1934,12 +1989,19 @@ impl DFA {
         )
     }
 
+    /// Move the transitions from 'id1' to 'id2' and vice versa.
+    ///
+    /// WARNING: This does not update the rest of the transition table to have
+    /// transitions to 'id1' changed to 'id2' and vice versa. This merely moves
+    /// the states in memory.
     pub(super) fn swap_states(&mut self, id1: StateID, id2: StateID) {
         for b in 0..self.stride() {
             self.table.swap(id1.as_usize() + b, id2.as_usize() + b);
         }
     }
 
+    /// Map all state IDs in this DFA (transition table + start states)
+    /// according to the closure given.
     pub(super) fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
         for i in 0..self.state_len() {
             let id = StateID::new_unchecked(i << self.stride2());
@@ -2042,6 +2104,8 @@ impl core::fmt::Debug for DFA {
     }
 }
 
+/// An iterator over groups of consecutive equivalent transitions in a single
+/// state.
 #[derive(Debug)]
 struct SparseTransitionIter<'a> {
     it: core::iter::Enumerate<core::slice::Iter<'a, Transition>>,
@@ -2506,5 +2570,27 @@ mod tests {
         // Just right.
         let pat = r"(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)(k)(l)(m)(n)(o)(p)";
         assert!(DFA::new(pat).is_ok());
+    }
+
+    #[test]
+    fn is_one_pass() {
+        use crate::SyntaxConfig;
+
+        assert!(DFA::new(r"a*b").is_ok());
+        assert!(DFA::new(r"\w").is_ok());
+        assert!(DFA::new(r"(?-u)\w*\s").is_ok());
+        assert!(DFA::new(r"(?s:.)*?").is_ok());
+        assert!(DFA::builder()
+            .syntax(SyntaxConfig::new().utf8(false))
+            .build(r"(?s-u:.)*?")
+            .is_ok());
+    }
+
+    #[test]
+    fn is_not_one_pass() {
+        assert!(DFA::new(r"a*a").is_err());
+        assert!(DFA::new(r"\w*\s").is_err());
+        assert!(DFA::new(r"(?s-u:.)*?").is_err());
+        assert!(DFA::new(r"(?s:.)*?a").is_err());
     }
 }
