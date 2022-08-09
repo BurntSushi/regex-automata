@@ -1053,6 +1053,12 @@ pub struct DFA {
     /// The stride of this table (i.e., the number of columns) is always
     /// a power of 2, even if the alphabet length is smaller. This makes
     /// converting between state IDs and state indices very cheap.
+    ///
+    /// Note that the stride always includes room for one extra "transition"
+    /// that isn't actually a transition. It is a 'PatternInfo' that is used
+    /// for match states only. Because of this, the maximum number of active
+    /// columns in the transition table is 257, which means the maximum stride
+    /// is 512 (the next power of 2 greater than or equal to 257).
     table: Vec<Transition>,
     /// The DFA state IDs of the starting states.
     ///
@@ -2248,6 +2254,12 @@ impl Cache {
     }
 }
 
+/// Represents a single transition in a one-pass DFA.
+///
+/// The high 24 bits corresponds to the state ID. The low 48 bits corresponds
+/// to the transition "info," which contains the slots that should be saved
+/// when this transition is followed and the conditional epsilon transitions
+/// that must be satisfied in order to follow this transition.
 #[derive(Clone, Copy, Eq, PartialEq)]
 struct Transition(u64);
 
@@ -2258,28 +2270,33 @@ impl Transition {
     const STATE_ID_MASK: u64 = 0xFFFFFF00_00000000;
     const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
+    /// Return a new transition to the given state ID with the given info.
     fn new(sid: StateID, info: Info) -> Transition {
         Transition((sid.as_u64() << Transition::STATE_ID_SHIFT) | info.0)
     }
 
+    /// Returns true if and only if this transition points to the DEAD state.
     fn is_dead(self) -> bool {
         self.state_id() == DEAD
     }
 
+    /// Return the "next" state ID that this transition points to.
     fn state_id(&self) -> StateID {
-        // OK because a Transition has a valid StateID in its upper 32 bits
-        // by construction. The cast to usize is also correct, even on 16-bit
-        // targets because, again, we know the upper 32 bits is a valid
-        // StateID, which can never overflow usize on any supported target.
+        // OK because a Transition has a valid StateID in its upper bits by
+        // construction. The cast to usize is also correct, even on 16-bit
+        // targets because, again, we know the upper bits is a valid StateID,
+        // which can never overflow usize on any supported target.
         StateID::new_unchecked(
             (self.0 >> Transition::STATE_ID_SHIFT).as_usize(),
         )
     }
 
+    /// Set the "next" state ID in this transition.
     fn set_state_id(&mut self, sid: StateID) {
         *self = Transition::new(sid, self.info());
     }
 
+    /// Return the "info" embedded in this transition.
     fn info(&self) -> Info {
         Info(self.0 & Transition::INFO_MASK)
     }
@@ -2298,27 +2315,48 @@ impl core::fmt::Debug for Transition {
     }
 }
 
+/// A representation of a match state's pattern ID along with the "info" for
+/// when a match occurs.
+///
+/// A match state in a one-pass DFA, unlike in a more general DFA, has exactly
+/// one pattern ID. If it had more, then the original NFA would not have been
+/// one-pass.
+///
+/// The "info" part of this corresponds to what was found in the epsilon
+/// transitions between the transition taken in the last byte of input and the
+/// ultimate match state. This might include saving slots and/or conditional
+/// epsilon transitions that must be satisfied before one can report the match.
+///
+/// Technically, every state has room for a 'PatternInfo', but it is only ever
+/// non-empty for match states.
 #[derive(Clone, Copy)]
 struct PatternInfo(u64);
 
 impl PatternInfo {
     const PATTERN_ID_BITS: u64 = 24;
     const PATTERN_ID_SHIFT: u64 = 64 - PatternInfo::PATTERN_ID_BITS;
+    // A sentinel value indicating that this is not a match state. We don't
+    // use 0 since 0 is a valid pattern ID.
     const PATTERN_ID_NONE: u64 = 0x00000000_00FFFFFF;
     const PATTERN_ID_LIMIT: u64 = PatternInfo::PATTERN_ID_NONE;
     const PATTERN_ID_MASK: u64 = 0xFFFFFF00_00000000;
     const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
+    /// Return a new empty pattern info that has no pattern ID and has an empty
+    /// "info." This is suitable for non-match states.
     fn empty() -> PatternInfo {
         PatternInfo(
             PatternInfo::PATTERN_ID_NONE << PatternInfo::PATTERN_ID_SHIFT,
         )
     }
 
+    /// Whether this pattern info is empty or not. It's empty when it has no
+    /// pattern ID and an empty info.
     fn is_empty(self) -> bool {
         self.pattern_id().is_none() && self.info().is_empty()
     }
 
+    /// Return the pattern ID in this pattern info if one exists.
     fn pattern_id(self) -> Option<PatternID> {
         let pid = self.0 >> PatternInfo::PATTERN_ID_SHIFT;
         if pid == PatternInfo::PATTERN_ID_LIMIT {
@@ -2332,11 +2370,15 @@ impl PatternInfo {
     /// called and there is no pattern ID in this `PatternInfo`, then this
     /// will likely produce an incorrect result or possibly even a panic or
     /// an overflow. But safety will not be violated.
+    ///
+    /// This is useful when you know a particular state is a match state. If
+    /// it's a match state, then it must have a pattern ID.
     fn pattern_id_unchecked(self) -> PatternID {
         let pid = self.0 >> PatternInfo::PATTERN_ID_SHIFT;
         PatternID::new_unchecked(pid.as_usize())
     }
 
+    /// Return a new pattern info with the given pattern ID, but the same info.
     fn set_pattern_id(self, pid: PatternID) -> PatternInfo {
         PatternInfo(
             (pid.as_u64() << PatternInfo::PATTERN_ID_SHIFT)
@@ -2344,10 +2386,12 @@ impl PatternInfo {
         )
     }
 
+    /// Return the "info" part of this pattern info.
     fn info(self) -> Info {
         Info(self.0 & PatternInfo::INFO_MASK)
     }
 
+    /// Return a new pattern info with the given info, but the same pattern ID.
     fn set_info(self, info: Info) -> PatternInfo {
         PatternInfo(
             (self.0 & PatternInfo::PATTERN_ID_MASK) | u64::from(info.0),
