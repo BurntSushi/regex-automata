@@ -19,8 +19,8 @@ use crate::{
         iter,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
+        search::{Input, Match, MatchError, MatchKind},
     },
-    Input, Match, MatchError, MatchKind,
 };
 
 /// Returns the minimum visited capacity for the given haystack.

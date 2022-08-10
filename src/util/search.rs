@@ -1,3 +1,7 @@
+/*!
+Types and routines that support the search APIs of most regex engines.
+*/
+
 use core::ops::{Range, RangeBounds};
 
 use crate::util::{
@@ -1114,7 +1118,7 @@ impl Match {
 /// This shows basic usage of a set.
 ///
 /// ```
-/// use regex_automata::{PatternSet, PatternID};
+/// use regex_automata::util::{search::PatternSet, primitives::PatternID};
 ///
 /// let pid1 = PatternID::must(5);
 /// let pid2 = PatternID::must(8);

@@ -25,8 +25,7 @@ use crate::{
         remapper::Remapper, sparse,
     },
     nfa::thompson,
-    util::alphabet::ByteSet,
-    MatchKind,
+    util::{alphabet::ByteSet, search::MatchKind},
 };
 use crate::{
     dfa::{
@@ -289,7 +288,8 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
-    ///     HalfMatch, MatchKind, Input,
+    ///     util::search::MatchKind,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -328,7 +328,8 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, MatchKind, Input,
+    ///     util::search::MatchKind,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let haystack = "123foobar456".as_bytes();

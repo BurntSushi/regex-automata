@@ -3,8 +3,11 @@ use regex_automata::{
         self,
         pikevm::{self, PikeVM},
     },
-    util::iter,
-    MatchKind, PatternSet, SyntaxConfig,
+    util::{
+        iter,
+        search::{MatchKind, PatternSet},
+    },
+    SyntaxConfig,
 };
 
 use ret::{

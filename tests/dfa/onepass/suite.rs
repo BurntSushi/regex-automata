@@ -1,8 +1,8 @@
 use regex_automata::{
     dfa::onepass::{self, DFA},
     nfa::thompson,
-    util::iter,
-    MatchKind, SyntaxConfig,
+    util::{iter, search::MatchKind},
+    SyntaxConfig,
 };
 
 use ret::{

@@ -14,7 +14,8 @@ example, this configures a sparse DFA to do an overlapping search:
 ```
 use regex_automata::{
     dfa::{Automaton, OverlappingState, dense},
-    HalfMatch, MatchKind, Input,
+    util::search::MatchKind,
+    HalfMatch, Input,
 };
 
 let dense_re = dense::Builder::new()

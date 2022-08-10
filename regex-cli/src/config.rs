@@ -5,7 +5,7 @@ use automata::{
     dfa::{self, dense, onepass, sparse},
     hybrid,
     nfa::thompson::{self, backtrack, pikevm},
-    MatchKind,
+    util::search::MatchKind,
 };
 use bstr::{BStr, BString, ByteSlice};
 

@@ -749,12 +749,13 @@ pub unsafe trait Automaton {
     /// patterns have matched in a particular state, but also how to access
     /// which specific patterns have matched.
     ///
-    /// Notice that we must use [`MatchKind::All`](crate::MatchKind::All)
+    /// Notice that we must use
+    /// [`MatchKind::All`](crate::util::searchMatchKind::All)
     /// when building the DFA. If we used
-    /// [`MatchKind::LeftmostFirst`](crate::MatchKind::LeftmostFirst)
-    /// instead, then the DFA would not be constructed in a way that supports
-    /// overlapping matches. (It would only report a single pattern that
-    /// matches at any particular point in time.)
+    /// [`MatchKind::LeftmostFirst`](crate::util::search::MatchKind::LeftmostFirst)
+    /// instead, then the DFA would not be constructed in a way that
+    /// supports overlapping matches. (It would only report a single pattern
+    /// that matches at any particular point in time.)
     ///
     /// Another thing to take note of is the patterns used and the order in
     /// which the pattern IDs are reported. In the example below, pattern `3`
@@ -765,7 +766,11 @@ pub unsafe trait Automaton {
     /// other.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, MatchKind, Input};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     util::search::MatchKind,
+    ///     Input,
+    /// };
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
@@ -1252,7 +1257,8 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
-    ///     HalfMatch, MatchKind, Input,
+    ///     util::search::MatchKind,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1366,7 +1372,8 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense::DFA},
-    ///     MatchKind, PatternSet, Input,
+    ///     util::search::{MatchKind, PatternSet},
+    ///     Input,
     /// };
     ///
     /// let patterns = &[

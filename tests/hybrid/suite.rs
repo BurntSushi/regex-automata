@@ -4,8 +4,11 @@ use regex_automata::{
         regex::{self, Regex},
     },
     nfa::thompson,
-    util::iter,
-    Input, MatchKind, PatternSet, SyntaxConfig,
+    util::{
+        iter,
+        search::{MatchKind, PatternSet},
+    },
+    Input, SyntaxConfig,
 };
 
 use ret::{

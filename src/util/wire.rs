@@ -1,4 +1,10 @@
 /*!
+Types and routines that support the wire format of finite automata.
+
+Currently, this module just exports a few error types.
+*/
+
+/*
 A collection of helper functions, types and traits for serializing automata.
 
 This crate defines its own bespoke serialization mechanism for some structures
@@ -10,10 +16,10 @@ generally designed such that deserialization is cheap. More specifically, that
 deserialization can be done in constant time. (The idea being that you can
 embed it into your binary or mmap it, and then use it immediately.)
 
-In order to achieve this, most of the structures in this crate use an in-memory
-representation that very closely corresponds to its binary serialized form.
-This pervades and complicates everything, and in some cases, requires dealing
-with alignment and reasoning about safety.
+In order to achieve this, the dense and sparse DFAs in this crate use an
+in-memory representation that very closely corresponds to its binary serialized
+form. This pervades and complicates everything, and in some cases, requires
+dealing with alignment and reasoning about safety.
 
 This technique does have major advantages. In particular, it permits doing
 the potentially costly work of compiling a finite state machine in an offline
@@ -866,7 +872,7 @@ pub(crate) fn shl(
 ///
 /// This is similar to what byteorder provides, but we only need a very small
 /// subset.
-pub trait Endian {
+pub(crate) trait Endian {
     /// Writes a u16 to the given destination buffer in a particular
     /// endianness. If the destination buffer has a length smaller than 2, then
     /// this panics.
@@ -884,14 +890,14 @@ pub trait Endian {
 }
 
 /// Little endian writing.
-pub enum LE {}
+pub(crate) enum LE {}
 /// Big endian writing.
-pub enum BE {}
+pub(crate) enum BE {}
 
 #[cfg(target_endian = "little")]
-pub type NE = LE;
+pub(crate) type NE = LE;
 #[cfg(target_endian = "big")]
-pub type NE = BE;
+pub(crate) type NE = BE;
 
 impl Endian for LE {
     fn write_u16(n: u16, dst: &mut [u8]) {

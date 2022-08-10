@@ -801,7 +801,8 @@ impl DFA {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::{DFA, OverlappingState},
-    ///     HalfMatch, MatchKind, Input,
+    ///     util::search::MatchKind,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let dfa = DFA::builder()
@@ -920,7 +921,11 @@ impl DFA {
     /// even when some patterns match at the same position as other patterns.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, PatternSet, Input};
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::search::{MatchKind, PatternSet},
+    ///     Input,
+    /// };
     ///
     /// let patterns = &[
     ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
@@ -1440,12 +1445,10 @@ impl DFA {
     /// patterns have matched in a particular state, but also how to access
     /// which specific patterns have matched.
     ///
-    /// Notice that we must use [`MatchKind::All`](crate::MatchKind::All)
-    /// when building the DFA. If we used
-    /// [`MatchKind::LeftmostFirst`](crate::MatchKind::LeftmostFirst)
-    /// instead, then the DFA would not be constructed in a way that supports
-    /// overlapping matches. (It would only report a single pattern that
-    /// matches at any particular point in time.)
+    /// Notice that we must use [`MatchKind::All`] when building the DFA. If we
+    /// used [`MatchKind::LeftmostFirst`] instead, then the DFA would not be
+    /// constructed in a way that supports overlapping matches. (It would only
+    /// report a single pattern that matches at any particular point in time.)
     ///
     /// Another thing to take note of is the patterns used and the order in
     /// which the pattern IDs are reported. In the example below, pattern `3`
@@ -1456,7 +1459,11 @@ impl DFA {
     /// other.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, MatchKind, Input};
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::search::MatchKind,
+    ///     Input,
+    /// };
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().match_kind(MatchKind::All))
@@ -2623,7 +2630,8 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::{DFA, OverlappingState},
-    ///     HalfMatch, MatchKind, Input,
+    ///     util::search::MatchKind,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let dfa = DFA::builder()
@@ -2665,7 +2673,11 @@ impl Config {
     /// for you, so it's usually not necessary to do this yourself.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchKind, Input};
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::search::MatchKind,
+    ///     HalfMatch, Input,
+    /// };
     ///
     /// let haystack = "123foobar456";
     /// let pattern = r"[a-z]+";

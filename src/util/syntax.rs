@@ -1,3 +1,11 @@
+/*!
+Utilities for dealing with the syntax of a regular expression.
+
+This module currently only exposes a [`Config`] type that
+itself represents a wrapper around the configuration for a
+[`regex-syntax::ParserBuilder`](regex_syntax::ParserBuilder).
+*/
+
 use regex_syntax::ParserBuilder;
 
 /// A common set of configuration options that apply to the syntax of a regex.
