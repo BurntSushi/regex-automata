@@ -91,10 +91,10 @@ use core::{convert::TryFrom, mem};
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::util::{
-    bytes::{self, Endian},
     int::{I32, U32},
     look::{Look, LookSet},
     primitives::{PatternID, StateID},
+    wire::{self, Endian},
 };
 
 /// A DFA state that, at its core, is represented by an ordered set of NFA
@@ -503,7 +503,7 @@ impl<'a> Repr<'a> {
             let offset = 7 + index * PatternID::SIZE;
             // This is OK since we only ever serialize valid PatternIDs to
             // states.
-            bytes::read_pattern_id_unchecked(&self.0[offset..]).0
+            wire::read_pattern_id_unchecked(&self.0[offset..]).0
         }
     }
 
@@ -533,7 +533,7 @@ impl<'a> Repr<'a> {
         }
         let mut pids = &self.0[7..self.pattern_offset_end()];
         while !pids.is_empty() {
-            let pid = bytes::read_u32(pids);
+            let pid = wire::read_u32(pids);
             pids = &pids[PatternID::SIZE..];
             // This is OK since we only ever serialize valid PatternIDs to
             // states. And since pattern IDs can never exceed a usize, the
@@ -581,7 +581,7 @@ impl<'a> Repr<'a> {
         }
         // This unwrap is OK since the total number of patterns is always
         // guaranteed to fit into a usize.
-        usize::try_from(bytes::read_u32(&self.0[3..7])).unwrap()
+        usize::try_from(wire::read_u32(&self.0[3..7])).unwrap()
     }
 }
 
@@ -725,7 +725,7 @@ impl<'a> ReprVec<'a> {
         // This unwrap is OK since we are guaranteed that the maximum number
         // of possible patterns fits into a u32.
         let count32 = u32::try_from(pattern_bytes / patsize).unwrap();
-        bytes::NE::write_u32(count32, &mut self.0[3..7]);
+        wire::NE::write_u32(count32, &mut self.0[3..7]);
     }
 
     /// Add an NFA state ID to this state. The order in which NFA states are
@@ -803,7 +803,7 @@ fn read_varu32(data: &[u8]) -> (u32, usize) {
 
 /// Push a native-endian encoded `n` on to `dst`.
 fn write_u32(dst: &mut Vec<u8>, n: u32) {
-    use crate::util::bytes::{Endian, NE};
+    use crate::util::wire::{Endian, NE};
 
     let start = dst.len();
     dst.extend(core::iter::repeat(0).take(mem::size_of::<u32>()));

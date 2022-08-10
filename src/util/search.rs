@@ -1150,6 +1150,16 @@ pub struct PatternSet {
     /// is that iteration scales with the capacity of the set instead of
     /// the length of the set. This doesn't seem likely to be a problem in
     /// practice.
+    ///
+    /// Another alternative is to just use a 'SparseSet' for this. It does use
+    /// more memory (quite a bit more), but that seems fine I think compared
+    /// to the memory being used by the regex engine. The real hiccup with
+    /// it is that it yields pattern IDs in the order they were inserted.
+    /// Which is actually kind of nice, but at the time of writing, pattern
+    /// IDs are yielded in ascending order in the regex crate RegexSet API.
+    /// If we did change to 'SparseSet', we could provide an additional
+    /// 'iter_match_order' iterator, but keep the ascending order one for
+    /// compatibility.
     which: alloc::boxed::Box<[bool]>,
 }
 
@@ -1207,6 +1217,13 @@ impl PatternSet {
         self.which[pid] = true;
     }
 
+    /*
+    // This is currently commented out because it is unused and it is unclear
+    // whether it's useful or not. What's the harm in having it? When, if
+    // we ever wanted to change our representation to a 'SparseSet', then
+    // supporting this method would be a bit tricky. So in order to keep some
+    // API evolution flexibility, we leave it out for now.
+
     /// Remove the given pattern identifier from this set.
     ///
     /// If the pattern identifier was not previously in this set, then this
@@ -1223,6 +1240,7 @@ impl PatternSet {
         self.which[pid] = false;
         true
     }
+    */
 
     /// Return true if and only if this set has no pattern identifiers in it.
     pub fn is_empty(&self) -> bool {
@@ -1301,6 +1319,7 @@ impl<'a> Iterator for PatternSetIter<'a> {
 /// The kind of match semantics to use for a regex pattern.
 ///
 /// The default match kind is `LeftmostFirst`.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatchKind {
     /// Report all possible matches.
@@ -1309,13 +1328,6 @@ pub enum MatchKind {
     /// report the match corresponding to the part of the regex that appears
     /// first in the syntax.
     LeftmostFirst,
-    /// Hints that destructuring should not be exhaustive.
-    ///
-    /// This enum may grow additional variants, so this makes sure clients
-    /// don't count on exhaustive matching. (Otherwise, adding a new variant
-    /// could break existing code.)
-    #[doc(hidden)]
-    __Nonexhaustive,
     // There is prior art in RE2 that shows that we should be able to add
     // LeftmostLongest too. The tricky part of it is supporting ungreedy
     // repetitions. Instead of treating all NFA states as having equivalent

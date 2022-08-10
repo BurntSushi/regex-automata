@@ -22,7 +22,7 @@ create issues for this release unless it's for a critical bug.
     target_pointer_width = "32",
     target_pointer_width = "64"
 )))]
-compile_error!("regex-automata currently not supported on non-{16,32,64}");
+compile_error!("not supported on non-{16,32,64}, please file an issue");
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -32,11 +32,11 @@ pub use crate::util::primitives::PatternID;
 #[cfg(feature = "alloc")]
 pub use crate::util::syntax::SyntaxConfig;
 pub use crate::util::{
-    bytes::{DeserializeError, SerializeError},
     search::{
         HalfMatch, Input, Match, MatchError, MatchKind, PatternSet,
         PatternSetIter, Span,
     },
+    wire::{DeserializeError, SerializeError},
 };
 
 #[macro_use]

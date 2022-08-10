@@ -37,11 +37,11 @@ use crate::{
     },
     util::{
         alphabet::{self, ByteClasses},
-        bytes::{self, DeserializeError, Endian, SerializeError},
         int::Pointer,
         primitives::{PatternID, StateID},
         search::Input,
         start::Start,
+        wire::{self, DeserializeError, Endian, SerializeError},
     },
 };
 
@@ -1584,7 +1584,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// ```
     #[cfg(feature = "alloc")]
     pub fn to_bytes_little_endian(&self) -> (Vec<u8>, usize) {
-        self.to_bytes::<bytes::LE>()
+        self.to_bytes::<wire::LE>()
     }
 
     /// Serialize this DFA as raw bytes to a `Vec<u8>` in big endian
@@ -1627,7 +1627,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// ```
     #[cfg(feature = "alloc")]
     pub fn to_bytes_big_endian(&self) -> (Vec<u8>, usize) {
-        self.to_bytes::<bytes::BE>()
+        self.to_bytes::<wire::BE>()
     }
 
     /// Serialize this DFA as raw bytes to a `Vec<u8>` in native endian
@@ -1677,7 +1677,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// ```
     #[cfg(feature = "alloc")]
     pub fn to_bytes_native_endian(&self) -> (Vec<u8>, usize) {
-        self.to_bytes::<bytes::NE>()
+        self.to_bytes::<wire::NE>()
     }
 
     /// The implementation of the public `to_bytes` serialization methods,
@@ -1685,7 +1685,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     #[cfg(feature = "alloc")]
     fn to_bytes<E: Endian>(&self) -> (Vec<u8>, usize) {
         let len = self.write_to_len();
-        let (mut buf, padding) = bytes::alloc_aligned_buffer::<u32>(len);
+        let (mut buf, padding) = wire::alloc_aligned_buffer::<u32>(len);
         // This should always succeed since the only possible serialization
         // error is providing a buffer that's too small, but we've ensured that
         // `buf` is big enough here.
@@ -1748,7 +1748,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
         &self,
         dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
-        self.as_ref().write_to::<bytes::LE>(dst)
+        self.as_ref().write_to::<wire::LE>(dst)
     }
 
     /// Serialize this DFA as raw bytes to the given slice, in big endian
@@ -1806,7 +1806,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
         &self,
         dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
-        self.as_ref().write_to::<bytes::BE>(dst)
+        self.as_ref().write_to::<wire::BE>(dst)
     }
 
     /// Serialize this DFA as raw bytes to the given slice, in native endian
@@ -1871,7 +1871,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
         &self,
         dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
-        self.as_ref().write_to::<bytes::NE>(dst)
+        self.as_ref().write_to::<wire::NE>(dst)
     }
 
     /// Return the total number of bytes required to serialize this DFA.
@@ -1913,9 +1913,9 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// either need to deal with adding some initial padding yourself, or use
     /// one of the `to_bytes` methods, which will do it for you.
     pub fn write_to_len(&self) -> usize {
-        bytes::write_label_len(LABEL)
-        + bytes::write_endianness_check_len()
-        + bytes::write_version_len()
+        wire::write_label_len(LABEL)
+        + wire::write_endianness_check_len()
+        + wire::write_version_len()
         + size_of::<u32>() // unused, intended for future flexibility
         + self.tt.write_to_len()
         + self.st.write_to_len()
@@ -2169,13 +2169,13 @@ impl<'a> DFA<&'a [u32]> {
     ) -> Result<(DFA<&'a [u32]>, usize), DeserializeError> {
         let mut nr = 0;
 
-        nr += bytes::skip_initial_padding(slice);
-        bytes::check_alignment::<StateID>(&slice[nr..])?;
-        nr += bytes::read_label(&slice[nr..], LABEL)?;
-        nr += bytes::read_endianness_check(&slice[nr..])?;
-        nr += bytes::read_version(&slice[nr..], VERSION)?;
+        nr += wire::skip_initial_padding(slice);
+        wire::check_alignment::<StateID>(&slice[nr..])?;
+        nr += wire::read_label(&slice[nr..], LABEL)?;
+        nr += wire::read_endianness_check(&slice[nr..])?;
+        nr += wire::read_version(&slice[nr..], VERSION)?;
 
-        let _unused = bytes::try_read_u32(&slice[nr..], "unused space")?;
+        let _unused = wire::try_read_u32(&slice[nr..], "unused space")?;
         nr += size_of::<u32>();
 
         let (tt, nread) = TransitionTable::from_bytes_unchecked(&slice[nr..])?;
@@ -2212,9 +2212,9 @@ impl<'a> DFA<&'a [u32]> {
         dst = &mut dst[..nwrite];
 
         let mut nw = 0;
-        nw += bytes::write_label(LABEL, &mut dst[nw..])?;
-        nw += bytes::write_endianness_check::<E>(&mut dst[nw..])?;
-        nw += bytes::write_version::<E>(VERSION, &mut dst[nw..])?;
+        nw += wire::write_label(LABEL, &mut dst[nw..])?;
+        nw += wire::write_endianness_check::<E>(&mut dst[nw..])?;
+        nw += wire::write_version::<E>(VERSION, &mut dst[nw..])?;
         nw += {
             // Currently unused, intended for future flexibility
             E::write_u32(0, &mut dst[nw..]);
@@ -3039,10 +3039,10 @@ impl<'a> TransitionTable<&'a [u32]> {
         let slice_start = slice.as_ptr().as_usize();
 
         let (state_len, nr) =
-            bytes::try_read_u32_as_usize(slice, "state length")?;
+            wire::try_read_u32_as_usize(slice, "state length")?;
         slice = &slice[nr..];
 
-        let (stride2, nr) = bytes::try_read_u32_as_usize(slice, "stride2")?;
+        let (stride2, nr) = wire::try_read_u32_as_usize(slice, "stride2")?;
         slice = &slice[nr..];
 
         let (classes, nr) = ByteClasses::from_bytes(slice)?;
@@ -3074,14 +3074,14 @@ impl<'a> TransitionTable<&'a [u32]> {
         }
 
         let trans_len =
-            bytes::shl(state_len, stride2, "dense table transition length")?;
-        let table_bytes_len = bytes::mul(
+            wire::shl(state_len, stride2, "dense table transition length")?;
+        let table_bytes_len = wire::mul(
             trans_len,
             StateID::SIZE,
             "dense table state byte length",
         )?;
-        bytes::check_slice_len(slice, table_bytes_len, "transition table")?;
-        bytes::check_alignment::<StateID>(slice)?;
+        wire::check_slice_len(slice, table_bytes_len, "transition table")?;
+        wire::check_alignment::<StateID>(slice)?;
         let table_bytes = &slice[..table_bytes_len];
         slice = &slice[table_bytes_len..];
         // SAFETY: Since StateID is always representable as a u32, all we need
@@ -3252,7 +3252,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
 
         // write actual transitions
         for &sid in self.table() {
-            let n = bytes::write_state_id::<E>(sid, &mut dst);
+            let n = wire::write_state_id::<E>(sid, &mut dst);
             dst = &mut dst[n..];
         }
         Ok(nwrite)
@@ -3600,11 +3600,11 @@ impl<'a> StartTable<&'a [u32]> {
         let slice_start = slice.as_ptr().as_usize();
 
         let (stride, nr) =
-            bytes::try_read_u32_as_usize(slice, "start table stride")?;
+            wire::try_read_u32_as_usize(slice, "start table stride")?;
         slice = &slice[nr..];
 
         let (pattern_len, nr) =
-            bytes::try_read_u32_as_usize(slice, "start table patterns")?;
+            wire::try_read_u32_as_usize(slice, "start table patterns")?;
         slice = &slice[nr..];
 
         if stride != Start::len() {
@@ -3618,22 +3618,22 @@ impl<'a> StartTable<&'a [u32]> {
             ));
         }
         let pattern_table_size =
-            bytes::mul(stride, pattern_len, "invalid pattern length")?;
+            wire::mul(stride, pattern_len, "invalid pattern length")?;
         // Our start states always start with a single stride of start states
         // for the entire automaton which permit it to match any pattern. What
         // follows it are an optional set of start states for each pattern.
-        let start_state_len = bytes::add(
+        let start_state_len = wire::add(
             stride,
             pattern_table_size,
             "invalid 'any' pattern starts size",
         )?;
-        let table_bytes_len = bytes::mul(
+        let table_bytes_len = wire::mul(
             start_state_len,
             StateID::SIZE,
             "pattern table bytes length",
         )?;
-        bytes::check_slice_len(slice, table_bytes_len, "start ID table")?;
-        bytes::check_alignment::<StateID>(slice)?;
+        wire::check_slice_len(slice, table_bytes_len, "start ID table")?;
+        wire::check_alignment::<StateID>(slice)?;
         let table_bytes = &slice[..table_bytes_len];
         slice = &slice[table_bytes_len..];
         // SAFETY: Since StateID is always representable as a u32, all we need
@@ -3681,7 +3681,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         dst = &mut dst[size_of::<u32>()..];
         // write start IDs
         for &sid in self.table() {
-            let n = bytes::write_state_id::<E>(sid, &mut dst);
+            let n = wire::write_state_id::<E>(sid, &mut dst);
             dst = &mut dst[n..];
         }
         Ok(nwrite)
@@ -3900,18 +3900,18 @@ impl<'a> MatchStates<&'a [u32]> {
 
         // Read the total number of match states.
         let (state_len, nr) =
-            bytes::try_read_u32_as_usize(slice, "match state length")?;
+            wire::try_read_u32_as_usize(slice, "match state length")?;
         slice = &slice[nr..];
 
         // Read the slice start/length pairs.
-        let pair_len = bytes::mul(2, state_len, "match state offset pairs")?;
-        let slices_bytes_len = bytes::mul(
+        let pair_len = wire::mul(2, state_len, "match state offset pairs")?;
+        let slices_bytes_len = wire::mul(
             pair_len,
             PatternID::SIZE,
             "match state slice offset byte length",
         )?;
-        bytes::check_slice_len(slice, slices_bytes_len, "match state slices")?;
-        bytes::check_alignment::<PatternID>(slice)?;
+        wire::check_slice_len(slice, slices_bytes_len, "match state slices")?;
+        wire::check_alignment::<PatternID>(slice)?;
         let slices_bytes = &slice[..slices_bytes_len];
         slice = &slice[slices_bytes_len..];
         // SAFETY: Since PatternID is always representable as a u32, all we
@@ -3933,20 +3933,20 @@ impl<'a> MatchStates<&'a [u32]> {
         // than the maximum pattern ID in this automaton, since pattern IDs are
         // handed out contiguously starting at 0).
         let (pattern_len, nr) =
-            bytes::try_read_u32_as_usize(slice, "pattern length")?;
+            wire::try_read_u32_as_usize(slice, "pattern length")?;
         slice = &slice[nr..];
 
         // Now read the pattern ID length. We don't need to store this
         // explicitly, but we need it to know how many pattern IDs to read.
         let (idlen, nr) =
-            bytes::try_read_u32_as_usize(slice, "pattern ID length")?;
+            wire::try_read_u32_as_usize(slice, "pattern ID length")?;
         slice = &slice[nr..];
 
         // Read the actual pattern IDs.
         let pattern_ids_len =
-            bytes::mul(idlen, PatternID::SIZE, "pattern ID byte length")?;
-        bytes::check_slice_len(slice, pattern_ids_len, "match pattern IDs")?;
-        bytes::check_alignment::<PatternID>(slice)?;
+            wire::mul(idlen, PatternID::SIZE, "pattern ID byte length")?;
+        wire::check_slice_len(slice, pattern_ids_len, "match pattern IDs")?;
+        wire::check_alignment::<PatternID>(slice)?;
         let pattern_ids_bytes = &slice[..pattern_ids_len];
         slice = &slice[pattern_ids_len..];
         // SAFETY: Since PatternID is always representable as a u32, all we
@@ -4029,7 +4029,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
 
         // write slice offset pairs
         for &pid in self.slices() {
-            let n = bytes::write_pattern_id::<E>(pid, &mut dst);
+            let n = wire::write_pattern_id::<E>(pid, &mut dst);
             dst = &mut dst[n..];
         }
 
@@ -4046,7 +4046,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
 
         // write pattern IDs
         for &pid in self.pattern_ids() {
-            let n = bytes::write_pattern_id::<E>(pid, &mut dst);
+            let n = wire::write_pattern_id::<E>(pid, &mut dst);
             dst = &mut dst[n..];
         }
 

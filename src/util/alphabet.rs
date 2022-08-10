@@ -4,9 +4,9 @@ use core::{
 };
 
 use crate::util::{
-    bytes::{DeserializeError, SerializeError},
     escape::DebugByte,
     utf8,
+    wire::{DeserializeError, SerializeError},
 };
 
 /// Unit represents a single unit of input for DFA based regex engines.

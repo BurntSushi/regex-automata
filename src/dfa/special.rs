@@ -1,8 +1,8 @@
 use crate::{
     dfa::DEAD,
     util::{
-        bytes::{self, DeserializeError, Endian, SerializeError},
         primitives::StateID,
+        wire::{self, DeserializeError, Endian, SerializeError},
     },
 };
 
@@ -223,11 +223,11 @@ impl Special {
     pub fn from_bytes(
         mut slice: &[u8],
     ) -> Result<(Special, usize), DeserializeError> {
-        bytes::check_slice_len(slice, 8 * StateID::SIZE, "special states")?;
+        wire::check_slice_len(slice, 8 * StateID::SIZE, "special states")?;
 
         let mut nread = 0;
         let mut read_id = |what| -> Result<StateID, DeserializeError> {
-            let (id, nr) = bytes::try_read_state_id(slice, what)?;
+            let (id, nr) = wire::try_read_state_id(slice, what)?;
             nread += nr;
             slice = &slice[StateID::SIZE..];
             Ok(id)
@@ -354,7 +354,7 @@ impl Special {
         &self,
         dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
-        use crate::util::bytes::write_state_id as write;
+        use crate::util::wire::write_state_id as write;
 
         if dst.len() < self.write_to_len() {
             return Err(SerializeError::buffer_too_small("special state ids"));

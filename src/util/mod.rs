@@ -10,7 +10,6 @@ pub mod look;
 pub mod prefilter;
 pub mod primitives;
 
-pub(crate) mod bytes;
 #[cfg(feature = "alloc")]
 pub(crate) mod determinize;
 pub(crate) mod escape;
@@ -24,3 +23,4 @@ pub(crate) mod start;
 #[cfg(feature = "alloc")]
 pub(crate) mod syntax;
 pub(crate) mod utf8;
+pub(crate) mod wire;

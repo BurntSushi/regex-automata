@@ -55,8 +55,8 @@ use core::convert::{TryFrom, TryInto};
 use alloc::{vec, vec::Vec};
 
 use crate::util::{
-    bytes::{self, DeserializeError, Endian, SerializeError},
     int::Pointer,
+    wire::{self, DeserializeError, Endian, SerializeError},
 };
 
 /// The base type used to represent a collection of accelerators.
@@ -191,23 +191,23 @@ impl<'a> Accels<&'a [AccelTy]> {
         let slice_start = slice.as_ptr().as_usize();
 
         let (accel_len, _) =
-            bytes::try_read_u32_as_usize(slice, "accelerators length")?;
+            wire::try_read_u32_as_usize(slice, "accelerators length")?;
         // The accelerator length is part of the accel_tys slice that
         // we deserialize. This is perhaps a bit idiosyncratic. It would
         // probably be better to split out the length into a real field.
 
-        let accel_tys_len = bytes::add(
-            bytes::mul(accel_len, 2, "total number of accelerator accel_tys")?,
+        let accel_tys_len = wire::add(
+            wire::mul(accel_len, 2, "total number of accelerator accel_tys")?,
             1,
             "total number of accel_tys",
         )?;
-        let accel_tys_bytes_len = bytes::mul(
+        let accel_tys_bytes_len = wire::mul(
             ACCEL_TY_SIZE,
             accel_tys_len,
             "total number of bytes in accelerators",
         )?;
-        bytes::check_slice_len(slice, accel_tys_bytes_len, "accelerators")?;
-        bytes::check_alignment::<AccelTy>(slice)?;
+        wire::check_slice_len(slice, accel_tys_bytes_len, "accelerators")?;
+        wire::check_alignment::<AccelTy>(slice)?;
         let accel_tys = &slice[..accel_tys_bytes_len];
         slice = &slice[accel_tys_bytes_len..];
         // SAFETY: We've checked the length and alignment above, and since
