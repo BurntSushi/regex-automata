@@ -672,6 +672,8 @@ impl<'a> InternalBuilder<'a> {
             alphabet_len,
             stride2,
             pateps_offset: alphabet_len,
+            // OK because PatternID::MAX*2 is guaranteed not to overflow.
+            explicit_slot_start: nfa.pattern_len().checked_mul(2).unwrap(),
         };
         InternalBuilder {
             dfa,
@@ -826,7 +828,7 @@ impl<'a> InternalBuilder<'a> {
     /// a state is a match state or not. We need to check on this on every
     /// transition during a search, so it being cheap is important. This
     /// permits us to check it by simply comparing two state identifiers, as
-    /// opposed to looking for the pattern ID in the state's `PatternInfo`.
+    /// opposed to looking for the pattern ID in the state's `PatternEpsilons`.
     /// (Which requires a memory load and some light arithmetic.)
     fn shuffle_states(&mut self) {
         let mut remapper = Remapper::new(&self.dfa);
@@ -849,9 +851,9 @@ impl<'a> InternalBuilder<'a> {
 
     /// Compile the given NFA transition into the DFA state given.
     ///
-    /// 'Info' corresponds to any conditional epsilon transitions that need to
-    /// be satisfied to follow this transition, and any slots that need to be
-    /// saved if the transition is followed.
+    /// 'Epsilons' corresponds to any conditional epsilon transitions that need
+    /// to be satisfied to follow this transition, and any slots that need to
+    /// be saved if the transition is followed.
     ///
     /// If this transition indicates that the NFA is not one-pass, then
     /// this returns an error. (This occurs, for example, if the DFA state
@@ -969,10 +971,10 @@ impl<'a> InternalBuilder<'a> {
         self.dfa
             .table
             .extend(core::iter::repeat(Transition(0)).take(self.dfa.stride()));
-        // The default empty value for 'PatternInfo' is sadly not all zeroes.
-        // Instead, a special sentinel is used to indicate that there is no
-        // pattern. So we need to explicitly set the pattern epsilons to the
-        // correct "empty" PatternInfo.
+        // The default empty value for 'PatternEpsilons' is sadly not all
+        // zeroes. Instead, a special sentinel is used to indicate that there
+        // is no pattern. So we need to explicitly set the pattern epsilons to
+        // the correct "empty" PatternEpsilons.
         self.dfa.set_pattern_epsilons(id, PatternEpsilons::empty());
         if let Some(size_limit) = self.config.get_size_limit() {
             if self.dfa.memory_usage() > size_limit {
@@ -1136,10 +1138,10 @@ pub struct DFA {
     /// converting between state IDs and state indices very cheap.
     ///
     /// Note that the stride always includes room for one extra "transition"
-    /// that isn't actually a transition. It is a 'PatternInfo' that is used
-    /// for match states only. Because of this, the maximum number of active
-    /// columns in the transition table is 257, which means the maximum stride
-    /// is 512 (the next power of 2 greater than or equal to 257).
+    /// that isn't actually a transition. It is a 'PatternEpsilons' that is
+    /// used for match states only. Because of this, the maximum number of
+    /// active columns in the transition table is 257, which means the maximum
+    /// stride is 512 (the next power of 2 greater than or equal to 257).
     table: Vec<Transition>,
     /// The DFA state IDs of the starting states.
     ///
@@ -1153,7 +1155,7 @@ pub struct DFA {
     ///
     /// This is what a search uses to detect whether a state is a match state
     /// or not. It requires only a simple comparison instead of bit-unpacking
-    /// the PatternInfo from every state.
+    /// the PatternEpsilons from every state.
     min_match_id: StateID,
     /// The alphabet of this DFA, split into equivalence classes. Bytes in the
     /// same equivalence class can never discriminate between a match and a
@@ -1166,19 +1168,28 @@ pub struct DFA {
     /// The number of columns in the transition table, expressed as a power of
     /// 2.
     stride2: usize,
-    /// The offset at which the PatternInfo for a match state is stored in the
-    /// transition table.
+    /// The offset at which the PatternEpsilons for a match state is stored in
+    /// the transition table.
     ///
     /// PERF: One wonders whether it would be better to put this in a separate
-    /// allocation, since only match states have a non-empty PatternInfo and
-    /// the number of match states tends be dwarfed by the number of non-match
-    /// states. So this would save '8*len(non_match_states)' for each DFA. The
-    /// question is whether moving this to a different allocation will lead to
-    /// a perf hit during searches. You might think dealing with match states
-    /// is rare, but some regexes spend a lot of time in match states gobbling
-    /// up input. But... match state handling is already somewhat expensive,
-    /// so maybe this wouldn't do much? Either way, it's worth experimenting.
+    /// allocation, since only match states have a non-empty PatternEpsilons
+    /// and the number of match states tends be dwarfed by the number of
+    /// non-match states. So this would save '8*len(non_match_states)' for each
+    /// DFA. The question is whether moving this to a different allocation will
+    /// lead to a perf hit during searches. You might think dealing with match
+    /// states is rare, but some regexes spend a lot of time in match states
+    /// gobbling up input. But... match state handling is already somewhat
+    /// expensive, so maybe this wouldn't do much? Either way, it's worth
+    /// experimenting.
     pateps_offset: usize,
+    /// The first explicit slot index. This refers to the first slot appearing
+    /// immediately after the last implicit slot. It is always 'patterns.len()
+    /// * 2'.
+    ///
+    /// We record this because we only store the explicit slots in our DFA
+    /// transition table that need to be saved. Implicit slots are handled
+    /// automatically as part of the search.
+    explicit_slot_start: usize,
 }
 
 impl DFA {
@@ -1760,7 +1771,6 @@ impl DFA {
         input: &Input<'_, '_>,
         caps: &mut Captures,
     ) {
-        caps.set_pattern(None);
         let pid = self.search_slots(cache, input, caps.slots_mut());
         caps.set_pattern(pid);
     }
@@ -1835,8 +1845,11 @@ impl DFA {
             None => return None,
             Some(pid) if !input.get_utf8() => return Some(pid),
             Some(pid) => {
-                let slot_start = pid.as_usize() * 2;
-                let slot_end = slot_start + 1;
+                // These slot indices are always correct because we know our
+                // 'pid' is valid and thus we know that the slot indices for it
+                // are valid.
+                let slot_start = pid.as_usize().wrapping_mul(2);
+                let slot_end = slot_start.wrapping_add(1);
                 if slot_end >= slots.len() {
                     return Some(pid);
                 }
@@ -1879,25 +1892,52 @@ impl DFA {
         // and if capturing groups are common, then this might wind up being a
         // pessimization.
         //
-        // 2) Consider moving 'PatternInfo' out of the transition table. It is
-        // only needed for match states and usually a small minority of states
-        // are match states. Therefore, we're using an extra 'u64' for most
-        // states.
-        let explicit_start = self.nfa.pattern_len() * 2;
-        let explicit_slots = core::cmp::min(
-            Slots::LIMIT,
-            slots.len().saturating_sub(explicit_start),
-        );
-        cache.setup_search(explicit_slots);
-        for slot in slots.iter_mut() {
-            *slot = None;
-        }
-        for slot in cache.explicit_slots() {
-            *slot = None;
-        }
+        // 2) Consider moving 'PatternEpsilons' out of the transition table.
+        // It is only needed for match states and usually a small minority of
+        // states are match states. Therefore, we're using an extra 'u64' for
+        // most states.
+        //
+        // 3) I played around with the match state handling and it seems like
+        // there is probably a lot left on the table for improvement. The
+        // key tension is that the 'find_match' routine is a giant mess, but
+        // splitting it out into a non-inlineable function is a non-starter
+        // because the match state might consume input. In theory, we could
+        // detect whether a match state consumes input and then specialize our
+        // search routine based on that. In that case, maybe an extra function
+        // call is OK, but even then, it might be too much of a latency hit.
+        // Another idea is to just try and figure out how to reduce the code
+        // size of 'find_match'. RE2 has a trick here where the match handling
+        // isn't done if we know the next byte of input yields a match too.
+        // Maybe we adopt that?
+        //
+        // This just might be a tricky DFA to optimize.
+
         if input.is_done() {
             return None;
         }
+        // We unfortunately have a bit of book-keeping to do to set things
+        // up. We do have to setup our cache and clear all of our slots. In
+        // particular, clearing the slots is necessary for the case where we
+        // report a match, but one of the capturing groups didn't participate
+        // in the match but had a span set from a previous search. That would
+        // be bad. In theory, we could avoid all this slot clearing if we knew
+        // that every slot was always activated for every match. Then we would
+        // know they would always be overwritten when a match is found.
+        let explicit_slots_len = core::cmp::min(
+            Slots::LIMIT,
+            slots.len().saturating_sub(self.explicit_slot_start),
+        );
+        cache.setup_search(explicit_slots_len);
+        for slot in cache.explicit_slots() {
+            *slot = None;
+        }
+        for slot in slots.iter_mut() {
+            *slot = None;
+        }
+        // We set the starting slots for every pattern up front. This does
+        // increase our latency somewhat, but it avoids having to do it every
+        // time we see a match state (which could be many times in a single
+        // search if the match state consumes input).
         for pid in self.nfa.patterns() {
             let i = pid.as_usize() * 2;
             if i >= slots.len() {
@@ -1905,7 +1945,6 @@ impl DFA {
             }
             slots[i] = NonMaxUsize::new(input.start());
         }
-        let haystack = input.haystack();
         let mut pid = None;
         let mut sid = match input.get_pattern() {
             None => self.start(),
@@ -1913,56 +1952,74 @@ impl DFA {
         };
         for at in input.start()..input.end() {
             if sid >= self.min_match_id {
-                let pateps = self.pattern_epsilons(sid);
-                let foundpid = pateps.pattern_id_unchecked();
-                if pateps.epsilons().look_matches(haystack, at) {
-                    pid = Some(foundpid);
-                    let i = foundpid.as_usize() * 2 + 1;
-                    if i < slots.len() {
-                        slots[i] = NonMaxUsize::new(at);
-                    }
-                    if explicit_start < slots.len() {
-                        slots[explicit_start..]
-                            .copy_from_slice(cache.explicit_slots());
-                        pateps
-                            .epsilons()
-                            .slots()
-                            .apply(at, &mut slots[explicit_start..]);
-                    }
+                if self.find_match(cache, input, at, sid, slots, &mut pid) {
                     if input.get_earliest() {
                         return pid;
                     }
                 }
             }
 
-            let trans = self.transition(sid, haystack[at]);
+            let trans = self.transition(sid, input.haystack()[at]);
             sid = trans.state_id();
             let epsilons = trans.epsilons();
-            if sid == DEAD || !epsilons.look_matches(haystack, at) {
+            if sid == DEAD || !epsilons.look_matches(input.haystack(), at) {
                 return pid;
             }
             epsilons.slots().apply(at, cache.explicit_slots());
         }
         if sid >= self.min_match_id {
-            let pateps = self.pattern_epsilons(sid);
-            let foundpid = pateps.pattern_id_unchecked();
-            if pateps.epsilons().look_matches(haystack, input.end()) {
-                pid = Some(foundpid);
-                let i = foundpid.as_usize() * 2 + 1;
-                if i < slots.len() {
-                    slots[i] = NonMaxUsize::new(input.end());
-                }
-                if explicit_start < slots.len() {
-                    slots[explicit_start..]
-                        .copy_from_slice(cache.explicit_slots());
-                    pateps
-                        .epsilons()
-                        .slots()
-                        .apply(input.end(), &mut slots[explicit_start..]);
-                }
-            }
+            self.find_match(cache, input, input.end(), sid, slots, &mut pid);
         }
         pid
+    }
+
+    /// Assumes 'sid' is a match state and looks for whether a match can
+    /// be reported. If so, appropriate offsets are written to 'slots' and
+    /// 'matched_pid' is set to the matching pattern ID.
+    ///
+    /// Even when 'sid' is a match state, it's possible that a match won't
+    /// be reported. For example, when the conditional epsilon transitions
+    /// leading to the match state aren't satisfied at the given position in
+    /// the haystack.
+    #[inline(always)]
+    fn find_match(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        at: usize,
+        sid: StateID,
+        slots: &mut [Option<NonMaxUsize>],
+        matched_pid: &mut Option<PatternID>,
+    ) -> bool {
+        debug_assert!(sid >= self.min_match_id);
+        let pateps = self.pattern_epsilons(sid);
+        let epsilons = pateps.epsilons();
+        if !epsilons.look_matches(input.haystack(), at) {
+            return false;
+        }
+        let pid = pateps.pattern_id_unchecked();
+        // This calculation is always correct because we know our 'pid' is
+        // valid and thus we know that the slot indices for it are valid.
+        let slot_end = pid.as_usize().wrapping_mul(2).wrapping_add(1);
+        // Set the implicit 'end' slot for the matching pattern. (The 'start'
+        // slot was set at the beginning of the search.)
+        if slot_end < slots.len() {
+            slots[slot_end] = NonMaxUsize::new(at);
+        }
+        // If the caller provided enough room, copy the previously recorded
+        // explicit slots from our scratch space to the caller provided slots.
+        // We *also* need to set any explicit slots that are active as part of
+        // the path to the match state.
+        if self.explicit_slot_start < slots.len() {
+            // NOTE: The 'cache.explicit_slots()' slice is setup at the
+            // beginning of every search such that it is guaranteed to return a
+            // slice of length equivalent to 'slots[explicit_slot_start..]'.
+            slots[self.explicit_slot_start..]
+                .copy_from_slice(cache.explicit_slots());
+            epsilons.slots().apply(at, &mut slots[self.explicit_slot_start..]);
+        }
+        *matched_pid = Some(pid);
+        true
     }
 }
 
@@ -2407,8 +2464,8 @@ impl core::fmt::Debug for Transition {
 /// ultimate match state. This might include saving slots and/or conditional
 /// epsilon transitions that must be satisfied before one can report the match.
 ///
-/// Technically, every state has room for a 'PatternInfo', but it is only ever
-/// non-empty for match states.
+/// Technically, every state has room for a 'PatternEpsilons', but it is only
+/// ever non-empty for match states.
 #[derive(Clone, Copy)]
 struct PatternEpsilons(u64);
 
@@ -2448,7 +2505,7 @@ impl PatternEpsilons {
     }
 
     /// Returns the pattern ID without checking whether it's valid. If this is
-    /// called and there is no pattern ID in this `PatternInfo`, then this
+    /// called and there is no pattern ID in this `PatternEpsilons`, then this
     /// will likely produce an incorrect result or possibly even a panic or
     /// an overflow. But safety will not be violated.
     ///
