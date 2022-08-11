@@ -747,9 +747,9 @@ pub unsafe trait Automaton {
     /// which specific patterns have matched.
     ///
     /// Notice that we must use
-    /// [`MatchKind::All`](crate::util::searchMatchKind::All)
+    /// [`MatchKind::All`](crate::MatchKind::All)
     /// when building the DFA. If we used
-    /// [`MatchKind::LeftmostFirst`](crate::util::search::MatchKind::LeftmostFirst)
+    /// [`MatchKind::LeftmostFirst`](crate::MatchKind::LeftmostFirst)
     /// instead, then the DFA would not be constructed in a way that
     /// supports overlapping matches. (It would only report a single pattern
     /// that matches at any particular point in time.)
@@ -763,11 +763,7 @@ pub unsafe trait Automaton {
     /// other.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     util::search::MatchKind,
-    ///     Input,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, dense}, Input, MatchKind};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
@@ -1253,8 +1249,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
-    ///     util::search::MatchKind,
-    ///     HalfMatch, Input,
+    ///     HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1368,8 +1363,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense::DFA},
-    ///     util::search::{MatchKind, PatternSet},
-    ///     Input,
+    ///     Input, MatchKind, PatternSet,
     /// };
     ///
     /// let patterns = &[

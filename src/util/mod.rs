@@ -9,7 +9,6 @@ pub mod iter;
 pub mod look;
 pub mod prefilter;
 pub mod primitives;
-pub mod search;
 #[cfg(feature = "alloc")]
 pub mod syntax;
 pub mod wire;
@@ -20,6 +19,7 @@ pub(crate) mod escape;
 pub(crate) mod int;
 #[cfg(feature = "alloc")]
 pub(crate) mod lazy;
+pub(crate) mod search;
 #[cfg(feature = "alloc")]
 pub(crate) mod sparse_set;
 pub(crate) mod start;

@@ -1272,8 +1272,7 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     util::search::{MatchKind, PatternSet},
-    ///     Input,
+    ///     Input, MatchKind, PatternSet,
     /// };
     ///
     /// let patterns = &[

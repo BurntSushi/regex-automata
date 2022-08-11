@@ -1340,11 +1340,7 @@ impl DFA {
     /// "preference order" vs "longest match.")
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::onepass::DFA,
-    ///     util::search::MatchKind,
-    ///     Match,
-    /// };
+    /// use regex_automata::{dfa::onepass::DFA, Match, MatchKind};
     ///
     /// let re = DFA::builder()
     ///     .configure(DFA::config().match_kind(MatchKind::All))

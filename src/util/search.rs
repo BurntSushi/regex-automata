@@ -669,14 +669,14 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{Input, PatternID};
+    /// use regex_automata::{Anchored, Input, PatternID};
     ///
     /// let mut input = Input::new("foobar");
-    /// assert_eq!(Anchored::No, input.get_pattern());
+    /// assert_eq!(Anchored::No, input.get_anchored());
     ///
     /// let pid = PatternID::must(5);
     /// input.set_anchored(Anchored::Pattern(pid));
-    /// assert_eq!(Anchored::Pattern(pid), input.get_pattern());
+    /// assert_eq!(Anchored::Pattern(pid), input.get_anchored());
     /// ```
     #[inline]
     pub fn get_anchored(&self) -> Anchored {
@@ -1152,7 +1152,7 @@ impl Match {
 /// This shows basic usage of a set.
 ///
 /// ```
-/// use regex_automata::util::{search::PatternSet, primitives::PatternID};
+/// use regex_automata::{PatternID, PatternSet};
 ///
 /// let pid1 = PatternID::must(5);
 /// let pid2 = PatternID::must(8);

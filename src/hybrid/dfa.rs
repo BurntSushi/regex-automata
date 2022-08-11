@@ -801,8 +801,7 @@ impl DFA {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::{DFA, OverlappingState},
-    ///     util::search::MatchKind,
-    ///     HalfMatch, Input,
+    ///     HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let dfa = DFA::builder()
@@ -923,8 +922,7 @@ impl DFA {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
-    ///     util::search::{MatchKind, PatternSet},
-    ///     Input,
+    ///     Input, MatchKind, PatternSet,
     /// };
     ///
     /// let patterns = &[
@@ -1459,11 +1457,7 @@ impl DFA {
     /// other.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     hybrid::dfa::DFA,
-    ///     util::search::MatchKind,
-    ///     Input,
-    /// };
+    /// use regex_automata::{hybrid::dfa::DFA, Input, MatchKind};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().match_kind(MatchKind::All))
@@ -2630,8 +2624,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::{DFA, OverlappingState},
-    ///     util::search::MatchKind,
-    ///     HalfMatch, Input,
+    ///     HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let dfa = DFA::builder()
@@ -2675,8 +2668,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
-    ///     util::search::MatchKind,
-    ///     HalfMatch, Input,
+    ///     HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let haystack = "123foobar456";

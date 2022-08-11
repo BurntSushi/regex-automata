@@ -1,12 +1,8 @@
 use regex_automata::{
     dfa::{self, dense, regex::Regex, sparse, Automaton, OverlappingState},
     nfa::thompson,
-    util::{
-        iter,
-        search::{MatchKind, PatternSet},
-        syntax,
-    },
-    Input,
+    util::{iter, syntax},
+    Input, MatchKind, PatternSet,
 };
 
 use ret::{

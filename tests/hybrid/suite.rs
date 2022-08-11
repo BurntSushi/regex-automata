@@ -4,12 +4,8 @@ use regex_automata::{
         regex::{self, Regex},
     },
     nfa::thompson,
-    util::{
-        iter,
-        search::{MatchKind, PatternSet},
-        syntax,
-    },
-    Input,
+    util::{iter, syntax},
+    Input, MatchKind, PatternSet,
 };
 
 use ret::{

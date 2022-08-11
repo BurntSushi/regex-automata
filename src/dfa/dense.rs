@@ -288,8 +288,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
-    ///     util::search::MatchKind,
-    ///     HalfMatch, Input,
+    ///     HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -328,8 +327,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     util::search::MatchKind,
-    ///     HalfMatch, Input,
+    ///     HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let haystack = "123foobar456".as_bytes();

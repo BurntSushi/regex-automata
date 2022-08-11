@@ -29,8 +29,7 @@ extern crate alloc;
 
 #[doc(inline)]
 pub use crate::util::primitives::PatternID;
-#[doc(inline)]
-pub use crate::util::search::{HalfMatch, Input, Match, MatchError, Span};
+pub use crate::util::search::*;
 
 #[macro_use]
 mod macros;
