@@ -282,9 +282,10 @@ optimizations means that searches may run much slower than what you're
 accustomed to, although, it does provide more predictable and consistent
 performance.
 * There is no `&str` API like in the regex crate. In this module, all APIs
-operate on `&[u8]`. By default, match indices are guaranteed to fall on UTF-8
-boundaries, unless either of [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
-or [`regex::Config::utf8`] are disabled.
+operate on `&[u8]`. By default, match indices are
+guaranteed to fall on UTF-8 boundaries, unless either of
+[`syntax::Config::utf8`](crate::util::syntax::Config::utf8) or
+[`regex::Config::utf8`] are disabled.
 
 With some of the downsides out of the way, here are some positive differences:
 

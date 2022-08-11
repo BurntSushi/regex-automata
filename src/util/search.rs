@@ -58,6 +58,7 @@ use crate::util::{
 pub struct Input<'h, 'p> {
     haystack: &'h [u8],
     span: Span,
+    anchored: Anchored,
     pattern: Option<PatternID>,
     prefilter: Option<&'p dyn Prefilter>,
     earliest: bool,
@@ -73,6 +74,7 @@ impl<'h, 'p> Input<'h, 'p> {
         Input {
             haystack: haystack.as_ref(),
             span: Span { start: 0, end: haystack.as_ref().len() },
+            anchored: Anchored::No,
             pattern: None,
             prefilter: None,
             earliest: false,
@@ -191,6 +193,12 @@ impl<'h, 'p> Input<'h, 'p> {
     #[inline]
     pub fn range<R: RangeBounds<usize>>(mut self, range: R) -> Input<'h, 'p> {
         self.set_range(range);
+        self
+    }
+
+    #[inline]
+    pub fn anchored(mut self, kind: Anchored) -> Input<'h, 'p> {
+        self.set_anchored(kind);
         self
     }
 
@@ -324,7 +332,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// boundaries.
     ///
     /// Typically, this is enabled in concert with
-    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8).
+    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8).
     ///
     /// This is enabled by default.
     ///
@@ -493,6 +501,11 @@ impl<'h, 'p> Input<'h, 'p> {
         self.span.end = end;
     }
 
+    #[inline]
+    pub fn set_anchored(&mut self, kind: Anchored) {
+        self.anchored = kind;
+    }
+
     /// Set the pattern to search for.
     ///
     /// This is like [`Input::pattern`], except it mutates the search
@@ -647,6 +660,27 @@ impl<'h, 'p> Input<'h, 'p> {
     #[inline]
     pub fn get_range(&self) -> Range<usize> {
         self.get_span().range()
+    }
+
+    /// Return the anchored mode for this search configuration.
+    ///
+    /// If no anchored mode was set, then it defaults to [`Anchored::No`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{Input, PatternID};
+    ///
+    /// let mut input = Input::new("foobar");
+    /// assert_eq!(Anchored::No, input.get_pattern());
+    ///
+    /// let pid = PatternID::must(5);
+    /// input.set_anchored(Anchored::Pattern(pid));
+    /// assert_eq!(Anchored::Pattern(pid), input.get_pattern());
+    /// ```
+    #[inline]
+    pub fn get_anchored(&self) -> Anchored {
+        self.anchored
     }
 
     /// Return the pattern ID for this search configuration, if one was set.
@@ -1320,6 +1354,44 @@ impl<'a> Iterator for PatternSetIter<'a> {
     }
 }
 
+/// The type of anchored search to perform.
+///
+/// This is *almost* a boolean option. That is, you can either do an unanchored
+/// search for any pattern in a regex, or you can do an anchored search for any
+/// pattern in a regex.
+///
+/// A third option exists that, assuming the regex engine supports it, permits
+/// you to do an anchored search for a specific pattern.
+///
+/// If a regex engine does not support the anchored mode selected, then the
+/// regex engine will panic. While any non-trivial regex engine should support
+/// at least one of the available anchored modes, there is no singular mode
+/// that is guaranteed to be universally supported. Some regex engines might
+/// only support unanchored searches (DFAs compiled without anchored starting
+/// states) and some regex engines might only support anchored searches (like
+/// the one-pass DFA).
+///
+/// Note that there is no way to run an unanchored search for a specific
+/// pattern. If you need that, you'll need to build separate regexes for each
+/// pattern.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Anchored {
+    /// Run an unanchored search. This means a match may occur anywhere at or
+    /// after the start position of the search.
+    ///
+    /// This search can return a match for any pattern in the regex.
+    No,
+    /// Run an anchored search. This means that a match must begin at the
+    /// start position of the search.
+    ///
+    /// This search can return a match for any pattern in the regex.
+    Yes,
+    /// Run an anchored search for a specific pattern. This means that a match
+    /// must be for the given pattern and must begin at the start position of
+    /// the search.
+    Pattern(PatternID),
+}
+
 /// The kind of match semantics to use for a regex pattern.
 ///
 /// The default match kind is `LeftmostFirst`.
@@ -1408,13 +1480,74 @@ impl Default for MatchKind {
 /// regex engine is explicitly configured to do so. Options that enable this
 /// behavior document the new error conditions they imply.
 ///
-/// For example, regex engines in the `dfa` sub-module will only report
-/// `MatchError::Quit` if instructed by either
+/// For example, the dense and sparse regex engines in the `dfa` sub-module
+/// will only report `MatchError::quit` if instructed by either
 /// [enabling Unicode word boundaries](crate::dfa::dense::Config::unicode_word_boundary)
 /// or by
 /// [explicitly specifying one or more quit bytes](crate::dfa::dense::Config::quit).
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum MatchError {
+pub struct MatchError(
+    #[cfg(feature = "alloc")] alloc::boxed::Box<MatchErrorKind>,
+    #[cfg(not(feature = "alloc"))] MatchErrorKind,
+);
+
+impl MatchError {
+    /// Create a new error value with the given kind.
+    ///
+    /// This is a more verbose version of the kind-specific constructors,
+    /// e.g., `MatchError::quit`.
+    pub fn new(kind: MatchErrorKind) -> MatchError {
+        #[cfg(feature = "alloc")]
+        {
+            MatchError(alloc::boxed::Box::new(kind))
+        }
+        #[cfg(not(feature = "alloc"))]
+        {
+            MatchError(kind)
+        }
+    }
+
+    /// Returns a reference to the underlying error kind.
+    pub fn kind(&self) -> &MatchErrorKind {
+        &self.0
+    }
+
+    /// Create a new "quit" error. The given `byte` corresponds to the value
+    /// that tripped a search's quit condition, and `offset` corresponds to the
+    /// location in the haystack at which the search quit.
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::Quit`] kind.
+    pub fn quit(byte: u8, offset: usize) -> MatchError {
+        MatchError::new(MatchErrorKind::Quit { byte, offset })
+    }
+
+    /// Create a new "gave up" error. The given `offset` corresponds to the
+    /// location in the haystack at which the search gave up.
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::GaveUp`] kind.
+    pub fn gave_up(offset: usize) -> MatchError {
+        MatchError::new(MatchErrorKind::GaveUp { offset })
+    }
+
+    /// Create a new "haystack too long" error. The given `len` corresponds to
+    /// the length of the haystack that was problematic.
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::HaystackTooLong`] kind.
+    pub fn haystack_too_long(len: usize) -> MatchError {
+        MatchError::new(MatchErrorKind::HaystackTooLong { len })
+    }
+}
+
+/// The underlying kind of a [`MatchError`].
+///
+/// This is a **non-exhaustive** enum. That means new variants may be added in
+/// a semver-compatible release.
+#[non_exhaustive]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum MatchErrorKind {
     // A previous iteration of this error type specifically encoded "did not
     // match" as a None variant. Instead of fallible regex searches returning
     // Result<Option<Match>, MatchError>, they would return the simpler
@@ -1464,19 +1597,45 @@ impl std::error::Error for MatchError {}
 
 impl core::fmt::Display for MatchError {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match *self {
-            MatchError::Quit { byte, offset } => write!(
+        match *self.kind() {
+            MatchErrorKind::Quit { byte, offset } => write!(
                 f,
                 "quit search after observing byte {:?} at offset {}",
                 DebugByte(byte),
                 offset,
             ),
-            MatchError::GaveUp { offset } => {
+            MatchErrorKind::GaveUp { offset } => {
                 write!(f, "gave up searching at offset {}", offset)
             }
-            MatchError::HaystackTooLong { len } => {
+            MatchErrorKind::HaystackTooLong { len } => {
                 write!(f, "haystack of length {} is too long", len)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // We test that our 'MatchError' type is the size we expect. This isn't an
+    // API guarantee, but if the size increases, we really want to make sure we
+    // decide to do that intentionally. So this should be a speed bump. And in
+    // general, we should not increase the size without a very good reason.
+    //
+    // Why? Because low level search APIs return Result<.., MatchError>. When
+    // MatchError gets bigger, so to does the Result type.
+    //
+    // Now, when 'alloc' is enabled, we do box the error, which de-emphasizes
+    // the importance of keeping a small error type. But without 'alloc', we
+    // still want things to be small.
+    #[test]
+    fn match_error_size() {
+        let err_size = if cfg!(feature = "alloc") {
+            core::mem::size_of::<MatchError>()
+        } else {
+            2 * core::mem::size_of::<MatchError>()
+        };
+        assert_eq!(core::mem::size_of::<usize>(), err_size);
     }
 }

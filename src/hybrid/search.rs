@@ -256,10 +256,7 @@ fn find_fwd_imp(
                 if mat.is_some() {
                     return Ok(mat);
                 }
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[at],
-                    offset: at,
-                });
+                return Err(MatchError::quit(input.haystack()[at], at));
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");
@@ -399,10 +396,7 @@ fn find_rev_imp(
                 if mat.is_some() {
                     return Ok(mat);
                 }
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[at],
-                    offset: at,
-                });
+                return Err(MatchError::quit(input.haystack()[at], at));
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");
@@ -497,10 +491,10 @@ fn find_overlapping_fwd_imp(
             } else if sid.is_dead() {
                 return Ok(());
             } else if sid.is_quit() {
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[state.at],
-                    offset: state.at,
-                });
+                return Err(MatchError::quit(
+                    input.haystack()[state.at],
+                    state.at,
+                ));
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");
@@ -586,10 +580,10 @@ pub(crate) fn find_overlapping_rev(
             } else if sid.is_dead() {
                 return Ok(());
             } else if sid.is_quit() {
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[state.at],
-                    offset: state.at,
-                });
+                return Err(MatchError::quit(
+                    input.haystack()[state.at],
+                    state.at,
+                ));
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");
@@ -706,5 +700,5 @@ fn eoi_rev(
 /// A convenience routine for constructing a "gave up" match error.
 #[inline(always)]
 fn gave_up(offset: usize) -> MatchError {
-    MatchError::GaveUp { offset }
+    MatchError::gave_up(offset)
 }

@@ -208,7 +208,7 @@ impl Config {
     /// behavior is unspecified.
     ///
     /// Generally speaking, one should enable this when
-    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
+    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8)
     /// is enabled, and disable it otherwise.
     ///
     /// # Example
@@ -324,8 +324,8 @@ impl Config {
 /// complexity, and the possibility of setting a configuration that might not
 /// make sense. For example, there are two different UTF-8 modes:
 ///
-/// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
-/// pattern itself can contain sub-expressions that match invalid UTF-8.
+/// * [`syntax::Config::utf8`](crate::syntax::Config::utf8) controls whether
+/// the pattern itself can contain sub-expressions that match invalid UTF-8.
 /// * [`Config::utf8`] controls whether empty matches that split a Unicode
 /// codepoint are reported or not.
 ///
@@ -338,11 +338,11 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
-/// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, SyntaxConfig};
+/// use regex_automata::{nfa::thompson::pikevm::PikeVM, util::syntax, Match};
 ///
 /// let vm = PikeVM::builder()
 ///     .configure(PikeVM::config().utf8(false))
-///     .syntax(SyntaxConfig::new().utf8(false))
+///     .syntax(syntax::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let mut cache = vm.create_cache();
 ///
@@ -430,7 +430,7 @@ impl Builder {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`syntax::Config`](crate::util::syntax::Config).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
@@ -439,7 +439,7 @@ impl Builder {
     /// pattern.
     pub fn syntax(
         &mut self,
-        config: crate::util::syntax::SyntaxConfig,
+        config: crate::util::syntax::Config,
     ) -> &mut Builder {
         self.thompson.syntax(config);
         self
@@ -686,12 +686,13 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, SyntaxConfig,
+    ///     util::syntax,
+    ///     Match,
     /// };
     ///
     /// let vm = PikeVM::builder()
     ///     .configure(PikeVM::config().utf8(false))
-    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///

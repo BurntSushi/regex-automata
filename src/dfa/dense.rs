@@ -482,7 +482,7 @@ impl Config {
     /// When set, this will attempt to implement Unicode word boundaries as if
     /// they were ASCII word boundaries. This only works when the search input
     /// is ASCII only. If a non-ASCII byte is observed while searching, then a
-    /// [`MatchError::Quit`](crate::MatchError::Quit) error is returned.
+    /// [`MatchError::quit`](crate::MatchError::quit) error is returned.
     ///
     /// A possible alternative to enabling this option is to simply use an
     /// ASCII word boundary, e.g., via `(?-u:\b)`. The main reason to use this
@@ -506,7 +506,7 @@ impl Config {
     /// When using a [`Regex`](crate::dfa::regex::Regex), this corresponds
     /// to using the `try_` suite of methods. Alternatively, if
     /// callers can guarantee that their input is ASCII only, then a
-    /// [`MatchError::Quit`](crate::MatchError::Quit) error will never be
+    /// [`MatchError::quit`](crate::MatchError::quit) error will never be
     /// returned while searching.
     ///
     /// This is disabled by default.
@@ -537,7 +537,7 @@ impl Config {
     /// // look-around, and indeed, this is required here to determine whether
     /// // the trailing \b matches.
     /// let haystack = "foo 123☃".as_bytes();
-    /// let expected = MatchError::Quit { byte: 0xE2, offset: 7 };
+    /// let expected = MatchError::quit(0xE2, 7);
     /// let got = dfa.try_find_fwd(haystack);
     /// assert_eq!(Err(expected), got);
     ///
@@ -555,7 +555,7 @@ impl Config {
     /// Add a "quit" byte to the DFA.
     ///
     /// When a quit byte is seen during search time, then search will return
-    /// a [`MatchError::Quit`](crate::MatchError::Quit) error indicating the
+    /// a [`MatchError::quit`](crate::MatchError::quit) error indicating the
     /// offset at which the search stopped.
     ///
     /// A quit byte will always overrule any other aspects of a regex. For
@@ -607,7 +607,7 @@ impl Config {
     /// // Normally this would produce a match, since \p{any} contains '\n'.
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
-    /// let expected = MatchError::Quit { byte: 0x0A, offset: 3 };
+    /// let expected = MatchError::quit(b'\n', 3);
     /// let got = dfa.try_find_fwd(haystack).unwrap_err();
     /// assert_eq!(expected, got);
     ///
@@ -964,11 +964,11 @@ impl Config {
 ///   things like `[^a]` that match any byte except for `a` are permitted.
 ///
 /// ```
-/// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, SyntaxConfig};
+/// use regex_automata::{dfa::{Automaton, dense}, util::syntax, HalfMatch};
 ///
 /// let dfa = dense::Builder::new()
 ///     .configure(dense::Config::new().minimize(false))
-///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
+///     .syntax(syntax::Config::new().unicode(false).utf8(false))
 ///     .build(r"foo[^b]ar.*")?;
 ///
 /// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";
@@ -1120,7 +1120,7 @@ impl Builder {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`syntax::Config`](crate::util::syntax::Config).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
@@ -1129,7 +1129,7 @@ impl Builder {
     /// pattern.
     pub fn syntax(
         &mut self,
-        config: crate::util::syntax::SyntaxConfig,
+        config: crate::util::syntax::Config,
     ) -> &mut Builder {
         self.thompson.syntax(config);
         self

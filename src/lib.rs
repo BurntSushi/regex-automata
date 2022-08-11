@@ -31,8 +31,6 @@ extern crate alloc;
 pub use crate::util::primitives::PatternID;
 #[doc(inline)]
 pub use crate::util::search::{HalfMatch, Input, Match, MatchError, Span};
-#[cfg(feature = "alloc")]
-pub use crate::util::syntax::SyntaxConfig;
 
 #[macro_use]
 mod macros;

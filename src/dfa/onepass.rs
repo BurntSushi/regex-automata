@@ -118,7 +118,7 @@ impl Config {
     /// behavior is unspecified.
     ///
     /// Generally speaking, one should enable this when
-    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
+    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8)
     /// is enabled, and disable it otherwise.
     ///
     /// # Example
@@ -417,8 +417,9 @@ impl Config {
 /// the possibility of setting a configuration that might not make sense. For
 /// example, there are two different UTF-8 modes:
 ///
-/// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
-/// pattern itself can contain sub-expressions that match invalid UTF-8.
+/// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
+/// whether the pattern itself can contain sub-expressions that match invalid
+/// UTF-8.
 /// * [`Config::utf8`] controls whether empty matches that split a Unicode
 /// codepoint are reported or not.
 ///
@@ -431,11 +432,11 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
-/// use regex_automata::{dfa::onepass::DFA, Match, SyntaxConfig};
+/// use regex_automata::{dfa::onepass::DFA, util::syntax, Match};
 ///
 /// let re = DFA::builder()
 ///     .configure(DFA::config().utf8(false))
-///     .syntax(SyntaxConfig::new().utf8(false))
+///     .syntax(syntax::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
 ///
@@ -537,7 +538,7 @@ impl Builder {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`syntax::Config`](crate::util::syntax::Config).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
@@ -546,7 +547,7 @@ impl Builder {
     /// from a pattern.
     pub fn syntax(
         &mut self,
-        config: crate::util::syntax::SyntaxConfig,
+        config: crate::util::syntax::Config,
     ) -> &mut Builder {
         self.thompson.syntax(config);
         self
@@ -1373,12 +1374,13 @@ impl DFA {
     /// ```
     /// use regex_automata::{
     ///     dfa::onepass::DFA,
-    ///     Match, SyntaxConfig,
+    ///     util::syntax,
+    ///     Match,
     /// };
     ///
     /// let vm = DFA::builder()
     ///     .configure(DFA::config().utf8(false))
-    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///
@@ -2795,6 +2797,8 @@ impl Iterator for SlotsIter {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::*;
 
     #[test]
@@ -2844,14 +2848,14 @@ mod tests {
 
     #[test]
     fn is_one_pass() {
-        use crate::SyntaxConfig;
+        use crate::util::syntax;
 
         assert!(DFA::new(r"a*b").is_ok());
         assert!(DFA::new(r"\w").is_ok());
         assert!(DFA::new(r"(?-u)\w*\s").is_ok());
         assert!(DFA::new(r"(?s:.)*?").is_ok());
         assert!(DFA::builder()
-            .syntax(SyntaxConfig::new().utf8(false))
+            .syntax(syntax::Config::new().utf8(false))
             .build(r"(?s-u:.)*?")
             .is_ok());
     }

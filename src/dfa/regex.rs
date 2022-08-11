@@ -174,7 +174,7 @@ define_regex_type!(
     /// // Normally this would produce a match, since \p{any} contains '\n'.
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
-    /// let expected = MatchError::Quit { byte: 0x0A, offset: 3 };
+    /// let expected = MatchError::quit(b'\n', 3);
     /// let got = re.try_find(haystack).unwrap_err();
     /// assert_eq!(expected, got);
     ///
@@ -335,11 +335,11 @@ impl Regex {
     /// everywhere.
     ///
     /// ```
-    /// use regex_automata::{dfa::regex::Regex, Match, SyntaxConfig};
+    /// use regex_automata::{dfa::regex::Regex, util::syntax, Match};
     ///
     /// let re = Regex::builder()
     ///     .configure(Regex::config().utf8(false))
-    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 1..9));
@@ -684,6 +684,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 
     /// Return the config for this regex.
+    #[cfg(feature = "alloc")]
     pub fn get_config(&self) -> &Config {
         &self.config
     }
@@ -840,7 +841,7 @@ impl Config {
     /// behavior is unspecified.
     ///
     /// Generally speaking, one should enable this when
-    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8)
+    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8)
     /// is enabled, and disable it otherwise.
     ///
     /// # Example
@@ -924,8 +925,9 @@ impl Config {
 /// configuration that might not make sense. For example, there are two
 /// different UTF-8 modes:
 ///
-/// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
-/// pattern itself can contain sub-expressions that match invalid UTF-8.
+/// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
+/// whether the pattern itself can contain sub-expressions that match invalid
+/// UTF-8.
 /// * [`Config::utf8`] controls how the regex iterators themselves advance
 /// the starting position of the next search when a match with zero length is
 /// found.
@@ -967,11 +969,11 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
-/// use regex_automata::{dfa::regex::Regex, Match, SyntaxConfig};
+/// use regex_automata::{dfa::regex::Regex, util::syntax, Match};
 ///
 /// let re = Regex::builder()
 ///     .configure(Regex::config().utf8(false))
-///     .syntax(SyntaxConfig::new().utf8(false))
+///     .syntax(syntax::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
 /// let expected = Some(Match::must(0, 1..9));
@@ -1126,13 +1128,13 @@ impl Builder {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`syntax::Config`](crate::util::syntax::Config).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
     pub fn syntax(
         &mut self,
-        config: crate::util::syntax::SyntaxConfig,
+        config: crate::util::syntax::Config,
     ) -> &mut Builder {
         self.dfa.syntax(config);
         self

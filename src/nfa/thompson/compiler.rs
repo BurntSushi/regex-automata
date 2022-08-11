@@ -589,7 +589,7 @@ impl Compiler {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`syntax::Config`](crate::util::syntax::Config).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
@@ -601,9 +601,9 @@ impl Compiler {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::NFA, SyntaxConfig};
+    /// use regex_automata::{nfa::thompson::NFA, util::syntax};
     ///
-    /// let syntax_config = SyntaxConfig::new().unicode(false);
+    /// let syntax_config = syntax::Config::new().unicode(false);
     /// let nfa = NFA::compiler().syntax(syntax_config).build(r"\w")?;
     /// // If Unicode were enabled, the number of states would be much bigger.
     /// assert!(nfa.states().len() < 15);
@@ -612,7 +612,7 @@ impl Compiler {
     /// ```
     pub fn syntax(
         &mut self,
-        config: crate::util::syntax::SyntaxConfig,
+        config: crate::util::syntax::Config,
     ) -> &mut Compiler {
         config.apply(&mut self.parser);
         self
@@ -1536,7 +1536,7 @@ impl Utf8Node {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
+    use alloc::{vec, vec::Vec};
 
     use crate::{
         nfa::thompson::{SparseTransitions, State, Transition, NFA},
@@ -1643,7 +1643,7 @@ mod tests {
         // Check that non-UTF-8 literals work.
         let nfa = NFA::compiler()
             .configure(NFA::config().captures(false).unanchored_prefix(false))
-            .syntax(crate::SyntaxConfig::new().utf8(false))
+            .syntax(crate::util::syntax::Config::new().utf8(false))
             .build(r"(?-u)\xFF")
             .unwrap();
         assert_eq!(nfa.states(), &[s_byte(b'\xFF', 1), s_match(0),]);

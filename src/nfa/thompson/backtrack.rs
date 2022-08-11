@@ -171,8 +171,8 @@ impl Config {
     /// behavior is unspecified.
     ///
     /// Generally speaking, one should enable this when
-    /// [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) is enabled, and
-    /// disable it otherwise.
+    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) is enabled,
+    /// and disable it otherwise.
     ///
     /// # Example
     ///
@@ -344,8 +344,9 @@ impl Config {
 /// complexity, and the possibility of setting a configuration that might not
 /// make sense. For example, there are two different UTF-8 modes:
 ///
-/// * [`SyntaxConfig::utf8`](crate::SyntaxConfig::utf8) controls whether the
-/// pattern itself can contain sub-expressions that match invalid UTF-8.
+/// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
+/// whether the pattern itself can contain sub-expressions that match invalid
+/// UTF-8.
 /// * [`Config::utf8`] controls how the regex iterators themselves advance
 /// the starting position of the next search when a match with zero length is
 /// found.
@@ -361,12 +362,13 @@ impl Config {
 /// ```
 /// use regex_automata::{
 ///     nfa::thompson::backtrack::BoundedBacktracker,
-///     Match, SyntaxConfig,
+///     util::syntax,
+///     Match,
 /// };
 ///
 /// let re = BoundedBacktracker::builder()
 ///     .configure(BoundedBacktracker::config().utf8(false))
-///     .syntax(SyntaxConfig::new().utf8(false))
+///     .syntax(syntax::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let mut cache = re.create_cache();
 ///
@@ -455,7 +457,7 @@ impl Builder {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`syntax::Config`](crate::util::syntax::Config).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
@@ -464,7 +466,7 @@ impl Builder {
     /// directly from a pattern.
     pub fn syntax(
         &mut self,
-        config: crate::util::syntax::SyntaxConfig,
+        config: crate::util::syntax::Config,
     ) -> &mut Builder {
         self.thompson.syntax(config);
         self
@@ -759,12 +761,13 @@ impl BoundedBacktracker {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     Match, SyntaxConfig,
+    ///     util::syntax,
+    ///     Match,
     /// };
     ///
     /// let re = BoundedBacktracker::builder()
     ///     .configure(BoundedBacktracker::config().utf8(false))
-    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
@@ -952,7 +955,7 @@ impl BoundedBacktracker {
     /// // Notice that we use the 'try_find_iter' routine instead, which
     /// // yields Result<Match, MatchError> instead of Match.
     /// haystack.push('a');
-    /// let expected = Some(Err(MatchError::HaystackTooLong { len: 299_593 }));
+    /// let expected = Some(Err(MatchError::haystack_too_long(299_593)));
     /// assert_eq!(expected, re.try_find_iter(&mut cache, &haystack).next());
     ///
     /// // Unicode inflates the size of the underlying NFA quite a bit, and
@@ -2047,7 +2050,7 @@ impl Visited {
         input: &Input<'_, '_>,
     ) -> Result<(), MatchError> {
         let haylen = input.haystack().len();
-        let err = || MatchError::HaystackTooLong { len: haylen };
+        let err = || MatchError::haystack_too_long(haylen);
         // Our stride is one more than the length of the input because our main
         // search loop includes the position at input.haystack().len(). (And
         // it does this because matches are delayed by one byte to account for

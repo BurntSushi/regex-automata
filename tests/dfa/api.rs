@@ -15,16 +15,13 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
         .configure(dense::Config::new().quit(b'x', true))
         .build("[[:word:]]+$")?;
 
-    assert_eq!(
-        dfa.try_find_fwd(b"abcxyz"),
-        Err(MatchError::Quit { byte: b'x', offset: 3 })
-    );
+    assert_eq!(dfa.try_find_fwd(b"abcxyz"), Err(MatchError::quit(b'x', 3)),);
     assert_eq!(
         dfa.try_search_overlapping_fwd(
             &Input::new(b"abcxyz"),
             &mut OverlappingState::start()
         ),
-        Err(MatchError::Quit { byte: b'x', offset: 3 })
+        Err(MatchError::quit(b'x', 3)),
     );
 
     Ok(())
@@ -38,10 +35,7 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
         .thompson(thompson::Config::new().reverse(true))
         .build("^[[:word:]]+")?;
 
-    assert_eq!(
-        dfa.try_find_rev(b"abcxyz"),
-        Err(MatchError::Quit { byte: b'x', offset: 3 })
-    );
+    assert_eq!(dfa.try_find_rev(b"abcxyz"), Err(MatchError::quit(b'x', 3)),);
 
     Ok(())
 }

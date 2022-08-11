@@ -353,11 +353,12 @@ impl NFA {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, SyntaxConfig
+    ///     util::syntax,
+    ///     Match,
     /// };
     ///
     /// let vm = PikeVM::builder()
-    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"[a-z]+(?-u:.)")?;
     /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
     ///

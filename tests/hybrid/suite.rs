@@ -7,8 +7,9 @@ use regex_automata::{
     util::{
         iter,
         search::{MatchKind, PatternSet},
+        syntax,
     },
-    Input, SyntaxConfig,
+    Input,
 };
 
 use ret::{
@@ -255,8 +256,8 @@ fn config_thompson(_test: &RegexTest) -> thompson::Config {
 }
 
 /// Configuration of the regex parser from a regex test.
-fn config_syntax(test: &RegexTest) -> SyntaxConfig {
-    SyntaxConfig::new()
+fn config_syntax(test: &RegexTest) -> syntax::Config {
+    syntax::Config::new()
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
         .utf8(test.utf8())

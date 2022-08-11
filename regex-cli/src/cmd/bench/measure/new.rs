@@ -196,8 +196,10 @@ pub(super) fn pcre2_api_nojit(
 
 /// For regex-automata based regex engines, this builds a syntax configuration
 /// from a benchmark definition.
-pub(super) fn automata_syntax_config(b: &Benchmark) -> automata::SyntaxConfig {
-    automata::SyntaxConfig::new()
+pub(super) fn automata_syntax_config(
+    b: &Benchmark,
+) -> automata::util::syntax::Config {
+    automata::util::syntax::Config::new()
         // Disabling UTF-8 just makes it possible to build regexes that won't
         // necessarily match UTF-8. Whether Unicode is actually usable or not
         // depends on the 'unicode' option below.

@@ -399,7 +399,7 @@ Set the type of search to perform.
 }
 
 #[derive(Debug)]
-pub struct Syntax(automata::SyntaxConfig);
+pub struct Syntax(automata::util::syntax::Config);
 
 impl Syntax {
     pub fn define(mut app: App) -> App {
@@ -554,7 +554,7 @@ This mode cannot be toggled inside the regex.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Syntax> {
-        let mut c = automata::SyntaxConfig::new()
+        let mut c = automata::util::syntax::Config::new()
             .case_insensitive(args.is_present("case-insensitive"))
             .multi_line(args.is_present("multi-line"))
             .dot_matches_new_line(args.is_present("dot-matches-new-line"))

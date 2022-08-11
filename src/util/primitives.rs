@@ -135,7 +135,7 @@ impl core::fmt::Debug for NonMaxUsize {
 /// without using as much space as a `usize` on all targets, callers must
 /// not rely on this property for safety. Callers may choose to rely on this
 /// property for correctness however. For example, creating a `SmallIndex` with
-/// an invalid value can be done in entire safe code. This may in turn result
+/// an invalid value can be done in entirely safe code. This may in turn result
 /// in panics or silent logical errors.
 #[derive(
     Clone, Copy, Debug, Default, Eq, Hash, PartialEq, PartialOrd, Ord,
@@ -272,7 +272,6 @@ impl SmallIndex {
     /// including the given length.
     ///
     /// If the given length exceeds [`SmallIndex::LIMIT`], then this panics.
-    #[cfg(feature = "alloc")]
     pub(crate) fn iter(len: usize) -> SmallIndexIter {
         SmallIndexIter::new(len)
     }
@@ -413,7 +412,6 @@ pub(crate) struct SmallIndexIter {
 }
 
 impl SmallIndexIter {
-    #[cfg(feature = "alloc")]
     fn new(len: usize) -> SmallIndexIter {
         assert!(
             len <= SmallIndex::LIMIT,
@@ -592,7 +590,6 @@ macro_rules! index_type_impls {
             ///
             /// If the given length exceeds this type's limit, then this
             /// panics.
-            #[cfg(feature = "alloc")]
             pub(crate) fn iter(len: usize) -> $iter {
                 $iter::new(len)
             }
@@ -721,7 +718,6 @@ macro_rules! index_type_impls {
         pub(crate) struct $iter(SmallIndexIter);
 
         impl $iter {
-            #[cfg(feature = "alloc")]
             fn new(len: usize) -> $iter {
                 assert!(
                     len <= $name::LIMIT,
@@ -773,7 +769,7 @@ macro_rules! index_type_impls {
     };
 }
 
-/// The identifier of a regex pattern, represented by a `SmallIndex`.
+/// The identifier of a regex pattern, represented by a [`SmallIndex`].
 ///
 /// The identifier for a pattern corresponds to its relative position among
 /// other patterns in a single finite state machine. Namely, when building
@@ -788,7 +784,8 @@ macro_rules! index_type_impls {
 #[repr(transparent)]
 pub struct PatternID(SmallIndex);
 
-/// The identifier of a finite automaton state, represented by a `SmallIndex`.
+/// The identifier of a finite automaton state, represented by a
+/// [`SmallIndex`].
 ///
 /// Most regex engines in this crate are built on top of finite automata. Each
 /// state in a finite automaton defines transitions from its state to another.
@@ -809,7 +806,6 @@ index_type_impls!(StateID, StateIDError, StateIDIter, WithStateIDIter);
 /// to access indices as "small index" types. We require ExactSizeIterator so
 /// that iterator construction can do a single check to make sure the index of
 /// each element is representable by its small index type.
-#[cfg(feature = "alloc")]
 pub(crate) trait IteratorIndexExt: Iterator {
     fn with_small_indices(self) -> WithSmallIndexIter<Self>
     where
@@ -833,5 +829,4 @@ pub(crate) trait IteratorIndexExt: Iterator {
     }
 }
 
-#[cfg(feature = "alloc")]
 impl<I: Iterator> IteratorIndexExt for I {}

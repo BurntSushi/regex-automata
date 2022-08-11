@@ -3,7 +3,12 @@ Utilities for dealing with the syntax of a regular expression.
 
 This module currently only exposes a [`Config`] type that
 itself represents a wrapper around the configuration for a
-[`regex-syntax::ParserBuilder`](regex_syntax::ParserBuilder).
+[`regex-syntax::ParserBuilder`](regex_syntax::ParserBuilder). The purpose of
+this wrapper is to make configuring syntax options very similar to how other
+configuration is done throughout this crate. Namely, instead of duplicating
+syntax options across every builder (of which there are many), we instead
+create small config objects like this one that can be passed around and
+composed.
 */
 
 use regex_syntax::ParserBuilder;
@@ -22,7 +27,7 @@ use regex_syntax::ParserBuilder;
 /// in this crate. Instead of re-defining them on every engine's builder, they
 /// are instead provided here as one cohesive unit.
 #[derive(Clone, Copy, Debug)]
-pub struct SyntaxConfig {
+pub struct Config {
     case_insensitive: bool,
     multi_line: bool,
     dot_matches_new_line: bool,
@@ -34,11 +39,11 @@ pub struct SyntaxConfig {
     octal: bool,
 }
 
-impl SyntaxConfig {
+impl Config {
     /// Return a new default syntax configuration.
-    pub fn new() -> SyntaxConfig {
+    pub fn new() -> Config {
         // These defaults match the ones used in regex-syntax.
-        SyntaxConfig {
+        Config {
             case_insensitive: false,
             multi_line: false,
             dot_matches_new_line: false,
@@ -59,7 +64,7 @@ impl SyntaxConfig {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `i` flag.
-    pub fn case_insensitive(mut self, yes: bool) -> SyntaxConfig {
+    pub fn case_insensitive(mut self, yes: bool) -> Config {
         self.case_insensitive = yes;
         self
     }
@@ -74,7 +79,7 @@ impl SyntaxConfig {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `m` flag.
-    pub fn multi_line(mut self, yes: bool) -> SyntaxConfig {
+    pub fn multi_line(mut self, yes: bool) -> Config {
         self.multi_line = yes;
         self
     }
@@ -95,7 +100,7 @@ impl SyntaxConfig {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `s` flag.
-    pub fn dot_matches_new_line(mut self, yes: bool) -> SyntaxConfig {
+    pub fn dot_matches_new_line(mut self, yes: bool) -> Config {
         self.dot_matches_new_line = yes;
         self
     }
@@ -107,7 +112,7 @@ impl SyntaxConfig {
     ///
     /// By default this is disabled. It may alternatively be selectively
     /// enabled in the regular expression itself via the `U` flag.
-    pub fn swap_greed(mut self, yes: bool) -> SyntaxConfig {
+    pub fn swap_greed(mut self, yes: bool) -> Config {
         self.swap_greed = yes;
         self
     }
@@ -120,7 +125,7 @@ impl SyntaxConfig {
     ///
     /// By default, this is disabled. It may be selectively enabled in the
     /// regular expression by using the `x` flag regardless of this setting.
-    pub fn ignore_whitespace(mut self, yes: bool) -> SyntaxConfig {
+    pub fn ignore_whitespace(mut self, yes: bool) -> Config {
         self.ignore_whitespace = yes;
         self
     }
@@ -139,7 +144,7 @@ impl SyntaxConfig {
     /// time. This is especially noticeable if your regex contains character
     /// classes like `\w` that are impacted by whether Unicode is enabled or
     /// not. If Unicode is not necessary, you are encouraged to disable it.
-    pub fn unicode(mut self, yes: bool) -> SyntaxConfig {
+    pub fn unicode(mut self, yes: bool) -> Config {
         self.unicode = yes;
         self
     }
@@ -147,7 +152,7 @@ impl SyntaxConfig {
     /// When disabled, the builder will permit the construction of a regular
     /// expression that may match invalid UTF-8.
     ///
-    /// For example, when [`SyntaxConfig::unicode`] is disabled, then
+    /// For example, when [`Config::unicode`] is disabled, then
     /// expressions like `[^a]` may match invalid UTF-8 since they can match
     /// any single byte that is not `a`. By default, these sub-expressions
     /// are disallowed to avoid returning offsets that split a UTF-8
@@ -158,7 +163,7 @@ impl SyntaxConfig {
     /// When enabled (the default), the builder is guaranteed to produce a
     /// regex that will only ever match valid UTF-8 (otherwise, the builder
     /// will return an error).
-    pub fn utf8(mut self, yes: bool) -> SyntaxConfig {
+    pub fn utf8(mut self, yes: bool) -> Config {
         self.utf8 = yes;
         self
     }
@@ -188,7 +193,7 @@ impl SyntaxConfig {
     /// in a nest depth of `1`. In general, a nest limit is not something that
     /// manifests in an obvious way in the concrete syntax, therefore, it
     /// should not be used in a granular way.
-    pub fn nest_limit(mut self, limit: u32) -> SyntaxConfig {
+    pub fn nest_limit(mut self, limit: u32) -> Config {
         self.nest_limit = limit;
         self
     }
@@ -208,7 +213,7 @@ impl SyntaxConfig {
     /// message will explicitly mention that backreferences aren't supported.
     ///
     /// Octal syntax is disabled by default.
-    pub fn octal(mut self, yes: bool) -> SyntaxConfig {
+    pub fn octal(mut self, yes: bool) -> Config {
         self.octal = yes;
         self
     }
@@ -273,8 +278,8 @@ impl SyntaxConfig {
     }
 }
 
-impl Default for SyntaxConfig {
-    fn default() -> SyntaxConfig {
-        SyntaxConfig::new()
+impl Default for Config {
+    fn default() -> Config {
+        Config::new()
     }
 }

@@ -4,8 +4,9 @@ use regex_automata::{
     util::{
         iter,
         search::{MatchKind, PatternSet},
+        syntax,
     },
-    Input, SyntaxConfig,
+    Input,
 };
 
 use ret::{
@@ -280,7 +281,7 @@ fn configure_regex_builder(
         ret::MatchKind::LeftmostLongest => return false,
     };
 
-    let syntax_config = SyntaxConfig::new()
+    let syntax_config = syntax::Config::new()
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
         .utf8(test.utf8());

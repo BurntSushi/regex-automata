@@ -340,7 +340,7 @@ pub unsafe trait Automaton {
     ///                 if last_match.is_some() {
     ///                     return Ok(last_match);
     ///                 }
-    ///                 return Err(MatchError::Quit { byte: b, offset: i });
+    ///                 return Err(MatchError::quit(b, i));
     ///             }
     ///             // Implementors may also want to check for start or accel
     ///             // states and handle them differently for performance
@@ -456,9 +456,8 @@ pub unsafe trait Automaton {
     /// purpose of the quit state is to provide a way to execute a fast DFA
     /// in common cases while delegating to slower routines when the DFA quits.
     ///
-    /// The default search implementations provided by this crate will return
-    /// a [`MatchError::Quit`](crate::MatchError::Quit) error when a quit state
-    /// is entered.
+    /// The default search implementations provided by this crate will return a
+    /// [`MatchError::quit`] error when a quit state is entered.
     ///
     /// # Example
     ///
@@ -584,9 +583,7 @@ pub unsafe trait Automaton {
     ///                 if last_match.is_some() {
     ///                     return Ok(last_match);
     ///                 }
-    ///                 return Err(MatchError::Quit {
-    ///                     byte: b, offset: pos - 1,
-    ///                 });
+    ///                 return Err(MatchError::quit(b, pos - 1));
     ///             } else if dfa.is_start_state(state) {
     ///                 // If we're in a start state and know all matches begin
     ///                 // with a particular byte, then we can quickly skip to
@@ -844,8 +841,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     util::primitives::StateID,
-    ///     SyntaxConfig,
+    ///     util::{primitives::StateID, syntax},
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -856,7 +852,7 @@ pub unsafe trait Automaton {
     ///     // That translates to a much more complicated DFA, and also
     ///     // inhibits the 'accelerator' optimization that we are trying to
     ///     // demostrate in this example.
-    ///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
+    ///     .syntax(syntax::Config::new().unicode(false).utf8(false))
     ///     .build("[^abc]+a")?;
     ///
     /// // Here we just pluck out the state that we know is accelerated.

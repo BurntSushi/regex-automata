@@ -21,7 +21,7 @@ use core::convert::TryFrom;
 /// has.
 /// * **Quit** - A quit state indicates that the automaton could not answer
 /// whether a match exists or not. Correct search implementations must return a
-/// [`MatchError::Quit`](crate::MatchError::Quit).
+/// [`MatchError::quit`](crate::MatchError::quit).
 /// * **Start** - A start state indicates that the automaton will begin
 /// searching at a starting state. Branching on this isn't required for
 /// correctness, but a common optimization is to use this to more quickly look
@@ -46,7 +46,7 @@ use core::convert::TryFrom;
 /// Notice also how a correct search implementation deals with
 /// [`CacheError`](crate::hybrid::CacheError)s returned by some of
 /// the lazy DFA routines. When a `CacheError` occurs, it returns
-/// [`MatchError::GaveUp`](crate::MatchError::GaveUp).
+/// [`MatchError::gave_up`](crate::MatchError::gave_up).
 ///
 /// ```
 /// use regex_automata::{
@@ -66,7 +66,7 @@ use core::convert::TryFrom;
 ///     let mut sid = dfa.start_state_forward(
 ///         cache,
 ///         &Input::new(haystack),
-///     ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
+///     ).map_err(|_| MatchError::gave_up(0))?;
 ///     let mut last_match = None;
 ///     // Walk all the bytes in the haystack. We can quit early if we see
 ///     // a dead or a quit state. The former means the automaton will
@@ -75,7 +75,7 @@ use core::convert::TryFrom;
 ///     for (i, &b) in haystack.iter().enumerate() {
 ///         sid = dfa
 ///             .next_state(cache, sid, b)
-///             .map_err(|_| MatchError::GaveUp { offset: i })?;
+///             .map_err(|_| MatchError::gave_up(i))?;
 ///         if sid.is_tagged() {
 ///             if sid.is_match() {
 ///                 last_match = Some(HalfMatch::new(
@@ -91,7 +91,7 @@ use core::convert::TryFrom;
 ///                 if last_match.is_some() {
 ///                     return Ok(last_match);
 ///                 }
-///                 return Err(MatchError::Quit { byte: b, offset: i });
+///                 return Err(MatchError::quit(b, i));
 ///             }
 ///             // Implementors may also want to check for start states and
 ///             // handle them differently for performance reasons. But it is
@@ -105,7 +105,7 @@ use core::convert::TryFrom;
 ///     // the special "EOI" transition at the end of the search.
 ///     sid = dfa
 ///         .next_eoi_state(cache, sid)
-///         .map_err(|_| MatchError::GaveUp { offset: haystack.len() })?;
+///         .map_err(|_| MatchError::gave_up(haystack.len()))?;
 ///     if sid.is_match() {
 ///         last_match = Some(HalfMatch::new(
 ///             dfa.match_pattern(cache, sid, 0),

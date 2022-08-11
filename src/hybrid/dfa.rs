@@ -251,10 +251,10 @@ impl DFA {
     /// everywhere for lazy DFAs.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, SyntaxConfig};
+    /// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch};
     ///
     /// let re = DFA::builder()
-    ///     .syntax(SyntaxConfig::new().utf8(false))
+    ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let mut cache = re.create_cache();
     ///
@@ -1997,7 +1997,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
     /// clearings, then this will return a cache error. In this case,
     /// callers should bubble this up as the cache can't be used until it is
     /// reset. Implementations of search should convert this error into a
-    /// `MatchError::GaveUp`.
+    /// [`MatchError::gave_up`].
     ///
     /// If 'self.state_saver' is set to save a state, then this state is
     /// persisted through cache clearing. Otherwise, the cache is returned to
@@ -2839,7 +2839,7 @@ impl Config {
     /// When set, this will attempt to implement Unicode word boundaries as if
     /// they were ASCII word boundaries. This only works when the search input
     /// is ASCII only. If a non-ASCII byte is observed while searching, then a
-    /// [`MatchError::Quit`](crate::MatchError::Quit) error is returned.
+    /// [`MatchError::quit`] error is returned.
     ///
     /// A possible alternative to enabling this option is to simply use an
     /// ASCII word boundary, e.g., via `(?-u:\b)`. The main reason to use this
@@ -2863,8 +2863,7 @@ impl Config {
     /// When using a [`Regex`](crate::hybrid::regex::Regex), this
     /// corresponds to using the `try_` suite of methods. Alternatively,
     /// if callers can guarantee that their input is ASCII only, then a
-    /// [`MatchError::Quit`](crate::MatchError::Quit) error will never be
-    /// returned while searching.
+    /// [`MatchError::quit`] error will never be returned while searching.
     ///
     /// This is disabled by default.
     ///
@@ -2895,7 +2894,7 @@ impl Config {
     /// // look-around, and indeed, this is required here to determine whether
     /// // the trailing \b matches.
     /// let haystack = "foo 123☃";
-    /// let expected = MatchError::Quit { byte: 0xE2, offset: 7 };
+    /// let expected = MatchError::quit(0xE2, 7);
     /// let got = dfa.try_find_fwd(&mut cache, haystack);
     /// assert_eq!(Err(expected), got);
     ///
@@ -2912,9 +2911,9 @@ impl Config {
 
     /// Add a "quit" byte to the lazy DFA.
     ///
-    /// When a quit byte is seen during search time, then search will return
-    /// a [`MatchError::Quit`](crate::MatchError::Quit) error indicating the
-    /// offset at which the search stopped.
+    /// When a quit byte is seen during search time, then search will return a
+    /// [`MatchError::quit`] error indicating the offset at which the search
+    /// stopped.
     ///
     /// A quit byte will always overrule any other aspects of a regex. For
     /// example, if the `x` byte is added as a quit byte and the regex `\w` is
@@ -2966,7 +2965,7 @@ impl Config {
     /// // Normally this would produce a match, since \p{any} contains '\n'.
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
-    /// let expected = MatchError::Quit { byte: 0x0A, offset: 3 };
+    /// let expected = MatchError::quit(b'\n', 3);
     /// let got = dfa.try_find_fwd(&mut cache, haystack).unwrap_err();
     /// assert_eq!(expected, got);
     ///
@@ -3031,7 +3030,7 @@ impl Config {
     /// let haystack = "123 foobar 4567".as_bytes();
     /// let sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
+    /// ).map_err(|_| MatchError::gave_up(0))?;
     /// // The ID returned by 'start_state_forward' will always be tagged as
     /// // a start state when start state specialization is enabled.
     /// assert!(sid.is_tagged());
@@ -3053,7 +3052,7 @@ impl Config {
     /// let haystack = "123 foobar 4567".as_bytes();
     /// let sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// ).map_err(|_| MatchError::GaveUp { offset: 0 })?;
+    /// ).map_err(|_| MatchError::gave_up(0))?;
     /// // Start states are not tagged in the default configuration!
     /// assert!(!sid.is_tagged());
     /// assert!(!sid.is_start());
@@ -3238,7 +3237,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.try_find_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 27 }),
+    ///     Err(MatchError::gave_up(27)),
     /// );
     ///
     /// // Now that we know the cache is full, if we search a haystack that we
@@ -3247,7 +3246,7 @@ impl Config {
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.try_find_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 0 }),
+    ///     Err(MatchError::gave_up(0)),
     /// );
     ///
     /// // If we reset the cache, then we should be able to create more states
@@ -3256,7 +3255,7 @@ impl Config {
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.try_find_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 29 }),
+    ///     Err(MatchError::gave_up(29)),
     /// );
     ///
     /// // ... switching back to ASCII still makes progress since it just needs
@@ -3264,7 +3263,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     dfa.try_find_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::GaveUp { offset: 14 }),
+    ///     Err(MatchError::gave_up(14)),
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3501,11 +3500,11 @@ impl Config {
 ///   things like `[^a]` that match any byte except for `a` are permitted.
 ///
 /// ```
-/// use regex_automata::{hybrid::dfa::DFA, HalfMatch, SyntaxConfig};
+/// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch};
 ///
 /// let dfa = DFA::builder()
 ///     .configure(DFA::config().cache_capacity(5_000))
-///     .syntax(SyntaxConfig::new().unicode(false).utf8(false))
+///     .syntax(syntax::Config::new().unicode(false).utf8(false))
 ///     .build(r"foo[^b]ar.*")?;
 /// let mut cache = dfa.create_cache();
 ///
@@ -3654,7 +3653,7 @@ impl Builder {
     }
 
     /// Set the syntax configuration for this builder using
-    /// [`SyntaxConfig`](crate::SyntaxConfig).
+    /// [`syntax::Config`](crate::util::syntax::Config).
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
@@ -3663,7 +3662,7 @@ impl Builder {
     /// pattern.
     pub fn syntax(
         &mut self,
-        config: crate::util::syntax::SyntaxConfig,
+        config: crate::util::syntax::Config,
     ) -> &mut Builder {
         self.thompson.syntax(config);
         self

@@ -158,10 +158,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                 if mat.is_some() {
                     return Ok(mat);
                 }
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[at],
-                    offset: at,
-                });
+                return Err(MatchError::quit(input.haystack()[at], at));
             }
         }
         at += 1;
@@ -285,10 +282,7 @@ fn find_rev_imp<A: Automaton + ?Sized>(
                 if mat.is_some() {
                     return Ok(mat);
                 }
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[at],
-                    offset: at,
-                });
+                return Err(MatchError::quit(input.haystack()[at], at));
             }
         }
         if at == input.start() {
@@ -395,10 +389,10 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                 return Ok(());
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[state.at],
-                    offset: state.at,
-                });
+                return Err(MatchError::quit(
+                    input.haystack()[state.at],
+                    state.at,
+                ));
             }
         }
         state.at += 1;
@@ -498,10 +492,10 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
                 return Ok(());
             } else {
                 debug_assert!(dfa.is_quit_state(sid));
-                return Err(MatchError::Quit {
-                    byte: input.haystack()[state.at],
-                    offset: state.at,
-                });
+                return Err(MatchError::quit(
+                    input.haystack()[state.at],
+                    state.at,
+                ));
             }
         }
         if state.at == input.start() {
