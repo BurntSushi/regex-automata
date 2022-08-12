@@ -4,7 +4,7 @@ use regex_automata::{
         pikevm::{self, PikeVM},
     },
     util::{iter, syntax},
-    MatchKind, PatternSet,
+    Anchored, MatchKind, PatternSet,
 };
 
 use ret::{
@@ -48,11 +48,18 @@ fn run_test(
     cache: &mut pikevm::Cache,
     test: &RegexTest,
 ) -> TestResult {
+    let input = re.create_input(test.input()).anchored(if test.anchored() {
+        Anchored::Yes
+    } else {
+        Anchored::No
+    });
     match test.additional_name() {
-        "is_match" => TestResult::matched(re.is_match(cache, test.input())),
+        "is_match" => TestResult::matched(
+            re.search_slots(cache, &input.earliest(true), &mut []).is_some(),
+        ),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let input = re.create_input(test.input()).earliest(true);
+                let input = input.earliest(true);
                 let mut caps = re.create_captures();
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| {
@@ -68,8 +75,13 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Leftmost => {
-                let it = re
-                    .find_iter(cache, test.input())
+                let mut caps = re.create_captures();
+                let it = iter::Searcher::new(input)
+                    .into_matches_iter(|input| {
+                        re.search(cache, input, &mut caps);
+                        Ok(caps.get_match())
+                    })
+                    .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| ret::Match {
                         id: m.pattern().as_usize(),
@@ -79,14 +91,13 @@ fn run_test(
             }
             ret::SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-                let input = re.create_input(test.input());
                 re.which_overlapping_matches(cache, &input, &mut patset);
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
         "captures" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let input = re.create_input(test.input()).earliest(true);
+                let input = input.earliest(true);
                 let it = iter::Searcher::new(input)
                     .into_captures_iter(re.create_captures(), |input, caps| {
                         Ok(re.search(cache, input, caps))
@@ -97,8 +108,11 @@ fn run_test(
                 TestResult::captures(it)
             }
             ret::SearchKind::Leftmost => {
-                let it = re
-                    .captures_iter(cache, test.input())
+                let it = iter::Searcher::new(input)
+                    .into_captures_iter(re.create_captures(), |input, caps| {
+                        Ok(re.search(cache, input, caps))
+                    })
+                    .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
@@ -126,10 +140,8 @@ fn configure_pikevm_builder(
         ret::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
         ret::MatchKind::LeftmostLongest => return false,
     };
-    let pikevm_config = PikeVM::config()
-        .anchored(test.anchored())
-        .match_kind(match_kind)
-        .utf8(test.utf8());
+    let pikevm_config =
+        PikeVM::config().match_kind(match_kind).utf8(test.utf8());
     builder
         .configure(pikevm_config)
         .syntax(config_syntax(test))

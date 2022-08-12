@@ -222,7 +222,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, PatternID, Input,
+    ///     Anchored, Match, PatternID, Input,
     /// };
     ///
     /// let vm = PikeVM::new_many(&[r"[a-z0-9]{6}", r"[a-z][a-z0-9]{5}"])?;
@@ -238,7 +238,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// // matches at a particular position.
     /// let input = Input::new("bar foo123")
     ///     .range(4..)
-    ///     .pattern(Some(PatternID::must(1)));
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
     /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(1, 4..10)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())

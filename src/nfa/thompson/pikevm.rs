@@ -20,7 +20,7 @@ use crate::{
         iter,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
-        search::{Input, Match, MatchError, MatchKind, PatternSet},
+        search::{Anchored, Input, Match, MatchError, MatchKind, PatternSet},
         sparse_set::SparseSet,
     },
 };
@@ -38,7 +38,6 @@ macro_rules! instrument {
     ($fun:expr) => {
         #[cfg(feature = "instrument-pikevm")]
         {
-            // let fun: impl FnMut(&mut Counters) = $fun;
             let mut fun: &mut dyn FnMut(&mut Counters) = &mut $fun;
             COUNTERS.with(|c: &RefCell<Counters>| fun(&mut *c.borrow_mut()));
         }
@@ -65,7 +64,6 @@ thread_local! {
 /// perhaps more conveniently, with [`PikeVM::config`].
 #[derive(Clone, Debug, Default)]
 pub struct Config {
-    anchored: Option<bool>,
     match_kind: Option<MatchKind>,
     utf8: Option<bool>,
     pre: Option<Option<Arc<dyn Prefilter>>>,
@@ -77,6 +75,7 @@ impl Config {
         Config::default()
     }
 
+    /*
     /// Set whether matching must be anchored at the beginning of the input.
     ///
     /// When enabled, a match must begin at the start of a search. When
@@ -172,6 +171,7 @@ impl Config {
         self.anchored = Some(yes);
         self
     }
+    */
 
     /// Set the desired match semantics.
     ///
@@ -277,11 +277,6 @@ impl Config {
         self
     }
 
-    /// Returns whether this configuration has enabled anchored searches.
-    pub fn get_anchored(&self) -> bool {
-        self.anchored.unwrap_or(false)
-    }
-
     /// Returns the match semantics set in this configuration.
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
@@ -307,7 +302,6 @@ impl Config {
     /// remains not set.
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
-            anchored: o.anchored.or(self.anchored),
             match_kind: o.match_kind.or(self.match_kind),
             utf8: o.utf8.or(self.utf8),
             pre: o.pre.or_else(|| self.pre.clone()),
@@ -1074,7 +1068,7 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, PatternID, Input,
+    ///     Anchored, Match, PatternID, Input,
     /// };
     ///
     /// let vm = PikeVM::new_many(&["[a-z0-9]{6}", "[a-z][a-z0-9]{5}"])?;
@@ -1092,11 +1086,9 @@ impl PikeVM {
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
     /// let expected = Some(Match::must(1, 0..6));
-    /// vm.search(
-    ///     &mut cache,
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(1))),
-    ///     &mut caps,
-    /// );
+    /// let input = Input::new(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
+    /// vm.search(&mut cache, &input, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1337,26 +1329,26 @@ impl PikeVM {
         // 'leftmost' semantics of typical backtracking regex engines.
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        // Whether the search is anchored or not. This can be from
-        // configuration or from how the pattern itself is constructed. As a
-        // special case, searches that have specified a specific pattern to
-        // search for are automatically anchored, since there is no unanchored
-        // prefix for each individual pattern, only for the entire NFA as a
-        // whole.
-        let anchored = self.config.get_anchored()
-            || self.nfa.is_always_start_anchored()
-            || input.get_pattern().is_some();
-        // Where to start. It's either the anchored starting state for the
-        // entire NFA, or it's the anchored starting state for a specific
-        // pattern.
-        let start_id = match input.get_pattern() {
-            // We always use the anchored starting state here, even if doing an
-            // unanchored search. The "unanchored" part of it is implemented
-            // in the loop below, by computing the epsilon closure from the
-            // anchored starting state whenever the current state set list is
-            // empty.
-            None => self.nfa.start_anchored(),
-            Some(pid) => self.nfa.start_pattern(pid),
+        // Whether the search is anchored or not, and the corresponding
+        // NFA start state. This can be from configuration or from how the
+        // pattern itself is constructed. As a special case, searches that
+        // have specified a specific pattern to search for are automatically
+        // anchored, since there is no unanchored prefix for each individual
+        // pattern, only for the entire NFA as a whole.
+        let (anchored, start_id) = match input.get_anchored() {
+            // Only way we're anchored if the caller asked for an unanchored
+            // search is if the pattern is itself explicitly anchored.
+            Anchored::No => (
+                self.nfa.is_always_start_anchored(),
+                // We still use 'start_anchored' here unconditionally, because
+                // the search loop below handles the unanchored aspect of it
+                // (if the pattern isn't explicitly anchored) by computing the
+                // epsilon closure from the anchored starting state whenever
+                // the current state set list is empty.
+                self.nfa.start_anchored(),
+            ),
+            Anchored::Yes => (true, self.nfa.start_anchored()),
+            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
         };
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
@@ -1498,12 +1490,13 @@ impl PikeVM {
 
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        let anchored = self.config.get_anchored()
-            || self.nfa.is_always_start_anchored()
-            || input.get_pattern().is_some();
-        let start_id = match input.get_pattern() {
-            None => self.nfa.start_anchored(),
-            Some(pid) => self.nfa.start_pattern(pid),
+        let (anchored, start_id) = match input.get_anchored() {
+            Anchored::No => (
+                self.nfa.is_always_start_anchored(),
+                self.nfa.start_anchored(),
+            ),
+            Anchored::Yes => (true, self.nfa.start_anchored()),
+            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
         };
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;

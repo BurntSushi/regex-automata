@@ -5,7 +5,7 @@ use automata::{
     dfa::{self, dense, onepass, sparse},
     hybrid,
     nfa::thompson::{self, backtrack, pikevm},
-    util::search::MatchKind,
+    MatchKind,
 };
 use bstr::{BStr, BString, ByteSlice};
 
@@ -755,6 +755,14 @@ groups (such as a search with the PikeVM).
     }
 }
 
+// BREADCRUMBS: I think we need an 'Input' set of options to configure how
+// we execute a search. For example, setting pattern ID, anchored mode and
+// perhaps even prefilter and context! (Note that we already have an 'Input',
+// so we'll need to rename that probably.)
+//
+// Maybe do this after we've converted all the regex engines over to the new
+// scheme?
+
 #[derive(Debug)]
 pub struct PikeVM {
     config: pikevm::Config,
@@ -831,7 +839,6 @@ all the time.
             },
         };
         let config = pikevm::Config::new()
-            .anchored(args.is_present("anchored"))
             .utf8(!args.is_present("no-utf8-iter"))
             .match_kind(kind);
         Ok(PikeVM { config })

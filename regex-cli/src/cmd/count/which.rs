@@ -10,7 +10,7 @@ use automata::{
     dfa::Automaton,
     hybrid,
     nfa::thompson::pikevm::{self, PikeVM},
-    util::search::{Input, PatternSet},
+    Input, PatternSet,
 };
 
 const ABOUT_SHORT: &'static str = "\
