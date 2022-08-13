@@ -1072,6 +1072,23 @@ impl<'a> InternalBuilder<'a> {
 /// heuristics to detect common violations of the one-pass property and bail
 /// more quickly.
 ///
+/// # Resource usage
+///
+/// Unlike a general DFA, a one-pass DFA has stricter bounds on its resource
+/// usage. Namely, is time and space complexity is `O(n)`, where `n ~
+/// nfa.states().len()`. (A general DFA's time and space complexity is
+/// `O(2^n)`.) This smaller time bound is achieved because there is at most one
+/// DFA state created for each NFA state. If additional DFA states would be
+/// required, then the pattern is not one-pass and construction will fail.
+///
+/// Note though that currently, a this DFA does use a fully dense
+/// representation. This means that while its space complexity is no worse
+/// than an NFA, it may in practice use more memory because of higher constant
+/// factors. The reason for this trade off is two-fold. Firstly, a dense
+/// representation makes the search faster. Secondly, the bigger an NFA, the
+/// more unlikely it is to be one-pass. Therefore, most one-pass DFAs are
+/// usually pretty small.
+///
 /// # Example
 ///
 /// This example shows that the one-pass DFA implements Unicode word boundaries
