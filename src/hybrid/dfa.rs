@@ -1380,7 +1380,14 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-    ) -> Result<LazyStateID, CacheError> {
+    ) -> Result<LazyStateID, MatchError> {
+        if !self.quitset.is_empty() && input.start() > 0 {
+            let offset = input.start() - 1;
+            let byte = input.haystack()[offset];
+            if self.quitset.contains(byte) {
+                return Err(MatchError::quit(byte, offset));
+            }
+        }
         let start_type = Start::from_position_fwd(input);
         let sid =
             LazyRef::new(self, cache).get_cached_start_id(input, start_type);
@@ -1423,7 +1430,14 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
-    ) -> Result<LazyStateID, CacheError> {
+    ) -> Result<LazyStateID, MatchError> {
+        if !self.quitset.is_empty() && input.end() < input.haystack().len() {
+            let offset = input.end();
+            let byte = input.haystack()[offset];
+            if self.quitset.contains(byte) {
+                return Err(MatchError::quit(byte, offset));
+            }
+        }
         let start_type = Start::from_position_rev(input);
         let sid =
             LazyRef::new(self, cache).get_cached_start_id(input, start_type);
@@ -1833,7 +1847,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         &mut self,
         input: &Input<'_, '_>,
         start: Start,
-    ) -> Result<LazyStateID, CacheError> {
+    ) -> Result<LazyStateID, MatchError> {
         let nfa_start_id = match input.get_anchored() {
             Anchored::No => self.dfa.get_nfa().start_unanchored(),
             Anchored::Yes => self.dfa.get_nfa().start_anchored(),
@@ -1847,7 +1861,9 @@ impl<'i, 'c> Lazy<'i, 'c> {
             }
         };
 
-        let id = self.cache_start_one(nfa_start_id, start)?;
+        let id = self
+            .cache_start_one(nfa_start_id, start)
+            .map_err(|_| MatchError::gave_up(input.start()))?;
         self.set_start_state(input, start, id);
         Ok(id)
     }
@@ -2790,6 +2806,12 @@ impl Config {
     /// // correctly also reports an error.
     /// let input = Input::new("β123").range(2..);
     /// let expected = MatchError::quit(0xB2, 1);
+    /// let got = dfa.try_search_fwd(&mut cache, &input);
+    /// assert_eq!(Err(expected), got);
+    ///
+    /// // And similarly for the trailing word boundary.
+    /// let input = Input::new("123β").range(..3);
+    /// let expected = MatchError::quit(0xCE, 3);
     /// let got = dfa.try_search_fwd(&mut cache, &input);
     /// assert_eq!(Err(expected), got);
     ///
@@ -3750,4 +3772,23 @@ fn minimum_cache_capacity(
         + sparses
         + stack
         + scratch_state_builder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scratch() {
+        let dfa = DFA::builder()
+            .configure(DFA::config().unicode_word_boundary(true))
+            .build(r"\b[0-9]+\b")
+            .unwrap();
+        let mut cache = dfa.create_cache();
+        let input = Input::new("123β").range(..3);
+        // let input = Input::new("123β");
+        let expected = MatchError::quit(0xCE, 3);
+        let got = dfa.try_search_fwd(&mut cache, &input);
+        assert_eq!(Err(expected), got);
+    }
 }

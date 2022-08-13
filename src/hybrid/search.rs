@@ -614,9 +614,7 @@ fn init_fwd(
     cache: &mut Cache,
     input: &Input<'_, '_>,
 ) -> Result<LazyStateID, MatchError> {
-    let sid = dfa
-        .start_state_forward(cache, input)
-        .map_err(|_| gave_up(input.start()))?;
+    let sid = dfa.start_state_forward(cache, input)?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     debug_assert!(!sid.is_match());
@@ -629,9 +627,7 @@ fn init_rev(
     cache: &mut Cache,
     input: &Input<'_, '_>,
 ) -> Result<LazyStateID, MatchError> {
-    let sid = dfa
-        .start_state_reverse(cache, input)
-        .map_err(|_| gave_up(input.end()))?;
+    let sid = dfa.start_state_reverse(cache, input)?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     debug_assert!(!sid.is_match());
@@ -654,6 +650,11 @@ fn eoi_fwd(
             if sid.is_match() {
                 let pattern = dfa.match_pattern(cache, *sid, 0);
                 *mat = Some(HalfMatch::new(pattern, sp.end));
+            } else if sid.is_quit() {
+                if mat.is_some() {
+                    return Ok(());
+                }
+                return Err(MatchError::quit(b, sp.end));
             }
         }
         None => {
@@ -664,6 +665,9 @@ fn eoi_fwd(
                 let pattern = dfa.match_pattern(cache, *sid, 0);
                 *mat = Some(HalfMatch::new(pattern, input.haystack().len()));
             }
+            // N.B. We don't have to check 'is_quit' here because the EOI
+            // transition can never lead to a quit state.
+            debug_assert!(!sid.is_quit());
         }
     }
     Ok(())
@@ -679,12 +683,18 @@ fn eoi_rev(
 ) -> Result<(), MatchError> {
     let sp = input.get_span();
     if sp.start > 0 {
+        let byte = input.haystack()[sp.start - 1];
         *sid = dfa
-            .next_state(cache, *sid, input.haystack()[sp.start - 1])
+            .next_state(cache, *sid, byte)
             .map_err(|_| gave_up(sp.start))?;
         if sid.is_match() {
             let pattern = dfa.match_pattern(cache, *sid, 0);
             *mat = Some(HalfMatch::new(pattern, sp.start));
+        } else if sid.is_quit() {
+            if mat.is_some() {
+                return Ok(());
+            }
+            return Err(MatchError::quit(byte, sp.start - 1));
         }
     } else {
         *sid =
@@ -693,6 +703,9 @@ fn eoi_rev(
             let pattern = dfa.match_pattern(cache, *sid, 0);
             *mat = Some(HalfMatch::new(pattern, 0));
         }
+        // N.B. We don't have to check 'is_quit' here because the EOI
+        // transition can never lead to a quit state.
+        debug_assert!(!sid.is_quit());
     }
     Ok(())
 }
