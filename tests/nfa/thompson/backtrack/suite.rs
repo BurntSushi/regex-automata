@@ -5,7 +5,7 @@ use regex_automata::{
         NFA,
     },
     util::{iter, syntax},
-    Anchored, Input,
+    Input,
 };
 
 use ret::{
@@ -13,7 +13,7 @@ use ret::{
     CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
-use crate::{nfa::thompson::testify_captures, suite, Result};
+use crate::{create_input, suite, testify_captures, Result};
 
 /// Tests the default configuration of the bounded backtracker.
 #[test]
@@ -97,11 +97,7 @@ fn run_test(
     cache: &mut backtrack::Cache,
     test: &RegexTest,
 ) -> TestResult {
-    let input = re.create_input(test.input()).anchored(if test.anchored() {
-        Anchored::Yes
-    } else {
-        Anchored::No
-    });
+    let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
         "is_match" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {

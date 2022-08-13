@@ -10,7 +10,7 @@ use ret::{
     CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
-use crate::{suite, Result};
+use crate::{create_input, suite, Result};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
 
@@ -207,11 +207,15 @@ fn compiler(
 }
 
 fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
+    let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
-        "is_match" => TestResult::matched(re.is_match(test.input())),
+        "is_match" => TestResult::matched(
+            re.try_search(&input.earliest(true)).unwrap().is_some(),
+        ),
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest => {
-                let input = re.create_input(test.input()).earliest(true);
+            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+                let input = input
+                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| re.try_search(input))
                     .infallible()
@@ -222,37 +226,18 @@ fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
                     });
                 TestResult::matches(it)
             }
-            ret::SearchKind::Leftmost => {
-                let it = re
-                    .find_iter(test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
-            }
             ret::SearchKind::Overlapping => {
-                let input = re.create_input(test.input());
                 try_search_overlapping(re, &input).unwrap()
             }
         },
         "which" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
-                // There are no "which" APIs for standard searches. So this is
-                // technically redundant, but we produce a result anyway.
-                let mut pids: Vec<usize> = re
-                    .find_iter(test.input())
-                    .map(|m| m.pattern().as_usize())
-                    .collect();
-                pids.sort();
-                pids.dedup();
-                TestResult::which(pids)
+                // There are no "which" APIs for standard searches.
+                TestResult::skip()
             }
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
                 let mut patset = PatternSet::new(dfa.pattern_len());
-                let input = re.create_input(test.input());
                 dfa.try_which_overlapping_matches(&input, &mut patset)
                     .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))

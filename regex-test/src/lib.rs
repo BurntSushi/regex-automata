@@ -36,6 +36,8 @@ pub struct RegexTest {
     regex: Option<BString>,
     regexes: Option<Vec<BString>>,
     input: BString,
+    #[serde(default)]
+    bounds: Option<Span>,
     matches: Vec<Captures>,
     match_limit: Option<usize>,
     #[serde(default = "default_true")]
@@ -86,7 +88,7 @@ impl Default for SearchKind {
 
 /// Span represents a single match span, from start to end, represented via
 /// byte offsets.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
 pub struct Span {
     /// The starting byte offset of the match.
     pub start: usize,
@@ -303,6 +305,14 @@ impl RegexTest {
     /// Return the text on which the regex should be matched.
     pub fn input(&self) -> &BStr {
         self.input.as_bstr()
+    }
+
+    /// Returns the bounds of a search.
+    ///
+    /// If the test didn't specify any bounds, then the bounds returned are
+    /// equivalent to the entire haystack.
+    pub fn bounds(&self) -> Span {
+        self.bounds.unwrap_or(Span { start: 0, end: self.input().len() })
     }
 
     /// Return the match semantics required by this test.

@@ -13,7 +13,7 @@ use ret::{
     CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
-use crate::{suite, Result};
+use crate::{create_input, suite, Result};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
 
@@ -153,11 +153,7 @@ fn run_test(
     cache: &mut regex::Cache,
     test: &RegexTest,
 ) -> TestResult {
-    let input = re.create_input(test.input()).anchored(if test.anchored() {
-        Anchored::Yes
-    } else {
-        Anchored::No
-    });
+    let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
         "is_match" => TestResult::matched(
             re.try_search(cache, &input.earliest(true)).unwrap().is_some(),

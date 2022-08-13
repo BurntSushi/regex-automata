@@ -10,7 +10,7 @@ use ret::{
     CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
-use crate::{suite, testify_captures, Result};
+use crate::{create_input, suite, testify_captures, Result};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "captures"];
 
@@ -101,15 +101,15 @@ fn run_test(
     cache: &mut onepass::Cache,
     test: &RegexTest,
 ) -> TestResult {
-    let input = re
-        .create_input(test.input())
-        .earliest(test.search_kind() == ret::SearchKind::Earliest);
+    let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
         "is_match" => TestResult::matched(
-            re.search_slots(cache, &input, &mut []).is_some(),
+            re.search_slots(cache, &input.earliest(true), &mut []).is_some(),
         ),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+                let input = input
+                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
                 let mut caps = re.create_captures();
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| {
@@ -135,6 +135,8 @@ fn run_test(
         },
         "captures" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+                let input = input
+                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
                 let it = iter::Searcher::new(input)
                     .into_captures_iter(re.create_captures(), |input, caps| {
                         Ok(re.search(cache, input, caps))
