@@ -54,6 +54,65 @@ use crate::util::{
 /// * `'p` refers to the lifetime of the prefilter. Since a prefilter is
 /// optional, this defaults to the `'static` lifetime when a prefilter is not
 /// present.
+///
+/// # Regex engine support
+///
+/// Any regex engine accepting an `Input` must support at least the following
+/// things:
+///
+/// * Searching a `&[u8]` for matches.
+/// * Searching a substring of `&[u8]` for a match, such that any match
+/// reported must appear entirely within that substring.
+/// * A match should never be reported when [`Input::is_done`] returns true.
+///
+/// Supporting other aspects of an `Input` are optional, but regex engines
+/// should panic when something is requested that it cannot fulfill. (See the
+/// `Panics` section below.)
+///
+/// # Panics
+///
+/// Since `Input` is meant to be a superset of most of the input parameters to
+/// a search for any regex engine in this crate, it is possible to enable or
+/// disable some options that might not have the intended effect. For this
+/// reason, regex engines accepting an `Input` should panic when specific
+/// options are set but cannot be provided.
+///
+/// What follows is a complete set of rules of when a regex engine should panic
+/// based on the given `Input` configuration. Every regex engine in this crate
+/// follows these rules.
+///
+/// * An [`Anchored`] setting is provided that isn't supported. For example, a
+/// DFA might be compiled with only an unanchored starting state. Therefore,
+/// if the caller asked for an [`Anchored::Yes`] search, then the regex engine
+/// should panic. (Note though that if the caller asks for an `Anchored::No`
+/// search and the regex pattern itself is anchored, then so long as the
+/// regex engine can provide a way to search that is unanchored, it should be
+/// permitted. That is, panicking should be a property of the regex engine
+/// itself and not a property of the regex pattern.)
+/// * If [`Input::utf8`] is enabled and the regex engine doesn't support it,
+/// then a panic should occur. It is permissible to panic only in cases where
+/// the regex engine would return a match inconsistent with the `utf8`
+/// setting. (For example, a zero-width match that splits the UTF-8 encoding
+/// of a codepoint.) Panicking may be more expansive than this, i.e., any time
+/// it's set.
+///
+/// The following should *not* result in a panic:
+///
+/// * If a [`Input::prefilter`] is set and the regex engine doesn't support
+/// them, then the regex engine is safe to simply ignore the prefilter. The
+/// reason for this is that a prefilter is a best effort optimization technique
+/// that must never impact the match semantics. Therefore, neglecting it is
+/// merely an optimization decision. For example, a regex engine might support
+/// prefilters but might decide in some cases not to use a prefilter even if
+/// one is given based on some fact about the search.
+/// * If [`Input::earliest`] is enabled and the regex engine doesn't support
+/// returning the "earliest" match, then the regex engine is safe to simply
+/// ignore the option. This is because "earliest" is not defined as a
+/// particular match semantic itself, but rather, a mechanism by which a
+/// particular regex engine can "return early" *if the opportunity arises*. The
+/// "earliest" option is generally intended to be used as an implementation
+/// strategy for implementing predicate routines like `is_match` where the
+/// specific offset isn't important, but sometimes the offset is useful.
 #[derive(Clone)]
 pub struct Input<'h, 'p> {
     haystack: &'h [u8],
@@ -112,16 +171,16 @@ impl<'h, 'p> Input<'h, 'p> {
     /// };
     ///
     /// // Look for 'at', but as a distinct word.
-    /// let vm = PikeVM::new(r"\bat\b")?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new(r"\bat\b")?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
     ///
     /// // Our haystack contains 'at', but not as a distinct word.
     /// let haystack = "batter";
     ///
     /// // A standard search finds nothing, as expected.
     /// let input = Input::new(haystack);
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// // But if we wanted to search starting at position '1', we might
@@ -129,14 +188,14 @@ impl<'h, 'p> Input<'h, 'p> {
     /// // anchors to take the surrounding context into account! And thus,
     /// // a match is produced.
     /// let input = Input::new(&haystack[1..3]);
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..2)), caps.get_match());
     ///
     /// // But if we specify the span of the search instead of slicing the
     /// // haystack, then the regex engine can "see" outside of the span
     /// // and resolve the anchors correctly.
     /// let input = Input::new(haystack).span(1..3);
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -196,9 +255,104 @@ impl<'h, 'p> Input<'h, 'p> {
         self
     }
 
+    /// Sets the anchor mode of a search.
+    ///
+    /// When a search is anchored (so that's [`Anchored::Yes`] or
+    /// [`Anchored::Pattern`]), a match must begin at the start of a search.
+    /// When a search is not anchored (that's [`Anchored::No`]), regex engines
+    /// will behave as if the pattern started with a `(?:s-u.)*?`. This prefix
+    /// permits a match to appear anywhere.
+    ///
+    /// By default, the anchored mode is [`Anchored::No`].
+    ///
+    /// **WARNING:** this is subtly different than using a `^` at the start of
+    /// your regex. A `^` forces a regex to match exclusively at the start of
+    /// a haystack, regardless of where you begin your search. In contrast,
+    /// anchoring a search will allow your regex to match anywhere in your
+    /// haystack, but the match must start at the beginning of a search.
+    /// (Most of the higher level convenience search routines make "start of
+    /// haystack" and "start of search" equivalent, but routines that accept an
+    /// `Input` permit treating them as orthogonal.)
+    ///
+    /// For example, consider the haystack `aba` and the following searches:
+    ///
+    /// 1. The regex `^a` is compiled with `Anchored::No` and searches `aba`
+    ///    starting at position `2`. Since `^` requires the match to start at
+    ///    the beginning of the haystack and `2 > 0`, no match is found.
+    /// 2. The regex `a` is compiled with `Anchored::Yes` and searches `aba`
+    ///    starting at position `2`. This reports a match at `[2, 3]` since
+    ///    the match starts where the search started. Since there is no `^`,
+    ///    there is no requirement for the match to start at the beginning of
+    ///    the haystack.
+    /// 3. The regex `a` is compiled with `Anchored::Yes` and searches `aba`
+    ///    starting at position `1`. Since `b` corresponds to position `1` and
+    ///    since the search is anchored, it finds no match. While the regex
+    ///    matches at other positions, configuring the search to be anchored
+    ///    requires that it only report a match that begins at the same offset
+    ///    as the beginning of the search.
+    /// 4. The regex `a` is compiled with `Anchored::No` and searches `aba`
+    ///    startting at position `1`. Since the search is not anchored and
+    ///    the regex does not start with `^`, the search executes as if there
+    ///    is a `(?s:.)*?` prefix that permits it to match anywhere. Thus, it
+    ///    reports a match at `[2, 3]`.
+    ///
+    /// Note that the [`Anchored::Pattern`] mode is like `Anchored::Yes`,
+    /// except it only reports matches for a particular pattern.
+    ///
+    /// # Example
+    ///
+    /// This demonstrates the differences between an anchored search and
+    /// a pattern that begins with `^` (as described in the above warning
+    /// message).
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::pikevm::PikeVM,
+    ///     Anchored, Match, Input,
+    /// };
+    ///
+    /// let haystack = "aba";
+    ///
+    /// let re = PikeVM::new(r"^a")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let input = Input::new(haystack).span(2..3).anchored(Anchored::No);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// // No match is found because 2 is not the beginning of the haystack,
+    /// // which is what ^ requires.
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// let re = PikeVM::new(r"a")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let input = Input::new(haystack).span(2..3).anchored(Anchored::Yes);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// // An anchored search can still match anywhere in the haystack, it just
+    /// // must begin at the start of the search which is '2' in this case.
+    /// assert_eq!(Some(Match::must(0, 2..3)), caps.get_match());
+    ///
+    /// let re = PikeVM::new(r"a")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let input = Input::new(haystack).span(1..3).anchored(Anchored::Yes);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// // No match is found since we start searching at offset 1 which
+    /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
+    /// // is found.
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// let re = PikeVM::new(r"a")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let input = Input::new(haystack).span(1..3).anchored(Anchored::No);
+    /// re.search(&mut cache, &input, &mut caps);
+    /// // Since anchored=no, an implicit '(?s:.)*?' prefix was added to the
+    /// // pattern. Even though the search starts at 'b', the 'match anything'
+    /// // prefix allows the search to match 'a'.
+    /// let expected = Some(Match::must(0, 2..3));
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
-    pub fn anchored(mut self, kind: Anchored) -> Input<'h, 'p> {
-        self.set_anchored(kind);
+    pub fn anchored(mut self, mode: Anchored) -> Input<'h, 'p> {
+        self.set_anchored(mode);
         self
     }
 
@@ -225,13 +379,12 @@ impl<'h, 'p> Input<'h, 'p> {
     ///     Anchored, Match, PatternID, Input,
     /// };
     ///
-    /// let vm = PikeVM::new_many(&[r"[a-z0-9]{6}", r"[a-z][a-z0-9]{5}"])?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new_many(&[r"[a-z0-9]{6}", r"[a-z][a-z0-9]{5}"])?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// // A standard search looks for any pattern.
     /// let input = Input::new("bar foo123");
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 4..10)), caps.get_match());
     ///
     /// // But we can also check whether a specific pattern
@@ -239,7 +392,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let input = Input::new("bar foo123")
     ///     .range(4..)
     ///     .anchored(Anchored::Pattern(PatternID::must(1)));
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(1, 4..10)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -287,20 +440,20 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, Input};
     ///
-    /// let vm = PikeVM::new(r"foo[0-9]+")?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new(r"foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
     ///
     /// // A normal search implements greediness like you expect.
     /// let input = Input::new("foo12345");
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..8)), caps.get_match());
     ///
     /// // When 'earliest' is enabled and the regex engine supports
     /// // it, the search will bail once it knows a match has been
     /// // found.
     /// let input = Input::new("foo12345").earliest(true);
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..4)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -320,9 +473,9 @@ impl<'h, 'p> Input<'h, 'p> {
     /// empty string. In such cases, the underlying finite state machine will
     /// likely not distiguish between empty strings that do and do not split
     /// codepoints in UTF-8 haystacks. When this option is enabled, the regex
-    /// engine will can insert higher level code that checks for whether the
-    /// match splits a codepoint, and if so, skip that match entirely and look
-    /// for the next one.
+    /// engine will insert higher level code that checks for whether the match
+    /// splits a codepoint, and if so, skip that match entirely and look for
+    /// the next one.
     ///
     /// In effect, this option is useful to enable when both of the following
     /// are true:
@@ -347,37 +500,36 @@ impl<'h, 'p> Input<'h, 'p> {
     ///     Match, Input,
     /// };
     ///
-    /// let vm = PikeVM::new("")?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new("")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// // UTF-8 mode is enabled by default.
-    /// let mut search = Input::new("☃");
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// let mut input = Input::new("☃");
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
     ///
     /// // Even though an empty regex matches at 1..1, our next match is
     /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
     /// // three bytes long).
-    /// search.set_start(1);
-    /// vm.search(&mut cache, &search, &mut caps);
+    /// input.set_start(1);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
-    /// let mut noutf8 = search.clone().utf8(false);
-    /// vm.search(&mut cache, &noutf8, &mut caps);
+    /// let mut noutf8 = input.clone().utf8(false);
+    /// re.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
     ///
     /// noutf8.set_start(2);
-    /// vm.search(&mut cache, &noutf8, &mut caps);
+    /// re.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
     ///
     /// noutf8.set_start(3);
-    /// vm.search(&mut cache, &noutf8, &mut caps);
+    /// re.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// noutf8.set_start(4);
-    /// vm.search(&mut cache, &noutf8, &mut caps);
+    /// re.search(&mut cache, &noutf8, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -402,10 +554,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert_eq!(0..6, search.get_range());
-    /// search.set_span(2..4);
-    /// assert_eq!(2..4, search.get_range());
+    /// let mut input = Input::new("foobar");
+    /// assert_eq!(0..6, input.get_range());
+    /// input.set_span(2..4);
+    /// assert_eq!(2..4, input.get_range());
     /// ```
     #[inline]
     pub fn set_span<S: Into<Span>>(&mut self, span: S) {
@@ -434,10 +586,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert_eq!(0..6, search.get_range());
-    /// search.set_range(2..=4);
-    /// assert_eq!(2..5, search.get_range());
+    /// let mut input = Input::new("foobar");
+    /// assert_eq!(0..6, input.get_range());
+    /// input.set_range(2..=4);
+    /// assert_eq!(2..5, input.get_range());
     /// ```
     #[inline]
     pub fn set_range<R: RangeBounds<usize>>(&mut self, range: R) {
@@ -471,10 +623,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert_eq!(0..6, search.get_range());
-    /// search.set_start(5);
-    /// assert_eq!(5..6, search.get_range());
+    /// let mut input = Input::new("foobar");
+    /// assert_eq!(0..6, input.get_range());
+    /// input.set_start(5);
+    /// assert_eq!(5..6, input.get_range());
     /// ```
     #[inline]
     pub fn set_start(&mut self, start: usize) {
@@ -491,19 +643,36 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert_eq!(0..6, search.get_range());
-    /// search.set_end(5);
-    /// assert_eq!(0..5, search.get_range());
+    /// let mut input = Input::new("foobar");
+    /// assert_eq!(0..6, input.get_range());
+    /// input.set_end(5);
+    /// assert_eq!(0..5, input.get_range());
     /// ```
     #[inline]
     pub fn set_end(&mut self, end: usize) {
         self.span.end = end;
     }
 
+    /// Set the anchor mode of a search.
+    ///
+    /// This is like [`Input::anchored`], except it mutates the search
+    /// configuration in place.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{Anchored, Input, PatternID};
+    ///
+    /// let mut input = Input::new("foobar");
+    /// assert_eq!(Anchored::No, input.get_anchored());
+    ///
+    /// let pid = PatternID::must(5);
+    /// input.set_anchored(Anchored::Pattern(pid));
+    /// assert_eq!(Anchored::Pattern(pid), input.get_anchored());
+    /// ```
     #[inline]
-    pub fn set_anchored(&mut self, kind: Anchored) {
-        self.anchored = kind;
+    pub fn set_anchored(&mut self, mode: Anchored) {
+        self.anchored = mode;
     }
 
     /// Set the pattern to search for.
@@ -516,10 +685,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::{PatternID, Input};
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert_eq!(None, search.get_pattern());
-    /// search.set_pattern(Some(PatternID::must(5)));
-    /// assert_eq!(Some(PatternID::must(5)), search.get_pattern());
+    /// let mut input = Input::new("foobar");
+    /// assert_eq!(None, input.get_pattern());
+    /// input.set_pattern(Some(PatternID::must(5)));
+    /// assert_eq!(Some(PatternID::must(5)), input.get_pattern());
     /// ```
     #[inline]
     pub fn set_pattern(&mut self, pattern: Option<PatternID>) {
@@ -541,10 +710,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert!(!search.get_earliest());
-    /// search.set_earliest(true);
-    /// assert!(search.get_earliest());
+    /// let mut input = Input::new("foobar");
+    /// assert!(!input.get_earliest());
+    /// input.set_earliest(true);
+    /// assert!(input.get_earliest());
     /// ```
     #[inline]
     pub fn set_earliest(&mut self, yes: bool) {
@@ -561,10 +730,10 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert!(search.get_utf8());
-    /// search.set_utf8(false);
-    /// assert!(!search.get_utf8());
+    /// let mut input = Input::new("foobar");
+    /// assert!(input.get_utf8());
+    /// input.set_utf8(false);
+    /// assert!(!input.get_utf8());
     /// ```
     #[inline]
     pub fn set_utf8(&mut self, yes: bool) {
@@ -747,12 +916,12 @@ impl<'h, 'p> Input<'h, 'p> {
     /// ```
     /// use regex_automata::Input;
     ///
-    /// let mut search = Input::new("foobar");
-    /// assert!(!search.is_done());
-    /// search.set_start(6);
-    /// assert!(!search.is_done());
-    /// search.set_start(7);
-    /// assert!(search.is_done());
+    /// let mut input = Input::new("foobar");
+    /// assert!(!input.is_done());
+    /// input.set_start(6);
+    /// assert!(!input.is_done());
+    /// input.set_start(7);
+    /// assert!(input.is_done());
     /// ```
     #[inline]
     pub fn is_done(&self) -> bool {
@@ -814,10 +983,10 @@ impl<'h, 'p> Input<'h, 'p> {
         if !self.get_utf8() || !m.is_empty() {
             return Ok(Some(m));
         }
-        let mut search = self.clone();
-        while m.is_empty() && !search.is_char_boundary(m.end()) {
-            search.set_start(search.start().checked_add(1).unwrap());
-            m = match find(&search)? {
+        let mut input = self.clone();
+        while m.is_empty() && !input.is_char_boundary(m.end()) {
+            input.set_start(input.start().checked_add(1).unwrap());
+            m = match find(&input)? {
                 None => return Ok(None),
                 Some(m) => m,
             };
@@ -1390,6 +1559,56 @@ pub enum Anchored {
     /// must be for the given pattern and must begin at the start position of
     /// the search.
     Pattern(PatternID),
+}
+
+impl Anchored {
+    /// Returns true if and only if this anchor mode corresponds to any kind of
+    /// anchored search.
+    ///
+    /// # Example
+    ///
+    /// This examples shows that both `Anchored::Yes` and `Anchored::Pattern`
+    /// are considered anchored searches.
+    ///
+    /// ```
+    /// use regex_automata::{Anchored, PatternID};
+    ///
+    /// assert!(!Anchored::No.is_anchored());
+    /// assert!(Anchored::Yes.is_anchored());
+    /// assert!(Anchored::Pattern(PatternID::ZERO).is_anchored());
+    /// ```
+    pub fn is_anchored(&self) -> bool {
+        matches!(*self, Anchored::Yes | Anchored::Pattern(_))
+    }
+}
+
+/// The kind of anchored starting configurations to support in a regex engine.
+///
+/// Some regex engines, most notably DFAs, need to be explicitly configured
+/// as to which anchored starting configurations to support. The reason for
+/// not just supporting everything unconditionally is that it can use more
+/// resources (such as memory and DFA build time). The downside of this is that
+/// if you try to execute a search using an [`Anchored`] mode that is not
+/// supported by the DFA, then the search will panic.
+///
+/// Other regex engines, particularly ones that use the NFA directly, support
+/// all anchored starting modes unconditionally because it is inexpensive to
+/// do so.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StartKind {
+    /// Support both anchored and unanchored searches.
+    Both,
+    /// Support only anchored searches. Requesting an unanchored search will
+    /// panic.
+    Anchored,
+    /// Support only unanchored searches. Requesting an anchored search will
+    /// panic.
+    ///
+    /// Note that even if an unanchored search is requested, the pattern itself
+    /// may still be anchored. For example, `^abc` will only match `abc` at the
+    /// start of a haystack. This will remain true, even if the regex engine
+    /// only supported unanchored searches.
+    Unanchored,
 }
 
 /// The kind of match semantics to use for a regex pattern.

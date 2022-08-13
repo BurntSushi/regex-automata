@@ -23,7 +23,10 @@ use crate::{
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
         prefilter,
         primitives::{PatternID, StateID as NFAStateID},
-        search::{HalfMatch, Input, MatchError, MatchKind, PatternSet},
+        search::{
+            Anchored, HalfMatch, Input, MatchError, MatchKind, PatternSet,
+            StartKind,
+        },
         sparse_set::SparseSets,
         start::Start,
     },
@@ -216,23 +219,29 @@ impl DFA {
     ///
     /// # Example
     ///
-    /// This example shows how to build a lazy DFA that only executes searches
-    /// in anchored mode.
+    /// This example shows how to build a lazy DFA that heuristically supports
+    /// Unicode word boundaries.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
     ///
     /// let re = DFA::builder()
-    ///     .configure(DFA::config().anchored(true))
-    ///     .build(r"[0-9]+")?;
+    ///     .configure(DFA::config().unicode_word_boundary(true))
+    ///     .build(r"\b\w+\b")?;
     /// let mut cache = re.create_cache();
     ///
-    /// let haystack = "abc123xyz";
-    /// assert_eq!(None, re.try_find_fwd(&mut cache, haystack)?);
-    /// assert_eq!(
-    ///     Some(HalfMatch::must(0, 3)),
-    ///     re.try_find_fwd(&mut cache, &haystack[3..6])?,
-    /// );
+    /// // Since our haystack is all ASCII, the DFA search sees then and knows
+    /// // it is legal to interpret Unicode word boundaries as ASCII word
+    /// // boundaries.
+    /// let expected = HalfMatch::must(0, 5);
+    /// let haystack = "!!foo!!";
+    /// assert_eq!(Some(expected), re.try_find_fwd(&mut cache, haystack)?);
+    ///
+    /// // But if our haystack contains non-ASCII, then the search will fail
+    /// // with an error.
+    /// let expected = MatchError::quit(b'\xCE', 2);
+    /// let haystack = "!!βββ!!";
+    /// assert_eq!(Err(expected), re.try_find_fwd(&mut cache, haystack));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -636,7 +645,10 @@ impl DFA {
     /// for specific patterns.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, PatternID, Input};
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     Anchored, HalfMatch, PatternID, Input,
+    /// };
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().starts_for_each_pattern(true))
@@ -655,10 +667,9 @@ impl DFA {
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
     /// let expected = Some(HalfMatch::must(1, 6));
-    /// let got = dfa.try_search_fwd(
-    ///     &mut cache,
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(1))),
-    /// )?;
+    /// let input = Input::new(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
+    /// let got = dfa.try_search_fwd(&mut cache, &input)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1371,13 +1382,12 @@ impl DFA {
         input: &Input<'_, '_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_fwd(input);
-        let sid = LazyRef::new(self, cache)
-            .get_cached_start_id(input.get_pattern(), start_type);
+        let sid =
+            LazyRef::new(self, cache).get_cached_start_id(input, start_type);
         if !sid.is_unknown() {
             return Ok(sid);
         }
-        Lazy::new(self, cache)
-            .cache_start_group(input.get_pattern(), start_type)
+        Lazy::new(self, cache).cache_start_group(input, start_type)
     }
 
     /// Return the ID of the start state for this lazy DFA when executing a
@@ -1415,13 +1425,12 @@ impl DFA {
         input: &Input<'_, '_>,
     ) -> Result<LazyStateID, CacheError> {
         let start_type = Start::from_position_rev(input);
-        let sid = LazyRef::new(self, cache)
-            .get_cached_start_id(input.get_pattern(), start_type);
+        let sid =
+            LazyRef::new(self, cache).get_cached_start_id(input, start_type);
         if !sid.is_unknown() {
             return Ok(sid);
         }
-        Lazy::new(self, cache)
-            .cache_start_group(input.get_pattern(), start_type)
+        Lazy::new(self, cache).cache_start_group(input, start_type)
     }
 
     /// Returns the total number of patterns that match in this state.
@@ -1822,11 +1831,13 @@ impl<'i, 'c> Lazy<'i, 'c> {
     #[inline(never)]
     fn cache_start_group(
         &mut self,
-        pattern_id: Option<PatternID>,
+        input: &Input<'_, '_>,
         start: Start,
     ) -> Result<LazyStateID, CacheError> {
-        let nfa_start_id = match pattern_id {
-            Some(pid) => {
+        let nfa_start_id = match input.get_anchored() {
+            Anchored::No => self.dfa.get_nfa().start_unanchored(),
+            Anchored::Yes => self.dfa.get_nfa().start_anchored(),
+            Anchored::Pattern(pid) => {
                 assert!(
                     self.dfa.get_config().get_starts_for_each_pattern(),
                     "attempted to search for a specific pattern \
@@ -1834,14 +1845,10 @@ impl<'i, 'c> Lazy<'i, 'c> {
                 );
                 self.dfa.get_nfa().start_pattern(pid)
             }
-            None if self.dfa.get_config().get_anchored() => {
-                self.dfa.get_nfa().start_anchored()
-            }
-            None => self.dfa.get_nfa().start_unanchored(),
         };
 
         let id = self.cache_start_one(nfa_start_id, start)?;
-        self.set_start_state(pattern_id, start, id);
+        self.set_start_state(input, start, id);
         Ok(id)
     }
 
@@ -2109,7 +2116,11 @@ impl<'i, 'c> Lazy<'i, 'c> {
     /// Primarily, this adds the three sentinel states and allocates some
     /// initial memory.
     fn init_cache(&mut self) {
-        let mut starts_len = Start::len();
+        // Why multiply by 2 here? Because we make room for both the unanchored
+        // and anchored start states. Unanchored is first and then anchored.
+        let mut starts_len = Start::len().checked_mul(2).unwrap();
+        // ... but if we also want start states for every pattern, we make room
+        // for that too.
         if self.dfa.get_config().get_starts_for_each_pattern() {
             starts_len += Start::len() * self.dfa.pattern_len();
         }
@@ -2214,22 +2225,23 @@ impl<'i, 'c> Lazy<'i, 'c> {
     /// 'starts_for_each_pattern' is not enabled.
     fn set_start_state(
         &mut self,
-        pattern_id: Option<PatternID>,
+        input: &Input<'_, '_>,
         start: Start,
         id: LazyStateID,
     ) {
         assert!(self.as_ref().is_valid(id));
         let start_index = start.as_usize();
-        let index = match pattern_id {
-            None => start_index,
-            Some(pid) => {
+        let index = match input.get_anchored() {
+            Anchored::No => start_index,
+            Anchored::Yes => Start::len() + start_index,
+            Anchored::Pattern(pid) => {
                 assert!(
                     self.dfa.get_config().get_starts_for_each_pattern(),
                     "attempted to search for a specific pattern \
                      without enabling starts_for_each_pattern",
                 );
                 let pid = pid.as_usize();
-                Start::len() + (Start::len() * pid) + start_index
+                (2 * Start::len()) + (Start::len() * pid) + start_index
             }
         };
         self.cache.starts[index] = id;
@@ -2280,13 +2292,14 @@ impl<'i, 'c> LazyRef<'i, 'c> {
     /// unknown lazy state ID.
     fn get_cached_start_id(
         &self,
-        pattern_id: Option<PatternID>,
+        input: &Input<'_, '_>,
         start: Start,
     ) -> LazyStateID {
         let start_index = start.as_usize();
-        let index = match pattern_id {
-            None => start_index,
-            Some(pid) => {
+        let index = match input.get_anchored() {
+            Anchored::No => start_index,
+            Anchored::Yes => Start::len() + start_index,
+            Anchored::Pattern(pid) => {
                 assert!(
                     self.dfa.get_config().get_starts_for_each_pattern(),
                     "searching for a specific pattern requires enabling \
@@ -2298,7 +2311,7 @@ impl<'i, 'c> LazyRef<'i, 'c> {
                     "invalid pattern ID: {:?}",
                     pid
                 );
-                Start::len() + (Start::len() * pid) + start_index
+                (2 * Start::len()) + (Start::len() * pid) + start_index
             }
         };
         self.cache.starts[index]
@@ -2468,7 +2481,6 @@ pub struct Config {
     // 'overwrite' method.
     //
     // For docs on the fields below, see the corresponding method setters.
-    anchored: Option<bool>,
     match_kind: Option<MatchKind>,
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
@@ -2484,116 +2496,6 @@ impl Config {
     /// Return a new default lazy DFA builder configuration.
     pub fn new() -> Config {
         Config::default()
-    }
-
-    /// Set whether matching must be anchored at the beginning of the input.
-    ///
-    /// When enabled, a match must begin at the start of a search. When
-    /// disabled (the default), the lazy DFA will act as if the pattern started
-    /// with a `(?s:.)*?`, which enables a match to appear anywhere.
-    ///
-    /// Note that if you want to run both anchored and unanchored
-    /// searches without building multiple automatons, you can enable the
-    /// [`Config::starts_for_each_pattern`] configuration instead. This will
-    /// permit unanchored any-pattern searches and pattern-specific anchored
-    /// searches. See the documentation for that configuration for an example.
-    ///
-    /// By default this is disabled.
-    ///
-    /// **WARNING:** this is subtly different than using a `^` at the start of
-    /// your regex. A `^` forces a regex to match exclusively at the start of
-    /// input, regardless of where you begin your search. In contrast, enabling
-    /// this option will allow your regex to match anywhere in your input,
-    /// but the match must start at the beginning of a search. (Most of the
-    /// higher level convenience search routines make "start of input" and
-    /// "start of search" equivalent, but some routines allow treating these as
-    /// orthogonal.)
-    ///
-    /// For example, consider the haystack `aba` and the following searches:
-    ///
-    /// 1. The regex `^a` is compiled with `anchored=false` and searches
-    ///    `aba` starting at position `2`. Since `^` requires the match to
-    ///    start at the beginning of the input and `2 > 0`, no match is found.
-    /// 2. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `2`. This reports a match at `[2, 3]` since
-    ///    the match starts where the search started. Since there is no `^`,
-    ///    there is no requirement for the match to start at the beginning of
-    ///    the input.
-    /// 3. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `1`. Since `b` corresponds to position `1` and
-    ///    since the regex is anchored, it finds no match.
-    /// 4. The regex `a` is compiled with `anchored=false` and searches `aba`
-    ///    startting at position `1`. Since the regex is neither anchored nor
-    ///    starts with `^`, the regex is compiled with an implicit `(?s:.)*?`
-    ///    prefix that permits it to match anywhere. Thus, it reports a match
-    ///    at `[2, 3]`.
-    ///
-    /// # Example
-    ///
-    /// This demonstrates the differences between an anchored search and
-    /// a pattern that begins with `^` (as described in the above warning
-    /// message).
-    ///
-    /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
-    ///
-    /// let haystack = "aba";
-    ///
-    /// let dfa = DFA::builder()
-    ///     .configure(DFA::config().anchored(false)) // default
-    ///     .build(r"^a")?;
-    /// let mut cache = dfa.create_cache();
-    /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Input::new(haystack).span(2..3),
-    /// )?;
-    /// // No match is found because 2 is not the beginning of the haystack,
-    /// // which is what ^ requires.
-    /// let expected = None;
-    /// assert_eq!(expected, got);
-    ///
-    /// let dfa = DFA::builder()
-    ///     .configure(DFA::config().anchored(true))
-    ///     .build(r"a")?;
-    /// let mut cache = dfa.create_cache();
-    /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Input::new(haystack).span(2..3),
-    /// )?;
-    /// // An anchored search can still match anywhere in the haystack, it just
-    /// // must begin at the start of the search which is '2' in this case.
-    /// let expected = Some(HalfMatch::must(0, 3));
-    /// assert_eq!(expected, got);
-    ///
-    /// let dfa = DFA::builder()
-    ///     .configure(DFA::config().anchored(true))
-    ///     .build(r"a")?;
-    /// let mut cache = dfa.create_cache();
-    /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Input::new(haystack).span(1..3),
-    /// )?;
-    /// // No match is found since we start searching at offset 1 which
-    /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
-    /// // is found.
-    /// let expected = None;
-    /// assert_eq!(expected, got);
-    ///
-    /// let dfa = DFA::builder()
-    ///     .configure(DFA::config().anchored(false))
-    ///     .build(r"a")?;
-    /// let mut cache = dfa.create_cache();
-    /// let got = dfa.try_search_fwd(
-    ///     &mut cache, &Input::new(haystack).span(1..3),
-    /// )?;
-    /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
-    /// // pattern. Even though the search starts at 'b', the 'match anything'
-    /// // prefix allows the search to match 'a'.
-    /// let expected = Some(HalfMatch::must(0, 3));
-    /// assert_eq!(expected, got);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn anchored(mut self, yes: bool) -> Config {
-        self.anchored = Some(yes);
-        self
     }
 
     /// Set the desired match semantics.
@@ -2668,7 +2570,7 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
-    ///     HalfMatch, Input, MatchKind,
+    ///     Anchored, HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let haystack = "123foobar456";
@@ -2676,10 +2578,7 @@ impl Config {
     ///
     /// let dfa_fwd = DFA::new(pattern)?;
     /// let dfa_rev = DFA::builder()
-    ///     .configure(DFA::config()
-    ///         .anchored(true)
-    ///         .match_kind(MatchKind::All)
-    ///     )
+    ///     .configure(DFA::config().match_kind(MatchKind::All))
     ///     .build(pattern)?;
     /// let mut cache_fwd = dfa_fwd.create_cache();
     /// let mut cache_rev = dfa_rev.create_cache();
@@ -2693,11 +2592,11 @@ impl Config {
     /// // in the forward direction. (Otherwise, you might wind up finding the
     /// // starting position of a match of some other pattern.) That in turn
     /// // requires building the reverse automaton with starts_for_each_pattern
-    /// // enabled. Indeed, this is what Regex does internally.
-    /// let got_rev = dfa_rev.try_search_rev(
-    ///     &mut cache_rev,
-    ///     &Input::new(haystack).range(..got_fwd.offset()),
-    /// )?.unwrap();
+    /// // enabled.
+    /// let input = Input::new(haystack)
+    ///     .range(..got_fwd.offset())
+    ///     .anchored(Anchored::Yes);
+    /// let got_rev = dfa_rev.try_search_rev(&mut cache_rev, &input)?.unwrap();
     /// assert_eq!(expected_fwd, got_fwd);
     /// assert_eq!(expected_rev, got_rev);
     ///
@@ -2736,52 +2635,45 @@ impl Config {
     /// for matches of any pattern or to search for anchored matches of one
     /// particular pattern while using the same DFA. (Otherwise, you would need
     /// to compile a new DFA for each pattern.)
-    /// 3. Since the start states added for each pattern are anchored, if you
-    /// compile an unanchored DFA with one pattern while also enabling this
-    /// option, then you can use the same DFA to perform anchored or unanchored
-    /// searches. The latter you get with the standard search APIs. The former
-    /// you get from the various `_at` search methods that allow you specify a
-    /// pattern ID to search for.
     ///
     /// By default this is disabled.
     ///
     /// # Example
     ///
     /// This example shows how to use this option to permit the same lazy DFA
-    /// to run both anchored and unanchored searches for a single pattern.
+    /// to run both general searches for any pattern and anchored searches for
+    /// a specific pattern.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, PatternID, Input};
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     Anchored, HalfMatch, Input, PatternID,
+    /// };
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().starts_for_each_pattern(true))
-    ///     .build(r"foo[0-9]+")?;
+    ///     .build_many(&[r"[a-z0-9]{6}", r"[a-z][a-z0-9]{5}"])?;
     /// let mut cache = dfa.create_cache();
-    /// let haystack = "quux foo123";
+    /// let haystack = "bar foo123";
     ///
-    /// // Here's a normal unanchored search. Notice that we use 'None' for the
-    /// // pattern ID. Since the DFA was built as an unanchored machine, it
-    /// // uses its default unanchored starting state.
-    /// let expected = HalfMatch::must(0, 11);
-    /// assert_eq!(Some(expected), dfa.try_search_fwd(
-    ///     &mut cache, &Input::new(haystack),
-    /// )?);
-    /// // But now if we explicitly specify the pattern to search ('0' being
-    /// // the only pattern in the DFA), then it will use the starting state
-    /// // for that specific pattern which is always anchored. Since the
-    /// // pattern doesn't have a match at the beginning of the haystack, we
-    /// // find nothing.
-    /// assert_eq!(None, dfa.try_search_fwd(
-    ///     &mut cache,
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))),
-    /// )?);
-    /// // And finally, an anchored search is not the same as putting a '^' at
-    /// // beginning of the pattern. An anchored search can only match at the
-    /// // beginning of the *search*, which we can change:
-    /// assert_eq!(Some(expected), dfa.try_search_fwd(
-    ///     &mut cache,
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))).range(5..),
-    /// )?);
+    /// // Here's a normal unanchored search that looks for any pattern.
+    /// let expected = HalfMatch::must(0, 10);
+    /// let input = Input::new(haystack);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&mut cache, &input)?);
+    /// // We can also do a normal anchored search for any pattern. Since it's
+    /// // an anchored search, we position the start of the search where we
+    /// // know the match will begin.
+    /// let expected = HalfMatch::must(0, 10);
+    /// let input = Input::new(haystack).range(4..);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&mut cache, &input)?);
+    /// // Since we compiled anchored start states for each pattern, we can
+    /// // also look for matches of other patterns explicitly, even if a
+    /// // different pattern would have normally matched.
+    /// let expected = HalfMatch::must(1, 10);
+    /// let input = Input::new(haystack)
+    ///     .range(4..)
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&mut cache, &input)?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -2866,7 +2758,10 @@ impl Config {
     /// non-ASCII byte.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     HalfMatch, Input, MatchError,
+    /// };
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().unicode_word_boundary(true))
@@ -2888,6 +2783,14 @@ impl Config {
     /// let haystack = "foo 123☃";
     /// let expected = MatchError::quit(0xE2, 7);
     /// let got = dfa.try_find_fwd(&mut cache, haystack);
+    /// assert_eq!(Err(expected), got);
+    ///
+    /// // Another example is executing a search where the span of the haystack
+    /// // we specify is all ASCII, but there is non-ASCII just before it. This
+    /// // correctly also reports an error.
+    /// let input = Input::new("β123").range(2..);
+    /// let expected = MatchError::quit(0xB2, 1);
+    /// let got = dfa.try_search_fwd(&mut cache, &input);
     /// assert_eq!(Err(expected), got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3228,8 +3131,8 @@ impl Config {
     ///
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
+    ///     Err(MatchError::gave_up(26)),
     ///     dfa.try_find_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::gave_up(27)),
     /// );
     ///
     /// // Now that we know the cache is full, if we search a haystack that we
@@ -3237,8 +3140,8 @@ impl Config {
     /// // be able to make much progress.
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
+    ///     Err(MatchError::gave_up(2)),
     ///     dfa.try_find_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::gave_up(0)),
     /// );
     ///
     /// // If we reset the cache, then we should be able to create more states
@@ -3246,16 +3149,16 @@ impl Config {
     /// cache.reset(&dfa);
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
+    ///     Err(MatchError::gave_up(28)),
     ///     dfa.try_find_fwd(&mut cache, &haystack),
-    ///     Err(MatchError::gave_up(29)),
     /// );
     ///
     /// // ... switching back to ASCII still makes progress since it just needs
     /// // to set transitions on existing states!
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
-    ///     dfa.try_find_fwd(&mut cache, &haystack),
     ///     Err(MatchError::gave_up(14)),
+    ///     dfa.try_find_fwd(&mut cache, &haystack),
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3263,11 +3166,6 @@ impl Config {
     pub fn minimum_cache_clear_count(mut self, min: Option<usize>) -> Config {
         self.minimum_cache_clear_count = Some(min);
         self
-    }
-
-    /// Returns whether this configuration has enabled anchored searches.
-    pub fn get_anchored(&self) -> bool {
-        self.anchored.unwrap_or(false)
     }
 
     /// Returns the match semantics set in this configuration.
@@ -3424,7 +3322,6 @@ impl Config {
     /// remains not set.
     fn overwrite(&self, o: Config) -> Config {
         Config {
-            anchored: o.anchored.or(self.anchored),
             match_kind: o.match_kind.or(self.match_kind),
             starts_for_each_pattern: o
                 .starts_for_each_pattern

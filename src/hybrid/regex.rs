@@ -28,7 +28,7 @@ use crate::{
     util::{
         iter,
         prefilter::{self, Prefilter},
-        search::{Input, Match, MatchError, MatchKind, Span},
+        search::{Anchored, Input, Match, MatchError, MatchKind, Span},
     },
 };
 
@@ -573,7 +573,7 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let m = match self.try_search_fwd_back(cache, input)? {
+        let m = match self.try_search_fwd_rev(cache, input)? {
             None => return Ok(None),
             Some(m) => m,
         };
@@ -584,7 +584,7 @@ impl Regex {
         // it has a chance of modifying the match reported.
         if m.is_empty() && input.get_utf8() {
             input.skip_empty_utf8_splits(m, |search| {
-                self.try_search_fwd_back(cache, search)
+                self.try_search_fwd_rev(cache, search)
             })
         } else {
             Ok(Some(m))
@@ -594,7 +594,7 @@ impl Regex {
     /// This search routine runs the regex engine forwards to find the end
     /// of a match, and then backwards to find the start of the match.
     #[inline(always)]
-    fn try_search_fwd_back(
+    fn try_search_fwd_rev(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
@@ -631,9 +631,14 @@ impl Regex {
         // We also need to be careful to disable 'earliest' for the reverse
         // search, since it could be enabled for the forward search. In the
         // reverse case, to satisfy "leftmost" criteria, we need to match as
-        // much as we can.
-        let revsearch =
-            input.clone().earliest(false).span(input.start()..end.offset());
+        // much as we can. We also need to be careful to make the search
+        // anchored. We don't want the reverse search to report any matches
+        // other than the one beginning at the end of our forward search.
+        let revsearch = input
+            .clone()
+            .span(input.start()..end.offset())
+            .anchored(Anchored::Yes)
+            .earliest(false);
         let start = search::find_rev(rdfa, rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         debug_assert_eq!(
@@ -1055,7 +1060,7 @@ impl Builder {
         let reverse = self
             .dfa
             .clone()
-            .configure(DFA::config().anchored(true).match_kind(MatchKind::All))
+            .configure(DFA::config().match_kind(MatchKind::All))
             .thompson(thompson::Config::new().reverse(true))
             .build_many(patterns)?;
         Ok(self.build_from_dfas(forward, reverse))

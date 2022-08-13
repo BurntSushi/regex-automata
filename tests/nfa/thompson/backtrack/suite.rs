@@ -4,8 +4,8 @@ use regex_automata::{
         backtrack::{self, BoundedBacktracker},
         NFA,
     },
-    util::syntax,
-    Input,
+    util::{iter, syntax},
+    Anchored, Input,
 };
 
 use ret::{
@@ -97,29 +97,41 @@ fn run_test(
     cache: &mut backtrack::Cache,
     test: &RegexTest,
 ) -> TestResult {
+    let input = re.create_input(test.input()).anchored(if test.anchored() {
+        Anchored::Yes
+    } else {
+        Anchored::No
+    });
     match test.additional_name() {
         "is_match" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {
                 TestResult::skip()
             }
-            ret::SearchKind::Leftmost => TestResult::matched(
-                re.try_is_match(cache, test.input()).unwrap(),
-            ),
+            ret::SearchKind::Leftmost => {
+                let input = input.earliest(true);
+                TestResult::matched(
+                    re.try_search_slots(cache, &input, &mut [])
+                        .unwrap()
+                        .is_some(),
+                )
+            }
         },
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {
                 TestResult::skip()
             }
             ret::SearchKind::Leftmost => {
-                let it = re
-                    .try_find_iter(cache, test.input())
+                let mut caps = re.create_captures();
+                let it = iter::Searcher::new(input)
+                    .into_matches_iter(|input| {
+                        re.try_search(cache, input, &mut caps)?;
+                        Ok(caps.get_match())
+                    })
+                    .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|result| {
-                        let m = result.unwrap();
-                        ret::Match {
-                            id: m.pattern().as_usize(),
-                            span: ret::Span { start: m.start(), end: m.end() },
-                        }
+                    .map(|m| ret::Match {
+                        id: m.pattern().as_usize(),
+                        span: ret::Span { start: m.start(), end: m.end() },
                     });
                 TestResult::matches(it)
             }
@@ -129,10 +141,13 @@ fn run_test(
                 TestResult::skip()
             }
             ret::SearchKind::Leftmost => {
-                let it = re
-                    .try_captures_iter(cache, test.input())
+                let it = iter::Searcher::new(input)
+                    .into_captures_iter(re.create_captures(), |input, caps| {
+                        re.try_search(cache, input, caps)
+                    })
+                    .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|result| testify_captures(&result.unwrap()));
+                    .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
         },
@@ -171,9 +186,7 @@ fn configure_backtrack_builder(
         // Not supported at all in regex-automata.
         (_, ret::MatchKind::LeftmostLongest) => return false,
     };
-    let backtrack_config = BoundedBacktracker::config()
-        .anchored(test.anchored())
-        .utf8(test.utf8());
+    let backtrack_config = BoundedBacktracker::config().utf8(test.utf8());
     builder
         .configure(backtrack_config)
         .syntax(config_syntax(test))

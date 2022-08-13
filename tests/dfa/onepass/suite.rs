@@ -101,13 +101,15 @@ fn run_test(
     cache: &mut onepass::Cache,
     test: &RegexTest,
 ) -> TestResult {
+    let input = re
+        .create_input(test.input())
+        .earliest(test.search_kind() == ret::SearchKind::Earliest);
     match test.additional_name() {
-        "is_match" => TestResult::matched(re.is_match(cache, test.input())),
+        "is_match" => TestResult::matched(
+            re.search_slots(cache, &input, &mut []).is_some(),
+        ),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
-                let input = re
-                    .create_input(test.input())
-                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
                 let mut caps = re.create_captures();
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| {
@@ -132,19 +134,7 @@ fn run_test(
             }
         },
         "captures" => match test.search_kind() {
-            ret::SearchKind::Earliest => {
-                let input = re.create_input(test.input()).earliest(true);
-                let it = iter::Searcher::new(input)
-                    .into_captures_iter(re.create_captures(), |input, caps| {
-                        Ok(re.search(cache, input, caps))
-                    })
-                    .infallible()
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|caps| testify_captures(&caps));
-                TestResult::captures(it)
-            }
-            ret::SearchKind::Leftmost => {
-                let input = re.create_input(test.input()).earliest(false);
+            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
                 let it = iter::Searcher::new(input)
                     .into_captures_iter(re.create_captures(), |input, caps| {
                         Ok(re.search(cache, input, caps))

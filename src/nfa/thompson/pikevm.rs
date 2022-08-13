@@ -75,104 +75,6 @@ impl Config {
         Config::default()
     }
 
-    /*
-    /// Set whether matching must be anchored at the beginning of the input.
-    ///
-    /// When enabled, a match must begin at the start of a search. When
-    /// disabled (the default), the `PikeVM` will act as if the pattern started
-    /// with a `(?s:.)*?`, which enables a match to appear anywhere.
-    ///
-    /// By default this is disabled.
-    ///
-    /// **WARNING:** this is subtly different than using a `^` at the start of
-    /// your regex. A `^` forces a regex to match exclusively at the start of
-    /// input, regardless of where you begin your search. In contrast, enabling
-    /// this option will allow your regex to match anywhere in your input,
-    /// but the match must start at the beginning of a search. (Most of the
-    /// higher level convenience search routines make "start of input" and
-    /// "start of search" equivalent, but some routines allow treating these as
-    /// orthogonal.)
-    ///
-    /// For example, consider the haystack `aba` and the following searches:
-    ///
-    /// 1. The regex `^a` is compiled with `anchored=false` and searches
-    ///    `aba` starting at position `2`. Since `^` requires the match to
-    ///    start at the beginning of the input and `2 > 0`, no match is found.
-    /// 2. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `2`. This reports a match at `[2, 3]` since
-    ///    the match starts where the search started. Since there is no `^`,
-    ///    there is no requirement for the match to start at the beginning of
-    ///    the input.
-    /// 3. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `1`. Since `b` corresponds to position `1` and
-    ///    since the regex is anchored, it finds no match.
-    /// 4. The regex `a` is compiled with `anchored=false` and searches `aba`
-    ///    startting at position `1`. Since the regex is neither anchored nor
-    ///    starts with `^`, the regex is compiled with an implicit `(?s:.)*?`
-    ///    prefix that permits it to match anywhere. Thus, it reports a match
-    ///    at `[2, 3]`.
-    ///
-    /// # Example
-    ///
-    /// This demonstrates the differences between an anchored search and
-    /// a pattern that begins with `^` (as described in the above warning
-    /// message).
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, Input};
-    ///
-    /// let haystack = "aba";
-    ///
-    /// let vm = PikeVM::builder()
-    ///     .configure(PikeVM::config().anchored(false)) // default
-    ///     .build(r"^a")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
-    /// vm.search(&mut cache, &Input::new(haystack).span(2..3), &mut caps);
-    /// // No match is found because 2 is not the beginning of the haystack,
-    /// // which is what ^ requires.
-    /// let expected = None;
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// let vm = PikeVM::builder()
-    ///     .configure(PikeVM::config().anchored(true))
-    ///     .build(r"a")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
-    /// vm.search(&mut cache, &Input::new(haystack).span(2..3), &mut caps);
-    /// // An anchored search can still match anywhere in the haystack, it just
-    /// // must begin at the start of the search which is '2' in this case.
-    /// let expected = Some(Match::must(0, 2..3));
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// let vm = PikeVM::builder()
-    ///     .configure(PikeVM::config().anchored(true))
-    ///     .build(r"a")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
-    /// vm.search(&mut cache, &Input::new(haystack).span(1..3), &mut caps);
-    /// // No match is found since we start searching at offset 1 which
-    /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
-    /// // is found.
-    /// let expected = None;
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// let vm = PikeVM::builder()
-    ///     .configure(PikeVM::config().anchored(false))
-    ///     .build(r"a")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
-    /// vm.search(&mut cache, &Input::new(haystack).span(1..3), &mut caps);
-    /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
-    /// // pattern. Even though the search starts at 'b', the 'match anything'
-    /// // prefix allows the search to match 'a'.
-    /// let expected = Some(Match::must(0, 2..3));
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn anchored(mut self, yes: bool) -> Config {
-        self.anchored = Some(yes);
-        self
-    }
-    */
-
     /// Set the desired match semantics.
     ///
     /// The default is [`MatchKind::LeftmostFirst`], which corresponds to the
@@ -1329,27 +1231,7 @@ impl PikeVM {
         // 'leftmost' semantics of typical backtracking regex engines.
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        // Whether the search is anchored or not, and the corresponding
-        // NFA start state. This can be from configuration or from how the
-        // pattern itself is constructed. As a special case, searches that
-        // have specified a specific pattern to search for are automatically
-        // anchored, since there is no unanchored prefix for each individual
-        // pattern, only for the entire NFA as a whole.
-        let (anchored, start_id) = match input.get_anchored() {
-            // Only way we're anchored if the caller asked for an unanchored
-            // search is if the pattern is itself explicitly anchored.
-            Anchored::No => (
-                self.nfa.is_always_start_anchored(),
-                // We still use 'start_anchored' here unconditionally, because
-                // the search loop below handles the unanchored aspect of it
-                // (if the pattern isn't explicitly anchored) by computing the
-                // epsilon closure from the anchored starting state whenever
-                // the current state set list is empty.
-                self.nfa.start_anchored(),
-            ),
-            Anchored::Yes => (true, self.nfa.start_anchored()),
-            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
-        };
+        let (anchored, start_id) = self.start_config(input);
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         let mut pid = None;
@@ -1490,14 +1372,7 @@ impl PikeVM {
 
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        let (anchored, start_id) = match input.get_anchored() {
-            Anchored::No => (
-                self.nfa.is_always_start_anchored(),
-                self.nfa.start_anchored(),
-            ),
-            Anchored::Yes => (true, self.nfa.start_anchored()),
-            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
-        };
+        let (anchored, start_id) = self.start_config(input);
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         for at in input.start()..=input.end() {
@@ -1788,6 +1663,36 @@ impl PikeVM {
                     sid = next;
                 }
             }
+        }
+    }
+
+    /// Return the starting configuration of a PikeVM search.
+    ///
+    /// The "start config" is basically whether the search should be anchored
+    /// or not and the NFA state ID at which to begin the search. The state ID
+    /// returned always corresponds to an anchored starting state even when the
+    /// search is unanchored. This is because the PikeVM search loop deals with
+    /// unanchored searches with an explicit epsilon closure out of the start
+    /// state.
+    ///
+    /// This routine accounts for both the caller's `Input` configuration
+    /// and the pattern itself. For example, even if the caller asks for an
+    /// unanchored search, if the pattern itself is anchored, then this will
+    /// always return 'true' because implementing an unanchored search in that
+    /// case would be incorrect.
+    ///
+    /// Similarly, if the caller requests an anchored search for a particular
+    /// pattern, then the starting state ID returned will reflect that.
+    fn start_config(&self, input: &Input<'_, '_>) -> (bool, StateID) {
+        match input.get_anchored() {
+            // Only way we're unanchored is if both the caller asked for an
+            // unanchored search *and* the pattern is itself not anchored.
+            Anchored::No => (
+                self.nfa.is_always_start_anchored(),
+                self.nfa.start_anchored(),
+            ),
+            Anchored::Yes => (true, self.nfa.start_anchored()),
+            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
         }
     }
 }
@@ -2108,7 +2013,8 @@ impl SlotTable {
             // It seems like this could actually panic on legitimate inputs on
             // 32-bit targets, and very likely to panic on 16-bit. Should we
             // somehow convert this to an error? What about something similar
-            // for the lazy DFA cache?
+            // for the lazy DFA cache? If you're tripping this assert, please
+            // file a bug.
             .expect("slot table length doesn't overflow");
         self.table.resize(len, None);
     }

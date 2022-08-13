@@ -90,11 +90,11 @@ impl Start {
 fn byte_to_start(byte: u8) -> Start {
     const fn make_mapping() -> [Start; 256] {
         // FIXME: Use as_usize() once const functions in traits are stable.
+
         let mut map = [Start::NonWordByte; 256];
-
         map[b'\n' as usize] = Start::Line;
-
         map[b'_' as usize] = Start::WordByte;
+
         let mut byte = b'0';
         while byte <= b'9' {
             map[byte as usize] = Start::WordByte;

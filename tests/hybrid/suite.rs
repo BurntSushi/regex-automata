@@ -5,7 +5,7 @@ use regex_automata::{
     },
     nfa::thompson,
     util::{iter, syntax},
-    Input, MatchKind, PatternSet,
+    Anchored, Input, MatchKind, PatternSet,
 };
 
 use ret::{
@@ -153,11 +153,19 @@ fn run_test(
     cache: &mut regex::Cache,
     test: &RegexTest,
 ) -> TestResult {
+    let input = re.create_input(test.input()).anchored(if test.anchored() {
+        Anchored::Yes
+    } else {
+        Anchored::No
+    });
     match test.additional_name() {
-        "is_match" => TestResult::matched(re.is_match(cache, test.input())),
+        "is_match" => TestResult::matched(
+            re.try_search(cache, &input.earliest(true)).unwrap().is_some(),
+        ),
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest => {
-                let input = re.create_input(test.input()).earliest(true);
+            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+                let input = input
+                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| re.try_search(cache, input))
                     .infallible()
@@ -168,38 +176,19 @@ fn run_test(
                     });
                 TestResult::matches(it)
             }
-            ret::SearchKind::Leftmost => {
-                let it = re
-                    .find_iter(cache, test.input())
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
-            }
             ret::SearchKind::Overlapping => {
-                let input = re.create_input(test.input());
                 try_search_overlapping(re, cache, &input).unwrap()
             }
         },
         "which" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
-                // There are no "which" APIs for standard searches. So this is
-                // technically redundant, but we produce a result anyway.
-                let mut pids: Vec<usize> = re
-                    .find_iter(cache, test.input())
-                    .map(|m| m.pattern().as_usize())
-                    .collect();
-                pids.sort();
-                pids.dedup();
-                TestResult::which(pids)
+                // There are no "which" APIs for standard searches.
+                TestResult::skip()
             }
             ret::SearchKind::Overlapping => {
                 let dfa = re.forward();
                 let cache = cache.as_parts_mut().0;
                 let mut patset = PatternSet::new(dfa.pattern_len());
-                let input = re.create_input(test.input());
                 dfa.try_which_overlapping_matches(cache, &input, &mut patset)
                     .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
@@ -224,10 +213,8 @@ fn configure_regex_builder(
         ret::MatchKind::LeftmostLongest => return false,
     };
 
-    let mut dfa_config = DFA::config()
-        .anchored(test.anchored())
-        .match_kind(match_kind)
-        .unicode_word_boundary(true);
+    let mut dfa_config =
+        DFA::config().match_kind(match_kind).unicode_word_boundary(true);
     // When doing an overlapping search, we might try to find the start of each
     // match with a custom search routine. In that case, we need to tell the
     // reverse search (for the start offset) which pattern to look for. The
@@ -301,9 +288,9 @@ fn try_search_overlapping(
     } {
         let revsearch = input
             .clone()
-            .pattern(Some(end.pattern()))
-            .earliest(false)
-            .range(input.start()..end.offset());
+            .range(input.start()..end.offset())
+            .anchored(Anchored::Pattern(end.pattern()))
+            .earliest(false);
         let mut rev_state = OverlappingState::start();
         while let Some(start) = {
             rev_dfa.try_search_overlapping_rev(

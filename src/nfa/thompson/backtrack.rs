@@ -19,7 +19,7 @@ use crate::{
         iter,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
-        search::{Input, Match, MatchError, MatchKind},
+        search::{Anchored, Input, Match, MatchError, MatchKind},
     },
 };
 
@@ -48,7 +48,6 @@ pub fn min_visited_capacity(nfa: &NFA, input: &Input<'_, '_>) -> usize {
 /// typically used with [`Builder::configure`].
 #[derive(Clone, Debug, Default)]
 pub struct Config {
-    anchored: Option<bool>,
     utf8: Option<bool>,
     pre: Option<Option<Arc<dyn Prefilter>>>,
     visited_capacity: Option<usize>,
@@ -58,105 +57,6 @@ impl Config {
     /// Return a new default regex configuration.
     pub fn new() -> Config {
         Config::default()
-    }
-
-    /// Set whether matching must be anchored at the beginning of the input.
-    ///
-    /// When enabled, a match must begin at the start of a search. When
-    /// disabled (the default), the regex will act as if the pattern started
-    /// with a `(?s:.)*?`, which enables a match to appear anywhere.
-    ///
-    /// By default this is disabled.
-    ///
-    /// **WARNING:** this is subtly different than using a `^` at the start of
-    /// your regex. A `^` forces a regex to match exclusively at the start of
-    /// input, regardless of where you begin your search. In contrast, enabling
-    /// this option will allow your regex to match anywhere in your input,
-    /// but the match must start at the beginning of a search. (Most of the
-    /// higher level convenience search routines make "start of input" and
-    /// "start of search" equivalent, but some routines allow treating these as
-    /// orthogonal.)
-    ///
-    /// For example, consider the haystack `aba` and the following searches:
-    ///
-    /// 1. The regex `^a` is compiled with `anchored=false` and searches
-    ///    `aba` starting at position `2`. Since `^` requires the match to
-    ///    start at the beginning of the input and `2 > 0`, no match is found.
-    /// 2. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `2`. This reports a match at `[2, 3]` since
-    ///    the match starts where the search started. Since there is no `^`,
-    ///    there is no requirement for the match to start at the beginning of
-    ///    the input.
-    /// 3. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `1`. Since `b` corresponds to position `1` and
-    ///    since the regex is anchored, it finds no match.
-    /// 4. The regex `a` is compiled with `anchored=false` and searches `aba`
-    ///    startting at position `1`. Since the regex is neither anchored nor
-    ///    starts with `^`, the regex is compiled with an implicit `(?s:.)*?`
-    ///    prefix that permits it to match anywhere. Thus, it reports a match
-    ///    at `[2, 3]`.
-    ///
-    /// # Example
-    ///
-    /// This demonstrates the differences between an anchored search and
-    /// a pattern that begins with `^` (as described in the above warning
-    /// message).
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     Match, Input,
-    /// };
-    ///
-    /// let haystack = "aba";
-    ///
-    /// let re = BoundedBacktracker::builder()
-    ///     .configure(BoundedBacktracker::config().anchored(false)) // default
-    ///     .build(r"^a")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(2..3), &mut caps)?;
-    /// // No match is found because 2 is not the beginning of the haystack,
-    /// // which is what ^ requires.
-    /// let expected = None;
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// let re = BoundedBacktracker::builder()
-    ///     .configure(BoundedBacktracker::config().anchored(true))
-    ///     .build(r"a")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(2..3), &mut caps)?;
-    /// // An anchored search can still match anywhere in the haystack, it just
-    /// // must begin at the start of the search which is '2' in this case.
-    /// let expected = Some(Match::must(0, 2..3));
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// let re = BoundedBacktracker::builder()
-    ///     .configure(BoundedBacktracker::config().anchored(true))
-    ///     .build(r"a")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(1..3), &mut caps)?;
-    /// // No match is found since we start searching at offset 1 which
-    /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
-    /// // is found.
-    /// let expected = None;
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// let re = BoundedBacktracker::builder()
-    ///     .configure(BoundedBacktracker::config().anchored(false))
-    ///     .build(r"a")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.try_search(&mut cache, &Input::new(haystack).span(1..3), &mut caps)?;
-    /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
-    /// // pattern. Even though the search starts at 'b', the 'match anything'
-    /// // prefix allows the search to match 'a'.
-    /// let expected = Some(Match::must(0, 2..3));
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn anchored(mut self, yes: bool) -> Config {
-        self.anchored = Some(yes);
-        self
     }
 
     /// Whether to enable UTF-8 mode or not.
@@ -293,11 +193,6 @@ impl Config {
         self
     }
 
-    /// Returns whether this configuration has enabled anchored searches.
-    pub fn get_anchored(&self) -> bool {
-        self.anchored.unwrap_or(false)
-    }
-
     /// Returns true if and only if this configuration has UTF-8 mode enabled.
     ///
     /// When UTF-8 mode is enabled and an empty match is seen, the regex will
@@ -327,7 +222,6 @@ impl Config {
     /// remains not set.
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
-            anchored: o.anchored.or(self.anchored),
             utf8: o.utf8.or(self.utf8),
             pre: o.pre.or_else(|| self.pre.clone()),
             visited_capacity: o.visited_capacity.or(self.visited_capacity),
@@ -1327,7 +1221,7 @@ impl BoundedBacktracker {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     Match, PatternID, Input,
+    ///     Anchored, Input, Match, PatternID,
     /// };
     ///
     /// let re = BoundedBacktracker::new_many(&[
@@ -1348,11 +1242,9 @@ impl BoundedBacktracker {
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
     /// let expected = Some(Match::must(1, 0..6));
-    /// re.try_search(
-    ///     &mut cache,
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(1))),
-    ///     &mut caps,
-    /// )?;
+    /// let input = Input::new(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1537,18 +1429,20 @@ impl BoundedBacktracker {
         if input.is_done() {
             return Ok(None);
         }
-        let anchored = self.config.get_anchored()
-            || self.nfa.is_always_start_anchored()
-            || input.get_pattern().is_some();
-        let start_id = match input.get_pattern() {
-            // We always use the anchored starting state here, even if doing an
-            // unanchored search. The "unanchored" part of it is implemented
-            // in the loop below, by simply trying the next byte offset if the
-            // previous backtracking exploration failed.
-            None => self.nfa.start_anchored(),
-            Some(pid) => self.nfa.start_pattern(pid),
+        let (anchored, start_id) = match input.get_anchored() {
+            // Only way we're unanchored is if both the caller asked for an
+            // unanchored search *and* the pattern is itself not anchored.
+            Anchored::No => (
+                self.nfa.is_always_start_anchored(),
+                // We always use the anchored starting state here, even if
+                // doing an unanchored search. The "unanchored" part of it is
+                // implemented in the loop below, by simply trying the next
+                // byte offset if the previous backtracking exploration failed.
+                self.nfa.start_anchored(),
+            ),
+            Anchored::Yes => (true, self.nfa.start_anchored()),
+            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
         };
-
         if anchored {
             let at = input.start();
             return Ok(self.backtrack(cache, input, at, start_id, slots));

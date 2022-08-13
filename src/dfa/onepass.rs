@@ -54,7 +54,7 @@ use crate::{
         iter,
         look::{Look, LookSet},
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
-        search::{Input, Match, MatchError, MatchKind},
+        search::{Anchored, Input, Match, MatchError, MatchKind},
         sparse_set::SparseSet,
     },
 };
@@ -135,8 +135,7 @@ impl Config {
     /// let re = DFA::builder()
     ///     .configure(DFA::config().utf8(false))
     ///     .build(r"")?;
-    /// let mut cache = re.create_cache();
-    /// let mut caps = re.create_captures();
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let mut input = re.create_input("a☃z");
     ///
     /// // The empty string matches at every position.
@@ -252,7 +251,7 @@ impl Config {
     /// matches for a any of the patterns or matches for a specific pattern.
     ///
     /// ```
-    /// use regex_automata::{dfa::onepass::DFA, Input, Match, PatternID};
+    /// use regex_automata::{dfa::onepass::DFA, Anchored, Match, PatternID};
     ///
     /// let re = DFA::builder()
     ///     .configure(DFA::config().starts_for_each_pattern(true))
@@ -261,16 +260,14 @@ impl Config {
     /// let haystack = "123abc";
     ///
     /// // A normal multi-pattern search will show pattern 1 matches.
-    /// re.search(&mut cache, &Input::new(haystack), &mut caps);
+    /// re.search(&mut cache, &re.create_input(haystack), &mut caps);
     /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
     ///
     /// // If we only want to report pattern 0 matches, then we'll get no
     /// // match here.
-    /// re.search(
-    ///     &mut cache,
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))),
-    ///     &mut caps,
-    /// );
+    /// let input = re.create_input(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(0)));
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1395,7 +1392,8 @@ impl DFA {
     /// Create a new `Input` for the given haystack.
     ///
     /// The `Input` returned is configured to match the configuration of this
-    /// DFA.
+    /// DFA. Notably, since the one-pass DFA does not support unanchored
+    /// searches, this sets the [`Input::anchored`] mode to [`Anchored::No`].
     ///
     /// This routine is useful when using the lower-level [`DFA::search`] API.
     #[inline]
@@ -1404,7 +1402,9 @@ impl DFA {
         haystack: &'h H,
     ) -> Input<'h, 'p> {
         let c = self.get_config();
-        Input::new(haystack.as_ref()).utf8(c.get_utf8())
+        Input::new(haystack.as_ref())
+            .anchored(Anchored::Yes)
+            .utf8(c.get_utf8())
     }
 
     /// Create a new empty set of capturing groups that is guaranteed to be
@@ -1708,7 +1708,7 @@ impl DFA {
     /// by default since it may result in higher memory usage.
     ///
     /// ```
-    /// use regex_automata::{dfa::onepass::DFA, Input, Match, PatternID};
+    /// use regex_automata::{dfa::onepass::DFA, Anchored, Match, PatternID};
     ///
     /// let re = DFA::builder()
     ///     .configure(DFA::config().starts_for_each_pattern(true))
@@ -1717,16 +1717,14 @@ impl DFA {
     /// let haystack = "123abc";
     ///
     /// // A normal multi-pattern search will show pattern 1 matches.
-    /// re.search(&mut cache, &Input::new(haystack), &mut caps);
+    /// re.search(&mut cache, &re.create_input(haystack), &mut caps);
     /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
     ///
     /// // If we only want to report pattern 0 matches, then we'll get no
     /// // match here.
-    /// re.search(
-    ///     &mut cache,
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))),
-    ///     &mut caps,
-    /// );
+    /// let input = re.create_input(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(0)));
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1738,7 +1736,7 @@ impl DFA {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
-    /// use regex_automata::{dfa::onepass::DFA, Match, Input};
+    /// use regex_automata::{dfa::onepass::DFA, Match};
     ///
     /// // one-pass DFAs fully support Unicode word boundaries!
     /// // A sad joke is that a Unicode aware regex like \w+\s is not one-pass.
@@ -1753,7 +1751,8 @@ impl DFA {
     /// // to the sub-slice as well, which means we get `0..3` instead of
     /// // `3..6`.
     /// let expected = Some(Match::must(0, 0..3));
-    /// re.search(&mut cache, &Input::new(&haystack[3..6]), &mut caps);
+    /// let input = re.create_input(&haystack[3..6]);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// // But if we provide the bounds of the search within the context of the
@@ -1761,7 +1760,8 @@ impl DFA {
     /// // into account. (And if we did find a match, it would be reported
     /// // as a valid offset into `haystack` instead of its sub-slice.)
     /// let expected = None;
-    /// re.search(&mut cache, &Input::new(haystack).range(3..6), &mut caps);
+    /// let input = re.create_input(haystack).range(3..6);
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1810,14 +1810,14 @@ impl DFA {
     /// can put our slots right on the stack.
     ///
     /// ```
-    /// use regex_automata::{dfa::onepass::DFA, PatternID, Input};
+    /// use regex_automata::{dfa::onepass::DFA, PatternID};
     ///
     /// let re = DFA::new_many(&[
     ///     r"[a-zA-Z]+",
     ///     r"[0-9]+",
     /// ])?;
     /// let mut cache = re.create_cache();
-    /// let input = Input::new("123");
+    /// let input = re.create_input("123");
     ///
     /// // We only care about the overall match offsets here, so we just
     /// // allocate two slots for each pattern. Each slot records the start
@@ -1948,9 +1948,12 @@ impl DFA {
             slots[i] = NonMaxUsize::new(input.start());
         }
         let mut pid = None;
-        let mut sid = match input.get_pattern() {
-            None => self.start(),
-            Some(pid) => self.start_pattern(pid),
+        let mut sid = match input.get_anchored() {
+            Anchored::Yes => self.start(),
+            Anchored::Pattern(pid) => self.start_pattern(pid),
+            Anchored::No => {
+                panic!("one-pass DFA does not support unanchored searches")
+            }
         };
         for at in input.start()..input.end() {
             if sid >= self.min_match_id {
