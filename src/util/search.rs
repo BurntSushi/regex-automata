@@ -1582,35 +1582,6 @@ impl Anchored {
     }
 }
 
-/// The kind of anchored starting configurations to support in a regex engine.
-///
-/// Some regex engines, most notably DFAs, need to be explicitly configured
-/// as to which anchored starting configurations to support. The reason for
-/// not just supporting everything unconditionally is that it can use more
-/// resources (such as memory and DFA build time). The downside of this is that
-/// if you try to execute a search using an [`Anchored`] mode that is not
-/// supported by the DFA, then the search will panic.
-///
-/// Other regex engines, particularly ones that use the NFA directly, support
-/// all anchored starting modes unconditionally because it is inexpensive to
-/// do so.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StartKind {
-    /// Support both anchored and unanchored searches.
-    Both,
-    /// Support only anchored searches. Requesting an unanchored search will
-    /// panic.
-    Anchored,
-    /// Support only unanchored searches. Requesting an anchored search will
-    /// panic.
-    ///
-    /// Note that even if an unanchored search is requested, the pattern itself
-    /// may still be anchored. For example, `^abc` will only match `abc` at the
-    /// start of a haystack. This will remain true, even if the regex engine
-    /// only supported unanchored searches.
-    Unanchored,
-}
-
 /// The kind of match semantics to use for a regex pattern.
 ///
 /// The default match kind is `LeftmostFirst`.

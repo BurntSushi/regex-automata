@@ -78,6 +78,7 @@ pub struct Config {
     accelerate: Option<bool>,
     minimize: Option<bool>,
     match_kind: Option<MatchKind>,
+    starts: Option<StartKind>,
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
@@ -360,6 +361,11 @@ impl Config {
     /// ```
     pub fn match_kind(mut self, kind: MatchKind) -> Config {
         self.match_kind = Some(kind);
+        self
+    }
+
+    pub fn starts(mut self, kind: StartKind) -> Config {
+        self.starts = Some(kind);
         self
     }
 
@@ -828,6 +834,11 @@ impl Config {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
+    /// Returns the starting state configuration for a DFA.
+    pub fn get_starts(&self) -> StartKind {
+        self.starts.unwrap_or(StartKind::Both)
+    }
+
     /// Returns whether this configuration has enabled anchored starting states
     /// for every pattern in the DFA.
     pub fn get_starts_for_each_pattern(&self) -> bool {
@@ -899,6 +910,7 @@ impl Config {
             accelerate: o.accelerate.or(self.accelerate),
             minimize: o.minimize.or(self.minimize),
             match_kind: o.match_kind.or(self.match_kind),
+            starts: o.starts.or(self.starts),
             starts_for_each_pattern: o
                 .starts_for_each_pattern
                 .or(self.starts_for_each_pattern),
@@ -915,6 +927,77 @@ impl Config {
                 .determinize_size_limit
                 .or(self.determinize_size_limit),
         }
+    }
+}
+
+/// The kind of anchored starting configurations to support in a DFA.
+///
+/// Fully compiled DFAs need to be explicitly configured as to which anchored
+/// starting configurations to support. The reason for not just supporting
+/// everything unconditionally is that it can use more resources (such as
+/// memory and build time). The downside of this is that if you try to execute
+/// a search using an [`Anchored`] mode that is not supported by the DFA, then
+/// the search will panic.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StartKind {
+    /// Support both anchored and unanchored searches.
+    Both,
+    /// Support only unanchored searches. Requesting an anchored search will
+    /// panic.
+    ///
+    /// Note that even if an unanchored search is requested, the pattern itself
+    /// may still be anchored. For example, `^abc` will only match `abc` at the
+    /// start of a haystack. This will remain true, even if the regex engine
+    /// only supported unanchored searches.
+    Unanchored,
+    /// Support only anchored searches. Requesting an unanchored search will
+    /// panic.
+    Anchored,
+}
+
+// BREADCRUMBS: Start threading 'StartKind' into the DFA below. We'll also need
+// to add it to the sparse DFA, so maybe this actually be moved to the dfa
+// module instead of living in the dense module. In particular, the sparse DFA
+// should provide an accessor method giving the StartKind configuration for
+// the DFA. Thus it's not just an implementation detail and part of the sparse
+// DFA's public API. Therefore, it really should live in the dfa module.
+//
+// Also rename 'has_starts_for_each_pattern' to just 'starts_for_each_pattern'.
+// And then add 'starts() -> StartKind' to each of the dense and sparse DFAs.
+
+impl StartKind {
+    fn from_bytes(
+        mut slice: &[u8],
+    ) -> Result<(StartKind, usize), DeserializeError> {
+        wire::check_slice_len(slice, size_of::<u32>(), "start kind bytes")?;
+        let (n, nr) = wire::try_read_u32(slice, "start kind integer")?;
+        match n {
+            0 => Ok((StartKind::Both, nr)),
+            1 => Ok((StartKind::Unanchored, nr)),
+            2 => Ok((StartKind::Anchored, nr)),
+            _ => Err(DeserializeError::generic("unrecognized start kind")),
+        }
+    }
+
+    fn write_to<E: Endian>(
+        &self,
+        dst: &mut [u8],
+    ) -> Result<usize, SerializeError> {
+        let nwrite = self.write_to_len();
+        if dst.len() < nwrite {
+            return Err(SerializeError::buffer_too_small("start kind"));
+        }
+        let n = match *self {
+            StartKind::Both => 0,
+            StartKind::Unanchored => 1,
+            StartKind::Anchored => 2,
+        };
+        E::write_u32(n, dst);
+        Ok(nwrite)
+    }
+
+    fn write_to_len(&self) -> usize {
+        size_of::<u32>()
     }
 }
 

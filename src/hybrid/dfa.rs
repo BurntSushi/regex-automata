@@ -25,7 +25,6 @@ use crate::{
         primitives::{PatternID, StateID as NFAStateID},
         search::{
             Anchored, HalfMatch, Input, MatchError, MatchKind, PatternSet,
-            StartKind,
         },
         sparse_set::SparseSets,
         start::Start,
