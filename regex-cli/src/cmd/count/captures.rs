@@ -116,7 +116,7 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
 
     let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
     let index_to_name: Vec<Option<&str>> = re.capture_names().collect();
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_api_regex(&re, &captures, &*haystack, &mut buf)
@@ -157,7 +157,7 @@ fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_onepass(&vm, &mut cache, &captures, &*haystack, &mut buf)
@@ -212,7 +212,7 @@ fn run_nfa_thompson_backtrack(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_backtrack(&vm, &mut cache, &captures, &*haystack, &mut buf)
@@ -252,7 +252,7 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_pikevm(&vm, &mut cache, &captures, &*haystack, &mut buf)

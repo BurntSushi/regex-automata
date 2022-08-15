@@ -125,7 +125,7 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
     let patterns = config::Patterns::get(args)?;
 
     let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let (pids, time) =
             util::timeitr(|| search_api_regex(&re, &*haystack))?;
         table.add("search time", time);
@@ -155,7 +155,7 @@ fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
     let dfa = cdense.from_patterns_dense(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let (pids, time) =
             util::timeitr(|| search_dfa_automaton(&dfa, &*haystack))?;
         table.add("search time", time);
@@ -177,7 +177,7 @@ fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
     let dfa = cdense.from_patterns_sparse(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let (pids, time) =
             util::timeitr(|| search_dfa_automaton(&dfa, &*haystack))?;
         table.add("search time", time);
@@ -209,7 +209,7 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| dfa.create_cache());
     table.add("create cache time", time);
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let (pids, time) =
             util::timeitr(|| search_hybrid_dfa(&dfa, &mut cache, &*haystack))?;
         table.add("search time", time);
@@ -248,7 +248,7 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let (pids, time) =
             util::timeitr(|| search_pikevm(&vm, &mut cache, &*haystack))?;
         table.add("search time", time);

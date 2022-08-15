@@ -228,7 +228,7 @@ impl Input {
     ///
     /// If the parameter starts with a '@', then the rest of the value is
     /// interpreted as a file path. The leading '@' cannot be escaped. To match
-    /// a literal '@' in the leading position, use '\x40'.
+    /// a literal '@' in the leading position, use '\x40' or '[@]'.
     pub fn define(app: App) -> App {
         const SHORT: &str = "An inline string or a @-prefixed file path.";
         app.arg(app::arg("input").help(SHORT).required(true))
@@ -251,22 +251,10 @@ impl Input {
         }))
     }
 
-    /*
-    /// Read the input as a sequence of bytes, regardless of its source.
-    pub fn bytes(&self) -> anyhow::Result<BString> {
-        match self.0 {
-            InputKind::Literal(ref lit) => Ok(lit.clone()),
-            InputKind::Path(ref p) => fs::read(p)
-                .map(BString::from)
-                .with_context(|| format!("failed to read {}", p.display())),
-        }
-    }
-    */
-
     /// If the input is a file, then memory map and pass the contents of the
     /// file to the given closure. Otherwise, if it's an inline literal, then
     /// pass it to the closure.
-    pub fn with_mmap<T>(
+    pub fn with_bytes<T>(
         &self,
         mut f: impl FnMut(&BStr) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
@@ -289,6 +277,11 @@ impl Input {
             }
         }
     }
+
+    // pub fn with_input<T>(
+    // &self,
+    // mut f: impl FnMut(&Input) -> anyhow::Result<T>,
+    // ) -> anyhow::Result<T> {
 }
 
 /// Flags specific to searching for entire matches.

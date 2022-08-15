@@ -191,7 +191,7 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
     let find = config::Find::get(args)?;
 
     let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (count, time) = util::timeitr(|| {
             search_api_regex(&re, &find, &*haystack, &mut buf)
@@ -229,7 +229,7 @@ fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
     let dfa = cdense.from_patterns_dense(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_dfa_automaton(&dfa, &find, &*haystack, &mut buf)
@@ -258,7 +258,7 @@ fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_dfa_automaton(&dfa, &find, &*haystack, &mut buf)
@@ -290,7 +290,7 @@ fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
     table.add("create regex cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_dfa_onepass(&re, &mut cache, &find, &*haystack, &mut buf)
@@ -328,7 +328,7 @@ fn run_dfa_regex_dense(args: &Args) -> anyhow::Result<()> {
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_dfa_regex(&re, &find, &*haystack, &mut buf)
@@ -358,7 +358,7 @@ fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_dfa_regex(&re, &find, &*haystack, &mut buf)
@@ -398,7 +398,7 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     table.add("create cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_hybrid_dfa(&dfa, &mut cache, &find, &*haystack, &mut buf)
@@ -432,7 +432,7 @@ fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
     table.add("create regex cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_hybrid_regex(&re, &mut cache, &find, &*haystack, &mut buf)
@@ -483,7 +483,7 @@ fn run_nfa_thompson_backtrack(args: &Args) -> anyhow::Result<()> {
     table.add("cache size", cache.memory_usage());
     table.add("max haystack length", re.max_haystack_len());
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_backtrack(&re, &mut cache, &find, &*haystack, &mut buf)
@@ -515,7 +515,7 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
     table.add("create cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_mmap(|haystack| {
+    input.with_bytes(|haystack| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
             search_pikevm(&vm, &mut cache, &find, &*haystack, &mut buf)
