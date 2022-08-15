@@ -118,7 +118,6 @@ pub struct Input<'h, 'p> {
     haystack: &'h [u8],
     span: Span,
     anchored: Anchored,
-    pattern: Option<PatternID>,
     prefilter: Option<&'p dyn Prefilter>,
     earliest: bool,
     utf8: bool,
@@ -134,7 +133,6 @@ impl<'h, 'p> Input<'h, 'p> {
             haystack: haystack.as_ref(),
             span: Span { start: 0, end: haystack.as_ref().len() },
             anchored: Anchored::No,
-            pattern: None,
             prefilter: None,
             earliest: false,
             utf8: true,
@@ -353,52 +351,6 @@ impl<'h, 'p> Input<'h, 'p> {
     #[inline]
     pub fn anchored(mut self, mode: Anchored) -> Input<'h, 'p> {
         self.set_anchored(mode);
-        self
-    }
-
-    /// Set the pattern to search for, if supported.
-    ///
-    /// When given, an anchored search for only the specified pattern will
-    /// be executed. If not given, then the search will look for any pattern
-    /// that matches. (Whether that search is anchored or not depends on
-    /// the configuration of your regex engine and, ultimately, the pattern
-    /// itself.)
-    ///
-    /// If a pattern ID is given and a regex engine doesn't support searching
-    /// by a specific pattern, then the regex engine must panic.
-    ///
-    /// The default is to look for a match for any pattern in a regex object.
-    ///
-    /// # Example
-    ///
-    /// This example shows how to search for a specific pattern.
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson::pikevm::PikeVM,
-    ///     Anchored, Match, PatternID, Input,
-    /// };
-    ///
-    /// let re = PikeVM::new_many(&[r"[a-z0-9]{6}", r"[a-z][a-z0-9]{5}"])?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    ///
-    /// // A standard search looks for any pattern.
-    /// let input = Input::new("bar foo123");
-    /// re.search(&mut cache, &input, &mut caps);
-    /// assert_eq!(Some(Match::must(0, 4..10)), caps.get_match());
-    ///
-    /// // But we can also check whether a specific pattern
-    /// // matches at a particular position.
-    /// let input = Input::new("bar foo123")
-    ///     .range(4..)
-    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
-    /// re.search(&mut cache, &input, &mut caps);
-    /// assert_eq!(Some(Match::must(1, 4..10)), caps.get_match());
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn pattern(mut self, pattern: Option<PatternID>) -> Input<'h, 'p> {
-        self.set_pattern(pattern);
         self
     }
 
@@ -675,26 +627,6 @@ impl<'h, 'p> Input<'h, 'p> {
         self.anchored = mode;
     }
 
-    /// Set the pattern to search for.
-    ///
-    /// This is like [`Input::pattern`], except it mutates the search
-    /// configuration in place.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::{PatternID, Input};
-    ///
-    /// let mut input = Input::new("foobar");
-    /// assert_eq!(None, input.get_pattern());
-    /// input.set_pattern(Some(PatternID::must(5)));
-    /// assert_eq!(Some(PatternID::must(5)), input.get_pattern());
-    /// ```
-    #[inline]
-    pub fn set_pattern(&mut self, pattern: Option<PatternID>) {
-        self.pattern = pattern;
-    }
-
     #[inline]
     pub fn set_prefilter(&mut self, prefilter: Option<&'p dyn Prefilter>) {
         self.prefilter = prefilter;
@@ -852,24 +784,6 @@ impl<'h, 'p> Input<'h, 'p> {
         self.anchored
     }
 
-    /// Return the pattern ID for this search configuration, if one was set.
-    ///
-    /// When no pattern is set, the regex engine should look for matches for
-    /// any of the patterns that are in the regex object.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::Input;
-    ///
-    /// let input = Input::new("foobar");
-    /// assert_eq!(None, input.get_pattern());
-    /// ```
-    #[inline]
-    pub fn get_pattern(&self) -> Option<PatternID> {
-        self.pattern
-    }
-
     #[inline]
     pub fn get_prefilter(&self) -> Option<&'p dyn Prefilter> {
         self.prefilter
@@ -1002,8 +916,8 @@ impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
         f.debug_struct("Input")
             .field("haystack", &DebugHaystack(self.haystack()))
             .field("span", &self.span)
+            .field("anchored", &self.anchored)
             .field("prefilter", &self.prefilter)
-            .field("pattern", &self.pattern)
             .field("earliest", &self.earliest)
             .field("utf8", &self.utf8)
             .finish()

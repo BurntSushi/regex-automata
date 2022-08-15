@@ -28,9 +28,7 @@ pub(crate) fn find_fwd(
     // beneficial in ad hoc benchmarks. To see these differences, you often
     // need a query with a high match count. In other words, specializing these
     // four routines *tends* to help latency more than throughput.
-    if input.get_prefilter().is_some() && input.get_pattern().is_none() {
-        // Searching with a pattern ID is always anchored, so we should never
-        // use a prefilter.
+    if input.get_prefilter().is_some() && !input.get_anchored().is_anchored() {
         if input.get_earliest() {
             find_fwd_imp(dfa, cache, input, input.get_prefilter(), true)
         } else {
@@ -422,9 +420,7 @@ pub(crate) fn find_overlapping_fwd(
     if input.is_done() {
         return Ok(());
     }
-    // Searching with a pattern ID is always anchored, so we should never use
-    // a prefilter.
-    if input.get_prefilter().is_some() && input.get_pattern().is_none() {
+    if input.get_prefilter().is_some() && !input.get_anchored().is_anchored() {
         let pre = input.get_prefilter();
         find_overlapping_fwd_imp(dfa, cache, input, pre, state)
     } else {

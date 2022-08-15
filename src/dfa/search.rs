@@ -21,7 +21,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
     }
     // Searching with a pattern ID is always anchored, so we should never use
     // a prefilter.
-    if input.get_prefilter().is_some() && input.get_pattern().is_none() {
+    if input.get_prefilter().is_some() && !input.get_anchored().is_anchored() {
         if input.get_earliest() {
             find_fwd_imp(dfa, input, input.get_prefilter(), true)
         } else {
@@ -306,7 +306,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     }
     // Searching with a pattern ID is always anchored, so we should only ever
     // use a prefilter when no pattern ID is given.
-    if input.get_prefilter().is_some() && input.get_pattern().is_none() {
+    if input.get_prefilter().is_some() && !input.get_anchored().is_anchored() {
         find_overlapping_fwd_imp(dfa, input, input.get_prefilter(), state)
     } else {
         find_overlapping_fwd_imp(dfa, input, input.get_prefilter(), state)
