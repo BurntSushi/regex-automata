@@ -208,8 +208,12 @@ impl<'a> Minimizer<'a> {
         // We're already allocating so much that this is probably fine. If this
         // turns out to be costly, then I guess add a `starts_mut` iterator.
         let starts: Vec<_> = self.dfa.starts().collect();
-        for (old_start_id, start_type, pid) in starts {
-            self.dfa.set_start_state(start_type, pid, remap(old_start_id));
+        for (old_start_id, anchored, start_type) in starts {
+            self.dfa.set_start_state(
+                anchored,
+                start_type,
+                remap(old_start_id),
+            );
         }
 
         // Update the match state pattern ID list for multi-regexes. All we

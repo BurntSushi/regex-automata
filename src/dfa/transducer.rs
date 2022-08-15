@@ -1,14 +1,18 @@
 use crate::{
     dfa::{automaton::Automaton, dense, sparse},
-    util::{primitives::StateID, search::Input},
+    util::primitives::StateID,
+    Anchored, Input,
 };
 
+/// Implements `fst::Automaton` for dense DFAs. This implementation requires
+/// that the DFA is compiled with support for unanchored searches, otherwise it
+/// will panic.
 impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {
     type State = StateID;
 
     #[inline]
     fn start(&self) -> StateID {
-        self.start_state_forward(&Input::new(""))
+        self.start_state_forward(&Input::new("").anchored(Anchored::No))
     }
 
     #[inline]
@@ -38,12 +42,15 @@ impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {
     }
 }
 
+/// Implements `fst::Automaton` for sparse DFAs. This implementation requires
+/// that the DFA is compiled with support for unanchored searches, otherwise it
+/// will panic.
 impl<T: AsRef<[u8]>> fst::Automaton for sparse::DFA<T> {
     type State = StateID;
 
     #[inline]
     fn start(&self) -> StateID {
-        self.start_state_forward(&Input::new(""))
+        self.start_state_forward(&Input::new("").anchored(Anchored::No))
     }
 
     #[inline]
@@ -108,10 +115,7 @@ mod tests {
         let set =
             Set::from_iter(&["a", "bar", "baz", "wat", "xba", "xbax", "z"])
                 .unwrap();
-        let dfa = dense::Builder::new()
-            .configure(dense::Config::new().anchored(true))
-            .build("ba.*")
-            .unwrap();
+        let dfa = dense::DFA::new("^ba.*").unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["bar", "baz"]);
     }
@@ -121,7 +125,7 @@ mod tests {
         let set =
             Set::from_iter(&["a", "bar", "baz", "wat", "xba", "xbax", "z"])
                 .unwrap();
-        let dfa = dense::Builder::new().build("^ba.*").unwrap();
+        let dfa = dense::DFA::new("^ba.*").unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["bar", "baz"]);
     }
@@ -131,7 +135,7 @@ mod tests {
         let set =
             Set::from_iter(&["a", "bar", "bax", "wat", "xba", "xbax", "z"])
                 .unwrap();
-        let dfa = dense::Builder::new().build(".*x$").unwrap();
+        let dfa = dense::DFA::new(".*x$").unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["bax", "xbax"]);
     }
@@ -140,7 +144,7 @@ mod tests {
     fn dense_assertions_word() {
         let set =
             Set::from_iter(&["foo", "foox", "xfoo", "zzz foo zzz"]).unwrap();
-        let dfa = dense::Builder::new().build(r"(?-u)\bfoo\b").unwrap();
+        let dfa = dense::DFA::new(r"(?-u)\bfoo\b").unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["foo", "zzz foo zzz"]);
     }
@@ -160,12 +164,7 @@ mod tests {
         let set =
             Set::from_iter(&["a", "bar", "baz", "wat", "xba", "xbax", "z"])
                 .unwrap();
-        let dfa = dense::Builder::new()
-            .configure(dense::Config::new().anchored(true))
-            .build("ba.*")
-            .unwrap()
-            .to_sparse()
-            .unwrap();
+        let dfa = dense::DFA::new("^ba.*").unwrap().to_sparse().unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["bar", "baz"]);
     }
@@ -175,8 +174,7 @@ mod tests {
         let set =
             Set::from_iter(&["a", "bar", "baz", "wat", "xba", "xbax", "z"])
                 .unwrap();
-        let dfa =
-            dense::Builder::new().build("^ba.*").unwrap().to_sparse().unwrap();
+        let dfa = dense::DFA::new("^ba.*").unwrap().to_sparse().unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["bar", "baz"]);
     }
@@ -186,8 +184,7 @@ mod tests {
         let set =
             Set::from_iter(&["a", "bar", "bax", "wat", "xba", "xbax", "z"])
                 .unwrap();
-        let dfa =
-            dense::Builder::new().build(".*x$").unwrap().to_sparse().unwrap();
+        let dfa = dense::DFA::new(".*x$").unwrap().to_sparse().unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["bax", "xbax"]);
     }
@@ -196,11 +193,8 @@ mod tests {
     fn sparse_assertions_word() {
         let set =
             Set::from_iter(&["foo", "foox", "xfoo", "zzz foo zzz"]).unwrap();
-        let dfa = dense::Builder::new()
-            .build(r"(?-u)\bfoo\b")
-            .unwrap()
-            .to_sparse()
-            .unwrap();
+        let dfa =
+            dense::DFA::new(r"(?-u)\bfoo\b").unwrap().to_sparse().unwrap();
         let got = search(&set, &dfa);
         assert_eq!(got, vec!["foo", "zzz foo zzz"]);
     }

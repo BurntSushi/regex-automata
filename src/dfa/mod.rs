@@ -317,9 +317,12 @@ via [`dense::Config::minimize`], but it can increase compilation times
 dramatically.
 */
 
-pub use crate::dfa::automaton::{Automaton, OverlappingState};
 #[cfg(feature = "alloc")]
 pub use crate::dfa::error::Error;
+pub use crate::dfa::{
+    automaton::{Automaton, OverlappingState},
+    start::StartKind,
+};
 
 /// This is an alias for a state ID of zero. It has special significance
 /// because it always corresponds to the first state in a DFA, and the first
@@ -348,5 +351,6 @@ mod minimize;
 mod remapper;
 mod search;
 mod special;
+mod start;
 #[cfg(feature = "transducer")]
 mod transducer;

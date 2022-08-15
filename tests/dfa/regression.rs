@@ -4,7 +4,10 @@
 #[test]
 #[cfg(not(miri))]
 fn minimize_sets_correct_match_states() {
-    use regex_automata::dfa::{dense::DFA, Automaton};
+    use regex_automata::{
+        dfa::{dense::DFA, Automaton, StartKind},
+        Anchored, Input,
+    };
 
     let pattern =
         // This is a subset of the grapheme matching regex. I couldn't seem
@@ -35,8 +38,11 @@ fn minimize_sets_correct_match_states() {
         ";
 
     let dfa = DFA::builder()
-        .configure(DFA::config().anchored(true).minimize(true))
+        .configure(
+            DFA::config().start_kind(StartKind::Anchored).minimize(true),
+        )
         .build(pattern)
         .unwrap();
-    assert_eq!(Ok(None), dfa.try_find_fwd(b"\xE2"));
+    let input = Input::new(b"\xE2").anchored(Anchored::Yes);
+    assert_eq!(Ok(None), dfa.try_search_fwd(&input));
 }

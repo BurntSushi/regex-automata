@@ -1092,7 +1092,7 @@ pub unsafe trait Automaton {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
-    ///     HalfMatch, PatternID, Input,
+    ///     Anchored, HalfMatch, PatternID, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -1110,7 +1110,8 @@ pub unsafe trait Automaton {
     ///
     /// // But if we want to check whether some other pattern matches, then we
     /// // can provide its pattern ID.
-    /// let input = Input::new(haystack).pattern(Some(PatternID::must(1)));
+    /// let input = Input::new(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
     /// let expected = Some(HalfMatch::must(1, 6));
     /// let got = dfa.try_search_fwd(&input)?;
     /// assert_eq!(expected, got);

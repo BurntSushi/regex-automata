@@ -24,11 +24,11 @@ use crate::{
         iter,
         prefilter::{self, Prefilter},
     },
-    Match, MatchError,
+    Anchored, Match, MatchError,
 };
 #[cfg(feature = "alloc")]
 use crate::{
-    dfa::{dense, error::Error, sparse},
+    dfa::{dense, error::Error, sparse, StartKind},
     nfa::thompson,
     util::search::{Input, MatchKind, Span},
 };
@@ -644,10 +644,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         //
         // We also need to be careful to disable 'earliest' for the reverse
         // search, since it could be enabled for the forward search. In the
-        // reverse case, to satisfy "leftmost" criteria, we need to match as
-        // much as we can.
-        let revsearch =
-            input.clone().earliest(false).span(input.start()..end.offset());
+        // reverse case, to satisfy "leftmost" criteria, we need to match
+        // as much as we can. We also need to be careful to make the search
+        // anchored. We don't want the reverse search to report any matches
+        // other than the one beginning at the end of our forward search.
+        let revsearch = input
+            .clone()
+            .span(input.start()..end.offset())
+            .anchored(Anchored::Yes)
+            .earliest(false);
         let start = (&rev)
             .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");
@@ -1036,7 +1041,9 @@ impl Builder {
             .dfa
             .clone()
             .configure(
-                dense::Config::new().anchored(true).match_kind(MatchKind::All),
+                dense::Config::new()
+                    .start_kind(StartKind::Anchored)
+                    .match_kind(MatchKind::All),
             )
             .thompson(thompson::Config::new().reverse(true))
             .build_many(patterns)?;

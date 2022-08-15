@@ -22,7 +22,7 @@ use alloc::{
 use crate::{
     dfa::{
         accel::Accel, determinize, error::Error, minimize::Minimizer,
-        remapper::Remapper, sparse,
+        remapper::Remapper, sparse, start::StartKind,
     },
     nfa::thompson,
     util::{alphabet::ByteSet, search::MatchKind},
@@ -38,7 +38,7 @@ use crate::{
         alphabet::{self, ByteClasses},
         int::Pointer,
         primitives::{PatternID, StateID},
-        search::Input,
+        search::{Anchored, Input},
         start::Start,
         wire::{self, DeserializeError, Endian, SerializeError},
     },
@@ -74,11 +74,10 @@ pub struct Config {
     // 'overwrite' method.
     //
     // For docs on the fields below, see the corresponding method setters.
-    anchored: Option<bool>,
     accelerate: Option<bool>,
     minimize: Option<bool>,
     match_kind: Option<MatchKind>,
-    starts: Option<StartKind>,
+    start_kind: Option<StartKind>,
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
@@ -93,104 +92,6 @@ impl Config {
     /// Return a new default dense DFA compiler configuration.
     pub fn new() -> Config {
         Config::default()
-    }
-
-    /// Set whether matching must be anchored at the beginning of the input.
-    ///
-    /// When enabled, a match must begin at the start of a search. When
-    /// disabled, the DFA will act as if the pattern started with a `(?s:.)*?`,
-    /// which enables a match to appear anywhere.
-    ///
-    /// Note that if you want to run both anchored and unanchored
-    /// searches without building multiple automatons, you can enable the
-    /// [`Config::starts_for_each_pattern`] configuration instead. This will
-    /// permit unanchored any-pattern searches and pattern-specific anchored
-    /// searches. See the documentation for that configuration for an example.
-    ///
-    /// By default this is disabled.
-    ///
-    /// **WARNING:** this is subtly different than using a `^` at the start of
-    /// your regex. A `^` forces a regex to match exclusively at the start of
-    /// input, regardless of where you begin your search. In contrast, enabling
-    /// this option will allow your regex to match anywhere in your input,
-    /// but the match must start at the beginning of a search. (Most of the
-    /// higher level convenience search routines make "start of input" and
-    /// "start of search" equivalent, but some routines allow treating these as
-    /// orthogonal.)
-    ///
-    /// For example, consider the haystack `aba` and the following searches:
-    ///
-    /// 1. The regex `^a` is compiled with `anchored=false` and searches
-    ///    `aba` starting at position `2`. Since `^` requires the match to
-    ///    start at the beginning of the input and `2 > 0`, no match is found.
-    /// 2. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `2`. This reports a match at `[2, 3]` since
-    ///    the match starts where the search started. Since there is no `^`,
-    ///    there is no requirement for the match to start at the beginning of
-    ///    the input.
-    /// 3. The regex `a` is compiled with `anchored=true` and searches `aba`
-    ///    starting at position `1`. Since `b` corresponds to position `1` and
-    ///    since the regex is anchored, it finds no match.
-    /// 4. The regex `a` is compiled with `anchored=false` and searches `aba`
-    ///    startting at position `1`. Since the regex is neither anchored nor
-    ///    starts with `^`, the regex is compiled with an implicit `(?s:.)*?`
-    ///    prefix that permits it to match anywhere. Thus, it reports a match
-    ///    at `[2, 3]`.
-    ///
-    /// # Example
-    ///
-    /// This demonstrates the differences between an anchored search and
-    /// a pattern that begins with `^` (as described in the above warning
-    /// message).
-    ///
-    /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
-    ///
-    /// let haystack = "aba".as_bytes();
-    ///
-    /// let dfa = dense::Builder::new()
-    ///     .configure(dense::Config::new().anchored(false)) // default
-    ///     .build(r"^a")?;
-    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(2..3))?;
-    /// // No match is found because 2 is not the beginning of the haystack,
-    /// // which is what ^ requires.
-    /// let expected = None;
-    /// assert_eq!(expected, got);
-    ///
-    /// let dfa = dense::Builder::new()
-    ///     .configure(dense::Config::new().anchored(true))
-    ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(2..3))?;
-    /// // An anchored search can still match anywhere in the haystack, it just
-    /// // must begin at the start of the search which is '2' in this case.
-    /// let expected = Some(HalfMatch::must(0, 3));
-    /// assert_eq!(expected, got);
-    ///
-    /// let dfa = dense::Builder::new()
-    ///     .configure(dense::Config::new().anchored(true))
-    ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(1..3))?;
-    /// // No match is found since we start searching at offset 1 which
-    /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
-    /// // is found.
-    /// let expected = None;
-    /// assert_eq!(expected, got);
-    ///
-    /// let dfa = dense::Builder::new()
-    ///     .configure(dense::Config::new().anchored(false)) // default
-    ///     .build(r"a")?;
-    /// let got = dfa.try_search_fwd(&Input::new(haystack).span(1..3))?;
-    /// // Since anchored=false, an implicit '(?s:.)*?' prefix was added to the
-    /// // pattern. Even though the search starts at 'b', the 'match anything'
-    /// // prefix allows the search to match 'a'.
-    /// let expected = Some(HalfMatch::must(0, 3));
-    /// assert_eq!(expected, got);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn anchored(mut self, yes: bool) -> Config {
-        self.anchored = Some(yes);
-        self
     }
 
     /// Enable state acceleration.
@@ -327,8 +228,8 @@ impl Config {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     HalfMatch, Input, MatchKind,
+    ///     dfa::{dense, Automaton, StartKind},
+    ///     Anchored, HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let haystack = "123foobar456".as_bytes();
@@ -337,7 +238,12 @@ impl Config {
     /// let dfa_fwd = dense::DFA::new(pattern)?;
     /// let dfa_rev = dense::Builder::new()
     ///     .configure(dense::Config::new()
-    ///         .anchored(true)
+    ///         // This isn't strictly necessary since both anchored and
+    ///         // unanchored searches are supported by default. But since
+    ///         // finding the start-of-match only requires anchored searches,
+    ///         // we can get rid of the unanchored configuration and possibly
+    ///         // slim down our DFA considerably.
+    ///         .start_kind(StartKind::Anchored)
     ///         .match_kind(MatchKind::All)
     ///     )
     ///     .build(pattern)?;
@@ -351,9 +257,10 @@ impl Config {
     /// // starting position of a match of some other pattern.) That in turn
     /// // requires building the reverse automaton with starts_for_each_pattern
     /// // enabled. Indeed, this is what Regex does internally.
-    /// let got_rev = dfa_rev.try_search_rev(
-    ///     &Input::new(haystack).range(..got_fwd.offset()),
-    /// )?.unwrap();
+    /// let input = Input::new(haystack)
+    ///     .range(..got_fwd.offset())
+    ///     .anchored(Anchored::Yes);
+    /// let got_rev = dfa_rev.try_search_rev(&input)?.unwrap();
     /// assert_eq!(expected_fwd, got_fwd);
     /// assert_eq!(expected_rev, got_rev);
     ///
@@ -364,8 +271,42 @@ impl Config {
         self
     }
 
-    pub fn starts(mut self, kind: StartKind) -> Config {
-        self.starts = Some(kind);
+    /// The type of starting state configuration to use for a DFA.
+    ///
+    /// By default, the starting state configuration is [`StartKind::Both`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{dense::DFA, Automaton, StartKind},
+    ///     Anchored, HalfMatch, Input,
+    /// };
+    ///
+    /// let haystack = "quux foo123";
+    /// let expected = HalfMatch::must(0, 11);
+    ///
+    /// // By default, DFAs support both anchored and unanchored searches.
+    /// let dfa = DFA::new(r"[0-9]+")?;
+    /// let input = Input::new(haystack);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&input)?);
+    ///
+    /// // But if we only need anchored searches, then we can build a DFA
+    /// // that only supports anchored searches. This leads to a smaller DFA
+    /// // (potentially significantly smaller in some cases), but a DFA that
+    /// // will panic if you try to use it with an unanchored search.
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().start_kind(StartKind::Anchored))
+    ///     .build(r"[0-9]+")?;
+    /// let input = Input::new(haystack)
+    ///     .range(8..)
+    ///     .anchored(Anchored::Yes);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&input)?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn start_kind(mut self, kind: StartKind) -> Config {
+        self.start_kind = Some(kind);
         self
     }
 
@@ -409,8 +350,8 @@ impl Config {
     ///
     /// ```
     /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     HalfMatch, PatternID, Input,
+    ///     dfa::{dense, Automaton},
+    ///     Anchored, HalfMatch, PatternID, Input,
     /// };
     ///
     /// let dfa = dense::Builder::new()
@@ -422,22 +363,21 @@ impl Config {
     /// // pattern ID. Since the DFA was built as an unanchored machine, it
     /// // use its default unanchored starting state.
     /// let expected = HalfMatch::must(0, 11);
-    /// assert_eq!(Some(expected), dfa.try_search_fwd(
-    ///     &Input::new(haystack),
-    /// )?);
+    /// let input = Input::new(haystack);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(&input)?);
     /// // But now if we explicitly specify the pattern to search ('0' being
     /// // the only pattern in the DFA), then it will use the starting state
     /// // for that specific pattern which is always anchored. Since the
     /// // pattern doesn't have a match at the beginning of the haystack, we
     /// // find nothing.
-    /// assert_eq!(None, dfa.try_search_fwd(
-    ///     &Input::new(haystack).pattern(Some(PatternID::must(0))),
-    /// )?);
+    /// let input = Input::new(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(0)));
+    /// assert_eq!(None, dfa.try_search_fwd(&input)?);
     /// // And finally, an anchored search is not the same as putting a '^' at
     /// // beginning of the pattern. An anchored search can only match at the
     /// // beginning of the *search*, which we can change:
     /// let input = Input::new(haystack)
-    ///     .pattern(Some(PatternID::must(0)))
+    ///     .anchored(Anchored::Pattern(PatternID::must(0)))
     ///     .range(5..);
     /// assert_eq!(Some(expected), dfa.try_search_fwd(&input)?);
     ///
@@ -733,16 +673,16 @@ impl Config {
     /// ```
     /// use regex_automata::dfa::{dense, Automaton};
     ///
-    /// // 3MB isn't enough!
+    /// // 6MB isn't enough!
     /// dense::Builder::new()
-    ///     .configure(dense::Config::new().dfa_size_limit(Some(3_000_000)))
+    ///     .configure(dense::Config::new().dfa_size_limit(Some(6_000_000)))
     ///     .build(r"\w{20}")
     ///     .unwrap_err();
     ///
-    /// // ... but 4MB probably is!
+    /// // ... but 7MB probably is!
     /// // (Note that DFA sizes aren't necessarily stable between releases.)
     /// let dfa = dense::Builder::new()
-    ///     .configure(dense::Config::new().dfa_size_limit(Some(4_000_000)))
+    ///     .configure(dense::Config::new().dfa_size_limit(Some(7_000_000)))
     ///     .build(r"\w{20}")?;
     /// let haystack = "A".repeat(20).into_bytes();
     /// assert!(dfa.try_find_fwd(&haystack)?.is_some());
@@ -750,9 +690,42 @@ impl Config {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
-    /// While one needs a little more than 3MB to represent `\w{20}`, it
-    /// turns out that you only need a little more than 4KB to represent
+    /// While one needs a little more than 6MB to represent `\w{20}`, it
+    /// turns out that you only need a little more than 6KB to represent
     /// `(?-u:\w{20})`. So only use Unicode if you need it!
+    ///
+    /// As with [`Config::determinize_size_limit`], the size of a DFA is
+    /// influenced by other factors, such as what start state configurations
+    /// to support. For example, if you only need unanchored searches and not
+    /// anchored searches, then configuring the DFA to only support unanchored
+    /// searches can reduce its size. By default, DFAs support both unanchored
+    /// and anchored searches.
+    ///
+    /// ```
+    /// use regex_automata::dfa::{dense, Automaton, StartKind};
+    ///
+    /// // 3MB isn't enough!
+    /// dense::Builder::new()
+    ///     .configure(dense::Config::new()
+    ///         .dfa_size_limit(Some(3_000_000))
+    ///         .start_kind(StartKind::Unanchored)
+    ///     )
+    ///     .build(r"\w{20}")
+    ///     .unwrap_err();
+    ///
+    /// // ... but 4MB probably is!
+    /// // (Note that DFA sizes aren't necessarily stable between releases.)
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new()
+    ///         .dfa_size_limit(Some(4_000_000))
+    ///         .start_kind(StartKind::Unanchored)
+    ///     )
+    ///     .build(r"\w{20}")?;
+    /// let haystack = "A".repeat(20).into_bytes();
+    /// assert!(dfa.try_find_fwd(&haystack)?.is_some());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn dfa_size_limit(mut self, bytes: Option<usize>) -> Config {
         self.dfa_size_limit = Some(bytes);
         self
@@ -786,20 +759,20 @@ impl Config {
     /// ```
     /// use regex_automata::dfa::{dense, Automaton};
     ///
-    /// // 300KB isn't enough!
+    /// // 600KB isn't enough!
     /// dense::Builder::new()
     ///     .configure(dense::Config::new()
-    ///         .determinize_size_limit(Some(300_000))
+    ///         .determinize_size_limit(Some(600_000))
     ///     )
     ///     .build(r"\w{20}")
     ///     .unwrap_err();
     ///
-    /// // ... but 400KB probably is!
+    /// // ... but 700KB probably is!
     /// // (Note that auxiliary storage sizes aren't necessarily stable between
     /// // releases.)
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new()
-    ///         .determinize_size_limit(Some(400_000))
+    ///         .determinize_size_limit(Some(700_000))
     ///     )
     ///     .build(r"\w{20}")?;
     /// let haystack = "A".repeat(20).into_bytes();
@@ -807,14 +780,47 @@ impl Config {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    ///
+    /// Note that some parts of the configuration on a DFA can have a
+    /// big impact on how big the DFA is, and thus, how much memory is
+    /// used. For example, the default setting for [`Config::starts`] is
+    /// [`StartKind::Both`]. But if you only need an anchored search, for
+    /// example, then it can be much cheaper to build a DFA that only supports
+    /// anchored searches. (Running an unanchored search with it would panic.)
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{dense, Automaton, StartKind},
+    ///     Anchored, Input,
+    /// };
+    ///
+    /// // 200KB isn't enough!
+    /// dense::Builder::new()
+    ///     .configure(dense::Config::new()
+    ///         .determinize_size_limit(Some(200_000))
+    ///         .start_kind(StartKind::Anchored)
+    ///     )
+    ///     .build(r"\w{20}")
+    ///     .unwrap_err();
+    ///
+    /// // ... but 300KB probably is!
+    /// // (Note that auxiliary storage sizes aren't necessarily stable between
+    /// // releases.)
+    /// let dfa = dense::Builder::new()
+    ///     .configure(dense::Config::new()
+    ///         .determinize_size_limit(Some(300_000))
+    ///         .start_kind(StartKind::Anchored)
+    ///     )
+    ///     .build(r"\w{20}")?;
+    /// let haystack = "A".repeat(20).into_bytes();
+    /// let input = Input::new(&haystack).anchored(Anchored::Yes);
+    /// assert!(dfa.try_search_fwd(&input)?.is_some());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn determinize_size_limit(mut self, bytes: Option<usize>) -> Config {
         self.determinize_size_limit = Some(bytes);
         self
-    }
-
-    /// Returns whether this configuration has enabled anchored searches.
-    pub fn get_anchored(&self) -> bool {
-        self.anchored.unwrap_or(false)
     }
 
     /// Returns whether this configuration has enabled simple state
@@ -836,7 +842,7 @@ impl Config {
 
     /// Returns the starting state configuration for a DFA.
     pub fn get_starts(&self) -> StartKind {
-        self.starts.unwrap_or(StartKind::Both)
+        self.start_kind.unwrap_or(StartKind::Both)
     }
 
     /// Returns whether this configuration has enabled anchored starting states
@@ -906,11 +912,10 @@ impl Config {
     /// remains not set.
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
-            anchored: o.anchored.or(self.anchored),
             accelerate: o.accelerate.or(self.accelerate),
             minimize: o.minimize.or(self.minimize),
             match_kind: o.match_kind.or(self.match_kind),
-            starts: o.starts.or(self.starts),
+            start_kind: o.start_kind.or(self.start_kind),
             starts_for_each_pattern: o
                 .starts_for_each_pattern
                 .or(self.starts_for_each_pattern),
@@ -927,77 +932,6 @@ impl Config {
                 .determinize_size_limit
                 .or(self.determinize_size_limit),
         }
-    }
-}
-
-/// The kind of anchored starting configurations to support in a DFA.
-///
-/// Fully compiled DFAs need to be explicitly configured as to which anchored
-/// starting configurations to support. The reason for not just supporting
-/// everything unconditionally is that it can use more resources (such as
-/// memory and build time). The downside of this is that if you try to execute
-/// a search using an [`Anchored`] mode that is not supported by the DFA, then
-/// the search will panic.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StartKind {
-    /// Support both anchored and unanchored searches.
-    Both,
-    /// Support only unanchored searches. Requesting an anchored search will
-    /// panic.
-    ///
-    /// Note that even if an unanchored search is requested, the pattern itself
-    /// may still be anchored. For example, `^abc` will only match `abc` at the
-    /// start of a haystack. This will remain true, even if the regex engine
-    /// only supported unanchored searches.
-    Unanchored,
-    /// Support only anchored searches. Requesting an unanchored search will
-    /// panic.
-    Anchored,
-}
-
-// BREADCRUMBS: Start threading 'StartKind' into the DFA below. We'll also need
-// to add it to the sparse DFA, so maybe this actually be moved to the dfa
-// module instead of living in the dense module. In particular, the sparse DFA
-// should provide an accessor method giving the StartKind configuration for
-// the DFA. Thus it's not just an implementation detail and part of the sparse
-// DFA's public API. Therefore, it really should live in the dfa module.
-//
-// Also rename 'has_starts_for_each_pattern' to just 'starts_for_each_pattern'.
-// And then add 'starts() -> StartKind' to each of the dense and sparse DFAs.
-
-impl StartKind {
-    fn from_bytes(
-        mut slice: &[u8],
-    ) -> Result<(StartKind, usize), DeserializeError> {
-        wire::check_slice_len(slice, size_of::<u32>(), "start kind bytes")?;
-        let (n, nr) = wire::try_read_u32(slice, "start kind integer")?;
-        match n {
-            0 => Ok((StartKind::Both, nr)),
-            1 => Ok((StartKind::Unanchored, nr)),
-            2 => Ok((StartKind::Anchored, nr)),
-            _ => Err(DeserializeError::generic("unrecognized start kind")),
-        }
-    }
-
-    fn write_to<E: Endian>(
-        &self,
-        dst: &mut [u8],
-    ) -> Result<usize, SerializeError> {
-        let nwrite = self.write_to_len();
-        if dst.len() < nwrite {
-            return Err(SerializeError::buffer_too_small("start kind"));
-        }
-        let n = match *self {
-            StartKind::Both => 0,
-            StartKind::Unanchored => 1,
-            StartKind::Anchored => 2,
-        };
-        E::write_u32(n, dst);
-        Ok(nwrite)
-    }
-
-    fn write_to_len(&self) -> usize {
-        size_of::<u32>()
     }
 }
 
@@ -1168,10 +1102,10 @@ impl Builder {
         let mut dfa = DFA::initial(
             classes,
             nfa.pattern_len(),
+            self.config.get_starts(),
             self.config.get_starts_for_each_pattern(),
         )?;
         determinize::Config::new()
-            .anchored(self.config.get_anchored())
             .match_kind(self.config.get_match_kind())
             .quit(quit)
             .dfa_size_limit(self.config.get_dfa_size_limit())
@@ -1426,13 +1360,14 @@ impl OwnedDFA {
     fn initial(
         classes: ByteClasses,
         pattern_len: usize,
+        starts: StartKind,
         starts_for_each_pattern: bool,
     ) -> Result<OwnedDFA, Error> {
         let start_pattern_len =
             if starts_for_each_pattern { pattern_len } else { 0 };
         Ok(DFA {
             tt: TransitionTable::minimal(classes),
-            st: StartTable::dead(start_pattern_len)?,
+            st: StartTable::dead(starts, start_pattern_len)?,
             ms: MatchStates::empty(pattern_len),
             special: Special::new(),
             accels: Accels::empty(),
@@ -1487,6 +1422,17 @@ impl<T: AsRef<[u32]>> DFA<T> {
         }
     }
 
+    /// Returns the starting state configuration for this DFA.
+    ///
+    /// The default is [`StartKind::Both`], which means the DFA supports both
+    /// unanchored and anchored searches. However, this can generally lead to
+    /// bigger DFAs. Therefore, a DFA might be compiled with support for just
+    /// unanchored or anchored searches. In that case, running a search with
+    /// an unsupported configuration will panic.
+    pub fn start_kind(&self) -> StartKind {
+        self.st.kind
+    }
+
     /// Returns true only if this DFA has starting states for each pattern.
     ///
     /// When a DFA has starting states for each pattern, then a search with the
@@ -1496,7 +1442,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// Otherwise, calling `try_search_fwd` will panic.
     ///
     /// Note that if the DFA has no patterns, this always returns false.
-    pub fn has_starts_for_each_pattern(&self) -> bool {
+    pub fn starts_for_each_pattern(&self) -> bool {
         self.st.pattern_len > 0
     }
 
@@ -1563,6 +1509,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
         self.tt.stride()
     }
 
+    /*
     /// Returns the "universal" start state for this DFA.
     ///
     /// A universal start state occurs only when all of the starting states
@@ -1573,7 +1520,10 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// Using this as a starting state for a DFA without a universal starting
     /// state has unspecified behavior. This condition is not checked, so the
     /// caller must guarantee it themselves.
-    pub(crate) fn universal_start_state(&self) -> StateID {
+    pub(crate) fn universal_start_state(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> StateID {
         // We choose 'NonWordByte' for no particular reason, other than
         // the fact that this is the 'main' starting configuration used in
         // determinization. But in essence, it doesn't really matter.
@@ -1581,8 +1531,9 @@ impl<T: AsRef<[u32]>> DFA<T> {
         // Also, we might consider exposing this routine, but it seems
         // a little tricky to use correctly. Maybe if we also expose a
         // 'has_universal_start_state' method?
-        self.st.start(Start::NonWordByte, None)
+        self.st.start(input, Start::NonWordByte)
     }
+    */
 
     /// Returns the memory usage, in bytes, of this DFA.
     ///
@@ -2321,12 +2272,12 @@ impl OwnedDFA {
     /// Add a start state of this DFA.
     pub(crate) fn set_start_state(
         &mut self,
-        index: Start,
-        pattern_id: Option<PatternID>,
+        anchored: Anchored,
+        start: Start,
         id: StateID,
     ) {
         assert!(self.tt.is_valid(id), "invalid start state");
-        self.st.set_start(index, pattern_id, id);
+        self.st.set_start(anchored, start, id);
     }
 
     /// Set the given transition to this DFA. Both the `from` and `to` states
@@ -2645,26 +2596,19 @@ impl OwnedDFA {
             return Ok(());
         }
 
-        // Collect all our start states into a convenient set and confirm there
-        // is no overlap with match states. In the classicl DFA construction,
-        // start states can be match states. But because of look-around, we
-        // delay all matches by a byte, which prevents start states from being
-        // match states.
+        // Collect all our non-DEAD start states into a convenient set and
+        // confirm there is no overlap with match states. In the classicl DFA
+        // construction, start states can be match states. But because of
+        // look-around, we delay all matches by a byte, which prevents start
+        // states from being match states.
         let mut is_start: BTreeSet<StateID> = BTreeSet::new();
         for (start_id, _, _) in self.starts() {
-            // While there's nothing theoretically wrong with setting a start
-            // state to a dead ID (indeed, it could be an optimization!), the
-            // shuffling code below assumes that start states aren't dead. If
-            // this assumption is violated, the dead state could be shuffled
-            // to a new location, which must never happen. So if we do want
-            // to allow start states to be dead, then this assert should be
-            // removed and the code below fixed.
-            //
-            // N.B. Minimization can cause start states to be dead, but that
-            // happens after states are shuffled, so it's OK. Also, start
-            // states are dead for the DFA that never matches anything, but
-            // in that case, there are no states to shuffle.
-            assert_ne!(start_id, DEAD, "start state cannot be dead");
+            // If a starting configuration points to a DEAD state, then we
+            // don't want to shuffle it. The DEAD state is always the first
+            // state with ID=0. So we can just leave it be.
+            if start_id == DEAD {
+                continue;
+            }
             assert!(
                 !matches.contains_key(&start_id),
                 "{:?} is both a start and a match state, which is not allowed",
@@ -2885,16 +2829,17 @@ impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
             write!(f, "\n")?;
         }
         writeln!(f, "")?;
-        for (i, (start_id, sty, pid)) in self.starts().enumerate() {
+        for (i, (start_id, anchored, sty)) in self.starts().enumerate() {
             let id = if f.alternate() {
                 start_id.as_usize()
             } else {
                 self.to_index(start_id)
             };
             if i % self.st.stride == 0 {
-                match pid {
-                    None => writeln!(f, "START-GROUP(ALL)")?,
-                    Some(pid) => {
+                match anchored {
+                    Anchored::No => writeln!(f, "START-GROUP(unanchored)")?,
+                    Anchored::Yes => writeln!(f, "START-GROUP(anchored)")?,
+                    Anchored::Pattern(pid) => {
                         writeln!(f, "START_GROUP(pattern: {:?})", pid)?
                     }
                 }
@@ -3014,14 +2959,14 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
 
     #[inline]
     fn start_state_forward(&self, input: &Input<'_, '_>) -> StateID {
-        let index = Start::from_position_fwd(&input);
-        self.st.start(index, input.get_pattern())
+        let start = Start::from_position_fwd(&input);
+        self.st.start(input, start)
     }
 
     #[inline]
     fn start_state_reverse(&self, input: &Input<'_, '_>) -> StateID {
-        let index = Start::from_position_rev(&input);
-        self.st.start(index, input.get_pattern())
+        let start = Start::from_position_rev(&input);
+        self.st.start(input, start)
     }
 
     #[inline(always)]
@@ -3604,12 +3549,20 @@ pub(crate) struct StartTable<T> {
     ///
     /// In practice, T is either `Vec<u32>` or `&[u32]`.
     ///
-    /// The first `stride` (currently always 4) entries always correspond to
-    /// the start states for the entire DFA. After that, there are
-    /// `stride * patterns` state IDs, where `patterns` may be zero in the
-    /// case of a DFA with no patterns or in the case where the DFA was built
-    /// without enabling starting states for each pattern.
+    /// The first `2 * stride` (currently always 8) entries always correspond
+    /// to the starts states for the entire DFA, with the first 4 entries being
+    /// for unanchored searches and the second 4 entries being for anchored
+    /// searches. To keep things simple, we always use 8 entries even if the
+    /// `StartKind` is not both.
+    ///
+    /// After that, there are `stride * patterns` state IDs, where `patterns`
+    /// may be zero in the case of a DFA with no patterns or in the case where
+    /// the DFA was built without enabling starting states for each pattern.
     table: T,
+    /// The starting state configuration supported. When 'both', both
+    /// unanchored and anchored searches work. When 'unanchored', anchored
+    /// searches panic. When 'anchored', unanchored searches panic.
+    kind: StartKind,
     /// The number of starting state IDs per pattern.
     stride: usize,
     /// The total number of patterns for which starting states are encoded.
@@ -3632,14 +3585,19 @@ impl StartTable<Vec<u32>> {
     /// returns an error. In practice, this is unlikely to be able to occur,
     /// since it's likely that allocation would have failed long before it got
     /// to this point.
-    fn dead(pattern_len: usize) -> Result<StartTable<Vec<u32>>, Error> {
+    fn dead(
+        kind: StartKind,
+        pattern_len: usize,
+    ) -> Result<StartTable<Vec<u32>>, Error> {
         assert!(pattern_len <= PatternID::LIMIT);
         let stride = Start::len();
+        // OK because 2*4 is never going to overflow anything.
+        let starts_len = stride.checked_mul(2).unwrap();
         let pattern_starts_len = match stride.checked_mul(pattern_len) {
             Some(x) => x,
             None => return Err(Error::too_many_start_states()),
         };
-        let table_len = match stride.checked_add(pattern_starts_len) {
+        let table_len = match starts_len.checked_add(pattern_starts_len) {
             Some(x) => x,
             None => return Err(Error::too_many_start_states()),
         };
@@ -3647,7 +3605,7 @@ impl StartTable<Vec<u32>> {
             return Err(Error::too_many_start_states());
         }
         let table = vec![DEAD.as_u32(); table_len];
-        Ok(StartTable { table, stride, pattern_len })
+        Ok(StartTable { table, kind, stride, pattern_len })
     }
 }
 
@@ -3681,6 +3639,9 @@ impl<'a> StartTable<&'a [u32]> {
     ) -> Result<(StartTable<&'a [u32]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr().as_usize();
 
+        let (kind, nr) = StartKind::from_bytes(slice)?;
+        slice = &slice[nr..];
+
         let (stride, nr) =
             wire::try_read_u32_as_usize(slice, "start table stride")?;
         slice = &slice[nr..];
@@ -3701,11 +3662,12 @@ impl<'a> StartTable<&'a [u32]> {
         }
         let pattern_table_size =
             wire::mul(stride, pattern_len, "invalid pattern length")?;
-        // Our start states always start with a single stride of start states
-        // for the entire automaton which permit it to match any pattern. What
+        // Our start states always start with a two stride of start states for
+        // the entire automaton. The first stride is for unanchored starting
+        // states and the second stride is for anchored starting states. What
         // follows it are an optional set of start states for each pattern.
         let start_state_len = wire::add(
-            stride,
+            wire::mul(2, stride, "start state stride too big")?,
             pattern_table_size,
             "invalid 'any' pattern starts size",
         )?;
@@ -3732,7 +3694,7 @@ impl<'a> StartTable<&'a [u32]> {
                 start_state_len,
             )
         };
-        let st = StartTable { table, stride, pattern_len };
+        let st = StartTable { table, kind, stride, pattern_len };
         Ok((st, slice.as_ptr().as_usize() - slice_start))
     }
 }
@@ -3753,6 +3715,9 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         }
         dst = &mut dst[..nwrite];
 
+        // write start kind
+        let nw = self.kind.write_to::<E>(dst)?;
+        dst = &mut dst[nw..];
         // write stride
         // Unwrap is OK since the stride is always 4 (currently).
         E::write_u32(u32::try_from(self.stride).unwrap(), dst);
@@ -3772,7 +3737,8 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     /// Returns the number of bytes the serialized form of this start ID table
     /// will use.
     fn write_to_len(&self) -> usize {
-        size_of::<u32>()   // stride
+        self.kind.write_to_len()
+        + size_of::<u32>() // stride
         + size_of::<u32>() // # patterns
         + (self.table().len() * StateID::SIZE)
     }
@@ -3799,6 +3765,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     fn as_ref(&self) -> StartTable<&'_ [u32]> {
         StartTable {
             table: self.table.as_ref(),
+            kind: self.kind,
             stride: self.stride,
             pattern_len: self.pattern_len,
         }
@@ -3809,6 +3776,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     fn to_owned(&self) -> StartTable<Vec<u32>> {
         StartTable {
             table: self.table.as_ref().to_vec(),
+            kind: self.kind,
             stride: self.stride,
             pattern_len: self.pattern_len,
         }
@@ -3820,18 +3788,31 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     /// starting state for the given pattern is returned. If this start table
     /// does not have individual starting states for each pattern, then this
     /// panics.
-    fn start(&self, index: Start, pattern_id: Option<PatternID>) -> StateID {
-        let start_index = index.as_usize();
-        let index = match pattern_id {
-            None => start_index,
-            Some(pid) => {
+    fn start(&self, input: &Input<'_, '_>, start: Start) -> StateID {
+        let start_index = start.as_usize();
+        let index = match input.get_anchored() {
+            Anchored::No => {
+                assert!(
+                    self.kind.has_unanchored(),
+                    "DFA built without unanchored search support",
+                );
+                start_index
+            }
+            Anchored::Yes => {
+                assert!(
+                    self.kind.has_anchored(),
+                    "DFA built without anchored search support",
+                );
+                self.stride + start_index
+            }
+            Anchored::Pattern(pid) => {
                 let pid = pid.as_usize();
                 assert!(
                     pid < self.pattern_len,
                     "invalid pattern ID {:?}",
                     pid
                 );
-                self.stride + (self.stride * pid) + start_index
+                (2 * self.stride) + (self.stride * pid) + start_index
             }
         };
         self.table()[index]
@@ -3871,23 +3852,26 @@ impl<T: AsMut<[u32]>> StartTable<T> {
     /// Set the start state for the given index and pattern.
     ///
     /// If the pattern ID or state ID are not valid, then this will panic.
-    fn set_start(
-        &mut self,
-        index: Start,
-        pattern_id: Option<PatternID>,
-        id: StateID,
-    ) {
-        let start_index = index.as_usize();
-        let index = match pattern_id {
-            None => start_index,
-            Some(pid) => self
-                .stride
-                .checked_mul(pid.as_usize())
-                .unwrap()
-                .checked_add(self.stride)
-                .unwrap()
-                .checked_add(start_index)
-                .unwrap(),
+    fn set_start(&mut self, anchored: Anchored, start: Start, id: StateID) {
+        let start_index = start.as_usize();
+        let index = match anchored {
+            Anchored::No => start_index,
+            Anchored::Yes => self.stride + start_index,
+            Anchored::Pattern(pid) => {
+                let pid = pid.as_usize();
+                assert!(
+                    pid < self.pattern_len,
+                    "invalid pattern ID {:?}",
+                    pid
+                );
+                self.stride
+                    .checked_mul(pid)
+                    .unwrap()
+                    .checked_add(self.stride.checked_mul(2).unwrap())
+                    .unwrap()
+                    .checked_add(start_index)
+                    .unwrap()
+            }
         };
         self.table_mut()[index] = id;
     }
@@ -3908,20 +3892,20 @@ impl<T: AsMut<[u32]>> StartTable<T> {
 
 /// An iterator over start state IDs.
 ///
-/// This iterator yields a triple of start state ID, the start state type
-/// and the pattern ID (if any). The pattern ID is None for start states
-/// corresponding to the entire DFA and non-None for start states corresponding
-/// to a specific pattern. The latter only occurs when the DFA is compiled with
-/// start states for each pattern.
+/// This iterator yields a triple of start state ID, the anchored mode and the
+/// start state type. If a pattern ID is relevant, then the anchored mode will
+/// contain it. Start states with an anchored mode containing a pattern ID will
+/// only occur when the DFA was compiled with start states for each pattern
+/// (which is disabled by default).
 pub(crate) struct StartStateIter<'a> {
     st: StartTable<&'a [u32]>,
     i: usize,
 }
 
 impl<'a> Iterator for StartStateIter<'a> {
-    type Item = (StateID, Start, Option<PatternID>);
+    type Item = (StateID, Anchored, Start);
 
-    fn next(&mut self) -> Option<(StateID, Start, Option<PatternID>)> {
+    fn next(&mut self) -> Option<(StateID, Anchored, Start)> {
         let i = self.i;
         let table = self.st.table();
         if i >= table.len() {
@@ -3932,14 +3916,15 @@ impl<'a> Iterator for StartStateIter<'a> {
         // This unwrap is okay since the stride of the starting state table
         // must always match the number of start state types.
         let start_type = Start::from_usize(i % self.st.stride).unwrap();
-        let pid = if i < self.st.stride {
-            None
+        let anchored = if i < self.st.stride {
+            Anchored::No
+        } else if i < (2 * self.st.stride) {
+            Anchored::Yes
         } else {
-            Some(
-                PatternID::new((i - self.st.stride) / self.st.stride).unwrap(),
-            )
+            let pid = (i - (2 * self.st.stride)) / self.st.stride;
+            Anchored::Pattern(PatternID::new(pid).unwrap())
         };
-        Some((table[i], start_type, pid))
+        Some((table[i], anchored, start_type))
     }
 }
 

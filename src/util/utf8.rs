@@ -180,26 +180,28 @@ pub(crate) fn is_word_char_fwd(bytes: &[u8], mut at: usize) -> bool {
     use core::{ptr, sync::atomic::AtomicPtr};
 
     use crate::{
-        dfa::{
-            dense::{self, DFA},
-            Automaton,
-        },
-        util::lazy,
+        dfa::{dense::DFA, Automaton, StartKind},
+        util::{lazy, primitives::StateID},
+        Anchored, Input,
     };
 
-    static WORD: AtomicPtr<DFA<Vec<u32>>> = AtomicPtr::new(ptr::null_mut());
+    static WORD: AtomicPtr<(DFA<Vec<u32>>, StateID)> =
+        AtomicPtr::new(ptr::null_mut());
 
-    let dfa = lazy::get_or_init(&WORD, || {
+    let (dfa, start_id) = lazy::get_or_init(&WORD, || {
         // TODO: Should we use a lazy DFA here instead? It does complicate
         // things somewhat, since we then need a mutable cache, which probably
         // means a thread local.
-        dense::Builder::new()
-            .configure(dense::Config::new().anchored(true))
+        let dfa = DFA::builder()
+            .configure(DFA::config().start_kind(StartKind::Anchored))
             .build(r"\w")
-            .unwrap()
+            .unwrap();
+        // This is OK since '\w' contains no look-around.
+        let input = Input::new("").anchored(Anchored::Yes);
+        let start_id = dfa.start_state_forward(&input);
+        (dfa, start_id)
     });
-    // This is OK since '\w' contains no look-around.
-    let mut sid = dfa.universal_start_state();
+    let mut sid = *start_id;
     while at < bytes.len() {
         let byte = bytes[at];
         sid = dfa.next_state(sid, byte);
@@ -221,26 +223,27 @@ pub(crate) fn is_word_char_rev(bytes: &[u8], mut at: usize) -> bool {
     use core::{ptr, sync::atomic::AtomicPtr};
 
     use crate::{
-        dfa::{
-            dense::{self, DFA},
-            Automaton,
-        },
+        dfa::{dense::DFA, Automaton, StartKind},
         nfa::thompson::NFA,
-        util::lazy,
+        util::{lazy, primitives::StateID},
+        Anchored, Input,
     };
 
-    static WORD: AtomicPtr<DFA<Vec<u32>>> = AtomicPtr::new(ptr::null_mut());
+    static WORD: AtomicPtr<(DFA<Vec<u32>>, StateID)> =
+        AtomicPtr::new(ptr::null_mut());
 
-    let dfa = lazy::get_or_init(&WORD, || {
-        dense::Builder::new()
-            .configure(dense::Config::new().anchored(true))
+    let (dfa, start_id) = lazy::get_or_init(&WORD, || {
+        let dfa = DFA::builder()
+            .configure(DFA::config().start_kind(StartKind::Anchored))
             .thompson(NFA::config().reverse(true).shrink(true))
             .build(r"\w")
-            .unwrap()
+            .unwrap();
+        // This is OK since '\w' contains no look-around.
+        let input = Input::new("").anchored(Anchored::Yes);
+        let start_id = dfa.start_state_reverse(&input);
+        (dfa, start_id)
     });
-
-    // This is OK since '\w' contains no look-around.
-    let mut sid = dfa.universal_start_state();
+    let mut sid = *start_id;
     while at > 0 {
         at -= 1;
         let byte = bytes[at];

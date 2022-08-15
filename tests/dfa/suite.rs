@@ -1,8 +1,11 @@
 use regex_automata::{
-    dfa::{self, dense, regex::Regex, sparse, Automaton, OverlappingState},
+    dfa::{
+        self, dense, regex::Regex, sparse, Automaton, OverlappingState,
+        StartKind,
+    },
     nfa::thompson,
     util::{iter, syntax},
-    Input, MatchKind, PatternSet,
+    Anchored, Input, MatchKind, PatternSet,
 };
 
 use ret::{
@@ -20,6 +23,21 @@ fn unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
+        .test_iter(suite()?.iter(), dense_compiler(builder))
+        .assert();
+    Ok(())
+}
+
+/// Runs the test suite with start states specialized.
+#[test]
+fn unminimized_specialized_start_states() -> Result<()> {
+    let mut builder = Regex::builder();
+    builder.dense(dense::Config::new().specialize_start_states(true));
+
+    TestRunner::new()?
+        .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
         .assert();
     Ok(())
@@ -266,8 +284,13 @@ fn configure_regex_builder(
         .case_insensitive(test.case_insensitive())
         .unicode(test.unicode())
         .utf8(test.utf8());
+    let starts = if test.anchored() {
+        StartKind::Anchored
+    } else {
+        StartKind::Unanchored
+    };
     let mut dense_config = dense::Config::new()
-        .anchored(test.anchored())
+        .start_kind(starts)
         .match_kind(match_kind)
         .unicode_word_boundary(true);
     // When doing an overlapping search, we might try to find the start of each
@@ -330,9 +353,9 @@ fn try_search_overlapping<A: Automaton>(
     } {
         let revsearch = input
             .clone()
-            .pattern(Some(end.pattern()))
-            .earliest(false)
-            .range(input.start()..end.offset());
+            .range(input.start()..end.offset())
+            .anchored(Anchored::Pattern(end.pattern()))
+            .earliest(false);
         let mut rev_state = OverlappingState::start();
         while let Some(start) = {
             rev_dfa.try_search_overlapping_rev(&revsearch, &mut rev_state)?;
