@@ -125,9 +125,8 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
     let patterns = config::Patterns::get(args)?;
 
     let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
-    input.with_bytes(|haystack| {
-        let (pids, time) =
-            util::timeitr(|| search_api_regex(&re, &*haystack))?;
+    input.with_input(|input| {
+        let (pids, time) = util::timeitr(|| search_api_regex(&re, input))?;
         table.add("search time", time);
         table.add("which", pids);
         table.print(stdout())?;
@@ -155,9 +154,9 @@ fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
     let dfa = cdense.from_patterns_dense(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let (pids, time) =
-            util::timeitr(|| search_dfa_automaton(&dfa, &*haystack))?;
+            util::timeitr(|| search_dfa_automaton(&dfa, input))?;
         table.add("search time", time);
         table.add("which", pids);
         table.print(stdout())?;
@@ -177,9 +176,9 @@ fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
     let dfa = cdense.from_patterns_sparse(
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let (pids, time) =
-            util::timeitr(|| search_dfa_automaton(&dfa, &*haystack))?;
+            util::timeitr(|| search_dfa_automaton(&dfa, input))?;
         table.add("search time", time);
         table.add("which", pids);
         table.print(stdout())?;
@@ -209,9 +208,9 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| dfa.create_cache());
     table.add("create cache time", time);
 
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let (pids, time) =
-            util::timeitr(|| search_hybrid_dfa(&dfa, &mut cache, &*haystack))?;
+            util::timeitr(|| search_hybrid_dfa(&dfa, &mut cache, input))?;
         table.add("search time", time);
         table.add("cache clear count", cache.clear_count());
         table.add("which", pids);
@@ -248,9 +247,9 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let (pids, time) =
-            util::timeitr(|| search_pikevm(&vm, &mut cache, &*haystack))?;
+            util::timeitr(|| search_pikevm(&vm, &mut cache, input))?;
         table.add("search time", time);
         table.add("which", pids);
         table.print(stdout())?;
@@ -260,17 +259,16 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 
 fn search_api_regex(
     re: &regex::bytes::RegexSet,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
 ) -> anyhow::Result<Vec<usize>> {
-    Ok(re.matches(haystack).into_iter().collect())
+    Ok(re.matches(input.haystack()).into_iter().collect())
 }
 
 fn search_dfa_automaton<A: Automaton>(
     dfa: A,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
-    let input = Input::new(haystack);
     dfa.try_which_overlapping_matches(&input, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
@@ -278,21 +276,19 @@ fn search_dfa_automaton<A: Automaton>(
 fn search_hybrid_dfa<'i, 'c>(
     dfa: &hybrid::dfa::DFA,
     cache: &mut hybrid::dfa::Cache,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
-    let input = Input::new(haystack);
     dfa.try_which_overlapping_matches(cache, &input, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }
 
 fn search_pikevm(
-    vm: &PikeVM,
+    re: &PikeVM,
     cache: &mut pikevm::Cache,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
 ) -> anyhow::Result<Vec<usize>> {
-    let input = vm.create_input(haystack);
-    let mut patset = PatternSet::new(vm.get_nfa().pattern_len());
-    vm.which_overlapping_matches(cache, &input, &mut patset);
+    let mut patset = PatternSet::new(re.get_nfa().pattern_len());
+    re.which_overlapping_matches(cache, &input, &mut patset);
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }

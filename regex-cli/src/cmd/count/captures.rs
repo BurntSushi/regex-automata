@@ -13,7 +13,7 @@ use automata::{
         pikevm::{self, PikeVM},
     },
     util::iter,
-    PatternID,
+    Input, PatternID,
 };
 
 const ABOUT_SHORT: &'static str = "\
@@ -116,10 +116,10 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
 
     let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
     let index_to_name: Vec<Option<&str>> = re.capture_names().collect();
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_api_regex(&re, &captures, &*haystack, &mut buf)
+            search_api_regex(&re, &captures, input, &mut buf)
         })?;
         table.add("search time", time);
         let nicecaps = format_capture_counts(&counts, |i| {
@@ -157,10 +157,10 @@ fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_onepass(&vm, &mut cache, &captures, &*haystack, &mut buf)
+            search_onepass(&vm, &mut cache, &captures, input, &mut buf)
         })?;
         table.add("search time", time);
         for (pid, groups) in counts.iter().enumerate() {
@@ -212,10 +212,10 @@ fn run_nfa_thompson_backtrack(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_backtrack(&vm, &mut cache, &captures, &*haystack, &mut buf)
+            search_backtrack(&vm, &mut cache, &captures, input, &mut buf)
         })?;
         table.add("search time", time);
         for (pid, groups) in counts.iter().enumerate() {
@@ -252,10 +252,10 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
     let (mut cache, time) = util::timeit(|| vm.create_cache());
     table.add("create cache time", time);
 
-    input.with_bytes(|haystack| {
+    input.with_input(|input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_pikevm(&vm, &mut cache, &captures, &*haystack, &mut buf)
+            search_pikevm(&vm, &mut cache, &captures, input, &mut buf)
         })?;
         table.add("search time", time);
         for (pid, groups) in counts.iter().enumerate() {
@@ -279,7 +279,7 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 fn search_api_regex(
     re: &regex::bytes::Regex,
     captures: &config::Captures,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0; re.captures_len()];
@@ -288,7 +288,7 @@ fn search_api_regex(
             anyhow::bail!("earliest searches not supported");
         }
         config::SearchKind::Leftmost => {
-            for caps in re.captures_iter(haystack) {
+            for caps in re.captures_iter(input.haystack()) {
                 for (group_index, m) in caps.iter().enumerate() {
                     if m.is_some() {
                         counts[group_index] += 1;
@@ -310,7 +310,7 @@ fn search_onepass(
     re: &DFA,
     cache: &mut onepass::Cache,
     captures: &config::Captures,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; re.get_nfa().pattern_len()];
@@ -323,11 +323,8 @@ fn search_onepass(
             // we use a slightly less convenient API to reuse 'Captures' for
             // each match. Overall, this should result in zero amortized allocs
             // per match.
-            let input = re
-                .create_input(haystack)
-                .earliest(captures.kind() == config::SearchKind::Earliest);
             let mut caps = re.create_captures();
-            let mut it = iter::Searcher::new(input);
+            let mut it = iter::Searcher::new(input.clone());
             loop {
                 it.advance(|input| {
                     re.search(cache, input, &mut caps);
@@ -358,7 +355,7 @@ fn search_backtrack(
     re: &BoundedBacktracker,
     cache: &mut backtrack::Cache,
     captures: &config::Captures,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; re.get_nfa().pattern_len()];
@@ -371,11 +368,8 @@ fn search_backtrack(
             // we use a slightly less convenient API to reuse 'Captures' for
             // each match. Overall, this should result in zero amortized allocs
             // per match.
-            let input = re
-                .create_input(haystack)
-                .earliest(captures.kind() == config::SearchKind::Earliest);
             let mut caps = re.create_captures();
-            let mut it = iter::Searcher::new(input);
+            let mut it = iter::Searcher::new(input.clone());
             loop {
                 it.try_advance(|input| {
                     re.try_search(cache, input, &mut caps)?;
@@ -406,7 +400,7 @@ fn search_pikevm(
     re: &PikeVM,
     cache: &mut pikevm::Cache,
     captures: &config::Captures,
-    haystack: &[u8],
+    input: &Input<'_, '_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; re.get_nfa().pattern_len()];
@@ -419,11 +413,8 @@ fn search_pikevm(
             // we use a slightly less convenient API to reuse 'Captures' for
             // each match. Overall, this should result in zero amortized allocs
             // per match.
-            let input = re
-                .create_input(haystack)
-                .earliest(captures.kind() == config::SearchKind::Earliest);
             let mut caps = re.create_captures();
-            let mut it = iter::Searcher::new(input);
+            let mut it = iter::Searcher::new(input.clone());
             loop {
                 it.advance(|input| {
                     re.search(cache, input, &mut caps);

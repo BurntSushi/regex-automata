@@ -212,10 +212,13 @@ impl File {
 */
 
 #[derive(Debug)]
-pub struct Input(InputKind);
+pub struct Input {
+    haystack: InputHaystack,
+    earliest: bool,
+}
 
 #[derive(Debug)]
-enum InputKind {
+enum InputHaystack {
     Literal(BString),
     Path(PathBuf),
 }
@@ -230,37 +233,78 @@ impl Input {
     /// interpreted as a file path. The leading '@' cannot be escaped. To match
     /// a literal '@' in the leading position, use '\x40' or '[@]'.
     pub fn define(app: App) -> App {
-        const SHORT: &str = "An inline string or a @-prefixed file path.";
-        app.arg(app::arg("input").help(SHORT).required(true))
+        {
+            const SHORT: &str = "An inline string or a @-prefixed file path.";
+            app = app.arg(app::arg("haystack").help(SHORT).required(true));
+        }
+        {
+            const SHORT: &str =
+                "Whether to report matches as early as possible.";
+            app = app.arg(flag("earliest").help(SHORT))
+        }
+        app
     }
 
     /// Reads the input given on the command line from the given arguments.
     pub fn get(args: &Args) -> anyhow::Result<Input> {
-        let input = args
-            .value_of_os("input")
+        let earliest = args.is_present("earliest");
+        let haystack_arg = args
+            .value_of_os("haystack")
             .expect("expected non-None value for required 'input' argument")
             // Converting this to a string technically makes it impossible
             // to provide a file path that contains invalid UTF-8, but
             // supporting that is a pain because of the lack of string-like
             // APIs on OsStr.
+            //
+            // FIXME: Maybe just require a flag to specify a file path, like
+            // how patterns works?
+            //
+            // Keep in mind: what kind of reuse can we expect with this
+            // config for a hypothetical 'regex-cli grep' tool? The grep
+            // tool really just wants file paths to search... Hmm. One
+            // possibility is interpreting '/re/' as a regex and everything
+            // else as a file path.
             .to_string_lossy();
-        Ok(Input(if input.as_bytes().get(0) == Some(&b'@') {
-            InputKind::Path(PathBuf::from(&input[1..]))
+        let haystack = if haystack_arg.as_bytes().get(0) == Some(&b'@') {
+            InputHaystack::Path(PathBuf::from(&haystack_arg[1..]))
         } else {
-            InputKind::Literal(BString::from(escape::unescape(&input)))
-        }))
+            InputHaystack::Literal(BString::from(escape::unescape(
+                &haystack_arg,
+            )))
+        };
+        Ok(Input { haystack, earliest })
+    }
+
+    /// Pass the regex_automata::Input configuration (derived from CLI
+    /// parameters) to the closure given. Any error returned by the closure is
+    /// returned by this routine.
+    ///
+    /// This abstracts over how the haystack is given. That is, it uses memory
+    /// maps when the haystack is a file path and just a simple string in heap
+    /// memory when the haystack is a CLI argument.
+    ///
+    /// This also sets any other relevant options on the input, such as its
+    /// 'anchored' and 'earliest' configuration.
+    pub fn with_input<T>(
+        &self,
+        mut f: impl FnMut(&automata::Input) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        self.with_bytes(|haystack| {
+            let input = automata::Input::new(haystack).earliest(self.earliest);
+            f(&input)
+        })
     }
 
     /// If the input is a file, then memory map and pass the contents of the
     /// file to the given closure. Otherwise, if it's an inline literal, then
     /// pass it to the closure.
-    pub fn with_bytes<T>(
+    fn with_bytes<T>(
         &self,
         mut f: impl FnMut(&BStr) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        match self.0 {
-            InputKind::Literal(ref lit) => f(lit.as_bstr()),
-            InputKind::Path(ref p) => {
+        match self.haystack {
+            InputHaystack::Literal(ref lit) => f(lit.as_bstr()),
+            InputHaystack::Path(ref p) => {
                 let file = fs::File::open(p).with_context(|| {
                     format!("failed to open {}", p.display())
                 })?;
@@ -277,11 +321,6 @@ impl Input {
             }
         }
     }
-
-    // pub fn with_input<T>(
-    // &self,
-    // mut f: impl FnMut(&Input) -> anyhow::Result<T>,
-    // ) -> anyhow::Result<T> {
 }
 
 /// Flags specific to searching for entire matches.
