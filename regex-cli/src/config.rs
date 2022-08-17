@@ -211,19 +211,26 @@ impl File {
 }
 */
 
+/// A convenient way to read haystacks from CLI parameters.
+///
+/// This principally provides a way for users to inline the haystack as a CLI
+/// argument, or to use '@path/to/file' to give a haystack as the contents of
+/// a file.
 #[derive(Debug)]
-pub struct Input {
-    haystack: InputHaystack,
-    earliest: bool,
+pub struct Haystack {
+    kind: HaystackKind,
 }
 
+/// The different ways that a haystack can be provided.
 #[derive(Debug)]
-enum InputHaystack {
+enum HaystackKind {
+    /// The haystack is a string given directly as a CLI argument.
     Literal(BString),
+    /// The haystack is the contents of a file from the path given.
     Path(PathBuf),
 }
 
-impl Input {
+impl Haystack {
     /// Defines a single required positional parameter that accepts input from
     /// an escaped string or a file. An escaped string is the
     /// default, where hex escape sequences like '\x7F' are recognized as their
@@ -232,25 +239,19 @@ impl Input {
     /// If the parameter starts with a '@', then the rest of the value is
     /// interpreted as a file path. The leading '@' cannot be escaped. To match
     /// a literal '@' in the leading position, use '\x40' or '[@]'.
-    pub fn define(app: App) -> App {
+    pub fn define(mut app: App) -> App {
         {
             const SHORT: &str = "An inline string or a @-prefixed file path.";
             app = app.arg(app::arg("haystack").help(SHORT).required(true));
-        }
-        {
-            const SHORT: &str =
-                "Whether to report matches as early as possible.";
-            app = app.arg(flag("earliest").help(SHORT))
         }
         app
     }
 
     /// Reads the input given on the command line from the given arguments.
-    pub fn get(args: &Args) -> anyhow::Result<Input> {
-        let earliest = args.is_present("earliest");
+    pub fn get(args: &Args) -> anyhow::Result<Haystack> {
         let haystack_arg = args
             .value_of_os("haystack")
-            .expect("expected non-None value for required 'input' argument")
+            .expect("expected non-None value for required 'haystack' argument")
             // Converting this to a string technically makes it impossible
             // to provide a file path that contains invalid UTF-8, but
             // supporting that is a pain because of the lack of string-like
@@ -264,47 +265,30 @@ impl Input {
             // tool really just wants file paths to search... Hmm. One
             // possibility is interpreting '/re/' as a regex and everything
             // else as a file path.
+            //
+            // Or maybe we should just split up how a haystack is defined and
+            // how input options are specified... Yeah...
             .to_string_lossy();
-        let haystack = if haystack_arg.as_bytes().get(0) == Some(&b'@') {
-            InputHaystack::Path(PathBuf::from(&haystack_arg[1..]))
+        let kind = if haystack_arg.as_bytes().get(0) == Some(&b'@') {
+            HaystackKind::Path(PathBuf::from(&haystack_arg[1..]))
         } else {
-            InputHaystack::Literal(BString::from(escape::unescape(
+            HaystackKind::Literal(BString::from(escape::unescape(
                 &haystack_arg,
             )))
         };
-        Ok(Input { haystack, earliest })
-    }
-
-    /// Pass the regex_automata::Input configuration (derived from CLI
-    /// parameters) to the closure given. Any error returned by the closure is
-    /// returned by this routine.
-    ///
-    /// This abstracts over how the haystack is given. That is, it uses memory
-    /// maps when the haystack is a file path and just a simple string in heap
-    /// memory when the haystack is a CLI argument.
-    ///
-    /// This also sets any other relevant options on the input, such as its
-    /// 'anchored' and 'earliest' configuration.
-    pub fn with_input<T>(
-        &self,
-        mut f: impl FnMut(&automata::Input) -> anyhow::Result<T>,
-    ) -> anyhow::Result<T> {
-        self.with_bytes(|haystack| {
-            let input = automata::Input::new(haystack).earliest(self.earliest);
-            f(&input)
-        })
+        Ok(Haystack { kind })
     }
 
     /// If the input is a file, then memory map and pass the contents of the
     /// file to the given closure. Otherwise, if it's an inline literal, then
     /// pass it to the closure.
-    fn with_bytes<T>(
+    pub fn with_bytes<T>(
         &self,
         mut f: impl FnMut(&BStr) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        match self.haystack {
-            InputHaystack::Literal(ref lit) => f(lit.as_bstr()),
-            InputHaystack::Path(ref p) => {
+        match self.kind {
+            HaystackKind::Literal(ref lit) => f(lit.as_bstr()),
+            HaystackKind::Path(ref p) => {
                 let file = fs::File::open(p).with_context(|| {
                     format!("failed to open {}", p.display())
                 })?;
@@ -323,16 +307,100 @@ impl Input {
     }
 }
 
+/// This exposes all of the configuration knobs on a regex_automata::Input via
+/// CLI flags. The only aspect of regex_automata::Input that this does not
+/// cover is the haystack, which should be provided by other means (usually
+/// with `Haystack`).
+#[derive(Debug)]
+pub struct Input {
+    earliest: bool,
+}
+
+impl Input {
+    /// Defines CLI flags on the given app that are relevant to the
+    /// configuration of a regex_automata::Input, *except* for the haystack.
+    /// The haystack should be supplied in another way, such as with
+    /// `Haystack`.
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str =
+                "Whether to report matches as early as possible.";
+            app = app.arg(flag("earliest").help(SHORT))
+        }
+        app
+    }
+
+    /// Reads the input given on the command line from the given arguments.
+    pub fn get(args: &Args) -> anyhow::Result<Input> {
+        let earliest = args.is_present("earliest");
+        Ok(Input { earliest })
+    }
+
+    /// Return an input configuration given the haystack to search. The input
+    /// configuration (other than the haystack) is drawn from the CLI flags
+    /// passed for `Input`.
+    pub fn input<'h>(&self, haystack: &'h [u8]) -> automata::Input<'h, '_> {
+        automata::Input::new(haystack).earliest(self.earliest)
+    }
+
+    /// Pass the regex_automata::Input configuration (derived from CLI
+    /// parameters) to the closure given. Any error returned by the closure is
+    /// returned by this routine.
+    ///
+    /// This uses `Haystack::with_bytes` to get the haystack and produce a
+    /// `regex_automata::Input` configuration.
+    pub fn with_input<T>(
+        &self,
+        haystack: &Haystack,
+        mut f: impl FnMut(&automata::Input<'_, '_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        haystack.with_bytes(|bytes| {
+            let input = self.input(bytes);
+            f(&input)
+        })
+    }
+}
+
+/// Flags specific to overlapping searches.
+///
+/// This should only be used for regex engines that support overlapping
+/// searches.
+#[derive(Debug)]
+pub struct Overlapping {
+    /// Whether to enable overlapping search or not.
+    enabled: bool,
+}
+
+impl Overlapping {
+    /// Defines all overlapping related flags on the given app.
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Whether to run an overlapping search.";
+            app = app.arg(switch("overlapping").help(SHORT));
+        }
+        app
+    }
+
+    /// Reads all overlapping related flags and returns its configuration.
+    pub fn get(args: &Args) -> anyhow::Result<Overlapping> {
+        let enabled = args.is_present("overlapping");
+        Ok(Overlapping { enabled })
+    }
+
+    /// Whether to do an overlapping search or not.
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
 /// Flags specific to searching for entire matches.
 #[derive(Debug)]
 pub struct Find {
-    kind: SearchKind,
     matches: bool,
 }
 
 impl Find {
     pub fn define(mut app: App) -> App {
-        app = SearchKind::define(app);
         {
             const SHORT: &str = "Show the spans of each match found.";
             const LONG: &str = "\
@@ -348,13 +416,8 @@ offset.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Find> {
-        let kind = SearchKind::get(args)?;
         let matches = args.is_present("matches");
-        Ok(Find { kind, matches })
-    }
-
-    pub fn kind(&self) -> SearchKind {
-        self.kind
+        Ok(Find { matches })
     }
 
     pub fn matches(&self) -> bool {
@@ -365,13 +428,11 @@ offset.
 /// Flags specific to searching for capturing groups.
 #[derive(Debug)]
 pub struct Captures {
-    kind: SearchKind,
     matches: bool,
 }
 
 impl Captures {
     pub fn define(mut app: App) -> App {
-        app = SearchKind::define(app);
         {
             const SHORT: &str = "Show the spans of each match found.";
             const LONG: &str = "\
@@ -387,13 +448,8 @@ group (if they exist for the match).
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Captures> {
-        let kind = SearchKind::get(args)?;
         let matches = args.is_present("matches");
-        Ok(Captures { kind, matches })
-    }
-
-    pub fn kind(&self) -> SearchKind {
-        self.kind
+        Ok(Captures { matches })
     }
 
     pub fn matches(&self) -> bool {
@@ -401,30 +457,31 @@ group (if they exist for the match).
     }
 }
 
+/// Handles the CLI flag for specifying the start kind of a DFA.
+///
+/// The default is to support both unanchored and anchored searches. Setting
+/// this to anchored, for example, is useful for building smaller DFAs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SearchKind {
-    Earliest,
-    Leftmost,
-    Overlapping,
+pub struct StartKind {
+    kind: automata::dfa::StartKind,
 }
 
-impl SearchKind {
+impl StartKind {
     pub fn define(app: App) -> App {
-        const SHORT: &str = "Set the type of search to perform.";
-        const LONG: &str = "\
-Set the type of search to perform.
-";
-        app.arg(flag("search-kind").short("K").help(SHORT).long_help(LONG))
+        const SHORT: &str = "Set the starting state configuration for DFAs.";
+        app.arg(flag("start-kind").help(SHORT))
     }
 
-    pub fn get(args: &Args) -> anyhow::Result<SearchKind> {
-        Ok(match args.value_of_lossy("search-kind") {
-            None => SearchKind::Leftmost,
+    pub fn get(args: &Args) -> anyhow::Result<automata::dfa::StartKind> {
+        use automata::dfa::StartKind;
+
+        Ok(match args.value_of_lossy("start-kind") {
+            None => StartKind::Both,
             Some(value) => match &*value {
-                "earliest" => SearchKind::Earliest,
-                "leftmost" => SearchKind::Leftmost,
-                "overlapping" => SearchKind::Overlapping,
-                unk => anyhow::bail!("unrecognized find kind: {:?}", unk),
+                "both" => StartKind::Both,
+                "unanchored" => StartKind::Unanchored,
+                "anchored" => StartKind::Anchored,
+                unk => anyhow::bail!("unrecognized start kind: {:?}", unk),
             },
         })
     }
@@ -787,14 +844,6 @@ groups (such as a search with the PikeVM).
     }
 }
 
-// BREADCRUMBS: I think we need an 'Input' set of options to configure how
-// we execute a search. For example, setting pattern ID, anchored mode and
-// perhaps even prefilter and context! (Note that we already have an 'Input',
-// so we'll need to rename that probably.)
-//
-// Maybe do this after we've converted all the regex engines over to the new
-// scheme?
-
 #[derive(Debug)]
 pub struct PikeVM {
     config: pikevm::Config,
@@ -912,20 +961,6 @@ pub struct Backtrack {
 impl Backtrack {
     pub fn define(mut app: App) -> App {
         {
-            const SHORT: &str = "Build an anchored bounded backtracker.";
-            const LONG: &str = "\
-Build an anchored bounded backtracker.
-
-When enabled, the regex only executes anchored searches, even if the underlying
-NFA has an unanchored start state. This means that the regex can only find
-matches that begin where the search starts. When disabled (the default), the
-regex will have an \"unanchored\" prefix that permits it to match anywhere.
-";
-            app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
-            );
-        }
-        {
             const SHORT: &str = "Disable UTF-8 handling for iterators.";
             const LONG: &str = "\
 Disable UTF-8 handling for match iterators when an empty match is seen.
@@ -969,9 +1004,8 @@ The default capacity is a reasonable but empirically chosen size.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Backtrack> {
-        let mut config = backtrack::Config::new()
-            .anchored(args.is_present("anchored"))
-            .utf8(!args.is_present("no-utf8-iter"));
+        let mut config =
+            backtrack::Config::new().utf8(!args.is_present("no-utf8-iter"));
         if let Some(x) = args.value_of_lossy("visited-capacity") {
             let limit =
                 x.parse().context("failed to parse --visited-capacity")?;
@@ -1173,19 +1207,7 @@ pub struct Dense {
 
 impl Dense {
     pub fn define(mut app: App) -> App {
-        {
-            const SHORT: &str = "Compile an anchored DFA.";
-            const LONG: &str = "\
-Compile an anchored DFA.
-
-When enabled, the DFA is anchored. This means that the DFA can only find
-matches that begin where the search starts. When disabled (the default), the
-DFA will have an \"unanchored\" prefix that permits it to match anywhere.
-";
-            app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
-            );
-        }
+        app = StartKind::define(app);
         {
             const SHORT: &str = "Disable DFA state acceleration.";
             const LONG: &str = "\
@@ -1426,7 +1448,8 @@ The default for this flag is 'none', which sets no size limit.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Dense> {
-        let kind = match args.value_of_lossy("match-kind") {
+        let start_kind = StartKind::get(args)?;
+        let match_kind = match args.value_of_lossy("match-kind") {
             None => MatchKind::LeftmostFirst,
             Some(value) => match &*value {
                 "all" => MatchKind::All,
@@ -1435,11 +1458,11 @@ The default for this flag is 'none', which sets no size limit.
             },
         };
         let mut c = dense::Config::new()
-            .anchored(args.is_present("anchored"))
             .accelerate(!args.is_present("no-accelerate"))
             .minimize(args.is_present("minimize"))
             .byte_classes(!args.is_present("no-byte-classes"))
-            .match_kind(kind)
+            .match_kind(match_kind)
+            .start_kind(start_kind)
             .starts_for_each_pattern(
                 args.is_present("starts-for-each-pattern"),
             )
@@ -1539,33 +1562,12 @@ pub struct RegexDFA {
 }
 
 impl RegexDFA {
-    pub fn define(mut app: App) -> App {
-        {
-            const SHORT: &str = "Disable UTF-8 handling for match iterators.";
-            const LONG: &str = "\
-Disable UTF-8 handling for match iterators when an empty match is seen.
-
-When UTF-8 mode is enabled for regexes (the default) and an empty match is
-seen, the iterators will always start the next search at the next UTF-8 encoded
-codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
-searches are started at the next byte offset.
-
-Generally speaking, UTF-8 mode for regexes should only be used when you know
-you are searching valid UTF-8. Typically, this should only be disabled in
-precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
-together.
-
-This mode cannot be toggled inside the regex.
-";
-            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
-        }
+    pub fn define(app: App) -> App {
         app
     }
 
-    pub fn get(args: &Args) -> anyhow::Result<RegexDFA> {
-        let config =
-            dfa::regex::Config::new().utf8(!args.is_present("no-utf8-iter"));
+    pub fn get(_args: &Args) -> anyhow::Result<RegexDFA> {
+        let config = dfa::regex::Config::new();
         Ok(RegexDFA { config })
     }
 
@@ -1640,19 +1642,6 @@ pub struct Hybrid {
 
 impl Hybrid {
     pub fn define(mut app: App) -> App {
-        {
-            const SHORT: &str = "Build an anchored lazy DFA.";
-            const LONG: &str = "\
-Build an anchored lazy DFA.
-
-When enabled, the lazy DFA is anchored. This means that the DFA can only find
-matches that begin where the search starts. When disabled (the default), the
-DFA will have an \"unanchored\" prefix that permits it to match anywhere.
-";
-            app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
-            );
-        }
         {
             const SHORT: &str = "Disable the use of equivalence classes.";
             const LONG: &str = "\
@@ -1883,7 +1872,6 @@ technique would likely be superior.
             },
         };
         let mut c = hybrid::dfa::Config::new()
-            .anchored(args.is_present("anchored"))
             .byte_classes(!args.is_present("no-byte-classes"))
             .match_kind(kind)
             .starts_for_each_pattern(
@@ -1964,33 +1952,12 @@ pub struct RegexHybrid {
 }
 
 impl RegexHybrid {
-    pub fn define(mut app: App) -> App {
-        {
-            const SHORT: &str = "Disable UTF-8 handling for iterators.";
-            const LONG: &str = "\
-Disable UTF-8 handling for match iterators when an empty match is seen.
-
-When UTF-8 mode is enabled for regexes (the default) and an empty match is
-seen, the iterators will always start the next search at the next UTF-8 encoded
-codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
-searches are started at the next byte offset.
-
-Generally speaking, UTF-8 mode for regexes should only be used when you know
-you are searching valid UTF-8. Typically, this should only be disabled in
-precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
-together.
-
-This mode cannot be toggled inside the regex.
-";
-            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
-        }
+    pub fn define(app: App) -> App {
         app
     }
 
-    pub fn get(args: &Args) -> anyhow::Result<RegexHybrid> {
-        let config = hybrid::regex::Config::new()
-            .utf8(!args.is_present("no-utf8-iter"));
+    pub fn get(_args: &Args) -> anyhow::Result<RegexHybrid> {
+        let config = hybrid::regex::Config::new();
         Ok(RegexHybrid { config })
     }
 

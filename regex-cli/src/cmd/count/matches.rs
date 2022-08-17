@@ -48,7 +48,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
 
 fn define_api() -> App {
     let mut regex = app::leaf("regex").about("Search using a 'Regex'.");
-    regex = config::Input::define(regex);
+    regex = config::Haystack::define(regex);
     regex = config::Patterns::define(regex);
     regex = config::Syntax::define(regex);
     regex = config::RegexAPI::define(regex);
@@ -61,23 +61,28 @@ fn define_api() -> App {
 
 fn define_dfa() -> App {
     let mut dense = app::leaf("dense").about("Search using a dense DFA.");
+    dense = config::Haystack::define(dense);
     dense = config::Input::define(dense);
     dense = config::Patterns::define(dense);
     dense = config::Syntax::define(dense);
     dense = config::Thompson::define(dense);
     dense = config::Dense::define(dense);
+    dense = config::Overlapping::define(dense);
     dense = config::Find::define(dense);
 
     let mut sparse = app::leaf("sparse").about("Search using a sparse DFA.");
+    sparse = config::Haystack::define(sparse);
     sparse = config::Input::define(sparse);
     sparse = config::Patterns::define(sparse);
     sparse = config::Syntax::define(sparse);
     sparse = config::Thompson::define(sparse);
     sparse = config::Dense::define(sparse);
+    sparse = config::Overlapping::define(sparse);
     sparse = config::Find::define(sparse);
 
     let mut onepass =
         app::leaf("onepass").about("Search using a one-pass DFA.");
+    onepass = config::Haystack::define(onepass);
     onepass = config::Input::define(onepass);
     onepass = config::Patterns::define(onepass);
     onepass = config::Syntax::define(onepass);
@@ -96,6 +101,7 @@ fn define_dfa() -> App {
 
 fn define_dfa_regex() -> App {
     let mut dense = app::leaf("dense").about("Search using a dense DFA.");
+    dense = config::Haystack::define(dense);
     dense = config::Input::define(dense);
     dense = config::Patterns::define(dense);
     dense = config::Syntax::define(dense);
@@ -105,6 +111,7 @@ fn define_dfa_regex() -> App {
     dense = config::Find::define(dense);
 
     let mut sparse = app::leaf("sparse").about("Search using a sparse DFA.");
+    sparse = config::Haystack::define(sparse);
     sparse = config::Input::define(sparse);
     sparse = config::Patterns::define(sparse);
     sparse = config::Syntax::define(sparse);
@@ -121,15 +128,18 @@ fn define_dfa_regex() -> App {
 
 fn define_hybrid() -> App {
     let mut dfa = app::leaf("dfa").about("Search using a lazy DFA object.");
+    dfa = config::Haystack::define(dfa);
     dfa = config::Input::define(dfa);
     dfa = config::Patterns::define(dfa);
     dfa = config::Syntax::define(dfa);
     dfa = config::Thompson::define(dfa);
     dfa = config::Hybrid::define(dfa);
+    dfa = config::Overlapping::define(dfa);
     dfa = config::Find::define(dfa);
 
     let mut regex =
         app::leaf("regex").about("Search using a lazy regex object.");
+    regex = config::Haystack::define(regex);
     regex = config::Input::define(regex);
     regex = config::Patterns::define(regex);
     regex = config::Syntax::define(regex);
@@ -153,6 +163,7 @@ fn define_nfa() -> App {
 fn define_nfa_thompson() -> App {
     let mut backtrack =
         app::leaf("backtrack").about("Search using a bounded backtracker.");
+    backtrack = config::Haystack::define(backtrack);
     backtrack = config::Input::define(backtrack);
     backtrack = config::Patterns::define(backtrack);
     backtrack = config::Syntax::define(backtrack);
@@ -161,6 +172,7 @@ fn define_nfa_thompson() -> App {
     backtrack = config::Find::define(backtrack);
 
     let mut pikevm = app::leaf("pikevm").about("Search using a Pike VM.");
+    pikevm = config::Haystack::define(pikevm);
     pikevm = config::Input::define(pikevm);
     pikevm = config::Patterns::define(pikevm);
     pikevm = config::Syntax::define(pikevm);
@@ -186,15 +198,16 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
 
     let csyntax = config::Syntax::get(args)?;
     let cregex = config::RegexAPI::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let cfind = config::Find::get(args)?;
 
-    let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
-    input.with_input(|input| {
+    let re =
+        cregex.from_patterns(&mut table, &csyntax, &cregex, &cpatterns)?;
+    chaystack.with_bytes(|bytes| {
         let mut buf = String::new();
         let (count, time) =
-            util::timeitr(|| search_api_regex(&re, &find, input, &mut buf))?;
+            util::timeitr(|| search_api_regex(&re, &cfind, bytes, &mut buf))?;
         table.add("search time", time);
         table.add("count", count);
         table.print(stdout())?;
@@ -221,17 +234,19 @@ fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cdense = config::Dense::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let coverlapping = config::Overlapping::get(args)?;
+    let cfind = config::Find::get(args)?;
 
     let dfa = cdense.from_patterns_dense(
-        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+        &mut table, &csyntax, &cthompson, &cdense, &cpatterns,
     )?;
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_dfa_automaton(&dfa, &find, input, &mut buf)
+            search_dfa_automaton(&dfa, &coverlapping, &cfind, input, &mut buf)
         })?;
         table.add("search time", time);
         table.add("counts", counts);
@@ -249,18 +264,19 @@ fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cdense = config::Dense::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let coverlapping = config::Overlapping::get(args)?;
+    let cfind = config::Find::get(args)?;
 
     let dfa = cdense.from_patterns_sparse(
-        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+        &mut table, &csyntax, &cthompson, &cdense, &cpatterns,
     )?;
-
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_dfa_automaton(&dfa, &find, input, &mut buf)
+            search_dfa_automaton(&dfa, &coverlapping, &cfind, input, &mut buf)
         })?;
         table.add("search time", time);
         table.add("counts", counts);
@@ -278,21 +294,22 @@ fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let conepass = config::OnePass::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let cfind = config::Find::get(args)?;
 
-    let re =
-        conepass.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+    let re = conepass
+        .from_patterns(&mut table, &csyntax, &cthompson, &cpatterns)?;
 
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("create regex cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_dfa_onepass(&re, &mut cache, &find, input, &mut buf)
+            search_dfa_onepass(&re, &mut cache, &cfind, input, &mut buf)
         })?;
         table.add("search time", time);
         table.add("counts", counts);
@@ -319,18 +336,18 @@ fn run_dfa_regex_dense(args: &Args) -> anyhow::Result<()> {
     let cthompson = config::Thompson::get(args)?;
     let cdense = config::Dense::get(args)?;
     let cregex = config::RegexDFA::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let cfind = config::Find::get(args)?;
 
     let re = cregex.from_patterns_dense(
-        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+        &mut table, &csyntax, &cthompson, &cdense, &cpatterns,
     )?;
-
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) =
-            util::timeitr(|| search_dfa_regex(&re, &find, input, &mut buf))?;
+            util::timeitr(|| search_dfa_regex(&re, &cfind, input, &mut buf))?;
         table.add("search time", time);
         table.add("counts", counts);
         table.print(stdout())?;
@@ -348,18 +365,18 @@ fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
     let cthompson = config::Thompson::get(args)?;
     let cdense = config::Dense::get(args)?;
     let cregex = config::RegexDFA::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let cfind = config::Find::get(args)?;
 
     let re = cregex.from_patterns_sparse(
-        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+        &mut table, &csyntax, &cthompson, &cdense, &cpatterns,
     )?;
-
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) =
-            util::timeitr(|| search_dfa_regex(&re, &find, input, &mut buf))?;
+            util::timeitr(|| search_dfa_regex(&re, &cfind, input, &mut buf))?;
         table.add("search time", time);
         table.add("counts", counts);
         table.print(stdout())?;
@@ -384,21 +401,30 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cdfa = config::Hybrid::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let coverlapping = config::Overlapping::get(args)?;
+    let cfind = config::Find::get(args)?;
 
     let dfa =
-        cdfa.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+        cdfa.from_patterns(&mut table, &csyntax, &cthompson, &cpatterns)?;
 
     let (mut cache, time) = util::timeit(|| dfa.create_cache());
     table.add("create cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_hybrid_dfa(&dfa, &mut cache, &find, input, &mut buf)
+            search_hybrid_dfa(
+                &dfa,
+                &mut cache,
+                &coverlapping,
+                &cfind,
+                input,
+                &mut buf,
+            )
         })?;
         table.add("search time", time);
         table.add("cache clear count", cache.clear_count());
@@ -418,21 +444,22 @@ fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
     let cthompson = config::Thompson::get(args)?;
     let cdfa = config::Hybrid::get(args)?;
     let cregex = config::RegexHybrid::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let cfind = config::Find::get(args)?;
 
     let re = cregex
-        .from_patterns(&mut table, &csyntax, &cthompson, &cdfa, &patterns)?;
+        .from_patterns(&mut table, &csyntax, &cthompson, &cdfa, &cpatterns)?;
 
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("create regex cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_hybrid_regex(&re, &mut cache, &find, input, &mut buf)
+            search_hybrid_regex(&re, &mut cache, &cfind, input, &mut buf)
         })?;
         table.add("search time", time);
         let (cache_fwd, cache_rev) = cache.as_parts();
@@ -468,22 +495,23 @@ fn run_nfa_thompson_backtrack(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cbacktrack = config::Backtrack::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let cfind = config::Find::get(args)?;
 
     let re = cbacktrack
-        .from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+        .from_patterns(&mut table, &csyntax, &cthompson, &cpatterns)?;
 
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("create cache time", time);
     table.add("cache size", cache.memory_usage());
     table.add("max haystack length", re.max_haystack_len());
 
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_backtrack(&re, &mut cache, &find, input, &mut buf)
+            search_backtrack(&re, &mut cache, &cfind, input, &mut buf)
         })?;
         table.add("search time", time);
         table.add("counts", counts);
@@ -501,21 +529,22 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cpikevm = config::PikeVM::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
-    let find = config::Find::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let cfind = config::Find::get(args)?;
 
-    let vm =
-        cpikevm.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+    let re =
+        cpikevm.from_patterns(&mut table, &csyntax, &cthompson, &cpatterns)?;
 
-    let (mut cache, time) = util::timeit(|| vm.create_cache());
+    let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("create cache time", time);
     table.add("cache size", cache.memory_usage());
 
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let mut buf = String::new();
         let (counts, time) = util::timeitr(|| {
-            search_pikevm(&vm, &mut cache, &find, input, &mut buf)
+            search_pikevm(&re, &mut cache, &cfind, input, &mut buf)
         })?;
         table.add("search time", time);
         table.add("counts", counts);
@@ -530,24 +559,14 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 fn search_api_regex(
     re: &regex::bytes::Regex,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    haystack: &[u8],
     buf: &mut String,
 ) -> anyhow::Result<u64> {
     let mut count = 0;
-    match find.kind() {
-        config::SearchKind::Earliest => {
-            anyhow::bail!("earliest searches not supported");
-        }
-        config::SearchKind::Overlapping => {
-            anyhow::bail!("overlapping searches not supported");
-        }
-        config::SearchKind::Leftmost => {
-            for m in re.find_iter(input.haystack()) {
-                count += 1;
-                if find.matches() {
-                    write_api_match(m, buf);
-                }
-            }
+    for m in re.find_iter(haystack) {
+        count += 1;
+        if find.matches() {
+            write_api_match(m, buf);
         }
     }
     Ok(count)
@@ -555,33 +574,31 @@ fn search_api_regex(
 
 fn search_dfa_automaton<A: Automaton>(
     dfa: A,
+    overlapping: &config::Overlapping,
     find: &config::Find,
     input: &Input<'_, '_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; dfa.pattern_len()];
-    match find.kind() {
-        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
-            let it = iter::Searcher::new(input.clone())
-                .into_half_matches_iter(|input| dfa.try_search_fwd(input));
-            for result in it {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_half_match(m, buf);
-                }
+    if overlapping.enabled() {
+        let mut state = dfa::OverlappingState::start();
+        while let Some(m) = {
+            dfa.try_search_overlapping_fwd(input, &mut state)?;
+            state.get_match()
+        } {
+            counts[m.pattern()] += 1;
+            if find.matches() {
+                write_half_match(m, buf);
             }
         }
-        config::SearchKind::Overlapping => {
-            let mut state = dfa::OverlappingState::start();
-            while let Some(m) = {
-                dfa.try_search_overlapping_fwd(input, &mut state)?;
-                state.get_match()
-            } {
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_half_match(m, buf);
-                }
+    } else {
+        let it = iter::Searcher::new(input.clone())
+            .into_half_matches_iter(|input| dfa.try_search_fwd(input));
+        for result in it {
+            let m = result?;
+            counts[m.pattern()] += 1;
+            if find.matches() {
+                write_half_match(m, buf);
             }
         }
     }
@@ -595,20 +612,13 @@ fn search_dfa_regex<A: Automaton>(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
-    match find.kind() {
-        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
-            let it = iter::Searcher::new(input.clone())
-                .into_matches_iter(|input| re.try_search(input));
-            for result in it {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
-        }
-        config::SearchKind::Overlapping => {
-            anyhow::bail!("overlapping searches not supported");
+    let it = iter::Searcher::new(input.clone())
+        .into_matches_iter(|input| re.try_search(input));
+    for result in it {
+        let m = result?;
+        counts[m.pattern()] += 1;
+        if find.matches() {
+            write_multi_match(m, buf);
         }
     }
     Ok(counts)
@@ -622,26 +632,16 @@ fn search_dfa_onepass(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
-    match find.kind() {
-        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
-            let mut caps =
-                Captures::matches(re.get_nfa().group_info().clone());
-            let it = iter::Searcher::new(input.clone()).into_matches_iter(
-                |input| {
-                    re.search(cache, input, &mut caps);
-                    Ok(caps.get_match())
-                },
-            );
-            for result in it {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
-        }
-        config::SearchKind::Overlapping => {
-            anyhow::bail!("overlapping searches not supported");
+    let mut caps = Captures::matches(re.get_nfa().group_info().clone());
+    let it = iter::Searcher::new(input.clone()).into_matches_iter(|input| {
+        re.search(cache, input, &mut caps);
+        Ok(caps.get_match())
+    });
+    for result in it {
+        let m = result?;
+        counts[m.pattern()] += 1;
+        if find.matches() {
+            write_multi_match(m, buf);
         }
     }
     Ok(counts)
@@ -650,35 +650,31 @@ fn search_dfa_onepass(
 fn search_hybrid_dfa<'i, 'c>(
     dfa: &hybrid::dfa::DFA,
     cache: &mut hybrid::dfa::Cache,
+    overlapping: &config::Overlapping,
     find: &config::Find,
     input: &Input<'_, '_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; dfa.pattern_len()];
-    match find.kind() {
-        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
-            let it = iter::Searcher::new(input.clone())
-                .into_half_matches_iter(|input| {
-                    dfa.try_search_fwd(cache, input)
-                });
-            for result in it {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_half_match(m, buf);
-                }
+    if overlapping.enabled() {
+        let mut state = hybrid::dfa::OverlappingState::start();
+        while let Some(m) = {
+            dfa.try_search_overlapping_fwd(cache, input, &mut state)?;
+            state.get_match()
+        } {
+            counts[m.pattern()] += 1;
+            if find.matches() {
+                write_half_match(m, buf);
             }
         }
-        config::SearchKind::Overlapping => {
-            let mut state = hybrid::dfa::OverlappingState::start();
-            while let Some(m) = {
-                dfa.try_search_overlapping_fwd(cache, input, &mut state)?;
-                state.get_match()
-            } {
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_half_match(m, buf);
-                }
+    } else {
+        let it = iter::Searcher::new(input.clone())
+            .into_half_matches_iter(|input| dfa.try_search_fwd(cache, input));
+        for result in it {
+            let m = result?;
+            counts[m.pattern()] += 1;
+            if find.matches() {
+                write_half_match(m, buf);
             }
         }
     }
@@ -693,20 +689,13 @@ fn search_hybrid_regex(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
-    match find.kind() {
-        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
-            let it = iter::Searcher::new(input.clone())
-                .into_matches_iter(|input| re.try_search(cache, input));
-            for result in it {
-                let m = result?;
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
-        }
-        config::SearchKind::Overlapping => {
-            anyhow::bail!("overlapping searches not supported");
+    let it = iter::Searcher::new(input.clone())
+        .into_matches_iter(|input| re.try_search(cache, input));
+    for result in it {
+        let m = result?;
+        counts[m.pattern()] += 1;
+        if find.matches() {
+            write_multi_match(m, buf);
         }
     }
     Ok(counts)
@@ -720,31 +709,20 @@ fn search_backtrack(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
-    match find.kind() {
-        config::SearchKind::Earliest => {
-            anyhow::bail!("earliest searches not supported");
-        }
-        config::SearchKind::Overlapping => {
-            anyhow::bail!("overlapping searches not supported");
-        }
-        config::SearchKind::Leftmost => {
-            let mut caps =
-                Captures::matches(re.get_nfa().group_info().clone());
-            let mut it = iter::Searcher::new(input.clone());
-            loop {
-                it.try_advance(|input| {
-                    re.try_search(cache, input, &mut caps)?;
-                    Ok(caps.get_match())
-                })?;
-                let m = match caps.get_match() {
-                    None => break,
-                    Some(m) => m,
-                };
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
+    let mut caps = Captures::matches(re.get_nfa().group_info().clone());
+    let mut it = iter::Searcher::new(input.clone());
+    loop {
+        it.try_advance(|input| {
+            re.try_search(cache, input, &mut caps)?;
+            Ok(caps.get_match())
+        })?;
+        let m = match caps.get_match() {
+            None => break,
+            Some(m) => m,
+        };
+        counts[m.pattern()] += 1;
+        if find.matches() {
+            write_multi_match(m, buf);
         }
     }
     Ok(counts)
@@ -758,28 +736,20 @@ fn search_pikevm(
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
-    match find.kind() {
-        config::SearchKind::Earliest | config::SearchKind::Leftmost => {
-            let mut caps =
-                Captures::matches(re.get_nfa().group_info().clone());
-            let mut it = iter::Searcher::new(input.clone());
-            loop {
-                it.advance(|input| {
-                    re.search(cache, input, &mut caps);
-                    Ok(caps.get_match())
-                });
-                let m = match caps.get_match() {
-                    None => break,
-                    Some(m) => m,
-                };
-                counts[m.pattern()] += 1;
-                if find.matches() {
-                    write_multi_match(m, buf);
-                }
-            }
-        }
-        config::SearchKind::Overlapping => {
-            anyhow::bail!("overlapping searches not supported");
+    let mut caps = Captures::matches(re.get_nfa().group_info().clone());
+    let mut it = iter::Searcher::new(input.clone());
+    loop {
+        it.advance(|input| {
+            re.search(cache, input, &mut caps);
+            Ok(caps.get_match())
+        });
+        let m = match caps.get_match() {
+            None => break,
+            Some(m) => m,
+        };
+        counts[m.pattern()] += 1;
+        if find.matches() {
+            write_multi_match(m, buf);
         }
     }
     Ok(counts)

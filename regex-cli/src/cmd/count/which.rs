@@ -43,6 +43,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
 
 fn define_api() -> App {
     let mut regex = app::leaf("regexset").about("Search using a 'Regex'.");
+    regex = config::Haystack::define(regex);
     regex = config::Input::define(regex);
     regex = config::Patterns::define(regex);
     regex = config::Syntax::define(regex);
@@ -56,6 +57,7 @@ fn define_api() -> App {
 
 fn define_dfa() -> App {
     let mut dense = app::leaf("dense").about("Search using a dense DFA.");
+    dense = config::Haystack::define(dense);
     dense = config::Input::define(dense);
     dense = config::Patterns::define(dense);
     dense = config::Syntax::define(dense);
@@ -64,6 +66,7 @@ fn define_dfa() -> App {
     dense = config::Find::define(dense);
 
     let mut sparse = app::leaf("sparse").about("Search using a sparse DFA.");
+    sparse = config::Haystack::define(sparse);
     sparse = config::Input::define(sparse);
     sparse = config::Patterns::define(sparse);
     sparse = config::Syntax::define(sparse);
@@ -79,6 +82,7 @@ fn define_dfa() -> App {
 
 fn define_hybrid() -> App {
     let mut dfa = app::leaf("dfa").about("Search using a lazy DFA object.");
+    dfa = config::Haystack::define(dfa);
     dfa = config::Input::define(dfa);
     dfa = config::Patterns::define(dfa);
     dfa = config::Syntax::define(dfa);
@@ -98,6 +102,7 @@ fn define_nfa() -> App {
 
 fn define_nfa_thompson() -> App {
     let mut pikevm = app::leaf("pikevm").about("Search using a Pike VM.");
+    pikevm = config::Haystack::define(pikevm);
     pikevm = config::Input::define(pikevm);
     pikevm = config::Patterns::define(pikevm);
     pikevm = config::Syntax::define(pikevm);
@@ -121,11 +126,13 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
 
     let csyntax = config::Syntax::get(args)?;
     let cregex = config::RegexSetAPI::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
 
-    let re = cregex.from_patterns(&mut table, &csyntax, &cregex, &patterns)?;
-    input.with_input(|input| {
+    let re =
+        cregex.from_patterns(&mut table, &csyntax, &cregex, &cpatterns)?;
+    cinput.with_input(&chaystack, |input| {
         let (pids, time) = util::timeitr(|| search_api_regex(&re, input))?;
         table.add("search time", time);
         table.add("which", pids);
@@ -148,13 +155,14 @@ fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cdense = config::Dense::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
 
     let dfa = cdense.from_patterns_dense(
-        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+        &mut table, &csyntax, &cthompson, &cdense, &cpatterns,
     )?;
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let (pids, time) =
             util::timeitr(|| search_dfa_automaton(&dfa, input))?;
         table.add("search time", time);
@@ -170,13 +178,14 @@ fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cdense = config::Dense::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
 
     let dfa = cdense.from_patterns_sparse(
-        &mut table, &csyntax, &cthompson, &cdense, &patterns,
+        &mut table, &csyntax, &cthompson, &cdense, &cpatterns,
     )?;
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let (pids, time) =
             util::timeitr(|| search_dfa_automaton(&dfa, input))?;
         table.add("search time", time);
@@ -199,16 +208,17 @@ fn run_hybrid_dfa(args: &Args) -> anyhow::Result<()> {
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
     let cdfa = config::Hybrid::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
 
     let dfa =
-        cdfa.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+        cdfa.from_patterns(&mut table, &csyntax, &cthompson, &cpatterns)?;
 
     let (mut cache, time) = util::timeit(|| dfa.create_cache());
     table.add("create cache time", time);
 
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let (pids, time) =
             util::timeitr(|| search_hybrid_dfa(&dfa, &mut cache, input))?;
         table.add("search time", time);
@@ -238,18 +248,20 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 
     let csyntax = config::Syntax::get(args)?;
     let cthompson = config::Thompson::get(args)?;
-    let cvm = config::PikeVM::get(args)?;
-    let input = config::Input::get(args)?;
-    let patterns = config::Patterns::get(args)?;
+    let cpikevm = config::PikeVM::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
 
-    let vm = cvm.from_patterns(&mut table, &csyntax, &cthompson, &patterns)?;
+    let re =
+        cpikevm.from_patterns(&mut table, &csyntax, &cthompson, &cpatterns)?;
 
-    let (mut cache, time) = util::timeit(|| vm.create_cache());
+    let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("create cache time", time);
 
-    input.with_input(|input| {
+    cinput.with_input(&chaystack, |input| {
         let (pids, time) =
-            util::timeitr(|| search_pikevm(&vm, &mut cache, input))?;
+            util::timeitr(|| search_pikevm(&re, &mut cache, input))?;
         table.add("search time", time);
         table.add("which", pids);
         table.print(stdout())?;
