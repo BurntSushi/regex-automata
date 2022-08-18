@@ -5,7 +5,7 @@ use automata::{
     dfa::{self, dense, onepass, sparse},
     hybrid,
     nfa::thompson::{self, backtrack, pikevm},
-    MatchKind,
+    Anchored, MatchKind, PatternID,
 };
 use bstr::{BStr, BString, ByteSlice};
 
@@ -313,6 +313,11 @@ impl Haystack {
 /// with `Haystack`).
 #[derive(Debug)]
 pub struct Input {
+    start: Option<usize>,
+    end: Option<usize>,
+    anchored: bool,
+    pattern_id: Option<PatternID>,
+    utf8: bool,
     earliest: bool,
 }
 
@@ -323,24 +328,80 @@ impl Input {
     /// `Haystack`.
     pub fn define(mut app: App) -> App {
         {
+            const SHORT: &str = "Set the start offset of the search.";
+            app = app.arg(flag("start").help(SHORT))
+        }
+        {
+            const SHORT: &str = "Set the end offset of the search.";
+            app = app.arg(flag("end").help(SHORT))
+        }
+        {
+            const SHORT: &str = "Whether to run an anchored search.";
+            app = app.arg(switch("anchored").short("a").help(SHORT))
+        }
+        {
+            const SHORT: &str =
+                "Run an anchored search for just the given pattern.";
+            app = app.arg(flag("pattern-id").help(SHORT))
+        }
+        {
+            const SHORT: &str =
+                "Whether to permit empty matches to split UTF-8 codepoints.";
+            app = app.arg(switch("no-utf8").help(SHORT))
+        }
+        {
             const SHORT: &str =
                 "Whether to report matches as early as possible.";
-            app = app.arg(flag("earliest").help(SHORT))
+            app = app.arg(switch("earliest").help(SHORT))
         }
         app
     }
 
     /// Reads the input given on the command line from the given arguments.
     pub fn get(args: &Args) -> anyhow::Result<Input> {
-        let earliest = args.is_present("earliest");
-        Ok(Input { earliest })
+        let mut input = Input {
+            start: None,
+            end: None,
+            anchored: args.is_present("anchored"),
+            pattern_id: None,
+            utf8: !args.is_present("no-utf8"),
+            earliest: args.is_present("earliest"),
+        };
+        if let Some(n) = args.value_of_lossy("start") {
+            input.start = Some(n.parse().context("failed to parse --start")?);
+        }
+        if let Some(n) = args.value_of_lossy("end") {
+            input.end = Some(n.parse().context("failed to parse --end")?);
+        }
+        if let Some(n) = args.value_of_lossy("pattern-id") {
+            let pid = n.parse().context("failed to parse --pattern-id")?;
+            input.pattern_id = Some(PatternID::new(pid)?);
+        }
+        Ok(input)
     }
 
     /// Return an input configuration given the haystack to search. The input
     /// configuration (other than the haystack) is drawn from the CLI flags
     /// passed for `Input`.
     pub fn input<'h>(&self, haystack: &'h [u8]) -> automata::Input<'h, '_> {
-        automata::Input::new(haystack).earliest(self.earliest)
+        let mut input = automata::Input::new(haystack)
+            .utf8(self.utf8)
+            .earliest(self.earliest);
+        if let Some(start) = self.start {
+            input.set_start(start);
+        }
+        if let Some(end) = self.end {
+            input.set_end(end);
+        }
+        if let Some(pid) = self.pattern_id {
+            input.set_anchored(Anchored::Pattern(pid));
+        } else if self.anchored {
+            input.set_anchored(Anchored::Yes)
+        } else {
+            // The default, but we set it explicitly anyway.
+            input.set_anchored(Anchored::No)
+        }
+        input
     }
 
     /// Pass the regex_automata::Input configuration (derived from CLI
@@ -354,10 +415,7 @@ impl Input {
         haystack: &Haystack,
         mut f: impl FnMut(&automata::Input<'_, '_>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        haystack.with_bytes(|bytes| {
-            let input = self.input(bytes);
-            f(&input)
-        })
+        haystack.with_bytes(|bytes| f(&self.input(bytes)))
     }
 }
 
