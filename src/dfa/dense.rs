@@ -783,7 +783,7 @@ impl Config {
     ///
     /// Note that some parts of the configuration on a DFA can have a
     /// big impact on how big the DFA is, and thus, how much memory is
-    /// used. For example, the default setting for [`Config::starts`] is
+    /// used. For example, the default setting for [`Config::start_kind`] is
     /// [`StartKind::Both`]. But if you only need an anchored search, for
     /// example, then it can be much cheaper to build a DFA that only supports
     /// anchored searches. (Running an unanchored search with it would panic.)

@@ -220,8 +220,9 @@ impl Config {
 /// complexity, and the possibility of setting a configuration that might not
 /// make sense. For example, there are two different UTF-8 modes:
 ///
-/// * [`syntax::Config::utf8`](crate::syntax::Config::utf8) controls whether
-/// the pattern itself can contain sub-expressions that match invalid UTF-8.
+/// * [`util::syntax::Config::utf8`](crate::util::syntax::Config::utf8)
+/// controls whether the pattern itself can contain sub-expressions that match
+/// invalid UTF-8.
 /// * [`Config::utf8`] controls whether empty matches that split a Unicode
 /// codepoint are reported or not.
 ///
@@ -604,8 +605,8 @@ impl PikeVM {
     /// enabled, then the `Input` returned will also have its [`Input::utf8`]
     /// knob enabled.
     ///
-    /// This routine is useful when using the lower-level [`PikeVM::search`]
-    /// API.
+    /// This routine is useful when using the lower-level
+    /// [`PikeVM::try_search`] API.
     pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
@@ -774,7 +775,7 @@ impl PikeVM {
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
     /// to return `false`.
     ///
-    /// For more control over the input parameters, see [`PikeVM::search`].
+    /// For more control over the input parameters, see [`PikeVM::try_search`].
     ///
     /// # Example
     ///
@@ -1049,7 +1050,7 @@ impl PikeVM {
     /// other than the matching pattern are unspecified. If no match was found,
     /// then `None` is returned and the contents of all `slots` is unspecified.
     ///
-    /// This is like [`PikeVM::search`], but it accepts a raw slots slice
+    /// This is like [`PikeVM::try_search`], but it accepts a raw slots slice
     /// instead of a `Captures` value. This is useful in contexts where you
     /// don't want or need to allocate a `Captures`.
     ///

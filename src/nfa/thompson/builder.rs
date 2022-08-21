@@ -152,9 +152,9 @@ impl State {
 
 /// An abstraction for building Thompson NFAs by hand.
 ///
-/// A builder is what a [`thompson::Compiler`](nfa::Compiler) uses internally
-/// to translate a regex's high-level intermediate representation into an
-/// [`NFA`].
+/// A builder is what a [`thompson::Compiler`](crate::nfa::thompson::Compiler)
+/// uses internally to translate a regex's high-level intermediate
+/// representation into an [`NFA`].
 ///
 /// The primary function of this builder is to abstract away the internal
 /// representation of an NFA and make it difficult to produce NFAs are that

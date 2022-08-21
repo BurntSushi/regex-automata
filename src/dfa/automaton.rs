@@ -983,8 +983,8 @@ pub unsafe trait Automaton {
     /// This example shows how to use this method with a
     /// [`dense::DFA`](crate::dfa::dense::DFA). In particular, this
     /// routine is principally useful when used in conjunction with the
-    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::revers
-    /// e) configuration. In general, it's unlikely to be correct to use
+    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse)
+    /// configuration. In general, it's unlikely to be correct to use
     /// both `try_find_fwd` and `try_find_rev` with the same DFA since any
     /// particular DFA will only support searching in one direction with
     /// respect to the pattern.

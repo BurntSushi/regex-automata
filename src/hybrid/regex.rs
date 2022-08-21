@@ -43,10 +43,6 @@ use crate::{
 /// found by the forward DFA guarantees that the reverse DFA will also find
 /// a match.
 ///
-/// A `Regex` can also have a prefilter set via the
-/// [`set_prefilter`](Regex::set_prefilter) method. By default, no prefilter is
-/// enabled.
-///
 /// # Fallibility
 ///
 /// In non-default configurations, the lazy DFAs generated in this module may
@@ -548,14 +544,6 @@ impl Regex {
     /// This is useful when implementing an iterator over matches
     /// within the same haystack, which cannot be done correctly by simply
     /// providing a subslice of `haystack`.
-    ///
-    /// # Prefilter
-    ///
-    /// Unlike the "find" routines on `Regex`, this is a lower level search
-    /// primitive that permits callers to pass a prefilter explicitly. Since
-    /// this routine asks for an explicit prefilter, any prefilter that is
-    /// attached to this `Regex` is ignored. To use the prefilter on this
-    /// regex for a "search" routine, use the [`Regex::scanner`] method.
     ///
     /// # Errors
     ///

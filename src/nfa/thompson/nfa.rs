@@ -59,10 +59,11 @@ use crate::{
 /// * `(?:exp)` - A non-capturing group.
 /// * `(?i:exp)` - A non-capturing group that sets flags.
 ///
-/// Only the first two forms are said to be _capturing_, which means that the
-/// last position at which they match is reportable. The [`Captures`] type
-/// provides convenient access to the match positions of capturing groups,
-/// which includes looking up capturing groups by their name.
+/// Only the first two forms are said to be _capturing_, which means
+/// that the last position at which they match is reportable. The
+/// [`Captures`](captures::Captures) type provides convenient access to the
+/// match positions of capturing groups, which includes looking up capturing
+/// groups by their name.
 ///
 /// # Byte oriented
 ///
@@ -510,7 +511,7 @@ impl NFA {
     /// See [`NFA::try_start_pattern`] for a fallible version of this routine.
     /// The fallible version is particularly useful when used to implement
     /// search routines for handling the pattern ID that may be inside of
-    /// [`Input::get_anchored`].
+    /// [`Input::get_anchored`](crate::Input::get_anchored).
     ///
     /// # Example
     ///

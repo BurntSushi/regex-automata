@@ -8,8 +8,8 @@ use crate::util::wire::{self, DeserializeError, Endian, SerializeError};
 /// starting configurations to support. The reason for not just supporting
 /// everything unconditionally is that it can use more resources (such as
 /// memory and build time). The downside of this is that if you try to execute
-/// a search using an [`Anchored`] mode that is not supported by the DFA, then
-/// the search will panic.
+/// a search using an [`Anchored`](crate::Anchored) mode that is not supported
+/// by the DFA, then the search will return an error.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StartKind {
     /// Support both anchored and unanchored searches.

@@ -14,15 +14,15 @@ configuring a one-pass DFA.
 // briefly in the third article of his regexp article series:
 // https://swtch.com/~rsc/regexp/regexp3.html
 //
-// That first implementation is in RE2, and the implementation below is most
-// heavily inspired by RE2's. The key thing they have in common is that their
-// transitions are defined over an alphabet of bytes. In contrast, Go's
-// regex engine also has a one-pass engine, but its transitions are more firmly
-// rooted on Unicode codepoints. The ideas are the same, but the implementations
-// are different.
+// Cox's implementation is in RE2, and the implementation below is most
+// heavily inspired by RE2's. The key thing they have in common is that
+// their transitions are defined over an alphabet of bytes. In contrast,
+// Go's regex engine also has a one-pass engine, but its transitions are
+// more firmly rooted on Unicode codepoints. The ideas are the same, but the
+// implementations are different.
 //
-// So, RE2 tends to call this a "one-pass NFA." Here, we call it a "one-pass
-// DFA." They're both true in their own ways:
+// RE2 tends to call this a "one-pass NFA." Here, we call it a "one-pass DFA."
+// They're both true in their own ways:
 //
 // * The "one-pass" criterion is generally a property of the NFA itself. In
 // particular, it is said that an NFA is one-pass if, after each byte of input
@@ -1032,6 +1032,19 @@ impl<'a> InternalBuilder<'a> {
 /// a one-pass DFA is the only DFA capable of reporting the spans of matching
 /// capturing groups.
 ///
+/// To clarify, when we say that unanchored searches are not supported, what
+/// that actually means is:
+///
+/// * All of the high level routines, like [`DFA::find`], always do anchored
+/// searches.
+/// * Since iterators are most useful in the context of unanchored searches,
+/// there is no `DFA::find_iter` method.
+/// * For lower level routines like [`DFA::try_search`], an error will be
+/// returned if the given [`Input`] is configured to do an unanchored search.
+/// (An [`Input`] is configured to do an unanchored search by default. However,
+/// if you use [`DFA::create_input`] to build one, then it will automatically
+/// be configured to do an anchored search.)
+///
 /// # Other limitations
 ///
 /// In addition to the [configurable heap limit](Config::size_limit) and
@@ -1054,12 +1067,12 @@ impl<'a> InternalBuilder<'a> {
 /// One particularly unfortunate example is that enabling Unicode can cause
 /// regexes that were one-pass to no longer be one-pass. Consider the regex
 /// `(?-u)\w*\s` for example. It is one-pass because there is exactly no
-/// overlap between the ASCII definitions of `\w` and `\s`. But `\w*\s` (i.e.,
-/// with Unicode enabled) is *not* one-pass because `\w` and `\s` are actually
-/// UTF-8 automatons. And while the *codepoints* in `\w` and `\s` do not
-/// overlap, the underlying UTF-8 encodings do. Indeed, because of the overlap
-/// between UTF-8 automata, the use of Unicode character classes will tend to
-/// vastly increase the likelihood of a regex not being one-pass.
+/// overlap between the ASCII definitions of `\w` and `\s`. But `\w*\s`
+/// (i.e., with Unicode enabled) is *not* one-pass because `\w` and `\s` get
+/// translated to UTF-8 automatons. And while the *codepoints* in `\w` and `\s`
+/// do not overlap, the underlying UTF-8 encodings do. Indeed, because of the
+/// overlap between UTF-8 automata, the use of Unicode character classes will
+/// tend to vastly increase the likelihood of a regex not being one-pass.
 ///
 /// # How does one know if a regex is one-pass or not?
 ///
@@ -1075,11 +1088,12 @@ impl<'a> InternalBuilder<'a> {
 /// # Resource usage
 ///
 /// Unlike a general DFA, a one-pass DFA has stricter bounds on its resource
-/// usage. Namely, is time and space complexity is `O(n)`, where `n ~
-/// nfa.states().len()`. (A general DFA's time and space complexity is
-/// `O(2^n)`.) This smaller time bound is achieved because there is at most one
-/// DFA state created for each NFA state. If additional DFA states would be
-/// required, then the pattern is not one-pass and construction will fail.
+/// usage. Namely, construction of a one-pass DFA has a time and space
+/// complexity of `O(n)`, where `n ~ nfa.states().len()`. (A general DFA's time
+/// and space complexity is `O(2^n)`.) This smaller time bound is achieved
+/// because there is at most one DFA state created for each NFA state. If
+/// additional DFA states would be required, then the pattern is not one-pass
+/// and construction will fail.
 ///
 /// Note though that currently, a this DFA does use a fully dense
 /// representation. This means that while its space complexity is no worse
@@ -1146,7 +1160,7 @@ pub struct DFA {
     /// cost to doing so either, since an NFA is reference counted internally.
     nfa: NFA,
     /// The transition table. Given a state ID 's' and a byte of haystack 'b',
-    /// the next state is 'table[sid + classes[byte]]'.
+    /// the next state is `table[sid + classes[byte]]`.
     ///
     /// The stride of this table (i.e., the number of columns) is always
     /// a power of 2, even if the alphabet length is smaller. This makes
@@ -1160,10 +1174,10 @@ pub struct DFA {
     table: Vec<Transition>,
     /// The DFA state IDs of the starting states.
     ///
-    /// starts[0] is always present and corresponds to the starting state when
-    /// searching for matches of any pattern in the DFA.
+    /// `starts[0]` is always present and corresponds to the starting state
+    /// when searching for matches of any pattern in the DFA.
     ///
-    /// starts[i] where i>0 corresponds to the starting state for the pattern
+    /// `starts[i]` where i>0 corresponds to the starting state for the pattern
     /// ID 'i-1'. These starting states are optional.
     starts: Vec<StateID>,
     /// Every state ID >= this value corresponds to a match state.
@@ -1412,7 +1426,8 @@ impl DFA {
     /// DFA. Notably, since the one-pass DFA does not support unanchored
     /// searches, this sets the [`Input::anchored`] mode to [`Anchored::No`].
     ///
-    /// This routine is useful when using the lower-level [`DFA::search`] API.
+    /// This routine is useful when using the lower-level [`DFA::try_search`]
+    /// API.
     #[inline]
     pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
@@ -1658,7 +1673,7 @@ impl DFA {
     /// [`Captures`] value. If no match was found, then [`Captures::is_match`]
     /// is guaranteed to return `false`.
     ///
-    /// For more control over the input parameters, see [`DFA::search`].
+    /// For more control over the input parameters, see [`DFA::try_search`].
     ///
     /// # Example
     ///
@@ -1804,7 +1819,7 @@ impl DFA {
     /// no match was found, then `None` is returned and the contents of all
     /// `slots` is unspecified.
     ///
-    /// This is like [`DFA::search`], but it accepts a raw slots slice
+    /// This is like [`DFA::try_search`], but it accepts a raw slots slice
     /// instead of a `Captures` value. This is useful in contexts where you
     /// don't want or need to allocate a `Captures`.
     ///

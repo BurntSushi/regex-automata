@@ -13,6 +13,7 @@ create issues for this release unless it's for a critical bug.
 
 #![allow(warnings)]
 // #![deny(missing_docs)]
+#![deny(rustdoc::broken_intra_doc_links)]
 #![doc(test(attr(deny(warnings))))]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]

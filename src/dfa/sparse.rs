@@ -452,9 +452,9 @@ impl<T: AsRef<[u8]>> DFA<T> {
     ///
     /// When a DFA has starting states for each pattern, then a search with the
     /// DFA can be configured to only look for anchored matches of a specific
-    /// pattern. Specifically, APIs like [`Automaton::find_earliest_fwd_at`]
-    /// can accept a non-None `pattern_id` if and only if this method returns
-    /// true. Otherwise, calling `find_earliest_fwd_at` will panic.
+    /// pattern. Specifically, APIs like [`Automaton::try_search_fwd`] can
+    /// accept a [`Anchored::Pattern`] if and only if this method returns true.
+    /// Otherwise, an error will be returned.
     ///
     /// Note that if the DFA is empty, this always returns false.
     pub fn starts_for_each_pattern(&self) -> bool {
