@@ -61,7 +61,7 @@ use crate::{
         escape::DebugByte,
         int::{Pointer, U16, U32},
         primitives::{PatternID, StateID},
-        search::{Anchored, Input},
+        search::{Anchored, Input, MatchError},
         start::Start,
         wire::{self, DeserializeError, Endian, SerializeError},
     },
@@ -1188,13 +1188,19 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn start_state_forward(&self, input: &Input<'_, '_>) -> StateID {
+    fn start_state_forward(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError> {
         let start = Start::from_position_fwd(&input);
         self.starts.start(input, start)
     }
 
     #[inline]
-    fn start_state_reverse(&self, input: &Input<'_, '_>) -> StateID {
+    fn start_state_reverse(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError> {
         let start = Start::from_position_rev(&input);
         self.starts.start(input, start)
     }
@@ -1875,37 +1881,41 @@ impl<T: AsRef<[u8]>> StartTable<T> {
     /// starting state for the given pattern is returned. If this start table
     /// does not have individual starting states for each pattern, then this
     /// panics.
-    fn start(&self, input: &Input<'_, '_>, start: Start) -> StateID {
+    fn start(
+        &self,
+        input: &Input<'_, '_>,
+        start: Start,
+    ) -> Result<StateID, MatchError> {
         let start_index = start.as_usize();
         let index = match input.get_anchored() {
             Anchored::No => {
-                assert!(
-                    self.kind.has_unanchored(),
-                    "sparse DFA built without unanchored search support",
-                );
+                if !self.kind.has_unanchored() {
+                    return Err(MatchError::invalid_input_unanchored());
+                }
                 start_index
             }
             Anchored::Yes => {
-                assert!(
-                    self.kind.has_anchored(),
-                    "sparse DFA built without anchored search support",
-                );
+                if !self.kind.has_anchored() {
+                    return Err(MatchError::invalid_input_anchored());
+                }
                 self.stride + start_index
             }
             Anchored::Pattern(pid) => {
-                let pid = pid.as_usize();
-                assert!(
-                    pid < self.pattern_len,
-                    "invalid pattern ID {:?}",
-                    pid
-                );
-                (2 * self.stride) + (self.stride * pid) + start_index
+                if pid.as_usize() >= self.pattern_len {
+                    return Err(MatchError::invalid_input_pattern(
+                        pid,
+                        self.pattern_len,
+                    ));
+                }
+                (2 * self.stride)
+                    + (self.stride * pid.as_usize())
+                    + start_index
             }
         };
         let start = index * StateID::SIZE;
         // This OK since we're allowed to assume that the start table contains
         // valid StateIDs.
-        wire::read_state_id_unchecked(&self.table()[start..]).0
+        Ok(wire::read_state_id_unchecked(&self.table()[start..]).0)
     }
 
     /// Return an iterator over all start IDs in this table.

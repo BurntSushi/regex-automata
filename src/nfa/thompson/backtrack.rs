@@ -1164,6 +1164,19 @@ impl BoundedBacktracker {
     ///
     /// The examples below demonstrate each of these additional parameters.
     ///
+    /// # Errors
+    ///
+    /// This routine errors if the search could not complete. For this
+    /// backtracking regex engine, this only occurs when the haystack length
+    /// exceeds [`BoundedBacktracker::max_haystack_len`].
+    ///
+    /// This also errors if the [`Input`] configuration is invalid. This only
+    /// occurs if the `Input` specifies an anchored search for an invalid
+    /// [`PatternID`].
+    ///
+    /// When an error is returned, callers cannot know whether a match
+    /// exists or not.
+    ///
     /// # Example: prefilter
     ///
     /// This example shows how to provide a prefilter for a pattern where all
@@ -1324,6 +1337,19 @@ impl BoundedBacktracker {
     /// permits recording match offsets for every capturing group in every
     /// pattern.
     ///
+    /// # Errors
+    ///
+    /// This routine errors if the search could not complete. For this
+    /// backtracking regex engine, this only occurs when the haystack length
+    /// exceeds [`BoundedBacktracker::max_haystack_len`].
+    ///
+    /// This also errors if the [`Input`] configuration is invalid. This only
+    /// occurs if the `Input` specifies an anchored search for an invalid
+    /// [`PatternID`].
+    ///
+    /// When an error is returned, callers cannot know whether a match
+    /// exists or not.
+    ///
     /// # Example
     ///
     /// This example shows how to find the overall match offsets in a
@@ -1441,7 +1467,7 @@ impl BoundedBacktracker {
                 self.nfa.start_anchored(),
             ),
             Anchored::Yes => (true, self.nfa.start_anchored()),
-            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
+            Anchored::Pattern(pid) => (true, self.nfa.try_start_pattern(pid)?),
         };
         if anchored {
             let at = input.start();

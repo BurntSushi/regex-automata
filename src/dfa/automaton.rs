@@ -125,7 +125,7 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Input::new(haystack));
+    /// let mut state = dfa.start_state_forward(&Input::new(haystack))?;
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -200,7 +200,7 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Input::new(haystack));
+    /// let mut state = dfa.start_state_forward(&Input::new(haystack))?;
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -245,7 +245,10 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_forward(&self, input: &Input<'_, '_>) -> StateID;
+    fn start_state_forward(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError>;
 
     /// Return the ID of the start state for this DFA when executing a reverse
     /// search.
@@ -275,7 +278,10 @@ pub unsafe trait Automaton {
     /// `bytes`. Implementations must also panic if `pattern_id` is non-None
     /// and does not refer to a valid pattern, or if the DFA was not compiled
     /// with anchored start states for each pattern.
-    fn start_state_reverse(&self, input: &Input<'_, '_>) -> StateID;
+    fn start_state_reverse(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError>;
 
     /// Returns true if and only if the given identifier corresponds to a
     /// "special" state. A special state is one or more of the following:
@@ -317,7 +323,7 @@ pub unsafe trait Automaton {
     ///     // initial bytes of the haystack. Note that start states can never
     ///     // be match states (since DFAs in this crate delay matches by 1
     ///     // byte), so we don't need to check if the start state is a match.
-    ///     let mut state = dfa.start_state_forward(&Input::new(haystack));
+    ///     let mut state = dfa.start_state_forward(&Input::new(haystack))?;
     ///     let mut last_match = None;
     ///     // Walk all the bytes in the haystack. We can quit early if we see
     ///     // a dead or a quit state. The former means the automaton will
@@ -561,7 +567,7 @@ pub unsafe trait Automaton {
     ///     // See the Automaton::is_special_state example for similar code
     ///     // with more comments.
     ///
-    ///     let mut state = dfa.start_state_forward(&Input::new(haystack));
+    ///     let mut state = dfa.start_state_forward(&Input::new(haystack))?;
     ///     let mut last_match = None;
     ///     let mut pos = 0;
     ///     while pos < haystack.len() {
@@ -774,7 +780,7 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Input::new(haystack));
+    /// let mut state = dfa.start_state_forward(&Input::new(haystack))?;
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -1426,12 +1432,18 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
-    fn start_state_forward(&self, input: &Input<'_, '_>) -> StateID {
+    fn start_state_forward(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError> {
         (**self).start_state_forward(input)
     }
 
     #[inline]
-    fn start_state_reverse(&self, input: &Input<'_, '_>) -> StateID {
+    fn start_state_reverse(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError> {
         (**self).start_state_reverse(input)
     }
 

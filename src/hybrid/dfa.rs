@@ -1388,8 +1388,8 @@ impl DFA {
             }
         }
         let start_type = Start::from_position_fwd(input);
-        let sid =
-            LazyRef::new(self, cache).get_cached_start_id(input, start_type);
+        let sid = LazyRef::new(self, cache)
+            .get_cached_start_id(input, start_type)?;
         if !sid.is_unknown() {
             return Ok(sid);
         }
@@ -1438,8 +1438,8 @@ impl DFA {
             }
         }
         let start_type = Start::from_position_rev(input);
-        let sid =
-            LazyRef::new(self, cache).get_cached_start_id(input, start_type);
+        let sid = LazyRef::new(self, cache)
+            .get_cached_start_id(input, start_type)?;
         if !sid.is_unknown() {
             return Ok(sid);
         }
@@ -1851,12 +1851,10 @@ impl<'i, 'c> Lazy<'i, 'c> {
             Anchored::No => self.dfa.get_nfa().start_unanchored(),
             Anchored::Yes => self.dfa.get_nfa().start_anchored(),
             Anchored::Pattern(pid) => {
-                assert!(
-                    self.dfa.get_config().get_starts_for_each_pattern(),
-                    "attempted to search for a specific pattern \
-                     without enabling starts_for_each_pattern",
-                );
-                self.dfa.get_nfa().start_pattern(pid)
+                if !self.dfa.get_config().get_starts_for_each_pattern() {
+                    return Err(MatchError::invalid_input_pattern(pid, 0));
+                }
+                self.dfa.get_nfa().try_start_pattern(pid)?
             }
         };
 
@@ -2309,27 +2307,27 @@ impl<'i, 'c> LazyRef<'i, 'c> {
         &self,
         input: &Input<'_, '_>,
         start: Start,
-    ) -> LazyStateID {
+    ) -> Result<LazyStateID, MatchError> {
         let start_index = start.as_usize();
         let index = match input.get_anchored() {
             Anchored::No => start_index,
             Anchored::Yes => Start::len() + start_index,
             Anchored::Pattern(pid) => {
-                assert!(
-                    self.dfa.get_config().get_starts_for_each_pattern(),
-                    "searching for a specific pattern requires enabling \
-                     'starts_for_each_pattern'",
-                );
-                let pid = pid.as_usize();
-                assert!(
-                    pid < self.dfa.pattern_len(),
-                    "invalid pattern ID: {:?}",
-                    pid
-                );
-                (2 * Start::len()) + (Start::len() * pid) + start_index
+                if !self.dfa.get_config().get_starts_for_each_pattern() {
+                    return Err(MatchError::invalid_input_pattern(pid, 0));
+                }
+                if pid.as_usize() >= self.dfa.pattern_len() {
+                    return Err(MatchError::invalid_input_pattern(
+                        pid,
+                        self.dfa.pattern_len(),
+                    ));
+                }
+                (2 * Start::len())
+                    + (Start::len() * pid.as_usize())
+                    + start_index
             }
         };
-        self.cache.starts[index]
+        Ok(self.cache.starts[index])
     }
 
     /// Return the cached NFA/DFA powerset state for the given ID.

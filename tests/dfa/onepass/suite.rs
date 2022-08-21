@@ -104,7 +104,9 @@ fn run_test(
     let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
         "is_match" => TestResult::matched(
-            re.search_slots(cache, &input.earliest(true), &mut []).is_some(),
+            re.try_search_slots(cache, &input.earliest(true), &mut [])
+                .unwrap()
+                .is_some(),
         ),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
@@ -113,7 +115,7 @@ fn run_test(
                 let mut caps = re.create_captures();
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| {
-                        re.search(cache, input, &mut caps);
+                        re.try_search(cache, input, &mut caps)?;
                         Ok(caps.get_match())
                     })
                     .infallible()
@@ -139,7 +141,7 @@ fn run_test(
                     .earliest(test.search_kind() == ret::SearchKind::Earliest);
                 let it = iter::Searcher::new(input)
                     .into_captures_iter(re.create_captures(), |input, caps| {
-                        Ok(re.search(cache, input, caps))
+                        re.try_search(cache, input, caps)
                     })
                     .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))

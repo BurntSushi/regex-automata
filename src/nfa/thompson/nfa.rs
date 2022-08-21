@@ -16,7 +16,7 @@ use crate::{
             IteratorIndexExt, NonMaxUsize, PatternID, PatternIDIter,
             SmallIndex, StateID,
         },
-        search::{Match, Span},
+        search::{Match, MatchError, Span},
         utf8,
     },
 };
@@ -507,6 +507,11 @@ impl NFA {
     /// If the pattern doesn't exist in this NFA, then this panics. This
     /// occurs when `pid.as_usize() >= nfa.pattern_len()`.
     ///
+    /// See [`NFA::try_start_pattern`] for a fallible version of this routine.
+    /// The fallible version is particularly useful when used to implement
+    /// search routines for handling the pattern ID that may be inside of
+    /// [`Input::get_anchored`].
+    ///
     /// # Example
     ///
     /// This example shows that the anchored and unanchored starting states
@@ -532,6 +537,55 @@ impl NFA {
     pub fn start_pattern(&self, pid: PatternID) -> StateID {
         assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
         self.0.start_pattern[pid]
+    }
+
+    /// Return the state identifier of the initial anchored state for the given
+    /// pattern, or an error if the given pattern ID is invalid.
+    ///
+    /// If one uses the starting state for a particular pattern, then the only
+    /// match that can be returned is for the corresponding pattern.
+    ///
+    /// The returned identifier is guaranteed to be a valid index into the
+    /// slice returned by [`NFA::states`], and is also a valid argument to
+    /// [`NFA::state`].
+    ///
+    /// # Errors
+    ///
+    /// If the pattern doesn't exist in this NFA, then this returns an erro.
+    /// This occurs when `pid.as_usize() >= nfa.pattern_len()`.
+    ///
+    /// # Example
+    ///
+    /// This example shows that the anchored and unanchored starting states
+    /// are equivalent when an anchored NFA is built.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new_many(&["^a", "^b"])?;
+    /// // The anchored and unanchored states for the entire NFA are the same,
+    /// // since all of the patterns are anchored.
+    /// assert_eq!(nfa.start_anchored(), nfa.start_unanchored());
+    /// // But the anchored starting states for each pattern are distinct,
+    /// // because these starting states can only lead to matches for the
+    /// // corresponding pattern.
+    /// let anchored = nfa.start_anchored();
+    /// assert_ne!(anchored, nfa.try_start_pattern(PatternID::must(0))?);
+    /// assert_ne!(anchored, nfa.try_start_pattern(PatternID::must(1))?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn try_start_pattern(
+        &self,
+        pid: PatternID,
+    ) -> Result<StateID, MatchError> {
+        match self.0.start_pattern.get(pid.as_usize()) {
+            Some(&sid) => Ok(sid),
+            None => {
+                Err(MatchError::invalid_input_pattern(pid, self.pattern_len()))
+            }
+        }
     }
 
     /// Get the byte class set for this NFA.
@@ -1656,7 +1710,7 @@ mod tests {
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
             let input = Input::new(haystack).range(start..end);
-            vm.search(&mut cache, &input, &mut caps);
+            vm.try_search(&mut cache, &input, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 
@@ -1675,7 +1729,7 @@ mod tests {
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
             let input = Input::new(haystack).range(start..end);
-            vm.search(&mut cache, &input, &mut caps);
+            vm.try_search(&mut cache, &input, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 

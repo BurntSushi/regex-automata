@@ -324,7 +324,7 @@ fn search_onepass(
     let mut it = iter::Searcher::new(input.clone());
     loop {
         it.advance(|input| {
-            re.search(cache, input, &mut caps);
+            re.try_search(cache, input, &mut caps)?;
             Ok(caps.get_match())
         });
         let m = match caps.get_match() {
@@ -399,10 +399,10 @@ fn search_pikevm(
     let mut caps = re.create_captures();
     let mut it = iter::Searcher::new(input.clone());
     loop {
-        it.advance(|input| {
-            re.search(cache, input, &mut caps);
+        it.try_advance(|input| {
+            re.try_search(cache, input, &mut caps)?;
             Ok(caps.get_match())
-        });
+        })?;
         let m = match caps.get_match() {
             None => break,
             Some(m) => m,

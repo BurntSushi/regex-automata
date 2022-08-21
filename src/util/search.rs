@@ -178,7 +178,7 @@ impl<'h, 'p> Input<'h, 'p> {
     ///
     /// // A standard search finds nothing, as expected.
     /// let input = Input::new(haystack);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// // But if we wanted to search starting at position '1', we might
@@ -186,14 +186,14 @@ impl<'h, 'p> Input<'h, 'p> {
     /// // anchors to take the surrounding context into account! And thus,
     /// // a match is produced.
     /// let input = Input::new(&haystack[1..3]);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 0..2)), caps.get_match());
     ///
     /// // But if we specify the span of the search instead of slicing the
     /// // haystack, then the regex engine can "see" outside of the span
     /// // and resolve the anchors correctly.
     /// let input = Input::new(haystack).span(1..3);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -314,7 +314,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let re = PikeVM::new(r"^a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(2..3).anchored(Anchored::No);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
     /// assert_eq!(None, caps.get_match());
@@ -322,7 +322,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let re = PikeVM::new(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(2..3).anchored(Anchored::Yes);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
     /// assert_eq!(Some(Match::must(0, 2..3)), caps.get_match());
@@ -330,7 +330,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let re = PikeVM::new(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(1..3).anchored(Anchored::Yes);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
     /// // is found.
@@ -339,7 +339,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// let re = PikeVM::new(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(1..3).anchored(Anchored::No);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// // Since anchored=no, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
     /// // prefix allows the search to match 'a'.
@@ -398,14 +398,14 @@ impl<'h, 'p> Input<'h, 'p> {
     ///
     /// // A normal search implements greediness like you expect.
     /// let input = Input::new("foo12345");
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 0..8)), caps.get_match());
     ///
     /// // When 'earliest' is enabled and the regex engine supports
     /// // it, the search will bail once it knows a match has been
     /// // found.
     /// let input = Input::new("foo12345").earliest(true);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 0..4)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -457,31 +457,31 @@ impl<'h, 'p> Input<'h, 'p> {
     ///
     /// // UTF-8 mode is enabled by default.
     /// let mut input = Input::new("☃");
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
     ///
     /// // Even though an empty regex matches at 1..1, our next match is
     /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
     /// // three bytes long).
     /// input.set_start(1);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
     /// let mut noutf8 = input.clone().utf8(false);
-    /// re.search(&mut cache, &noutf8, &mut caps);
+    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
     ///
     /// noutf8.set_start(2);
-    /// re.search(&mut cache, &noutf8, &mut caps);
+    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
     ///
     /// noutf8.set_start(3);
-    /// re.search(&mut cache, &noutf8, &mut caps);
+    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// noutf8.set_start(4);
-    /// re.search(&mut cache, &noutf8, &mut caps);
+    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -897,6 +897,18 @@ impl<'h, 'p> Input<'h, 'p> {
         if !self.get_utf8() || !m.is_empty() {
             return Ok(Some(m));
         }
+        // If our config says to do an anchored search, then we're definitely
+        // done. We just need to determine whether we have a valid match or
+        // not.
+        if self.get_anchored().is_anchored() {
+            return Ok(if self.is_char_boundary(m.end()) {
+                Some(m)
+            } else {
+                None
+            });
+        }
+        // Otherwise, we have an unanchored search, so just keep looking for
+        // matches until we don't have one that splits a codepoint.
         let mut input = self.clone();
         while m.is_empty() && !input.is_char_boundary(m.end()) {
             input.set_start(input.start().checked_add(1).unwrap());
@@ -1331,6 +1343,9 @@ impl PatternSet {
     ///
     /// This panics if `pid` exceeds the capacity of this set.
     pub fn insert(&mut self, pid: PatternID) {
+        // TODO: Consider whether to panic here or not. For no panics, then
+        // 'insert' is a no-op for a pid that exceeds capacity, which seems
+        // like a silent failure to me?
         if self.which[pid] {
             return;
         }
@@ -1643,6 +1658,44 @@ impl MatchError {
     pub fn haystack_too_long(len: usize) -> MatchError {
         MatchError::new(MatchErrorKind::HaystackTooLong { len })
     }
+
+    /// Create a new "invalid anchored search" error. This occurs when the
+    /// caller requests an anchored search but where anchored searches aren't
+    /// supported.
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::InvalidInputAnchored`] kind.
+    pub fn invalid_input_anchored() -> MatchError {
+        MatchError::new(MatchErrorKind::InvalidInputAnchored)
+    }
+
+    /// Create a new "invalid unanchored search" error. This occurs when the
+    /// caller requests an unanchored search but where unanchored searches
+    /// aren't supported.
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::InvalidInputUnanchored`] kind.
+    pub fn invalid_input_unanchored() -> MatchError {
+        MatchError::new(MatchErrorKind::InvalidInputUnanchored)
+    }
+
+    /// Create a new "invalid search pattern" error. The given `pattern`
+    /// corresponds to the pattern ID given in the input configuration, and the
+    /// given `pattern_len` corresponds to total number of patterns that may be
+    /// explicitly searched for. (This may be zero even for multi-regexes if
+    /// starting states for each pattern weren't enabled.)
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::InvalidInputPattern`] kind.
+    pub fn invalid_input_pattern(
+        pattern: PatternID,
+        pattern_len: usize,
+    ) -> MatchError {
+        MatchError::new(MatchErrorKind::InvalidInputPattern {
+            pattern,
+            pattern_len,
+        })
+    }
 }
 
 /// The underlying kind of a [`MatchError`].
@@ -1694,6 +1747,39 @@ pub enum MatchErrorKind {
         /// The length of the haystack that exceeded the limit.
         len: usize,
     },
+    /// An error indicating that an anchored search was requested, but from a
+    /// regex engine that was built without anchored support.
+    ///
+    /// Most regex engines unconditionally enable both anchored and unanchored
+    /// search support. Some regex engines, like the one-pass DFA, only
+    /// support anchored searches. Other regex engines, like fully compiled
+    /// DFAs, permit configuring whether anchored or unanchored or both are
+    /// supported.
+    InvalidInputAnchored,
+    /// An error indicating that an unanchored search was requested, but from a
+    /// regex engine that was built without unanchored support.
+    ///
+    /// Most regex engines unconditionally enable both anchored and unanchored
+    /// search support. Some regex engines, like the one-pass DFA, only
+    /// support anchored searches. Other regex engines, like fully compiled
+    /// DFAs, permit configuring whether anchored or unanchored or both are
+    /// supported.
+    InvalidInputUnanchored,
+    /// This error occurs if the caller attempts to execute an anchored search
+    /// for a specific pattern, but the regex engine doesn't support it. Either
+    /// because the pattern ID is invalid or because the underlying regex engine
+    /// wasn't built with anchored starting states for each pattern.
+    ///
+    /// This error kind is a special case of `InvalidInput`, which permits
+    /// specifying more information about the parameters given.
+    InvalidInputPattern {
+        /// The pattern ID given.
+        pattern: PatternID,
+        /// The number of patterns supported, which might be zero if the
+        /// regex engine doesn't support searching for specific patterns even
+        /// if the regex was compiled with multiple patterns.
+        pattern_len: usize,
+    },
 }
 
 #[cfg(feature = "std")]
@@ -1713,6 +1799,32 @@ impl core::fmt::Display for MatchError {
             }
             MatchErrorKind::HaystackTooLong { len } => {
                 write!(f, "haystack of length {} is too long", len)
+            }
+            MatchErrorKind::InvalidInputAnchored => {
+                write!(f, "anchored searches are not supported or enabled")
+            }
+            MatchErrorKind::InvalidInputUnanchored => {
+                write!(f, "unanchored searches are not supported or enabled")
+            }
+            MatchErrorKind::InvalidInputPattern { pattern_len: 0, .. } => {
+                // When no patterns are supported, we special case the error
+                // message to make it a little clearer, since it's very likely
+                // the case that some config knob needed to be enabled
+                // but wasn't.
+                write!(
+                    f,
+                    "anchored searches for specific patterns are not \
+                     permitted unless start states for each pattern \
+                     are enabled",
+                )
+            }
+            MatchErrorKind::InvalidInputPattern { pattern, pattern_len } => {
+                write!(
+                    f,
+                    "invalid pattern {}, up to {} patterns are supported",
+                    pattern.as_usize(),
+                    pattern_len
+                )
             }
         }
     }
@@ -1735,11 +1847,18 @@ mod tests {
     // still want things to be small.
     #[test]
     fn match_error_size() {
-        let err_size = if cfg!(feature = "alloc") {
-            core::mem::size_of::<MatchError>()
+        let expected_size = if cfg!(feature = "alloc") {
+            core::mem::size_of::<usize>()
         } else {
-            2 * core::mem::size_of::<MatchError>()
+            2 * core::mem::size_of::<usize>()
         };
-        assert_eq!(core::mem::size_of::<usize>(), err_size);
+        assert_eq!(expected_size, core::mem::size_of::<MatchError>());
+    }
+
+    // Same as above, but for the underlying match error kind.
+    #[test]
+    fn match_error_kind_size() {
+        let expected_size = 2 * core::mem::size_of::<usize>();
+        assert_eq!(expected_size, core::mem::size_of::<MatchErrorKind>());
     }
 }

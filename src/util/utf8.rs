@@ -198,7 +198,7 @@ pub(crate) fn is_word_char_fwd(bytes: &[u8], mut at: usize) -> bool {
             .unwrap();
         // This is OK since '\w' contains no look-around.
         let input = Input::new("").anchored(Anchored::Yes);
-        let start_id = dfa.start_state_forward(&input);
+        let start_id = dfa.start_state_forward(&input).expect("correct input");
         (dfa, start_id)
     });
     let mut sid = *start_id;
@@ -240,7 +240,7 @@ pub(crate) fn is_word_char_rev(bytes: &[u8], mut at: usize) -> bool {
             .unwrap();
         // This is OK since '\w' contains no look-around.
         let input = Input::new("").anchored(Anchored::Yes);
-        let start_id = dfa.start_state_reverse(&input);
+        let start_id = dfa.start_state_reverse(&input).expect("correct input");
         (dfa, start_id)
     });
     let mut sid = *start_id;

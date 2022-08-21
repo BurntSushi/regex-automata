@@ -38,7 +38,7 @@ use crate::{
         alphabet::{self, ByteClasses},
         int::Pointer,
         primitives::{PatternID, StateID},
-        search::{Anchored, Input},
+        search::{Anchored, Input, MatchError},
         start::Start,
         wire::{self, DeserializeError, Endian, SerializeError},
     },
@@ -613,7 +613,7 @@ impl Config {
     ///     .build(r"[a-z]+")?;
     ///
     /// let haystack = "123 foobar 4567".as_bytes();
-    /// let sid = dfa.start_state_forward(&Input::new(haystack));
+    /// let sid = dfa.start_state_forward(&Input::new(haystack))?;
     /// // The ID returned by 'start_state_forward' will always be tagged as
     /// // a start state when start state specialization is enabled.
     /// assert!(dfa.is_special_state(sid));
@@ -632,7 +632,7 @@ impl Config {
     /// let dfa = DFA::new(r"[a-z]+")?;
     ///
     /// let haystack = "123 foobar 4567";
-    /// let sid = dfa.start_state_forward(&Input::new(haystack));
+    /// let sid = dfa.start_state_forward(&Input::new(haystack))?;
     /// // Start states are not special in the default configuration!
     /// assert!(!dfa.is_special_state(sid));
     /// assert!(!dfa.is_start_state(sid));
@@ -2958,13 +2958,19 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     }
 
     #[inline]
-    fn start_state_forward(&self, input: &Input<'_, '_>) -> StateID {
+    fn start_state_forward(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError> {
         let start = Start::from_position_fwd(&input);
         self.st.start(input, start)
     }
 
     #[inline]
-    fn start_state_reverse(&self, input: &Input<'_, '_>) -> StateID {
+    fn start_state_reverse(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<StateID, MatchError> {
         let start = Start::from_position_rev(&input);
         self.st.start(input, start)
     }
@@ -3788,34 +3794,38 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     /// starting state for the given pattern is returned. If this start table
     /// does not have individual starting states for each pattern, then this
     /// panics.
-    fn start(&self, input: &Input<'_, '_>, start: Start) -> StateID {
+    fn start(
+        &self,
+        input: &Input<'_, '_>,
+        start: Start,
+    ) -> Result<StateID, MatchError> {
         let start_index = start.as_usize();
         let index = match input.get_anchored() {
             Anchored::No => {
-                assert!(
-                    self.kind.has_unanchored(),
-                    "DFA built without unanchored search support",
-                );
+                if !self.kind.has_unanchored() {
+                    return Err(MatchError::invalid_input_unanchored());
+                }
                 start_index
             }
             Anchored::Yes => {
-                assert!(
-                    self.kind.has_anchored(),
-                    "DFA built without anchored search support",
-                );
+                if !self.kind.has_anchored() {
+                    return Err(MatchError::invalid_input_anchored());
+                }
                 self.stride + start_index
             }
             Anchored::Pattern(pid) => {
-                let pid = pid.as_usize();
-                assert!(
-                    pid < self.pattern_len,
-                    "invalid pattern ID {:?}",
-                    pid
-                );
-                (2 * self.stride) + (self.stride * pid) + start_index
+                if pid.as_usize() >= self.pattern_len {
+                    return Err(MatchError::invalid_input_pattern(
+                        pid,
+                        self.pattern_len,
+                    ));
+                }
+                (2 * self.stride)
+                    + (self.stride * pid.as_usize())
+                    + start_index
             }
         };
-        self.table()[index]
+        Ok(self.table()[index])
     }
 
     /// Returns an iterator over all start state IDs in this table.

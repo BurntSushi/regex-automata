@@ -85,7 +85,7 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
         input.set_start(0);
         let mut count = 0;
         while let Some(m) = {
-            re.search(&mut cache, &input, &mut caps);
+            re.try_search(&mut cache, &input, &mut caps)?;
             caps.get_match()
         } {
             for i in 0..caps.group_len() {

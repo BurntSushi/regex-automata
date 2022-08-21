@@ -108,7 +108,7 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
             let mut count = 0;
             let mut input = Input::new(line);
             while let Some(m) = {
-                re.search(&mut cache, &input, &mut caps);
+                re.try_search(&mut cache, &input, &mut caps)?;
                 caps.get_match()
             } {
                 for i in 0..caps.group_len() {
@@ -139,7 +139,7 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
             let mut count = 0;
             let mut input = Input::new(line);
             while let Some(m) = {
-                re.search(&mut cache, &input, &mut caps);
+                re.try_search(&mut cache, &input, &mut caps)?;
                 caps.get_match()
             } {
                 for i in 0..caps.group_len() {

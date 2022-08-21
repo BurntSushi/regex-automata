@@ -140,32 +140,32 @@ impl Config {
     ///
     /// // The empty string matches at every position.
     ///
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
     ///
     /// input.set_start(1);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
     ///
     /// input.set_start(2);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
     ///
     /// input.set_start(3);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// input.set_start(4);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 4..4)), caps.get_match());
     ///
     /// input.set_start(5);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 5..5)), caps.get_match());
     ///
     /// // 6 > input.haystack.len(), so there's no match here.
     /// input.set_start(6);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -187,37 +187,37 @@ impl Config {
     /// let mut input = re.create_input("a☃z");
     ///
     /// // 0 occurs just before 'a', where the empty string matches.
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
     ///
     /// // 1 occurs just before the snowman.
     /// input.set_start(1);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
     ///
     /// // 2 splits the first and second bytes of the snowman.
     /// input.set_start(2);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// // 3 splits the second and third bytes of the snowman.
     /// input.set_start(3);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// // 4 is right past the snowman and before the 'z'
     /// input.set_start(4);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 4..4)), caps.get_match());
     ///
     /// // 5 == input.haystack.len(), at which point, the empty string matches.
     /// input.set_start(5);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(Some(Match::must(0, 5..5)), caps.get_match());
     ///
     /// // 6 > input.haystack.len(), so there's no match here.
     /// input.set_start(6);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -260,14 +260,14 @@ impl Config {
     /// let haystack = "123abc";
     ///
     /// // A normal multi-pattern search will show pattern 1 matches.
-    /// re.search(&mut cache, &re.create_input(haystack), &mut caps);
+    /// re.try_search(&mut cache, &re.create_input(haystack), &mut caps)?;
     /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
     ///
     /// // If we only want to report pattern 0 matches, then we'll get no
     /// // match here.
     /// let input = re.create_input(haystack)
     ///     .anchored(Anchored::Pattern(PatternID::must(0)));
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1128,7 +1128,7 @@ impl<'a> InternalBuilder<'a> {
 /// let input = re.create_input("a1zb2yc3x");
 ///
 /// let mut it = Searcher::new(input).into_captures_iter(caps, |input, caps| {
-///     Ok(re.search(&mut cache, input, caps))
+///     Ok(re.try_search(&mut cache, input, caps)?)
 /// }).infallible();
 /// let caps0 = it.next().unwrap();
 /// assert_eq!(Some(Span::from(1..2)), caps0.get_group(1));
@@ -1648,7 +1648,9 @@ impl DFA {
         haystack: H,
     ) -> bool {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        self.search_slots(cache, &input, &mut []).is_some()
+        self.try_search_slots(cache, &input, &mut [])
+            .expect("correct input")
+            .is_some()
     }
 
     /// Executes an anchored leftmost forward search and writes the spans
@@ -1688,7 +1690,7 @@ impl DFA {
         caps: &mut Captures,
     ) {
         let input = self.create_input(haystack.as_ref());
-        self.search(cache, &input, caps)
+        self.try_search(cache, &input, caps).expect("correct input")
     }
 
     /// Executes an anchored leftmost forward search and writes the spans
@@ -1734,14 +1736,14 @@ impl DFA {
     /// let haystack = "123abc";
     ///
     /// // A normal multi-pattern search will show pattern 1 matches.
-    /// re.search(&mut cache, &re.create_input(haystack), &mut caps);
+    /// re.try_search(&mut cache, &re.create_input(haystack), &mut caps)?;
     /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
     ///
     /// // If we only want to report pattern 0 matches, then we'll get no
     /// // match here.
     /// let input = re.create_input(haystack)
     ///     .anchored(Anchored::Pattern(PatternID::must(0)));
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1769,7 +1771,7 @@ impl DFA {
     /// // `3..6`.
     /// let expected = Some(Match::must(0, 0..3));
     /// let input = re.create_input(&haystack[3..6]);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// // But if we provide the bounds of the search within the context of the
@@ -1778,20 +1780,21 @@ impl DFA {
     /// // as a valid offset into `haystack` instead of its sub-slice.)
     /// let expected = None;
     /// let input = re.create_input(haystack).range(3..6);
-    /// re.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn search(
+    pub fn try_search(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
         caps: &mut Captures,
-    ) {
-        let pid = self.search_slots(cache, input, caps.slots_mut());
+    ) -> Result<(), MatchError> {
+        let pid = self.try_search_slots(cache, input, caps.slots_mut())?;
         caps.set_pattern(pid);
+        Ok(())
     }
 
     /// Executes an anchored leftmost forward search and writes the spans
@@ -1840,7 +1843,7 @@ impl DFA {
     /// // allocate two slots for each pattern. Each slot records the start
     /// // and end of the match.
     /// let mut slots = [None; 4];
-    /// let pid = re.search_slots(&mut cache, &input, &mut slots);
+    /// let pid = re.try_search_slots(&mut cache, &input, &mut slots)?;
     /// assert_eq!(Some(PatternID::must(1)), pid);
     ///
     /// // The overall match offsets are always at 'pid * 2' and 'pid * 2 + 1'.
@@ -1854,15 +1857,15 @@ impl DFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn search_slots(
+    pub fn try_search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Option<PatternID> {
-        match self.search_imp(cache, input, slots) {
-            None => return None,
-            Some(pid) if !input.get_utf8() => return Some(pid),
+    ) -> Result<Option<PatternID>, MatchError> {
+        match self.search_imp(cache, input, slots)? {
+            None => return Ok(None),
+            Some(pid) if !input.get_utf8() => return Ok(Some(pid)),
             Some(pid) => {
                 // These slot indices are always correct because we know our
                 // 'pid' is valid and thus we know that the slot indices for it
@@ -1870,7 +1873,7 @@ impl DFA {
                 let slot_start = pid.as_usize().wrapping_mul(2);
                 let slot_end = slot_start.wrapping_add(1);
                 if slot_end >= slots.len() {
-                    return Some(pid);
+                    return Ok(Some(pid));
                 }
                 // These unwraps are OK because we know we have a match and
                 // we know our caller provided slots are big enough.
@@ -1880,9 +1883,9 @@ impl DFA {
                 // as a match. And since one-pass DFAs only support anchored
                 // searches, we don't try to skip ahead to find the next match.
                 if start == end && !input.is_char_boundary(start) {
-                    return None;
+                    return Ok(None);
                 }
-                Some(pid)
+                Ok(Some(pid))
             }
         }
     }
@@ -1894,7 +1897,7 @@ impl DFA {
         cache: &mut Cache,
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Option<PatternID> {
+    ) -> Result<Option<PatternID>, MatchError> {
         // PERF: Some ideas. I ran out of steam after my initial impl to try
         // many of these.
         //
@@ -1932,7 +1935,7 @@ impl DFA {
         // This just might be a tricky DFA to optimize.
 
         if input.is_done() {
-            return None;
+            return Ok(None);
         }
         // We unfortunately have a bit of book-keeping to do to set things
         // up. We do have to setup our cache and clear all of our slots. In
@@ -1967,7 +1970,7 @@ impl DFA {
         let mut pid = None;
         let mut sid = match input.get_anchored() {
             Anchored::Yes => self.start(),
-            Anchored::Pattern(pid) => self.start_pattern(pid),
+            Anchored::Pattern(pid) => self.start_pattern(pid)?,
             Anchored::No => {
                 panic!("one-pass DFA does not support unanchored searches")
             }
@@ -1976,7 +1979,7 @@ impl DFA {
             if sid >= self.min_match_id {
                 if self.find_match(cache, input, at, sid, slots, &mut pid) {
                     if input.get_earliest() {
-                        return pid;
+                        return Ok(pid);
                     }
                 }
             }
@@ -1985,14 +1988,14 @@ impl DFA {
             sid = trans.state_id();
             let epsilons = trans.epsilons();
             if sid == DEAD || !epsilons.look_matches(input.haystack(), at) {
-                return pid;
+                return Ok(pid);
             }
             epsilons.slots().apply(at, cache.explicit_slots());
         }
         if sid >= self.min_match_id {
             self.find_match(cache, input, input.end(), sid, slots, &mut pid);
         }
-        pid
+        Ok(pid)
     }
 
     /// Assumes 'sid' is a match state and looks for whether a match can
@@ -2054,12 +2057,20 @@ impl DFA {
     /// Returns the anchored start state for matching the given pattern. If
     /// the given pattern is not in this DFA or if 'starts_for_each_pattern'
     /// was not enabled, then this panics.
-    fn start_pattern(&self, pid: PatternID) -> StateID {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
-        self.starts.get(pid.one_more()).copied().expect(
-            "starts_for_each_pattern must be enabled to \
-             search by a specific pattern",
-        )
+    fn start_pattern(&self, pid: PatternID) -> Result<StateID, MatchError> {
+        match self.starts.get(pid.one_more()) {
+            None => {
+                // 'starts' always has non-zero length. The first entry is
+                // always the anchored starting state for all patterns, and
+                // the following entries are optional and correspond to the
+                // anchored starting states for patterns at pid+1. Thus,
+                // starts.len()-1 corresponds to the total number of patterns
+                // that one can explicitly search for. (And it may be zero.)
+                let len = self.starts.len().checked_sub(1).unwrap();
+                Err(MatchError::invalid_input_pattern(pid, len))
+            }
+            Some(&sid) => Ok(sid),
+        }
     }
 
     /// Returns the transition from the given state ID and byte of input. The

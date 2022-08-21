@@ -124,13 +124,13 @@ impl Config {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::builder()
+    /// let re = PikeVM::builder()
     ///     .configure(PikeVM::config().utf8(false))
     ///     .build(r"")?;
-    /// let mut cache = vm.create_cache();
+    /// let mut cache = re.create_cache();
     ///
     /// let haystack = "a☃z";
-    /// let mut it = vm.find_iter(&mut cache, haystack);
+    /// let mut it = re.find_iter(&mut cache, haystack);
     /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
     /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
     /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
@@ -149,13 +149,13 @@ impl Config {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::builder()
+    /// let re = PikeVM::builder()
     ///     .configure(PikeVM::config().utf8(true))
     ///     .build(r"")?;
-    /// let mut cache = vm.create_cache();
+    /// let mut cache = re.create_cache();
     ///
     /// let haystack = "a☃z";
-    /// let mut it = vm.find_iter(&mut cache, haystack);
+    /// let mut it = re.find_iter(&mut cache, haystack);
     /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
     /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
     /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
@@ -236,15 +236,15 @@ impl Config {
 /// ```
 /// use regex_automata::{nfa::thompson::pikevm::PikeVM, util::syntax, Match};
 ///
-/// let vm = PikeVM::builder()
+/// let re = PikeVM::builder()
 ///     .configure(PikeVM::config().utf8(false))
 ///     .syntax(syntax::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
-/// let mut cache = vm.create_cache();
+/// let mut cache = re.create_cache();
 ///
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
 /// let expected = Some(Match::must(0, 1..9));
-/// let got = vm.find_iter(&mut cache, haystack).next();
+/// let got = re.find_iter(&mut cache, haystack).next();
 /// assert_eq!(expected, got);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
 /// // but the subsequent `.*` does not! Disabling UTF-8
@@ -296,12 +296,6 @@ impl Builder {
     /// construction of the NFA itself will of course be ignored, since the NFA
     /// given here is already built.
     pub fn build_from_nfa(&self, nfa: NFA) -> Result<PikeVM, Error> {
-        // TODO: Check that this is correct.
-        // if !cfg!(all(
-        // feature = "dfa",
-        // feature = "syntax",
-        // feature = "unicode-perl"
-        // )) {
         // If the NFA has no captures, then the PikeVM doesn't work since it
         // relies on them in order to report match locations. However, in
         // the special case of an NFA with no patterns, it is allowed, since
@@ -392,10 +386,10 @@ impl Builder {
 /// ```
 /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
 ///
-/// let vm = PikeVM::new(r"\b\w+\b")?;
-/// let mut cache = vm.create_cache();
+/// let re = PikeVM::new(r"\b\w+\b")?;
+/// let mut cache = re.create_cache();
 ///
-/// let mut it = vm.find_iter(&mut cache, "Шерлок Холмс");
+/// let mut it = re.find_iter(&mut cache, "Шерлок Холмс");
 /// assert_eq!(Some(Match::must(0, 0..12)), it.next());
 /// assert_eq!(Some(Match::must(0, 13..23)), it.next());
 /// assert_eq!(None, it.next());
@@ -419,11 +413,11 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::new("foo[0-9]+bar")?;
-    /// let mut cache = vm.create_cache();
+    /// let re = PikeVM::new("foo[0-9]+bar")?;
+    /// let mut cache = re.create_cache();
     /// assert_eq!(
     ///     Some(Match::must(0, 3..14)),
-    ///     vm.find_iter(&mut cache, "zzzfoo12345barzzz").next(),
+    ///     re.find_iter(&mut cache, "zzzfoo12345barzzz").next(),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -439,10 +433,10 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::new_many(&["[a-z]+", "[0-9]+"])?;
-    /// let mut cache = vm.create_cache();
+    /// let re = PikeVM::new_many(&["[a-z]+", "[0-9]+"])?;
+    /// let mut cache = re.create_cache();
     ///
-    /// let mut it = vm.find_iter(&mut cache, "abc 1 foo 4567 0 quux");
+    /// let mut it = re.find_iter(&mut cache, "abc 1 foo 4567 0 quux");
     /// assert_eq!(Some(Match::must(0, 0..3)), it.next());
     /// assert_eq!(Some(Match::must(1, 4..5)), it.next());
     /// assert_eq!(Some(Match::must(0, 6..9)), it.next());
@@ -478,10 +472,10 @@ impl PikeVM {
     /// let config = NFA::config().nfa_size_limit(Some(1_000));
     /// let nfa = NFA::compiler().configure(config).build_from_hir(&hir)?;
     ///
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new_from_nfa(nfa)?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Some(Match::must(0, 3..4));
-    /// vm.find(&mut cache, "!@#A#@!", &mut caps);
+    /// re.find(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -497,12 +491,12 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::always_match()?;
-    /// let mut cache = vm.create_cache();
+    /// let re = PikeVM::always_match()?;
+    /// let mut cache = re.create_cache();
     ///
     /// let expected = Match::must(0, 0..0);
-    /// assert_eq!(Some(expected), vm.find_iter(&mut cache, "").next());
-    /// assert_eq!(Some(expected), vm.find_iter(&mut cache, "foo").next());
+    /// assert_eq!(Some(expected), re.find_iter(&mut cache, "").next());
+    /// assert_eq!(Some(expected), re.find_iter(&mut cache, "foo").next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn always_match() -> Result<PikeVM, Error> {
@@ -517,11 +511,11 @@ impl PikeVM {
     /// ```
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::never_match()?;
-    /// let mut cache = vm.create_cache();
+    /// let re = PikeVM::never_match()?;
+    /// let mut cache = re.create_cache();
     ///
-    /// assert_eq!(None, vm.find_iter(&mut cache, "").next());
-    /// assert_eq!(None, vm.find_iter(&mut cache, "foo").next());
+    /// assert_eq!(None, re.find_iter(&mut cache, "").next());
+    /// assert_eq!(None, re.find_iter(&mut cache, "foo").next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn never_match() -> Result<PikeVM, Error> {
@@ -548,13 +542,13 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::builder()
+    /// let re = PikeVM::builder()
     ///     .configure(PikeVM::config().utf8(false))
     ///     .build(r"")?;
-    /// let mut cache = vm.create_cache();
+    /// let mut cache = re.create_cache();
     ///
     /// let haystack = "a☃z";
-    /// let mut it = vm.find_iter(&mut cache, haystack);
+    /// let mut it = re.find_iter(&mut cache, haystack);
     /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
     /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
     /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
@@ -586,15 +580,15 @@ impl PikeVM {
     ///     Match,
     /// };
     ///
-    /// let vm = PikeVM::builder()
+    /// let re = PikeVM::builder()
     ///     .configure(PikeVM::config().utf8(false))
     ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 1..9));
-    /// vm.find(&mut cache, haystack, &mut caps);
+    /// re.find(&mut cache, haystack, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -698,8 +692,8 @@ impl PikeVM {
     /// ```
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::never_match()?;
-    /// assert_eq!(vm.pattern_len(), 0);
+    /// let re = PikeVM::never_match()?;
+    /// assert_eq!(re.pattern_len(), 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -708,8 +702,8 @@ impl PikeVM {
     /// ```
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::always_match()?;
-    /// assert_eq!(vm.pattern_len(), 1);
+    /// let re = PikeVM::always_match()?;
+    /// assert_eq!(re.pattern_len(), 1);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -718,8 +712,8 @@ impl PikeVM {
     /// ```
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
-    /// assert_eq!(vm.pattern_len(), 3);
+    /// let re = PikeVM::new_many(&["[0-9]+", "[a-z]+", "[A-Z]+"])?;
+    /// assert_eq!(re.pattern_len(), 3);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn pattern_len(&self) -> usize {
@@ -756,11 +750,11 @@ impl PikeVM {
     /// ```
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::new("foo[0-9]+bar")?;
-    /// let mut cache = vm.create_cache();
+    /// let re = PikeVM::new("foo[0-9]+bar")?;
+    /// let mut cache = re.create_cache();
     ///
-    /// assert!(vm.is_match(&mut cache, "foo12345bar"));
-    /// assert!(!vm.is_match(&mut cache, "foobar"));
+    /// assert!(re.is_match(&mut cache, "foo12345bar"));
+    /// assert!(!re.is_match(&mut cache, "foobar"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
@@ -770,7 +764,9 @@ impl PikeVM {
         haystack: H,
     ) -> bool {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        self.search_slots(cache, &input, &mut []).is_some()
+        self.try_search_slots(cache, &input, &mut [])
+            .expect("correct input")
+            .is_some()
     }
 
     /// Executes a leftmost forward search and writes the spans of capturing
@@ -798,19 +794,19 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::new("foo[0-9]+")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new("foo[0-9]+")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Match::must(0, 0..8);
-    /// vm.find(&mut cache, "foo12345", &mut caps);
+    /// re.find(&mut cache, "foo12345", &mut caps);
     /// assert_eq!(Some(expected), caps.get_match());
     ///
     /// // Even though a match is found after reading the first byte (`a`),
     /// // the leftmost first match semantics demand that we find the earliest
     /// // match that prefers earlier parts of the pattern over later parts.
-    /// let vm = PikeVM::new("abc|a")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new("abc|a")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Match::must(0, 0..3);
-    /// vm.find(&mut cache, "abc", &mut caps);
+    /// re.find(&mut cache, "abc", &mut caps);
     /// assert_eq!(Some(expected), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -823,7 +819,7 @@ impl PikeVM {
         caps: &mut Captures,
     ) {
         let input = self.create_input(haystack.as_ref());
-        self.search(cache, &input, caps)
+        self.try_search(cache, &input, caps).expect("correct input")
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -834,11 +830,11 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::new("foo[0-9]+")?;
-    /// let mut cache = vm.create_cache();
+    /// let re = PikeVM::new("foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
     ///
     /// let text = "foo1 foo12 foo123";
-    /// let matches: Vec<Match> = vm.find_iter(&mut cache, text).collect();
+    /// let matches: Vec<Match> = re.find_iter(&mut cache, text).collect();
     /// assert_eq!(matches, vec![
     ///     Match::must(0, 0..4),
     ///     Match::must(0, 5..10),
@@ -874,11 +870,11 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
-    /// let vm = PikeVM::new("foo(?P<numbers>[0-9]+)")?;
-    /// let mut cache = vm.create_cache();
+    /// let re = PikeVM::new("foo(?P<numbers>[0-9]+)")?;
+    /// let mut cache = re.create_cache();
     ///
     /// let text = "foo1 foo12 foo123";
-    /// let matches: Vec<Span> = vm
+    /// let matches: Vec<Span> = re
     ///     .captures_iter(&mut cache, text)
     ///     // The unwrap is OK since 'numbers' matches if the pattern matches.
     ///     .map(|caps| caps.get_group_by_name("numbers").unwrap())
@@ -901,7 +897,9 @@ impl PikeVM {
         let it = iter::Searcher::new(input);
         CapturesMatches { re: self, cache, caps, it }
     }
+}
 
+impl PikeVM {
     /// Executes a leftmost forward search and writes the spans of capturing
     /// groups that participated in a match into the provided [`Captures`]
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
@@ -911,7 +909,11 @@ impl PikeVM {
     /// control over how the search is executed. Those parameters are
     /// configured via a [`Input`].
     ///
-    /// The examples below demonstrate each of these additional parameters.
+    /// # Errors
+    ///
+    /// An error is returned if the [`Input`] configuration is invalid. This
+    /// only occurs if the `Input` specifies an anchored search for an invalid
+    /// [`PatternID`].
     ///
     /// # Example: prefilter
     ///
@@ -951,12 +953,12 @@ impl PikeVM {
     ///     }
     /// }
     ///
-    /// let vm = PikeVM::new("z[0-9]{3}")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new("z[0-9]{3}")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new("foobar z123 q123")
     ///     .prefilter(Some(&ZPrefilter));
     /// let expected = Some(Match::must(0, 7..11));
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -973,8 +975,8 @@ impl PikeVM {
     ///     Anchored, Match, PatternID, Input,
     /// };
     ///
-    /// let vm = PikeVM::new_many(&["[a-z0-9]{6}", "[a-z][a-z0-9]{5}"])?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new_many(&["[a-z0-9]{6}", "[a-z][a-z0-9]{5}"])?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let haystack = "foo123";
     ///
     /// // Since we are using the default leftmost-first match and both
@@ -982,7 +984,7 @@ impl PikeVM {
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
     /// let expected = Some(Match::must(0, 0..6));
-    /// vm.search(&mut cache, &Input::new(haystack), &mut caps);
+    /// re.try_search(&mut cache, &Input::new(haystack), &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// // But if we want to check whether some other pattern matches, then we
@@ -990,7 +992,7 @@ impl PikeVM {
     /// let expected = Some(Match::must(1, 0..6));
     /// let input = Input::new(haystack)
     ///     .anchored(Anchored::Pattern(PatternID::must(1)));
-    /// vm.search(&mut cache, &input, &mut caps);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1004,8 +1006,8 @@ impl PikeVM {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, Input};
     ///
-    /// let vm = PikeVM::new(r"\b[0-9]{3}\b")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new(r"\b[0-9]{3}\b")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let haystack = "foo123bar";
     ///
     /// // Since we sub-slice the haystack, the search doesn't know about
@@ -1014,7 +1016,7 @@ impl PikeVM {
     /// // to the sub-slice as well, which means we get `0..3` instead of
     /// // `3..6`.
     /// let expected = Some(Match::must(0, 0..3));
-    /// vm.search(&mut cache, &Input::new(&haystack[3..6]), &mut caps);
+    /// re.try_search(&mut cache, &Input::new(&haystack[3..6]), &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// // But if we provide the bounds of the search within the context of the
@@ -1022,21 +1024,23 @@ impl PikeVM {
     /// // into account. (And if we did find a match, it would be reported
     /// // as a valid offset into `haystack` instead of its sub-slice.)
     /// let expected = None;
-    /// vm.search(&mut cache, &Input::new(haystack).range(3..6), &mut caps);
+    /// let input = Input::new(haystack).range(3..6);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn search(
+    pub fn try_search(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
         caps: &mut Captures,
-    ) {
+    ) -> Result<(), MatchError> {
         caps.set_pattern(None);
-        let pid = self.search_slots(cache, input, caps.slots_mut());
+        let pid = self.try_search_slots(cache, input, caps.slots_mut())?;
         caps.set_pattern(pid);
+        Ok(())
     }
 
     /// Executes a leftmost forward search and writes the spans of capturing
@@ -1064,6 +1068,12 @@ impl PikeVM {
     /// permits recording match offsets for every capturing group in every
     /// pattern.
     ///
+    /// # Errors
+    ///
+    /// An error is returned if the [`Input`] configuration is invalid. This
+    /// only occurs if the `Input` specifies an anchored search for an invalid
+    /// [`PatternID`].
+    ///
     /// # Example
     ///
     /// This example shows how to find the overall match offsets in a
@@ -1084,7 +1094,7 @@ impl PikeVM {
     /// // allocate two slots for each pattern. Each slot records the start
     /// // and end of the match.
     /// let mut slots = [None; 4];
-    /// let pid = re.search_slots(&mut cache, &input, &mut slots);
+    /// let pid = re.try_search_slots(&mut cache, &input, &mut slots)?;
     /// assert_eq!(Some(PatternID::must(1)), pid);
     ///
     /// // The overall match offsets are always at 'pid * 2' and 'pid * 2 + 1'.
@@ -1098,34 +1108,34 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn search_slots(
+    pub fn try_search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Option<PatternID> {
-        let m = match self.search_imp(cache, input, slots) {
-            None => return None,
-            Some(pid) if !input.get_utf8() => return Some(pid),
+    ) -> Result<Option<PatternID>, MatchError> {
+        let m = match self.search_imp(cache, input, slots)? {
+            None => return Ok(None),
+            Some(pid) if !input.get_utf8() => return Ok(Some(pid)),
             Some(pid) => {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;
                 if slot_end >= slots.len() {
-                    return Some(pid);
+                    return Ok(Some(pid));
                 }
                 // These unwraps are OK because we know we have a match and
                 // we know our caller provided slots are big enough.
                 let start = slots[slot_start].unwrap().get();
                 let end = slots[slot_end].unwrap().get();
                 if start < end {
-                    return Some(pid);
+                    return Ok(Some(pid));
                 }
                 Match::new(pid, start..end)
             }
         };
-        input
+        Ok(input
             .skip_empty_utf8_splits(m, |search| {
-                let pid = match self.search_imp(cache, search, slots) {
+                let pid = match self.search_imp(cache, search, slots)? {
                     None => return Ok(None),
                     Some(pid) => pid,
                 };
@@ -1134,9 +1144,8 @@ impl PikeVM {
                 let start = slots[slot_start].unwrap().get();
                 let end = slots[slot_end].unwrap().get();
                 Ok(Some(Match::new(pid, start..end)))
-            })
-            .unwrap()
-            .map(|m| m.pattern())
+            })?
+            .map(|m| m.pattern()))
     }
 
     /// Writes the set of patterns that match anywhere in the given search
@@ -1152,6 +1161,12 @@ impl PikeVM {
     /// same pattern set), but does make the API bug-prone if you're reusing
     /// the same pattern set for multiple searches but intended them to be
     /// independent.
+    ///
+    /// # Errors
+    ///
+    /// An error is returned if the [`Input`] configuration is invalid. This
+    /// only occurs if the `Input` specifies an anchored search for an invalid
+    /// [`PatternID`].
     ///
     /// # Panics
     ///
@@ -1172,14 +1187,14 @@ impl PikeVM {
     /// let patterns = &[
     ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
     /// ];
-    /// let vm = PikeVM::builder()
+    /// let re = PikeVM::builder()
     ///     .configure(PikeVM::config().match_kind(MatchKind::All))
     ///     .build_many(patterns)?;
-    /// let mut cache = vm.create_cache();
+    /// let mut cache = re.create_cache();
     ///
     /// let input = Input::new("foobar");
-    /// let mut patset = PatternSet::new(vm.pattern_len());
-    /// vm.which_overlapping_matches(&mut cache, &input, &mut patset);
+    /// let mut patset = PatternSet::new(re.pattern_len());
+    /// re.which_overlapping_matches(&mut cache, &input, &mut patset)?;
     /// let expected = vec![0, 2, 3, 4, 6];
     /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);
@@ -1192,7 +1207,7 @@ impl PikeVM {
         cache: &mut Cache,
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
-    ) {
+    ) -> Result<(), MatchError> {
         self.which_overlapping_imp(cache, input, patset)
     }
 }
@@ -1210,10 +1225,10 @@ impl PikeVM {
         cache: &mut Cache,
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Option<PatternID> {
+    ) -> Result<Option<PatternID>, MatchError> {
         cache.setup_search(slots.len());
         if input.is_done() {
-            return None;
+            return Ok(None);
         }
         // Why do we even care about this? Well, in our 'Captures'
         // representation, we use usize::MAX as a sentinel to indicate "no
@@ -1231,7 +1246,7 @@ impl PikeVM {
         // 'leftmost' semantics of typical backtracking regex engines.
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        let (anchored, start_id) = self.start_config(input);
+        let (anchored, start_id) = self.start_config(input)?;
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         let mut pid = None;
@@ -1331,7 +1346,7 @@ impl PikeVM {
             next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
-        pid
+        Ok(pid)
     }
 
     /// The implementation for the 'which_overlapping_matches' API. Basically,
@@ -1346,7 +1361,7 @@ impl PikeVM {
         cache: &mut Cache,
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
-    ) {
+    ) -> Result<(), MatchError> {
         // NOTE: This is effectively a copy of 'search_imp' above, but with no
         // captures support and instead writes patterns that matched directly
         // to 'patset'. See that routine for better commentary about what's
@@ -1362,7 +1377,7 @@ impl PikeVM {
 
         cache.setup_search(0);
         if input.is_done() {
-            return;
+            return Ok(());
         }
         assert!(
             input.haystack().len() < core::usize::MAX,
@@ -1372,7 +1387,7 @@ impl PikeVM {
 
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        let (anchored, start_id) = self.start_config(input);
+        let (anchored, start_id) = self.start_config(input)?;
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         for at in input.start()..=input.end() {
@@ -1401,6 +1416,7 @@ impl PikeVM {
             next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
+        Ok(())
     }
 
     /// Process the active states in 'curr' to find the states (written to
@@ -1683,16 +1699,21 @@ impl PikeVM {
     ///
     /// Similarly, if the caller requests an anchored search for a particular
     /// pattern, then the starting state ID returned will reflect that.
-    fn start_config(&self, input: &Input<'_, '_>) -> (bool, StateID) {
+    fn start_config(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<(bool, StateID), MatchError> {
         match input.get_anchored() {
             // Only way we're unanchored is if both the caller asked for an
             // unanchored search *and* the pattern is itself not anchored.
-            Anchored::No => (
+            Anchored::No => Ok((
                 self.nfa.is_always_start_anchored(),
                 self.nfa.start_anchored(),
-            ),
-            Anchored::Yes => (true, self.nfa.start_anchored()),
-            Anchored::Pattern(pid) => (true, self.nfa.start_pattern(pid)),
+            )),
+            Anchored::Yes => Ok((true, self.nfa.start_anchored())),
+            Anchored::Pattern(pid) => {
+                Ok((true, self.nfa.try_start_pattern(pid)?))
+            }
         }
     }
 }
@@ -1725,8 +1746,12 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
         // Splitting 'self' apart seems necessary to appease borrowck.
         let FindMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
+        // 'advance' converts errors into panics, which is OK here because
+        // the only way the Pike VM can return an error is if it's given an
+        // invalid pattern ID. But since this doesn't set a pattern ID, the
+        // search is guaranteed to succeed.
         it.advance(|input| {
-            re.search(cache, input, caps);
+            re.try_search(cache, input, caps)?;
             Ok(caps.get_match())
         })
     }
@@ -1761,8 +1786,12 @@ impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
         // Splitting 'self' apart seems necessary to appease borrowck.
         let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
+        // 'advance' converts errors into panics, which is OK here because
+        // the only way the Pike VM can return an error is if it's given an
+        // invalid pattern ID. But since this doesn't set a pattern ID, the
+        // search is guaranteed to succeed.
         it.advance(|input| {
-            re.search(cache, input, caps);
+            re.try_search(cache, input, caps)?;
             Ok(caps.get_match())
         });
         if caps.is_match() {
@@ -1807,11 +1836,11 @@ impl Cache {
     ///
     /// If you want to reuse the returned `Cache` with some other `PikeVM`,
     /// then you must call [`Cache::reset`] with the desired `PikeVM`.
-    pub fn new(vm: &PikeVM) -> Cache {
+    pub fn new(re: &PikeVM) -> Cache {
         Cache {
             stack: vec![],
-            curr: ActiveStates::new(vm),
-            next: ActiveStates::new(vm),
+            curr: ActiveStates::new(re),
+            next: ActiveStates::new(re),
         }
     }
 
@@ -1851,9 +1880,9 @@ impl Cache {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn reset(&mut self, vm: &PikeVM) {
-        self.curr.reset(vm);
-        self.next.reset(vm);
+    pub fn reset(&mut self, re: &PikeVM) {
+        self.curr.reset(re);
+        self.next.reset(re);
     }
 
     /// Returns the heap memory usage, in bytes, of this cache.
@@ -1917,21 +1946,21 @@ impl ActiveStates {
     /// Create a new set of active states for the given PikeVM. The active
     /// states returned may only be used with the given PikeVM. (Use 'reset'
     /// to re-purpose the allocation for a different PikeVM.)
-    fn new(vm: &PikeVM) -> ActiveStates {
+    fn new(re: &PikeVM) -> ActiveStates {
         let mut active = ActiveStates {
             set: SparseSet::new(0),
             slot_table: SlotTable::new(),
         };
-        active.reset(vm);
+        active.reset(re);
         active
     }
 
     /// Reset this set of active states such that it can be used with the given
     /// PikeVM (and only that PikeVM).
-    fn reset(&mut self, vm: &PikeVM) {
-        let nfa = vm.get_nfa();
-        self.set.resize(vm.get_nfa().states().len());
-        self.slot_table.reset(vm);
+    fn reset(&mut self, re: &PikeVM) {
+        let nfa = re.get_nfa();
+        self.set.resize(re.get_nfa().states().len());
+        self.slot_table.reset(re);
     }
 
     /// Return the heap memory usage, in bytes, used by this set of active
@@ -1994,8 +2023,8 @@ impl SlotTable {
 
     /// Reset this slot table such that it can be used with the given PikeVM
     /// (and only that PikeVM).
-    fn reset(&mut self, vm: &PikeVM) {
-        let nfa = vm.get_nfa();
+    fn reset(&mut self, re: &PikeVM) {
+        let nfa = re.get_nfa();
         self.slots_per_state = nfa.group_info().slot_len();
         // This is always correct, but may be reduced for a particular search
         // if a 'Captures' has fewer slots, e.g., none at all or only slots

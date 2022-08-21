@@ -353,6 +353,8 @@ impl<'a> Runner<'a> {
     /// start states (if the DFA is unanchored). When the pattern_id is
     /// present, then this will compile a group of anchored start states that
     /// only match the given pattern.
+    ///
+    /// This panics if `anchored` corresponds to an invalid pattern ID.
     fn add_start_group(
         &mut self,
         anchored: Anchored,

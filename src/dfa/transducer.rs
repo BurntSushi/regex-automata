@@ -13,6 +13,7 @@ impl<T: AsRef<[u32]>> fst::Automaton for dense::DFA<T> {
     #[inline]
     fn start(&self) -> StateID {
         self.start_state_forward(&Input::new("").anchored(Anchored::No))
+            .expect("support for unanchored searches")
     }
 
     #[inline]
@@ -51,6 +52,7 @@ impl<T: AsRef<[u8]>> fst::Automaton for sparse::DFA<T> {
     #[inline]
     fn start(&self) -> StateID {
         self.start_state_forward(&Input::new("").anchored(Anchored::No))
+            .expect("support for unanchored searches")
     }
 
     #[inline]

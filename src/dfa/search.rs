@@ -522,7 +522,7 @@ fn init_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
 ) -> Result<StateID, MatchError> {
-    let state = dfa.start_state_forward(input);
+    let state = dfa.start_state_forward(input)?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     assert!(!dfa.is_match_state(state));
@@ -534,7 +534,7 @@ fn init_rev<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
 ) -> Result<StateID, MatchError> {
-    let state = dfa.start_state_reverse(input);
+    let state = dfa.start_state_reverse(input)?;
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
     assert!(!dfa.is_match_state(state));

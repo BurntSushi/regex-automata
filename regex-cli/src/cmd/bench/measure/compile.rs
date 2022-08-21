@@ -86,7 +86,7 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
             let mut caps = re.create_captures();
             let it = Searcher::new(re.create_input(h))
                 .into_matches_iter(|input| {
-                    re.search(&mut cache, input, &mut caps);
+                    re.try_search(&mut cache, input, &mut caps)?;
                     Ok(caps.get_match())
                 })
                 .infallible();
