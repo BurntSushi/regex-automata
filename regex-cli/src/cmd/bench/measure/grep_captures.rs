@@ -75,7 +75,7 @@ fn regex_automata_backtrack(b: &Benchmark) -> anyhow::Result<Results> {
         let (mut line_count, mut capture_count) = (0, 0);
         for line in haystack.lines() {
             let mut count = 0;
-            let mut input = Input::new(line);
+            let mut input = re.create_input(line);
             while let Some(m) = {
                 re.try_search(&mut cache, &input, &mut caps)?;
                 caps.get_match()
@@ -106,7 +106,7 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
         let (mut line_count, mut capture_count) = (0, 0);
         for line in haystack.lines() {
             let mut count = 0;
-            let mut input = Input::new(line);
+            let mut input = re.create_input(line);
             while let Some(m) = {
                 re.try_search(&mut cache, &input, &mut caps)?;
                 caps.get_match()
@@ -137,7 +137,7 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
         let (mut line_count, mut capture_count) = (0, 0);
         for line in haystack.lines() {
             let mut count = 0;
-            let mut input = Input::new(line);
+            let mut input = re.create_input(line);
             while let Some(m) = {
                 re.try_search(&mut cache, &input, &mut caps)?;
                 caps.get_match()

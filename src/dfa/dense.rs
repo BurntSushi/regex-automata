@@ -81,7 +81,7 @@ pub struct Config {
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
-    quit: Option<ByteSet>,
+    quitset: Option<ByteSet>,
     specialize_start_states: Option<bool>,
     dfa_size_limit: Option<Option<usize>>,
     determinize_size_limit: Option<Option<usize>>,
@@ -462,7 +462,10 @@ impl Config {
     /// non-ASCII byte.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, MatchError};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense},
+    ///     HalfMatch, Input, MatchError,
+    /// };
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().unicode_word_boundary(true))
@@ -483,6 +486,20 @@ impl Config {
     /// let haystack = "foo 123☃".as_bytes();
     /// let expected = MatchError::quit(0xE2, 7);
     /// let got = dfa.try_find_fwd(haystack);
+    /// assert_eq!(Err(expected), got);
+    ///
+    /// // Another example is executing a search where the span of the haystack
+    /// // we specify is all ASCII, but there is non-ASCII just before it. This
+    /// // correctly also reports an error.
+    /// let input = Input::new("β123").range(2..);
+    /// let expected = MatchError::quit(0xB2, 1);
+    /// let got = dfa.try_search_fwd(&input);
+    /// assert_eq!(Err(expected), got);
+    ///
+    /// // And similarly for the trailing word boundary.
+    /// let input = Input::new("123β").range(..3);
+    /// let expected = MatchError::quit(0xCE, 3);
+    /// let got = dfa.try_search_fwd(&input);
     /// assert_eq!(Err(expected), got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -564,13 +581,13 @@ impl Config {
                  Unicode word boundaries are enabled"
             );
         }
-        if self.quit.is_none() {
-            self.quit = Some(ByteSet::empty());
+        if self.quitset.is_none() {
+            self.quitset = Some(ByteSet::empty());
         }
         if yes {
-            self.quit.as_mut().unwrap().add(byte);
+            self.quitset.as_mut().unwrap().add(byte);
         } else {
-            self.quit.as_mut().unwrap().remove(byte);
+            self.quitset.as_mut().unwrap().remove(byte);
         }
         self
     }
@@ -870,7 +887,7 @@ impl Config {
     /// least one byte has this enabled, it is possible for a search to return
     /// an error.
     pub fn get_quit(&self, byte: u8) -> bool {
-        self.quit.map_or(false, |q| q.contains(byte))
+        self.quitset.map_or(false, |q| q.contains(byte))
     }
 
     /// Returns whether this configuration will instruct the DFA to
@@ -923,7 +940,7 @@ impl Config {
             unicode_word_boundary: o
                 .unicode_word_boundary
                 .or(self.unicode_word_boundary),
-            quit: o.quit.or(self.quit),
+            quitset: o.quitset.or(self.quitset),
             specialize_start_states: o
                 .specialize_start_states
                 .or(self.specialize_start_states),
@@ -1068,12 +1085,12 @@ impl Builder {
         &self,
         nfa: &thompson::NFA,
     ) -> Result<OwnedDFA, Error> {
-        let mut quit = self.config.quit.unwrap_or(ByteSet::empty());
+        let mut quitset = self.config.quitset.unwrap_or(ByteSet::empty());
         if self.config.get_unicode_word_boundary()
             && nfa.has_word_boundary_unicode()
         {
             for b in 0x80..=0xFF {
-                quit.add(b);
+                quitset.add(b);
             }
         }
         let classes = if !self.config.get_byte_classes() {
@@ -1093,8 +1110,8 @@ impl Builder {
             //
             //   regex-cli find hybrid regex -w @conn.json.1000x.log \
             //     '^#' '\b10\.55\.182\.100\b'
-            if !quit.is_empty() {
-                set.add_set(&quit);
+            if !quitset.is_empty() {
+                set.add_set(&quitset);
             }
             set.byte_classes()
         };
@@ -1104,10 +1121,11 @@ impl Builder {
             nfa.pattern_len(),
             self.config.get_starts(),
             self.config.get_starts_for_each_pattern(),
+            quitset,
         )?;
         determinize::Config::new()
             .match_kind(self.config.get_match_kind())
-            .quit(quit)
+            .quit(quitset)
             .dfa_size_limit(self.config.get_dfa_size_limit())
             .determinize_size_limit(self.config.get_determinize_size_limit())
             .run(nfa, &mut dfa)?;
@@ -1271,6 +1289,15 @@ pub struct DFA<T> {
     /// transition table. See dfa/special.rs for more details on how states are
     /// arranged.
     accels: Accels<T>,
+    /// The set of "quit" bytes for this DFA.
+    ///
+    /// This is only used when computing the start state for a particular
+    /// position in a haystack. Namely, in the case where there is a quit
+    /// byte immediately before the start of the search, this set needs to be
+    /// explicitly consulted. In all other cases, quit bytes are detected by
+    /// the DFA itself, by transitioning all quit bytes to a special "quit
+    /// state."
+    quitset: ByteSet,
 }
 
 #[cfg(feature = "alloc")]
@@ -1362,6 +1389,7 @@ impl OwnedDFA {
         pattern_len: usize,
         starts: StartKind,
         starts_for_each_pattern: bool,
+        quitset: ByteSet,
     ) -> Result<OwnedDFA, Error> {
         let start_pattern_len =
             if starts_for_each_pattern { pattern_len } else { 0 };
@@ -1371,6 +1399,7 @@ impl OwnedDFA {
             ms: MatchStates::empty(pattern_len),
             special: Special::new(),
             accels: Accels::empty(),
+            quitset,
         })
     }
 }
@@ -1403,6 +1432,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
             ms: self.ms.as_ref(),
             special: self.special,
             accels: self.accels(),
+            quitset: self.quitset,
         }
     }
 
@@ -1419,6 +1449,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
             ms: self.ms.to_owned(),
             special: self.special,
             accels: self.accels().to_owned(),
+            quitset: self.quitset,
         }
     }
 
@@ -1955,6 +1986,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
         + self.ms.write_to_len()
         + self.special.write_to_len()
         + self.accels.write_to_len()
+        + self.quitset.write_to_len()
     }
 }
 
@@ -2227,7 +2259,10 @@ impl<'a> DFA<&'a [u32]> {
         let (accels, nread) = Accels::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
-        Ok((DFA { tt, st, ms, special, accels }, nr))
+        let (quitset, nread) = ByteSet::from_bytes(&slice[nr..])?;
+        nr += nread;
+
+        Ok((DFA { tt, st, ms, special, accels, quitset }, nr))
     }
 
     /// The implementation of the public `write_to` serialization methods,
@@ -2258,6 +2293,7 @@ impl<'a> DFA<&'a [u32]> {
         nw += self.ms.write_to::<E>(&mut dst[nw..])?;
         nw += self.special.write_to::<E>(&mut dst[nw..])?;
         nw += self.accels.write_to::<E>(&mut dst[nw..])?;
+        nw += self.quitset.write_to::<E>(&mut dst[nw..])?;
         Ok(nw)
     }
 }
@@ -2962,6 +2998,13 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         &self,
         input: &Input<'_, '_>,
     ) -> Result<StateID, MatchError> {
+        if !self.quitset.is_empty() && input.start() > 0 {
+            let offset = input.start() - 1;
+            let byte = input.haystack()[offset];
+            if self.quitset.contains(byte) {
+                return Err(MatchError::quit(byte, offset));
+            }
+        }
         let start = Start::from_position_fwd(&input);
         self.st.start(input, start)
     }
@@ -2971,6 +3014,13 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         &self,
         input: &Input<'_, '_>,
     ) -> Result<StateID, MatchError> {
+        if !self.quitset.is_empty() && input.end() < input.haystack().len() {
+            let offset = input.end();
+            let byte = input.haystack()[offset];
+            if self.quitset.contains(byte) {
+                return Err(MatchError::quit(byte, offset));
+            }
+        }
         let start = Start::from_position_rev(&input);
         self.st.start(input, start)
     }
@@ -4525,5 +4575,25 @@ mod tests {
             Some(HalfMatch::must(0, 0)),
             dfa.try_find_fwd(b"foo12345").unwrap()
         );
+    }
+
+    // See the analogous test in src/hybrid/dfa.rs.
+    #[test]
+    fn heuristic_unicode_reverse() {
+        let dfa = DFA::builder()
+            .configure(DFA::config().unicode_word_boundary(true))
+            .thompson(thompson::Config::new().reverse(true))
+            .build(r"\b[0-9]+\b")
+            .unwrap();
+
+        let input = Input::new("β123").range(2..);
+        let expected = MatchError::quit(0xB2, 1);
+        let got = dfa.try_search_rev(&input);
+        assert_eq!(Err(expected), got);
+
+        let input = Input::new("123β").range(..3);
+        let expected = MatchError::quit(0xCE, 3);
+        let got = dfa.try_search_rev(&input);
+        assert_eq!(Err(expected), got);
     }
 }

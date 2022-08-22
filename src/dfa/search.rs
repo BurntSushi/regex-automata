@@ -555,6 +555,11 @@ fn eoi_fwd<A: Automaton + ?Sized>(
             if dfa.is_match_state(*sid) {
                 let pattern = dfa.match_pattern(*sid, 0);
                 *mat = Some(HalfMatch::new(pattern, sp.end));
+            } else if dfa.is_quit_state(*sid) {
+                if mat.is_some() {
+                    return Ok(());
+                }
+                return Err(MatchError::quit(b, sp.end));
             }
         }
         None => {
@@ -563,6 +568,9 @@ fn eoi_fwd<A: Automaton + ?Sized>(
                 let pattern = dfa.match_pattern(*sid, 0);
                 *mat = Some(HalfMatch::new(pattern, input.haystack().len()));
             }
+            // N.B. We don't have to check 'is_quit' here because the EOI
+            // transition can never lead to a quit state.
+            debug_assert!(!dfa.is_quit_state(*sid));
         }
     }
     Ok(())
@@ -577,10 +585,16 @@ fn eoi_rev<A: Automaton + ?Sized>(
 ) -> Result<(), MatchError> {
     let sp = input.get_span();
     if sp.start > 0 {
-        *sid = dfa.next_state(*sid, input.haystack()[sp.start - 1]);
+        let byte = input.haystack()[sp.start - 1];
+        *sid = dfa.next_state(*sid, byte);
         if dfa.is_match_state(*sid) {
             let pattern = dfa.match_pattern(*sid, 0);
             *mat = Some(HalfMatch::new(pattern, sp.start));
+        } else if dfa.is_quit_state(*sid) {
+            if mat.is_some() {
+                return Ok(());
+            }
+            return Err(MatchError::quit(byte, sp.start - 1));
         }
     } else {
         *sid = dfa.next_eoi_state(*sid);
@@ -588,6 +602,9 @@ fn eoi_rev<A: Automaton + ?Sized>(
             let pattern = dfa.match_pattern(*sid, 0);
             *mat = Some(HalfMatch::new(pattern, 0));
         }
+        // N.B. We don't have to check 'is_quit' here because the EOI
+        // transition can never lead to a quit state.
+        debug_assert!(!dfa.is_quit_state(*sid));
     }
     Ok(())
 }

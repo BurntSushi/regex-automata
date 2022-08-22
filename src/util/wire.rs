@@ -663,9 +663,7 @@ pub(crate) fn try_read_u16(
     slice: &[u8],
     what: &'static str,
 ) -> Result<(u16, usize), DeserializeError> {
-    if slice.len() < size_of::<u16>() {
-        return Err(DeserializeError::buffer_too_small(what));
-    }
+    check_slice_len(slice, size_of::<u16>(), what)?;
     Ok((read_u16(slice), size_of::<u16>()))
 }
 
@@ -680,10 +678,23 @@ pub(crate) fn try_read_u32(
     slice: &[u8],
     what: &'static str,
 ) -> Result<(u32, usize), DeserializeError> {
-    if slice.len() < size_of::<u32>() {
-        return Err(DeserializeError::buffer_too_small(what));
-    }
+    check_slice_len(slice, size_of::<u32>(), what)?;
     Ok((read_u32(slice), size_of::<u32>()))
+}
+
+/// Try to read a u128 from the beginning of the given slice in native endian
+/// format. If the slice has fewer than 16 bytes, then this returns an error.
+/// The error message will include the `what` description of what is being
+/// deserialized, for better error messages. `what` should be a noun in
+/// singular form.
+///
+/// Upon success, this also returns the number of bytes read.
+pub(crate) fn try_read_u128(
+    slice: &[u8],
+    what: &'static str,
+) -> Result<(u128, usize), DeserializeError> {
+    check_slice_len(slice, size_of::<u128>(), what)?;
+    Ok((read_u128(slice), size_of::<u128>()))
 }
 
 /// Read a u16 from the beginning of the given slice in native endian format.
@@ -717,6 +728,13 @@ pub(crate) fn read_u32(slice: &[u8]) -> u32 {
 pub(crate) fn read_u64(slice: &[u8]) -> u64 {
     let bytes: [u8; 8] = slice[..size_of::<u64>()].try_into().unwrap();
     u64::from_ne_bytes(bytes)
+}
+
+/// Read a u128 from the beginning of the given slice in native endian format.
+/// If the slice has fewer than 16 bytes, then this panics.
+pub(crate) fn read_u128(slice: &[u8]) -> u128 {
+    let bytes: [u8; 16] = slice[..size_of::<u128>()].try_into().unwrap();
+    u128::from_ne_bytes(bytes)
 }
 
 /// Write a variable sized integer and return the total number of bytes
@@ -887,6 +905,11 @@ pub(crate) trait Endian {
     /// endianness. If the destination buffer has a length smaller than 8, then
     /// this panics.
     fn write_u64(n: u64, dst: &mut [u8]);
+
+    /// Writes a u128 to the given destination buffer in a particular
+    /// endianness. If the destination buffer has a length smaller than 16,
+    /// then this panics.
+    fn write_u128(n: u128, dst: &mut [u8]);
 }
 
 /// Little endian writing.
@@ -911,6 +934,10 @@ impl Endian for LE {
     fn write_u64(n: u64, dst: &mut [u8]) {
         dst[..8].copy_from_slice(&n.to_le_bytes());
     }
+
+    fn write_u128(n: u128, dst: &mut [u8]) {
+        dst[..16].copy_from_slice(&n.to_le_bytes());
+    }
 }
 
 impl Endian for BE {
@@ -924,6 +951,10 @@ impl Endian for BE {
 
     fn write_u64(n: u64, dst: &mut [u8]) {
         dst[..8].copy_from_slice(&n.to_be_bytes());
+    }
+
+    fn write_u128(n: u128, dst: &mut [u8]) {
+        dst[..16].copy_from_slice(&n.to_be_bytes());
     }
 }
 

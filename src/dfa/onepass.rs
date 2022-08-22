@@ -1987,7 +1987,7 @@ impl DFA {
             Anchored::Yes => self.start(),
             Anchored::Pattern(pid) => self.start_pattern(pid)?,
             Anchored::No => {
-                panic!("one-pass DFA does not support unanchored searches")
+                return Err(MatchError::invalid_input_unanchored());
             }
         };
         for at in input.start()..input.end() {

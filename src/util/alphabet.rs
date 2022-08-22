@@ -1,12 +1,13 @@
 use core::{
     convert::TryFrom,
+    mem::size_of,
     ops::{Bound, RangeBounds},
 };
 
 use crate::util::{
     escape::DebugByte,
     utf8,
-    wire::{DeserializeError, SerializeError},
+    wire::{self, DeserializeError, Endian, SerializeError},
 };
 
 /// Unit represents a single unit of input for DFA based regex engines.
@@ -146,9 +147,7 @@ impl ByteClasses {
     pub fn from_bytes(
         slice: &[u8],
     ) -> Result<(ByteClasses, usize), DeserializeError> {
-        if slice.len() < 256 {
-            return Err(DeserializeError::buffer_too_small("byte class map"));
-        }
+        wire::check_slice_len(slice, 256, "byte class map")?;
         let mut classes = ByteClasses::empty();
         for (b, &class) in slice[..256].iter().enumerate() {
             classes.set(u8::try_from(b).unwrap(), class);
@@ -633,6 +632,53 @@ impl ByteSet {
     #[cfg(feature = "alloc")]
     pub fn is_empty(&self) -> bool {
         self.bits.0 == [0, 0]
+    }
+
+    /// Deserializes a byte set from the given slice. If the slice is of
+    /// incorrect length or is otherwise malformed, then an error is returned.
+    /// Upon success, the number of bytes read along with the set are returned.
+    /// The number of bytes read is always a multiple of 8.
+    pub(crate) fn from_bytes(
+        slice: &[u8],
+    ) -> Result<(ByteSet, usize), DeserializeError> {
+        wire::check_slice_len(slice, 2 * size_of::<u128>(), "byte set")?;
+        let mut nread = 0;
+        let (low, nr) = wire::try_read_u128(slice, "byte set low bucket")?;
+        nread += nr;
+        let (high, nr) = wire::try_read_u128(slice, "byte set high bucket")?;
+        nread += nr;
+        Ok((ByteSet { bits: BitSet([low, high]) }, nread))
+    }
+
+    /// Writes this byte set to the given byte buffer. If the given buffer is
+    /// too small, then an error is returned. Upon success, the total number of
+    /// bytes written is returned. The number of bytes written is guaranteed to
+    /// be a multiple of 8.
+    pub(crate) fn write_to<E: Endian>(
+        &self,
+        mut dst: &mut [u8],
+    ) -> Result<usize, SerializeError> {
+        let mut nwrite = self.write_to_len();
+        if dst.len() < nwrite {
+            return Err(SerializeError::buffer_too_small("byte set"));
+        }
+        let mut nw = 0;
+        E::write_u128(self.bits.0[0], &mut dst[nw..]);
+        nw += size_of::<u128>();
+        E::write_u128(self.bits.0[1], &mut dst[nw..]);
+        nw += size_of::<u128>();
+        assert_eq!(nwrite, nw, "expected to write certain number of bytes",);
+        assert_eq!(
+            nw % 8,
+            0,
+            "expected to write multiple of 8 bytes for byte set",
+        );
+        Ok(nw)
+    }
+
+    /// Returns the total number of bytes written by `write_to`.
+    pub(crate) fn write_to_len(&self) -> usize {
+        2 * size_of::<u128>()
     }
 }
 
