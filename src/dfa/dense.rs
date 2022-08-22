@@ -2737,6 +2737,11 @@ impl<T: AsRef<[u32]>> DFA<T> {
         &mut self.special
     }
 
+    /// Returns the quit set (may be empty) used by this DFA.
+    pub(crate) fn quitset(&self) -> &ByteSet {
+        &self.quitset
+    }
+
     /// Returns an iterator over all states in this DFA.
     ///
     /// This iterator yields a tuple for each state. The first element of the

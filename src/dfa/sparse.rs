@@ -57,7 +57,7 @@ use crate::{
         StartKind, DEAD,
     },
     util::{
-        alphabet::ByteClasses,
+        alphabet::{ByteClasses, ByteSet},
         escape::DebugByte,
         int::{Pointer, U16, U32},
         primitives::{PatternID, StateID},
@@ -131,6 +131,7 @@ pub struct DFA<T> {
     trans: Transitions<T>,
     starts: StartTable<T>,
     special: Special,
+    quitset: ByteSet,
 }
 
 #[cfg(feature = "alloc")]
@@ -390,6 +391,7 @@ impl DFA<Vec<u8>> {
             },
             starts: StartTable::from_dense_dfa(dfa, &remap)?,
             special: dfa.special().remap(|id| remap[dfa.to_index(id)]),
+            quitset: dfa.quitset().clone(),
         };
         // And here's our second pass. Iterate over all of the dense states
         // again, and update the transitions in each of the states in the
@@ -420,6 +422,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
             trans: self.trans.as_ref(),
             starts: self.starts.as_ref(),
             special: self.special,
+            quitset: self.quitset,
         }
     }
 
@@ -434,6 +437,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
             trans: self.trans.to_owned(),
             starts: self.starts.to_owned(),
             special: self.special,
+            quitset: self.quitset,
         }
     }
 
@@ -794,6 +798,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
         nw += self.trans.write_to::<E>(&mut dst[nw..])?;
         nw += self.starts.write_to::<E>(&mut dst[nw..])?;
         nw += self.special.write_to::<E>(&mut dst[nw..])?;
+        nw += self.quitset.write_to::<E>(&mut dst[nw..])?;
         Ok(nw)
     }
 
@@ -839,6 +844,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
         + self.trans.write_to_len()
         + self.starts.write_to_len()
         + self.special.write_to_len()
+        + self.quitset.write_to_len()
     }
 }
 
@@ -1081,7 +1087,10 @@ impl<'a> DFA<&'a [u8]> {
             ));
         }
 
-        Ok((DFA { trans, starts, special }, nr))
+        let (quitset, nread) = ByteSet::from_bytes(&slice[nr..])?;
+        nr += nread;
+
+        Ok((DFA { trans, starts, special, quitset }, nr))
     }
 }
 
@@ -1192,6 +1201,13 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
         &self,
         input: &Input<'_, '_>,
     ) -> Result<StateID, MatchError> {
+        if !self.quitset.is_empty() && input.start() > 0 {
+            let offset = input.start() - 1;
+            let byte = input.haystack()[offset];
+            if self.quitset.contains(byte) {
+                return Err(MatchError::quit(byte, offset));
+            }
+        }
         let start = Start::from_position_fwd(&input);
         self.starts.start(input, start)
     }
@@ -1201,6 +1217,13 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
         &self,
         input: &Input<'_, '_>,
     ) -> Result<StateID, MatchError> {
+        if !self.quitset.is_empty() && input.end() < input.haystack().len() {
+            let offset = input.end();
+            let byte = input.haystack()[offset];
+            if self.quitset.contains(byte) {
+                return Err(MatchError::quit(byte, offset));
+            }
+        }
         let start = Start::from_position_rev(&input);
         self.starts.start(input, start)
     }
@@ -2292,4 +2315,57 @@ fn binary_search_ranges(ranges: &[u8], needle: u8) -> Option<usize> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        dfa::{dense::DFA, Automaton},
+        nfa::thompson,
+        Input, MatchError,
+    };
+
+    // See the analogous test in src/hybrid/dfa.rs and src/dfa/dense.rs.
+    #[test]
+    fn heuristic_unicode_forward() {
+        let dfa = DFA::builder()
+            .configure(DFA::config().unicode_word_boundary(true))
+            .thompson(thompson::Config::new().reverse(true))
+            .build(r"\b[0-9]+\b")
+            .unwrap()
+            .to_sparse()
+            .unwrap();
+
+        let input = Input::new("β123").range(2..);
+        let expected = MatchError::quit(0xB2, 1);
+        let got = dfa.try_search_fwd(&input);
+        assert_eq!(Err(expected), got);
+
+        let input = Input::new("123β").range(..3);
+        let expected = MatchError::quit(0xCE, 3);
+        let got = dfa.try_search_fwd(&input);
+        assert_eq!(Err(expected), got);
+    }
+
+    // See the analogous test in src/hybrid/dfa.rs and src/dfa/dense.rs.
+    #[test]
+    fn heuristic_unicode_reverse() {
+        let dfa = DFA::builder()
+            .configure(DFA::config().unicode_word_boundary(true))
+            .thompson(thompson::Config::new().reverse(true))
+            .build(r"\b[0-9]+\b")
+            .unwrap()
+            .to_sparse()
+            .unwrap();
+
+        let input = Input::new("β123").range(2..);
+        let expected = MatchError::quit(0xB2, 1);
+        let got = dfa.try_search_rev(&input);
+        assert_eq!(Err(expected), got);
+
+        let input = Input::new("123β").range(..3);
+        let expected = MatchError::quit(0xCE, 3);
+        let got = dfa.try_search_rev(&input);
+        assert_eq!(Err(expected), got);
+    }
 }
