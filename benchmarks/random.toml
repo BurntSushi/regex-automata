@@ -1,0 +1,104 @@
+[[benches]]
+type = "count"
+name = "dot-star-capture-ascii-lines-32"
+regex = '^(?s)((.*)()()($))'
+haystack-path = "random/ascii-lines-32.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "dot-star-capture-ascii-lines-32k"
+regex = '^(?s)((.*)()()($))'
+haystack-path = "random/ascii-lines-32K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "dot-star-capture-ascii-lines-1mb"
+regex = '^(?s)((.*)()()($))'
+haystack-path = "random/ascii-lines-1MB.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count-captures"
+name = "dot-star-capture-ascii-lines-32"
+regex = '^(?s)((.*)()()($))'
+haystack-path = "random/ascii-lines-32.txt"
+case-insensitive = false
+unicode = false
+capture-count = 6
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count-captures"
+name = "dot-star-capture-ascii-lines-32k"
+regex = '^(?s)((.*)()()($))'
+haystack-path = "random/ascii-lines-32K.txt"
+case-insensitive = false
+unicode = false
+capture-count = 6
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count-captures"
+name = "dot-star-capture-ascii-lines-1mb"
+regex = '^(?s)((.*)()()($))'
+haystack-path = "random/ascii-lines-1MB.txt"
+case-insensitive = false
+unicode = false
+capture-count = 6
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

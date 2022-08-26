@@ -606,6 +606,17 @@ impl Regex {
                 end.offset()..end.offset(),
             )));
         }
+        // We can also skip the reverse search if we know our search was
+        // anchored. This occurs either when the input config is anchored or
+        // when we know the regex itself is anchored. In this case, we know the
+        // start of the match, if one is found, must be the start of the
+        // search.
+        if self.is_anchored(input) {
+            return Ok(Some(Match::new(
+                end.pattern(),
+                input.start()..end.offset(),
+            )));
+        }
         // N.B. I have tentatively convinced myself that it isn't necessary
         // to specify the specific pattern for the reverse search since the
         // reverse search will always find the same pattern to match as the
@@ -636,6 +647,15 @@ impl Regex {
         );
         debug_assert!(start.offset() <= end.offset());
         Ok(Some(Match::new(end.pattern(), start.offset()..end.offset())))
+    }
+
+    fn is_anchored(&self, input: &Input<'_, '_>) -> bool {
+        match input.get_anchored() {
+            Anchored::No => {
+                self.forward().get_nfa().is_always_start_anchored()
+            }
+            Anchored::Yes | Anchored::Pattern(_) => true,
+        }
     }
 }
 
