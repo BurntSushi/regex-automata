@@ -324,6 +324,10 @@ impl<'a> Runner<'a> {
         // with our DFA's configuration. Unconditionally adding both (although
         // it is the default) can make DFAs quite a bit bigger. Especially
         // sparse DFAs.
+        //
+        // FIXME: I think we can skip this if the NFA is always anchored. But
+        // if we do, should we also change the start kind? Or should the start
+        // kind always correspond to what was configured?
         if self.dfa.start_kind().has_unanchored() {
             self.add_start_group(Anchored::No, dfa_state_ids)?;
         }

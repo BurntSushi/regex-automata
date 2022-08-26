@@ -649,6 +649,8 @@ impl Regex {
         Ok(Some(Match::new(end.pattern(), start.offset()..end.offset())))
     }
 
+    /// Returns true if either the given input specifies an anchored search
+    /// or if the underlying NFA is always anchored.
     fn is_anchored(&self, input: &Input<'_, '_>) -> bool {
         match input.get_anchored() {
             Anchored::No => {

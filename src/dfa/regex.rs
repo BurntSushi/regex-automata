@@ -664,6 +664,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         assert!(start.offset() <= end.offset());
         Ok(Some(Match::new(end.pattern(), start.offset()..end.offset())))
     }
+
+    /// Returns true if either the given input specifies an anchored search
+    /// or if the underlying DFA is always anchored.
+    fn is_anchored(&self, input: &Input<'_, '_>) -> bool {
+        match input.get_anchored() {
+            Anchored::No => false,
+            Anchored::Yes | Anchored::Pattern(_) => true,
+        }
+    }
 }
 
 /// Non-search APIs for querying information about the regex and setting a

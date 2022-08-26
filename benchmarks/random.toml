@@ -1,3 +1,15 @@
+# The 'dot-star-capture-ascii-lines' benchmarks come from a particular
+# benchmark in RE2 that was called out in a GitHub discussion:
+# https://github.com/rust-lang/regex/discussions/903
+#
+# Personally, I think this particular regex is a little weird and maybe not
+# worth benchmarking, *but* PCRE2 actually runs this regex really really
+# quickly. To the point that I suspect it is somehow skipping all haystack
+# proportional work. Which makes sense, since the regex is anchored at the
+# start and end and always matches everything. At that point, you just need to
+# figure out how to set the capturing groups, but that seems possible through
+# analysis as well. Since PCRE2 makes this an interesting case, I decided to
+# keep the benchmarks.
 [[benches]]
 type = "count"
 name = "dot-star-capture-ascii-lines-32"
@@ -10,6 +22,7 @@ engines = [
   'regex/api',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regex/automata/backtrack',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -28,6 +41,7 @@ engines = [
   'regex/api',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regex/automata/backtrack',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -63,6 +77,7 @@ capture-count = 6
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regex/automata/backtrack',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -80,6 +95,7 @@ capture-count = 6
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regex/automata/backtrack',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
