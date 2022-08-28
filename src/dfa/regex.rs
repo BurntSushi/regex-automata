@@ -668,6 +668,15 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// Returns true if either the given input specifies an anchored search
     /// or if the underlying DFA is always anchored.
     fn is_anchored(&self, input: &Input<'_, '_>) -> bool {
+        // FIXME: This isn't wrong per se, but it returns 'false' in cases
+        // where it is actually 'true'. For example, if 'input' specifies
+        // an unanchored search, then the search is still anchored if the
+        // underlying automaton is anchored. But we have no way to introspect
+        // that fact via the generic 'Automaton' trait. And even if we were
+        // using a 'dense::DFA' directly, we could use 'start_kind', but even
+        // that might not be good enough. For example, a DFA might be built
+        // with StartKind::Both, but the original NFA might be always anchored,
+        // in which case, the DFA is always anchored.
         match input.get_anchored() {
             Anchored::No => false,
             Anchored::Yes | Anchored::Pattern(_) => true,
