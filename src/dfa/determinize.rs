@@ -334,10 +334,14 @@ impl<'a> Runner<'a> {
         if self.dfa.start_kind().has_anchored() {
             self.add_start_group(Anchored::Yes, dfa_state_ids)?;
         }
-        // It is actually valid for 'dfa_state_ids' to be empty in the case of
-        // building a DFA with zero patterns. In that case, we wind up with
-        // our starting states just being pointers to the DEAD state.
-        assert!(self.nfa.pattern_len() == 0 || !dfa_state_ids.is_empty());
+        // I previously has an 'assert' here checking that either
+        // 'dfa_state_ids' was non-empty, or the NFA had zero patterns. But it
+        // turns out this isn't always true. For example, the NFA might have
+        // one or more patterns but where all such patterns are just 'fail'
+        // states. These will ultimately just compiled down to DFA dead states,
+        // and since the dead state was added earlier, no new DFA states are
+        // added. And thus, it is valid and okay for 'dfa_state_ids' to be
+        // empty even if there are a non-zero number of patterns in the NFA.
 
         // We only need to compute anchored start states for each pattern if it
         // was requested to do so.

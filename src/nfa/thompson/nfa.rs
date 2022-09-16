@@ -1208,26 +1208,6 @@ impl fmt::Debug for Inner {
     }
 }
 
-/// A map from capture group name to its corresponding capture index.
-///
-/// Since there are always two slots for each capture index, the pair of slots
-/// corresponding to the capture index for a pattern ID of 0 are indexed at
-/// `map["<name>"] * 2` and `map["<name>"] * 2 + 1`.
-///
-/// This type is actually wrapped inside a Vec indexed by pattern ID on the
-/// NFA, since multiple patterns may have the same capture group name.
-///
-/// Note that this is somewhat of a sub-optimal representation, since it
-/// requires a hashmap for each pattern. A better representation would be
-/// HashMap<(PatternID, Arc<str>), usize>, but this makes it difficult to look
-/// up a capture index by name without producing a `Arc<str>`, which requires
-/// an allocation. To fix this, I think we'd need to define our own unsized
-/// type or something?
-#[cfg(feature = "std")]
-type CaptureNameMap = std::collections::HashMap<Arc<str>, usize>;
-#[cfg(not(feature = "std"))]
-type CaptureNameMap = alloc::collections::BTreeMap<Arc<str>, usize>;
-
 /// A state in an NFA.
 ///
 /// In theory, it can help to conceptualize an `NFA` as a graph consisting of
