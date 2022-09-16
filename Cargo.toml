@@ -23,9 +23,9 @@ members = ["examples", "regex-cli", "regex-test"]
 [lib]
 bench = false
 
-[patch.crates-io]
-regex = { path = "/home/andrew/rust/regex" }
-regex-syntax = { path = "/home/andrew/rust/regex/regex-syntax" }
+# [patch.crates-io]
+# regex = { path = "/home/andrew/rust/regex" }
+# regex-syntax = { path = "/home/andrew/rust/regex/regex-syntax" }
 
 [features]
 # WARNING: The features below were assembled quickly without much thought.
