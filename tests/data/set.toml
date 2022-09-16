@@ -575,6 +575,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 unicode = false
+utf8 = false
 
 [[tests]]
 name = "caps-020"
@@ -587,6 +588,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 unicode = false
+utf8 = false
 
 [[tests]]
 name = "caps-030"
@@ -599,6 +601,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 unicode = false
+utf8 = false
 
 [[tests]]
 name = "caps-110"
@@ -610,6 +613,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 unicode = false
+utf8 = false
 
 [[tests]]
 name = "caps-120"
@@ -621,6 +625,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 unicode = false
+utf8 = false
 
 [[tests]]
 name = "caps-121"
@@ -633,3 +638,4 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 unicode = false
+utf8 = false
