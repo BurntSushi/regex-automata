@@ -211,6 +211,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         .benchmark_definitions()?
         .filter_by_name(&runner.bench_filter)
         .filter_by_engine(&runner.engine_filter);
+    let regexes = runner.regexes(&defs)?;
     let haystacks = runner.haystacks(&defs)?;
 
     // Collect all of the benchmarks we will run. Each benchmark definition can
@@ -218,7 +219,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     // definition.
     let mut benchmarks = vec![];
     for def in &defs.defs {
-        for b in def.iter(&runner.bench_config, &haystacks)? {
+        for b in def.iter(&runner.bench_config, &regexes, &haystacks)? {
             // While we did run the engine filter above, we run it again
             // because the filter above only excludes benchmark definitions
             // that have no matching engines at all. But we might still run
@@ -372,6 +373,16 @@ impl MeasureArgs {
         Ok(benches)
     }
 
+    /// Read all of the regexes from disk that are referenced in the given
+    /// benchmark definitions.
+    fn regexes(&self, benches: &BenchmarkDefs) -> anyhow::Result<Regexes> {
+        let dir = self.dir.join("regexes");
+
+        let mut regexes = Regexes::new();
+        regexes.load_dir(dir, &benches.regex_paths())?;
+        Ok(regexes)
+    }
+
     /// Read all of the haystacks from disk that are referenced in the given
     /// benchmark definitions.
     fn haystacks(&self, benches: &BenchmarkDefs) -> anyhow::Result<Haystacks> {
@@ -418,6 +429,90 @@ impl Default for BenchmarkConfig {
             approx_max_benchmark_time: Duration::from_millis(3000),
             approx_max_warmup_time: Duration::from_millis(1500),
         }
+    }
+}
+
+/// A collection of regexes found on the filesystem.
+///
+/// Note that we only load regexes that are pointed to by benchmarks that we
+/// will run. So for example, if only a small subset of benchmarks are selected
+/// to run, then only the regexes referenced by those benchmarks (if any) will
+/// be loaded into memory.
+///
+/// Note that regexes loaded from files must be valid UTF-8. Every file
+/// corresponds to a single regex. If the file contains more than one line,
+/// then the lines are joined together via `|`.
+#[derive(Clone, Debug)]
+struct Regexes {
+    /// A map from a regex name (the file path relative to, e.g.,
+    /// benches/regexes) to the regex itself. We use a Arc<str> instead of
+    /// a String so that we can reuse a single copy of the regex everywhere
+    /// without lifetimes. In the context of this tool, there is no real
+    /// downside to Arc<str> anyway.
+    map: BTreeMap<String, Arc<str>>,
+}
+
+impl Regexes {
+    /// Create a new empty set of regexes.
+    fn new() -> Regexes {
+        Regexes { map: BTreeMap::new() }
+    }
+
+    /// Load the regexes found in the given directory. But only load the
+    /// regexes that are in `which`. `which` should be a set of strings
+    /// corresponding to file paths relative to the `{benchmark_dir}/regexes`
+    /// directory.
+    fn load_dir<P: AsRef<Path>>(
+        &mut self,
+        dir: P,
+        which: &BTreeSet<String>,
+    ) -> anyhow::Result<()> {
+        let dir = dir.as_ref();
+        for name in which {
+            self.load_file(name, dir.join(name))?;
+        }
+        Ok(())
+    }
+
+    /// Load a single file at the path given as a regex. The regex found gets
+    /// the name given as a key in the haystack map.
+    ///
+    /// The lines of the file are joined with a `|`.
+    fn load_file<P: AsRef<Path>>(
+        &mut self,
+        name: &str,
+        path: P,
+    ) -> anyhow::Result<()> {
+        let path = path.as_ref();
+        let data = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        self.load_str(&name, data)
+            .with_context(|| format!("error loading {}", path.display()))?;
+        Ok(())
+    }
+
+    /// Load the raw string into the regexes map with the name given. If a
+    /// regex with the given name already exists, then an error is returned.
+    ///
+    /// The lines of the `data` given  are joined with a `|`.
+    fn load_str(&mut self, name: &str, data: String) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.map.contains_key(name),
+            "found duplicate regex '{}'",
+            name
+        );
+        let pattern = data.lines().collect::<Vec<&str>>().join("|");
+        self.map.insert(name.to_owned(), Arc::from(pattern));
+        Ok(())
+    }
+
+    /// Get the haystack with the given name. If one does not exist, then an
+    /// error is returned.
+    fn get(&self, name: &str) -> anyhow::Result<Arc<str>> {
+        if let Some(ref regex) = self.map.get(name) {
+            return Ok(Arc::clone(regex));
+        }
+        anyhow::bail!("could not find regex '{}'", name)
     }
 }
 
@@ -617,6 +712,20 @@ impl BenchmarkDefs {
         new
     }
 
+    /// Return all regex paths from this set of benchmark definitions.
+    ///
+    /// This is useful for loading on the subset of regexes that are
+    /// actually needed to run benchmarks.
+    fn regex_paths(&self) -> BTreeSet<String> {
+        let mut paths = BTreeSet::new();
+        for def in &self.defs {
+            if let Some(ref path) = def.regex_path {
+                paths.insert(path.clone());
+            }
+        }
+        paths
+    }
+
     /// Return all haystack paths from this set of benchmark definitions.
     ///
     /// This is useful for loading on the subset of haystacks that are
@@ -667,8 +776,21 @@ struct BenchmarkDef {
     /// given here. The name should be some short string that gives an idea
     /// of what the benchmark is measuring.
     name: String,
-    /// The actual regex pattern to measure.
-    regex: String,
+    /// The actual regex pattern to measure, inlined into the benchmark
+    /// definition. Since regexes are usually small and this benchmark
+    /// harness requires all regexes to be valid UTF-8, this is the common
+    /// case.
+    ///
+    /// If this is not set, then 'regex-path' must be set.
+    regex: Option<String>,
+    /// A file path to one or more lines. The path is relative to the
+    /// benchmarks/regexes directory. Either this or 'regex' must be present.
+    ///
+    /// The lines in the file given are joined into a single regex via `|`.
+    ///
+    /// This is useful when you want to benchmark very large alternations of
+    /// regexes, such as dictionaries.
+    regex_path: Option<String>,
     /// The haystack to search, inlined into the benchmark definition. One
     /// should only use this when the haystack is short. Either this or
     /// 'haystack-path' must be present.
@@ -678,7 +800,7 @@ struct BenchmarkDef {
     /// with invalid UTF-8, put the data in a file and point to it with
     /// 'haystack-path'.
     haystack: Option<String>,
-    /// A file path to a haystack. The path relative to the
+    /// A file path to a haystack. The path is relative to the
     /// benchmarks/haystacks directory. Either this or 'haystack' must be
     /// present.
     haystack_path: Option<String>,
@@ -727,6 +849,22 @@ impl BenchmarkDef {
         format!("{}/{}/{}", self.benchmark_type, self.group, self.name)
     }
 
+    /// Return the regex for this benchmark.
+    ///
+    /// This uses the given collection of single regexes to look up a regex
+    /// path if the regex isn't inlined into the benchmark definition.
+    ///
+    /// If the regex was not inlined and it could not be found in the given
+    /// set of regexes, then an error is returned.
+    fn regex(&self, regexes: &Regexes) -> anyhow::Result<Arc<str>> {
+        if let Some(ref regex) = self.regex {
+            return Ok(Arc::from(regex.clone()));
+        }
+        // Unwrap is OK because validation guarantees that either 'regex'
+        // xor 'regex_path' is present.
+        regexes.get(self.regex_path.as_ref().unwrap())
+    }
+
     /// Return the haystack for this benchmark definition. This uses the given
     /// collection of haystacks to look up a haystack path if the haystack
     /// isn't inlined into the benchmark definition.
@@ -752,12 +890,14 @@ impl BenchmarkDef {
     fn iter(
         &self,
         config: &BenchmarkConfig,
+        regexes: &Regexes,
         haystacks: &Haystacks,
     ) -> anyhow::Result<BenchmarkIter> {
         Ok(BenchmarkIter {
             it: self.engines.iter(),
             config: config.clone(),
             def: self,
+            regex: self.regex(regexes)?,
             haystack: self.haystack(haystacks)?,
         })
     }
@@ -853,8 +993,12 @@ impl BenchmarkDef {
             }
             BenchmarkType::RegexRedux => {
                 anyhow::ensure!(
-                    self.regex.is_empty(),
+                    self.regex.is_none(),
                     "'regex-redux' benchmark must not set 'regex'",
+                );
+                anyhow::ensure!(
+                    self.regex_path.is_none(),
+                    "'regex-redux' benchmark must not set 'regex-path'",
                 );
                 anyhow::ensure!(
                     self.line_count.is_none(),
@@ -885,14 +1029,23 @@ impl BenchmarkDef {
             self.name,
             RE_NAME.as_str(),
         );
-        // We must have 'haystack' xor 'haystack-path'.
+        if self.benchmark_type != BenchmarkType::RegexRedux {
+            anyhow::ensure!(
+                self.regex.is_none() || self.regex_path.is_none(),
+                "only one of 'regex' and 'regex-path' may be set",
+            );
+            anyhow::ensure!(
+                self.regex.is_some() || self.regex_path.is_some(),
+                "one of 'regex' and 'regex-path' must be set",
+            );
+        }
         anyhow::ensure!(
-            !(self.haystack.is_some() && self.haystack_path.is_some()),
+            self.haystack.is_none() || self.haystack_path.is_none(),
             "only one of 'haystack' and 'haystack-path' may be set",
         );
         anyhow::ensure!(
             self.haystack.is_some() || self.haystack_path.is_some(),
-            "at least one of 'haystack' and 'haystack-path' must be set",
+            "one of 'haystack' and 'haystack-path' must be set",
         );
         // Our engine names should conform as well.
         for engine in self.engines.iter() {
@@ -972,6 +1125,7 @@ impl std::fmt::Display for BenchmarkType {
 struct BenchmarkIter<'d> {
     config: BenchmarkConfig,
     def: &'d BenchmarkDef,
+    regex: Arc<str>,
     haystack: Arc<[u8]>,
     it: std::slice::Iter<'d, String>,
 }
@@ -984,6 +1138,7 @@ impl<'b> Iterator for BenchmarkIter<'b> {
         Some(Benchmark {
             config: self.config.clone(),
             def: self.def.clone(),
+            regex: Arc::clone(&self.regex),
             haystack: Arc::clone(&self.haystack),
             engine: engine.to_string(),
         })
@@ -999,6 +1154,9 @@ struct Benchmark {
     config: BenchmarkConfig,
     /// The definition, taken from TOML data.
     def: BenchmarkDef,
+    /// The actual regex to use, taken from either the TOML data (via 'regex')
+    /// or from the file system (via 'regex-path').
+    regex: Arc<str>,
     /// The actual haystack data to search, taken from either the TOML data
     /// (via 'haystack') or from the file system (via 'haystack-path').
     haystack: Arc<[u8]>,
@@ -1060,6 +1218,7 @@ impl Benchmark {
         Benchmark {
             config,
             def: self.def.clone(),
+            regex: Arc::clone(&self.regex),
             haystack: Arc::clone(&self.haystack),
             engine: self.engine.clone(),
         }

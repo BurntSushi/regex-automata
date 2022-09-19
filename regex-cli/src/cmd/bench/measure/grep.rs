@@ -13,6 +13,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "regex/automata/onepass" => regex_automata_onepass(b),
+        "aho-corasick/dfa" => aho_corasick_dfa(b),
+        "aho-corasick/nfa" => aho_corasick_nfa(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -129,6 +131,34 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
         let mut count = 0;
         for line in haystack.lines() {
             if re.is_match(&mut cache, line) {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })
+}
+
+fn aho_corasick_dfa(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::aho_corasick_dfa(b)?;
+    b.run(verify, || {
+        let mut count = 0;
+        for line in haystack.lines() {
+            if re.is_match(line) {
+                count += 1;
+            }
+        }
+        Ok(count)
+    })
+}
+
+fn aho_corasick_nfa(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::aho_corasick_nfa(b)?;
+    b.run(verify, || {
+        let mut count = 0;
+        for line in haystack.lines() {
+            if re.is_match(line) {
                 count += 1;
             }
         }

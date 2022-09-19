@@ -107,6 +107,10 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
                     }
                     match diffargs.units {
                         Units::Time => {
+                            anyhow::ensure!(
+                                agg.haystack_len > 0,
+                                "expected non-empty haystack length"
+                            );
                             let d = agg.duration(diffargs.stat);
                             write!(wtr, "{}", ShortHumanDuration::from(d))?;
                         }

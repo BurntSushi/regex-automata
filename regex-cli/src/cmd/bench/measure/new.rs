@@ -6,7 +6,7 @@ constructor.
 
 One special case here is the regex-redux benchmark, which involves building
 many regexes specific to that benchmark. In that case, the regex-redux
-benchmark copies most of the constructors here, since there is no 'b.def.regex'
+benchmark copies most of the constructors here, since there is no 'b.regex'
 available to build.
 */
 
@@ -14,9 +14,10 @@ use super::Benchmark;
 
 /// Constructor for the Rust regex API engine.
 pub(super) fn regex_api(b: &Benchmark) -> anyhow::Result<regex::bytes::Regex> {
-    let re = regex::bytes::RegexBuilder::new(&b.def.regex)
+    let re = regex::bytes::RegexBuilder::new(&b.regex)
         .unicode(b.def.unicode)
         .case_insensitive(b.def.case_insensitive)
+        .size_limit((1 << 20) * 100)
         .build()?;
     Ok(re)
 }
@@ -32,7 +33,7 @@ pub(super) fn regex_automata_dfa_dense(
         // may report matches that split a UTF-8 encoding of a codepoint.
         .configure(Regex::config().utf8(false))
         .syntax(automata_syntax_config(b))
-        .build(&b.def.regex)?;
+        .build(&b.regex)?;
     Ok(re)
 }
 
@@ -52,7 +53,7 @@ pub(super) fn regex_automata_dfa_sparse(
         // may report matches that split a UTF-8 encoding of a codepoint.
         .configure(Regex::config().utf8(false))
         .syntax(automata_syntax_config(b))
-        .build_sparse(&b.def.regex)?;
+        .build_sparse(&b.regex)?;
     Ok(re)
 }
 
@@ -81,7 +82,7 @@ pub(super) fn regex_automata_hybrid(
         // overall reduce search speed.)
         .dfa(DFA::config().skip_cache_capacity_check(true))
         .syntax(automata_syntax_config(b))
-        .build(&b.def.regex)?;
+        .build(&b.regex)?;
     Ok(re)
 }
 
@@ -97,7 +98,7 @@ pub(super) fn regex_automata_pikevm(
         // may report matches that split a UTF-8 encoding of a codepoint.
         .configure(PikeVM::config().utf8(false))
         .syntax(automata_syntax_config(b))
-        .build(&b.def.regex)?;
+        .build(&b.regex)?;
     Ok(re)
 }
 
@@ -118,7 +119,7 @@ pub(super) fn regex_automata_backtrack(
         // may report matches that split a UTF-8 encoding of a codepoint.
         .configure(BoundedBacktracker::config().utf8(false))
         .syntax(automata_syntax_config(b))
-        .build(&b.def.regex)?;
+        .build(&b.regex)?;
     Ok(re)
 }
 
@@ -136,8 +137,54 @@ pub(super) fn regex_automata_onepass(
         // empty matches that split a UTF-8 encoding of a codepoint.
         .configure(DFA::config().utf8(false))
         .syntax(automata_syntax_config(b))
-        .build(&b.def.regex)?;
+        .build(&b.regex)?;
     Ok(re)
+}
+
+/// A multi-literal matcher using an Aho-Corasick NFA. We specifically disable
+/// any "literal" optimizations that the aho-corasick crate might do.
+pub(super) fn aho_corasick_nfa(
+    b: &Benchmark,
+) -> anyhow::Result<aho_corasick::AhoCorasick> {
+    use aho_corasick::{AhoCorasickBuilder, MatchKind};
+
+    anyhow::ensure!(
+        !(b.def.unicode && b.def.case_insensitive),
+        "aho-corasick/nfa engine is incompatible with 'unicode = true' and \
+         'case-insensitive = true'"
+    );
+    let patterns = b.regex.split(r"|").collect::<Vec<&str>>();
+    let ac = AhoCorasickBuilder::new()
+        .match_kind(MatchKind::LeftmostFirst)
+        .auto_configure(&patterns)
+        .ascii_case_insensitive(b.def.case_insensitive)
+        .prefilter(false)
+        .dfa(false)
+        .build(&patterns);
+    Ok(ac)
+}
+
+/// A multi-literal matcher using an Aho-Corasick DFA. We specifically disable
+/// any "literal" optimizations that the aho-corasick crate might do.
+pub(super) fn aho_corasick_dfa(
+    b: &Benchmark,
+) -> anyhow::Result<aho_corasick::AhoCorasick> {
+    use aho_corasick::{AhoCorasickBuilder, MatchKind};
+
+    anyhow::ensure!(
+        !(b.def.unicode && b.def.case_insensitive),
+        "aho-corasick/dfa engine is incompatible with 'unicode = true' and \
+         'case-insensitive = true'"
+    );
+    let patterns = b.regex.split(r"|").collect::<Vec<&str>>();
+    let ac = AhoCorasickBuilder::new()
+        .match_kind(MatchKind::LeftmostFirst)
+        .auto_configure(&patterns)
+        .ascii_case_insensitive(b.def.case_insensitive)
+        .prefilter(false)
+        .dfa(true)
+        .build(&patterns);
+    Ok(ac)
 }
 
 /// A simple literal searcher. This obviously doesn't handle regexes, but it
@@ -150,7 +197,7 @@ pub(super) fn memchr_memmem(
         !b.def.case_insensitive,
         "memmem engine is incompatible with 'case-insensitive = true'"
     );
-    Ok(memchr::memmem::Finder::new(&b.def.regex).into_owned())
+    Ok(memchr::memmem::Finder::new(b.regex.as_bytes()).into_owned())
 }
 
 /// The RE2 regex engine from Google.
@@ -162,7 +209,7 @@ pub(super) fn re2_api(
 ) -> anyhow::Result<crate::ffi::re2::Regex> {
     use crate::ffi::re2::Regex;
 
-    let re = Regex::new(&b.def.regex, re2_options(b))?;
+    let re = Regex::new(&b.regex, re2_options(b))?;
     Ok(re)
 }
 
@@ -175,7 +222,7 @@ pub(super) fn pcre2_api_jit(
 ) -> anyhow::Result<crate::ffi::pcre2::Regex> {
     use crate::ffi::pcre2::Regex;
 
-    let re = Regex::new(&b.def.regex, pcre2_options(b))?;
+    let re = Regex::new(&b.regex, pcre2_options(b))?;
     Ok(re)
 }
 
@@ -190,7 +237,7 @@ pub(super) fn pcre2_api_nojit(
 
     let mut opts = pcre2_options(b);
     opts.jit = false;
-    let re = Regex::new(&b.def.regex, opts)?;
+    let re = Regex::new(&b.regex, opts)?;
     Ok(re)
 }
 

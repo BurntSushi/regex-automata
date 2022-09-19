@@ -5,11 +5,15 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
+        "regex/ast" => regex_ast(b),
+        "regex/hir" => regex_hir(b),
         "regex/automata/dense" => regex_automata_dfa_dense(b),
         "regex/automata/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "regex/automata/onepass" => regex_automata_onepass(b),
+        "aho-corasick/dfa" => aho_corasick_dfa(b),
+        "aho-corasick/nfa" => aho_corasick_nfa(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -39,6 +43,49 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
     b.run(verify, || {
         let re = new::regex_api(b)?;
         Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
+    })
+}
+
+fn regex_ast(b: &Benchmark) -> anyhow::Result<Results> {
+    use syntax::ast::{parse::ParserBuilder, Ast};
+
+    // We don't bother "verifying" the AST since it is already implicitly
+    // verified via regex/api.
+    fn verify_ast(_: &Benchmark, ast: Ast) -> anyhow::Result<()> {
+        let debug = format!("{:?}", ast);
+        anyhow::ensure!(!debug.is_empty(), "expected non-empty debug AST");
+        Ok(())
+    }
+    b.run(verify_ast, || {
+        let mut parser = ParserBuilder::new().build();
+        let ast = parser.parse(&b.regex)?;
+        Ok(ast)
+    })
+}
+
+fn regex_hir(b: &Benchmark) -> anyhow::Result<Results> {
+    use syntax::{
+        ast::parse::ParserBuilder,
+        hir::{translate::TranslatorBuilder, Hir},
+    };
+
+    // We don't bother "verifying" the HIR since it is already implicitly
+    // verified via regex/api.
+    fn verify_hir(_: &Benchmark, hir: Hir) -> anyhow::Result<()> {
+        let debug = format!("{:?}", hir);
+        anyhow::ensure!(!debug.is_empty(), "expected non-empty debug HIR");
+        Ok(())
+    }
+
+    let ast = ParserBuilder::new().build().parse(&b.regex)?;
+    let mut translator = TranslatorBuilder::new()
+        .allow_invalid_utf8(true)
+        .unicode(b.def.unicode)
+        .case_insensitive(b.def.case_insensitive)
+        .build();
+    b.run(verify_hir, || {
+        let hir = translator.translate(&b.regex, &ast)?;
+        Ok(hir)
     })
 }
 
@@ -92,6 +139,20 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
                 .infallible();
             Ok(it.count())
         }))
+    })
+}
+
+fn aho_corasick_dfa(b: &Benchmark) -> anyhow::Result<Results> {
+    b.run(verify, || {
+        let re = new::aho_corasick_dfa(b)?;
+        Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
+    })
+}
+
+fn aho_corasick_nfa(b: &Benchmark) -> anyhow::Result<Results> {
+    b.run(verify, || {
+        let re = new::aho_corasick_nfa(b)?;
+        Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
     })
 }
 

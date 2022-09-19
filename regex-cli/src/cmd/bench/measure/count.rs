@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use super::{new, Benchmark, Results};
 
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
@@ -11,6 +9,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "memchr/memmem" => memchr_memmem(b),
+        "aho-corasick/dfa" => aho_corasick_dfa(b),
+        "aho-corasick/nfa" => aho_corasick_nfa(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -87,6 +87,18 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
 fn memchr_memmem(b: &Benchmark) -> anyhow::Result<Results> {
     let haystack = &*b.haystack;
     let finder = new::memchr_memmem(b)?;
+    b.run(verify, || Ok(finder.find_iter(haystack).count()))
+}
+
+fn aho_corasick_dfa(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let finder = new::aho_corasick_dfa(b)?;
+    b.run(verify, || Ok(finder.find_iter(haystack).count()))
+}
+
+fn aho_corasick_nfa(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let finder = new::aho_corasick_nfa(b)?;
     b.run(verify, || Ok(finder.find_iter(haystack).count()))
 }
 
