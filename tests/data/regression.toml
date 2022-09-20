@@ -223,12 +223,16 @@ matches = [
 ]
 
 # See: https://github.com/rust-lang/regex/issues/303
+#
+# 2022-09-19: This has now been "properly" fixed in that empty character
+# classes are fully supported as something that can never match. This test
+# used to be marked as 'compiles = false', but now it works.
 [[tests]]
 name = "negated-full-byte-range"
 regex = '[^\x00-\xFF]'
 input = ""
 matches = []
-compiles = false
+compiles = true
 unicode = false
 utf8 = false
 

@@ -1,4 +1,4 @@
-use core::{borrow::Borrow, cell::RefCell, convert::TryFrom};
+use core::{borrow::Borrow, cell::RefCell};
 
 use alloc::{sync::Arc, vec, vec::Vec};
 
@@ -642,20 +642,23 @@ impl Compiler {
         // not to (for tests only), or if we know that the regex is anchored
         // for all matches. When an unanchored prefix is not added, then the
         // NFA's anchored and unanchored start states are equivalent.
-        let all_anchored =
-            exprs.iter().all(|e| e.borrow().is_anchored_start());
+        let all_anchored = exprs.iter().all(|e| {
+            e.borrow()
+                .properties()
+                .look_set_prefix()
+                .contains(hir::Look::Start)
+        });
         let anchored = !self.config.get_unanchored_prefix() || all_anchored;
         let unanchored_prefix = if anchored {
             self.c_empty()?
         } else {
-            self.c_at_least(&Hir::any(true), false, 0)?
+            self.c_at_least(&Hir::dot(hir::Dot::AnyByte), false, 0)?
         };
 
         let compiled =
             self.c_alt(exprs.iter().with_pattern_ids().map(|(pid, e)| {
                 let _ = self.start_pattern()?;
-                let group_kind = hir::GroupKind::CaptureIndex(0);
-                let one = self.c_group(&group_kind, e.borrow())?;
+                let one = self.c_group(0, None, e.borrow())?;
                 let match_state_id = self.add_match()?;
                 self.patch(one.end, match_state_id)?;
                 let _ = self.finish_pattern(one.start)?;
@@ -676,18 +679,16 @@ impl Compiler {
 
     /// Compile an arbitrary HIR expression.
     fn c(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
-        use regex_syntax::hir::{Class, HirKind::*, Literal};
+        use regex_syntax::hir::{Class, HirKind::*};
 
         match *expr.kind() {
             Empty => self.c_empty(),
-            Literal(Literal::Unicode(ch)) => self.c_char(ch),
-            Literal(Literal::Byte(b)) => self.c_range(b, b),
+            Literal(hir::Literal(ref bytes)) => self.c_literal(bytes),
             Class(Class::Bytes(ref c)) => self.c_byte_class(c),
             Class(Class::Unicode(ref c)) => self.c_unicode_class(c),
-            Anchor(ref anchor) => self.c_anchor(anchor),
-            WordBoundary(ref wb) => self.c_word_boundary(wb),
+            Look(ref look) => self.c_look(look),
             Repetition(ref rep) => self.c_repetition(rep),
-            Group(ref group) => self.c_group(&group.kind, &group.hir),
+            Group(ref g) => self.c_group(g.index, g.name.as_deref(), &g.hir),
             Concat(ref es) => self.c_concat(es.iter().map(|e| self.c(e))),
             Alternation(ref es) => self.c_alt(es.iter().map(|e| self.c(e))),
         }
@@ -767,24 +768,17 @@ impl Compiler {
     /// appropriate "capture" states in the NFA.
     fn c_group(
         &self,
-        kind: &hir::GroupKind,
+        index: u32,
+        name: Option<&str>,
         expr: &Hir,
     ) -> Result<ThompsonRef, Error> {
         if !self.config.get_captures() {
             return self.c(expr);
         }
-        let (capi, name) = match *kind {
-            hir::GroupKind::NonCapturing => return self.c(expr),
-            hir::GroupKind::CaptureIndex(index) => (index, None),
-            hir::GroupKind::CaptureName { ref name, index } => {
-                (index, Some(&**name))
-            }
-        };
 
-        let start = self.add_capture_start(capi, name)?;
+        let start = self.add_capture_start(index, name)?;
         let inner = self.c(expr)?;
-        let end = self.add_capture_end(capi)?;
-
+        let end = self.add_capture_end(index)?;
         self.patch(start, inner.start)?;
         self.patch(inner.end, end)?;
         Ok(ThompsonRef { start, end })
@@ -796,27 +790,11 @@ impl Compiler {
         &self,
         rep: &hir::Repetition,
     ) -> Result<ThompsonRef, Error> {
-        match rep.kind {
-            hir::RepetitionKind::ZeroOrOne => {
-                self.c_zero_or_one(&rep.hir, rep.greedy)
-            }
-            hir::RepetitionKind::ZeroOrMore => {
-                self.c_at_least(&rep.hir, rep.greedy, 0)
-            }
-            hir::RepetitionKind::OneOrMore => {
-                self.c_at_least(&rep.hir, rep.greedy, 1)
-            }
-            hir::RepetitionKind::Range(ref rng) => match *rng {
-                hir::RepetitionRange::Exactly(count) => {
-                    self.c_exactly(&rep.hir, count)
-                }
-                hir::RepetitionRange::AtLeast(m) => {
-                    self.c_at_least(&rep.hir, rep.greedy, m)
-                }
-                hir::RepetitionRange::Bounded(min, max) => {
-                    self.c_bounded(&rep.hir, rep.greedy, min, max)
-                }
-            },
+        match (rep.min, rep.max) {
+            (0, Some(1)) => self.c_zero_or_one(&rep.hir, rep.greedy),
+            (min, None) => self.c_at_least(&rep.hir, rep.greedy, min),
+            (min, Some(max)) if min == max => self.c_exactly(&rep.hir, min),
+            (min, Some(max)) => self.c_bounded(&rep.hir, rep.greedy, min, max),
         }
     }
 
@@ -903,7 +881,7 @@ impl Compiler {
             // can get away with something much simpler: just one 'alt'
             // instruction that optionally repeats itself. But if the expr
             // can match the empty string... see below.
-            if !expr.is_match_empty() {
+            if expr.properties().minimum_len().map_or(false, |len| len > 0) {
                 let union = if greedy {
                     self.add_union()
                 } else {
@@ -1209,28 +1187,18 @@ impl Compiler {
         Ok(ThompsonRef { start: union, end: alt_end })
     }
 
-    /// Compile the given HIR anchor to an NFA look-around assertion.
-    fn c_anchor(&self, anchor: &hir::Anchor) -> Result<ThompsonRef, Error> {
+    /// Compile the given HIR look-around assertion to an NFA look-around
+    /// assertion.
+    fn c_look(&self, anchor: &hir::Look) -> Result<ThompsonRef, Error> {
         let look = match *anchor {
-            hir::Anchor::StartLine => Look::StartLF,
-            hir::Anchor::EndLine => Look::EndLF,
-            hir::Anchor::StartText => Look::Start,
-            hir::Anchor::EndText => Look::End,
-        };
-        let id = self.add_look(look)?;
-        Ok(ThompsonRef { start: id, end: id })
-    }
-
-    /// Compile the given HIR word boundary to an NFA look-around assertion.
-    fn c_word_boundary(
-        &self,
-        wb: &hir::WordBoundary,
-    ) -> Result<ThompsonRef, Error> {
-        let look = match *wb {
-            hir::WordBoundary::Unicode => Look::WordUnicode,
-            hir::WordBoundary::UnicodeNegate => Look::WordUnicodeNegate,
-            hir::WordBoundary::Ascii => Look::WordAscii,
-            hir::WordBoundary::AsciiNegate => Look::WordAsciiNegate,
+            hir::Look::Start => Look::Start,
+            hir::Look::End => Look::End,
+            hir::Look::StartLF => Look::StartLF,
+            hir::Look::EndLF => Look::EndLF,
+            hir::Look::WordAscii => Look::WordAscii,
+            hir::Look::WordAsciiNegate => Look::WordAsciiNegate,
+            hir::Look::WordUnicode => Look::WordUnicode,
+            hir::Look::WordUnicodeNegate => Look::WordUnicodeNegate,
         };
         let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })
@@ -1245,6 +1213,11 @@ impl Compiler {
             .iter()
             .map(|&b| self.c_range(b, b));
         self.c_concat(it)
+    }
+
+    /// Compile the given byte string to a concatenation of bytes.
+    fn c_literal(&self, bytes: &[u8]) -> Result<ThompsonRef, Error> {
+        self.c_concat(bytes.iter().copied().map(|b| self.c_range(b, b)))
     }
 
     /// Compile a "range" state with one transition that may only be followed

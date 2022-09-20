@@ -1095,13 +1095,12 @@ impl<'a> InternalBuilder<'a> {
 /// additional DFA states would be required, then the pattern is not one-pass
 /// and construction will fail.
 ///
-/// Note though that currently, a this DFA does use a fully dense
-/// representation. This means that while its space complexity is no worse
-/// than an NFA, it may in practice use more memory because of higher constant
-/// factors. The reason for this trade off is two-fold. Firstly, a dense
-/// representation makes the search faster. Secondly, the bigger an NFA, the
-/// more unlikely it is to be one-pass. Therefore, most one-pass DFAs are
-/// usually pretty small.
+/// Note though that currently, this DFA uses a fully dense representation.
+/// This means that while its space complexity is no worse than an NFA, it may
+/// in practice use more memory because of higher constant factors. The reason
+/// for this trade off is two-fold. Firstly, a dense representation makes the
+/// search faster. Secondly, the bigger an NFA, the more unlikely it is to be
+/// one-pass. Therefore, most one-pass DFAs are usually pretty small.
 ///
 /// # Example
 ///

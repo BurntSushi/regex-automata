@@ -7,6 +7,7 @@ use regex_automata::{
     util::{iter, syntax},
     Anchored, Input, MatchKind, PatternSet,
 };
+use regex_syntax::hir;
 
 use ret::{
     bstr::{BString, ByteSlice},
@@ -207,14 +208,16 @@ fn compiler(
 
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
-        let mut thompson = thompson::Compiler::new();
-        thompson.configure(config_thompson(test));
-        // TODO: Modify Hir to report facts like this, instead of needing to
-        // build an NFA to do it.
-        if let Ok(nfa) = thompson.build_many(&regexes) {
-            let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
-            if nfa.has_word_boundary_unicode() && non_ascii {
-                return Ok(CompiledRegex::skip());
+        let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
+        if non_ascii {
+            for pattern in regexes.iter() {
+                let hir = syntax::parse(&config_syntax(test), pattern)?;
+                let looks = hir.properties().look_set();
+                if looks.contains(hir::Look::WordUnicode)
+                    || looks.contains(hir::Look::WordUnicodeNegate)
+                {
+                    return Ok(CompiledRegex::skip());
+                }
             }
         }
         if !configure_regex_builder(test, &mut builder) {
@@ -280,10 +283,6 @@ fn configure_regex_builder(
         ret::MatchKind::LeftmostLongest => return false,
     };
 
-    let syntax_config = syntax::Config::new()
-        .case_insensitive(test.case_insensitive())
-        .unicode(test.unicode())
-        .utf8(test.utf8());
     let starts = if test.anchored() {
         StartKind::Anchored
     } else {
@@ -306,7 +305,7 @@ fn configure_regex_builder(
 
     builder
         .configure(regex_config)
-        .syntax(syntax_config)
+        .syntax(config_syntax(test))
         .thompson(config_thompson(test))
         .dense(dense_config);
     true
@@ -315,6 +314,14 @@ fn configure_regex_builder(
 /// Configuration of a Thompson NFA compiler from a regex test.
 fn config_thompson(_test: &RegexTest) -> thompson::Config {
     thompson::Config::new()
+}
+
+/// Configuration of the regex syntax from a regex test.
+fn config_syntax(test: &RegexTest) -> syntax::Config {
+    syntax::Config::new()
+        .case_insensitive(test.case_insensitive())
+        .unicode(test.unicode())
+        .utf8(test.utf8())
 }
 
 /// Execute an overlapping search, and for each match found, also find its

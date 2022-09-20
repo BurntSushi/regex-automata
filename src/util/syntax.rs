@@ -11,7 +11,14 @@ create small config objects like this one that can be passed around and
 composed.
 */
 
-use regex_syntax::ParserBuilder;
+use regex_syntax::{hir::Hir, Error, ParserBuilder};
+
+/// A convenience routine for parsing a regex using a `Config`.
+pub fn parse(config: &Config, pattern: &str) -> Result<Hir, Error> {
+    let mut builder = ParserBuilder::new();
+    config.apply(&mut builder);
+    builder.build().parse(pattern)
+}
 
 /// A common set of configuration options that apply to the syntax of a regex.
 ///
