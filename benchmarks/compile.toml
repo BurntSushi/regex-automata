@@ -102,6 +102,29 @@ compile at similar speeds.)
 
 [[benches]]
 type = "compile"
+name = "one-letter-unicode"
+regex = '\pL'
+haystack = "ͱͳͷΐάέήίΰαβγδεζηθικλμνξοπρςστυφχψωϊϋόύώϙϛϝϟϡϸϻͱͳͷΐάέή"
+case-insensitive = false
+unicode = true
+match-count = 53
+engines = [
+  'regex/api',
+  'regex/ast',
+  'regex/hir',
+  'regex/automata/dense',
+  'regex/automata/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "compile"
 name = "fifty-letters-unicode"
 regex = '\pL{50}'
 haystack = "ͱͳͷΐάέήίΰαβγδεζηθικλμνξοπρςστυφχψωϊϋόύώϙϛϝϟϡϸϻͱͳͷΐάέή"
@@ -192,7 +215,6 @@ engines = [
   'regex/ast',
   'regex/hir',
   'regex/automata/dense',
-  'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
 ]
@@ -200,12 +222,12 @@ analysis = 'TODO'
 
 [[benches]]
 type = "compile"
-name = "english-dictionary-full"
-regex-path = "english-dictionary.txt"
+name = "dictionary-english"
+regex-path = "dictionary/english/sorted-by-length.txt"
 haystack = "zygotes"
 case-insensitive = false
 unicode = true
-match-count = 7
+match-count = 1
 engines = [
   'regex/api',
   'regex/ast',
@@ -214,14 +236,15 @@ engines = [
   'regex/automata/pikevm',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
-  're2/api',
+  # RE2 reports zero matches. Possible bug?
+  # 're2/api',
 ]
 analysis = 'TODO'
 
 [[benches]]
 type = "compile"
-name = "english-dictionary-10"
-regex-path = "english-dictionary-10.txt"
+name = "dictionary-english-10"
+regex-path = "dictionary/english/length-10.txt"
 haystack = "Zubeneschamali's"
 case-insensitive = false
 unicode = true
@@ -240,8 +263,8 @@ analysis = 'TODO'
 
 [[benches]]
 type = "compile"
-name = "english-dictionary-15"
-regex-path = "english-dictionary-15.txt"
+name = "dictionary-english-15"
+regex-path = "dictionary/english/length-15.txt"
 haystack = "Zubeneschamali's"
 case-insensitive = false
 unicode = true
@@ -255,5 +278,24 @@ engines = [
   'aho-corasick/dfa',
   'aho-corasick/nfa',
   're2/api',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "compile"
+name = "i787"
+regex = '\b(as|break|const|continue|crate|else|enum|extern|false|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|true|type|unsafe|use|where|while|abstract|become|box|do|final|macro|override|priv|typeof|unsized|virtual|yield|try|i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|bool|char|str|f32|f64)\b'
+haystack = "f64"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  'regex/automata/hybrid',
+  'regex/automata/dense',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'

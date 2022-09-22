@@ -1,0 +1,143 @@
+[[benches]]
+type = "count"
+name = "english"
+regex-path = "dictionary/english/sorted-by-length.txt"
+haystack-path = "opensubtitles/en-medium.txt"
+case-insensitive = false
+unicode = true
+match-count = 15_032
+engines = [
+  'regex/api',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  'aho-corasick/dfa',
+  'aho-corasick/nfa',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "english-tiny"
+regex-path = "dictionary/english/sorted-by-length.txt"
+haystack-path = "opensubtitles/en-tiny.txt"
+case-insensitive = false
+unicode = true
+match-count = 22
+engines = [
+  'regex/api',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  'aho-corasick/dfa',
+  'aho-corasick/nfa',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "english-10"
+regex-path = "dictionary/english/length-10.txt"
+haystack-path = "opensubtitles/en-medium.txt"
+case-insensitive = false
+unicode = true
+match-count = 66
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  'regex/automata/hybrid',
+  'aho-corasick/dfa',
+  'aho-corasick/nfa',
+  're2/api',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "english-15"
+regex-path = "dictionary/english/length-15.txt"
+haystack-path = "opensubtitles/en-medium.txt"
+case-insensitive = false
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  'aho-corasick/dfa',
+  'aho-corasick/nfa',
+  're2/api',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "i787-word-ascii"
+regex = '\b(as|break|const|continue|crate|else|enum|extern|false|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|true|type|unsafe|use|where|while|abstract|become|box|do|final|macro|override|priv|typeof|unsized|virtual|yield|try|i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|bool|char|str|f32|f64)\b'
+haystack-path = "github-rustlang-regex-i787.txt"
+case-insensitive = false
+unicode = false
+match-count = 1_802
+engines = [
+  'regex/api',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "i787-word-unicode"
+regex = '\b(as|break|const|continue|crate|else|enum|extern|false|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|true|type|unsafe|use|where|while|abstract|become|box|do|final|macro|override|priv|typeof|unsized|virtual|yield|try|i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|bool|char|str|f32|f64)\b'
+haystack-path = "github-rustlang-regex-i787.txt"
+case-insensitive = false
+unicode = true
+match-count = 1_802
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "i787-opt-word-unicode"
+regex = '\b(Self|a(?:bstract|s)|b(?:ecome|o(?:ol|x)|reak)|c(?:har|on(?:st|tinue)|rate)|do|e(?:lse|num|xtern)|f(?:32|64|alse|inal|n|or)|i(?:1(?:28|6)|32|64|mpl|size|[8fn])|l(?:et|oop)|m(?:a(?:cro|tch)|o(?:d|ve)|ut)|override|p(?:riv|ub)|re(?:f|turn)|s(?:elf|t(?:atic|r(?:(?:uct)?))|uper)|t(?:r(?:ait|ue|y)|ype(?:(?:of)?))|u(?:1(?:28|6)|32|64|8|ns(?:afe|ized)|s(?:(?:(?:iz)?)e))|virtual|wh(?:(?:er|il)e)|yield)\b'
+haystack-path = "github-rustlang-regex-i787.txt"
+case-insensitive = false
+unicode = true
+match-count = 1_802
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+# TODO: Investigate perf difference between count/dictionary/i787-word-ascii
+# for regex/api and count/dictionary/i787-noword. The former just uses the
+# lazy DFA and is pretty fast. But the latter gets "literal optimized" and
+# uses Teddy, but is slower in this case. Might be hard to fix.
+[[benches]]
+type = "count"
+name = "i787-noword"
+regex = 'as|break|const|continue|crate|else|enum|extern|false|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|true|type|unsafe|use|where|while|abstract|become|box|do|final|macro|override|priv|typeof|unsized|virtual|yield|try|i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|bool|char|str|f32|f64'
+haystack-path = "github-rustlang-regex-i787.txt"
+case-insensitive = false
+unicode = true
+match-count = 4_861
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  'regex/automata/hybrid',
+  'aho-corasick/nfa',
+  'aho-corasick/dfa',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

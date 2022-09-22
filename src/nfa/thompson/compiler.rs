@@ -12,6 +12,7 @@ use crate::{
     nfa::thompson::{
         builder::Builder,
         error::Error,
+        literal_trie::LiteralTrie,
         map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
         nfa::{PatternIter, SparseTransitions, State, Transition, NFA},
         range_trie::RangeTrie,
@@ -655,15 +656,16 @@ impl Compiler {
             self.c_at_least(&Hir::dot(hir::Dot::AnyByte), false, 0)?
         };
 
-        let compiled =
-            self.c_alt(exprs.iter().with_pattern_ids().map(|(pid, e)| {
+        let compiled = self.c_alt_iter(
+            exprs.iter().with_pattern_ids().map(|(pid, e)| {
                 let _ = self.start_pattern()?;
                 let one = self.c_group(0, None, e.borrow())?;
                 let match_state_id = self.add_match()?;
                 self.patch(one.end, match_state_id)?;
                 let _ = self.finish_pattern(one.start)?;
                 Ok(ThompsonRef { start: one.start, end: match_state_id })
-            }))?;
+            }),
+        )?;
         self.patch(unanchored_prefix.end, compiled.start)?;
         let nfa = self
             .builder
@@ -690,7 +692,7 @@ impl Compiler {
             Repetition(ref rep) => self.c_repetition(rep),
             Group(ref g) => self.c_group(g.index, g.name.as_deref(), &g.hir),
             Concat(ref es) => self.c_concat(es.iter().map(|e| self.c(e))),
-            Alternation(ref es) => self.c_alt(es.iter().map(|e| self.c(e))),
+            Alternation(ref es) => self.c_alt_slice(es),
         }
     }
 
@@ -722,6 +724,39 @@ impl Compiler {
         Ok(ThompsonRef { start, end })
     }
 
+    /// Compile an alternation of the given HIR values.
+    ///
+    /// This is like 'c_alt_iter', but it accepts a slice of HIR values instead
+    /// of an iterator of compiled NFA subgraphs. The point of accepting a
+    /// slice here is that it opens up some optimization opportunities. For
+    /// example, if all of the HIR values are literals, then this routine might
+    /// re-shuffle them to make NFA epsilon closures substantially faster.
+    fn c_alt_slice(&self, exprs: &[Hir]) -> Result<ThompsonRef, Error> {
+        let literal_count = exprs
+            .iter()
+            .filter(|e| {
+                matches!(*e.kind(), hir::HirKind::Literal(hir::Literal(_)))
+            })
+            .count();
+        if literal_count <= 1 || literal_count < exprs.len() {
+            return self.c_alt_iter(exprs.iter().map(|e| self.c(e)));
+        }
+
+        let mut trie = if self.is_reverse() {
+            LiteralTrie::reverse()
+        } else {
+            LiteralTrie::forward()
+        };
+        for expr in exprs.iter() {
+            let literal = match *expr.kind() {
+                hir::HirKind::Literal(hir::Literal(ref bytes)) => bytes,
+                _ => unreachable!(),
+            };
+            trie.add(literal)?;
+        }
+        trie.compile(&mut self.builder.borrow_mut())
+    }
+
     /// Compile an alternation, where each element yielded by the given
     /// iterator represents an item in the alternation. If the iterator yields
     /// no elements, then this compiles down to a "fail" state.
@@ -731,7 +766,7 @@ impl Compiler {
     /// when using "leftmost first" match semantics. (If "leftmost longest" are
     /// ever added in the future, then this preference order of priority would
     /// not apply in that mode.)
-    fn c_alt<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
+    fn c_alt_iter<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
     where
         I: Iterator<Item = Result<ThompsonRef, Error>>,
     {
@@ -1331,9 +1366,9 @@ impl Compiler {
 /// regex's HIR. Specifically, this represents a sub-graph of the NFA that
 /// has an initial state at `start` and a final state at `end`.
 #[derive(Clone, Copy, Debug)]
-struct ThompsonRef {
-    start: StateID,
-    end: StateID,
+pub(crate) struct ThompsonRef {
+    pub(crate) start: StateID,
+    pub(crate) end: StateID,
 }
 
 /// A UTF-8 compiler based on Daciuk's algorithm for compilining minimal DFAs
@@ -1695,7 +1730,16 @@ mod tests {
     fn compile_alternation() {
         assert_eq!(
             build(r"a|b").states(),
-            &[s_byte(b'a', 3), s_byte(b'b', 3), s_bin_union(0, 1), s_match(0)]
+            &[s_range(b'a', b'b', 1), s_match(0)]
+        );
+        assert_eq!(
+            build(r"ab|cd").states(),
+            &[
+                s_byte(b'b', 3),
+                s_byte(b'd', 3),
+                s_sparse(&[(b'a', b'a', 0), (b'c', b'c', 1)]),
+                s_match(0)
+            ],
         );
         assert_eq!(
             build(r"|b").states(),
