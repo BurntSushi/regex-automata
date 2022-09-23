@@ -7,6 +7,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/api" => regex_api(b),
         "regex/ast" => regex_ast(b),
         "regex/hir" => regex_hir(b),
+        "regex/nfa" => regex_nfa(b),
         "regex/automata/dense" => regex_automata_dfa_dense(b),
         "regex/automata/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
@@ -51,12 +52,11 @@ fn regex_ast(b: &Benchmark) -> anyhow::Result<Results> {
 
     // We don't bother "verifying" the AST since it is already implicitly
     // verified via regex/api.
-    fn verify_ast(_: &Benchmark, ast: Ast) -> anyhow::Result<()> {
-        let debug = format!("{:?}", ast);
-        anyhow::ensure!(!debug.is_empty(), "expected non-empty debug AST");
+    #[inline(never)]
+    fn verify(_: &Benchmark, _: Ast) -> anyhow::Result<()> {
         Ok(())
     }
-    b.run(verify_ast, || {
+    b.run(verify, || {
         let mut parser = ParserBuilder::new().build();
         let ast = parser.parse(&b.regex)?;
         Ok(ast)
@@ -71,9 +71,8 @@ fn regex_hir(b: &Benchmark) -> anyhow::Result<Results> {
 
     // We don't bother "verifying" the HIR since it is already implicitly
     // verified via regex/api.
-    fn verify_hir(_: &Benchmark, hir: Hir) -> anyhow::Result<()> {
-        let debug = format!("{:?}", hir);
-        anyhow::ensure!(!debug.is_empty(), "expected non-empty debug HIR");
+    #[inline(never)]
+    fn verify(_: &Benchmark, _: Hir) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -83,9 +82,32 @@ fn regex_hir(b: &Benchmark) -> anyhow::Result<Results> {
         .unicode(b.def.unicode)
         .case_insensitive(b.def.case_insensitive)
         .build();
-    b.run(verify_hir, || {
+    b.run(verify, || {
         let hir = translator.translate(&b.regex, &ast)?;
         Ok(hir)
+    })
+}
+
+fn regex_nfa(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::nfa::thompson::{Compiler, NFA};
+    use syntax::ParserBuilder;
+
+    // We don't bother "verifying" the NFA since it is already implicitly
+    // verified via regex/api.
+    #[inline(never)]
+    fn verify(_: &Benchmark, _: NFA) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    let hir = ParserBuilder::new()
+        .allow_invalid_utf8(true)
+        .unicode(b.def.unicode)
+        .case_insensitive(b.def.case_insensitive)
+        .build()
+        .parse(&b.regex)?;
+    b.run(verify, || {
+        let nfa = Compiler::new().build_from_hir(&hir)?;
+        Ok(nfa)
     })
 }
 

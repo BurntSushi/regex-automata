@@ -70,40 +70,27 @@ impl LiteralTrie {
         out: StateID,
         sid: StateID,
     ) -> Result<StateID, Error> {
-        let state = &self.states[sid];
-        if state.chunk_len() == 1 {
-            return self.compile_chunk(nfac, out, state.active_chunk());
-        }
-
         let union = nfac.add_union(vec![])?;
         for (i, chunk) in self.states[sid].chunks().enumerate() {
             if i > 0 {
                 nfac.patch(union, out)?;
             }
-            if !chunk.is_empty() {
-                let chunk_id = self.compile_chunk(nfac, out, chunk)?;
-                nfac.patch(union, chunk_id)?;
+            if chunk.is_empty() {
+                continue;
             }
+            let mut sparse = vec![];
+            for t in chunk.iter() {
+                let next = self.compile_state(nfac, out, t.next)?;
+                sparse.push(thompson::Transition {
+                    start: t.byte,
+                    end: t.byte,
+                    next,
+                });
+            }
+            let chunk_id = nfac.add_sparse(sparse)?;
+            nfac.patch(union, chunk_id)?;
         }
         Ok(union)
-    }
-
-    fn compile_chunk(
-        &self,
-        nfac: &mut Builder,
-        out: StateID,
-        chunk: &[Transition],
-    ) -> Result<StateID, Error> {
-        let mut sparse = vec![];
-        for t in chunk.iter() {
-            let next = self.compile_state(nfac, out, t.next)?;
-            sparse.push(thompson::Transition {
-                start: t.byte,
-                end: t.byte,
-                next,
-            });
-        }
-        nfac.add_sparse(sparse)
     }
 
     fn to_hir(&self) -> regex_syntax::hir::Hir {

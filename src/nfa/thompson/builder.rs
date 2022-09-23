@@ -482,6 +482,7 @@ impl Builder {
                         remap[sid] = nfa.add(nfa::State::Fail);
                     } else if alternates.len() == 1 {
                         empties.push((sid, alternates[0]));
+                        remap[sid] = alternates[0];
                     } else if alternates.len() == 2 {
                         remap[sid] = nfa.add(nfa::State::BinaryUnion {
                             alt1: alternates[0],
@@ -498,6 +499,7 @@ impl Builder {
                         remap[sid] = nfa.add(nfa::State::Fail);
                     } else if alternates.len() == 1 {
                         empties.push((sid, alternates[0]));
+                        remap[sid] = alternates[0];
                     } else if alternates.len() == 2 {
                         remap[sid] = nfa.add(nfa::State::BinaryUnion {
                             alt1: alternates[1],
@@ -527,8 +529,24 @@ impl Builder {
             // a non-empty state, and therefore, a state that is correctly
             // remapped. We are guaranteed to terminate because our compiler
             // never builds a loop among only empty states.
-            while let State::Empty { next } = self.states[empty_next] {
-                empty_next = next;
+            // while let State::Empty { next } = self.states[empty_next] {
+            loop {
+                match self.states[empty_next] {
+                    State::Empty { next } => {
+                        empty_next = next;
+                    }
+                    State::Union { ref alternates }
+                        if alternates.len() == 1 =>
+                    {
+                        empty_next = alternates[0];
+                    }
+                    State::UnionReverse { ref alternates }
+                        if alternates.len() == 1 =>
+                    {
+                        empty_next = alternates[0];
+                    }
+                    _ => break,
+                }
             }
             remap[empty_id] = remap[empty_next];
         }
