@@ -128,6 +128,24 @@ enum State {
 }
 
 impl State {
+    /// If this state is an unconditional espilon transition, then this returns
+    /// the target of the transition.
+    fn goto(&self) -> Option<StateID> {
+        match *self {
+            State::Empty { next } => Some(next),
+            State::Union { ref alternates } if alternates.len() == 1 => {
+                Some(alternates[0])
+            }
+            State::UnionReverse { ref alternates }
+                if alternates.len() == 1 =>
+            {
+                Some(alternates[0])
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the heap memory usage, in bytes, of this state.
     fn memory_usage(&self) -> usize {
         match *self {
             State::Empty { .. }
@@ -529,24 +547,8 @@ impl Builder {
             // a non-empty state, and therefore, a state that is correctly
             // remapped. We are guaranteed to terminate because our compiler
             // never builds a loop among only empty states.
-            // while let State::Empty { next } = self.states[empty_next] {
-            loop {
-                match self.states[empty_next] {
-                    State::Empty { next } => {
-                        empty_next = next;
-                    }
-                    State::Union { ref alternates }
-                        if alternates.len() == 1 =>
-                    {
-                        empty_next = alternates[0];
-                    }
-                    State::UnionReverse { ref alternates }
-                        if alternates.len() == 1 =>
-                    {
-                        empty_next = alternates[0];
-                    }
-                    _ => break,
-                }
+            while let Some(next) = self.states[empty_next].goto() {
+                empty_next = next;
             }
             remap[empty_id] = remap[empty_next];
         }
