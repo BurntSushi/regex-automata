@@ -732,6 +732,7 @@ impl Compiler {
     /// example, if all of the HIR values are literals, then this routine might
     /// re-shuffle them to make NFA epsilon closures substantially faster.
     fn c_alt_slice(&self, exprs: &[Hir]) -> Result<ThompsonRef, Error> {
+        // self.c_alt_iter(exprs.iter().map(|e| self.c(e)))
         let literal_count = exprs
             .iter()
             .filter(|e| {

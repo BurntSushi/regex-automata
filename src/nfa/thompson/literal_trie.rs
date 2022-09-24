@@ -1,3 +1,5 @@
+use core::mem;
+
 use crate::{
     nfa::thompson::{self, compiler::ThompsonRef, Builder, Error},
     util::primitives::{IteratorIndexExt, StateID},
@@ -5,99 +7,178 @@ use crate::{
 
 #[derive(Clone)]
 pub(crate) struct LiteralTrie {
+    /// The set of trie states. Each state contains one or more chunks, where
+    /// each chunk is a sparse set of transitions to other states. A leaf state
+    /// is always a match state that contains only empty chunks (i.e., no
+    /// transitions).
     states: Vec<State>,
-    reverse: bool,
+    /// Whether to add literals in reverse to the trie. Useful when building
+    /// a reverse NFA automaton.
+    rev: bool,
 }
 
 impl LiteralTrie {
+    /// Create a new literal trie that adds literals in the forward direction.
     pub(crate) fn forward() -> LiteralTrie {
-        let mut trie = LiteralTrie { states: vec![], reverse: false };
-        // OK because we always have space for at least one state.
-        assert_eq!(0, trie.add_state().unwrap().as_usize());
-        trie
+        let root = State::default();
+        LiteralTrie { states: vec![root], rev: false }
     }
 
+    /// Create a new literal trie that adds literals in reverse.
     pub(crate) fn reverse() -> LiteralTrie {
-        let mut trie = LiteralTrie { states: vec![], reverse: true };
-        // OK because we always have space for at least one state.
-        assert_eq!(0, trie.add_state().unwrap().as_usize());
-        trie
+        let root = State::default();
+        LiteralTrie { states: vec![root], rev: true }
     }
 
+    /// Add the given literal to this trie.
+    ///
+    /// If the literal could not be added because the `StateID` space was
+    /// exhausted, then an error is returned. If an error returns, the trie
+    /// is in an unspecified state.
     pub(crate) fn add(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        // DERP: Add bytes in reverse for compiling reverse NFA.
         let mut prev = StateID::ZERO;
         let mut it = bytes.iter().copied();
-        loop {
-            let byte =
-                match if self.reverse { it.next_back() } else { it.next() } {
-                    None => break,
-                    Some(byte) => byte,
-                };
-            let next = match self.states[prev].next_state(byte) {
-                None => {
-                    let next = self.add_state()?;
-                    self.states[prev].set_next_state(byte, next);
-                    next
-                }
-                Some(sid) => sid,
-            };
-            prev = next;
+        while let Some(b) = if self.rev { it.next_back() } else { it.next() } {
+            prev = self.get_or_add_state(prev, b)?;
         }
         self.states[prev].add_match();
         Ok(())
     }
 
-    fn add_state(&mut self) -> Result<StateID, Error> {
-        let id = StateID::new(self.states.len())
-            .map_err(|_| Error::too_many_states(self.states.len()))?;
-        self.states.push(State::default());
-        Ok(id)
+    /// If the given transition is defined, then return the next state ID.
+    /// Otherwise, add the transition to `from` and point it to a new state.
+    ///
+    /// If a new state ID could not be allocated, then an error is returned.
+    fn get_or_add_state(
+        &mut self,
+        from: StateID,
+        byte: u8,
+    ) -> Result<StateID, Error> {
+        let active = self.states[from].active_chunk();
+        match active.binary_search_by_key(&byte, |t| t.byte) {
+            Ok(i) => Ok(active[i].next),
+            Err(i) => {
+                // Add a new state and get its ID.
+                let next = StateID::new(self.states.len())
+                    .map_err(|_| Error::too_many_states(self.states.len()))?;
+                self.states.push(State::default());
+                // Offset our position to account for all transitions and not
+                // just the ones in the active chunk.
+                let i = self.states[from].active_chunk_start() + i;
+                let t = Transition { byte, next };
+                self.states[from].transitions.insert(i, t);
+                Ok(next)
+            }
+        }
     }
 
+    /// Compile this literal trie to the NFA builder given.
+    ///
+    /// This forwards any errors that may occur while using the given builder.
     pub(crate) fn compile(
         &self,
-        nfac: &mut Builder,
+        builder: &mut Builder,
     ) -> Result<ThompsonRef, Error> {
-        let out = nfac.add_empty()?;
-        let start = self.compile_state(nfac, out, StateID::ZERO)?;
-        Ok(ThompsonRef { start, end: out })
-    }
+        // Compilation proceeds via depth-first traversal of the trie.
+        //
+        // This is overall pretty brutal. The recursive version of this is
+        // deliciously simple. (See 'compile_to_hir' below for what it might
+        // look like.) But recursion on a trie means your call stack grows
+        // in accordance with the longest literal, which just does not seem
+        // appropriate. So we push the call stack to the heap. But as a result,
+        // the trie traversal becomes pretty brutal because we essentially
+        // have to encode the state of a double for-loop into an explicit call
+        // frame. If someone can simplify this without using recursion, that'd
+        // be great.
 
-    fn compile_state(
-        &self,
-        nfac: &mut Builder,
-        out: StateID,
-        sid: StateID,
-    ) -> Result<StateID, Error> {
-        let union = nfac.add_union(vec![])?;
-        for (i, chunk) in self.states[sid].chunks().enumerate() {
-            if i > 0 {
-                nfac.patch(union, out)?;
-            }
-            if chunk.is_empty() {
+        // 'end' is our match state for this trie, but represented in the the
+        // NFA. Any time we see a match in the trie, we insert a transition
+        // from the current state we're in to 'end'.
+        let end = builder.add_empty()?;
+        let mut stack = vec![];
+        let mut f = Frame::new(&self.states[StateID::ZERO]);
+        loop {
+            if let Some(t) = f.transitions.next() {
+                if self.states[t.next].is_leaf() {
+                    f.sparse.push(thompson::Transition {
+                        start: t.byte,
+                        end: t.byte,
+                        next: end,
+                    });
+                } else {
+                    f.sparse.push(thompson::Transition {
+                        start: t.byte,
+                        end: t.byte,
+                        // This is a little funny, but when the frame we create
+                        // below completes, it will pop this parent frame off
+                        // and modify this transition to point to the correct
+                        // state.
+                        next: StateID::ZERO,
+                    });
+                    stack.push(f);
+                    f = Frame::new(&self.states[t.next]);
+                }
                 continue;
             }
-            let mut sparse = vec![];
-            for t in chunk.iter() {
-                let next = self.compile_state(nfac, out, t.next)?;
-                sparse.push(thompson::Transition {
-                    start: t.byte,
-                    end: t.byte,
-                    next,
-                });
+            // At this point, we have visited all transitions in f.chunk, so
+            // add it as a sparse NFA state. Unless the chunk was empty, in
+            // which case, we don't do anything.
+            if !f.sparse.is_empty() {
+                let chunk_id = if f.sparse.len() == 1 {
+                    builder.add_range(f.sparse.pop().unwrap())?
+                } else {
+                    let sparse = mem::replace(&mut f.sparse, vec![]);
+                    builder.add_sparse(sparse)?
+                };
+                f.union.push(chunk_id);
             }
-            let chunk_id = nfac.add_sparse(sparse)?;
-            nfac.patch(union, chunk_id)?;
+            // Now we need to look to see if there are other chunks to visit.
+            if let Some(chunk) = f.chunks.next() {
+                // If we're here, it means we're on the second (or greater)
+                // chunk, which implies there is a match at this point. So
+                // connect this state to the final end state.
+                f.union.push(end);
+                // Advance to the next chunk.
+                f.transitions = chunk.iter();
+                continue;
+            }
+            // Now that we are out of chunks, we have completely visited
+            // this state. So turn our union of chunks into an NFA union
+            // state, and add that union state to the parent state's current
+            // sparse state. (If there is no parent, we're done.)
+            let start = builder.add_union(f.union)?;
+            match stack.pop() {
+                None => {
+                    return Ok(ThompsonRef { start, end });
+                }
+                Some(mut parent) => {
+                    // OK because the only way a frame gets pushed on to the
+                    // stack (aside from the root) is when a transition has
+                    // been added to 'sparse'.
+                    parent.sparse.last_mut().unwrap().next = start;
+                    f = parent;
+                }
+            }
         }
-        Ok(union)
     }
 
-    fn to_hir(&self) -> regex_syntax::hir::Hir {
-        self.to_hir_state(StateID::ZERO)
+    /// Converts this trie to an equivalent HIR expression.
+    ///
+    /// We don't actually use this, but it's useful for tests. In particular,
+    /// it provides a (somewhat) human readable representation of the trie
+    /// itself.
+    #[cfg(test)]
+    fn compile_to_hir(&self) -> regex_syntax::hir::Hir {
+        self.compile_state_to_hir(StateID::ZERO)
     }
 
-    fn to_hir_state(&self, sid: StateID) -> regex_syntax::hir::Hir {
+    /// The recursive implementation of 'to_hir'.
+    ///
+    /// Notice how simple this is compared to 'compile' above. 'compile' could
+    /// be similarly simple, but we opt to not use recursion in order to avoid
+    /// overflowing the stack in the case of a longer literal.
+    #[cfg(test)]
+    fn compile_state_to_hir(&self, sid: StateID) -> regex_syntax::hir::Hir {
         use regex_syntax::hir::Hir;
 
         let mut alt = vec![];
@@ -112,40 +193,13 @@ impl LiteralTrie {
             for t in chunk.iter() {
                 chunk_alt.push(Hir::concat(vec![
                     Hir::literal(vec![t.byte]),
-                    self.to_hir_state(t.next),
+                    self.compile_state_to_hir(t.next),
                 ]));
             }
             alt.push(Hir::alternation(chunk_alt));
         }
         Hir::alternation(alt)
     }
-
-    /*
-    fn to_syntax(&self) -> String {
-        self.to_syntax_state(StateID::ZERO)
-    }
-
-    fn to_syntax_state(&self, sid: StateID) -> String {
-        let mut alt = vec![];
-        for (i, chunk) in self.states[sid].chunks().enumerate() {
-            if i > 0 {
-                alt.push("(?:)".to_string());
-            }
-            if chunk.is_empty() {
-                continue;
-            }
-            let mut chunk_alt = vec![];
-            for t in chunk.iter() {
-                let mut branch =
-                    format!("(?:{})", self.to_syntax_state(t.next));
-                branch.insert(0, char::from(t.byte));
-                chunk_alt.push(branch);
-            }
-            alt.push(chunk_alt.join("|"));
-        }
-        alt.join("|")
-    }
-    */
 }
 
 impl core::fmt::Debug for LiteralTrie {
@@ -159,6 +213,79 @@ impl core::fmt::Debug for LiteralTrie {
     }
 }
 
+/// An explicit stack frame used for traversing the trie without using
+/// recursion.
+///
+/// Each frame is tied to the traversal of a single trie state. The frame is
+/// dropped once the entire state (and all of its children) have been visited.
+/// The "output" of compiling a state is the 'union' vector, which is turn
+/// converted to a NFA union state. Each branch of the union corresponds to a
+/// chunk in the trie state.
+///
+/// 'sparse' corresponds to the set of transitions for a particular chunk in a
+/// trie state. It is ultimately converted to an NFA sparse state. The 'sparse'
+/// field, after being converted to a sparse NFA state, is reused for any
+/// subsequent chunks in the trie state, if any exist.
+#[derive(Debug)]
+struct Frame<'a> {
+    /// The remaining chunks to visit for a trie state.
+    chunks: StateChunksIter<'a>,
+    /// The transitions of the current chunk that we're iterating over. Since
+    /// every trie state has at least one chunk, every frame is initialized
+    /// with the first chunk's transitions ready to be consumed.
+    transitions: core::slice::Iter<'a, Transition>,
+    /// The NFA state IDs pointing to the start of each chunk compiled by
+    /// this trie state. This ultimately gets converted to an NFA union once
+    /// the entire trie state (and all of its children) have been compiled.
+    /// The order of these matters for leftmost-first match semantics, since
+    /// earlier matches in the union are preferred over later ones.
+    union: Vec<StateID>,
+    /// The actual NFA transitions for a single chunk in a trie state. This
+    /// gets converted to an NFA sparse state, and its corresponding NFA state
+    /// ID should get added to 'union'.
+    sparse: Vec<thompson::Transition>,
+}
+
+impl<'a> Frame<'a> {
+    /// Create a new stack frame for trie traversal. This initializes the
+    /// 'transitions' iterator to the transitions for the first chunk, with the
+    /// 'chunks' iterator being every chunk after the first one.
+    fn new(state: &'a State) -> Frame<'a> {
+        let mut chunks = state.chunks();
+        // every state has at least 1 chunk
+        let chunk = chunks.next().unwrap();
+        let transitions = chunk.iter();
+        Frame { chunks, transitions, union: vec![], sparse: vec![] }
+    }
+}
+
+/// A state in a trie.
+///
+/// This uses a sparse representation. Since we don't use literal tries
+/// for searching, and ultimately (and compilation requires visiting every
+/// transition anyway), we use a sparse representation for transitions. This
+/// means we save on memory, at the expense of 'LiteralTrie::add' being perhaps
+/// a bit slower.
+///
+/// While 'transitions' is pretty standard as far as tries goes, the 'chunks'
+/// piece here is more unusual. In effect, 'chunks' defines a partitioning
+/// of 'transitions', where each chunk corresponds to a distinct set of
+/// transitions. The key invariant is that a transition in one chunk cannot
+/// be moved to another chunk. This is the secret sauce that preserve
+/// leftmost-first match semantics.
+///
+/// A new chunk is added whenever we mark a state as a match state. Once a
+/// new chunk is added, the old active chunk is frozen and is never mutated
+/// again. The new chunk becomes the active chunk, which is defined as
+/// '&transitions[chunks.last().map_or(0, |c| c.1)..]'. Thus, a state where
+/// 'chunks' is empty actually contains one chunk. Thus, every state contains
+/// at least one (possibly empty) chunk.
+///
+/// A "leaf" state is a state that has no outgoing transitions (so
+/// 'transitions' is empty). Note that there is no way for a leaf state to be a
+/// non-matching state. (Although while building the trie, within 'add', a leaf
+/// state may exist while not containing any matches. But this invariant is
+/// only broken within 'add'. Once 'add' returns, the invariant is upheld.)
 #[derive(Clone, Default)]
 struct State {
     transitions: Vec<Transition>,
@@ -166,51 +293,51 @@ struct State {
 }
 
 impl State {
-    fn next_state(&self, byte: u8) -> Option<StateID> {
-        for &t in self.active_chunk().iter() {
-            if t.byte == byte {
-                return Some(t.next);
-            }
-        }
-        None
-    }
-
-    fn set_next_state(&mut self, byte: u8, next: StateID) {
-        let chunk_start = self.active_chunk_start();
-        let trans = &self.transitions[chunk_start..];
-        let t = Transition { byte, next };
-        match trans.binary_search_by_key(&byte, |&t| t.byte) {
-            Ok(i) => self.transitions[chunk_start + i] = t,
-            Err(i) => self.transitions.insert(chunk_start + i, t),
-        }
-    }
-
+    /// Mark this state as a match state and freeze the active chunk such that
+    /// it can not be further mutated.
     fn add_match(&mut self) {
+        // This is not strictly necessary, but there's no point in recording
+        // another match by adding another chunk if the state has no
+        // transitions. Note though that we only skip this if we already know
+        // this is a match state, which is only true if 'chunks' is not empty.
+        // Basically, if we didn't do this, nothing semantically would change,
+        // but we'd end up pushing another chunk and potentially triggering an
+        // alloc.
+        if self.transitions.is_empty() && !self.chunks.is_empty() {
+            return;
+        }
         let chunk_start = self.active_chunk_start();
         let chunk_end = self.transitions.len();
         self.chunks.push((chunk_start, chunk_end));
     }
 
-    fn chunk_len(&self) -> usize {
-        // +1 is for the active chunk.
-        // Number of matches always equals self.chunk_len()-1.
-        self.chunks.len() + 1
+    /// Returns true if and only if this state is a leaf state. That is, a
+    /// state that has no outgoing transitions.
+    fn is_leaf(&self) -> bool {
+        self.transitions.is_empty()
     }
 
-    fn chunks(&self) -> impl Iterator<Item = &[Transition]> {
-        let last = core::iter::once(self.active_chunk());
-        self.chunks.iter().map(|&(s, e)| &self.transitions[s..e]).chain(last)
-    }
-
-    fn active_chunk(&self) -> &[Transition] {
-        &self.transitions[self.active_chunk_start()..]
-    }
-
-    fn active_chunk_start(&self) -> usize {
-        match self.chunks.last() {
-            None => 0,
-            Some(&(_, end)) => end,
+    /// Returns an iterator over all of the chunks (including the currently
+    /// active chunk) in this state. Since the active chunk is included, the
+    /// iterator is guaranteed to always yield at least one chunk (although the
+    /// chunk may be empty).
+    fn chunks(&self) -> StateChunksIter<'_> {
+        StateChunksIter {
+            transitions: &*self.transitions,
+            chunks: self.chunks.iter(),
+            active: Some(self.active_chunk()),
         }
+    }
+
+    /// Returns the active chunk as a slice of transitions.
+    fn active_chunk(&self) -> &[Transition] {
+        let start = self.active_chunk_start();
+        &self.transitions[start..]
+    }
+
+    /// Returns the index into 'transitions' where the active chunk starts.
+    fn active_chunk_start(&self) -> usize {
+        self.chunks.last().map_or(0, |&(_, end)| end)
     }
 }
 
@@ -236,6 +363,32 @@ impl core::fmt::Debug for State {
     }
 }
 
+/// An iterator over all of the chunks in a state, including the active chunk.
+///
+/// This iterator is created by `State::chunks`. We name this iterator so that
+/// we can include it in the `Frame` type for non-recursive trie traversal.
+#[derive(Debug)]
+struct StateChunksIter<'a> {
+    transitions: &'a [Transition],
+    chunks: core::slice::Iter<'a, (usize, usize)>,
+    active: Option<&'a [Transition]>,
+}
+
+impl<'a> Iterator for StateChunksIter<'a> {
+    type Item = &'a [Transition];
+
+    fn next(&mut self) -> Option<&'a [Transition]> {
+        if let Some(&(start, end)) = self.chunks.next() {
+            return Some(&self.transitions[start..end]);
+        }
+        if let Some(chunk) = self.active.take() {
+            return Some(chunk);
+        }
+        None
+    }
+}
+
+/// A single transition in a trie to another state.
 #[derive(Clone, Copy)]
 struct Transition {
     byte: u8,
@@ -253,122 +406,6 @@ impl core::fmt::Debug for Transition {
     }
 }
 
-// BREADCRUMBS: This whole fucking idea is completely bunk. My idea was
-// to build a trie, and when leftmost-first was used, I would simply omit
-// adding literals that had a prefix already in the trie. This works fine
-// if the alternation of literals is the entire pattern. But for example,
-// '\b(sam|samwise)\b' matches 'samwise' in 'samwise' and not 'sam'. So
-// removing 'samwise' would be incorrect.
-//
-// I went down this path because I perceived it to be easier and because it
-// would work in most cases... But it's wrong wrong wrong.
-//
-// Instead we're going to have to solve the more general problem if we want
-// this type of optimization to work. So 'sam|samwise' would get rewritten as
-// 'sam(?:|wise)', which is equivalent and achieves our goal of not necessarily
-// having one giant 'union' NFA state.
-//
-// So how to do it? I think the fundamental insight is that so long as we're
-// only dealing with literals, the main thing you can't do is reorder match
-// states. That is, you cannot move a literal that came after a prefix of
-// itself to before that prefix.
-//
-// I still think we should explore using a trie for this. It *feels* like the
-// right data structure. Otherwise, I think this problem breaks down into
-// recursion, which I'd like to avoid. The main problem with the trie approach
-// is that ordering gets lost. So we need to figure out some way to prevent
-// re-orderings while utilizing a trie to write our alternation of literals
-// more efficiently.
-//
-// OK, so a trie can't really work on its own... But maybe we can augment it a
-// bit and use "marks" to indicate boundaries that can't be crossed?
-//
-// So instead of having a traditional finite state machine, we just keep a
-// sequence of transitions and these transitions are in the same order as the
-// literals seen. Here's a good example:
-//
-//   zapper|z|zap
-//
-// This should get rewritten to the equivalent:
-//
-//   z(?:apper||ap)
-//
-// Depending on how you do the trie, you could get any of these incorrect
-// results:
-//
-//   z(?:|apper|ap) or z(?:apper|ap|) or even z(?:ap|apper|)
-//
-// So I think the transitions for each state need to look like
-//
-//   enum Transition { Next { byte: u8, state_id: StateID }, Match, }
-//
-// And the transition lookup routine is to search *backwards* from the end of
-// the transitions in the current state until you either find a macthing byte
-// or a Match. If you see a matching byte, then you follow it kind of like a
-// normal trie. But if you see a match, you can't move past it, so you add a
-// new transition for your current byte even if such a transition exists before
-// the Match.
-//
-// This lets us (optimally, I believe) exploit redundancy in an alternation
-// of literals without changing semantics. (If leftmost-first match semantics
-// aren't used, then a totally normal trie can be used because the order no
-// longer matters.)
-//
-// Once the trie is constructed, I believe it should then be straight-forward
-// to build an HIR value from the trie, and then compile that. ... Although, I
-// really wanted to utilize sparse NFA states here. That is, in a normal trie,
-// every state can be trivially converted to a sparse NFA state since there
-// is at most one transition out for each byte. But... that's not true in the
-// modified model above. Although, for a given state, we should still be able
-// to chunk it up into one or more sparse states, where they are themselves
-// in an alternation with epsilon transitions to a "match" (or "out") state
-// between them. In the case of non-leftmost-first semantics, there will only
-// ever be one chunk and thus we get our wish...
-//
-// The main bummer of this approach is that finding a transition requires a
-// linear scan of a state's transitions because we aren't storing them in
-// order...
-//
-// Wait, isn't it true that any arbitrary re-ordering can occur *within*
-// each "chunk" above? Yes, I believe so, because they are by definition
-// non-overlapping so the preference order is never actually applicable?
-// If that's true, then perhaps our transitions don't need to be one flat
-// sequence, but rather, a `Vec<Vec<(u8, StateID)>>`, although that is a bit
-// unfortunate. We could use a flat sequence with an index to the start of the
-// currently active chunk.
-//
-// OK also, above, I was wrong about converting this trie to HIR. We want to
-// convert it to a Thompson NFA directly so we can write our sparse states.
-// If we convert to an HIR, then we'd need to add more sophistication to the
-// Thompson compiler elsewhere in order to make that HIR use sparse states.
-// (Which we should probably do anyway...)
-//
-// I think we just want a depth first traversal and it should be pretty
-// straight-forward from there? No, it is not so straight-forward I think, but
-// it feels doable. I can almost see the light at the end of the tunnel.
-
-/*
-/// Returns true if this trie contains a literal that is a prefix of the
-/// bytes given.
-///
-/// When leftmost-first match semantics are enabled, this returning true
-/// generally means that the given bytes shouldn't be added to the trie
-/// because it's not possible for it to ever match.
-fn contains_prefix(&self, bytes: &[u8]) -> bool {
-    let mut sid = StateID::ZERO;
-    for &byte in bytes.iter() {
-        sid = match self.states[sid].next_state(byte) {
-            None => break,
-            Some(sid) => sid,
-        };
-        if self.states[sid].is_match {
-            return true;
-        }
-    }
-    self.states[sid].is_match
-}
-*/
-
 #[cfg(test)]
 mod tests {
     use regex_syntax::hir::Hir;
@@ -382,7 +419,7 @@ mod tests {
         trie.add(b"z").unwrap();
         trie.add(b"zap").unwrap();
 
-        let got = trie.to_hir();
+        let got = trie.compile_to_hir();
         let expected = Hir::concat(vec![
             Hir::literal("z".as_bytes()),
             Hir::alternation(vec![
@@ -392,18 +429,5 @@ mod tests {
             ]),
         ]);
         assert_eq!(expected, got);
-    }
-
-    #[test]
-    fn scratch() {
-        let mut trie = LiteralTrie::forward();
-        trie.add(b"zapper").unwrap();
-        trie.add(b"z").unwrap();
-        trie.add(b"zap").unwrap();
-        dbg!(&trie);
-        println!("#### HIR");
-        let hir = trie.to_hir();
-        dbg!(&hir);
-        println!("{}", hir);
     }
 }
