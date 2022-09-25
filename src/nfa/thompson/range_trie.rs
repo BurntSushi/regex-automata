@@ -1,144 +1,146 @@
-// I've called the primary data structure in this module a "range trie." As far
-// as I can tell, there is no prior art on a data structure like this, however,
-// it's likely someone somewhere has built something like it. Searching for
-// "range trie" turns up the paper "Range Tries for Scalable Address Lookup,"
-// but it does not appear relevant.
-//
-// The range trie is just like a trie in that it is a special case of a
-// deterministic finite state machine. It has states and each state has a set
-// of transitions to other states. It is acyclic, and, like a normal trie,
-// it makes no attempt to reuse common suffixes among its elements. The key
-// difference between a normal trie and a range trie below is that a range trie
-// operates on *contiguous sequences* of bytes instead of singleton bytes.
-// One could say say that our alphabet is ranges of bytes instead of bytes
-// themselves, except a key part of range trie construction is splitting ranges
-// apart to ensure there is at most one transition that can be taken for any
-// byte in a given state.
-//
-// I've tried to explain the details of how the range trie works below, so
-// for now, we are left with trying to understand what problem we're trying to
-// solve. Which is itself fairly involved!
-//
-// At the highest level, here's what we want to do. We want to convert a
-// sequence of Unicode codepoints into a finite state machine whose transitions
-// are over *bytes* and *not* Unicode codepoints. We want this because it makes
-// said finite state machines much smaller and much faster to execute. As a
-// simple example, consider a byte oriented automaton for all Unicode scalar
-// values (0x00 through 0x10FFFF, not including surrogate codepoints):
-//
-//     [00-7F]
-//     [C2-DF][80-BF]
-//     [E0-E0][A0-BF][80-BF]
-//     [E1-EC][80-BF][80-BF]
-//     [ED-ED][80-9F][80-BF]
-//     [EE-EF][80-BF][80-BF]
-//     [F0-F0][90-BF][80-BF][80-BF]
-//     [F1-F3][80-BF][80-BF][80-BF]
-//     [F4-F4][80-8F][80-BF][80-BF]
-//
-// (These byte ranges are generated via the regex-syntax::utf8 module, which
-// was based on Russ Cox's code in RE2, which was in turn based on Ken
-// Thompson's implementation of the same idea in his Plan9 implementation of
-// grep.)
-//
-// It should be fairly straight-forward to see how one could compile this into
-// a DFA. The sequences are sorted and non-overlapping. Essentially, you could
-// build a trie from this fairly easy. The problem comes when your initial
-// range (in this case, 0x00-0x10FFFF) isn't so nice. For example, the class
-// represented by '\w' contains only a tenth of the codepoints that
-// 0x00-0x10FFFF contains, but if we were to write out the byte based ranges
-// as we did above, the list would stretch to 892 entries! This turns into
-// quite a large NFA with a few thousand states. Turning this beast into a DFA
-// takes quite a bit of time. We are thus left with trying to trim down the
-// number of states we produce as early as possible.
-//
-// One approach (used by RE2 and still by the regex crate, at time of writing)
-// is to try to find common suffixes while building NFA states for the above
-// and reuse them. This is very cheap to do and one can control precisely how
-// much extra memory you want to use for the cache.
-//
-// Another approach, however, is to reuse an algorithm for constructing a
-// *minimal* DFA from a sorted sequence of inputs. I don't want to go into
-// the full details here, but I explain it in more depth in my blog post on
-// FSTs[1]. Note that the algorithm was not invented by me, but was published
-// in paper by Daciuk et al. in 2000 called "Incremental Construction of
-// MinimalAcyclic Finite-State Automata." Like the suffix cache approach above,
-// it is also possible to control the amount of extra memory one uses, although
-// this usually comes with the cost of sacrificing true minimality. (But it's
-// typically close enough with a reasonably sized cache of states.)
-//
-// The catch is that Daciuk's algorithm only works if you add your keys in
-// lexicographic ascending order. In our case, since we're dealing with ranges,
-// we also need the additional requirement that ranges are either equivalent
-// or do not overlap at all. For example, if one were given the following byte
-// ranges:
-//
-//     [BC-BF][80-BF]
-//     [BC-BF][90-BF]
-//
-// Then Daciuk's algorithm would not work, since there is nothing to handle the
-// fact that the ranges overlap. They would need to be split apart. Thankfully,
-// Thompson's algorithm for producing byte ranges for Unicode codepoint ranges
-// meets both of our requirements. (A proof for this eludes me, but it appears
-// true.)
-//
-// ... however, we would also like to be able to compile UTF-8 automata in
-// reverse. We want this because in order to find the starting location of a
-// match using a DFA, we need to run a second DFA---a reversed version of the
-// forward DFA---backwards to discover the match location. Unfortunately, if
-// we reverse our byte sequences for 0x00-0x10FFFF, we get sequences that are
-// can overlap, even if they are sorted:
-//
-//     [00-7F]
-//     [80-BF][80-9F][ED-ED]
-//     [80-BF][80-BF][80-8F][F4-F4]
-//     [80-BF][80-BF][80-BF][F1-F3]
-//     [80-BF][80-BF][90-BF][F0-F0]
-//     [80-BF][80-BF][E1-EC]
-//     [80-BF][80-BF][EE-EF]
-//     [80-BF][A0-BF][E0-E0]
-//     [80-BF][C2-DF]
-//
-// For example, '[80-BF][80-BF][EE-EF]' and '[80-BF][A0-BF][E0-E0]' have
-// overlapping ranges between '[80-BF]' and '[A0-BF]'. Thus, there is no
-// simple way to apply Daciuk's algorithm.
-//
-// And thus, the range trie was born. The range trie's only purpose is to take
-// sequences of byte ranges like the ones above, collect them into a trie and
-// then spit them in a sorted fashion with no overlapping ranges. For example,
-// 0x00-0x10FFFF gets translated to:
-//
-//     [0-7F]
-//     [80-BF][80-9F][80-8F][F1-F3]
-//     [80-BF][80-9F][80-8F][F4]
-//     [80-BF][80-9F][90-BF][F0]
-//     [80-BF][80-9F][90-BF][F1-F3]
-//     [80-BF][80-9F][E1-EC]
-//     [80-BF][80-9F][ED]
-//     [80-BF][80-9F][EE-EF]
-//     [80-BF][A0-BF][80-8F][F1-F3]
-//     [80-BF][A0-BF][80-8F][F4]
-//     [80-BF][A0-BF][90-BF][F0]
-//     [80-BF][A0-BF][90-BF][F1-F3]
-//     [80-BF][A0-BF][E0]
-//     [80-BF][A0-BF][E1-EC]
-//     [80-BF][A0-BF][EE-EF]
-//     [80-BF][C2-DF]
-//
-// We've thus satisfied our requirements for running Daciuk's algorithm. All
-// sequences of ranges are sorted, and any corresponding ranges are either
-// exactly equivalent or non-overlapping.
-//
-// In effect, a range trie is building a DFA from a sequence of arbitrary
-// byte ranges. But it uses an algoritm custom tailored to its input, so it
-// is not as costly as traditional DFA construction. While it is still quite
-// a bit more costly than the forward's case (which only needs Daciuk's
-// algorithm), it winds up saving a substantial amount of time if one is doing
-// a full DFA powerset construction later by virtue of producing a much much
-// smaller NFA.
-//
-// [1] - https://blog.burntsushi.net/transducers/
-// [2] - https://www.mitpressjournals.org/doi/pdfplus/10.1162/089120100561601
+/*
+I've called the primary data structure in this module a "range trie." As far
+as I can tell, there is no prior art on a data structure like this, however,
+it's likely someone somewhere has built something like it. Searching for
+"range trie" turns up the paper "Range Tries for Scalable Address Lookup,"
+but it does not appear relevant.
+
+The range trie is just like a trie in that it is a special case of a
+deterministic finite state machine. It has states and each state has a set
+of transitions to other states. It is acyclic, and, like a normal trie,
+it makes no attempt to reuse common suffixes among its elements. The key
+difference between a normal trie and a range trie below is that a range trie
+operates on *contiguous sequences* of bytes instead of singleton bytes.
+One could say say that our alphabet is ranges of bytes instead of bytes
+themselves, except a key part of range trie construction is splitting ranges
+apart to ensure there is at most one transition that can be taken for any
+byte in a given state.
+
+I've tried to explain the details of how the range trie works below, so
+for now, we are left with trying to understand what problem we're trying to
+solve. Which is itself fairly involved!
+
+At the highest level, here's what we want to do. We want to convert a
+sequence of Unicode codepoints into a finite state machine whose transitions
+are over *bytes* and *not* Unicode codepoints. We want this because it makes
+said finite state machines much smaller and much faster to execute. As a
+simple example, consider a byte oriented automaton for all Unicode scalar
+values (0x00 through 0x10FFFF, not including surrogate codepoints):
+
+    [00-7F]
+    [C2-DF][80-BF]
+    [E0-E0][A0-BF][80-BF]
+    [E1-EC][80-BF][80-BF]
+    [ED-ED][80-9F][80-BF]
+    [EE-EF][80-BF][80-BF]
+    [F0-F0][90-BF][80-BF][80-BF]
+    [F1-F3][80-BF][80-BF][80-BF]
+    [F4-F4][80-8F][80-BF][80-BF]
+
+(These byte ranges are generated via the regex-syntax::utf8 module, which
+was based on Russ Cox's code in RE2, which was in turn based on Ken
+Thompson's implementation of the same idea in his Plan9 implementation of
+grep.)
+
+It should be fairly straight-forward to see how one could compile this into
+a DFA. The sequences are sorted and non-overlapping. Essentially, you could
+build a trie from this fairly easy. The problem comes when your initial
+range (in this case, 0x00-0x10FFFF) isn't so nice. For example, the class
+represented by '\w' contains only a tenth of the codepoints that
+0x00-0x10FFFF contains, but if we were to write out the byte based ranges
+as we did above, the list would stretch to 892 entries! This turns into
+quite a large NFA with a few thousand states. Turning this beast into a DFA
+takes quite a bit of time. We are thus left with trying to trim down the
+number of states we produce as early as possible.
+
+One approach (used by RE2 and still by the regex crate, at time of writing)
+is to try to find common suffixes while building NFA states for the above
+and reuse them. This is very cheap to do and one can control precisely how
+much extra memory you want to use for the cache.
+
+Another approach, however, is to reuse an algorithm for constructing a
+*minimal* DFA from a sorted sequence of inputs. I don't want to go into
+the full details here, but I explain it in more depth in my blog post on
+FSTs[1]. Note that the algorithm was not invented by me, but was published
+in paper by Daciuk et al. in 2000 called "Incremental Construction of
+MinimalAcyclic Finite-State Automata." Like the suffix cache approach above,
+it is also possible to control the amount of extra memory one uses, although
+this usually comes with the cost of sacrificing true minimality. (But it's
+typically close enough with a reasonably sized cache of states.)
+
+The catch is that Daciuk's algorithm only works if you add your keys in
+lexicographic ascending order. In our case, since we're dealing with ranges,
+we also need the additional requirement that ranges are either equivalent
+or do not overlap at all. For example, if one were given the following byte
+ranges:
+
+    [BC-BF][80-BF]
+    [BC-BF][90-BF]
+
+Then Daciuk's algorithm would not work, since there is nothing to handle the
+fact that the ranges overlap. They would need to be split apart. Thankfully,
+Thompson's algorithm for producing byte ranges for Unicode codepoint ranges
+meets both of our requirements. (A proof for this eludes me, but it appears
+true.)
+
+... however, we would also like to be able to compile UTF-8 automata in
+reverse. We want this because in order to find the starting location of a
+match using a DFA, we need to run a second DFA---a reversed version of the
+forward DFA---backwards to discover the match location. Unfortunately, if
+we reverse our byte sequences for 0x00-0x10FFFF, we get sequences that are
+can overlap, even if they are sorted:
+
+    [00-7F]
+    [80-BF][80-9F][ED-ED]
+    [80-BF][80-BF][80-8F][F4-F4]
+    [80-BF][80-BF][80-BF][F1-F3]
+    [80-BF][80-BF][90-BF][F0-F0]
+    [80-BF][80-BF][E1-EC]
+    [80-BF][80-BF][EE-EF]
+    [80-BF][A0-BF][E0-E0]
+    [80-BF][C2-DF]
+
+For example, '[80-BF][80-BF][EE-EF]' and '[80-BF][A0-BF][E0-E0]' have
+overlapping ranges between '[80-BF]' and '[A0-BF]'. Thus, there is no
+simple way to apply Daciuk's algorithm.
+
+And thus, the range trie was born. The range trie's only purpose is to take
+sequences of byte ranges like the ones above, collect them into a trie and
+then spit them in a sorted fashion with no overlapping ranges. For example,
+0x00-0x10FFFF gets translated to:
+
+    [0-7F]
+    [80-BF][80-9F][80-8F][F1-F3]
+    [80-BF][80-9F][80-8F][F4]
+    [80-BF][80-9F][90-BF][F0]
+    [80-BF][80-9F][90-BF][F1-F3]
+    [80-BF][80-9F][E1-EC]
+    [80-BF][80-9F][ED]
+    [80-BF][80-9F][EE-EF]
+    [80-BF][A0-BF][80-8F][F1-F3]
+    [80-BF][A0-BF][80-8F][F4]
+    [80-BF][A0-BF][90-BF][F0]
+    [80-BF][A0-BF][90-BF][F1-F3]
+    [80-BF][A0-BF][E0]
+    [80-BF][A0-BF][E1-EC]
+    [80-BF][A0-BF][EE-EF]
+    [80-BF][C2-DF]
+
+We've thus satisfied our requirements for running Daciuk's algorithm. All
+sequences of ranges are sorted, and any corresponding ranges are either
+exactly equivalent or non-overlapping.
+
+In effect, a range trie is building a DFA from a sequence of arbitrary
+byte ranges. But it uses an algoritm custom tailored to its input, so it
+is not as costly as traditional DFA construction. While it is still quite
+a bit more costly than the forward's case (which only needs Daciuk's
+algorithm), it winds up saving a substantial amount of time if one is doing
+a full DFA powerset construction later by virtue of producing a much much
+smaller NFA.
+
+[1] - https://blog.burntsushi.net/transducers/
+[2] - https://www.mitpressjournals.org/doi/pdfplus/10.1162/089120100561601
+*/
 
 use core::{
     cell::RefCell, convert::TryFrom, fmt, mem, ops::RangeInclusive, u32,
@@ -154,6 +156,8 @@ use regex_syntax::utf8::Utf8Range;
 /// would use well over 100GB of memory. Moreover, it's likely impossible
 /// for the state ID space to get that big. In fact, it's likely that even a
 /// u16 would be good enough here. But it's not quite clear how to prove this.
+///
+/// TODO: We should switch to using crate::util::primitives::StateID.
 type StateID = u32;
 
 /// There is only one final state in this trie. Every sequence of byte ranges

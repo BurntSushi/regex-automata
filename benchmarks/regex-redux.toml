@@ -1,6 +1,7 @@
 [[benches]]
 type = "regex-redux"
 name = "fasta-100000"
+regex = '' # unused
 haystack-path = "regex-redux.txt"
 case-insensitive = false
 unicode = false

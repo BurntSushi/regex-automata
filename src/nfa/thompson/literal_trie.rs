@@ -5,6 +5,59 @@ use crate::{
     util::primitives::{IteratorIndexExt, StateID},
 };
 
+/// A trie that preserves leftmost-first match semantics.
+///
+/// This is a purpose-built data structure for optimizing 'lit1|lit2|..|litN'
+/// patterns. It can *only* handle alternations of literals, which makes it
+/// somewhat restricted in its scope, but literal alternations are fairly
+/// common.
+///
+/// At a 5,000 foot level, the main idea of this trie is make an alternation of
+/// literals look more like a DFA than an NFA via epsilon removal.
+///
+/// More precisely, the main issue is in how alternations are compiled into
+/// a Thompson NFA. Namely, each alternation gets a single NFA "union" state
+/// with an epsilon transition for every branch of the alternation pointing to
+/// an NFA state corresponding to the start of that branch. The main problem
+/// with this representation is the cost of computing an epsilon closure. Once
+/// you hit the alternation's start state, it acts as a sort of "clog" that
+/// requires you to traverse all of the epsilon transitions to compute the full
+/// closure.
+///
+/// While fixing such clogs in the general case is pretty tricky without going
+/// to a DFA (or perhaps a Glushkov NFA, but that comes with other problems).
+/// But at least in the case of an alternation of literals, we can convert
+/// that to a prefix trie without too much cost. In theory, that's all you
+/// really need to do: build the trie and then compile it to a Thompson NFA.
+/// For example, if you have the pattern 'bar|baz|foo', then using a trie, it
+/// is transformed to something like 'b(a(r|z))|f'. This reduces the clog by
+/// reducing the number of epsilon transitions out of the alternation's start
+/// state from 3 to 2 (it actually gets down to 1 when you use a sparse state,
+/// which we do below). It's a small effect here, but when your alternation is
+/// huge, the savings is also huge.
+///
+/// And that is... essentially what a LiteralTrie does. But there is one
+/// hiccup. Consider a regex like 'sam|samwise'. How does a prefix trie compile
+/// that when leftmost-first semantics are used? If 'sam|samwise' was the
+/// entire regex, then you could just drop the 'samwise' branch entirely since
+/// it is impossible to match ('sam' will always take priority, and since it
+/// is a prefix of 'samwise', 'samwise' will never match). But what about the
+/// regex '\b(sam|samwise)\b'? In that case, you can't remove 'samwise' because
+/// it might match when 'sam' doesn't fall on a word boundary.
+///
+/// The main idea is that 'sam|samwise' can be translated to 'sam(?:|wise)',
+/// which is a precisely equivalent regex that also gets rid of the clog.
+///
+/// Another example is 'zapper|z|zap'. That gets translated to
+/// 'z(?:apper||ap)'.
+///
+/// We accomplish this by giving each state in the trie multiple "chunks" of
+/// transitions. Each chunk barrier represents a match. The idea is that once
+/// you know a match occurs, none of the transitions after the match can be
+/// re-ordered and mixed in with the transitions before the match. Otherwise,
+/// the match semantics could be changed.
+///
+/// See the 'State' data type for a bit more detail.
 #[derive(Clone)]
 pub(crate) struct LiteralTrie {
     /// The set of trie states. Each state contains one or more chunks, where

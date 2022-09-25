@@ -993,10 +993,6 @@ impl BenchmarkDef {
             }
             BenchmarkType::RegexRedux => {
                 anyhow::ensure!(
-                    self.regex.is_none(),
-                    "'regex-redux' benchmark must not set 'regex'",
-                );
-                anyhow::ensure!(
                     self.regex_path.is_none(),
                     "'regex-redux' benchmark must not set 'regex-path'",
                 );
@@ -1029,16 +1025,14 @@ impl BenchmarkDef {
             self.name,
             RE_NAME.as_str(),
         );
-        if self.benchmark_type != BenchmarkType::RegexRedux {
-            anyhow::ensure!(
-                self.regex.is_none() || self.regex_path.is_none(),
-                "only one of 'regex' and 'regex-path' may be set",
-            );
-            anyhow::ensure!(
-                self.regex.is_some() || self.regex_path.is_some(),
-                "one of 'regex' and 'regex-path' must be set",
-            );
-        }
+        anyhow::ensure!(
+            self.regex.is_none() || self.regex_path.is_none(),
+            "only one of 'regex' and 'regex-path' may be set",
+        );
+        anyhow::ensure!(
+            self.regex.is_some() || self.regex_path.is_some(),
+            "one of 'regex' and 'regex-path' must be set",
+        );
         anyhow::ensure!(
             self.haystack.is_none() || self.haystack_path.is_none(),
             "only one of 'haystack' and 'haystack-path' may be set",
