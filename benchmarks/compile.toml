@@ -313,3 +313,30 @@ engines = [
   'pcre2/api/nojit',
 ]
 analysis = 'TODO'
+
+# This benchmark's regex came from this discussion:
+# https://old.reddit.com/r/rust/comments/xr0ztr/lemmeknow_the_fastest_way_to_identify_anything/iqdsa3c/
+#
+# The actual regex was originally retrieved from here:
+# https://github.com/swanandx/regex_vs_onig/blob/d4e21afeb2053f5148095c97054f53299b02e29b/src/lib.rs
+#
+# It's an absolutely ginormous regex for recognizing what appears to be URLs.
+[[benches]]
+type = "compile"
+name = "hugeurl"
+regex-path = 'url'
+haystack = "https://google.com"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/ast',
+  'regex/hir',
+  'regex/nfa',
+  'regex/automata/pikevm',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
