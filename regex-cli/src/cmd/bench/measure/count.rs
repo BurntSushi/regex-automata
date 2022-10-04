@@ -11,6 +11,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "memchr/memmem" => memchr_memmem(b),
         "aho-corasick/dfa" => aho_corasick_dfa(b),
         "aho-corasick/nfa" => aho_corasick_nfa(b),
+        #[cfg(feature = "old-regex-crate")]
+        "regexold/api" => regexold_api(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -100,6 +102,13 @@ fn aho_corasick_nfa(b: &Benchmark) -> anyhow::Result<Results> {
     let haystack = &*b.haystack;
     let finder = new::aho_corasick_nfa(b)?;
     b.run(verify, || Ok(finder.find_iter(haystack).count()))
+}
+
+#[cfg(feature = "old-regex-crate")]
+fn regexold_api(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::regexold_api(b)?;
+    b.run(verify, || Ok(re.find_iter(haystack).count()))
 }
 
 #[cfg(feature = "extre-re2")]

@@ -25,11 +25,18 @@ pub fn define() -> App {
     hir = config::Patterns::define(hir);
     hir = config::Syntax::define(hir);
 
+    let mut literal = app::leaf("literal").about(
+        "Print the literals extracted from one or more regex patterns.",
+    );
+    literal = config::Patterns::define(literal);
+    literal = config::Syntax::define(literal);
+
     app::command("debug")
         .about("Print debug representation of a regex object.")
         .before_help(ABOUT)
         .subcommand(ast)
         .subcommand(hir)
+        .subcommand(literal)
         .subcommand(define_nfa())
         .subcommand(define_dfa())
         .subcommand(define_hybrid())
@@ -39,6 +46,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
         "ast" => run_ast(args),
         "hir" => run_hir(args),
+        "literal" => run_literal(args),
         "nfa" => run_nfa(args),
         "dfa" => run_dfa(args),
         "hybrid" => run_hybrid(args),
@@ -172,6 +180,33 @@ fn run_hir(args: &Args) -> anyhow::Result<()> {
         table.print(stdout())?;
         if !args.is_present("quiet") {
             writeln!(stdout(), "\n{:#?}", hir)?;
+        }
+    }
+    Ok(())
+}
+
+fn run_literal(args: &Args) -> anyhow::Result<()> {
+    use syntax::hir::literal2::Analysis;
+
+    let csyntax = config::Syntax::get(args)?;
+    let patterns = config::Patterns::get(args)?;
+    for (i, p) in patterns.into_iter().enumerate() {
+        if i > 0 {
+            writeln!(stdout(), "{}", "~".repeat(79))?;
+        }
+
+        util::print_with_underline(stdout(), &p)?;
+
+        let mut table = Table::empty();
+        let (ast, time_ast) = util::timeitr(|| csyntax.ast(&p))?;
+        table.add("parse time", time_ast);
+        let (hir, time_hir) = util::timeitr(|| csyntax.hir(&p, &ast))?;
+        table.add("translate time", time_hir);
+        let (ana, time_ana) = util::timeit(|| Analysis::new(&hir));
+        table.add("literal extraction time", time_ana);
+        table.print(stdout())?;
+        if !args.is_present("quiet") {
+            writeln!(stdout(), "\n{:#?}", ana)?;
         }
     }
     Ok(())

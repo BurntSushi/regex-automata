@@ -16,6 +16,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regex/automata/onepass',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -39,6 +40,7 @@ engines = [
   'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -68,6 +70,7 @@ engines = [
   'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -92,6 +95,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regex/automata/onepass',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -122,6 +126,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regex/automata/onepass',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -146,6 +151,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regex/automata/onepass',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -178,6 +184,7 @@ engines = [
   'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -225,6 +232,7 @@ engines = [
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
 ]
 analysis = 'TODO'
 
@@ -245,6 +253,7 @@ engines = [
   'regex/automata/pikevm',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
+  'regexold/api',
   # RE2 reports zero matches. Possible bug?
   # 're2/api',
 ]
@@ -267,6 +276,7 @@ engines = [
   'regex/automata/pikevm',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
+  'regexold/api',
   're2/api',
 ]
 analysis = 'TODO'
@@ -288,6 +298,7 @@ engines = [
   'regex/automata/pikevm',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
+  'regexold/api',
   're2/api',
 ]
 analysis = 'TODO'
@@ -308,6 +319,7 @@ engines = [
   'regex/automata/pikevm',
   'regex/automata/hybrid',
   'regex/automata/dense',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -335,6 +347,7 @@ engines = [
   'regex/hir',
   'regex/nfa',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',

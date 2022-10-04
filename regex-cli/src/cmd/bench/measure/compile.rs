@@ -15,6 +15,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/onepass" => regex_automata_onepass(b),
         "aho-corasick/dfa" => aho_corasick_dfa(b),
         "aho-corasick/nfa" => aho_corasick_nfa(b),
+        #[cfg(feature = "old-regex-crate")]
+        "regexold/api" => regexold_api(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -174,6 +176,14 @@ fn aho_corasick_dfa(b: &Benchmark) -> anyhow::Result<Results> {
 fn aho_corasick_nfa(b: &Benchmark) -> anyhow::Result<Results> {
     b.run(verify, || {
         let re = new::aho_corasick_nfa(b)?;
+        Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
+    })
+}
+
+#[cfg(feature = "old-regex-crate")]
+fn regexold_api(b: &Benchmark) -> anyhow::Result<Results> {
+    b.run(verify, || {
+        let re = new::regexold_api(b)?;
         Ok(Box::new(move |h| Ok(re.find_iter(h).count())))
     })
 }

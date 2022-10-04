@@ -22,17 +22,18 @@ pub(super) fn regex_api(b: &Benchmark) -> anyhow::Result<regex::bytes::Regex> {
     Ok(re)
 }
 
-/*
 /// Constructor for the "old" Rust regex API engine.
-pub(super) fn regex_api(b: &Benchmark) -> anyhow::Result<regex::bytes::Regex> {
-    let re = regex::bytes::RegexBuilder::new(&b.regex)
+#[cfg(feature = "old-regex-crate")]
+pub(super) fn regexold_api(
+    b: &Benchmark,
+) -> anyhow::Result<regex_old::bytes::Regex> {
+    let re = regex_old::bytes::RegexBuilder::new(&b.regex)
         .unicode(b.def.unicode)
         .case_insensitive(b.def.case_insensitive)
         .size_limit((1 << 20) * 100)
         .build()?;
     Ok(re)
 }
-*/
 
 /// Constructor for the fully compiled "dense" DFA.
 pub(super) fn regex_automata_dfa_dense(

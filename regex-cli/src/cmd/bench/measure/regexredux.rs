@@ -8,6 +8,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/dense" => regex_automata_dfa_dense(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        #[cfg(feature = "old-regex-crate")]
+        "regexold/api" => regexold_api(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -104,6 +106,22 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
             re.find(&mut cache, h, &mut caps);
             Ok(caps.get_match().map(|m| (m.start(), m.end())))
         };
+        Ok(Box::new(find))
+    };
+    b.run(verify, || generic_regex_redux(&b.haystack, compile))
+}
+
+#[cfg(feature = "old-regex-crate")]
+fn regexold_api(b: &Benchmark) -> anyhow::Result<Results> {
+    use regex_old::bytes::RegexBuilder;
+
+    let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
+        let re = RegexBuilder::new(pattern)
+            .unicode(b.def.unicode)
+            .case_insensitive(b.def.case_insensitive)
+            .build()?;
+        let find =
+            move |h: &[u8]| Ok(re.find(h).map(|m| (m.start(), m.end())));
         Ok(Box::new(find))
     };
     b.run(verify, || generic_regex_redux(&b.haystack, compile))

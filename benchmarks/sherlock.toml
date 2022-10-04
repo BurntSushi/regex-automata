@@ -1,0 +1,630 @@
+[[benches]]
+type = "count"
+name = "name-sherlock"
+regex = 'Sherlock'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 97
+engines = [
+  'regex/api',
+  'memchr/memmem',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-holmes"
+regex = 'Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 461
+engines = [
+  'regex/api',
+  'memchr/memmem',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-sherlock-holmes"
+regex = 'Sherlock Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 91
+engines = [
+  'regex/api',
+  'memchr/memmem',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-sherlock-nocase"
+regex = 'Sherlock'
+haystack-path = "sherlock.txt"
+case-insensitive = true
+unicode = false
+match-count = 102
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-holmes-nocase"
+regex = 'Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = true
+unicode = false
+match-count = 467
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-sherlock-holmes-nocase"
+regex = 'Sherlock Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = true
+unicode = false
+match-count = 96
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-whitespace"
+regex = 'Sherlock\s+Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 97
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt1"
+regex = 'Sherlock|Street'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 158
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt2"
+regex = 'Sherlock|Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 558
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt3"
+regex = 'Sherlock|Holmes|Watson|Irene|Adler|John|Baker'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 740
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt3-nocase"
+regex = 'Sherlock|Holmes|Watson|Irene|Adler|John|Baker'
+haystack-path = "sherlock.txt"
+case-insensitive = true
+unicode = false
+match-count = 753
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt4"
+regex = 'Sher[a-z]+|Hol[a-z]+'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 582
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt4-nocase"
+regex = 'Sher[a-z]+|Hol[a-z]+'
+haystack-path = "sherlock.txt"
+case-insensitive = true
+unicode = false
+match-count = 697
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt5"
+regex = 'Sherlock|Holmes|Watson'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 639
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "name-alt5-nocase"
+regex = 'Sherlock|Holmes|Watson'
+haystack-path = "sherlock.txt"
+case-insensitive = true
+unicode = false
+match-count = 650
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "no-match-uncommon"
+regex = 'zqj'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "no-match-common"
+regex = 'aqj'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "no-match-really-common"
+regex = 'aei'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "the-lower"
+regex = 'the'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 7218
+engines = [
+  'regex/api',
+  'memchr/memmem',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "the-upper"
+regex = 'The'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 741
+engines = [
+  'regex/api',
+  'memchr/memmem',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "the-nocase"
+regex = 'the'
+haystack-path = "sherlock.txt"
+case-insensitive = true
+unicode = false
+match-count = 7987
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "everything-greedy"
+regex = '.*'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = true
+match-count = 13053
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "everything-greedy-nl"
+regex = '(?s).*'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "letters"
+regex = '\pL'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = true
+match-count = 447_160
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  # 'pcre2/api/nojit', # why so slow?
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "letters-upper"
+regex = '\p{Lu}'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = true
+match-count = 14_180
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  # 'pcre2/api/nojit', # why so slow?
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "letters-lower"
+regex = '\p{Ll}'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = true
+match-count = 432_980
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  # 'pcre2/api/nojit', # why so slow?
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "words"
+regex = '\w+'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 109_222
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "before-holmes"
+regex = '\w+\s+Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 319
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "before-after-holmes"
+regex = '\w+\s+Holmes\s+\w+'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 137
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "holmes-cochar-watson"
+regex = 'Holmes.{0,25}Watson|Watson.{0,25}Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 7
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "holmes-coword-watson"
+regex = 'Holmes(?:\s*.+\s*){0,10}Watson|Watson(?:\s*.+\s*){0,10}Holmes'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 51
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "quotes"
+regex = '''["'][^"']{0,30}[?!.]["']'''
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 767
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "line-boundary-sherlock-holmes"
+regex = '(?m)^Sherlock Holmes|Sherlock Holmes$'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 34
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "word-ending-n"
+regex = '\b\w+n\b'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 8366
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "repeated-class-negation"
+regex = '[a-q][^u-z]{13}x'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 142
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "ing-suffix"
+regex = '[a-zA-Z]+ing'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 2824
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "ing-suffix-limited-space"
+regex = '\s[a-zA-Z]{0,12}ing\s'
+haystack-path = "sherlock.txt"
+case-insensitive = false
+unicode = false
+match-count = 2081
+engines = [
+  'regex/api',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

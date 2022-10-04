@@ -14,6 +14,7 @@ engines = [
   'regex/automata/backtrack',
   'regex/automata/pikevm',
   'regex/automata/onepass',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -31,6 +32,7 @@ line-count = 5075
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
 ]
@@ -51,6 +53,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -74,6 +77,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -93,6 +97,7 @@ engines = [
   'regex/api',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -112,6 +117,7 @@ engines = [
   'regex/api',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -131,6 +137,7 @@ engines = [
   'regex/api',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -150,6 +157,7 @@ engines = [
   'regex/api',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -169,6 +177,7 @@ engines = [
   # 'regex/api', # abysmally slow
   # 'regex/automata/backtrack', # haystack is too big
   'regex/automata/pikevm',
+  # 'regexold/api', # abysmally slow
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -188,6 +197,7 @@ engines = [
   'regex/api',
   # 'regex/automata/backtrack', # haystack is too big
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -207,6 +217,7 @@ engines = [
   'regex/api',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',

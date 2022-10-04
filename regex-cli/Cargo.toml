@@ -30,6 +30,29 @@ extre-all = ["extre-pcre2", "extre-re2"]
 extre-pcre2 = ["libc", "pkg-config"]
 extre-re2 = ["cc", "libc", "pkg-config"]
 
+# This enables code for benchmarking the old regex crate. Specifically right
+# around the time of the 1.6.0 release. In order to make use of this, a crate
+# with the name of 'regex_old' needs to be made available and have a public API
+# matching the regex crate at the 1.6.0 release. One way to do that is to clone
+# the 'old-regex-crate' branch (the branch is the same as the 1.6.0 release,
+# but with the crate renamed to 'regex-old' and 'regex-syntax-old' so that they
+# can coexist with the extant 'regex' and 'regex-syntax' crates):
+#
+#   git clone -b old-regex-crate https://github.com/rust-lang/regex regexold
+#
+# Once cloned, add this to the dependencies list below:
+#
+#   regex-old = { version = "*", path = "regexold" }
+#
+# Finally, uncomment and then enable the 'old-regex-crate' feature. Once
+# enabled, the 'regexold/api' regex engine will be available for benchmarking.
+#
+# This is not enabled in 'extre-all' because it's a somewhat weird case and
+# it might be removed in the future. The main purpose behind being able to
+# benchmark the "old" regex crate is to be able to easily compare and contrast
+# performance when necessary (e.g., in the case of a perf regression).
+old-regex-crate = []
+
 [dependencies]
 aho-corasick = "0.7.19"
 anyhow = "1.0.28"

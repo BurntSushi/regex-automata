@@ -10,6 +10,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "regex/automata/onepass" => regex_automata_onepass(b),
+        #[cfg(feature = "old-regex-crate")]
+        "regexold/api" => regexold_api(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -150,6 +152,35 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
                 // Benchmark definition says we may assume empty matches are
                 // impossible.
                 input.set_start(m.end());
+            }
+            capture_count += count;
+            if count > 0 {
+                line_count += 1;
+            }
+        }
+        Ok((line_count, capture_count))
+    })
+}
+
+#[cfg(feature = "old-regex-crate")]
+fn regexold_api(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::regexold_api(b)?;
+    let mut caps = re.capture_locations();
+    b.run(verify, || {
+        let (mut line_count, mut capture_count) = (0, 0);
+        for line in haystack.lines() {
+            let mut at = 0;
+            let mut count = 0;
+            while let Some(m) = re.captures_read_at(&mut caps, line, at) {
+                for i in 0..caps.len() {
+                    if caps.get(i).is_some() {
+                        count += 1;
+                    }
+                }
+                // Benchmark definition says we may assume empty matches are
+                // impossible.
+                at = m.end();
             }
             capture_count += count;
             if count > 0 {

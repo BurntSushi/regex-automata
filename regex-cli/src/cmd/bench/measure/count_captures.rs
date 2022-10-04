@@ -7,6 +7,8 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/api" => regex_api(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
+        #[cfg(feature = "old-regex-crate")]
+        "regexold/api" => regexold_api(b),
         #[cfg(feature = "extre-re2")]
         "re2/api" => re2_api(b),
         #[cfg(feature = "extre-pcre2")]
@@ -96,6 +98,28 @@ fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
             // Benchmark definition says we may assume empty matches are
             // impossible.
             input.set_start(m.end());
+        }
+        Ok(count)
+    })
+}
+
+#[cfg(feature = "old-regex-crate")]
+fn regexold_api(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::regexold_api(b)?;
+    let mut caps = re.capture_locations();
+    b.run(verify, || {
+        let mut at = 0;
+        let mut count = 0;
+        while let Some(m) = re.captures_read_at(&mut caps, haystack, at) {
+            for i in 0..caps.len() {
+                if caps.get(i).is_some() {
+                    count += 1;
+                }
+            }
+            // Benchmark definition says we may assume empty matches are
+            // impossible.
+            at = m.end();
         }
         Ok(count)
     })

@@ -12,6 +12,7 @@ engines = [
   'regex/automata/pikevm',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
+  'regexold/api',
 ]
 analysis = 'TODO'
 
@@ -29,6 +30,7 @@ engines = [
   'regex/automata/pikevm',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
+  'regexold/api',
 ]
 analysis = 'TODO'
 
@@ -46,6 +48,7 @@ engines = [
   'regex/automata/hybrid',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
+  'regexold/api',
   're2/api',
 ]
 analysis = 'TODO'
@@ -64,6 +67,7 @@ engines = [
   'regex/automata/pikevm',
   'aho-corasick/dfa',
   'aho-corasick/nfa',
+  'regexold/api',
   're2/api',
 ]
 analysis = 'TODO'
@@ -80,6 +84,7 @@ engines = [
   'regex/api',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -97,6 +102,7 @@ match-count = 1_802
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
 ]
@@ -113,6 +119,7 @@ match-count = 1_802
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
 ]
@@ -136,6 +143,7 @@ engines = [
   'regex/automata/hybrid',
   'aho-corasick/nfa',
   'aho-corasick/dfa',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',

@@ -8,11 +8,11 @@ unicode = false
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dense',
-  'regex/automata/sparse',
-  'regex/automata/hybrid',
-  'regex/automata/pikevm',
   'memchr/memmem',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'
 
@@ -26,11 +26,11 @@ unicode = true
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dense',
-  'regex/automata/sparse',
-  'regex/automata/hybrid',
-  'regex/automata/pikevm',
   'memchr/memmem',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'
 
@@ -44,10 +44,10 @@ unicode = false
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dense',
-  'regex/automata/sparse',
-  'regex/automata/hybrid',
-  'regex/automata/pikevm',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'
 
@@ -61,9 +61,9 @@ unicode = true
 match-count = 1
 engines = [
   'regex/api',
-  'regex/automata/dense',
-  'regex/automata/sparse',
-  'regex/automata/hybrid',
-  'regex/automata/pikevm',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
 ]
 analysis = 'TODO'

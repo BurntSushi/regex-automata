@@ -10,6 +10,7 @@ engines = [
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
