@@ -157,7 +157,7 @@ struct FilterByBenchmarkName(Filter);
 
 impl FilterByBenchmarkName {
     /// Define a -f/--filter flag on the given app.
-    pub fn define(app: App) -> App {
+    fn define(app: App) -> App {
         const SHORT: &str = "Filter benchmarks by name using regex.";
         const LONG: &str = "\
 Filter benchmarks by name using regex.
@@ -187,7 +187,7 @@ form '{type}/{group}/{name}'.
     /// Parse out filter from the CLI args given. If no rules were given, then
     /// an empty filter (which matches everything) is returned. If there was
     /// a problem parsing any of the filter rules, then an error is returned.
-    pub fn get(args: &Args) -> anyhow::Result<Filter> {
+    fn get(args: &Args) -> anyhow::Result<Filter> {
         if let Some(rules) = args.values_of_os("filter") {
             Filter::new(rules).context("-f/--filter")
         } else {
@@ -203,7 +203,7 @@ struct FilterByEngineName(Filter);
 
 impl FilterByEngineName {
     /// Define a -e/--engine flag on the given app.
-    pub fn define(app: App) -> App {
+    fn define(app: App) -> App {
         const SHORT: &str =
             "Filter benchmarks by regex engine name using regex.";
         const LONG: &str = "\
@@ -224,7 +224,7 @@ engines that were run in any given benchmark.
     /// Parse out filter from the CLI args given. If no rules were given, then
     /// an empty filter (which matches everything) is returned. If there was
     /// a problem parsing any of the filter rules, then an error is returned.
-    pub fn get(args: &Args) -> anyhow::Result<Filter> {
+    fn get(args: &Args) -> anyhow::Result<Filter> {
         if let Some(rules) = args.values_of_os("engine") {
             Filter::new(rules).context("-e/--engine")
         } else {
@@ -237,11 +237,11 @@ engines that were run in any given benchmark.
 /// An integer threshold value that can be used to filter out results whose
 /// differences are too small to care about.
 #[derive(Clone, Debug)]
-pub struct Threshold(f64);
+struct Threshold(f64);
 
 impl Threshold {
     /// Define a -t/--threshold flag on the given app.
-    pub fn define(app: App) -> App {
+    fn define(app: App) -> App {
         const SHORT: &str =
             "The minimum threshold measurements must differ by to be shown.";
         const LONG: &str = "\
@@ -262,7 +262,7 @@ set matching the filters are shown.
     /// value is invalid (i.e., not an integer in the range [0, 100]), then
     /// an error is returned. If it isn't present, then `0` is returned (which
     /// is equivalent to no threshold).
-    pub fn get(args: &Args) -> anyhow::Result<Threshold> {
+    fn get(args: &Args) -> anyhow::Result<Threshold> {
         if let Some(threshold) = args.value_of_lossy("threshold") {
             let percent = threshold
                 .parse::<u32>()
@@ -280,7 +280,7 @@ set matching the filters are shown.
     /// Returns true if and only if the given difference exceeds or meets this
     /// threshold. When no threshold was given by the user, then a threshold of
     /// 0 is used, which everything exceeds or meets.
-    pub fn include(&self, difference: f64) -> bool {
+    fn include(&self, difference: f64) -> bool {
         !(difference < self.0)
     }
 }
@@ -297,7 +297,7 @@ enum Stat {
 
 impl Stat {
     /// Define a -s/--statistic flag on the given app.
-    pub fn define(app: App) -> App {
+    fn define(app: App) -> App {
         const SHORT: &str =
             "The aggregate statistic on which to compare (default: median).";
         const LONG: &str = "\
@@ -312,7 +312,7 @@ are: median, mean, min, max.
     /// Read the selected statistic from the given CLI args. If one was not
     /// specified, then a default is returned. If one was specified but
     /// unrecognized, then an error is returned.
-    pub fn get(args: &Args) -> anyhow::Result<Stat> {
+    fn get(args: &Args) -> anyhow::Result<Stat> {
         if let Some(statname) = args.value_of_lossy("statistic") {
             statname.parse()
         } else {
@@ -352,7 +352,7 @@ enum Units {
 
 impl Units {
     /// Define a -u/--units flag on the given app.
-    pub fn define(app: App) -> App {
+    fn define(app: App) -> App {
         const SHORT: &str =
             "The units to use in comparisons (default: throughput).";
         const LONG: &str = "\
@@ -366,7 +366,7 @@ The same units are used in all comparisons. The choices are: time or thoughput.
     /// Read the selected units from the given CLI args. If one was not
     /// specified, then a default is returned. If one was specified but
     /// unrecognized, then an error is returned.
-    pub fn get(args: &Args) -> anyhow::Result<Units> {
+    fn get(args: &Args) -> anyhow::Result<Units> {
         if let Some(unitname) = args.value_of_lossy("units") {
             unitname.parse()
         } else {
