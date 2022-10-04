@@ -9,7 +9,7 @@ use {anyhow::Context, once_cell::sync::Lazy, regex::Regex};
 
 use crate::{
     app::{self, App, Args},
-    cmd::bench::AggregateDuration,
+    cmd::bench::{Aggregate2, AggregateTimes, Measurement},
     util::{Filter, ShortHumanDuration},
 };
 
@@ -288,7 +288,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
         // Using throughputs doesn't quite make sense for the 'compile'
         // benchmarks, but '--units time' can be used with the benchmark
         // comparison commands to change units.
-        wtr.serialize(agg.into_throughput())?;
+        wtr.serialize(agg)?;
         // Flush every record once we have it so that users can see that
         // progress is being made.
         wtr.flush()?;
@@ -846,7 +846,7 @@ impl BenchmarkDef {
     /// The full name consists of joining the benchmark's type, group and
     /// name together, separated by a '/'.
     fn full_name(&self) -> String {
-        format!("{}/{}/{}", self.benchmark_type, self.group, self.name)
+        format!("{}/{}/{}", self.group, self.benchmark_type, self.name)
     }
 
     /// Return the regex for this benchmark.
@@ -1097,6 +1097,21 @@ enum BenchmarkType {
     RegexRedux,
 }
 
+impl BenchmarkType {
+    /// Returns true if and only if the haystack length for this benchmark
+    /// should be saved.
+    ///
+    /// This returns false when the haystack length isn't particularly
+    /// meaningful for the specific measurement. For example, compilation
+    /// benchmarks still include a haystack for verifying the correctness of
+    /// the result of compilation, but using the haystack length to compute the
+    /// throughput of compilation is non-sensical.
+    fn save_haystack_len(&self) -> bool {
+        use self::BenchmarkType::*;
+        !matches!(*self, Compile | RegexRedux)
+    }
+}
+
 impl std::fmt::Display for BenchmarkType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         use self::BenchmarkType::*;
@@ -1178,10 +1193,10 @@ impl Benchmark {
     /// Turn the given results collected from running this benchmark into
     /// a single set of aggregate statistics describing the samples in the
     /// results.
-    fn aggregate(&self, result: anyhow::Result<Results>) -> AggregateDuration {
+    fn aggregate(&self, result: anyhow::Result<Results>) -> Measurement {
         match result {
-            Ok(results) => results.to_aggregate(),
-            Err(err) => self.aggregate_error(err.to_string()),
+            Ok(results) => results.to_measurement(),
+            Err(err) => self.measurement_error(err.to_string()),
         }
     }
 
@@ -1190,12 +1205,12 @@ impl Benchmark {
     /// run or there was some other discrepancy. Folding the error into the
     /// aggregate value itself avoids recording the error "out of band" and
     /// also avoids silently squashing it.
-    fn aggregate_error(&self, err: String) -> AggregateDuration {
-        AggregateDuration {
+    fn measurement_error(&self, err: String) -> Measurement {
+        Measurement {
             full_name: self.def.full_name(),
             engine: self.engine.clone(),
             err: Some(err),
-            ..AggregateDuration::default()
+            ..Measurement::default()
         }
     }
 
@@ -1278,8 +1293,8 @@ impl Results {
     }
 
     /// Convert these results into aggregate statistical values. If there are
-    /// no samples, then an "error" aggregate is returned.
-    fn to_aggregate(&self) -> AggregateDuration {
+    /// no samples, then an "error" measurement is returned.
+    fn to_measurement(&self) -> Measurement {
         let mut samples = vec![];
         for &dur in self.samples.iter() {
             samples.push(dur.as_secs_f64());
@@ -1289,20 +1304,18 @@ impl Results {
         // assume that 'timings' is non-empty.
         if samples.is_empty() {
             let err = "no samples or errors recorded".to_string();
-            return self.benchmark.aggregate_error(err);
+            return self.benchmark.measurement_error(err);
         }
         // We have no NaNs, so this is fine.
         samples.sort_unstable_by(|x, y| x.partial_cmp(y).unwrap());
-        AggregateDuration {
-            full_name: self.benchmark.def.full_name(),
-            engine: self.benchmark.engine.clone(),
-            // We don't expect to have haystacks bigger than 2**64.
-            haystack_len: u64::try_from(self.benchmark.haystack.len())
-                .unwrap(),
-            err: None,
-            // We don't expect iterations to exceed 2**64.
-            iters: u64::try_from(samples.len()).unwrap(),
-            total: self.total,
+        // We don't expect to have haystacks bigger than 2**64.
+        let haystack_len =
+            if self.benchmark.def.benchmark_type.save_haystack_len() {
+                u64::try_from(self.benchmark.haystack.len()).ok()
+            } else {
+                None
+            };
+        let times = AggregateTimes {
             // OK because timings.len() > 0
             median: Duration::from_secs_f64(median(&samples).unwrap()),
             // OK because timings.len() > 0
@@ -1313,6 +1326,15 @@ impl Results {
             min: Duration::from_secs_f64(min(&samples).unwrap()),
             // OK because timings.len() > 0
             max: Duration::from_secs_f64(max(&samples).unwrap()),
+        };
+        Measurement {
+            full_name: self.benchmark.def.full_name(),
+            engine: self.benchmark.engine.clone(),
+            err: None,
+            // We don't expect iterations to exceed 2**64.
+            iters: u64::try_from(samples.len()).unwrap(),
+            total: self.total,
+            aggregate: Aggregate2::new(times, haystack_len),
         }
     }
 }

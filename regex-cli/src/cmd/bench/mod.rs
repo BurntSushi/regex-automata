@@ -37,6 +37,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     })
 }
 
+/*
 /// Like 'AggregateDuration', but uses throughputs instead of durations. In
 /// my opinion, throughput is easier to reason about for regex benchmarks. It
 /// gives you the same information, but it also gives you some intuition for
@@ -150,6 +151,167 @@ impl AggregateDuration {
         }
     }
 }
+*/
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(from = "MeasurementWire", into = "MeasurementWire")]
+struct Measurement {
+    full_name: String,
+    engine: String,
+    err: Option<String>,
+    iters: u64,
+    total: Duration,
+    aggregate: Aggregate2,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Aggregate2 {
+    times: AggregateTimes,
+    tputs: Option<AggregateThroughputs>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct AggregateTimes {
+    median: Duration,
+    mean: Duration,
+    stddev: Duration,
+    min: Duration,
+    max: Duration,
+}
+
+#[derive(Clone, Debug, Default)]
+struct AggregateThroughputs {
+    len: u64,
+    median: Throughput,
+    mean: Throughput,
+    stddev: Throughput,
+    min: Throughput,
+    max: Throughput,
+}
+
+impl Measurement {
+    /// Get the corresponding throughput statistic from this aggregate.
+    ///
+    /// If this measurement doesn't have any throughputs (i.e., its haystack
+    /// length is missing or zero), then this returns `None` regardless of the
+    /// value of `stat`.
+    fn throughput(&self, stat: Stat) -> Option<Throughput> {
+        let tputs = self.aggregate.tputs.as_ref()?;
+        Some(match stat {
+            Stat::Median => tputs.median,
+            Stat::Mean => tputs.mean,
+            Stat::Stddev => tputs.stddev,
+            Stat::Min => tputs.min,
+            Stat::Max => tputs.max,
+        })
+    }
+
+    /// Get the corresponding duration statistic from this aggregate.
+    fn duration(&self, stat: Stat) -> Duration {
+        let times = &self.aggregate.times;
+        match stat {
+            Stat::Median => times.median,
+            Stat::Mean => times.mean,
+            Stat::Stddev => times.stddev,
+            Stat::Min => times.min,
+            Stat::Max => times.max,
+        }
+    }
+}
+
+impl Aggregate2 {
+    /// Creates a new set of aggregate statistics.
+    ///
+    /// If a non-zero haystack length is provided, then the aggregate returned
+    /// includes throughputs.
+    fn new(times: AggregateTimes, haystack_len: Option<u64>) -> Aggregate2 {
+        let tputs = haystack_len.and_then(|len| {
+            // We treat an explicit length of 0 and a totally missing value as
+            // the same. In practice, there is no difference. We can't get a
+            // meaningful throughput with a zero length haystack.
+            if len == 0 {
+                return None;
+            }
+            Some(AggregateThroughputs {
+                len,
+                median: Throughput::new(len, times.median),
+                mean: Throughput::new(len, times.mean),
+                stddev: Throughput::new(len, times.stddev),
+                min: Throughput::new(len, times.min),
+                max: Throughput::new(len, times.max),
+            })
+        });
+        Aggregate2 { times, tputs }
+    }
+}
+
+/// The wire Serde type corresponding to a single CSV record in the output
+/// of 'regex-cli bench measure'.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+struct MeasurementWire {
+    full_name: String,
+    engine: String,
+    haystack_len: Option<u64>,
+    err: Option<String>,
+    iters: u64,
+    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
+    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
+    total: Duration,
+    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
+    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
+    median: Duration,
+    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
+    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
+    mean: Duration,
+    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
+    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
+    stddev: Duration,
+    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
+    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
+    min: Duration,
+    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
+    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
+    max: Duration,
+}
+
+impl From<MeasurementWire> for Measurement {
+    fn from(w: MeasurementWire) -> Measurement {
+        let times = AggregateTimes {
+            median: w.median,
+            mean: w.mean,
+            stddev: w.stddev,
+            min: w.min,
+            max: w.max,
+        };
+        let aggregate = Aggregate2::new(times, w.haystack_len);
+        Measurement {
+            full_name: w.full_name,
+            engine: w.engine,
+            err: w.err,
+            iters: w.iters,
+            total: w.total,
+            aggregate,
+        }
+    }
+}
+
+impl From<Measurement> for MeasurementWire {
+    fn from(m: Measurement) -> MeasurementWire {
+        MeasurementWire {
+            full_name: m.full_name,
+            engine: m.engine,
+            haystack_len: m.aggregate.tputs.map(|x| x.len),
+            err: m.err,
+            iters: m.iters,
+            total: m.total,
+            median: m.aggregate.times.median,
+            mean: m.aggregate.times.mean,
+            stddev: m.aggregate.times.stddev,
+            min: m.aggregate.times.min,
+            max: m.aggregate.times.max,
+        }
+    }
+}
 
 /// A filter based on benchmark name.
 #[derive(Clone, Debug)]
@@ -259,18 +421,14 @@ set matching the filters are shown.
     }
 
     /// Get the threshold value from the CLI arguments. If the threshold
-    /// value is invalid (i.e., not an integer in the range [0, 100]), then
-    /// an error is returned. If it isn't present, then `0` is returned (which
-    /// is equivalent to no threshold).
+    /// value is invalid (i.e., not a non-negative integer), then an error
+    /// is returned. If it isn't present, then `0` is returned (which is
+    /// equivalent to no threshold).
     fn get(args: &Args) -> anyhow::Result<Threshold> {
         if let Some(threshold) = args.value_of_lossy("threshold") {
             let percent = threshold
                 .parse::<u32>()
                 .context("invalid integer percent threshold")?;
-            anyhow::ensure!(
-                percent <= 100,
-                "threshold must be a percent integer in the range [0, 100]"
-            );
             Ok(Threshold(f64::from(percent)))
         } else {
             Ok(Threshold(0.0))
@@ -291,6 +449,7 @@ set matching the filters are shown.
 enum Stat {
     Median,
     Mean,
+    Stddev,
     Min,
     Max,
 }
@@ -304,7 +463,7 @@ impl Stat {
 The aggregate statistic on which to compare (default: median).
 
 Comparisons are only performed on the basis of a single statistic. The choices
-are: median, mean, min, max.
+are: median, mean, stddev, min, max.
 ";
         app.arg(app::flag("statistic").short("s").help(SHORT).long_help(LONG))
     }
@@ -328,12 +487,13 @@ impl std::str::FromStr for Stat {
         let stat = match s {
             "median" => Stat::Median,
             "mean" => Stat::Mean,
+            "stddev" => Stat::Stddev,
             "min" => Stat::Min,
             "max" => Stat::Max,
             unknown => {
                 anyhow::bail!(
                     "unrecognized statistic name '{}', must be \
-                     one of median, mean, min or max.",
+                     one of median, mean, stddev, min or max.",
                     unknown,
                 )
             }
@@ -359,6 +519,10 @@ impl Units {
 The units to use in comparisons (default: thoughput).
 
 The same units are used in all comparisons. The choices are: time or thoughput.
+
+If any particular group of measurements are all missing throughputs (i.e., when
+their haystack length is missing or non-sensical), then timings are reported
+for that group even if throughput is selected.
 ";
         app.arg(app::flag("units").short("u").help(SHORT).long_help(LONG))
     }

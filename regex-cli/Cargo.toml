@@ -31,6 +31,7 @@ extre-pcre2 = ["libc", "pkg-config"]
 extre-re2 = ["cc", "libc", "pkg-config"]
 
 [dependencies]
+aho-corasick = "0.7.19"
 anyhow = "1.0.28"
 atty = "0.2.14"
 bstr = { version = "0.2.16", default-features = false, features = ["std"] }
@@ -42,6 +43,7 @@ memchr = "2.5.0"
 memmap2 = "0.3.0"
 once_cell = "1.12.0"
 regex = { version = "1.5.4" }
+regex-old = { version = "*", path = "/home/andrew/rust/regexold" }
 serde = { version = "1.0.137", features = ["derive"] }
 syntax = { package = "regex-syntax", version = "0.6.17" }
 tabwriter = { version = "1.2.1", features = ["ansi_formatting"] }
@@ -49,7 +51,6 @@ termcolor = "1.1.3"
 toml = "0.5.9"
 unicode-width = "0.1.7"
 walkdir = "2.3.2"
-aho-corasick = "0.7.19"
 
 [dependencies.automata]
 package = "regex-automata"

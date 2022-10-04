@@ -349,18 +349,6 @@ impl Throughput {
     pub fn from_bytes_per_second(bytes_per_second: f64) -> Throughput {
         Throughput(bytes_per_second)
     }
-
-    /// Given a byte amount, convert this throughput to the total duration
-    /// spent. This assumes that the byte amount given is the same one as the
-    /// one used to build this throughput value.
-    pub fn duration(&self, bytes: u64) -> Duration {
-        Duration::from_secs_f64(bytes as f64 / self.0)
-    }
-
-    /// Return the underlying bytes per second value.
-    pub fn bytes_per_second(&self) -> f64 {
-        self.0
-    }
 }
 
 impl std::fmt::Debug for Throughput {
