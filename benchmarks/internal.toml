@@ -13,6 +13,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'memchr/memmem',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -33,6 +34,7 @@ engines = [
   'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   # 'pcre2/api/nojit',
@@ -53,6 +55,7 @@ engines = [
   'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -73,6 +76,7 @@ engines = [
   'regex/automata/sparse',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
 ]
@@ -93,6 +97,7 @@ engines = [
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'memchr/memmem',
+  'regexold/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
 ]
@@ -109,6 +114,7 @@ match-count = 56798
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   'pcre2/api/jit',
   # 'pcre2/api/nojit',
 ]
@@ -125,6 +131,7 @@ match-count = 351
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
 ]
@@ -143,6 +150,7 @@ engines = [
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   # 're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -162,6 +170,7 @@ engines = [
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
 ]
 analysis = 'TODO'
 
@@ -178,6 +187,7 @@ capture-count = 874
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -202,6 +212,7 @@ engines = [
   'regex/api',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -220,6 +231,7 @@ engines = [
   'regex/api',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   # 'pcre2/api/nojit',
@@ -263,6 +275,7 @@ engines = [
   'regex/api',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
+  'regexold/api',
 ]
 analysis = 'TODO'
 
@@ -277,6 +290,7 @@ capture-count = 948
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -306,6 +320,7 @@ engines = [
   'regex/api',
   'regex/automata/dense',
   'regex/automata/hybrid',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -323,6 +338,7 @@ capture-count = 148
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -340,6 +356,7 @@ capture-count = 81_494
 engines = [
   'regex/api',
   'regex/automata/pikevm',
+  'regexold/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
 ]

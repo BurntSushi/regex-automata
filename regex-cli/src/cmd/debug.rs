@@ -186,7 +186,7 @@ fn run_hir(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_literal(args: &Args) -> anyhow::Result<()> {
-    use syntax::hir::literal2::Analysis;
+    use syntax::hir::literal3::{ExtractKind, Extractor};
 
     let csyntax = config::Syntax::get(args)?;
     let patterns = config::Patterns::get(args)?;
@@ -202,11 +202,18 @@ fn run_literal(args: &Args) -> anyhow::Result<()> {
         table.add("parse time", time_ast);
         let (hir, time_hir) = util::timeitr(|| csyntax.hir(&p, &ast))?;
         table.add("translate time", time_hir);
-        let (ana, time_ana) = util::timeit(|| Analysis::new(&hir));
-        table.add("literal extraction time", time_ana);
+        let (prefixes, time_pre) = util::timeit(|| {
+            Extractor::new().kind(ExtractKind::Prefix).extract(&hir)
+        });
+        table.add("prefix extraction time", time_pre);
+        let (suffixes, time_suf) = util::timeit(|| {
+            Extractor::new().kind(ExtractKind::Suffix).extract(&hir)
+        });
+        table.add("suffix extraction time", time_suf);
         table.print(stdout())?;
         if !args.is_present("quiet") {
-            writeln!(stdout(), "\n{:#?}", ana)?;
+            writeln!(stdout(), "\n{:#?}", prefixes)?;
+            writeln!(stdout(), "\n{:#?}", suffixes)?;
         }
     }
     Ok(())
