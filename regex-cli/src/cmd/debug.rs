@@ -186,7 +186,7 @@ fn run_hir(args: &Args) -> anyhow::Result<()> {
 }
 
 fn run_literal(args: &Args) -> anyhow::Result<()> {
-    use syntax::hir::literal3::{ExtractKind, Extractor};
+    use syntax::hir::literal::{ExtractKind, Extractor};
 
     let csyntax = config::Syntax::get(args)?;
     let patterns = config::Patterns::get(args)?;

@@ -347,6 +347,7 @@ engines = [
   'regex/hir',
   'regex/nfa',
   'regex/automata/pikevm',
+  'regex/automata/hybrid',
   'regexold/api',
   're2/api',
   'pcre2/api/jit',
