@@ -164,6 +164,7 @@ define_regex_type!(
     /// across a line boundary.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::{self, regex::Regex}, MatchError};
     ///
     /// let re = Regex::builder()
@@ -335,6 +336,7 @@ impl Regex {
     /// everywhere.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::regex::Regex, util::syntax, Match};
     ///
     /// let re = Regex::builder()
@@ -755,6 +757,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// # Example
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::dfa::regex::Regex;
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
@@ -992,6 +995,7 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{dfa::regex::Regex, util::syntax, Match};
 ///
 /// let re = Regex::builder()

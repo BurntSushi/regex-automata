@@ -188,6 +188,7 @@ impl Config {
     /// report overlapping matches.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
     ///     HalfMatch, Input, MatchKind,
@@ -558,6 +559,7 @@ impl Config {
     /// a user supplied pattern from matching across a line boundary.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::{Automaton, dense}, MatchError};
     ///
     /// let dfa = dense::Builder::new()
@@ -688,6 +690,7 @@ impl Config {
     /// can get.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::dfa::{dense, Automaton};
     ///
     /// // 6MB isn't enough!
@@ -719,6 +722,7 @@ impl Config {
     /// and anchored searches.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::dfa::{dense, Automaton, StartKind};
     ///
     /// // 3MB isn't enough!
@@ -774,6 +778,7 @@ impl Config {
     /// is still not as much as the DFA itself.)
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::dfa::{dense, Automaton};
     ///
     /// // 600KB isn't enough!
@@ -806,6 +811,7 @@ impl Config {
     /// anchored searches. (Running an unanchored search with it would panic.)
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     dfa::{dense, Automaton, StartKind},
     ///     Anchored, Input,
@@ -1792,7 +1798,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // Create a 4KB buffer on the stack to store our serialized DFA. We
     /// // need to use a special type to force the alignment of our [u8; N]
     /// // array to be aligned to a 4 byte boundary. Otherwise, deserializing
-    /// // the DFA will fail because of an alignment mismatch.
+    /// // the DFA may fail because of an alignment mismatch.
     /// #[repr(C)]
     /// struct Aligned<B: ?Sized> {
     ///     _align: [u32; 0],
@@ -1850,7 +1856,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // Create a 4KB buffer on the stack to store our serialized DFA. We
     /// // need to use a special type to force the alignment of our [u8; N]
     /// // array to be aligned to a 4 byte boundary. Otherwise, deserializing
-    /// // the DFA will fail because of an alignment mismatch.
+    /// // the DFA may fail because of an alignment mismatch.
     /// #[repr(C)]
     /// struct Aligned<B: ?Sized> {
     ///     _align: [u32; 0],
@@ -1917,7 +1923,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // Create a 4KB buffer on the stack to store our serialized DFA. We
     /// // need to use a special type to force the alignment of our [u8; N]
     /// // array to be aligned to a 4 byte boundary. Otherwise, deserializing
-    /// // the DFA will fail because of an alignment mismatch.
+    /// // the DFA may fail because of an alignment mismatch.
     /// #[repr(C)]
     /// struct Aligned<B: ?Sized> {
     ///     _align: [u32; 0],
@@ -1959,12 +1965,28 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// ```
     /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
     ///
-    /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
     /// let mut buf = vec![0; original_dfa.write_to_len()];
-    /// let written = original_dfa.write_to_native_endian(&mut buf)?;
-    /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf[..written])?.0;
+    /// // This is guaranteed to succeed, because the only serialization error
+    /// // that can occur is when the provided buffer is too small. But
+    /// // write_to_len guarantees a correct sie.
+    /// let written = original_dfa.write_to_native_endian(&mut buf).unwrap();
+    /// // But this is not guaranteed to succeed! In particular,
+    /// // deserialization requires proper alignment for &[u32], but our buffer
+    /// // was allocated as a &[u8] whose required alignment is smaller than
+    /// // &[u32]. However, it's likely to work in practice because of how most
+    /// // allocators work. So if you write code like this, make sure to either
+    /// // handle the error correctly and/or run it under Miri since Miri will
+    /// // likely provoke the error by returning Vec<u8> buffers with alignment
+    /// // less than &[u32].
+    /// let dfa: DFA<&[u32]> = match DFA::from_bytes(&buf[..written]) {
+    ///     // As mentioned above, it is legal for an error to be returned
+    ///     // here. It is quite difficult to get a Vec<u8> with a guaranteed
+    ///     // alignment equivalent to Vec<u32>.
+    ///     Err(_) => return Ok(()),
+    ///     Ok((dfa, _)) => dfa,
+    /// };
     ///
     /// let expected = HalfMatch::must(0, 8);
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
@@ -3177,7 +3199,7 @@ impl<'a> TransitionTable<&'a [u32]> {
         // checked both above, so the cast below is safe.
         //
         // N.B. This is the only not-safe code in this function, so we mark
-        // it explicitly to call it out, even though it is technically
+        // it explicitly to call it out, even though the mark is technically
         // superfluous.
         #[allow(unused_unsafe)]
         let table = unsafe {
@@ -3746,7 +3768,7 @@ impl<'a> StartTable<&'a [u32]> {
         // checked both above, so the cast below is safe.
         //
         // N.B. This is the only not-safe code in this function, so we mark
-        // it explicitly to call it out, even though it is technically
+        // it explicitly to call it out, even though the mark is technically
         // superfluous.
         #[allow(unused_unsafe)]
         let table = unsafe {
@@ -4050,9 +4072,9 @@ impl<'a> MatchStates<&'a [u32]> {
         // need to do is ensure that we have the proper length and alignment.
         // We've checked both above, so the cast below is safe.
         //
-        // N.B. This is one of the few not-safe snippets in this function, so
-        // we mark it explicitly to call it out, even though it is technically
-        // superfluous.
+        // N.B. This is one of the few not-safe snippets in this function,
+        // so we mark it explicitly to call it out, even though the mark is
+        // technically superfluous.
         #[allow(unused_unsafe)]
         let slices = unsafe {
             core::slice::from_raw_parts(
@@ -4085,9 +4107,9 @@ impl<'a> MatchStates<&'a [u32]> {
         // need to do is ensure that we have the proper length and alignment.
         // We've checked both above, so the cast below is safe.
         //
-        // N.B. This is one of the few not-safe snippets in this function, so
-        // we mark it explicitly to call it out, even though it is technically
-        // superfluous.
+        // N.B. This is one of the few not-safe snippets in this function,
+        // so we mark it explicitly to call it out, even though the mark is
+        // technically superfluous.
         #[allow(unused_unsafe)]
         let pattern_ids = unsafe {
             core::slice::from_raw_parts(

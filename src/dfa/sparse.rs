@@ -2277,6 +2277,7 @@ impl<'a> fmt::Debug for StateMut<'a> {
     }
 }
 
+/*
 /// A binary search routine specialized specifically to a sparse DFA state's
 /// transitions. Specifically, the transitions are defined as a set of pairs
 /// of input bytes that delineate an inclusive range of bytes. If the input
@@ -2296,7 +2297,6 @@ impl<'a> fmt::Debug for StateMut<'a> {
 /// guaranteed to be safe and is thus UB (since I don't think the in-memory
 /// representation of `(u8, u8)` has been nailed down). One could define a
 /// repr(C) type, but the casting doesn't seem justified.
-#[allow(dead_code)]
 #[inline(always)]
 fn binary_search_ranges(ranges: &[u8], needle: u8) -> Option<usize> {
     debug_assert!(ranges.len() % 2 == 0, "ranges must have even length");
@@ -2316,6 +2316,7 @@ fn binary_search_ranges(ranges: &[u8], needle: u8) -> Option<usize> {
     }
     None
 }
+*/
 
 #[cfg(test)]
 mod tests {

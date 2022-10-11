@@ -222,6 +222,7 @@ impl DFA {
     /// Unicode word boundaries.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
     ///
     /// let re = DFA::builder()
@@ -259,6 +260,7 @@ impl DFA {
     /// everywhere for lazy DFAs.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch};
     ///
     /// let re = DFA::builder()
@@ -305,6 +307,7 @@ impl DFA {
     /// This shows how to re-purpose a cache for use with a different DFA.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
     ///
     /// let dfa1 = DFA::new(r"\w")?;
@@ -809,6 +812,7 @@ impl DFA {
     /// the search to find totally new matches (potentially of other patterns).
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     hybrid::dfa::{DFA, OverlappingState},
     ///     HalfMatch, Input, MatchKind,
@@ -930,6 +934,7 @@ impl DFA {
     /// even when some patterns match at the same position as other patterns.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
     ///     Input, MatchKind, PatternSet,
@@ -1479,6 +1484,7 @@ impl DFA {
     /// other.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, Input, MatchKind};
     ///
     /// let dfa = DFA::builder()
@@ -1686,6 +1692,7 @@ impl Cache {
     /// This shows how to re-purpose a cache for use with a different DFA.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
     ///
     /// let dfa1 = DFA::new(r"\w")?;
@@ -2537,6 +2544,7 @@ impl Config {
     /// report overlapping matches.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     hybrid::dfa::{DFA, OverlappingState},
     ///     HalfMatch, Input, MatchKind,
@@ -2868,6 +2876,7 @@ impl Config {
     /// a user supplied pattern from matching across a line boundary.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, MatchError};
     ///
     /// let dfa = DFA::builder()
@@ -3009,6 +3018,7 @@ impl Config {
     /// a smaller cache capacity.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
     ///
     /// let pattern = r"\p{L}{1000}";
@@ -3062,6 +3072,7 @@ impl Config {
     /// too small.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
     ///
     /// let pattern = r"\p{L}{1000}";
@@ -3124,6 +3135,7 @@ impl Config {
     /// not part of any API guarantees offered by this crate.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::dfa::DFA, MatchError};
     ///
     /// // This is a carefully chosen regex. The idea is to pick one

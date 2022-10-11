@@ -163,6 +163,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// when determining whether they match.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
     ///     Match, Input,

@@ -261,12 +261,14 @@ impl<'a> Runner<'a> {
         // corresponding to the key.
         let mut matches: BTreeMap<StateID, Vec<PatternID>> = BTreeMap::new();
         self.cache.clear();
-        #[allow(unused_variables)]
+        #[cfg(feature = "logging")]
         let mut total_pat_len = 0;
         for (i, state) in self.builder_states.into_iter().enumerate() {
             if let Some(pat_ids) = state.match_pattern_ids() {
                 let id = self.dfa.to_state_id(i);
-                total_pat_len += pat_ids.len();
+                log! {
+                    total_pat_len += pat_ids.len();
+                }
                 matches.insert(id, pat_ids);
             }
         }

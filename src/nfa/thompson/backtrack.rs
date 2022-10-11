@@ -174,6 +174,7 @@ impl Config {
     /// covered by semver.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
     ///
     /// // Unicode inflates the size of the underlying NFA quite a bit, and
@@ -420,6 +421,7 @@ impl Builder {
 /// boundaries correctly by default.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{nfa::thompson::backtrack::BoundedBacktracker, Match};
 ///
 /// let re = BoundedBacktracker::new(r"\b\w+\b")?;
@@ -653,6 +655,7 @@ impl BoundedBacktracker {
     /// everywhere.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
     ///     util::syntax,
@@ -731,6 +734,7 @@ impl BoundedBacktracker {
     /// `BoundedBacktracker`.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
     ///     Match,
@@ -832,6 +836,7 @@ impl BoundedBacktracker {
     /// subject to change and not covered by semver.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
     ///     Match, MatchError,
@@ -930,6 +935,7 @@ impl BoundedBacktracker {
     /// likely never support it.)
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
     ///     Match,
@@ -1269,6 +1275,7 @@ impl BoundedBacktracker {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
     ///     Match, Input,
@@ -1357,6 +1364,7 @@ impl BoundedBacktracker {
     /// can put our slots right on the stack.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
     ///     PatternID, Input,
@@ -1805,7 +1813,11 @@ impl Cache {
     /// `BoundedBacktracker`.
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::backtrack::BoundedBacktracker, Match};
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     Match,
+    /// };
     ///
     /// let re1 = BoundedBacktracker::new(r"\w")?;
     /// let re2 = BoundedBacktracker::new(r"\W")?;

@@ -145,6 +145,7 @@ use crate::{
 /// components of each date via capturing groups.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{
 ///     nfa::thompson::pikevm::PikeVM,
 ///     util::captures::Captures,
@@ -671,6 +672,7 @@ impl NFA {
     /// classes.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::NFA;
     ///
     /// let nfa_unicode = NFA::new(r"\w")?;
@@ -986,6 +988,7 @@ impl NFA {
     /// a bit of memory.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::NFA;
     ///
     /// let nfa_unicode = NFA::new(r"\w")?;

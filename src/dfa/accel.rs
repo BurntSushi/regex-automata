@@ -183,9 +183,7 @@ impl<'a> Accels<&'a [AccelTy]> {
     ///
     /// Callers may check the validity of every accelerator with the `validate`
     /// method.
-    ///
-    /// TODO: I believe this method is safe to call for all inputs.
-    pub unsafe fn from_bytes_unchecked(
+    pub fn from_bytes_unchecked(
         mut slice: &'a [u8],
     ) -> Result<(Accels<&'a [AccelTy]>, usize), DeserializeError> {
         let slice_start = slice.as_ptr().as_usize();
@@ -211,8 +209,8 @@ impl<'a> Accels<&'a [AccelTy]> {
         let accel_tys = &slice[..accel_tys_bytes_len];
         slice = &slice[accel_tys_bytes_len..];
         // SAFETY: We've checked the length and alignment above, and since
-        // slice is just bytes, we can safely cast to a slice of &[AccelTy].
-        #[allow(unused_unsafe)]
+        // slice is just bytes and AccelTy is just a u32, we can safely cast to
+        // a slice of &[AccelTy].
         let accels = unsafe {
             core::slice::from_raw_parts(
                 accel_tys.as_ptr().cast::<AccelTy>(),

@@ -67,6 +67,7 @@ use crate::{
 /// across a line boundary.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{hybrid::{dfa, regex::Regex}, MatchError};
 ///
 /// let re = Regex::builder()
@@ -206,6 +207,7 @@ impl Regex {
     /// everywhere.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::regex::Regex, util::syntax, Match};
     ///
     /// let re = Regex::builder()
@@ -270,6 +272,7 @@ impl Regex {
     /// This shows how to re-purpose a cache for use with a different `Regex`.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::regex::Regex, Match};
     ///
     /// let re1 = Regex::new(r"\w")?;
@@ -690,6 +693,7 @@ impl Regex {
     /// # Example
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::hybrid::regex::Regex;
     ///
     /// let re = Regex::new_many(&[r"[a-z]+", r"[0-9]+", r"\w+"])?;
@@ -810,6 +814,7 @@ impl Cache {
     /// This shows how to re-purpose a cache for use with a different `Regex`.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{hybrid::regex::Regex, Match};
     ///
     /// let re1 = Regex::new(r"\w")?;
@@ -1016,6 +1021,7 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{hybrid::regex::Regex, util::syntax, Match};
 ///
 /// let re = Regex::builder()

@@ -385,6 +385,7 @@ impl Builder {
 /// correctly by default.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
 ///
 /// let re = PikeVM::new(r"\b\w+\b")?;
@@ -652,6 +653,7 @@ impl PikeVM {
     /// This shows how to re-purpose a cache for use with a different `PikeVM`.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
     /// let re1 = PikeVM::new(r"\w")?;
@@ -1005,6 +1007,7 @@ impl PikeVM {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match, Input};
     ///
     /// let re = PikeVM::new(r"\b[0-9]{3}\b")?;
@@ -1082,6 +1085,7 @@ impl PikeVM {
     /// can put our slots right on the stack.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID, Input};
     ///
     /// let re = PikeVM::new_many(&[
@@ -1180,6 +1184,7 @@ impl PikeVM {
     /// even when some patterns match at the same position as other patterns.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
     ///     Input, MatchKind, PatternSet,
@@ -1856,6 +1861,7 @@ impl Cache {
     /// This shows how to re-purpose a cache for use with a different `PikeVM`.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
     /// let re1 = PikeVM::new(r"\w")?;

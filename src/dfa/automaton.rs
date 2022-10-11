@@ -769,12 +769,13 @@ pub unsafe trait Automaton {
     /// other.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::{Automaton, dense}, Input, MatchKind};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
     ///     .build_many(&[
-    ///         r"\w+", r"[a-z]+", r"[A-Z]+", r"\S+",
+    ///         r"[[:word:]]+", r"[a-z]+", r"[A-Z]+", r"[[:^space:]]+",
     ///     ])?;
     /// let haystack = "@bar".as_bytes();
     ///
@@ -1096,6 +1097,7 @@ pub unsafe trait Automaton {
     /// specific patterns.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
     ///     Anchored, HalfMatch, PatternID, Input,
@@ -1254,6 +1256,7 @@ pub unsafe trait Automaton {
     /// to find totally new matches (potentially of other patterns).
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     dfa::{Automaton, OverlappingState, dense},
     ///     HalfMatch, Input, MatchKind,
@@ -1261,7 +1264,7 @@ pub unsafe trait Automaton {
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().match_kind(MatchKind::All))
-    ///     .build_many(&[r"\w+$", r"\S+$"])?;
+    ///     .build_many(&[r"[[:word:]]+$", r"[[:^space:]]+$"])?;
     /// let haystack = "@foo";
     /// let mut state = OverlappingState::start();
     ///
@@ -1368,13 +1371,20 @@ pub unsafe trait Automaton {
     /// even when some patterns match at the same position as other patterns.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     dfa::{Automaton, dense::DFA},
     ///     Input, MatchKind, PatternSet,
     /// };
     ///
     /// let patterns = &[
-    ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
+    ///     r"[[:word:]]+",
+    ///     r"[0-9]+",
+    ///     r"[[:alpha:]]+",
+    ///     r"foo",
+    ///     r"bar",
+    ///     r"barfoo",
+    ///     r"foobar",
     /// ];
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().match_kind(MatchKind::All))

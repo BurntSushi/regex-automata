@@ -328,6 +328,7 @@ impl Config {
     /// character classes can get.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::onepass::DFA, Match};
     ///
     /// // 6MB isn't enough!
@@ -429,6 +430,7 @@ impl Config {
 /// itself. This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{dfa::onepass::DFA, util::syntax, Match};
 ///
 /// let re = DFA::builder()
@@ -1110,6 +1112,7 @@ impl<'a> InternalBuilder<'a> {
 /// for Unicode word boundaries.)
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{dfa::onepass::DFA, Match, Span};
 ///
 /// let re = DFA::new(r"\b(?P<first>\w+)[[:space:]]+(?P<last>\w+)\b")?;
@@ -1134,6 +1137,7 @@ impl<'a> InternalBuilder<'a> {
 /// this purpose:
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::{dfa::onepass::DFA, util::iter::Searcher, Span};
 ///
 /// let re = DFA::new(r"\w(\d)\w")?;
@@ -1395,6 +1399,7 @@ impl DFA {
     /// This example shows how to use the builder to disable UTF-8 mode.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     dfa::onepass::DFA,
     ///     util::syntax,
@@ -1475,6 +1480,7 @@ impl DFA {
     /// This shows how to re-purpose a cache for use with a different DFA.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::onepass::DFA, Match};
     ///
     /// let re1 = DFA::new(r"\w")?;
@@ -1769,6 +1775,7 @@ impl DFA {
     /// different results than simply sub-slicing the haystack.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::onepass::DFA, Match};
     ///
     /// // one-pass DFAs fully support Unicode word boundaries!
@@ -2388,6 +2395,7 @@ impl Cache {
     /// DFA.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{dfa::onepass::DFA, Match};
     ///
     /// let re1 = DFA::new(r"\w")?;
@@ -2887,6 +2895,7 @@ mod tests {
         assert!(DFA::new(pat).is_ok());
     }
 
+    #[cfg(not(miri))] // takes too long on miri
     #[test]
     fn is_one_pass() {
         use crate::util::syntax;

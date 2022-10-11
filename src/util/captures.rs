@@ -441,6 +441,7 @@ impl Captures {
     /// match:
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, Match};
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
@@ -494,6 +495,7 @@ impl Captures {
     /// match:
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, Match};
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
@@ -528,6 +530,7 @@ impl Captures {
     /// This example shows how to collect all capturing groups:
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
     /// let vm = PikeVM::new(
@@ -555,6 +558,7 @@ impl Captures {
     /// match:
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
     /// let vm = PikeVM::new(
@@ -598,6 +602,7 @@ impl Captures {
     /// participate in a match (just like `Captures::iter` does).
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
     /// let vm = PikeVM::new(
@@ -702,6 +707,7 @@ impl Captures {
     /// This example shows what happens when a `Captures` value is cleared.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
@@ -761,6 +767,7 @@ impl Captures {
     /// It does not actually change the underlying slot values.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
     /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
@@ -1277,6 +1284,7 @@ impl GroupInfo {
     /// for distinct patterns.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::NFA, PatternID};
     ///
     /// let (pid0, pid1) = (PatternID::must(0), PatternID::must(1));
@@ -1324,6 +1332,7 @@ impl GroupInfo {
     /// pattern and group index.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::NFA, PatternID};
     ///
     /// let (pid0, pid1) = (PatternID::must(0), PatternID::must(1));

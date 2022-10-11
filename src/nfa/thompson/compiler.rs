@@ -112,6 +112,7 @@ impl Config {
     /// size of the NFA.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::NFA;
     ///
     /// // 300KB isn't enough!
@@ -163,6 +164,7 @@ impl Config {
     /// DFA and use a pattern with a large Unicode character class.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::NFA;
     ///
     /// // Currently we have to disable captures when enabling reverse NFA.

@@ -47,6 +47,7 @@ simultaneously. You can use this support with standard leftmost-first style
 searching to find non-overlapping matches:
 
 ```
+# if cfg!(miri) { return Ok(()); } // miri takes too long
 use regex_automata::{hybrid::regex::Regex, Match};
 
 let re = Regex::new_many(&[r"\w+", r"\S+"])?;
