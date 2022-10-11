@@ -28,15 +28,15 @@ regex = { path = "/home/andrew/rust/regex" }
 regex-syntax = { path = "/home/andrew/rust/regex/regex-syntax" }
 
 [features]
-# WARNING: The features below were assembled quickly without much thought.
-# They might not work as you expect. The safest configuration is the default
-# configuration.
 default = ["std", "alloc", "syntax"]
 std = []
 alloc = ["syntax"]
 transducer = ["fst"]
 logging = ["log"]
 syntax = ["regex-syntax"]
+
+# nfa = ["nfa-thompson"]
+# nfa-thompson = ["alloc"]
 
 instrument = ["instrument-pikevm"]
 instrument-pikevm = ["logging", "std"]
