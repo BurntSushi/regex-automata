@@ -1,6 +1,6 @@
-use core::{cmp, convert::TryFrom, fmt, mem, ops::Range};
+use core::{fmt, mem};
 
-use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 
 use crate::{
     nfa::thompson::{
@@ -10,14 +10,12 @@ use crate::{
     },
     util::{
         alphabet::{self, ByteClassSet},
-        captures::{self, GroupInfo, GroupInfoError},
+        captures::{GroupInfo, GroupInfoError},
         look::Look,
         primitives::{
-            IteratorIndexExt, NonMaxUsize, PatternID, PatternIDIter,
-            SmallIndex, StateID,
+            IteratorIndexExt, PatternID, PatternIDIter, SmallIndex, StateID,
         },
-        search::{Match, MatchError, Span},
-        utf8,
+        search::MatchError,
     },
 };
 
@@ -285,8 +283,8 @@ impl NFA {
             builder.add_capture_start(StateID::ZERO, 0, None).unwrap();
         let end_id = builder.add_capture_end(StateID::ZERO, 0).unwrap();
         let match_id = builder.add_match().unwrap();
-        builder.patch(start_id, end_id);
-        builder.patch(end_id, match_id);
+        builder.patch(start_id, end_id).unwrap();
+        builder.patch(end_id, match_id).unwrap();
         let pid = builder.finish_pattern(start_id).unwrap();
         assert_eq!(pid.as_usize(), 0);
         builder.build(start_id, start_id).unwrap()
@@ -1173,7 +1171,7 @@ impl Inner {
         }
         self.start_anchored = old_to_new[self.start_anchored];
         self.start_unanchored = old_to_new[self.start_unanchored];
-        for (pid, id) in self.start_pattern.iter_mut().with_pattern_ids() {
+        for id in self.start_pattern.iter_mut() {
             *id = old_to_new[*id];
         }
     }
@@ -1694,7 +1692,7 @@ mod tests {
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
             let input = Input::new(haystack).range(start..end);
-            vm.try_search(&mut cache, &input, &mut caps);
+            vm.try_search(&mut cache, &input, &mut caps).unwrap();
             caps.get_match().map(|m| m.end())
         };
 
@@ -1713,7 +1711,7 @@ mod tests {
         let mut caps = vm.create_captures();
         let mut find = |haystack, start, end| {
             let input = Input::new(haystack).range(start..end);
-            vm.try_search(&mut cache, &input, &mut caps);
+            vm.try_search(&mut cache, &input, &mut caps).unwrap();
             caps.get_match().map(|m| m.end())
         };
 

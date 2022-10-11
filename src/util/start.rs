@@ -1,4 +1,4 @@
-use crate::util::{search::Input, utf8};
+use crate::util::search::Input;
 
 /// Represents the four possible starting configurations of a DFA search.
 ///

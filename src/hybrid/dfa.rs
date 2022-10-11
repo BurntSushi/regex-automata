@@ -21,7 +21,6 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses, ByteSet},
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
-        prefilter,
         primitives::{PatternID, StateID as NFAStateID},
         search::{
             Anchored, HalfMatch, Input, MatchError, MatchKind, PatternSet,
@@ -408,7 +407,7 @@ impl DFA {
     /// transition table. This is always less than or equal to `self.stride()`.
     /// It is only equal when the alphabet length is a power of 2. Otherwise,
     /// it is always strictly less.
-    fn alphabet_len(&self) -> usize {
+    pub fn alphabet_len(&self) -> usize {
         self.classes.alphabet_len()
     }
 

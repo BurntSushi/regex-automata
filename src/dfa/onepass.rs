@@ -39,22 +39,19 @@ configuring a one-pass DFA.
 //
 // Thus, in this crate, we call it a one-pass DFA.
 
-use core::convert::TryFrom;
-
 use alloc::{vec, vec::Vec};
 
 use crate::{
     dfa::{error::Error, remapper::Remapper, DEAD},
     nfa::thompson::{self, NFA},
     util::{
-        alphabet::{self, ByteClasses},
+        alphabet::ByteClasses,
         captures::Captures,
         escape::DebugByte,
         int::{Usize, U32, U64, U8},
-        iter,
-        look::{Look, LookSet},
-        primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
-        search::{Anchored, Input, Match, MatchError, MatchKind},
+        look::LookSet,
+        primitives::{NonMaxUsize, PatternID, StateID},
+        search::{Anchored, Input, MatchError, MatchKind},
         sparse_set::SparseSet,
     },
 };
@@ -2223,7 +2220,7 @@ impl core::fmt::Debug for DFA {
             if f.alternate() {
                 sid.as_usize()
             } else {
-                sid.as_usize() >> dfa.stride2()
+                dfa.to_index(sid)
             }
         }
 
@@ -2459,7 +2456,6 @@ impl Transition {
     const STATE_ID_BITS: u64 = 24;
     const STATE_ID_SHIFT: u64 = 64 - Transition::STATE_ID_BITS;
     const STATE_ID_LIMIT: u64 = 1 << Transition::STATE_ID_BITS;
-    const STATE_ID_MASK: u64 = 0xFFFFFF00_00000000;
     const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
     /// Return a new transition to the given state ID with the given epsilons.
@@ -2746,11 +2742,6 @@ struct Slots(u32);
 impl Slots {
     const LIMIT: usize = 32;
 
-    /// Return an empty set of slots.
-    fn empty() -> Slots {
-        Slots(0)
-    }
-
     /// Insert the slot at the given bit index.
     fn insert(self, slot: usize) -> Slots {
         debug_assert!(slot < Slots::LIMIT);
@@ -2763,20 +2754,9 @@ impl Slots {
         Slots(self.0 & !(1 << slot.as_u32()))
     }
 
-    /// Returns true if and only if the given bit index is set.
-    fn contains(self, slot: usize) -> bool {
-        debug_assert!(slot < Slots::LIMIT);
-        self.0 & (1 << slot.as_u32()) != 0
-    }
-
     /// Returns true if and only if this set contains no slots.
     fn is_empty(self) -> bool {
         self.0 == 0
-    }
-
-    /// Returns the number of slots in this set.
-    fn len(self) -> usize {
-        self.0.count_ones().as_usize()
     }
 
     /// Returns an iterator over all of the set bits in this set.

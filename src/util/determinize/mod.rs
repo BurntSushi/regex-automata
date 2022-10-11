@@ -442,7 +442,7 @@ pub(crate) fn add_nfa_states(
     // there's no reason to track which look-around assertions were
     // satisfied when this state was created.
     if builder.look_need().is_empty() {
-        builder.set_look_have(|have| LookSet::empty());
+        builder.set_look_have(|_| LookSet::empty());
     }
 }
 

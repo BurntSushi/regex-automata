@@ -12,7 +12,6 @@ with the [`HalfMatch`], [`Match`] or [`Captures`] types.
 
 use crate::util::{
     captures::Captures,
-    prefilter,
     search::{HalfMatch, Input, Match, MatchError},
 };
 
@@ -213,7 +212,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn advance_half<F>(&mut self, mut finder: F) -> Option<HalfMatch>
+    pub fn advance_half<F>(&mut self, finder: F) -> Option<HalfMatch>
     where
         F: FnMut(&Input<'_, '_>) -> Result<Option<HalfMatch>, MatchError>,
     {
@@ -328,7 +327,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn advance<F>(&mut self, mut finder: F) -> Option<Match>
+    pub fn advance<F>(&mut self, finder: F) -> Option<Match>
     where
         F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
     {
@@ -578,7 +577,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
     #[inline(never)]
     fn handle_overlapping_empty_half_match<F>(
         &mut self,
-        mut m: HalfMatch,
+        _: HalfMatch,
         mut finder: F,
     ) -> Result<Option<HalfMatch>, MatchError>
     where

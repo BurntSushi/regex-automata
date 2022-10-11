@@ -1,5 +1,7 @@
 use core::mem;
 
+use alloc::{vec, vec::Vec};
+
 use crate::{
     nfa::thompson::{self, compiler::ThompsonRef, Builder, Error},
     util::primitives::{IteratorIndexExt, StateID},

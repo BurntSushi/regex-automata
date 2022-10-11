@@ -656,9 +656,9 @@ impl ByteSet {
     /// be a multiple of 8.
     pub(crate) fn write_to<E: Endian>(
         &self,
-        mut dst: &mut [u8],
+        dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
-        let mut nwrite = self.write_to_len();
+        let nwrite = self.write_to_len();
         if dst.len() < nwrite {
             return Err(SerializeError::buffer_too_small("byte set"));
         }

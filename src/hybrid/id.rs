@@ -198,17 +198,6 @@ impl LazyStateID {
         LazyStateID(id as u32)
     }
 
-    /// Return this lazy state ID as its raw value if and only if it is not
-    /// tagged (and thus not an unknown, dead, quit, start or match state ID).
-    #[inline]
-    pub(crate) fn as_usize(&self) -> Option<usize> {
-        if self.is_tagged() {
-            None
-        } else {
-            Some(self.as_usize_unchecked())
-        }
-    }
-
     /// Return this lazy state ID as an untagged `usize`.
     ///
     /// If this lazy state ID is tagged, then the usize returned is the state

@@ -32,14 +32,11 @@ directly, but for example, if you've compiled an Thompson NFA, then you can use
 underlying `GroupInfo`.
 */
 
-use core::ops::Range;
-
 use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 
 use crate::util::{
     primitives::{
         NonMaxUsize, PatternID, PatternIDError, PatternIDIter, SmallIndex,
-        SmallIndexError,
     },
     search::{Match, Span},
 };
@@ -898,7 +895,7 @@ struct CapturesDebugMap<'a> {
 impl<'a> core::fmt::Debug for CapturesDebugMap<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut map = f.debug_map();
-        let mut names = self.caps.group_info().pattern_names(self.pid);
+        let names = self.caps.group_info().pattern_names(self.pid);
         for (group_index, maybe_name) in names.enumerate() {
             let span = self.caps.get_group(group_index);
             let debug_span: &dyn core::fmt::Debug = match span {

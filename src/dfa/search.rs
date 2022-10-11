@@ -5,7 +5,7 @@ use crate::{
     },
     util::{
         prefilter::Prefilter,
-        primitives::{PatternID, StateID},
+        primitives::StateID,
         search::{HalfMatch, Input, Span},
     },
     MatchError,
@@ -84,7 +84,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
         // PERF: See a similar comment in src/hybrid/search.rs that justifies
         // this extra work to make the search loop fast. The same reasoning and
         // benchmarks apply here.
-        let mut prev_sid = sid;
+        let mut prev_sid;
         while at < input.end() {
             prev_sid = unsafe { next_unchecked!(sid, at) };
             if dfa.is_special_state(prev_sid) || at + 3 >= input.end() {
@@ -210,7 +210,7 @@ fn find_rev_imp<A: Automaton + ?Sized>(
     }
     loop {
         // SAFETY: See comments in 'find_fwd' for a safety argument.
-        let mut prev_sid = sid;
+        let mut prev_sid;
         while at >= input.start() {
             prev_sid = unsafe { next_unchecked!(sid, at) };
             if dfa.is_special_state(prev_sid)
@@ -320,7 +320,6 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     pre: Option<&'_ dyn Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
-    let mut at = input.start();
     let mut sid = match state.id {
         None => {
             state.at = input.start();

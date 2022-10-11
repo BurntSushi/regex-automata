@@ -1,6 +1,6 @@
 use crate::util::{
     captures,
-    primitives::{PatternID, SmallIndex, StateID},
+    primitives::{PatternID, StateID},
 };
 
 /// An error that can occured during the construction of a thompson NFA.

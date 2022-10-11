@@ -1,27 +1,6 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-/// Returns the smallest possible index of the next valid UTF-8 sequence
-/// starting after `i`.
-///
-/// For all inputs, including invalid UTF-8 and any value of `i`, the return
-/// value is guaranteed to be greater than `i`. (If there is no value greater
-/// than `i` that fits in `usize`, then this panics.)
-///
-/// Generally speaking, this should only be called on `text` when it is
-/// permitted to assume that it is valid UTF-8 and where either `i >=
-/// text.len()` or where `text[i]` is a leading byte of a UTF-8 sequence.
-pub(crate) fn next(text: &[u8], i: usize) -> usize {
-    let b = match text.get(i) {
-        None => return i.checked_add(1).unwrap(),
-        Some(&b) => b,
-    };
-    // For cases where we see an invalid UTF-8 byte, there isn't much we can do
-    // other than just start at the next byte.
-    let inc = len(b).unwrap_or(1);
-    i.checked_add(inc).unwrap()
-}
-
 /// Returns true if and only if the given byte is considered a word character.
 /// This only applies to ASCII.
 ///
@@ -258,3 +237,35 @@ pub(crate) fn is_word_char_rev(bytes: &[u8], mut at: usize) -> bool {
     }
     dfa.is_match_state(dfa.next_eoi_state(sid))
 }
+
+/*
+/// Returns the smallest possible index of the next valid UTF-8 sequence
+/// starting after `i`.
+///
+/// For all inputs, including invalid UTF-8 and any value of `i`, the return
+/// value is guaranteed to be greater than `i`. (If there is no value greater
+/// than `i` that fits in `usize`, then this panics.)
+///
+/// Generally speaking, this should only be called on `text` when it is
+/// permitted to assume that it is valid UTF-8 and where either `i >=
+/// text.len()` or where `text[i]` is a leading byte of a UTF-8 sequence.
+///
+/// NOTE: This method was used in a previous conception of iterators where we
+/// specifically tried to skip over empty matches that split a codepoint by
+/// simply requiring that our next search begin at the beginning of codepoint.
+/// But we ended up changing that technique to always advance by 1 byte and
+/// then filter out matches that split a codepoint after-the-fact. Thus, we no
+/// longer use this method. But I've kept it around in case we want to switch
+/// back to this approach. Its guarantees are a little subtle, so I'd prefer
+/// not to rebuild it from whole cloth.
+pub(crate) fn next(text: &[u8], i: usize) -> usize {
+    let b = match text.get(i) {
+        None => return i.checked_add(1).unwrap(),
+        Some(&b) => b,
+    };
+    // For cases where we see an invalid UTF-8 byte, there isn't much we can do
+    // other than just start at the next byte.
+    let inc = len(b).unwrap_or(1);
+    i.checked_add(inc).unwrap()
+}
+*/

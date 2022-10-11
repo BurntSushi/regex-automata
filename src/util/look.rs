@@ -345,7 +345,7 @@ impl Iterator for LookSetIter {
 }
 
 #[inline]
-pub fn is_start(haystack: &[u8], at: usize) -> bool {
+pub fn is_start(_haystack: &[u8], at: usize) -> bool {
     at == 0
 }
 
@@ -429,6 +429,7 @@ pub fn is_word_unicode_negate(haystack: &[u8], at: usize) -> bool {
 mod tests {
     use super::*;
 
+    #[allow(non_snake_case)]
     fn B<'a, T: 'a + ?Sized + AsRef<[u8]>>(string: &'a T) -> &'a [u8] {
         string.as_ref()
     }

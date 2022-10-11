@@ -1,7 +1,6 @@
 use crate::{
     dfa::search,
     util::{
-        prefilter,
         primitives::{PatternID, StateID},
         search::{HalfMatch, Input, MatchError, PatternSet},
     },

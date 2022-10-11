@@ -14,9 +14,7 @@ find the start offset of a match.
 See the [parent module](crate::hybrid) for examples.
 */
 
-use core::borrow::Borrow;
-
-use alloc::{boxed::Box, sync::Arc};
+use alloc::sync::Arc;
 
 use crate::{
     hybrid::{
@@ -27,8 +25,8 @@ use crate::{
     nfa::thompson,
     util::{
         iter,
-        prefilter::{self, Prefilter},
-        search::{Anchored, Input, Match, MatchError, MatchKind, Span},
+        prefilter::Prefilter,
+        search::{Anchored, Input, Match, MatchError, MatchKind},
     },
 };
 
@@ -1050,13 +1048,12 @@ impl Config {
 pub struct Builder {
     config: Config,
     dfa: dfa::Builder,
-    pre: Option<Arc<dyn Prefilter>>,
 }
 
 impl Builder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> Builder {
-        Builder { config: Config::default(), dfa: DFA::builder(), pre: None }
+        Builder { config: Config::default(), dfa: DFA::builder() }
     }
 
     /// Build a regex from the given pattern.
@@ -1134,18 +1131,5 @@ impl Builder {
 impl Default for Builder {
     fn default() -> Builder {
         Builder::new()
-    }
-}
-
-#[inline(always)]
-fn next_unwrap(item: Option<Result<Match, MatchError>>) -> Option<Match> {
-    match item {
-        None => None,
-        Some(Ok(m)) => Some(m),
-        Some(Err(err)) => panic!(
-            "unexpected regex search error: {}\n\
-             to handle search errors, use try_ methods",
-            err,
-        ),
     }
 }

@@ -1,10 +1,7 @@
-use alloc::{
-    collections::BTreeMap,
-    vec::{self, Vec},
-};
+use alloc::{collections::BTreeMap, vec::Vec};
 
 use crate::{
-    dfa::{dense, start::StartKind, Error, DEAD},
+    dfa::{dense, Error, DEAD},
     nfa::thompson,
     util::{
         self,
@@ -12,7 +9,7 @@ use crate::{
         determinize::{State, StateBuilderEmpty, StateBuilderNFA},
         primitives::{PatternID, StateID},
         search::{Anchored, MatchKind},
-        sparse_set::{SparseSet, SparseSets},
+        sparse_set::SparseSets,
         start::Start,
     },
 };

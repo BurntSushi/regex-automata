@@ -14,12 +14,12 @@ use crate::{
         error::Error,
         literal_trie::LiteralTrie,
         map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
-        nfa::{PatternIter, SparseTransitions, State, Transition, NFA},
+        nfa::{Transition, NFA},
         range_trie::RangeTrie,
     },
     util::{
         look::Look,
-        primitives::{IteratorIndexExt, PatternID, StateID},
+        primitives::{PatternID, StateID},
     },
 };
 
@@ -639,7 +639,7 @@ impl Compiler {
         self.builder.borrow_mut().clear();
         self.builder
             .borrow_mut()
-            .set_size_limit(self.config.get_nfa_size_limit());
+            .set_size_limit(self.config.get_nfa_size_limit())?;
 
         // We always add an unanchored prefix unless we were specifically told
         // not to (for tests only), or if we know that the regex is anchored
@@ -658,16 +658,14 @@ impl Compiler {
             self.c_at_least(&Hir::dot(hir::Dot::AnyByte), false, 0)?
         };
 
-        let compiled = self.c_alt_iter(
-            exprs.iter().with_pattern_ids().map(|(pid, e)| {
-                let _ = self.start_pattern()?;
-                let one = self.c_group(0, None, e.borrow())?;
-                let match_state_id = self.add_match()?;
-                self.patch(one.end, match_state_id)?;
-                let _ = self.finish_pattern(one.start)?;
-                Ok(ThompsonRef { start: one.start, end: match_state_id })
-            }),
-        )?;
+        let compiled = self.c_alt_iter(exprs.iter().map(|e| {
+            let _ = self.start_pattern()?;
+            let one = self.c_group(0, None, e.borrow())?;
+            let match_state_id = self.add_match()?;
+            self.patch(one.end, match_state_id)?;
+            let _ = self.finish_pattern(one.start)?;
+            Ok(ThompsonRef { start: one.start, end: match_state_id })
+        }))?;
         self.patch(unanchored_prefix.end, compiled.start)?;
         let nfa = self
             .builder
@@ -1240,17 +1238,6 @@ impl Compiler {
         };
         let id = self.add_look(look)?;
         Ok(ThompsonRef { start: id, end: id })
-    }
-
-    /// Compile the given codepoint to a concatenation of its UTF-8 encoding.
-    fn c_char(&self, ch: char) -> Result<ThompsonRef, Error> {
-        let mut buf = [0; 4];
-        let it = ch
-            .encode_utf8(&mut buf)
-            .as_bytes()
-            .iter()
-            .map(|&b| self.c_range(b, b));
-        self.c_concat(it)
     }
 
     /// Compile the given byte string to a concatenation of bytes.

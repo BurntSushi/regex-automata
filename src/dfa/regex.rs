@@ -19,7 +19,7 @@ See the [parent module](crate::dfa) for examples.
 use alloc::vec::Vec;
 
 use crate::{
-    dfa::automaton::{Automaton, OverlappingState},
+    dfa::automaton::Automaton,
     util::{
         iter,
         prefilter::{self, Prefilter},
@@ -30,7 +30,7 @@ use crate::{
 use crate::{
     dfa::{dense, error::Error, sparse, StartKind},
     nfa::thompson,
-    util::search::{Input, MatchKind, Span},
+    util::search::{Input, MatchKind},
 };
 
 // When the alloc feature is enabled, the regex type sets its A type parameter
@@ -634,6 +634,17 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
                 end.offset()..end.offset(),
             )));
         }
+        // We can also skip the reverse search if we know our search was
+        // anchored. This occurs either when the input config is anchored or
+        // when we know the regex itself is anchored. In this case, we know the
+        // start of the match, if one is found, must be the start of the
+        // search.
+        if self.is_anchored(input) {
+            return Ok(Some(Match::new(
+                end.pattern(),
+                input.start()..end.offset(),
+            )));
+        }
         // N.B. I have tentatively convinced myself that it isn't necessary
         // to specify the specific pattern for the reverse search since the
         // reverse search will always find the same pattern to match as the
@@ -679,6 +690,9 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
         // that might not be good enough. For example, a DFA might be built
         // with StartKind::Both, but the original NFA might be always anchored,
         // in which case, the DFA is always anchored.
+        //
+        // The corresponding predicate in the hybrid NFA/DFA gets this correct
+        // 100% of the time because it has the NFA handy.
         match input.get_anchored() {
             Anchored::No => false,
             Anchored::Yes | Anchored::Pattern(_) => true,
@@ -1194,18 +1208,5 @@ impl Builder {
 impl Default for Builder {
     fn default() -> Builder {
         Builder::new()
-    }
-}
-
-#[inline(always)]
-fn next_unwrap(item: Option<Result<Match, MatchError>>) -> Option<Match> {
-    match item {
-        None => None,
-        Some(Ok(m)) => Some(m),
-        Some(Err(err)) => panic!(
-            "unexpected regex search error: {}\n\
-             to handle search errors, use try_ methods",
-            err,
-        ),
     }
 }

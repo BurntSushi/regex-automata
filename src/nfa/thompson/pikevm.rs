@@ -5,13 +5,10 @@ This module provides a [`PikeVM`] that works by simulating an NFA and
 resolving all spans of capturing groups that participate in a match.
 */
 
+#[cfg(feature = "instrument-pikevm")]
 use core::cell::RefCell;
 
-use alloc::{
-    sync::{Arc, Weak},
-    vec,
-    vec::Vec,
-};
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{self, Error, State, NFA},
@@ -38,20 +35,21 @@ macro_rules! instrument {
     ($fun:expr) => {
         #[cfg(feature = "instrument-pikevm")]
         {
-            let mut fun: &mut dyn FnMut(&mut Counters) = &mut $fun;
+            let fun: &mut dyn FnMut(&mut Counters) = &mut $fun;
             COUNTERS.with(|c: &RefCell<Counters>| fun(&mut *c.borrow_mut()));
         }
     };
 }
 
-/// Effectively global state used to keep track of instrumentation counters.
-/// The "proper" way to do this is to thread it through the PikeVM, but it
-/// makes the code quite icky. Since this is just a debugging feature, we're
-/// content to relegate it to thread local state. When instrumentation is
-/// enabled, the counters are reset at the beginning of every search and
-/// printed (with the 'trace' log level) at the end of every search.
-#[cfg(feature = "instrument-pikevm")]
-thread_local! {
+#[cfg(all(feature = "std", feature = "instrument-pikevm"))]
+std::thread_local! {
+    /// Effectively global state used to keep track of instrumentation
+    /// counters. The "proper" way to do this is to thread it through the
+    /// PikeVM, but it makes the code quite icky. Since this is just a
+    /// debugging feature, we're content to relegate it to thread local
+    /// state. When instrumentation is enabled, the counters are reset at the
+    /// beginning of every search and printed (with the 'trace' log level) at
+    /// the end of every search.
     static COUNTERS: RefCell<Counters> = RefCell::new(Counters::empty());
 }
 
@@ -1965,7 +1963,6 @@ impl ActiveStates {
     /// Reset this set of active states such that it can be used with the given
     /// PikeVM (and only that PikeVM).
     fn reset(&mut self, re: &PikeVM) {
-        let nfa = re.get_nfa();
         self.set.resize(re.get_nfa().states().len());
         self.slot_table.reset(re);
     }

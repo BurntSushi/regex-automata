@@ -424,7 +424,6 @@ impl Accel {
     /// If the given bytes are invalid, then this returns an error.
     fn from_bytes(bytes: [u8; 4]) -> Result<Accel, DeserializeError> {
         if usize::from(bytes[0]) >= ACCEL_LEN {
-            panic!("{:?}", crate::util::escape::DebugHaystack(&bytes));
             return Err(DeserializeError::generic(
                 "accelerator bytes cannot have length more than 3",
             ));

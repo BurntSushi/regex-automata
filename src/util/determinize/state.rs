@@ -92,7 +92,7 @@ use alloc::{sync::Arc, vec::Vec};
 
 use crate::util::{
     int::{I32, U32},
-    look::{Look, LookSet},
+    look::LookSet,
     primitives::{PatternID, StateID},
     wire::{self, Endian},
 };
@@ -159,6 +159,7 @@ impl State {
         self.repr().match_pattern_ids()
     }
 
+    #[cfg(test)]
     pub(crate) fn iter_match_pattern_ids<F: FnMut(PatternID)>(&self, f: F) {
         self.repr().iter_match_pattern_ids(f)
     }
@@ -225,20 +226,6 @@ impl StateBuilderMatches {
         StateBuilderNFA { repr: self.0, prev_nfa_state_id: StateID::ZERO }
     }
 
-    pub(crate) fn clear(self) -> StateBuilderEmpty {
-        let mut builder = StateBuilderEmpty(self.0);
-        builder.clear();
-        builder
-    }
-
-    pub(crate) fn is_match(&self) -> bool {
-        self.repr().is_match()
-    }
-
-    pub(crate) fn is_from_word(&self) -> bool {
-        self.repr().is_from_word()
-    }
-
     pub(crate) fn set_is_from_word(&mut self) {
         self.repr_vec().set_is_from_word()
     }
@@ -247,22 +234,11 @@ impl StateBuilderMatches {
         LookSet::from_repr(self.0[1])
     }
 
-    pub(crate) fn look_need(&self) -> LookSet {
-        LookSet::from_repr(self.0[2])
-    }
-
     pub(crate) fn set_look_have(
         &mut self,
         set: impl FnMut(LookSet) -> LookSet,
     ) {
         self.repr_vec().set_look_have(set)
-    }
-
-    pub(crate) fn set_look_need(
-        &mut self,
-        set: impl FnMut(LookSet) -> LookSet,
-    ) {
-        self.repr_vec().set_look_need(set)
     }
 
     pub(crate) fn add_match_pattern_id(&mut self, pid: PatternID) {
@@ -310,18 +286,6 @@ impl StateBuilderNFA {
         builder
     }
 
-    pub(crate) fn is_match(&self) -> bool {
-        self.repr().is_match()
-    }
-
-    pub(crate) fn is_from_word(&self) -> bool {
-        self.repr().is_from_word()
-    }
-
-    pub(crate) fn look_have(&self) -> LookSet {
-        LookSet::from_repr(self.repr[1])
-    }
-
     pub(crate) fn look_need(&self) -> LookSet {
         LookSet::from_repr(self.repr[2])
     }
@@ -343,10 +307,6 @@ impl StateBuilderNFA {
     pub(crate) fn add_nfa_state_id(&mut self, sid: StateID) {
         ReprVec(&mut self.repr)
             .add_nfa_state_id(&mut self.prev_nfa_state_id, sid)
-    }
-
-    pub(crate) fn memory_usage(&self) -> usize {
-        self.repr.len()
     }
 
     pub(crate) fn as_bytes(&self) -> &[u8] {
@@ -803,7 +763,7 @@ fn read_varu32(data: &[u8]) -> (u32, usize) {
 
 /// Push a native-endian encoded `n` on to `dst`.
 fn write_u32(dst: &mut Vec<u8>, n: u32) {
-    use crate::util::wire::{Endian, NE};
+    use crate::util::wire::NE;
 
     let start = dst.len();
     dst.extend(core::iter::repeat(0).take(mem::size_of::<u32>()));

@@ -84,6 +84,8 @@ impl<T: AsRef<[u8]>> fst::Automaton for sparse::DFA<T> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::{vec, vec::Vec};
+
     use bstr::BString;
     use fst::{Automaton, IntoStreamer, Set, Streamer};
 

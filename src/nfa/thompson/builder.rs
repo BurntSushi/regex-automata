@@ -1,6 +1,6 @@
 use core::{convert::TryFrom, mem};
 
-use alloc::{collections::BTreeSet, sync::Arc, vec, vec::Vec};
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{
@@ -1179,11 +1179,6 @@ impl Builder {
         Ok(())
     }
 }
-
-#[cfg(feature = "std")]
-type Set<T> = std::collections::HashSet<T>;
-#[cfg(not(feature = "std"))]
-type Set<T> = alloc::collections::BTreeSet<T>;
 
 #[cfg(test)]
 mod tests {

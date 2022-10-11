@@ -38,6 +38,7 @@ transducer = ["fst"]
 logging = ["log"]
 syntax = ["regex-syntax"]
 
+instrument = ["instrument-pikevm"]
 instrument-pikevm = ["logging"]
 
 # WARNING: The features below are in a very rough draft form, which is why

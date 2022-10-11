@@ -3,10 +3,8 @@ use crate::{
         dfa::{Cache, OverlappingState, DFA},
         id::LazyStateID,
     },
-    nfa::thompson,
     util::{
         prefilter::Prefilter,
-        primitives::PatternID,
         search::{HalfMatch, Input, MatchError, Span},
     },
 };

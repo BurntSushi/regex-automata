@@ -50,7 +50,7 @@ use core::{
 use alloc::{vec, vec::Vec};
 
 use crate::util::{
-    int::{Pointer, U64},
+    int::Pointer,
     primitives::{PatternID, PatternIDError, StateID, StateIDError},
 };
 
@@ -126,7 +126,6 @@ enum DeserializeErrorKind {
     Generic { msg: &'static str },
     BufferTooSmall { what: &'static str },
     InvalidUsize { what: &'static str },
-    InvalidVarint { what: &'static str },
     VersionMismatch { expected: u32, found: u32 },
     EndianMismatch { expected: u32, found: u32 },
     AlignmentMismatch { alignment: usize, address: usize },
@@ -147,10 +146,6 @@ impl DeserializeError {
 
     fn invalid_usize(what: &'static str) -> DeserializeError {
         DeserializeError(DeserializeErrorKind::InvalidUsize { what })
-    }
-
-    fn invalid_varint(what: &'static str) -> DeserializeError {
-        DeserializeError(DeserializeErrorKind::InvalidVarint { what })
     }
 
     fn version_mismatch(expected: u32, found: u32) -> DeserializeError {
@@ -214,9 +209,6 @@ impl core::fmt::Display for DeserializeError {
             }
             InvalidUsize { what } => {
                 write!(f, "{} is too big to fit in a usize", what)
-            }
-            InvalidVarint { what } => {
-                write!(f, "could not decode valid varint for {}", what)
             }
             VersionMismatch { expected, found } => write!(
                 f,
@@ -717,17 +709,6 @@ pub(crate) fn read_u16(slice: &[u8]) -> u16 {
 pub(crate) fn read_u32(slice: &[u8]) -> u32 {
     let bytes: [u8; 4] = slice[..size_of::<u32>()].try_into().unwrap();
     u32::from_ne_bytes(bytes)
-}
-
-/// Read a u64 from the beginning of the given slice in native endian format.
-/// If the slice has fewer than 8 bytes, then this panics.
-///
-/// Marked as inline to speed up sparse searching which decodes integers from
-/// its automaton at search time.
-#[inline(always)]
-pub(crate) fn read_u64(slice: &[u8]) -> u64 {
-    let bytes: [u8; 8] = slice[..size_of::<u64>()].try_into().unwrap();
-    u64::from_ne_bytes(bytes)
 }
 
 /// Read a u128 from the beginning of the given slice in native endian format.

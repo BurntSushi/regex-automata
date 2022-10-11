@@ -11,11 +11,10 @@ release. Since this release represents an unfinished state, please do not
 create issues for this release unless it's for a critical bug.
 */
 
-#![allow(warnings)]
+#![no_std]
 // #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
-#![doc(test(attr(deny(warnings))))]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![warn(missing_debug_implementations)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(not(any(
@@ -24,6 +23,9 @@ create issues for this release unless it's for a critical bug.
     target_pointer_width = "64"
 )))]
 compile_error!("not supported on non-{16,32,64}, please file an issue");
+
+#[cfg(any(test, feature = "std"))]
+extern crate std;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

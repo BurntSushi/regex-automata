@@ -19,7 +19,7 @@ use crate::{
         iter,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
-        search::{Anchored, Input, Match, MatchError, MatchKind},
+        search::{Anchored, Input, Match, MatchError},
     },
 };
 
@@ -1747,11 +1747,12 @@ impl<'r, 'c, 'h> Iterator for TryCapturesMatches<'r, 'c, 'h> {
         // Splitting 'self' apart seems necessary to appease borrowck.
         let TryCapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
-        it.try_advance(|input| {
-            re.try_search(cache, input, caps)?;
-            Ok(caps.get_match())
-        })
-        .transpose()?;
+        let _ = it
+            .try_advance(|input| {
+                re.try_search(cache, input, caps)?;
+                Ok(caps.get_match())
+            })
+            .transpose()?;
         if caps.is_match() {
             Some(Ok(caps.clone()))
         } else {

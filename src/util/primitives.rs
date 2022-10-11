@@ -267,14 +267,6 @@ impl SmallIndex {
     pub fn to_ne_bytes(&self) -> [u8; 4] {
         self.0.to_ne_bytes()
     }
-
-    /// Returns an iterator over all small indices from 0 up to and not
-    /// including the given length.
-    ///
-    /// If the given length exceeds [`SmallIndex::LIMIT`], then this panics.
-    pub(crate) fn iter(len: usize) -> SmallIndexIter {
-        SmallIndexIter::new(len)
-    }
 }
 
 impl<T> core::ops::Index<SmallIndex> for [T] {
@@ -411,18 +403,6 @@ pub(crate) struct SmallIndexIter {
     rng: core::ops::Range<usize>,
 }
 
-impl SmallIndexIter {
-    fn new(len: usize) -> SmallIndexIter {
-        assert!(
-            len <= SmallIndex::LIMIT,
-            "cannot create iterator with small indices when number of \
-             elements exceed {:?}",
-            SmallIndex::LIMIT,
-        );
-        SmallIndexIter { rng: 0..len }
-    }
-}
-
 impl Iterator for SmallIndexIter {
     type Item = SmallIndex;
 
@@ -435,38 +415,6 @@ impl Iterator for SmallIndexIter {
         // new_unchecked is OK since we asserted that the number of
         // elements in this iterator will fit in an ID at construction.
         Some(SmallIndex::new_unchecked(id))
-    }
-}
-
-/// An iterator adapter that is like std::iter::Enumerate, but attaches "small
-/// indices" instead. It requires `ExactSizeIterator`. At construction, it
-/// ensures that the index of each element in the iterator is representable in
-/// the corresponding "small index" type.
-///
-/// To use this type, import IteratorIndexExt and use `with_small_indices` on
-/// any iterator. (`with_pattern_ids` and `with_state_ids` are also available.)
-#[derive(Clone, Debug)]
-pub(crate) struct WithSmallIndexIter<I> {
-    it: I,
-    ids: SmallIndexIter,
-}
-
-impl<I: Iterator + ExactSizeIterator> WithSmallIndexIter<I> {
-    fn new(it: I) -> WithSmallIndexIter<I> {
-        let ids = SmallIndex::iter(it.len());
-        WithSmallIndexIter { it, ids }
-    }
-}
-
-impl<I: Iterator + ExactSizeIterator> Iterator for WithSmallIndexIter<I> {
-    type Item = (SmallIndex, I::Item);
-
-    fn next(&mut self) -> Option<(SmallIndex, I::Item)> {
-        let item = self.it.next()?;
-        // Number of elements in this iterator must match, according
-        // to contract of ExactSizeIterator.
-        let id = self.ids.next().unwrap();
-        Some((id, item))
     }
 }
 
@@ -811,13 +759,6 @@ index_type_impls!(StateID, StateIDError, StateIDIter, WithStateIDIter);
 /// that iterator construction can do a single check to make sure the index of
 /// each element is representable by its small index type.
 pub(crate) trait IteratorIndexExt: Iterator {
-    fn with_small_indices(self) -> WithSmallIndexIter<Self>
-    where
-        Self: Sized + ExactSizeIterator,
-    {
-        WithSmallIndexIter::new(self)
-    }
-
     fn with_pattern_ids(self) -> WithPatternIDIter<Self>
     where
         Self: Sized + ExactSizeIterator,
