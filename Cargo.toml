@@ -39,7 +39,7 @@ logging = ["log"]
 syntax = ["regex-syntax"]
 
 instrument = ["instrument-pikevm"]
-instrument-pikevm = ["logging"]
+instrument-pikevm = ["logging", "std"]
 
 # WARNING: The features below are in a very rough draft form, which is why
 # they are all commented out. I'm still working through the crate feature

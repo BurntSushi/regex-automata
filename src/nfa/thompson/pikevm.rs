@@ -41,7 +41,7 @@ macro_rules! instrument {
     };
 }
 
-#[cfg(all(feature = "std", feature = "instrument-pikevm"))]
+#[cfg(feature = "instrument-pikevm")]
 std::thread_local! {
     /// Effectively global state used to keep track of instrumentation
     /// counters. The "proper" way to do this is to thread it through the
