@@ -399,8 +399,12 @@ pub fn is_word_unicode_negate(haystack: &[u8], at: usize) -> bool {
     // If either direction fails, then we don't permit \B to match at all.
     //
     // Now, this isn't exactly optimal from a perf perspective. We could try
-    // and detect this in is_word_char_{fwd,rev}, but it's not clear if it's
-    // worth it. \B is, after all, rarely used.
+    // and detect this in is_word_char::{fwd,rev}, but it's not clear if it's
+    // worth it. \B is, after all, rarely used. Even worse, sometimes
+    // is_word_char::{fwd,rev} does its own UTF-8 decoding (depending on which
+    // matching engines are available), and so this will wind up doing UTF-8
+    // decoding twice. Owch. We could fix this with more code complexity, but
+    // it just doesn't feel worth it for \B.
     //
     // And in particular, we do *not* have to do this with \b, because \b
     // *requires* that at least one side of `at` be a "word" codepoint, which
@@ -434,6 +438,9 @@ pub fn is_word_unicode_negate(haystack: &[u8], at: usize) -> bool {
 /// determine whether a codepoint is considered a word character or not when
 /// determining whether a Unicode aware `\b` (or `\B`) matches at a particular
 /// position.
+///
+/// This error can only occur when the `unicode-word-boundary` feature is
+/// disabled.
 #[derive(Debug)]
 pub struct UnicodeWordBoundaryError(());
 
@@ -445,25 +452,37 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
         write!(
             f,
             "Unicode-aware \\b and \\B are unavailabe because the \
-             requiste data tables are missing"
+             requiste data tables are missing, please enable the \
+             unicode-word-boundary feature"
         )
     }
 }
 
-#[cfg(not(all(feature = "syntax", feature = "dfa-build")))]
-mod is_word_char {
-    #[inline(always)]
-    pub(super) fn fwd(_bytes: &[u8], _at: usize) -> bool {
-        todo!()
-    }
+// BREADCRUMBS: I guess we need 4 different combos here?
+//
+// 1. syntax && dfa-build
+// 2. syntax && hybrid && !dfa-build
+// 3. syntax && unicode-perl && !dfa-build && !hybrid
+// 4. !syntax || !unicode-perl
+// 5. !unicode-word-boundary (all above need unicode-word-boundary)
+//
+// a & b
+// a & c & !b
+// a & d & !b & !c
+//
+// !((a & b) | (a & c & !b) | (a & d & !b & !c))
+// !(a & b) & !(a & c & !b) & !(a & d & !b & !c)
+// (!a | !b) & (!a | !c | b) & (!a | !d | b | c)
+// !a & (!b & (!c | b) & (!d | b | c))
+// !a & (!b & !c & (!d | c))
+// !a & (!b & !c & !d)
+// !(a | b | c | d)
 
-    #[inline(always)]
-    pub(super) fn rev(_bytes: &[u8], _at: usize) -> bool {
-        todo!()
-    }
-}
-
-#[cfg(all(feature = "syntax", feature = "dfa-build"))]
+#[cfg(all(
+    feature = "unicode-word-boundary",
+    feature = "syntax",
+    feature = "dfa-build"
+))]
 mod is_word_char {
     use alloc::vec::Vec;
 
@@ -475,11 +494,8 @@ mod is_word_char {
     };
 
     #[inline(always)]
-    pub(super) fn fwd(bytes: &[u8], mut at: usize) -> bool {
+    pub(super) fn fwd(haystack: &[u8], mut at: usize) -> bool {
         static WORD: Lazy<(DFA<Vec<u32>>, StateID)> = Lazy::new(|| {
-            // TODO: Should we use a lazy DFA here instead? It does complicate
-            // things somewhat, since we then need a mutable cache, which
-            // probably means a thread local.
             let dfa = DFA::builder()
                 .configure(DFA::config().start_kind(StartKind::Anchored))
                 .build(r"\w")
@@ -491,9 +507,8 @@ mod is_word_char {
             (dfa, start_id)
         });
         let &(ref dfa, mut sid) = Lazy::get(&WORD);
-        // let mut sid = *start_id;
-        while at < bytes.len() {
-            let byte = bytes[at];
+        while at < haystack.len() {
+            let byte = haystack[at];
             sid = dfa.next_state(sid, byte);
             at += 1;
             if dfa.is_special_state(sid) {
@@ -508,7 +523,7 @@ mod is_word_char {
     }
 
     #[inline(always)]
-    pub(super) fn rev(bytes: &[u8], mut at: usize) -> bool {
+    pub(super) fn rev(haystack: &[u8], mut at: usize) -> bool {
         static WORD: Lazy<(DFA<Vec<u32>>, StateID)> = Lazy::new(|| {
             let dfa = DFA::builder()
                 .configure(DFA::config().start_kind(StartKind::Anchored))
@@ -524,7 +539,7 @@ mod is_word_char {
         let &(ref dfa, mut sid) = Lazy::get(&WORD);
         while at > 0 {
             at -= 1;
-            let byte = bytes[at];
+            let byte = haystack[at];
             sid = dfa.next_state(sid, byte);
             if dfa.is_special_state(sid) {
                 if dfa.is_match_state(sid) {
@@ -535,6 +550,55 @@ mod is_word_char {
             }
         }
         dfa.is_match_state(dfa.next_eoi_state(sid))
+    }
+}
+
+#[cfg(all(
+    feature = "unicode-word-boundary",
+    feature = "syntax",
+    feature = "unicode-perl",
+    not(feature = "dfa-build"),
+))]
+mod is_word_char {
+    use regex_syntax::try_is_word_character;
+
+    use crate::util::utf8;
+
+    #[inline(always)]
+    pub(super) fn fwd(haystack: &[u8], at: usize) -> bool {
+        match utf8::decode(&haystack[at..]) {
+            None | Some(Err(_)) => false,
+            Some(Ok(ch)) => try_is_word_character(ch).expect(
+                "since unicode-word-boundary, syntax and unicode-perl \
+                 are all enabled, it is expected that \
+                 try_is_word_character succeeds",
+            ),
+        }
+    }
+
+    #[inline(always)]
+    pub(super) fn rev(haystack: &[u8], at: usize) -> bool {
+        match utf8::decode_last(&haystack[..at]) {
+            None | Some(Err(_)) => false,
+            Some(Ok(ch)) => try_is_word_character(ch).expect(
+                "since unicode-word-boundary, syntax and unicode-perl \
+                 are all enabled, it is expected that \
+                 try_is_word_character succeeds",
+            ),
+        }
+    }
+}
+
+#[cfg(not(feature = "unicode-word-boundary"))]
+mod is_word_char {
+    #[inline(always)]
+    pub(super) fn fwd(_bytes: &[u8], _at: usize) -> bool {
+        todo!()
+    }
+
+    #[inline(always)]
+    pub(super) fn rev(_bytes: &[u8], _at: usize) -> bool {
+        todo!()
     }
 }
 

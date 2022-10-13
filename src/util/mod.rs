@@ -2,6 +2,8 @@
 TODO
 */
 
+#![cfg_attr(not(all(std, nfa, dfa, hybrid)), allow(dead_code))]
+
 pub mod alphabet;
 #[cfg(feature = "alloc")]
 pub mod captures;
@@ -22,4 +24,5 @@ pub(crate) mod search;
 #[cfg(feature = "alloc")]
 pub(crate) mod sparse_set;
 pub(crate) mod start;
+pub(crate) mod unicode_data;
 pub(crate) mod utf8;

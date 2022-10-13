@@ -39,6 +39,8 @@ pub(crate) fn is_word_byte(b: u8) -> bool {
 /// byte slice, then the first byte is returned instead.
 ///
 /// This returns `None` if and only if `bytes` is empty.
+///
+/// This never panics.
 #[inline(always)]
 pub(crate) fn decode(bytes: &[u8]) -> Option<Result<char, u8>> {
     if bytes.is_empty() {

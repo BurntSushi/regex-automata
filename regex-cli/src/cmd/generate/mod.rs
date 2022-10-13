@@ -4,6 +4,7 @@ use crate::{
 };
 
 mod fowler;
+mod unicode;
 
 const ABOUT: &'static str = "\
 Generate some kind of output.
@@ -19,11 +20,13 @@ pub fn define() -> App {
         .about("Generata some kind of output.")
         .before_help(ABOUT)
         .subcommand(self::fowler::define())
+        .subcommand(self::unicode::define())
 }
 
 pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
         "fowler" => self::fowler::run(args),
+        "unicode" => self::unicode::run(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }

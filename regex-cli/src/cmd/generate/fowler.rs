@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    convert::TryFrom,
     fs::File,
     io::{BufRead, Read, Write},
     path::{Path, PathBuf},
@@ -16,7 +15,19 @@ use anyhow::Context;
 const ABOUT: &'static str = "\
 Generate TOML tests from Glenn Fowler's regex test suite.
 
-TODO
+This corresponds to a very sizeable set of regex tests that were written many
+moons ago. They have been tweaked slightly by both Russ Cox and myself (Andrew
+Gallant).
+
+This tool is the spiritual successor of some hacky Python scripts. Its input is
+a bespoke plain text format matching the original test data, and its output are
+TOML files mean to work with the 'regex-test' crate.
+
+Example usage from the root of this repository:
+
+    regex-cli generate fowler tests/data/fowler tests/data/fowler/dat/*.dat
+
+See tests/data/fowler/data/README for more context.
 ";
 
 pub fn define() -> App {
