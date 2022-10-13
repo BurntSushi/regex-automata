@@ -276,11 +276,13 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
+    #[cfg(feature = "syntax")]
     pub fn build(&self, pattern: &str) -> Result<PikeVM, Error> {
         self.build_many(&[pattern])
     }
 
     /// Build a `PikeVM` from the given patterns.
+    #[cfg(feature = "syntax")]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -304,11 +306,11 @@ impl Builder {
         if !nfa.has_capture() && nfa.pattern_len() > 0 {
             return Err(Error::missing_captures());
         }
-        if !cfg!(feature = "syntax") {
-            if nfa.has_word_boundary_unicode() {
-                return Err(Error::unicode_word_unavailable());
-            }
-        }
+        // if !cfg!(feature = "syntax") {
+        // if nfa.has_word_boundary_unicode() {
+        // return Err(Error::unicode_word_unavailable());
+        // }
+        // }
         Ok(PikeVM { config: self.config.clone(), nfa })
     }
 
@@ -326,6 +328,7 @@ impl Builder {
     ///
     /// These settings only apply when constructing a PikeVM directly from a
     /// pattern.
+    #[cfg(feature = "syntax")]
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,
@@ -421,6 +424,7 @@ impl PikeVM {
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new(pattern: &str) -> Result<PikeVM, Error> {
         PikeVM::builder().build(pattern)
     }
@@ -446,6 +450,7 @@ impl PikeVM {
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<PikeVM, Error> {
         PikeVM::builder().build_many(patterns)
     }

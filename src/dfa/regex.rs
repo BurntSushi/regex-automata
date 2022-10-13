@@ -184,7 +184,7 @@ define_regex_type!(
     #[derive(Clone, Debug)]
 );
 
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "syntax", feature = "dfa-build"))]
 impl Regex {
     /// Parse the given regular expression using the default configuration and
     /// return the corresponding regex.
@@ -233,7 +233,7 @@ impl Regex {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "syntax", feature = "dfa-build"))]
 impl Regex<sparse::DFA<Vec<u8>>> {
     /// Parse the given regular expression using the default configuration,
     /// except using sparse DFAs, and return the corresponding regex.
@@ -288,7 +288,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
 }
 
 /// Convenience routines for regex construction.
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Regex {
     /// Return a default configuration for a `Regex`.
     ///
@@ -723,7 +723,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 
     /// Return the config for this regex.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn get_config(&self) -> &Config {
         &self.config
     }
@@ -857,13 +857,13 @@ impl<'r, 'h, A: Automaton, P: Prefilter> Iterator
 ///
 /// A regex configuration is a simple data object that is typically used with
 /// [`Builder::configure`].
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     utf8: Option<bool>,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Config {
     /// Return a new default regex compiler configuration.
     pub fn new() -> Config {
@@ -1034,14 +1034,14 @@ impl Config {
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
     dfa: dense::Builder,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Builder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> Builder {
@@ -1052,6 +1052,7 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
+    #[cfg(feature = "syntax")]
     pub fn build(&self, pattern: &str) -> Result<Regex, Error> {
         self.build_many(&[pattern])
     }
@@ -1060,6 +1061,7 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
+    #[cfg(feature = "syntax")]
     pub fn build_sparse(
         &self,
         pattern: &str,
@@ -1068,6 +1070,7 @@ impl Builder {
     }
 
     /// Build a regex from the given patterns.
+    #[cfg(feature = "syntax")]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -1087,6 +1090,7 @@ impl Builder {
     }
 
     /// Build a sparse regex from the given patterns.
+    #[cfg(feature = "syntax")]
     pub fn build_many_sparse<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -1175,6 +1179,7 @@ impl Builder {
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
+    #[cfg(feature = "syntax")]
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,
@@ -1204,7 +1209,7 @@ impl Builder {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Default for Builder {
     fn default() -> Builder {
         Builder::new()

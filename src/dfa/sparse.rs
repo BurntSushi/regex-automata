@@ -37,7 +37,7 @@ assert_eq!(Some(HalfMatch::must(0, 7)), state.get_match());
 ```
 */
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 use core::iter;
 use core::{
     convert::{TryFrom, TryInto},
@@ -45,10 +45,10 @@ use core::{
     mem::size_of,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 use alloc::{collections::BTreeSet, vec, vec::Vec};
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 use crate::dfa::{dense, error::Error};
 use crate::{
     dfa::{
@@ -134,7 +134,7 @@ pub struct DFA<T> {
     quitset: ByteSet,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl DFA<Vec<u8>> {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding sparse DFA.
@@ -159,6 +159,7 @@ impl DFA<Vec<u8>> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new(pattern: &str) -> Result<DFA<Vec<u8>>, Error> {
         dense::Builder::new()
             .build(pattern)
@@ -187,6 +188,7 @@ impl DFA<Vec<u8>> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
     ) -> Result<DFA<Vec<u8>>, Error> {
@@ -196,7 +198,7 @@ impl DFA<Vec<u8>> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl DFA<Vec<u8>> {
     /// Create a new DFA that matches every input.
     ///
@@ -509,7 +511,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn to_bytes_little_endian(&self) -> Vec<u8> {
         self.to_bytes::<wire::LE>()
     }
@@ -554,7 +556,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn to_bytes_big_endian(&self) -> Vec<u8> {
         self.to_bytes::<wire::BE>()
     }
@@ -606,14 +608,14 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn to_bytes_native_endian(&self) -> Vec<u8> {
         self.to_bytes::<wire::NE>()
     }
 
     /// The implementation of the public `to_bytes` serialization methods,
     /// which is generic over endianness.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn to_bytes<E: Endian>(&self) -> Vec<u8> {
         let mut buf = vec![0; self.write_to_len()];
         // This should always succeed since the only possible serialization
@@ -1394,13 +1396,13 @@ impl<T: AsRef<[u8]>> Transitions<T> {
         //
         // ---AG
         struct Seen {
-            #[cfg(feature = "alloc")]
+            #[cfg(feature = "dfa-build")]
             set: BTreeSet<StateID>,
-            #[cfg(not(feature = "alloc"))]
+            #[cfg(not(feature = "dfa-build"))]
             set: core::marker::PhantomData<StateID>,
         }
 
-        #[cfg(feature = "alloc")]
+        #[cfg(feature = "dfa-build")]
         impl Seen {
             fn new() -> Seen {
                 Seen { set: BTreeSet::new() }
@@ -1413,7 +1415,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
             }
         }
 
-        #[cfg(not(feature = "alloc"))]
+        #[cfg(not(feature = "dfa-build"))]
         impl Seen {
             fn new() -> Seen {
                 Seen { set: core::marker::PhantomData }
@@ -1661,7 +1663,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl<T: AsMut<[u8]>> Transitions<T> {
     /// Return a convenient mutable representation of the given state.
     /// This panics if the state is invalid.
@@ -1737,7 +1739,7 @@ struct StartTable<T> {
     pattern_len: usize,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl StartTable<Vec<u8>> {
     fn new(kind: StartKind, patterns: usize) -> StartTable<Vec<u8>> {
         let stride = Start::len();
@@ -1964,7 +1966,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl<T: AsMut<[u8]>> StartTable<T> {
     /// Set the start state for the given index and pattern.
     ///
@@ -2223,7 +2225,7 @@ impl<'a> fmt::Debug for State<'a> {
 
 /// A representation of a mutable sparse DFA state that can be cheaply
 /// materialized from a state identifier.
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 struct StateMut<'a> {
     /// The identifier of this state.
     id: StateID,
@@ -2251,7 +2253,7 @@ struct StateMut<'a> {
     accel: &'a mut [u8],
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl<'a> StateMut<'a> {
     /// Sets the ith transition to the given state.
     fn set_next_at(&mut self, i: usize, next: StateID) {
@@ -2261,7 +2263,7 @@ impl<'a> StateMut<'a> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl<'a> fmt::Debug for StateMut<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = State {
@@ -2318,7 +2320,7 @@ fn binary_search_ranges(ranges: &[u8], needle: u8) -> Option<usize> {
 }
 */
 
-#[cfg(test)]
+#[cfg(all(test, feature = "syntax", feature = "dfa-build"))]
 mod tests {
     use crate::{
         dfa::{dense::DFA, Automaton},

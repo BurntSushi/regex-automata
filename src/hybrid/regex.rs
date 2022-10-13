@@ -123,6 +123,7 @@ impl Regex {
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new(pattern: &str) -> Result<Regex, BuildError> {
         Regex::builder().build(pattern)
     }
@@ -148,6 +149,7 @@ impl Regex {
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
     ) -> Result<Regex, BuildError> {
@@ -1060,11 +1062,13 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
+    #[cfg(feature = "syntax")]
     pub fn build(&self, pattern: &str) -> Result<Regex, BuildError> {
         self.build_many(&[pattern])
     }
 
     /// Build a regex from the given patterns.
+    #[cfg(feature = "syntax")]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -1099,6 +1103,7 @@ impl Builder {
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
+    #[cfg(feature = "syntax")]
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,

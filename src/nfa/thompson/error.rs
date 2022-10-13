@@ -28,6 +28,7 @@ enum ErrorKind {
     /// An error that occurred while parsing a regular expression. Note that
     /// this error may be printed over multiple lines, and is generally
     /// intended to be end user readable on its own.
+    #[cfg(feature = "syntax")]
     Syntax(regex_syntax::Error),
     /// An error that occurs if the capturing groups provided to an NFA builder
     /// do not satisfy the documented invariants. For example, things like
@@ -66,7 +67,7 @@ enum ErrorKind {
     /// An error that occurs when an NFA contains a Unicode word boundary, but
     /// where the crate was compiled without the necessary data for dealing
     /// with Unicode word boundaries.
-    UnicodeWordUnavailable,
+    // UnicodeWordUnavailable,
     /// An error that occurs when one tries to build an NFA simulation (such as
     /// the PikeVM) without any capturing groups.
     MissingCaptures,
@@ -81,6 +82,7 @@ impl Error {
         &self.kind
     }
 
+    #[cfg(feature = "syntax")]
     pub(crate) fn syntax(err: regex_syntax::Error) -> Error {
         Error { kind: ErrorKind::Syntax(err) }
     }
@@ -107,9 +109,9 @@ impl Error {
         Error { kind: ErrorKind::InvalidCaptureIndex { index } }
     }
 
-    pub(crate) fn unicode_word_unavailable() -> Error {
-        Error { kind: ErrorKind::UnicodeWordUnavailable }
-    }
+    // pub(crate) fn unicode_word_unavailable() -> Error {
+    // Error { kind: ErrorKind::UnicodeWordUnavailable }
+    // }
 
     pub(crate) fn missing_captures() -> Error {
         Error { kind: ErrorKind::MissingCaptures }
@@ -124,15 +126,10 @@ impl Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind() {
+            #[cfg(feature = "syntax")]
             ErrorKind::Syntax(ref err) => Some(err),
             ErrorKind::Captures(ref err) => Some(err),
-            ErrorKind::TooManyPatterns { .. } => None,
-            ErrorKind::TooManyStates { .. } => None,
-            ErrorKind::ExceededSizeLimit { .. } => None,
-            ErrorKind::InvalidCaptureIndex { .. } => None,
-            ErrorKind::UnicodeWordUnavailable => None,
-            ErrorKind::MissingCaptures => None,
-            ErrorKind::UnsupportedCaptures => None,
+            _ => None,
         }
     }
 }
@@ -140,6 +137,7 @@ impl std::error::Error for Error {
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind() {
+            #[cfg(feature = "syntax")]
             ErrorKind::Syntax(_) => write!(f, "error parsing regex"),
             ErrorKind::Captures(_) => write!(f, "error with capture groups"),
             ErrorKind::TooManyPatterns { given, limit } => write!(
@@ -164,12 +162,12 @@ impl core::fmt::Display for Error {
                 "capture group index {} is invalid (too big or discontinuous)",
                 index,
             ),
-            ErrorKind::UnicodeWordUnavailable => write!(
-                f,
-                "crate has been compiled without Unicode word boundary \
-                 support, but the NFA contains Unicode word boundary \
-                 assertions",
-            ),
+            // ErrorKind::UnicodeWordUnavailable => write!(
+            // f,
+            // "crate has been compiled without Unicode word boundary \
+            // support, but the NFA contains Unicode word boundary \
+            // assertions",
+            // ),
             ErrorKind::MissingCaptures => write!(
                 f,
                 "operation requires the NFA to have capturing groups, \

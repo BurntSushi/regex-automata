@@ -10,10 +10,9 @@ Currently, this module supports iteration over any regex engine that works
 with the [`HalfMatch`], [`Match`] or [`Captures`] types.
 */
 
-use crate::util::{
-    captures::Captures,
-    search::{HalfMatch, Input, Match, MatchError},
-};
+#[cfg(feature = "alloc")]
+use crate::util::captures::Captures;
+use crate::util::search::{HalfMatch, Input, Match, MatchError};
 
 /// A searcher for creating iterators and performing lower level iteration.
 ///
@@ -556,6 +555,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     #[inline]
     pub fn into_captures_iter<F>(
         self,
@@ -856,12 +856,14 @@ where
 /// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_captures_iter`].
+#[cfg(feature = "alloc")]
 pub struct TryCapturesIter<'h, 'p, F> {
     it: Searcher<'h, 'p>,
     caps: Captures,
     finder: F,
 }
 
+#[cfg(feature = "alloc")]
 impl<'h, 'p, F> TryCapturesIter<'h, 'p, F> {
     /// Return an infallible version of this iterator.
     ///
@@ -873,6 +875,7 @@ impl<'h, 'p, F> TryCapturesIter<'h, 'p, F> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'h, 'p, F> Iterator for TryCapturesIter<'h, 'p, F>
 where
     F: FnMut(&Input<'_, '_>, &mut Captures) -> Result<(), MatchError>,
@@ -896,6 +899,7 @@ where
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<'h, 'p, F> core::fmt::Debug for TryCapturesIter<'h, 'p, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TryCapturesIter")
@@ -926,9 +930,11 @@ impl<'h, 'p, F> core::fmt::Debug for TryCapturesIter<'h, 'p, F> {
 ///
 /// This iterator is created by [`Searcher::into_captures_iter`] and then
 /// calling [`TryCapturesIter::infallible`].
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct CapturesIter<'h, 'p, F>(TryCapturesIter<'h, 'p, F>);
 
+#[cfg(feature = "alloc")]
 impl<'h, 'p, F> Iterator for CapturesIter<'h, 'p, F>
 where
     F: FnMut(&Input<'_, '_>, &mut Captures) -> Result<(), MatchError>,

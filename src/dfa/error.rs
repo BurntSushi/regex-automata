@@ -1,5 +1,3 @@
-use core::convert::TryFrom;
-
 use crate::{
     nfa,
     util::{
@@ -39,9 +37,8 @@ enum ErrorKind {
     ///
     /// The primary regex feature that is unsupported by DFAs is the Unicode
     /// word boundary look-around assertion (`\b`). This can be worked around
-    /// by either using an ASCII word boundary (`(?-u:\b)`) or by enabling the
-    /// [`dense::Builder::allow_unicode_word_boundary`](dense/struct.Builder.html#method.allow_unicode_word_boundary)
-    /// option when building a DFA.
+    /// by either using an ASCII word boundary (`(?-u:\b)`) or by enabling
+    /// Unicode word boundaries when building a DFA.
     Unsupported(&'static str),
     /// An error that occurs if too many states are produced while building a
     /// DFA.
@@ -61,21 +58,6 @@ enum ErrorKind {
     /// An error that occurs if auxiliary storage (not the DFA) used during
     /// determinization got too big.
     DeterminizeExceededSizeLimit { limit: usize },
-    /// An error that occurs if too many states would be built for the one-pass
-    /// DFA specifically. The one-pass DFA has a smaller limit because it packs
-    /// state IDs into a compact representation.
-    OnePassTooManyStates { limit: u64 },
-    /// An error that occurs when a one-pass DFA is attempted to be built with
-    /// an NFA that has too many patterns. Like state IDs, pattern IDs are
-    /// packed into a smaller representation that doesn't support the full
-    /// pattern ID range.
-    OnePassTooManyPatterns { limit: u64 },
-    /// An error that occurs if the one-pass DFA got too big during
-    /// construction.
-    OnePassExceededSizeLimit { limit: usize },
-    /// An error that occurs when one-pass construction fails because it
-    /// discovers that the pattern is not actually one-pass.
-    OnePassFail { msg: &'static str },
 }
 
 impl Error {
@@ -115,22 +97,6 @@ impl Error {
     pub(crate) fn determinize_exceeded_size_limit(limit: usize) -> Error {
         Error { kind: ErrorKind::DeterminizeExceededSizeLimit { limit } }
     }
-
-    pub(crate) fn one_pass_too_many_states(limit: u64) -> Error {
-        Error { kind: ErrorKind::OnePassTooManyStates { limit } }
-    }
-
-    pub(crate) fn one_pass_too_many_patterns(limit: u64) -> Error {
-        Error { kind: ErrorKind::OnePassTooManyPatterns { limit } }
-    }
-
-    pub(crate) fn one_pass_exceeded_size_limit(limit: usize) -> Error {
-        Error { kind: ErrorKind::OnePassExceededSizeLimit { limit } }
-    }
-
-    pub(crate) fn one_pass_fail(msg: &'static str) -> Error {
-        Error { kind: ErrorKind::OnePassFail { msg } }
-    }
 }
 
 #[cfg(feature = "std")]
@@ -144,10 +110,6 @@ impl std::error::Error for Error {
             ErrorKind::TooManyMatchPatternIDs => None,
             ErrorKind::DFAExceededSizeLimit { .. } => None,
             ErrorKind::DeterminizeExceededSizeLimit { .. } => None,
-            ErrorKind::OnePassTooManyStates { .. } => None,
-            ErrorKind::OnePassTooManyPatterns { .. } => None,
-            ErrorKind::OnePassExceededSizeLimit { .. } => None,
-            ErrorKind::OnePassFail { .. } => None,
         }
     }
 }
@@ -195,27 +157,6 @@ impl core::fmt::Display for Error {
             ErrorKind::DeterminizeExceededSizeLimit { limit } => {
                 write!(f, "determinization exceeded size limit of {:?}", limit)
             }
-            ErrorKind::OnePassTooManyStates { limit } => write!(
-                f,
-                "one-pass DFA exceeded a limit of {:?} for number of states",
-                limit,
-            ),
-            ErrorKind::OnePassTooManyPatterns { limit } => write!(
-                f,
-                "one-pass DFA exceeded a limit of {:?} for number of patterns",
-                limit,
-            ),
-            ErrorKind::OnePassExceededSizeLimit { limit } => write!(
-                f,
-                "one-pass DFA exceeded size limit of {:?} during building",
-                limit,
-            ),
-            ErrorKind::OnePassFail { msg } => write!(
-                f,
-                "one-pass DFA could not be built because \
-                 pattern is not one-pass: {}",
-                msg,
-            ),
         }
     }
 }

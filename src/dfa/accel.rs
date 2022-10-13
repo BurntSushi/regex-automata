@@ -49,9 +49,7 @@
 //
 //     accels.get((id - min_accel_id) / dfa_stride)
 
-use core::convert::{TryFrom, TryInto};
-
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 use alloc::{vec, vec::Vec};
 
 use crate::util::{
@@ -141,7 +139,7 @@ pub(crate) struct Accels<A> {
     accels: A,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Accels<Vec<AccelTy>> {
     /// Create an empty sequence of accelerators for a DFA.
     pub fn empty() -> Accels<Vec<AccelTy>> {
@@ -401,7 +399,7 @@ pub(crate) struct Accel {
 
 impl Accel {
     /// Returns an empty accel, where no bytes are accelerated.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn new() -> Accel {
         Accel { bytes: [0; ACCEL_CAP] }
     }
@@ -444,7 +442,7 @@ impl Accel {
     /// is already full then this returns false. Otherwise, returns true.
     ///
     /// If the given byte is already in this accelerator, then it panics.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn add(&mut self, byte: u8) -> bool {
         if self.len() >= 3 {
             return false;
@@ -465,7 +463,7 @@ impl Accel {
     }
 
     /// Returns true if and only if there are no bytes in this accelerator.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -479,13 +477,13 @@ impl Accel {
 
     /// Returns true if and only if this accelerator will accelerate the given
     /// byte.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn contains(&self, byte: u8) -> bool {
         self.needles().iter().position(|&b| b == byte).is_some()
     }
 
     /// Returns the accelerator bytes as an array of AccelTys.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn as_accel_tys(&self) -> [AccelTy; 2] {
         assert_eq!(ACCEL_CAP, 8);
         // These unwraps are OK since ACCEL_CAP is set to 8.

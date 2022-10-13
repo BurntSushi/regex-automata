@@ -142,6 +142,7 @@ impl DFA {
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new(pattern: &str) -> Result<DFA, BuildError> {
         DFA::builder().build(pattern)
     }
@@ -167,6 +168,7 @@ impl DFA {
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<DFA, BuildError> {
         DFA::builder().build_many(patterns)
     }
@@ -3453,6 +3455,7 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
+    #[cfg(feature = "syntax")]
     pub fn build(&self, pattern: &str) -> Result<DFA, BuildError> {
         self.build_many(&[pattern])
     }
@@ -3461,6 +3464,7 @@ impl Builder {
     ///
     /// When matches are returned, the pattern ID corresponds to the index of
     /// the pattern in the slice given.
+    #[cfg(feature = "syntax")]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -3782,7 +3786,7 @@ fn minimum_cache_capacity(
         + scratch_state_builder
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "syntax"))]
 mod tests {
     use super::*;
 

@@ -302,6 +302,7 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
+    #[cfg(feature = "syntax")]
     pub fn build(
         &self,
         pattern: &str,
@@ -310,6 +311,7 @@ impl Builder {
     }
 
     /// Build a `BoundedBacktracker` from the given patterns.
+    #[cfg(feature = "syntax")]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -336,11 +338,11 @@ impl Builder {
         if !nfa.has_capture() && nfa.pattern_len() > 0 {
             return Err(thompson::Error::missing_captures());
         }
-        if !cfg!(feature = "syntax") {
-            if nfa.has_word_boundary_unicode() {
-                return Err(thompson::Error::unicode_word_unavailable());
-            }
-        }
+        // if !cfg!(feature = "syntax") {
+        // if nfa.has_word_boundary_unicode() {
+        // return Err(thompson::Error::unicode_word_unavailable());
+        // }
+        // }
         Ok(BoundedBacktracker { config: self.config.clone(), nfa })
     }
 
@@ -359,6 +361,7 @@ impl Builder {
     ///
     /// These settings only apply when constructing a `BoundedBacktracker`
     /// directly from a pattern.
+    #[cfg(feature = "syntax")]
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,
@@ -488,6 +491,7 @@ impl BoundedBacktracker {
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new(pattern: &str) -> Result<BoundedBacktracker, thompson::Error> {
         BoundedBacktracker::builder().build(pattern)
     }
@@ -516,6 +520,7 @@ impl BoundedBacktracker {
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
     ) -> Result<BoundedBacktracker, thompson::Error> {

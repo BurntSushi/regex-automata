@@ -82,7 +82,7 @@ impl<T: AsRef<[u8]>> fst::Automaton for sparse::DFA<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "syntax", feature = "dfa-build"))]
 mod tests {
     use alloc::{vec, vec::Vec};
 

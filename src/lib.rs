@@ -13,7 +13,9 @@ create issues for this release unless it's for a critical bug.
 
 #![no_std]
 // #![deny(missing_docs)]
-#![deny(rustdoc::broken_intra_doc_links)]
+// Some intra-doc links are broken when certain features are disabled, so we
+// only bleat about it when most (all?) features are enabled.
+#![cfg_attr(all(std, nfa, dfa, hybrid), deny(rustdoc::broken_intra_doc_links))]
 #![warn(missing_debug_implementations)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
@@ -37,9 +39,10 @@ pub use crate::util::search::*;
 #[macro_use]
 mod macros;
 
+#[cfg(any(feature = "dfa-search", feature = "dfa-onepass"))]
 pub mod dfa;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "hybrid")]
 pub mod hybrid;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "nfa-thompson")]
 pub mod nfa;
 pub mod util;

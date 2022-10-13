@@ -1,6 +1,3 @@
-#[cfg(feature = "alloc")]
-use alloc::vec::Vec;
-
 /// Returns true if and only if the given byte is considered a word character.
 /// This only applies to ASCII.
 ///
@@ -151,91 +148,6 @@ fn is_leading_or_invalid_byte(b: u8) -> bool {
     //     \xFE :: 11111110
     //     \xFF :: 11111111
     (b & 0b1100_0000) != 0b1000_0000
-}
-
-#[cfg(feature = "alloc")]
-#[inline(always)]
-pub(crate) fn is_word_char_fwd(bytes: &[u8], mut at: usize) -> bool {
-    use core::{ptr, sync::atomic::AtomicPtr};
-
-    use crate::{
-        dfa::{dense::DFA, Automaton, StartKind},
-        util::{lazy, primitives::StateID},
-        Anchored, Input,
-    };
-
-    static WORD: AtomicPtr<(DFA<Vec<u32>>, StateID)> =
-        AtomicPtr::new(ptr::null_mut());
-
-    let (dfa, start_id) = lazy::get_or_init(&WORD, || {
-        // TODO: Should we use a lazy DFA here instead? It does complicate
-        // things somewhat, since we then need a mutable cache, which probably
-        // means a thread local.
-        let dfa = DFA::builder()
-            .configure(DFA::config().start_kind(StartKind::Anchored))
-            .build(r"\w")
-            .unwrap();
-        // This is OK since '\w' contains no look-around.
-        let input = Input::new("").anchored(Anchored::Yes);
-        let start_id = dfa.start_state_forward(&input).expect("correct input");
-        (dfa, start_id)
-    });
-    let mut sid = *start_id;
-    while at < bytes.len() {
-        let byte = bytes[at];
-        sid = dfa.next_state(sid, byte);
-        at += 1;
-        if dfa.is_special_state(sid) {
-            if dfa.is_match_state(sid) {
-                return true;
-            } else if dfa.is_dead_state(sid) {
-                return false;
-            }
-        }
-    }
-    dfa.is_match_state(dfa.next_eoi_state(sid))
-}
-
-#[cfg(feature = "alloc")]
-#[inline(always)]
-pub(crate) fn is_word_char_rev(bytes: &[u8], mut at: usize) -> bool {
-    use core::{ptr, sync::atomic::AtomicPtr};
-
-    use crate::{
-        dfa::{dense::DFA, Automaton, StartKind},
-        nfa::thompson::NFA,
-        util::{lazy, primitives::StateID},
-        Anchored, Input,
-    };
-
-    static WORD: AtomicPtr<(DFA<Vec<u32>>, StateID)> =
-        AtomicPtr::new(ptr::null_mut());
-
-    let (dfa, start_id) = lazy::get_or_init(&WORD, || {
-        let dfa = DFA::builder()
-            .configure(DFA::config().start_kind(StartKind::Anchored))
-            .thompson(NFA::config().reverse(true).shrink(true))
-            .build(r"\w")
-            .unwrap();
-        // This is OK since '\w' contains no look-around.
-        let input = Input::new("").anchored(Anchored::Yes);
-        let start_id = dfa.start_state_reverse(&input).expect("correct input");
-        (dfa, start_id)
-    });
-    let mut sid = *start_id;
-    while at > 0 {
-        at -= 1;
-        let byte = bytes[at];
-        sid = dfa.next_state(sid, byte);
-        if dfa.is_special_state(sid) {
-            if dfa.is_match_state(sid) {
-                return true;
-            } else if dfa.is_dead_state(sid) {
-                return false;
-            }
-        }
-    }
-    dfa.is_match_state(dfa.next_eoi_state(sid))
 }
 
 /*

@@ -1,3 +1,5 @@
+#![allow(unused_macros)]
+
 macro_rules! log {
     ($($tt:tt)*) => {
         #[cfg(feature = "logging")]

@@ -1687,7 +1687,7 @@ pub(crate) fn fmt_state_indicator<A: Automaton>(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "syntax", feature = "dfa-build"))]
 mod tests {
     // A basic test ensuring that our Automaton trait is object safe. (This is
     // the main reason why we don't define the search routines as generic over

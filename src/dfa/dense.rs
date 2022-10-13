@@ -7,18 +7,18 @@ This module also contains a [`dense::Builder`](Builder) and a
 [`dense::Config`](Config) for building and configuring a dense DFA.
 */
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 use core::cmp;
 use core::{convert::TryFrom, fmt, iter, mem::size_of, slice};
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     vec,
     vec::Vec,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 use crate::{
     dfa::{
         accel::Accel, determinize, error::Error, minimize::Minimizer,
@@ -64,7 +64,7 @@ const VERSION: u32 = 2;
 /// word boundaries with [`Config::unicode_word_boundary`] can in turn cause a
 /// search to return an error. See the corresponding configuration options for
 /// more details on when those error conditions arise.
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     // As with other configuration types in this crate, we put all our knobs
@@ -87,7 +87,7 @@ pub struct Config {
     determinize_size_limit: Option<Option<usize>>,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Config {
     /// Return a new default dense DFA compiler configuration.
     pub fn new() -> Config {
@@ -1016,14 +1016,14 @@ impl Config {
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
     thompson: thompson::Compiler,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Builder {
     /// Create a new dense DFA builder with the default configuration.
     pub fn new() -> Builder {
@@ -1037,6 +1037,7 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
+    #[cfg(feature = "syntax")]
     pub fn build(&self, pattern: &str) -> Result<OwnedDFA, Error> {
         self.build_many(&[pattern])
     }
@@ -1045,6 +1046,7 @@ impl Builder {
     ///
     /// When matches are returned, the pattern ID corresponds to the index of
     /// the pattern in the slice given.
+    #[cfg(feature = "syntax")]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -1166,6 +1168,7 @@ impl Builder {
     ///
     /// These settings only apply when constructing a DFA directly from a
     /// pattern.
+    #[cfg(feature = "syntax")]
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,
@@ -1189,7 +1192,7 @@ impl Builder {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl Default for Builder {
     fn default() -> Builder {
         Builder::new()
@@ -1201,7 +1204,7 @@ impl Default for Builder {
 /// is commonly used for mutable APIs on the DFA while building it. The main
 /// reason for making DFAs generic is no_std support, and more generally,
 /// making it possible to load a DFA from an arbitrary slice of bytes.
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 pub(crate) type OwnedDFA = DFA<Vec<u32>>;
 
 /// A dense table-based deterministic finite automaton (DFA).
@@ -1306,7 +1309,7 @@ pub struct DFA<T> {
     quitset: ByteSet,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl OwnedDFA {
     /// Parse the given regular expression using a default configuration and
     /// return the corresponding DFA.
@@ -1324,6 +1327,7 @@ impl OwnedDFA {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new(pattern: &str) -> Result<OwnedDFA, Error> {
         Builder::new().build(pattern)
     }
@@ -1344,12 +1348,13 @@ impl OwnedDFA {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<OwnedDFA, Error> {
         Builder::new().build_many(patterns)
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl OwnedDFA {
     /// Create a new DFA that matches every input.
     ///
@@ -1410,6 +1415,7 @@ impl OwnedDFA {
     }
 }
 
+#[cfg(feature = "dfa-build")]
 impl DFA<&[u32]> {
     /// Return a new default dense DFA compiler configuration.
     ///
@@ -1609,7 +1615,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// assert_eq!(Some(expected), sparse.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn to_sparse(&self) -> Result<sparse::DFA<Vec<u8>>, Error> {
         sparse::DFA::from_dense(self)
     }
@@ -1652,7 +1658,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn to_bytes_little_endian(&self) -> (Vec<u8>, usize) {
         self.to_bytes::<wire::LE>()
     }
@@ -1695,7 +1701,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn to_bytes_big_endian(&self) -> (Vec<u8>, usize) {
         self.to_bytes::<wire::BE>()
     }
@@ -1745,14 +1751,14 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub fn to_bytes_native_endian(&self) -> (Vec<u8>, usize) {
         self.to_bytes::<wire::NE>()
     }
 
     /// The implementation of the public `to_bytes` serialization methods,
     /// which is generic over endianness.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn to_bytes<E: Endian>(&self) -> (Vec<u8>, usize) {
         let len = self.write_to_len();
         let (mut buf, padding) = wire::alloc_aligned_buffer::<u32>(len);
@@ -2136,23 +2142,27 @@ impl<'a> DFA<&'a [u32]> {
     /// compilation to choose the correct endianness.
     ///
     /// ```no_run
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense::DFA},
+    ///     util::lazy::Lazy,
+    ///     HalfMatch,
+    /// };
     ///
-    /// type S = u32;
-    /// type DFA = dense::DFA<&'static [S]>;
-    ///
-    /// fn get_foo() -> &'static DFA {
-    ///     use std::cell::Cell;
-    ///     use std::mem::MaybeUninit;
-    ///     use std::sync::Once;
-    ///
+    /// // This crate provides its own "lazy" type, kind of like
+    /// // lazy_static! or once_cell::sync::Lazy. But it works in no-alloc
+    /// // no-std environments and let's us write this using completely
+    /// // safe code.
+    /// static RE: Lazy<DFA<&'static [u32]>> = Lazy::new(|| {
     ///     // This struct with a generic B is used to permit unsizing
     ///     // coercions, specifically, where B winds up being a [u8]. We also
     ///     // need repr(C) to guarantee that _align comes first, which forces
     ///     // a correct alignment.
+    ///     //
+    ///     // TL;DR - This is a special way to spell "make sure we embed
+    ///     // binary data with an alignment matching u32."
     ///     #[repr(C)]
     ///     struct Aligned<B: ?Sized> {
-    ///         _align: [S; 0],
+    ///         _align: [u32; 0],
     ///         bytes: B,
     ///     }
     ///
@@ -2172,42 +2182,27 @@ impl<'a> DFA<&'a [u32]> {
     ///     #     bytes: [],
     ///     # };
     ///
-    ///     struct Lazy(Cell<MaybeUninit<DFA>>);
-    ///     // SAFETY: This is safe because DFA impls Sync.
-    ///     unsafe impl Sync for Lazy {}
+    ///     let (dfa, _) = DFA::from_bytes(&ALIGNED.bytes)
+    ///         .expect("serialized DFA should be valid");
+    ///     dfa
+    /// });
     ///
-    ///     static INIT: Once = Once::new();
-    ///     static DFA: Lazy = Lazy(Cell::new(MaybeUninit::uninit()));
-    ///
-    ///     INIT.call_once(|| {
-    ///         let (dfa, _) = DFA::from_bytes(&ALIGNED.bytes)
-    ///             .expect("serialized DFA should be valid");
-    ///         // SAFETY: This is guaranteed to only execute once, and all
-    ///         // we do with the pointer is write the DFA to it.
-    ///         unsafe {
-    ///             (*DFA.0.as_ptr()).as_mut_ptr().write(dfa);
-    ///         }
-    ///     });
-    ///     // SAFETY: DFA is guaranteed to by initialized via INIT and is
-    ///     // stored in static memory.
-    ///     unsafe {
-    ///         let dfa = (*DFA.0.as_ptr()).as_ptr();
-    ///         std::mem::transmute::<*const DFA, &'static DFA>(dfa)
-    ///     }
-    /// }
-    ///
-    /// let dfa = get_foo();
     /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Ok(Some(expected)), dfa.try_find_fwd(b"foo12345"));
+    /// assert_eq!(Ok(Some(expected)), RE.try_find_fwd(b"foo12345"));
     /// ```
     ///
-    /// Alternatively, consider using
-    /// [`lazy_static`](https://crates.io/crates/lazy_static)
-    /// or
-    /// [`once_cell`](https://crates.io/crates/once_cell),
-    /// which will guarantee safety for you. You will still need to use the
-    /// `Aligned` trick above to force correct alignment, but this is safe to
-    /// do and `from_bytes` will return an error if you get it wrong.
+    /// An alternative to [`util::lazy::Lazy`](crate::util::lazy::Lazy)
+    /// is [`lazy_static`](https://crates.io/crates/lazy_static) or
+    /// [`once_cell`](https://crates.io/crates/once_cell), which provide
+    /// stronger guarantees (like the initialization function only be executed
+    /// once). And `once_cell` in particular provides a more expressive
+    /// API. But a `Lazy` value from this crate is likely just fine in most
+    /// circumstances.
+    ///
+    /// Note that regardless of which initialization method you use, you will
+    /// still need to use the `Aligned` trick above to force correct alignment,
+    /// but this is safe to do and `from_bytes` will return an error if you get
+    /// it wrong.
     pub fn from_bytes(
         slice: &'a [u8],
     ) -> Result<(DFA<&'a [u32]>, usize), DeserializeError> {
@@ -2325,7 +2320,7 @@ impl<'a> DFA<&'a [u32]> {
 // `Vec<u32>` since a generic `T: AsRef<[u32]>` does not permit mutation. We
 // can get away with this because these methods are internal to the crate and
 // are exclusively used during construction of the DFA.
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl OwnedDFA {
     /// Add a start state of this DFA.
     pub(crate) fn set_start_state(
@@ -2754,7 +2749,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     }
 
     /// Return the info about special states as a mutable borrow.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn special_mut(&mut self) -> &mut Special {
         &mut self.special
     }
@@ -2782,7 +2777,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// Return an iterator over all pattern IDs for the given match state.
     ///
     /// If the given state is not a match state, then this panics.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn pattern_id_slice(&self, id: StateID) -> &[PatternID] {
         assert!(self.is_match_state(id));
         self.ms.pattern_id_slice(self.match_state_index(id))
@@ -2803,13 +2798,13 @@ impl<T: AsRef<[u32]>> DFA<T> {
 
     /// Returns a map from match state ID to a list of pattern IDs that match
     /// in that state.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn pattern_map(&self) -> BTreeMap<StateID, Vec<PatternID>> {
         self.ms.to_map(self)
     }
 
     /// Returns the ID of the quit state for this DFA.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn quit_id(&self) -> StateID {
         self.to_state_id(1)
     }
@@ -2828,7 +2823,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     ///
     /// This is useful when using a `Vec<T>` as an efficient map keyed by state
     /// to some other information (such as a remapped state ID).
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn to_state_id(&self, index: usize) -> StateID {
         self.tt.to_state_id(index)
     }
@@ -3213,7 +3208,7 @@ impl<'a> TransitionTable<&'a [u32]> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl TransitionTable<Vec<u32>> {
     /// Create a minimal transition table with just two states: a dead state
     /// and a quit state. The alphabet length and stride of the transition
@@ -3469,7 +3464,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     /// This does not check whether the state ID returned is invalid. In fact,
     /// if the state ID given is the last state in this DFA, then the state ID
     /// returned is guaranteed to be invalid.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn next_state_id(&self, id: StateID) -> StateID {
         self.to_state_id(self.to_index(id).checked_add(1).unwrap())
     }
@@ -3477,7 +3472,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     /// Returns the state ID for the state immediately preceding the one given.
     ///
     /// If the dead ID given (which is zero), then this panics.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn prev_state_id(&self, id: StateID) -> StateID {
         self.to_state_id(self.to_index(id).checked_sub(1).unwrap())
     }
@@ -3537,7 +3532,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl<T: AsMut<[u32]>> TransitionTable<T> {
     /// Returns the table as a slice of state IDs.
     fn table_mut(&mut self) -> &mut [StateID] {
@@ -3656,7 +3651,7 @@ pub(crate) struct StartTable<T> {
     pattern_len: usize,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl StartTable<Vec<u32>> {
     /// Create a valid set of start states all pointing to the dead state.
     ///
@@ -3934,7 +3929,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl<T: AsMut<[u32]>> StartTable<T> {
     /// Set the start state for the given index and pattern.
     ///
@@ -4123,7 +4118,7 @@ impl<'a> MatchStates<&'a [u32]> {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 impl MatchStates<Vec<u32>> {
     fn empty(pattern_len: usize) -> MatchStates<Vec<u32>> {
         assert!(pattern_len <= PatternID::LIMIT);
@@ -4260,7 +4255,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
     /// }
     ///
     /// Once shuffling is done, use MatchStates::new to convert back.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn to_map(&self, dfa: &DFA<T>) -> BTreeMap<StateID, Vec<PatternID>> {
         let mut map = BTreeMap::new();
         for i in 0..self.len() {
@@ -4450,7 +4445,7 @@ impl<'a> State<'a> {
 
     /// Analyzes this state to determine whether it can be accelerated. If so,
     /// it returns an accelerator that contains at least one byte.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     fn accelerate(&self, classes: &ByteClasses) -> Option<Accel> {
         // We just try to add bytes to our accelerator. Once adding fails
         // (because we've added too many bytes), then give up.
@@ -4571,7 +4566,7 @@ impl<'a> Iterator for StateSparseTransitionIter<'a> {
     }
 }
 
-#[cfg(all(test, feature = "alloc"))]
+#[cfg(all(test, feature = "syntax", feature = "dfa-build"))]
 mod tests {
     use super::*;
 

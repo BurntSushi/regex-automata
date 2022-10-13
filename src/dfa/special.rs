@@ -183,7 +183,7 @@ impl Special {
     /// Creates a new set of special ranges for a DFA. All ranges are initially
     /// set to only contain the dead state. This is interpreted as an empty
     /// range.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn new() -> Special {
         Special {
             max: DEAD,
@@ -198,7 +198,7 @@ impl Special {
     }
 
     /// Remaps all of the special state identifiers using the function given.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn remap(&self, map: impl Fn(StateID) -> StateID) -> Special {
         Special {
             max: map(self.max),
@@ -390,7 +390,7 @@ impl Special {
 
     /// Sets the maximum special state ID based on the current values. This
     /// should be used once all possible state IDs are set.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn set_max(&mut self) {
         use core::cmp::max;
         self.max = max(
@@ -408,7 +408,7 @@ impl Special {
     /// ping-ponging between the hot path in the DFA search code and the start
     /// state handling code, which is typically only useful for executing a
     /// prefilter.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn set_no_special_start_states(&mut self) {
         use core::cmp::max;
         self.max = max(self.quit_id, max(self.max_match, self.max_accel));
@@ -470,7 +470,7 @@ impl Special {
     }
 
     /// Returns the total number of accel states.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "dfa-build")]
     pub(crate) fn accel_len(&self, stride: usize) -> usize {
         if self.accels() {
             (self.max_accel.as_usize() - self.min_accel.as_usize() + stride)

@@ -159,7 +159,7 @@ impl State {
         self.repr().match_pattern_ids()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(miri)))]
     pub(crate) fn iter_match_pattern_ids<F: FnMut(PatternID)>(&self, f: F) {
         self.repr().iter_match_pattern_ids(f)
     }
@@ -851,6 +851,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(miri))]
     fn dedup_state_ids(sids: Vec<StateID>) -> Vec<StateID> {
         let mut set = alloc::collections::BTreeSet::new();
         let mut deduped = vec![];
@@ -864,6 +865,7 @@ mod tests {
         deduped
     }
 
+    #[cfg(not(miri))]
     fn dedup_pattern_ids(pids: Vec<PatternID>) -> Vec<PatternID> {
         let mut set = alloc::collections::BTreeSet::new();
         let mut deduped = vec![];

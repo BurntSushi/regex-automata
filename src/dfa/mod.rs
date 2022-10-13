@@ -318,7 +318,7 @@ via [`dense::Config::minimize`], but it can increase compilation times
 dramatically.
 */
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 pub use crate::dfa::error::Error;
 pub use crate::dfa::{
     automaton::{Automaton, OverlappingState},
@@ -335,20 +335,20 @@ const DEAD: crate::util::primitives::StateID =
     crate::util::primitives::StateID::ZERO;
 
 pub mod dense;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-onepass")]
 pub mod onepass;
 pub mod regex;
 pub mod sparse;
 
 mod accel;
 mod automaton;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 mod determinize;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 mod error;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 mod minimize;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "dfa-build")]
 mod remapper;
 mod search;
 mod special;

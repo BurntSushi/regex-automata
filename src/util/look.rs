@@ -1,6 +1,4 @@
-use core::convert::TryFrom;
-
-use crate::util::{alphabet::ByteClassSet, int::U32, utf8};
+use crate::util::{int::U32, utf8};
 
 /// A look-around assertion.
 ///
@@ -166,7 +164,11 @@ impl Look {
 
     /// Split up the given byte classes into equivalence classes in a way that
     /// is consistent with this look-around assertion.
-    pub(crate) fn add_to_byteset(self, set: &mut ByteClassSet) {
+    #[cfg(feature = "alloc")]
+    pub(crate) fn add_to_byteset(
+        self,
+        set: &mut crate::util::alphabet::ByteClassSet,
+    ) {
         match self {
             Look::Start | Look::End => {}
             Look::StartLF | Look::EndLF => {
@@ -378,8 +380,8 @@ pub fn is_word_ascii_negate(haystack: &[u8], at: usize) -> bool {
 
 #[inline]
 pub fn is_word_unicode(haystack: &[u8], at: usize) -> bool {
-    let word_before = utf8::is_word_char_rev(haystack, at);
-    let word_after = utf8::is_word_char_fwd(haystack, at);
+    let word_before = is_word_char::rev(haystack, at);
+    let word_after = is_word_char::fwd(haystack, at);
     word_before != word_after
 }
 
@@ -415,14 +417,125 @@ pub fn is_word_unicode_negate(haystack: &[u8], at: usize) -> bool {
     let word_before = at > 0
         && match utf8::decode_last(&haystack[..at]) {
             None | Some(Err(_)) => return false,
-            Some(Ok(_)) => utf8::is_word_char_rev(haystack, at),
+            Some(Ok(_)) => is_word_char::rev(haystack, at),
         };
     let word_after = at < haystack.len()
         && match utf8::decode(&haystack[at..]) {
             None | Some(Err(_)) => return false,
-            Some(Ok(_)) => utf8::is_word_char_fwd(haystack, at),
+            Some(Ok(_)) => is_word_char::fwd(haystack, at),
         };
     word_before == word_after
+}
+
+/// An error that occurs when the Unicode-aware `\w` class is unavailable.
+///
+/// This error can occur when the data tables necessary for the Unicode aware
+/// Perl character class `\w` are unavailable. The `\w` class is used to
+/// determine whether a codepoint is considered a word character or not when
+/// determining whether a Unicode aware `\b` (or `\B`) matches at a particular
+/// position.
+#[derive(Debug)]
+pub struct UnicodeWordBoundaryError(());
+
+#[cfg(feature = "std")]
+impl std::error::Error for UnicodeWordBoundaryError {}
+
+impl core::fmt::Display for UnicodeWordBoundaryError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "Unicode-aware \\b and \\B are unavailabe because the \
+             requiste data tables are missing"
+        )
+    }
+}
+
+#[cfg(not(all(feature = "syntax", feature = "dfa-build")))]
+mod is_word_char {
+    #[inline(always)]
+    pub(super) fn fwd(_bytes: &[u8], _at: usize) -> bool {
+        todo!()
+    }
+
+    #[inline(always)]
+    pub(super) fn rev(_bytes: &[u8], _at: usize) -> bool {
+        todo!()
+    }
+}
+
+#[cfg(all(feature = "syntax", feature = "dfa-build"))]
+mod is_word_char {
+    use alloc::vec::Vec;
+
+    use crate::{
+        dfa::{dense::DFA, Automaton, StartKind},
+        nfa::thompson::NFA,
+        util::{lazy::Lazy, primitives::StateID},
+        Anchored, Input,
+    };
+
+    #[inline(always)]
+    pub(super) fn fwd(bytes: &[u8], mut at: usize) -> bool {
+        static WORD: Lazy<(DFA<Vec<u32>>, StateID)> = Lazy::new(|| {
+            // TODO: Should we use a lazy DFA here instead? It does complicate
+            // things somewhat, since we then need a mutable cache, which
+            // probably means a thread local.
+            let dfa = DFA::builder()
+                .configure(DFA::config().start_kind(StartKind::Anchored))
+                .build(r"\w")
+                .unwrap();
+            // This is OK since '\w' contains no look-around.
+            let input = Input::new("").anchored(Anchored::Yes);
+            let start_id =
+                dfa.start_state_forward(&input).expect("correct input");
+            (dfa, start_id)
+        });
+        let &(ref dfa, mut sid) = Lazy::get(&WORD);
+        // let mut sid = *start_id;
+        while at < bytes.len() {
+            let byte = bytes[at];
+            sid = dfa.next_state(sid, byte);
+            at += 1;
+            if dfa.is_special_state(sid) {
+                if dfa.is_match_state(sid) {
+                    return true;
+                } else if dfa.is_dead_state(sid) {
+                    return false;
+                }
+            }
+        }
+        dfa.is_match_state(dfa.next_eoi_state(sid))
+    }
+
+    #[inline(always)]
+    pub(super) fn rev(bytes: &[u8], mut at: usize) -> bool {
+        static WORD: Lazy<(DFA<Vec<u32>>, StateID)> = Lazy::new(|| {
+            let dfa = DFA::builder()
+                .configure(DFA::config().start_kind(StartKind::Anchored))
+                .thompson(NFA::config().reverse(true).shrink(true))
+                .build(r"\w")
+                .unwrap();
+            // This is OK since '\w' contains no look-around.
+            let input = Input::new("").anchored(Anchored::Yes);
+            let start_id =
+                dfa.start_state_reverse(&input).expect("correct input");
+            (dfa, start_id)
+        });
+        let &(ref dfa, mut sid) = Lazy::get(&WORD);
+        while at > 0 {
+            at -= 1;
+            let byte = bytes[at];
+            sid = dfa.next_state(sid, byte);
+            if dfa.is_special_state(sid) {
+                if dfa.is_match_state(sid) {
+                    return true;
+                } else if dfa.is_dead_state(sid) {
+                    return false;
+                }
+            }
+        }
+        dfa.is_match_state(dfa.next_eoi_state(sid))
+    }
 }
 
 #[cfg(test)]

@@ -7,6 +7,8 @@ This module also contains a [`Builder`] and a [`Config`] for building and
 configuring a one-pass DFA.
 */
 
+#![allow(warnings)]
+
 // A note on naming and credit:
 //
 // As far as I know, Russ Cox came up with the practical vision and
@@ -42,7 +44,7 @@ configuring a one-pass DFA.
 use alloc::{vec, vec::Vec};
 
 use crate::{
-    dfa::{error::Error, remapper::Remapper, DEAD},
+    dfa::{remapper::Remapper, DEAD},
     nfa::thompson::{self, NFA},
     util::{
         alphabet::ByteClasses,
@@ -469,7 +471,8 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    pub fn build(&self, pattern: &str) -> Result<DFA, Error> {
+    #[cfg(feature = "syntax")]
+    pub fn build(&self, pattern: &str) -> Result<DFA, BuildError> {
         self.build_many(&[pattern])
     }
 
@@ -477,11 +480,13 @@ impl Builder {
     ///
     /// When matches are returned, the pattern ID corresponds to the index of
     /// the pattern in the slice given.
+    #[cfg(feature = "syntax")]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<DFA, Error> {
-        let nfa = self.thompson.build_many(patterns).map_err(Error::nfa)?;
+    ) -> Result<DFA, BuildError> {
+        let nfa =
+            self.thompson.build_many(patterns).map_err(BuildError::nfa)?;
         self.build_from_nfa(nfa)
     }
 
@@ -506,7 +511,7 @@ impl Builder {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn build_from_nfa(&self, nfa: NFA) -> Result<DFA, Error> {
+    pub fn build_from_nfa(&self, nfa: NFA) -> Result<DFA, BuildError> {
         // Why take ownership if we're just going to pass a reference to the
         // NFA to our internal builder? Well, the first thing to note is that
         // an NFA uses reference counting internally, so either choice is going
@@ -541,6 +546,7 @@ impl Builder {
     ///
     /// These settings only apply when constructing a one-pass DFA directly
     /// from a pattern.
+    #[cfg(feature = "syntax")]
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,
@@ -690,15 +696,15 @@ impl<'a> InternalBuilder<'a> {
     /// particular limit is exceeded. (Some limits, like the total heap memory
     /// used, are configurable. Others, like the total patterns or slots, are
     /// hard-coded based on representational limitations.)
-    fn build(mut self) -> Result<DFA, Error> {
+    fn build(mut self) -> Result<DFA, BuildError> {
         if self.nfa.pattern_len().as_u64() > PatternEpsilons::PATTERN_ID_LIMIT
         {
-            return Err(Error::one_pass_too_many_patterns(
+            return Err(BuildError::too_many_patterns(
                 PatternEpsilons::PATTERN_ID_LIMIT,
             ));
         }
         if self.nfa.group_info().explicit_slot_len() > Slots::LIMIT {
-            return Err(Error::one_pass_fail(
+            return Err(BuildError::not_one_pass(
                 "too many explicit capturing groups (max is 24)",
             ));
         }
@@ -782,7 +788,7 @@ impl<'a> InternalBuilder<'a> {
                         // for the same DFA state, then we have ambiguity.
                         // Thus, it's not one-pass.
                         if self.matched {
-                            return Err(Error::one_pass_fail(
+                            return Err(BuildError::not_one_pass(
                                 "multiple epsilon transitions to match state",
                             ));
                         }
@@ -862,7 +868,7 @@ impl<'a> InternalBuilder<'a> {
         dfa_id: StateID,
         trans: &thompson::Transition,
         epsilons: Epsilons,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         // If we already have seen a match and we are compiling a leftmost
         // first DFA, then we shouldn't add any more transitions. This is
         // effectively how preference order and non-greediness is implemented.
@@ -887,7 +893,9 @@ impl<'a> InternalBuilder<'a> {
             if oldtrans.state_id() == DEAD {
                 self.dfa.set_transition(dfa_id, byte, newtrans);
             } else if oldtrans != newtrans {
-                return Err(Error::one_pass_fail("conflicting transition"));
+                return Err(BuildError::not_one_pass(
+                    "conflicting transition",
+                ));
             }
         }
         Ok(())
@@ -908,7 +916,7 @@ impl<'a> InternalBuilder<'a> {
         &mut self,
         pid: Option<PatternID>,
         nfa_id: StateID,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         match pid {
             // With no pid, this should be the start state for all patterns
             // and thus be the first one.
@@ -934,7 +942,7 @@ impl<'a> InternalBuilder<'a> {
     fn add_dfa_state_for_nfa_state(
         &mut self,
         nfa_id: StateID,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         // If we've already built a DFA state for the given NFA state, then
         // just return that. We definitely do not want to have more than one
         // DFA state in existence for the same NFA state, since all but one of
@@ -957,13 +965,14 @@ impl<'a> InternalBuilder<'a> {
     /// ID of the new state is returned on success.
     ///
     /// The added state is *not* a match state.
-    fn add_empty_state(&mut self) -> Result<StateID, Error> {
+    fn add_empty_state(&mut self) -> Result<StateID, BuildError> {
+        let state_limit =
+            Transition::STATE_ID_LIMIT / self.dfa.stride().as_u64();
         let next = self.dfa.table.len();
-        let id = StateID::new(next).map_err(|_| Error::too_many_states())?;
+        let id = StateID::new(next)
+            .map_err(|_| BuildError::too_many_states(state_limit))?;
         if id.as_u64() > Transition::STATE_ID_LIMIT {
-            let state_limit =
-                Transition::STATE_ID_LIMIT / self.dfa.stride().as_u64();
-            return Err(Error::one_pass_too_many_states(state_limit));
+            return Err(BuildError::too_many_states(state_limit));
         }
         self.dfa
             .table
@@ -975,7 +984,7 @@ impl<'a> InternalBuilder<'a> {
         self.dfa.set_pattern_epsilons(id, PatternEpsilons::empty());
         if let Some(size_limit) = self.config.get_size_limit() {
             if self.dfa.memory_usage() > size_limit {
-                return Err(Error::one_pass_exceeded_size_limit(size_limit));
+                return Err(BuildError::exceeded_size_limit(size_limit));
             }
         }
         Ok(id)
@@ -992,9 +1001,9 @@ impl<'a> InternalBuilder<'a> {
         &mut self,
         nfa_id: StateID,
         epsilons: Epsilons,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         if !self.seen.insert(nfa_id) {
-            return Err(Error::one_pass_fail(
+            return Err(BuildError::not_one_pass(
                 "multiple epsilon transitions to same state",
             ));
         }
@@ -1240,8 +1249,9 @@ impl DFA {
     /// assert_eq!(Some(Match::must(0, 0..11)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     #[inline]
-    pub fn new(pattern: &str) -> Result<DFA, Error> {
+    pub fn new(pattern: &str) -> Result<DFA, BuildError> {
         DFA::builder().build(pattern)
     }
 
@@ -1264,8 +1274,9 @@ impl DFA {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     #[inline]
-    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<DFA, Error> {
+    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<DFA, BuildError> {
         DFA::builder().build_many(patterns)
     }
 
@@ -1304,7 +1315,7 @@ impl DFA {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new_from_nfa(nfa: NFA) -> Result<DFA, Error> {
+    pub fn new_from_nfa(nfa: NFA) -> Result<DFA, BuildError> {
         DFA::builder().build_from_nfa(nfa)
     }
 
@@ -1326,7 +1337,7 @@ impl DFA {
     /// assert_eq!(Some(expected), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn always_match() -> Result<DFA, Error> {
+    pub fn always_match() -> Result<DFA, BuildError> {
         let nfa = thompson::NFA::always_match();
         Builder::new().build_from_nfa(nfa)
     }
@@ -1348,7 +1359,7 @@ impl DFA {
     /// assert_eq!(None, caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn never_match() -> Result<DFA, Error> {
+    pub fn never_match() -> Result<DFA, BuildError> {
         let nfa = thompson::NFA::never_match();
         Builder::new().build_from_nfa(nfa)
     }
@@ -2824,7 +2835,103 @@ impl Iterator for SlotsIter {
     }
 }
 
-#[cfg(test)]
+/// An error that occurred during the construction of a one-pass DFA.
+///
+/// This error does not provide many introspection capabilities. There are
+/// generally only two things you can do with it:
+///
+/// * Obtain a human readable message via its `std::fmt::Display` impl.
+/// * Access an underlying [`nfa::thompson::Error`] type from its `source`
+/// method via the `std::error::Error` trait. This error only occurs when using
+/// convenience routines for building a one-pass DFA directly from a pattern
+/// string.
+///
+/// When the `std` feature is enabled, this implements the `std::error::Error`
+/// trait.
+#[derive(Clone, Debug)]
+pub struct BuildError {
+    kind: BuildErrorKind,
+}
+
+/// The kind of error that occurred during the construction of a one-pass DFA.
+#[derive(Clone, Debug)]
+enum BuildErrorKind {
+    NFA(crate::nfa::thompson::Error),
+    TooManyStates { limit: u64 },
+    TooManyPatterns { limit: u64 },
+    ExceededSizeLimit { limit: usize },
+    NotOnePass { msg: &'static str },
+}
+
+impl BuildError {
+    fn nfa(err: crate::nfa::thompson::Error) -> BuildError {
+        BuildError { kind: BuildErrorKind::NFA(err) }
+    }
+
+    fn too_many_states(limit: u64) -> BuildError {
+        BuildError { kind: BuildErrorKind::TooManyStates { limit } }
+    }
+
+    fn too_many_patterns(limit: u64) -> BuildError {
+        BuildError { kind: BuildErrorKind::TooManyPatterns { limit } }
+    }
+
+    fn exceeded_size_limit(limit: usize) -> BuildError {
+        BuildError { kind: BuildErrorKind::ExceededSizeLimit { limit } }
+    }
+
+    fn not_one_pass(msg: &'static str) -> BuildError {
+        BuildError { kind: BuildErrorKind::NotOnePass { msg } }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BuildError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        use self::BuildErrorKind::*;
+
+        match self.kind {
+            NFA(ref err) => Some(err),
+            TooManyStates { .. } => None,
+            TooManyPatterns { .. } => None,
+            ExceededSizeLimit { .. } => None,
+            NotOnePass { .. } => None,
+        }
+    }
+}
+
+impl core::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use self::BuildErrorKind::*;
+
+        match self.kind {
+            NFA(_) => write!(f, "error building NFA"),
+            TooManyStates { limit } => write!(
+                f,
+                "one-pass DFA exceeded a limit of {:?} for number of states",
+                limit,
+            ),
+            TooManyPatterns { limit } => write!(
+                f,
+                "one-pass DFA exceeded a limit of {:?} for number of patterns",
+                limit,
+            ),
+            ExceededSizeLimit { limit } => write!(
+                f,
+                "one-pass DFA exceeded size limit of {:?} during building",
+                limit,
+            ),
+            NotOnePass { msg } => write!(
+                f,
+                "one-pass DFA could not be built because \
+                 pattern is not one-pass: {}",
+                msg,
+            ),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "syntax"))]
 mod tests {
     use alloc::string::ToString;
 

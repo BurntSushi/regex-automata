@@ -59,9 +59,9 @@ use crate::{
 ///
 /// Only the first two forms are said to be _capturing_, which means
 /// that the last position at which they match is reportable. The
-/// [`Captures`](captures::Captures) type provides convenient access to the
-/// match positions of capturing groups, which includes looking up capturing
-/// groups by their name.
+/// [`Captures`](crate::util::captures::Captures) type provides convenient
+/// access to the match positions of capturing groups, which includes looking
+/// up capturing groups by their name.
 ///
 /// # Byte oriented
 ///
@@ -219,6 +219,7 @@ impl NFA {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new(pattern: &str) -> Result<NFA, Error> {
         NFA::compiler().build(pattern)
     }
@@ -243,6 +244,7 @@ impl NFA {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<NFA, Error> {
         NFA::compiler().build_many(patterns)
     }
@@ -269,7 +271,8 @@ impl NFA {
     pub fn always_match() -> NFA {
         // We could use NFA::new("") here and we'd get the same semantics, but
         // hand-assembling the NFA (as below) does the same thing with a fewer
-        // number of states.
+        // number of states. It also avoids needing the 'syntax' feature
+        // enabled.
         //
         // Technically all we need is the "match" state, but we add the
         // "capture" states so that the PikeVM can use this NFA.
@@ -312,6 +315,8 @@ impl NFA {
     pub fn never_match() -> NFA {
         // This always succeeds because it only requires one NFA state, which
         // will never exhaust any (default) limits.
+        //
+        // FIXME: Hand-assemble this to avoid depending on 'syntax' feature.
         NFA::new_many::<&str>(&[]).unwrap()
     }
 
@@ -335,6 +340,7 @@ impl NFA {
     ///     .build(r"\w+");
     /// assert!(result.is_err());
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn config() -> Config {
         Config::new()
     }
@@ -368,6 +374,7 @@ impl NFA {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "syntax")]
     pub fn compiler() -> Compiler {
         Compiler::new()
     }
@@ -1668,7 +1675,7 @@ impl<'a> Iterator for PatternIter<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "nfa-pikevm"))]
 mod tests {
     use super::*;
     use crate::{nfa::thompson::pikevm::PikeVM, Input};
