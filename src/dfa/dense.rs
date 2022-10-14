@@ -21,8 +21,8 @@ use alloc::{
 #[cfg(feature = "dfa-build")]
 use crate::{
     dfa::{
-        accel::Accel, determinize, error::Error, minimize::Minimizer,
-        remapper::Remapper, sparse, start::StartKind,
+        accel::Accel, determinize, minimize::Minimizer, remapper::Remapper,
+        sparse, start::StartKind,
     },
     nfa::thompson,
     util::{alphabet::ByteSet, search::MatchKind},
@@ -1038,7 +1038,7 @@ impl Builder {
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
     #[cfg(feature = "syntax")]
-    pub fn build(&self, pattern: &str) -> Result<OwnedDFA, Error> {
+    pub fn build(&self, pattern: &str) -> Result<OwnedDFA, BuildError> {
         self.build_many(&[pattern])
     }
 
@@ -1050,7 +1050,7 @@ impl Builder {
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<OwnedDFA, Error> {
+    ) -> Result<OwnedDFA, BuildError> {
         let nfa = self
             .thompson
             .clone()
@@ -1058,7 +1058,7 @@ impl Builder {
             // support them.
             .configure(thompson::Config::new().captures(false))
             .build_many(patterns)
-            .map_err(Error::nfa)?;
+            .map_err(BuildError::nfa)?;
         self.build_from_nfa(&nfa)
     }
 
@@ -1092,7 +1092,7 @@ impl Builder {
     pub fn build_from_nfa(
         &self,
         nfa: &thompson::NFA,
-    ) -> Result<OwnedDFA, Error> {
+    ) -> Result<OwnedDFA, BuildError> {
         let mut quitset = self.config.quitset.unwrap_or(ByteSet::empty());
         if self.config.get_unicode_word_boundary()
             && nfa.has_word_boundary_unicode()
@@ -1328,7 +1328,7 @@ impl OwnedDFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
-    pub fn new(pattern: &str) -> Result<OwnedDFA, Error> {
+    pub fn new(pattern: &str) -> Result<OwnedDFA, BuildError> {
         Builder::new().build(pattern)
     }
 
@@ -1349,7 +1349,9 @@ impl OwnedDFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
-    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<OwnedDFA, Error> {
+    pub fn new_many<P: AsRef<str>>(
+        patterns: &[P],
+    ) -> Result<OwnedDFA, BuildError> {
         Builder::new().build_many(patterns)
     }
 }
@@ -1370,7 +1372,7 @@ impl OwnedDFA {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn always_match() -> Result<OwnedDFA, Error> {
+    pub fn always_match() -> Result<OwnedDFA, BuildError> {
         let nfa = thompson::NFA::always_match();
         Builder::new().build_from_nfa(&nfa)
     }
@@ -1387,7 +1389,7 @@ impl OwnedDFA {
     /// assert_eq!(None, dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn never_match() -> Result<OwnedDFA, Error> {
+    pub fn never_match() -> Result<OwnedDFA, BuildError> {
         let nfa = thompson::NFA::never_match();
         Builder::new().build_from_nfa(&nfa)
     }
@@ -1401,7 +1403,7 @@ impl OwnedDFA {
         starts: StartKind,
         starts_for_each_pattern: bool,
         quitset: ByteSet,
-    ) -> Result<OwnedDFA, Error> {
+    ) -> Result<OwnedDFA, BuildError> {
         let start_pattern_len =
             if starts_for_each_pattern { pattern_len } else { 0 };
         Ok(DFA {
@@ -1616,7 +1618,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
-    pub fn to_sparse(&self) -> Result<sparse::DFA<Vec<u8>>, Error> {
+    pub fn to_sparse(&self) -> Result<sparse::DFA<Vec<u8>>, BuildError> {
         sparse::DFA::from_dense(self)
     }
 
@@ -2350,7 +2352,7 @@ impl OwnedDFA {
     ///
     /// If adding a state would exceed `StateID::LIMIT`, then this returns an
     /// error.
-    pub(crate) fn add_empty_state(&mut self) -> Result<StateID, Error> {
+    pub(crate) fn add_empty_state(&mut self) -> Result<StateID, BuildError> {
         self.tt.add_empty_state()
     }
 
@@ -2415,7 +2417,7 @@ impl OwnedDFA {
     pub(crate) fn set_pattern_map(
         &mut self,
         map: &BTreeMap<StateID, Vec<PatternID>>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         self.ms = self.ms.new_with_map(map)?;
         Ok(())
     }
@@ -2639,7 +2641,7 @@ impl OwnedDFA {
     pub(crate) fn shuffle(
         &mut self,
         mut matches: BTreeMap<StateID, Vec<PatternID>>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         // The determinizer always adds a quit state and it is always second.
         self.special.quit_id = self.to_state_id(1);
         // If all we have are the dead and quit states, then we're done and
@@ -3241,7 +3243,7 @@ impl TransitionTable<Vec<u32>> {
     ///
     /// If adding a state would exhaust the state identifier space, then this
     /// returns an error.
-    fn add_empty_state(&mut self) -> Result<StateID, Error> {
+    fn add_empty_state(&mut self) -> Result<StateID, BuildError> {
         // Normally, to get a fresh state identifier, we would just
         // take the index of the next state added to the transition
         // table. However, we actually perform an optimization here
@@ -3282,7 +3284,8 @@ impl TransitionTable<Vec<u32>> {
         // itself. e.g., If the stride is 64, then the ID of the 3rd state
         // is 192, not 2.
         let next = self.table.len();
-        let id = StateID::new(next).map_err(|_| Error::too_many_states())?;
+        let id =
+            StateID::new(next).map_err(|_| BuildError::too_many_states())?;
         self.table.extend(iter::repeat(0).take(self.stride()));
         Ok(id)
     }
@@ -3666,21 +3669,21 @@ impl StartTable<Vec<u32>> {
     fn dead(
         kind: StartKind,
         pattern_len: usize,
-    ) -> Result<StartTable<Vec<u32>>, Error> {
+    ) -> Result<StartTable<Vec<u32>>, BuildError> {
         assert!(pattern_len <= PatternID::LIMIT);
         let stride = Start::len();
         // OK because 2*4 is never going to overflow anything.
         let starts_len = stride.checked_mul(2).unwrap();
         let pattern_starts_len = match stride.checked_mul(pattern_len) {
             Some(x) => x,
-            None => return Err(Error::too_many_start_states()),
+            None => return Err(BuildError::too_many_start_states()),
         };
         let table_len = match starts_len.checked_add(pattern_starts_len) {
             Some(x) => x,
-            None => return Err(Error::too_many_start_states()),
+            None => return Err(BuildError::too_many_start_states()),
         };
         if let Err(_) = isize::try_from(table_len) {
-            return Err(Error::too_many_start_states());
+            return Err(BuildError::too_many_start_states());
         }
         let table = vec![DEAD.as_u32(); table_len];
         Ok(StartTable { table, kind, stride, pattern_len })
@@ -4128,11 +4131,11 @@ impl MatchStates<Vec<u32>> {
     fn new(
         matches: &BTreeMap<StateID, Vec<PatternID>>,
         pattern_len: usize,
-    ) -> Result<MatchStates<Vec<u32>>, Error> {
+    ) -> Result<MatchStates<Vec<u32>>, BuildError> {
         let mut m = MatchStates::empty(pattern_len);
         for (_, pids) in matches.iter() {
             let start = PatternID::new(m.pattern_ids.len())
-                .map_err(|_| Error::too_many_match_pattern_ids())?;
+                .map_err(|_| BuildError::too_many_match_pattern_ids())?;
             m.slices.push(start.as_u32());
             // This is always correct since the number of patterns in a single
             // match state can never exceed maximum number of allowable
@@ -4152,7 +4155,7 @@ impl MatchStates<Vec<u32>> {
     fn new_with_map(
         &self,
         matches: &BTreeMap<StateID, Vec<PatternID>>,
-    ) -> Result<MatchStates<Vec<u32>>, Error> {
+    ) -> Result<MatchStates<Vec<u32>>, BuildError> {
         MatchStates::new(matches, self.pattern_len)
     }
 }
@@ -4563,6 +4566,167 @@ impl<'a> Iterator for StateSparseTransitionIter<'a> {
             }
         }
         None
+    }
+}
+
+/// An error that occurred during the construction of a DFA.
+///
+/// This error does not provide many introspection capabilities. There are
+/// generally only two things you can do with it:
+///
+/// * Obtain a human readable message via its `std::fmt::Display` impl.
+/// * Access an underlying [`nfa::thompson::Error`] type from its `source`
+/// method via the `std::error::Error` trait. This error only occurs when using
+/// convenience routines for building a DFA directly from a pattern string.
+///
+/// When the `std` feature is enabled, this implements the `std::error::Error`
+/// trait.
+#[cfg(feature = "dfa-build")]
+#[derive(Clone, Debug)]
+pub struct BuildError {
+    kind: BuildErrorKind,
+}
+
+/// The kind of error that occurred during the construction of a DFA.
+///
+/// Note that this error is non-exhaustive. Adding new variants is not
+/// considered a breaking change.
+#[cfg(feature = "dfa-build")]
+#[derive(Clone, Debug)]
+enum BuildErrorKind {
+    /// An error that occurred while constructing an NFA as a precursor step
+    /// before a DFA is compiled.
+    NFA(thompson::BuildError),
+    /// An error that occurred because an unsupported regex feature was used.
+    /// The message string describes which unsupported feature was used.
+    ///
+    /// The primary regex feature that is unsupported by DFAs is the Unicode
+    /// word boundary look-around assertion (`\b`). This can be worked around
+    /// by either using an ASCII word boundary (`(?-u:\b)`) or by enabling
+    /// Unicode word boundaries when building a DFA.
+    Unsupported(&'static str),
+    /// An error that occurs if too many states are produced while building a
+    /// DFA.
+    TooManyStates,
+    /// An error that occurs if too many start states are needed while building
+    /// a DFA.
+    ///
+    /// This is a kind of oddball error that occurs when building a DFA with
+    /// start states enabled for each pattern and enough patterns to cause
+    /// the table of start states to overflow `usize`.
+    TooManyStartStates,
+    /// This is another oddball error that can occur if there are too many
+    /// patterns spread out across too many match states.
+    TooManyMatchPatternIDs,
+    /// An error that occurs if the DFA got too big during determinization.
+    DFAExceededSizeLimit { limit: usize },
+    /// An error that occurs if auxiliary storage (not the DFA) used during
+    /// determinization got too big.
+    DeterminizeExceededSizeLimit { limit: usize },
+}
+
+#[cfg(feature = "dfa-build")]
+impl BuildError {
+    /// Return the kind of this error.
+    fn kind(&self) -> &BuildErrorKind {
+        &self.kind
+    }
+
+    pub(crate) fn nfa(err: thompson::BuildError) -> BuildError {
+        BuildError { kind: BuildErrorKind::NFA(err) }
+    }
+
+    pub(crate) fn unsupported_dfa_word_boundary_unicode() -> BuildError {
+        let msg = "cannot build DFAs for regexes with Unicode word \
+                   boundaries; switch to ASCII word boundaries, or \
+                   heuristically enable Unicode word boundaries or use a \
+                   different regex engine";
+        BuildError { kind: BuildErrorKind::Unsupported(msg) }
+    }
+
+    pub(crate) fn too_many_states() -> BuildError {
+        BuildError { kind: BuildErrorKind::TooManyStates }
+    }
+
+    pub(crate) fn too_many_start_states() -> BuildError {
+        BuildError { kind: BuildErrorKind::TooManyStartStates }
+    }
+
+    pub(crate) fn too_many_match_pattern_ids() -> BuildError {
+        BuildError { kind: BuildErrorKind::TooManyMatchPatternIDs }
+    }
+
+    pub(crate) fn dfa_exceeded_size_limit(limit: usize) -> BuildError {
+        BuildError { kind: BuildErrorKind::DFAExceededSizeLimit { limit } }
+    }
+
+    pub(crate) fn determinize_exceeded_size_limit(limit: usize) -> BuildError {
+        BuildError {
+            kind: BuildErrorKind::DeterminizeExceededSizeLimit { limit },
+        }
+    }
+}
+
+#[cfg(all(feature = "std", feature = "dfa-build"))]
+impl std::error::Error for BuildError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self.kind() {
+            BuildErrorKind::NFA(ref err) => Some(err),
+            BuildErrorKind::Unsupported(_) => None,
+            BuildErrorKind::TooManyStates => None,
+            BuildErrorKind::TooManyStartStates => None,
+            BuildErrorKind::TooManyMatchPatternIDs => None,
+            BuildErrorKind::DFAExceededSizeLimit { .. } => None,
+            BuildErrorKind::DeterminizeExceededSizeLimit { .. } => None,
+        }
+    }
+}
+
+#[cfg(feature = "dfa-build")]
+impl core::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.kind() {
+            BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
+            BuildErrorKind::Unsupported(ref msg) => {
+                write!(f, "unsupported regex feature for DFAs: {}", msg)
+            }
+            BuildErrorKind::TooManyStates => write!(
+                f,
+                "number of DFA states exceeds limit of {}",
+                StateID::LIMIT,
+            ),
+            BuildErrorKind::TooManyStartStates => {
+                let stride = Start::len();
+                // The start table has `stride` entries for starting states for
+                // the entire DFA, and then `stride` entries for each pattern
+                // if start states for each pattern are enabled (which is the
+                // only way this error can occur). Thus, the total number of
+                // patterns that can fit in the table is `stride` less than
+                // what we can allocate.
+                let max = usize::try_from(core::isize::MAX).unwrap();
+                let limit = (max - stride) / stride;
+                write!(
+                    f,
+                    "compiling DFA with start states exceeds pattern \
+                     pattern limit of {}",
+                    limit,
+                )
+            }
+            BuildErrorKind::TooManyMatchPatternIDs => write!(
+                f,
+                "compiling DFA with total patterns in all match states \
+                 exceeds limit of {}",
+                PatternID::LIMIT,
+            ),
+            BuildErrorKind::DFAExceededSizeLimit { limit } => write!(
+                f,
+                "DFA exceeded size limit of {:?} during determinization",
+                limit,
+            ),
+            BuildErrorKind::DeterminizeExceededSizeLimit { limit } => {
+                write!(f, "determinization exceeded size limit of {:?}", limit)
+            }
+        }
     }
 }
 

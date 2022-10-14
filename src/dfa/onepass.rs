@@ -2862,7 +2862,7 @@ pub struct BuildError {
 /// The kind of error that occurred during the construction of a one-pass DFA.
 #[derive(Clone, Debug)]
 enum BuildErrorKind {
-    NFA(crate::nfa::thompson::Error),
+    NFA(crate::nfa::thompson::BuildError),
     Word(UnicodeWordBoundaryError),
     TooManyStates { limit: u64 },
     TooManyPatterns { limit: u64 },
@@ -2871,7 +2871,7 @@ enum BuildErrorKind {
 }
 
 impl BuildError {
-    fn nfa(err: crate::nfa::thompson::Error) -> BuildError {
+    fn nfa(err: crate::nfa::thompson::BuildError) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
     }
 

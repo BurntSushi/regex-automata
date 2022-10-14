@@ -318,8 +318,6 @@ via [`dense::Config::minimize`], but it can increase compilation times
 dramatically.
 */
 
-#[cfg(feature = "dfa-build")]
-pub use crate::dfa::error::Error;
 pub use crate::dfa::{
     automaton::{Automaton, OverlappingState},
     start::StartKind,
@@ -344,8 +342,6 @@ mod accel;
 mod automaton;
 #[cfg(feature = "dfa-build")]
 mod determinize;
-#[cfg(feature = "dfa-build")]
-mod error;
 #[cfg(feature = "dfa-build")]
 mod minimize;
 #[cfg(feature = "dfa-build")]

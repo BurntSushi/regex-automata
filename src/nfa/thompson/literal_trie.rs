@@ -3,7 +3,7 @@ use core::mem;
 use alloc::{vec, vec::Vec};
 
 use crate::{
-    nfa::thompson::{self, compiler::ThompsonRef, Builder, Error},
+    nfa::thompson::{self, compiler::ThompsonRef, BuildError, Builder},
     util::primitives::{IteratorIndexExt, StateID},
 };
 
@@ -90,7 +90,7 @@ impl LiteralTrie {
     /// If the literal could not be added because the `StateID` space was
     /// exhausted, then an error is returned. If an error returns, the trie
     /// is in an unspecified state.
-    pub(crate) fn add(&mut self, bytes: &[u8]) -> Result<(), Error> {
+    pub(crate) fn add(&mut self, bytes: &[u8]) -> Result<(), BuildError> {
         let mut prev = StateID::ZERO;
         let mut it = bytes.iter().copied();
         while let Some(b) = if self.rev { it.next_back() } else { it.next() } {
@@ -108,14 +108,15 @@ impl LiteralTrie {
         &mut self,
         from: StateID,
         byte: u8,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         let active = self.states[from].active_chunk();
         match active.binary_search_by_key(&byte, |t| t.byte) {
             Ok(i) => Ok(active[i].next),
             Err(i) => {
                 // Add a new state and get its ID.
-                let next = StateID::new(self.states.len())
-                    .map_err(|_| Error::too_many_states(self.states.len()))?;
+                let next = StateID::new(self.states.len()).map_err(|_| {
+                    BuildError::too_many_states(self.states.len())
+                })?;
                 self.states.push(State::default());
                 // Offset our position to account for all transitions and not
                 // just the ones in the active chunk.
@@ -133,7 +134,7 @@ impl LiteralTrie {
     pub(crate) fn compile(
         &self,
         builder: &mut Builder,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         // Compilation proceeds via depth-first traversal of the trie.
         //
         // This is overall pretty brutal. The recursive version of this is

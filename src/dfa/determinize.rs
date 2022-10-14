@@ -1,7 +1,10 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 
 use crate::{
-    dfa::{dense, Error, DEAD},
+    dfa::{
+        dense::{self, BuildError},
+        DEAD,
+    },
     nfa::thompson,
     util::{
         self,
@@ -43,7 +46,7 @@ impl Config {
         &self,
         nfa: &thompson::NFA,
         dfa: &mut dense::OwnedDFA,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         let dead = State::dead();
         let quit = State::dead();
         let mut cache = StateMap::default();
@@ -209,11 +212,11 @@ impl<'a> Runner<'a> {
     /// Build the DFA. If there was a problem constructing the DFA (e.g., if
     /// the chosen state identifier representation is too small), then an error
     /// is returned.
-    fn run(mut self) -> Result<(), Error> {
+    fn run(mut self) -> Result<(), BuildError> {
         if self.nfa.has_word_boundary_unicode()
             && !self.config.quit.contains_range(0x80, 0xFF)
         {
-            return Err(Error::unsupported_dfa_word_boundary_unicode());
+            return Err(BuildError::unsupported_dfa_word_boundary_unicode());
         }
 
         // A sequence of "representative" bytes drawn from each equivalence
@@ -296,7 +299,7 @@ impl<'a> Runner<'a> {
         &mut self,
         dfa_id: StateID,
         unit: alphabet::Unit,
-    ) -> Result<(StateID, bool), Error> {
+    ) -> Result<(StateID, bool), BuildError> {
         // Compute the set of all reachable NFA states, including epsilons.
         let empty_builder = self.get_state_builder();
         let builder = util::determinize::next(
@@ -316,7 +319,7 @@ impl<'a> Runner<'a> {
     fn add_all_starts(
         &mut self,
         dfa_state_ids: &mut Vec<StateID>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         // These should be the first states added.
         assert!(dfa_state_ids.is_empty());
         // We only want to add (un)anchored starting states that is consistent
@@ -366,7 +369,7 @@ impl<'a> Runner<'a> {
         &mut self,
         anchored: Anchored,
         dfa_state_ids: &mut Vec<StateID>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         let nfa_start = match anchored {
             Anchored::No => self.nfa.start_unanchored(),
             Anchored::Yes => self.nfa.start_anchored(),
@@ -428,7 +431,7 @@ impl<'a> Runner<'a> {
         &mut self,
         nfa_start: StateID,
         start: Start,
-    ) -> Result<(StateID, bool), Error> {
+    ) -> Result<(StateID, bool), BuildError> {
         // Compute the look-behind assertions that are true in this starting
         // configuration, and the determine the epsilon closure. While
         // computing the epsilon closure, we only follow condiional epsilon
@@ -469,7 +472,7 @@ impl<'a> Runner<'a> {
     fn maybe_add_state(
         &mut self,
         builder: StateBuilderNFA,
-    ) -> Result<(StateID, bool), Error> {
+    ) -> Result<(StateID, bool), BuildError> {
         if let Some(&cached_id) = self.cache.get(builder.as_bytes()) {
             // Since we have a cached state, put the constructed state's
             // memory back into our scratch space, so that it can be reused.
@@ -490,7 +493,7 @@ impl<'a> Runner<'a> {
     fn add_state(
         &mut self,
         builder: StateBuilderNFA,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         let id = self.dfa.add_empty_state()?;
         if !self.config.quit.is_empty() {
             for b in self.config.quit.iter() {
@@ -510,12 +513,14 @@ impl<'a> Runner<'a> {
         self.put_state_builder(builder);
         if let Some(limit) = self.config.dfa_size_limit {
             if self.dfa.memory_usage() > limit {
-                return Err(Error::dfa_exceeded_size_limit(limit));
+                return Err(BuildError::dfa_exceeded_size_limit(limit));
             }
         }
         if let Some(limit) = self.config.determinize_size_limit {
             if self.memory_usage() > limit {
-                return Err(Error::determinize_exceeded_size_limit(limit));
+                return Err(BuildError::determinize_exceeded_size_limit(
+                    limit,
+                ));
             }
         }
         Ok(id)

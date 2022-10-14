@@ -5,7 +5,7 @@ use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 #[cfg(feature = "syntax")]
 use crate::nfa::thompson::{
     compiler::{Compiler, Config},
-    error::Error,
+    error::BuildError,
 };
 use crate::{
     nfa::thompson::builder::Builder,
@@ -221,7 +221,7 @@ impl NFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
-    pub fn new(pattern: &str) -> Result<NFA, Error> {
+    pub fn new(pattern: &str) -> Result<NFA, BuildError> {
         NFA::compiler().build(pattern)
     }
 
@@ -246,7 +246,7 @@ impl NFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
-    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<NFA, Error> {
+    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<NFA, BuildError> {
         NFA::compiler().build_many(patterns)
     }
 

@@ -16,7 +16,7 @@ pub struct BuildError {
 
 #[derive(Clone, Debug)]
 enum BuildErrorKind {
-    NFA(nfa::thompson::Error),
+    NFA(nfa::thompson::BuildError),
     InsufficientCacheCapacity { minimum: usize, given: usize },
     InsufficientStateIDCapacity { err: LazyStateIDError },
     Unsupported(&'static str),
@@ -27,7 +27,7 @@ impl BuildError {
         &self.kind
     }
 
-    pub(crate) fn nfa(err: nfa::thompson::Error) -> BuildError {
+    pub(crate) fn nfa(err: nfa::thompson::BuildError) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
     }
 

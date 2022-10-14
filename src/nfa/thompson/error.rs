@@ -18,13 +18,13 @@ use crate::util::{
 /// set by [`Config::nfa_size_limit`](crate::nfa::thompson::Config), then
 /// building the NFA will fail.
 #[derive(Clone, Debug)]
-pub struct Error {
-    kind: ErrorKind,
+pub struct BuildError {
+    kind: BuildErrorKind,
 }
 
 /// The kind of error that occurred during the construction of a thompson NFA.
 #[derive(Clone, Debug)]
-enum ErrorKind {
+enum BuildErrorKind {
     /// An error that occurred while parsing a regular expression. Note that
     /// this error may be printed over multiple lines, and is generally
     /// intended to be end user readable on its own.
@@ -74,103 +74,108 @@ enum ErrorKind {
     /// An error that occurs when one tries to build a reverse NFA with
     /// captures enabled. Currently, this isn't supported, but we probably
     /// should support it at some point.
+    #[cfg(feature = "syntax")]
     UnsupportedCaptures,
 }
 
-impl Error {
-    fn kind(&self) -> &ErrorKind {
+impl BuildError {
+    fn kind(&self) -> &BuildErrorKind {
         &self.kind
     }
 
     #[cfg(feature = "syntax")]
-    pub(crate) fn syntax(err: regex_syntax::Error) -> Error {
-        Error { kind: ErrorKind::Syntax(err) }
+    pub(crate) fn syntax(err: regex_syntax::Error) -> BuildError {
+        BuildError { kind: BuildErrorKind::Syntax(err) }
     }
 
-    pub(crate) fn captures(err: captures::GroupInfoError) -> Error {
-        Error { kind: ErrorKind::Captures(err) }
+    pub(crate) fn captures(err: captures::GroupInfoError) -> BuildError {
+        BuildError { kind: BuildErrorKind::Captures(err) }
     }
 
-    pub(crate) fn word(err: look::UnicodeWordBoundaryError) -> Error {
-        Error { kind: ErrorKind::Word(err) }
+    pub(crate) fn word(err: look::UnicodeWordBoundaryError) -> BuildError {
+        BuildError { kind: BuildErrorKind::Word(err) }
     }
 
-    pub(crate) fn too_many_patterns(given: usize) -> Error {
+    pub(crate) fn too_many_patterns(given: usize) -> BuildError {
         let limit = PatternID::LIMIT;
-        Error { kind: ErrorKind::TooManyPatterns { given, limit } }
+        BuildError { kind: BuildErrorKind::TooManyPatterns { given, limit } }
     }
 
-    pub(crate) fn too_many_states(given: usize) -> Error {
+    pub(crate) fn too_many_states(given: usize) -> BuildError {
         let limit = StateID::LIMIT;
-        Error { kind: ErrorKind::TooManyStates { given, limit } }
+        BuildError { kind: BuildErrorKind::TooManyStates { given, limit } }
     }
 
-    pub(crate) fn exceeded_size_limit(limit: usize) -> Error {
-        Error { kind: ErrorKind::ExceededSizeLimit { limit } }
+    pub(crate) fn exceeded_size_limit(limit: usize) -> BuildError {
+        BuildError { kind: BuildErrorKind::ExceededSizeLimit { limit } }
     }
 
-    pub(crate) fn invalid_capture_index(index: u32) -> Error {
-        Error { kind: ErrorKind::InvalidCaptureIndex { index } }
+    pub(crate) fn invalid_capture_index(index: u32) -> BuildError {
+        BuildError { kind: BuildErrorKind::InvalidCaptureIndex { index } }
     }
 
-    pub(crate) fn missing_captures() -> Error {
-        Error { kind: ErrorKind::MissingCaptures }
+    pub(crate) fn missing_captures() -> BuildError {
+        BuildError { kind: BuildErrorKind::MissingCaptures }
     }
 
-    pub(crate) fn unsupported_captures() -> Error {
-        Error { kind: ErrorKind::UnsupportedCaptures }
+    #[cfg(feature = "syntax")]
+    pub(crate) fn unsupported_captures() -> BuildError {
+        BuildError { kind: BuildErrorKind::UnsupportedCaptures }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for Error {
+impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind() {
             #[cfg(feature = "syntax")]
-            ErrorKind::Syntax(ref err) => Some(err),
-            ErrorKind::Captures(ref err) => Some(err),
+            BuildErrorKind::Syntax(ref err) => Some(err),
+            BuildErrorKind::Captures(ref err) => Some(err),
             _ => None,
         }
     }
 }
 
-impl core::fmt::Display for Error {
+impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind() {
             #[cfg(feature = "syntax")]
-            ErrorKind::Syntax(_) => write!(f, "error parsing regex"),
-            ErrorKind::Captures(_) => write!(f, "error with capture groups"),
-            ErrorKind::Word(_) => {
+            BuildErrorKind::Syntax(_) => write!(f, "error parsing regex"),
+            BuildErrorKind::Captures(_) => {
+                write!(f, "error with capture groups")
+            }
+            BuildErrorKind::Word(_) => {
                 write!(f, "NFA contains Unicode word boundary")
             }
-            ErrorKind::TooManyPatterns { given, limit } => write!(
+            BuildErrorKind::TooManyPatterns { given, limit } => write!(
                 f,
                 "attemped to compile {} patterns, \
                  which exceeds the limit of {}",
                 given, limit,
             ),
-            ErrorKind::TooManyStates { given, limit } => write!(
+            BuildErrorKind::TooManyStates { given, limit } => write!(
                 f,
                 "attemped to compile {} NFA states, \
                  which exceeds the limit of {}",
                 given, limit,
             ),
-            ErrorKind::ExceededSizeLimit { limit } => write!(
+            BuildErrorKind::ExceededSizeLimit { limit } => write!(
                 f,
                 "heap usage during NFA compilation exceeded limit of {}",
                 limit,
             ),
-            ErrorKind::InvalidCaptureIndex { index } => write!(
+            BuildErrorKind::InvalidCaptureIndex { index } => write!(
                 f,
                 "capture group index {} is invalid (too big or discontinuous)",
                 index,
             ),
-            ErrorKind::MissingCaptures => write!(
+            BuildErrorKind::MissingCaptures => write!(
                 f,
                 "operation requires the NFA to have capturing groups, \
                  but the NFA given contains none",
             ),
-            ErrorKind::UnsupportedCaptures => write!(
+            #[cfg(feature = "syntax")]
+            BuildErrorKind::UnsupportedCaptures => write!(
                 f,
                 "currently captures must be disabled when compiling \
                  a reverse NFA",

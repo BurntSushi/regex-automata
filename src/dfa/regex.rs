@@ -28,7 +28,10 @@ use crate::{
 };
 #[cfg(feature = "alloc")]
 use crate::{
-    dfa::{dense, error::Error, sparse, StartKind},
+    dfa::{
+        dense::{self, BuildError},
+        sparse, StartKind,
+    },
     nfa::thompson,
     util::search::{Input, MatchKind},
 };
@@ -204,7 +207,7 @@ impl Regex {
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new(pattern: &str) -> Result<Regex, Error> {
+    pub fn new(pattern: &str) -> Result<Regex, BuildError> {
         Builder::new().build(pattern)
     }
 
@@ -228,7 +231,9 @@ impl Regex {
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new_many<P: AsRef<str>>(patterns: &[P]) -> Result<Regex, Error> {
+    pub fn new_many<P: AsRef<str>>(
+        patterns: &[P],
+    ) -> Result<Regex, BuildError> {
         Builder::new().build_many(patterns)
     }
 }
@@ -255,7 +260,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     /// ```
     pub fn new_sparse(
         pattern: &str,
-    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, BuildError> {
         Builder::new().build_sparse(pattern)
     }
 
@@ -282,7 +287,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
     /// ```
     pub fn new_many_sparse<P: AsRef<str>>(
         patterns: &[P],
-    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, BuildError> {
         Builder::new().build_many_sparse(patterns)
     }
 }
@@ -1053,7 +1058,7 @@ impl Builder {
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
     #[cfg(feature = "syntax")]
-    pub fn build(&self, pattern: &str) -> Result<Regex, Error> {
+    pub fn build(&self, pattern: &str) -> Result<Regex, BuildError> {
         self.build_many(&[pattern])
     }
 
@@ -1065,7 +1070,7 @@ impl Builder {
     pub fn build_sparse(
         &self,
         pattern: &str,
-    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, BuildError> {
         self.build_many_sparse(&[pattern])
     }
 
@@ -1074,7 +1079,7 @@ impl Builder {
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<Regex, Error> {
+    ) -> Result<Regex, BuildError> {
         let forward = self.dfa.build_many(patterns)?;
         let reverse = self
             .dfa
@@ -1094,7 +1099,7 @@ impl Builder {
     pub fn build_many_sparse<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, Error> {
+    ) -> Result<Regex<sparse::DFA<Vec<u8>>>, BuildError> {
         let re = self.build_many(patterns)?;
         let forward = re.forward().to_sparse()?;
         let reverse = re.reverse().to_sparse()?;

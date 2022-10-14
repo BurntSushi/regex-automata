@@ -13,7 +13,7 @@ because it does less book-keeping.
 use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
-    nfa::thompson::{self, Error, State, NFA},
+    nfa::thompson::{self, BuildError, State, NFA},
     util::{
         captures::Captures,
         iter,
@@ -306,7 +306,10 @@ impl Builder {
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
     #[cfg(feature = "syntax")]
-    pub fn build(&self, pattern: &str) -> Result<BoundedBacktracker, Error> {
+    pub fn build(
+        &self,
+        pattern: &str,
+    ) -> Result<BoundedBacktracker, BuildError> {
         self.build_many(&[pattern])
     }
 
@@ -315,7 +318,7 @@ impl Builder {
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<BoundedBacktracker, Error> {
+    ) -> Result<BoundedBacktracker, BuildError> {
         let nfa = self.thompson.build_many(patterns)?;
         self.build_from_nfa(nfa)
     }
@@ -328,7 +331,7 @@ impl Builder {
     pub fn build_from_nfa(
         &self,
         nfa: NFA,
-    ) -> Result<BoundedBacktracker, Error> {
+    ) -> Result<BoundedBacktracker, BuildError> {
         // If the NFA has no captures, then the backtracker doesn't work since
         // it relies on them in order to report match locations. However, in
         // the special case of an NFA with no patterns, it is allowed, since
@@ -336,10 +339,10 @@ impl Builder {
         // patterns has no capturing groups anyway, so this is necessary to
         // permit the backtracker to work with regexes with zero patterns.
         if !nfa.has_capture() && nfa.pattern_len() > 0 {
-            return Err(Error::missing_captures());
+            return Err(BuildError::missing_captures());
         }
         if nfa.has_word_boundary_unicode() {
-            UnicodeWordBoundaryError::check().map_err(Error::word)?;
+            UnicodeWordBoundaryError::check().map_err(BuildError::word)?;
         }
         Ok(BoundedBacktracker { config: self.config.clone(), nfa })
     }
@@ -491,7 +494,7 @@ impl BoundedBacktracker {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
-    pub fn new(pattern: &str) -> Result<BoundedBacktracker, Error> {
+    pub fn new(pattern: &str) -> Result<BoundedBacktracker, BuildError> {
         BoundedBacktracker::builder().build(pattern)
     }
 
@@ -522,7 +525,7 @@ impl BoundedBacktracker {
     #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
-    ) -> Result<BoundedBacktracker, Error> {
+    ) -> Result<BoundedBacktracker, BuildError> {
         BoundedBacktracker::builder().build_many(patterns)
     }
 
@@ -556,7 +559,7 @@ impl BoundedBacktracker {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new_from_nfa(nfa: NFA) -> Result<BoundedBacktracker, Error> {
+    pub fn new_from_nfa(nfa: NFA) -> Result<BoundedBacktracker, BuildError> {
         BoundedBacktracker::builder().build_from_nfa(nfa)
     }
 
@@ -578,7 +581,7 @@ impl BoundedBacktracker {
     /// assert_eq!(expected, re.find_iter(&mut cache, "foo").next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn always_match() -> Result<BoundedBacktracker, Error> {
+    pub fn always_match() -> Result<BoundedBacktracker, BuildError> {
         let nfa = thompson::NFA::always_match();
         BoundedBacktracker::new_from_nfa(nfa)
     }
@@ -597,7 +600,7 @@ impl BoundedBacktracker {
     /// assert_eq!(None, re.find_iter(&mut cache, "foo").next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn never_match() -> Result<BoundedBacktracker, Error> {
+    pub fn never_match() -> Result<BoundedBacktracker, BuildError> {
         let nfa = thompson::NFA::never_match();
         BoundedBacktracker::new_from_nfa(nfa)
     }

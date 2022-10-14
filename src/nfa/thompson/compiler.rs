@@ -11,7 +11,7 @@ use regex_syntax::{
 use crate::{
     nfa::thompson::{
         builder::Builder,
-        error::Error,
+        error::BuildError,
         literal_trie::LiteralTrie,
         map::{Utf8BoundedMap, Utf8SuffixKey, Utf8SuffixMap},
         nfa::{Transition, NFA},
@@ -445,7 +445,7 @@ impl Compiler {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn build(&self, pattern: &str) -> Result<NFA, Error> {
+    pub fn build(&self, pattern: &str) -> Result<NFA, BuildError> {
         self.build_many(&[pattern])
     }
 
@@ -477,14 +477,14 @@ impl Compiler {
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
-    ) -> Result<NFA, Error> {
+    ) -> Result<NFA, BuildError> {
         let mut hirs = vec![];
         for p in patterns {
             hirs.push(
                 self.parser
                     .build()
                     .parse(p.as_ref())
-                    .map_err(Error::syntax)?,
+                    .map_err(BuildError::syntax)?,
             );
             log!(log::trace!("parsed: {:?}", p.as_ref()));
         }
@@ -525,7 +525,7 @@ impl Compiler {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn build_from_hir(&self, expr: &Hir) -> Result<NFA, Error> {
+    pub fn build_from_hir(&self, expr: &Hir) -> Result<NFA, BuildError> {
         self.build_many_from_hir(&[expr])
     }
 
@@ -569,7 +569,7 @@ impl Compiler {
     pub fn build_many_from_hir<H: Borrow<Hir>>(
         &self,
         exprs: &[H],
-    ) -> Result<NFA, Error> {
+    ) -> Result<NFA, BuildError> {
         self.compile(exprs)
     }
 
@@ -628,12 +628,12 @@ impl Compiler {
     ///
     /// It is legal to provide an empty slice. In that case, the NFA returned
     /// has no patterns and will never match anything.
-    fn compile<H: Borrow<Hir>>(&self, exprs: &[H]) -> Result<NFA, Error> {
+    fn compile<H: Borrow<Hir>>(&self, exprs: &[H]) -> Result<NFA, BuildError> {
         if exprs.len() > PatternID::LIMIT {
-            return Err(Error::too_many_patterns(exprs.len()));
+            return Err(BuildError::too_many_patterns(exprs.len()));
         }
         if self.config.get_reverse() && self.config.get_captures() {
-            return Err(Error::unsupported_captures());
+            return Err(BuildError::unsupported_captures());
         }
 
         self.builder.borrow_mut().clear();
@@ -680,7 +680,7 @@ impl Compiler {
     }
 
     /// Compile an arbitrary HIR expression.
-    fn c(&self, expr: &Hir) -> Result<ThompsonRef, Error> {
+    fn c(&self, expr: &Hir) -> Result<ThompsonRef, BuildError> {
         use regex_syntax::hir::{Class, HirKind::*};
 
         match *expr.kind() {
@@ -702,9 +702,9 @@ impl Compiler {
     ///
     /// If the compiler is in reverse mode, then the expressions given are
     /// automatically compiled in reverse.
-    fn c_concat<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
+    fn c_concat<I>(&self, mut it: I) -> Result<ThompsonRef, BuildError>
     where
-        I: DoubleEndedIterator<Item = Result<ThompsonRef, Error>>,
+        I: DoubleEndedIterator<Item = Result<ThompsonRef, BuildError>>,
     {
         let first = if self.is_reverse() { it.next_back() } else { it.next() };
         let ThompsonRef { start, mut end } = match first {
@@ -731,7 +731,7 @@ impl Compiler {
     /// slice here is that it opens up some optimization opportunities. For
     /// example, if all of the HIR values are literals, then this routine might
     /// re-shuffle them to make NFA epsilon closures substantially faster.
-    fn c_alt_slice(&self, exprs: &[Hir]) -> Result<ThompsonRef, Error> {
+    fn c_alt_slice(&self, exprs: &[Hir]) -> Result<ThompsonRef, BuildError> {
         // self.c_alt_iter(exprs.iter().map(|e| self.c(e)))
         let literal_count = exprs
             .iter()
@@ -767,9 +767,9 @@ impl Compiler {
     /// when using "leftmost first" match semantics. (If "leftmost longest" are
     /// ever added in the future, then this preference order of priority would
     /// not apply in that mode.)
-    fn c_alt_iter<I>(&self, mut it: I) -> Result<ThompsonRef, Error>
+    fn c_alt_iter<I>(&self, mut it: I) -> Result<ThompsonRef, BuildError>
     where
-        I: Iterator<Item = Result<ThompsonRef, Error>>,
+        I: Iterator<Item = Result<ThompsonRef, BuildError>>,
     {
         let first = match it.next() {
             None => return self.c_fail(),
@@ -807,7 +807,7 @@ impl Compiler {
         index: u32,
         name: Option<&str>,
         expr: &Hir,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         if !self.config.get_captures() {
             return self.c(expr);
         }
@@ -825,7 +825,7 @@ impl Compiler {
     fn c_repetition(
         &self,
         rep: &hir::Repetition,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         match (rep.min, rep.max) {
             (0, Some(1)) => self.c_zero_or_one(&rep.hir, rep.greedy),
             (min, None) => self.c_at_least(&rep.hir, rep.greedy, min),
@@ -846,7 +846,7 @@ impl Compiler {
         greedy: bool,
         min: u32,
         max: u32,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         let prefix = self.c_exactly(expr, min)?;
         if min == max {
             return Ok(prefix);
@@ -911,7 +911,7 @@ impl Compiler {
         expr: &Hir,
         greedy: bool,
         n: u32,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         if n == 0 {
             // When the expression cannot match the empty string, then we
             // can get away with something much simpler: just one 'alt'
@@ -991,7 +991,7 @@ impl Compiler {
         &self,
         expr: &Hir,
         greedy: bool,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         let union =
             if greedy { self.add_union() } else { self.add_union_reverse() }?;
         let compiled = self.c(expr)?;
@@ -1003,7 +1003,11 @@ impl Compiler {
     }
 
     /// Compile the given HIR expression exactly `n` times.
-    fn c_exactly(&self, expr: &Hir, n: u32) -> Result<ThompsonRef, Error> {
+    fn c_exactly(
+        &self,
+        expr: &Hir,
+        n: u32,
+    ) -> Result<ThompsonRef, BuildError> {
         let it = (0..n).map(|_| self.c(expr));
         self.c_concat(it)
     }
@@ -1021,7 +1025,7 @@ impl Compiler {
     fn c_byte_class(
         &self,
         cls: &hir::ClassBytes,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         let end = self.add_empty()?;
         let mut trans = Vec::with_capacity(cls.ranges().len());
         for r in cls.iter() {
@@ -1050,7 +1054,7 @@ impl Compiler {
     fn c_unicode_class(
         &self,
         cls: &hir::ClassUnicode,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         // If all we have are ASCII ranges wrapped in a Unicode package, then
         // there is zero reason to bring out the big guns. We can fit all ASCII
         // ranges within a single sparse state.
@@ -1187,7 +1191,7 @@ impl Compiler {
     fn c_unicode_class_reverse_with_suffix(
         &self,
         cls: &hir::ClassUnicode,
-    ) -> Result<ThompsonRef, Error> {
+    ) -> Result<ThompsonRef, BuildError> {
         // N.B. It would likely be better to cache common *prefixes* in the
         // reverse direction, but it's not quite clear how to do that. The
         // advantage of caching suffixes is that it does give us a win, and
@@ -1225,7 +1229,7 @@ impl Compiler {
 
     /// Compile the given HIR look-around assertion to an NFA look-around
     /// assertion.
-    fn c_look(&self, anchor: &hir::Look) -> Result<ThompsonRef, Error> {
+    fn c_look(&self, anchor: &hir::Look) -> Result<ThompsonRef, BuildError> {
         let look = match *anchor {
             hir::Look::Start => Look::Start,
             hir::Look::End => Look::End,
@@ -1241,7 +1245,7 @@ impl Compiler {
     }
 
     /// Compile the given byte string to a concatenation of bytes.
-    fn c_literal(&self, bytes: &[u8]) -> Result<ThompsonRef, Error> {
+    fn c_literal(&self, bytes: &[u8]) -> Result<ThompsonRef, BuildError> {
         self.c_concat(bytes.iter().copied().map(|b| self.c_range(b, b)))
     }
 
@@ -1251,7 +1255,7 @@ impl Compiler {
     /// Both the `start` and `end` locations point to the state created.
     /// Callers will likely want to keep the `start`, but patch the `end` to
     /// point to some other state.
-    fn c_range(&self, start: u8, end: u8) -> Result<ThompsonRef, Error> {
+    fn c_range(&self, start: u8, end: u8) -> Result<ThompsonRef, BuildError> {
         let id = self.add_range(start, end)?;
         Ok(ThompsonRef { start: id, end: id })
     }
@@ -1261,13 +1265,13 @@ impl Compiler {
     /// Both the `start` and `end` locations point to the state created.
     /// Callers will likely want to keep the `start`, but patch the `end` to
     /// point to some other state.
-    fn c_empty(&self) -> Result<ThompsonRef, Error> {
+    fn c_empty(&self) -> Result<ThompsonRef, BuildError> {
         let id = self.add_empty()?;
         Ok(ThompsonRef { start: id, end: id })
     }
 
     /// Compile a "fail" state that can never have any outgoing transitions.
-    fn c_fail(&self) -> Result<ThompsonRef, Error> {
+    fn c_fail(&self) -> Result<ThompsonRef, BuildError> {
         let id = self.add_fail()?;
         Ok(ThompsonRef { start: id, end: id })
     }
@@ -1279,23 +1283,26 @@ impl Compiler {
     // of extra logic. e.g., Flipping look-around operators when compiling in
     // reverse mode.
 
-    fn patch(&self, from: StateID, to: StateID) -> Result<(), Error> {
+    fn patch(&self, from: StateID, to: StateID) -> Result<(), BuildError> {
         self.builder.borrow_mut().patch(from, to)
     }
 
-    fn start_pattern(&self) -> Result<PatternID, Error> {
+    fn start_pattern(&self) -> Result<PatternID, BuildError> {
         self.builder.borrow_mut().start_pattern()
     }
 
-    fn finish_pattern(&self, start_id: StateID) -> Result<PatternID, Error> {
+    fn finish_pattern(
+        &self,
+        start_id: StateID,
+    ) -> Result<PatternID, BuildError> {
         self.builder.borrow_mut().finish_pattern(start_id)
     }
 
-    fn add_empty(&self) -> Result<StateID, Error> {
+    fn add_empty(&self) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_empty()
     }
 
-    fn add_range(&self, start: u8, end: u8) -> Result<StateID, Error> {
+    fn add_range(&self, start: u8, end: u8) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_range(Transition {
             start,
             end,
@@ -1303,22 +1310,25 @@ impl Compiler {
         })
     }
 
-    fn add_sparse(&self, ranges: Vec<Transition>) -> Result<StateID, Error> {
+    fn add_sparse(
+        &self,
+        ranges: Vec<Transition>,
+    ) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_sparse(ranges)
     }
 
-    fn add_look(&self, mut look: Look) -> Result<StateID, Error> {
+    fn add_look(&self, mut look: Look) -> Result<StateID, BuildError> {
         if self.is_reverse() {
             look = look.reversed();
         }
         self.builder.borrow_mut().add_look(StateID::ZERO, look)
     }
 
-    fn add_union(&self) -> Result<StateID, Error> {
+    fn add_union(&self) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_union(vec![])
     }
 
-    fn add_union_reverse(&self) -> Result<StateID, Error> {
+    fn add_union_reverse(&self) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_union_reverse(vec![])
     }
 
@@ -1326,7 +1336,7 @@ impl Compiler {
         &self,
         capture_index: u32,
         name: Option<&str>,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         let name = name.map(|n| Arc::from(n));
         self.builder.borrow_mut().add_capture_start(
             StateID::ZERO,
@@ -1335,15 +1345,18 @@ impl Compiler {
         )
     }
 
-    fn add_capture_end(&self, capture_index: u32) -> Result<StateID, Error> {
+    fn add_capture_end(
+        &self,
+        capture_index: u32,
+    ) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_capture_end(StateID::ZERO, capture_index)
     }
 
-    fn add_fail(&self) -> Result<StateID, Error> {
+    fn add_fail(&self) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_fail()
     }
 
-    fn add_match(&self) -> Result<StateID, Error> {
+    fn add_match(&self) -> Result<StateID, BuildError> {
         self.builder.borrow_mut().add_match()
     }
 
@@ -1421,7 +1434,7 @@ impl<'a> Utf8Compiler<'a> {
     fn new(
         builder: &'a mut Builder,
         state: &'a mut Utf8State,
-    ) -> Result<Utf8Compiler<'a>, Error> {
+    ) -> Result<Utf8Compiler<'a>, BuildError> {
         let target = builder.add_empty()?;
         state.clear();
         let mut utf8c = Utf8Compiler { builder, state, target };
@@ -1429,14 +1442,14 @@ impl<'a> Utf8Compiler<'a> {
         Ok(utf8c)
     }
 
-    fn finish(&mut self) -> Result<ThompsonRef, Error> {
+    fn finish(&mut self) -> Result<ThompsonRef, BuildError> {
         self.compile_from(0)?;
         let node = self.pop_root();
         let start = self.compile(node)?;
         Ok(ThompsonRef { start, end: self.target })
     }
 
-    fn add(&mut self, ranges: &[Utf8Range]) -> Result<(), Error> {
+    fn add(&mut self, ranges: &[Utf8Range]) -> Result<(), BuildError> {
         let prefix_len = ranges
             .iter()
             .zip(&self.state.uncompiled)
@@ -1452,7 +1465,7 @@ impl<'a> Utf8Compiler<'a> {
         Ok(())
     }
 
-    fn compile_from(&mut self, from: usize) -> Result<(), Error> {
+    fn compile_from(&mut self, from: usize) -> Result<(), BuildError> {
         let mut next = self.target;
         while from + 1 < self.state.uncompiled.len() {
             let node = self.pop_freeze(next);
@@ -1462,7 +1475,10 @@ impl<'a> Utf8Compiler<'a> {
         Ok(())
     }
 
-    fn compile(&mut self, node: Vec<Transition>) -> Result<StateID, Error> {
+    fn compile(
+        &mut self,
+        node: Vec<Transition>,
+    ) -> Result<StateID, BuildError> {
         let hash = self.state.compiled.hash(&node);
         if let Some(id) = self.state.compiled.get(&node, hash) {
             return Ok(id);

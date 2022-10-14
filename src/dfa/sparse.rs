@@ -49,7 +49,7 @@ use core::{
 use alloc::{collections::BTreeSet, vec, vec::Vec};
 
 #[cfg(feature = "dfa-build")]
-use crate::dfa::{dense, error::Error};
+use crate::dfa::dense::{self, BuildError};
 use crate::{
     dfa::{
         automaton::{fmt_state_indicator, Automaton},
@@ -160,7 +160,7 @@ impl DFA<Vec<u8>> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
-    pub fn new(pattern: &str) -> Result<DFA<Vec<u8>>, Error> {
+    pub fn new(pattern: &str) -> Result<DFA<Vec<u8>>, BuildError> {
         dense::Builder::new()
             .build(pattern)
             .and_then(|dense| dense.to_sparse())
@@ -191,7 +191,7 @@ impl DFA<Vec<u8>> {
     #[cfg(feature = "syntax")]
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
-    ) -> Result<DFA<Vec<u8>>, Error> {
+    ) -> Result<DFA<Vec<u8>>, BuildError> {
         dense::Builder::new()
             .build_many(patterns)
             .and_then(|dense| dense.to_sparse())
@@ -217,7 +217,7 @@ impl DFA<Vec<u8>> {
     /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn always_match() -> Result<DFA<Vec<u8>>, Error> {
+    pub fn always_match() -> Result<DFA<Vec<u8>>, BuildError> {
         dense::DFA::always_match()?.to_sparse()
     }
 
@@ -233,14 +233,14 @@ impl DFA<Vec<u8>> {
     /// assert_eq!(None, dfa.try_find_fwd(b"foo")?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn never_match() -> Result<DFA<Vec<u8>>, Error> {
+    pub fn never_match() -> Result<DFA<Vec<u8>>, BuildError> {
         dense::DFA::never_match()?.to_sparse()
     }
 
     /// The implementation for constructing a sparse DFA from a dense DFA.
     pub(crate) fn from_dense<T: AsRef<[u32]>>(
         dfa: &dense::DFA<T>,
-    ) -> Result<DFA<Vec<u8>>, Error> {
+    ) -> Result<DFA<Vec<u8>>, BuildError> {
         // In order to build the transition table, we need to be able to write
         // state identifiers for each of the "next" transitions in each state.
         // Our state identifiers correspond to the byte offset in the
@@ -268,8 +268,8 @@ impl DFA<Vec<u8>> {
         for state in dfa.states() {
             let pos = sparse.len();
 
-            remap[dfa.to_index(state.id())] =
-                StateID::new(pos).map_err(|_| Error::too_many_states())?;
+            remap[dfa.to_index(state.id())] = StateID::new(pos)
+                .map_err(|_| BuildError::too_many_states())?;
             // zero-filled space for the transition length
             sparse.push(0);
             sparse.push(0);
@@ -1758,7 +1758,7 @@ impl StartTable<Vec<u8>> {
     fn from_dense_dfa<T: AsRef<[u32]>>(
         dfa: &dense::DFA<T>,
         remap: &[StateID],
-    ) -> Result<StartTable<Vec<u8>>, Error> {
+    ) -> Result<StartTable<Vec<u8>>, BuildError> {
         // Unless the DFA has start states compiled for each pattern, then
         // as far as the starting state table is concerned, there are zero
         // patterns to account for. It will instead only store starting states

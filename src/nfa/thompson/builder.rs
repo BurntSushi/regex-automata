@@ -4,7 +4,7 @@ use alloc::{sync::Arc, vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{
-        error::Error,
+        error::BuildError,
         nfa::{self, SparseTransitions, Transition, NFA},
     },
     util::{
@@ -402,7 +402,7 @@ impl Builder {
         &self,
         start_anchored: StateID,
         start_unanchored: StateID,
-    ) -> Result<NFA, Error> {
+    ) -> Result<NFA, BuildError> {
         assert!(self.pattern_id.is_none(), "must call 'finish_pattern' first");
         trace!(
             "intermediate NFA compilation via builder is complete, \
@@ -424,7 +424,7 @@ impl Builder {
         remap.resize(self.states.len(), StateID::ZERO);
 
         nfa.set_starts(start_anchored, start_unanchored, &self.start_pattern);
-        nfa.set_captures(&self.captures).map_err(Error::captures)?;
+        nfa.set_captures(&self.captures).map_err(BuildError::captures)?;
         // The idea here is to convert our intermediate states to their final
         // form. The only real complexity here is the process of converting
         // transitions, which are expressed in terms of state IDs. The new
@@ -581,12 +581,12 @@ impl Builder {
     ///
     /// If this is called while assembling another pattern (i.e., before
     /// `finish_pattern` is called), then this panics.
-    pub fn start_pattern(&mut self) -> Result<PatternID, Error> {
+    pub fn start_pattern(&mut self) -> Result<PatternID, BuildError> {
         assert!(self.pattern_id.is_none(), "must call 'finish_pattern' first");
 
         let proposed = self.start_pattern.len();
         let pid = PatternID::new(proposed)
-            .map_err(|_| Error::too_many_patterns(proposed))?;
+            .map_err(|_| BuildError::too_many_patterns(proposed))?;
         self.pattern_id = Some(pid);
         // This gets filled in when 'finish_pattern' is called.
         self.start_pattern.push(StateID::ZERO);
@@ -615,7 +615,7 @@ impl Builder {
     pub fn finish_pattern(
         &mut self,
         start_id: StateID,
-    ) -> Result<PatternID, Error> {
+    ) -> Result<PatternID, BuildError> {
         let pid = self.current_pattern_id();
         self.start_pattern[pid] = start_id;
         self.pattern_id = None;
@@ -651,7 +651,7 @@ impl Builder {
     ///
     /// This returns an error if the state identifier space is exhausted, or if
     /// the configured heap size limit has been exceeded.
-    pub fn add_empty(&mut self) -> Result<StateID, Error> {
+    pub fn add_empty(&mut self) -> Result<StateID, BuildError> {
         self.add(State::Empty { next: StateID::ZERO })
     }
 
@@ -675,7 +675,7 @@ impl Builder {
     pub fn add_union(
         &mut self,
         alternates: Vec<StateID>,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         self.add(State::Union { alternates })
     }
 
@@ -701,7 +701,7 @@ impl Builder {
     pub fn add_union_reverse(
         &mut self,
         alternates: Vec<StateID>,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         self.add(State::UnionReverse { alternates })
     }
 
@@ -715,7 +715,10 @@ impl Builder {
     ///
     /// This returns an error if the state identifier space is exhausted, or if
     /// the configured heap size limit has been exceeded.
-    pub fn add_range(&mut self, trans: Transition) -> Result<StateID, Error> {
+    pub fn add_range(
+        &mut self,
+        trans: Transition,
+    ) -> Result<StateID, BuildError> {
         self.add(State::ByteRange { trans })
     }
 
@@ -752,7 +755,7 @@ impl Builder {
     pub fn add_sparse(
         &mut self,
         transitions: Vec<Transition>,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         self.add(State::Sparse { transitions })
     }
 
@@ -773,7 +776,7 @@ impl Builder {
         &mut self,
         next: StateID,
         look: Look,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         self.add(State::Look { look, next })
     }
 
@@ -952,10 +955,12 @@ impl Builder {
         next: StateID,
         group_index: u32,
         name: Option<Arc<str>>,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         let pid = self.current_pattern_id();
         let group_index = match SmallIndex::try_from(group_index) {
-            Err(_) => return Err(Error::invalid_capture_index(group_index)),
+            Err(_) => {
+                return Err(BuildError::invalid_capture_index(group_index))
+            }
             Ok(group_index) => group_index,
         };
         // Make sure we have space to insert our (pid,index)|-->name mapping.
@@ -1019,10 +1024,12 @@ impl Builder {
         &mut self,
         next: StateID,
         group_index: u32,
-    ) -> Result<StateID, Error> {
+    ) -> Result<StateID, BuildError> {
         let pid = self.current_pattern_id();
         let group_index = match SmallIndex::try_from(group_index) {
-            Err(_) => return Err(Error::invalid_capture_index(group_index)),
+            Err(_) => {
+                return Err(BuildError::invalid_capture_index(group_index))
+            }
             Ok(group_index) => group_index,
         };
         self.add(State::CaptureEnd { pattern_id: pid, group_index, next })
@@ -1039,7 +1046,7 @@ impl Builder {
     ///
     /// This returns an error if the state identifier space is exhausted, or if
     /// the configured heap size limit has been exceeded.
-    pub fn add_fail(&mut self) -> Result<StateID, Error> {
+    pub fn add_fail(&mut self) -> Result<StateID, BuildError> {
         self.add(State::Fail)
     }
 
@@ -1060,7 +1067,7 @@ impl Builder {
     ///
     /// This must be called after a `start_pattern` call but before the
     /// corresponding `finish_pattern` call. Otherwise, it panics.
-    pub fn add_match(&mut self) -> Result<StateID, Error> {
+    pub fn add_match(&mut self) -> Result<StateID, BuildError> {
         let pattern_id = self.current_pattern_id();
         let sid = self.add(State::Match { pattern_id })?;
         Ok(sid)
@@ -1069,9 +1076,9 @@ impl Builder {
     /// The common implementation of "add a state." It handles the common
     /// error cases of state ID exhausting (by owning state ID allocation) and
     /// whether the size limit has been exceeded.
-    fn add(&mut self, state: State) -> Result<StateID, Error> {
+    fn add(&mut self, state: State) -> Result<StateID, BuildError> {
         let id = StateID::new(self.states.len())
-            .map_err(|_| Error::too_many_states(self.states.len()))?;
+            .map_err(|_| BuildError::too_many_states(self.states.len()))?;
         self.memory_states += state.memory_usage();
         self.states.push(state);
         self.check_size_limit()?;
@@ -1098,7 +1105,11 @@ impl Builder {
     /// states are added, there is no way to patch them after-the-fact. (If you
     /// have a use case where this would be helpful, please file an issue. It
     /// will likely require a new API.)
-    pub fn patch(&mut self, from: StateID, to: StateID) -> Result<(), Error> {
+    pub fn patch(
+        &mut self,
+        from: StateID,
+        to: StateID,
+    ) -> Result<(), BuildError> {
         let old_memory_states = self.memory_states;
         match self.states[from] {
             State::Empty { ref mut next } => {
@@ -1146,7 +1157,7 @@ impl Builder {
     pub fn set_size_limit(
         &mut self,
         limit: Option<usize>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BuildError> {
         self.size_limit = limit;
         self.check_size_limit()
     }
@@ -1170,10 +1181,10 @@ impl Builder {
         self.states.len() * mem::size_of::<State>() + self.memory_states
     }
 
-    fn check_size_limit(&self) -> Result<(), Error> {
+    fn check_size_limit(&self) -> Result<(), BuildError> {
         if let Some(limit) = self.size_limit {
             if self.memory_usage() > limit {
-                return Err(Error::exceeded_size_limit(limit));
+                return Err(BuildError::exceeded_size_limit(limit));
             }
         }
         Ok(())

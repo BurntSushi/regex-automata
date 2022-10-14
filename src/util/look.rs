@@ -684,7 +684,7 @@ mod is_word_char {
 #[cfg(not(feature = "unicode-word-boundary"))]
 mod is_word_char {
     pub(super) fn check() -> Result<(), super::UnicodeWordBoundaryError> {
-        Err(super::UnicodeWordBoundary::new())
+        Err(super::UnicodeWordBoundaryError::new())
     }
 
     #[inline(always)]
@@ -692,7 +692,7 @@ mod is_word_char {
         _bytes: &[u8],
         _at: usize,
     ) -> Result<bool, super::UnicodeWordBoundaryError> {
-        Err(super::UnicodeWordBoundary::new())
+        Err(super::UnicodeWordBoundaryError::new())
     }
 
     #[inline(always)]
@@ -700,7 +700,7 @@ mod is_word_char {
         _bytes: &[u8],
         _at: usize,
     ) -> Result<bool, super::UnicodeWordBoundaryError> {
-        Err(super::UnicodeWordBoundary::new())
+        Err(super::UnicodeWordBoundaryError::new())
     }
 }
 
