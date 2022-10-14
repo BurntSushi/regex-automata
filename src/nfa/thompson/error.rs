@@ -1,5 +1,5 @@
 use crate::util::{
-    captures,
+    captures, look,
     primitives::{PatternID, StateID},
 };
 
@@ -35,6 +35,10 @@ enum ErrorKind {
     /// too many groups, missing groups, having the first (zeroth) group be
     /// named or duplicate group names within the same pattern.
     Captures(captures::GroupInfoError),
+    /// An error that occurs when an NFA contains a Unicode word boundary, but
+    /// where the crate was compiled without the necessary data for dealing
+    /// with Unicode word boundaries.
+    Word(look::UnicodeWordBoundaryError),
     /// An error that occurs if too many patterns were given to the NFA
     /// compiler.
     TooManyPatterns {
@@ -64,10 +68,6 @@ enum ErrorKind {
         /// The invalid index that was given.
         index: u32,
     },
-    /// An error that occurs when an NFA contains a Unicode word boundary, but
-    /// where the crate was compiled without the necessary data for dealing
-    /// with Unicode word boundaries.
-    // UnicodeWordUnavailable,
     /// An error that occurs when one tries to build an NFA simulation (such as
     /// the PikeVM) without any capturing groups.
     MissingCaptures,
@@ -91,6 +91,10 @@ impl Error {
         Error { kind: ErrorKind::Captures(err) }
     }
 
+    pub(crate) fn word(err: look::UnicodeWordBoundaryError) -> Error {
+        Error { kind: ErrorKind::Word(err) }
+    }
+
     pub(crate) fn too_many_patterns(given: usize) -> Error {
         let limit = PatternID::LIMIT;
         Error { kind: ErrorKind::TooManyPatterns { given, limit } }
@@ -108,10 +112,6 @@ impl Error {
     pub(crate) fn invalid_capture_index(index: u32) -> Error {
         Error { kind: ErrorKind::InvalidCaptureIndex { index } }
     }
-
-    // pub(crate) fn unicode_word_unavailable() -> Error {
-    // Error { kind: ErrorKind::UnicodeWordUnavailable }
-    // }
 
     pub(crate) fn missing_captures() -> Error {
         Error { kind: ErrorKind::MissingCaptures }
@@ -140,6 +140,9 @@ impl core::fmt::Display for Error {
             #[cfg(feature = "syntax")]
             ErrorKind::Syntax(_) => write!(f, "error parsing regex"),
             ErrorKind::Captures(_) => write!(f, "error with capture groups"),
+            ErrorKind::Word(_) => {
+                write!(f, "NFA contains Unicode word boundary")
+            }
             ErrorKind::TooManyPatterns { given, limit } => write!(
                 f,
                 "attemped to compile {} patterns, \
@@ -162,12 +165,6 @@ impl core::fmt::Display for Error {
                 "capture group index {} is invalid (too big or discontinuous)",
                 index,
             ),
-            // ErrorKind::UnicodeWordUnavailable => write!(
-            // f,
-            // "crate has been compiled without Unicode word boundary \
-            // support, but the NFA contains Unicode word boundary \
-            // assertions",
-            // ),
             ErrorKind::MissingCaptures => write!(
                 f,
                 "operation requires the NFA to have capturing groups, \

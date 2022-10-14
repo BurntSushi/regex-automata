@@ -51,7 +51,7 @@ use crate::{
         captures::Captures,
         escape::DebugByte,
         int::{Usize, U32, U64, U8},
-        look::LookSet,
+        look::{LookSet, UnicodeWordBoundaryError},
         primitives::{NonMaxUsize, PatternID, StateID},
         search::{Anchored, Input, MatchError, MatchKind},
         sparse_set::SparseSet,
@@ -697,6 +697,9 @@ impl<'a> InternalBuilder<'a> {
     /// used, are configurable. Others, like the total patterns or slots, are
     /// hard-coded based on representational limitations.)
     fn build(mut self) -> Result<DFA, BuildError> {
+        if self.nfa.has_word_boundary_unicode() {
+            UnicodeWordBoundaryError::check().map_err(BuildError::word)?;
+        }
         if self.nfa.pattern_len().as_u64() > PatternEpsilons::PATTERN_ID_LIMIT
         {
             return Err(BuildError::too_many_patterns(
@@ -2690,7 +2693,10 @@ impl Epsilons {
         if self.looks().is_empty() {
             return true;
         }
-        self.looks().matches(haystack, at)
+        // Unwrap is OK because we don't permit building a searcher
+        // with a Unicode word boundary if the requisite Unicode
+        // data is unavailable.
+        self.looks().matches(haystack, at).unwrap()
     }
 }
 
@@ -2857,6 +2863,7 @@ pub struct BuildError {
 #[derive(Clone, Debug)]
 enum BuildErrorKind {
     NFA(crate::nfa::thompson::Error),
+    Word(UnicodeWordBoundaryError),
     TooManyStates { limit: u64 },
     TooManyPatterns { limit: u64 },
     ExceededSizeLimit { limit: usize },
@@ -2866,6 +2873,10 @@ enum BuildErrorKind {
 impl BuildError {
     fn nfa(err: crate::nfa::thompson::Error) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
+    }
+
+    fn word(err: UnicodeWordBoundaryError) -> BuildError {
+        BuildError { kind: BuildErrorKind::Word(err) }
     }
 
     fn too_many_states(limit: u64) -> BuildError {
@@ -2892,10 +2903,8 @@ impl std::error::Error for BuildError {
 
         match self.kind {
             NFA(ref err) => Some(err),
-            TooManyStates { .. } => None,
-            TooManyPatterns { .. } => None,
-            ExceededSizeLimit { .. } => None,
-            NotOnePass { .. } => None,
+            Word(ref err) => Some(err),
+            _ => None,
         }
     }
 }
@@ -2906,6 +2915,7 @@ impl core::fmt::Display for BuildError {
 
         match self.kind {
             NFA(_) => write!(f, "error building NFA"),
+            Word(_) => write!(f, "NFA contains Unicode word boundary"),
             TooManyStates { limit } => write!(
                 f,
                 "one-pass DFA exceeded a limit of {:?} for number of states",

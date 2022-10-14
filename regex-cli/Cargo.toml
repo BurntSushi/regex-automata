@@ -19,7 +19,9 @@ edition = "2021"
 name = "regex-cli"
 
 [features]
-instrument = ["instrument-pikevm"]
+default = []
+
+instrument = ["automata/instrument"]
 instrument-pikevm = ["automata/instrument-pikevm"]
 
 # These features enable/disable support for external regex engines. By default,

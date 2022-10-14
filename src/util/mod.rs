@@ -10,6 +10,8 @@ pub mod captures;
 pub mod iter;
 pub mod lazy;
 pub mod look;
+#[cfg(feature = "alloc")]
+pub mod pool;
 pub mod prefilter;
 pub mod primitives;
 #[cfg(feature = "syntax")]

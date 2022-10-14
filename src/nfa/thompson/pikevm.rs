@@ -15,6 +15,7 @@ use crate::{
     util::{
         captures::Captures,
         iter,
+        look::UnicodeWordBoundaryError,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{Anchored, Input, Match, MatchError, MatchKind, PatternSet},
@@ -260,6 +261,7 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
+    #[cfg(feature = "syntax")]
     thompson: thompson::Compiler,
 }
 
@@ -268,6 +270,7 @@ impl Builder {
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
+            #[cfg(feature = "syntax")]
             thompson: thompson::Compiler::new(),
         }
     }
@@ -306,11 +309,9 @@ impl Builder {
         if !nfa.has_capture() && nfa.pattern_len() > 0 {
             return Err(Error::missing_captures());
         }
-        // if !cfg!(feature = "syntax") {
-        // if nfa.has_word_boundary_unicode() {
-        // return Err(Error::unicode_word_unavailable());
-        // }
-        // }
+        if nfa.has_word_boundary_unicode() {
+            UnicodeWordBoundaryError::check().map_err(Error::word)?;
+        }
         Ok(PikeVM { config: self.config.clone(), nfa })
     }
 
@@ -345,6 +346,7 @@ impl Builder {
     ///
     /// These settings only apply when constructing a PikeVM directly from a
     /// pattern.
+    #[cfg(feature = "syntax")]
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.thompson.configure(config);
         self
@@ -1643,7 +1645,10 @@ impl PikeVM {
                     return;
                 }
                 State::Look { look, next } => {
-                    if !look.matches(input.haystack(), at) {
+                    // Unwrap is OK because we don't permit building a searcher
+                    // with a Unicode word boundary if the requisite Unicode
+                    // data is unavailable.
+                    if !look.matches(input.haystack(), at).unwrap() {
                         return;
                     }
                     sid = next;

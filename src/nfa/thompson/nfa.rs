@@ -2,12 +2,13 @@ use core::{fmt, mem};
 
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
 
+#[cfg(feature = "syntax")]
+use crate::nfa::thompson::{
+    compiler::{Compiler, Config},
+    error::Error,
+};
 use crate::{
-    nfa::thompson::{
-        builder::Builder,
-        compiler::{Compiler, Config},
-        error::Error,
-    },
+    nfa::thompson::builder::Builder,
     util::{
         alphabet::{self, ByteClassSet},
         captures::{GroupInfo, GroupInfoError},
@@ -315,9 +316,9 @@ impl NFA {
     pub fn never_match() -> NFA {
         // This always succeeds because it only requires one NFA state, which
         // will never exhaust any (default) limits.
-        //
-        // FIXME: Hand-assemble this to avoid depending on 'syntax' feature.
-        NFA::new_many::<&str>(&[]).unwrap()
+        let mut builder = Builder::new();
+        let sid = builder.add_fail().unwrap();
+        builder.build(sid, sid).unwrap()
     }
 
     /// Return a default configuration for an `NFA`.

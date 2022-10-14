@@ -1,8 +1,10 @@
 #[cfg(feature = "nfa-pikevm")]
 pub mod backtrack;
 mod builder;
+#[cfg(feature = "syntax")]
 mod compiler;
 mod error;
+#[cfg(feature = "syntax")]
 mod literal_trie;
 mod map;
 mod nfa;
