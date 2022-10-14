@@ -222,7 +222,7 @@ impl<'a> Accels<&'a [AccelTy]> {
 impl<A: AsRef<[AccelTy]>> Accels<A> {
     /// Return an owned version of the accelerators.
     #[cfg(feature = "alloc")]
-    pub fn to_owned(&self) -> Accels<Vec<AccelTy>> {
+    pub fn to_owned(&self) -> Accels<alloc::vec::Vec<AccelTy>> {
         Accels { accels: self.accels.as_ref().to_vec() }
     }
 

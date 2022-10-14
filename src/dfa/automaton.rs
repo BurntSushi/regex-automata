@@ -1,8 +1,10 @@
+#[cfg(feature = "alloc")]
+use crate::util::search::PatternSet;
 use crate::{
     dfa::search,
     util::{
         primitives::{PatternID, StateID},
-        search::{HalfMatch, Input, MatchError, PatternSet},
+        search::{HalfMatch, Input, MatchError},
     },
 };
 
@@ -1398,6 +1400,7 @@ pub unsafe trait Automaton {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    #[cfg(feature = "alloc")]
     #[inline]
     fn try_which_overlapping_matches(
         &self,
@@ -1556,6 +1559,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         (**self).try_search_overlapping_rev(input, state)
     }
 
+    #[cfg(feature = "alloc")]
     #[inline]
     fn try_which_overlapping_matches(
         &self,

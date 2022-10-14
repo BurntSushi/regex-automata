@@ -1,9 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::{
-    dfa::{dense::OwnedDFA, onepass::DFA},
-    util::primitives::StateID,
-};
+use crate::util::primitives::StateID;
 
 /// Remappable is a tightly coupled abstraction that facilitates remapping
 /// state identifiers in DFAs.
@@ -196,38 +193,52 @@ impl IndexMapper {
     }
 }
 
-impl Remappable for OwnedDFA {
-    fn state_len(&self) -> usize {
-        OwnedDFA::state_len(self)
-    }
+#[cfg(feature = "dfa-build")]
+mod dense {
+    use crate::{dfa::dense::OwnedDFA, util::primitives::StateID};
 
-    fn stride2(&self) -> usize {
-        OwnedDFA::stride2(self)
-    }
+    use super::Remappable;
 
-    fn swap_states(&mut self, id1: StateID, id2: StateID) {
-        OwnedDFA::swap_states(self, id1, id2)
-    }
+    impl Remappable for OwnedDFA {
+        fn state_len(&self) -> usize {
+            OwnedDFA::state_len(self)
+        }
 
-    fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
-        OwnedDFA::remap(self, map)
+        fn stride2(&self) -> usize {
+            OwnedDFA::stride2(self)
+        }
+
+        fn swap_states(&mut self, id1: StateID, id2: StateID) {
+            OwnedDFA::swap_states(self, id1, id2)
+        }
+
+        fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
+            OwnedDFA::remap(self, map)
+        }
     }
 }
 
-impl Remappable for DFA {
-    fn state_len(&self) -> usize {
-        DFA::state_len(self)
-    }
+#[cfg(feature = "dfa-onepass")]
+mod onepass {
+    use crate::{dfa::onepass::DFA, util::primitives::StateID};
 
-    fn stride2(&self) -> usize {
-        DFA::stride2(self)
-    }
+    use super::Remappable;
 
-    fn swap_states(&mut self, id1: StateID, id2: StateID) {
-        DFA::swap_states(self, id1, id2)
-    }
+    impl Remappable for DFA {
+        fn state_len(&self) -> usize {
+            DFA::state_len(self)
+        }
 
-    fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
-        DFA::remap(self, map)
+        fn stride2(&self) -> usize {
+            DFA::stride2(self)
+        }
+
+        fn swap_states(&mut self, id1: StateID, id2: StateID) {
+            DFA::swap_states(self, id1, id2)
+        }
+
+        fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
+            DFA::remap(self, map)
+        }
     }
 }

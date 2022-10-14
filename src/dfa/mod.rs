@@ -318,6 +318,7 @@ via [`dense::Config::minimize`], but it can increase compilation times
 dramatically.
 */
 
+#[cfg(feature = "dfa-search")]
 pub use crate::dfa::{
     automaton::{Automaton, OverlappingState},
     start::StartKind,
@@ -332,22 +333,30 @@ pub use crate::dfa::{
 const DEAD: crate::util::primitives::StateID =
     crate::util::primitives::StateID::ZERO;
 
+#[cfg(feature = "dfa-search")]
 pub mod dense;
 #[cfg(feature = "dfa-onepass")]
 pub mod onepass;
+#[cfg(feature = "dfa-search")]
 pub mod regex;
+#[cfg(feature = "dfa-search")]
 pub mod sparse;
 
+#[cfg(feature = "dfa-search")]
 mod accel;
+#[cfg(feature = "dfa-search")]
 mod automaton;
 #[cfg(feature = "dfa-build")]
 mod determinize;
 #[cfg(feature = "dfa-build")]
 mod minimize;
-#[cfg(feature = "dfa-build")]
+#[cfg(any(feature = "dfa-build", feature = "dfa-onepass"))]
 mod remapper;
+#[cfg(feature = "dfa-search")]
 mod search;
+#[cfg(feature = "dfa-search")]
 mod special;
+#[cfg(feature = "dfa-search")]
 mod start;
 #[cfg(feature = "transducer")]
 mod transducer;

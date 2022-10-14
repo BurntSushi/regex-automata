@@ -1117,6 +1117,7 @@ impl Builder {
     ///
     /// This permits setting things like whether additional time should be
     /// spent shrinking the size of the NFA.
+    #[cfg(feature = "syntax")]
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.dfa.thompson(config);
         self

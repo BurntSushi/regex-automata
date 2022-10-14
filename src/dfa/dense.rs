@@ -22,20 +22,21 @@ use alloc::{
 use crate::{
     dfa::{
         accel::Accel, determinize, minimize::Minimizer, remapper::Remapper,
-        sparse, start::StartKind,
+        sparse,
     },
     nfa::thompson,
-    util::{alphabet::ByteSet, search::MatchKind},
+    util::search::MatchKind,
 };
 use crate::{
     dfa::{
         accel::Accels,
         automaton::{fmt_state_indicator, Automaton},
         special::Special,
+        start::StartKind,
         DEAD,
     },
     util::{
-        alphabet::{self, ByteClasses},
+        alphabet::{self, ByteClasses, ByteSet},
         int::Pointer,
         primitives::{PatternID, StateID},
         search::{Anchored, Input, MatchError},
@@ -1020,6 +1021,7 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
+    #[cfg(feature = "syntax")]
     thompson: thompson::Compiler,
 }
 
@@ -1029,6 +1031,7 @@ impl Builder {
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
+            #[cfg(feature = "syntax")]
             thompson: thompson::Compiler::new(),
         }
     }
@@ -1186,6 +1189,7 @@ impl Builder {
     ///
     /// These settings only apply when constructing a DFA directly from a
     /// pattern.
+    #[cfg(feature = "syntax")]
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.thompson.configure(config);
         self
@@ -1204,8 +1208,8 @@ impl Default for Builder {
 /// is commonly used for mutable APIs on the DFA while building it. The main
 /// reason for making DFAs generic is no_std support, and more generally,
 /// making it possible to load a DFA from an arbitrary slice of bytes.
-#[cfg(feature = "dfa-build")]
-pub(crate) type OwnedDFA = DFA<Vec<u32>>;
+#[cfg(feature = "alloc")]
+pub(crate) type OwnedDFA = DFA<alloc::vec::Vec<u32>>;
 
 /// A dense table-based deterministic finite automaton (DFA).
 ///
@@ -3403,7 +3407,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
 
     /// Converts this transition table to an owned value.
     #[cfg(feature = "alloc")]
-    fn to_owned(&self) -> TransitionTable<Vec<u32>> {
+    fn to_owned(&self) -> TransitionTable<alloc::vec::Vec<u32>> {
         TransitionTable {
             table: self.table.as_ref().to_vec(),
             classes: self.classes.clone(),
@@ -3854,7 +3858,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
 
     /// Converts this start list to an owned value.
     #[cfg(feature = "alloc")]
-    fn to_owned(&self) -> StartTable<Vec<u32>> {
+    fn to_owned(&self) -> StartTable<alloc::vec::Vec<u32>> {
         StartTable {
             table: self.table.as_ref().to_vec(),
             kind: self.kind,
@@ -4282,7 +4286,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
 
     /// Converts these match states to an owned value.
     #[cfg(feature = "alloc")]
-    fn to_owned(&self) -> MatchStates<Vec<u32>> {
+    fn to_owned(&self) -> MatchStates<alloc::vec::Vec<u32>> {
         MatchStates {
             slices: self.slices.as_ref().to_vec(),
             pattern_ids: self.pattern_ids.as_ref().to_vec(),
@@ -4575,9 +4579,10 @@ impl<'a> Iterator for StateSparseTransitionIter<'a> {
 /// generally only two things you can do with it:
 ///
 /// * Obtain a human readable message via its `std::fmt::Display` impl.
-/// * Access an underlying [`nfa::thompson::Error`] type from its `source`
-/// method via the `std::error::Error` trait. This error only occurs when using
-/// convenience routines for building a DFA directly from a pattern string.
+/// * Access an underlying [`nfa::thompson::BuildError`](thompson::BuildError)
+/// type from its `source` method via the `std::error::Error` trait. This error
+/// only occurs when using convenience routines for building a DFA directly
+/// from a pattern string.
 ///
 /// When the `std` feature is enabled, this implements the `std::error::Error`
 /// trait.
@@ -4596,6 +4601,7 @@ pub struct BuildError {
 enum BuildErrorKind {
     /// An error that occurred while constructing an NFA as a precursor step
     /// before a DFA is compiled.
+    #[cfg(feature = "syntax")]
     NFA(thompson::BuildError),
     /// An error that occurred because an unsupported regex feature was used.
     /// The message string describes which unsupported feature was used.
@@ -4632,6 +4638,7 @@ impl BuildError {
         &self.kind
     }
 
+    #[cfg(feature = "syntax")]
     pub(crate) fn nfa(err: thompson::BuildError) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
     }
@@ -4671,13 +4678,9 @@ impl BuildError {
 impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind() {
+            #[cfg(feature = "syntax")]
             BuildErrorKind::NFA(ref err) => Some(err),
-            BuildErrorKind::Unsupported(_) => None,
-            BuildErrorKind::TooManyStates => None,
-            BuildErrorKind::TooManyStartStates => None,
-            BuildErrorKind::TooManyMatchPatternIDs => None,
-            BuildErrorKind::DFAExceededSizeLimit { .. } => None,
-            BuildErrorKind::DeterminizeExceededSizeLimit { .. } => None,
+            _ => None,
         }
     }
 }
@@ -4686,6 +4689,7 @@ impl std::error::Error for BuildError {
 impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind() {
+            #[cfg(feature = "syntax")]
             BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
             BuildErrorKind::Unsupported(ref msg) => {
                 write!(f, "unsupported regex feature for DFAs: {}", msg)

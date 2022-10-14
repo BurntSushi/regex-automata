@@ -537,7 +537,6 @@ impl ByteClassSet {
 }
 
 /// A simple set of bytes that is reasonably cheap to copy and allocation free.
-#[cfg(feature = "alloc")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ByteSet {
     bits: BitSet,
@@ -545,11 +544,9 @@ pub struct ByteSet {
 
 /// The representation of a byte set. Split out so that we can define a
 /// convenient Debug impl for it while keeping "ByteSet" in the output.
-#[cfg(feature = "alloc")]
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 struct BitSet([u128; 2]);
 
-#[cfg(feature = "alloc")]
 impl ByteSet {
     /// Create an empty set of bytes.
     pub fn empty() -> ByteSet {
@@ -674,7 +671,6 @@ impl ByteSet {
     }
 }
 
-#[cfg(feature = "alloc")]
 impl core::fmt::Debug for BitSet {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         let mut fmtd = f.debug_set();
@@ -687,14 +683,12 @@ impl core::fmt::Debug for BitSet {
     }
 }
 
-#[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct ByteSetIter<'a> {
     set: &'a ByteSet,
     b: usize,
 }
 
-#[cfg(feature = "alloc")]
 impl<'a> Iterator for ByteSetIter<'a> {
     type Item = u8;
 
@@ -710,14 +704,12 @@ impl<'a> Iterator for ByteSetIter<'a> {
     }
 }
 
-#[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct ByteSetRangeIter<'a> {
     set: &'a ByteSet,
     b: usize,
 }
 
-#[cfg(feature = "alloc")]
 impl<'a> Iterator for ByteSetRangeIter<'a> {
     type Item = (u8, u8);
 

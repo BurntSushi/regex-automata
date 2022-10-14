@@ -434,7 +434,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// Effectively, this returns a sparse DFA whose transitions live on the
     /// heap.
     #[cfg(feature = "alloc")]
-    pub fn to_owned(&self) -> DFA<Vec<u8>> {
+    pub fn to_owned(&self) -> DFA<alloc::vec::Vec<u8>> {
         DFA {
             trans: self.trans.to_owned(),
             starts: self.starts.to_owned(),
@@ -1478,7 +1478,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
 
     /// Converts these transitions to an owned value.
     #[cfg(feature = "alloc")]
-    fn to_owned(&self) -> Transitions<Vec<u8>> {
+    fn to_owned(&self) -> Transitions<alloc::vec::Vec<u8>> {
         Transitions {
             sparse: self.sparse().to_vec(),
             classes: self.classes.clone(),
@@ -1891,7 +1891,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
 
     /// Converts this start list to an owned value.
     #[cfg(feature = "alloc")]
-    fn to_owned(&self) -> StartTable<Vec<u8>> {
+    fn to_owned(&self) -> StartTable<alloc::vec::Vec<u8>> {
         StartTable {
             table: self.table().to_vec(),
             kind: self.kind,

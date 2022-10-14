@@ -18,22 +18,22 @@ See the [parent module](crate::dfa) for examples.
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+#[cfg(feature = "dfa-build")]
+use crate::dfa::dense::BuildError;
 use crate::{
-    dfa::automaton::Automaton,
+    dfa::{automaton::Automaton, dense},
     util::{
         iter,
         prefilter::{self, Prefilter},
+        search::Input,
     },
     Anchored, Match, MatchError,
 };
 #[cfg(feature = "alloc")]
 use crate::{
-    dfa::{
-        dense::{self, BuildError},
-        sparse, StartKind,
-    },
+    dfa::{sparse, StartKind},
     nfa::thompson,
-    util::search::{Input, MatchKind},
+    util::search::MatchKind,
 };
 
 // When the alloc feature is enabled, the regex type sets its A type parameter
@@ -293,8 +293,7 @@ impl Regex<sparse::DFA<Vec<u8>>> {
 }
 
 /// Convenience routines for regex construction.
-#[cfg(feature = "dfa-build")]
-impl Regex {
+impl Regex<dense::DFA<&'static [u32]>, prefilter::None> {
     /// Return a default configuration for a `Regex`.
     ///
     /// This is a convenience routine to avoid needing to import the `Config`
@@ -728,7 +727,6 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 
     /// Return the config for this regex.
-    #[cfg(feature = "dfa-build")]
     pub fn get_config(&self) -> &Config {
         &self.config
     }
@@ -862,13 +860,11 @@ impl<'r, 'h, A: Automaton, P: Prefilter> Iterator
 ///
 /// A regex configuration is a simple data object that is typically used with
 /// [`Builder::configure`].
-#[cfg(feature = "dfa-build")]
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     utf8: Option<bool>,
 }
 
-#[cfg(feature = "dfa-build")]
 impl Config {
     /// Return a new default regex compiler configuration.
     pub fn new() -> Config {
@@ -1039,25 +1035,28 @@ impl Config {
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[cfg(feature = "dfa-build")]
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
+    #[cfg(feature = "dfa-build")]
     dfa: dense::Builder,
 }
 
-#[cfg(feature = "dfa-build")]
 impl Builder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> Builder {
-        Builder { config: Config::default(), dfa: dense::Builder::new() }
+        Builder {
+            config: Config::default(),
+            #[cfg(feature = "dfa-build")]
+            dfa: dense::Builder::new(),
+        }
     }
 
     /// Build a regex from the given pattern.
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    #[cfg(feature = "syntax")]
+    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
     pub fn build(&self, pattern: &str) -> Result<Regex, BuildError> {
         self.build_many(&[pattern])
     }
@@ -1066,7 +1065,7 @@ impl Builder {
     ///
     /// If there was a problem parsing or compiling the pattern, then an error
     /// is returned.
-    #[cfg(feature = "syntax")]
+    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
     pub fn build_sparse(
         &self,
         pattern: &str,
@@ -1075,7 +1074,7 @@ impl Builder {
     }
 
     /// Build a regex from the given patterns.
-    #[cfg(feature = "syntax")]
+    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -1095,7 +1094,7 @@ impl Builder {
     }
 
     /// Build a sparse regex from the given patterns.
-    #[cfg(feature = "syntax")]
+    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
     pub fn build_many_sparse<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -1184,7 +1183,7 @@ impl Builder {
     ///
     /// This permits setting things like case insensitivity, Unicode and multi
     /// line mode.
-    #[cfg(feature = "syntax")]
+    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,
@@ -1198,6 +1197,7 @@ impl Builder {
     ///
     /// This permits setting things like whether additional time should be
     /// spent shrinking the size of the NFA.
+    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.dfa.thompson(config);
         self
@@ -1208,13 +1208,13 @@ impl Builder {
     ///
     /// This permits setting things like whether the underlying DFAs should
     /// be minimized.
+    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
     pub fn dense(&mut self, config: dense::Config) -> &mut Builder {
         self.dfa.configure(config);
         self
     }
 }
 
-#[cfg(feature = "dfa-build")]
 impl Default for Builder {
     fn default() -> Builder {
         Builder::new()

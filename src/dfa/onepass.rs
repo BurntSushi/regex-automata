@@ -455,6 +455,7 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
+    #[cfg(feature = "syntax")]
     thompson: thompson::Compiler,
 }
 
@@ -463,6 +464,7 @@ impl Builder {
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
+            #[cfg(feature = "syntax")]
             thompson: thompson::Compiler::new(),
         }
     }
@@ -563,6 +565,7 @@ impl Builder {
     ///
     /// These settings only apply when constructing a DFA directly from a
     /// pattern.
+    #[cfg(feature = "syntax")]
     pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
         self.thompson.configure(config);
         self

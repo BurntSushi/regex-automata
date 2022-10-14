@@ -1,4 +1,4 @@
-#[cfg(feature = "nfa-pikevm")]
+#[cfg(feature = "nfa-backtrack")]
 pub mod backtrack;
 mod builder;
 #[cfg(feature = "syntax")]
