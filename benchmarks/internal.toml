@@ -122,6 +122,23 @@ analysis = 'TODO'
 
 [[benches]]
 type = "count"
+name = "boundary-words-holmes"
+regex = '\b\w+\s+Холмс\S+'
+haystack-path = "opensubtitles/ru-huge.txt"
+case-insensitive = false
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/pikevm',
+  'regexold/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
 name = "beginning-long-words"
 regex = '(?m)^\w{10}'
 haystack-path = "opensubtitles/ru-huge.txt"

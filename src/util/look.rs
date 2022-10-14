@@ -484,6 +484,61 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
     }
 }
 
+// Below are FOUR different ways for checking whether whether a "word"
+// codepoint exists at a particular position in the haystack. The four different
+// approaches are, in order of preference:
+//
+// 1. Parse '\w', convert to an NFA, convert to a fully compiled DFA on the
+// first call, and then use that DFA for all subsequent calls.
+// 2. Do UTF-8 decoding and use regex_syntax::is_word_character if available.
+// 3. Do UTF-8 decoding and use our own 'perl_word' table.
+// 4. Return an error.
+//
+// The reason for all of these approaches is a combination of perf and
+// permitting one to build regex-automata without the Unicode data necessary
+// for handling Unicode-aware word boundaries. (In which case, '(?-u:\b)' would
+// still work.)
+//
+// The DFA approach is the fastest, but it requires the regex parser, the
+// NFA compiler, the DFA builder and the DFA search runtime. That's a lot to
+// bring in, but if it's available, it's the best we can do.
+//
+// Approaches (2) and (3) are effectively equivalent, but (2) reuses the
+// data in regex-syntax and avoids duplicating it in regex-automata.
+//
+// Finally, (4) unconditionally returns an error if the requisite data isn't
+// available anywhere.
+//
+// There are actually more approaches possible that we didn't implement. For
+// example, if the DFA builder is available but the syntax parser is not, we
+// could technically hand construct our own NFA from the 'perl_word' data
+// table. But to avoid some pretty hairy code duplication, we would in turn
+// need to pull the UTF-8 compiler out of the NFA compiler. Yikes.
+//
+// A possibly more sensible alternative is to use a lazy DFA when the full
+// DFA builder isn't available...
+//
+// There are perhaps other choices as well. Why did I stop at these 4? Because
+// I wanted to preserve my sanity. I suspect I'll wind up adding the lazy DFA
+// approach eventually, as the benefits of the DFA approach are somewhat
+// compelling. The 'boundary-words-holmes' benchmark tests this:
+//
+//   $ regex-cli bench measure -f boundary-words-holmes -e pikevm > dfa.csv
+//
+// Then I changed the code below so that the util/unicode_data/perl_word table
+// was used and re-ran the benchmark:
+//
+//   $ regex-cli bench measure -f boundary-words-holmes -e pikevm > table.csv
+//
+// And compared them:
+//
+//   $ regex-cli bench diff dfa.csv table.csv
+//   benchmark                             engine                 dfa        table
+//   ---------                             ------                 ---        -----
+//   internal/count/boundary-words-holmes  regex/automata/pikevm  18.6 MB/s  12.9 MB/s
+//
+// Which is a nice improvement.
+
 #[cfg(all(
     feature = "unicode-word-boundary",
     feature = "syntax",
