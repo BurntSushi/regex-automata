@@ -40,7 +40,9 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
 
     // Data tables for regex-automata proper.
     let pre = outdir.join("src").join("util").join("unicode_data");
-    ucdgen_to(&["perl-word", &ucddir, "--chars"], pre.join("perl_word.rs"))?;
+    let dest = pre.join("perl_word.rs");
+    ucdgen_to(&["perl-word", &ucddir, "--chars"], &dest)?;
+    rustfmt(&dest)?;
 
     Ok(())
 }
@@ -65,5 +67,20 @@ fn ucdgen_to<P: AsRef<Path>>(args: &[&str], dest: P) -> anyhow::Result<()> {
     let mut fdest = File::create(dest).with_context(err)?;
     let data = ucdgen(args)?;
     fdest.write_all(&data).with_context(err)?;
+    Ok(())
+}
+
+fn rustfmt<P: AsRef<Path>>(path: P) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    let out = Command::new("rustfmt")
+        .arg(path)
+        .output()
+        .context("rustfmt command failed")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "rustfmt {}: {}",
+        path.display(),
+        BString::from(out.stderr),
+    );
     Ok(())
 }
