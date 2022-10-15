@@ -32,3 +32,8 @@ for f in "${features[@]}"; do
   echo "===== FEATURES: $f ==="
   cargo test --no-default-features --lib --features "$f"
 done
+
+# Miri is particularly slow, so we are careful what we run. Miri can't deal
+# with the integration level tests at all (it's too slow to even load a TOML
+# file), but we can run it on the library and doc tests. (And many which have
+# been cfg'd out on Miri because of speed.)
