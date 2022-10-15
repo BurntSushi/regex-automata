@@ -60,6 +60,23 @@ use crate::{
 /// the match semantics could be changed.
 ///
 /// See the 'State' data type for a bit more detail.
+///
+/// Future work:
+///
+/// * In theory, it would be nice to generalize the idea of removing clogs and
+/// apply it to the NFA graph itself. Then this could in theory work for
+/// case insensitive alternations of literals, or even just alternations where
+/// each branch starts with a non-epsilon transition.
+/// * Could we instead use the Aho-Corasick algorithm here? The aho-corasick
+/// crate deals with leftmost-first matches correctly, but I think this implies
+/// encoding failure transitions into a Thompson NFA somehow. Which seems fine,
+/// because failure transitions are just unconditional epsilon transitions?
+/// * Or perhaps even better, could we use an aho_corasick::AhoCorasick
+/// directly? At time of writing, 0.7 is the current version of the
+/// aho-corasick crate, and that definitely cannot be used as-is. But if we
+/// expose the underlying finite state machine API, then could we use it? That
+/// would be super. If we could figure that out, it might also lend itself to
+/// more general composition of finite state machines.
 #[derive(Clone)]
 pub(crate) struct LiteralTrie {
     /// The set of trie states. Each state contains one or more chunks, where
