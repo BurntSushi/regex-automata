@@ -7,8 +7,6 @@ This module also contains a [`Builder`] and a [`Config`] for building and
 configuring a one-pass DFA.
 */
 
-#![allow(warnings)]
-
 // A note on naming and credit:
 //
 // As far as I know, Russ Cox came up with the practical vision and
