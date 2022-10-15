@@ -5,6 +5,12 @@
 // to get a value, we bypass the mutex. Here are some benchmarks showing the
 // difference.
 //
+// 2022-10-15: These benchmarks are from the old regex crate and they aren't
+// easy to reproduce because some rely on older implementations of Pool that
+// are no longer around. I've left the results here for posterity, but any
+// enterprising individual should feel encouraged to re-litigate the way Pool
+// works. I am not at all certain it is the best approach.
+//
 // 1) misc::anchored_literal_long_non_match    21 (18571 MB/s)
 // 2) misc::anchored_literal_long_non_match   107 (3644 MB/s)
 // 3) misc::anchored_literal_long_non_match    45 (8666 MB/s)
@@ -68,16 +74,60 @@
 ///
 /// Currently, a pool never contracts in size. Its size is proportional to the
 /// maximum number of simultaneous uses. This may change in the future.
+///
+/// A `Pool` is a particularly useful data structure for this crate because
+/// many of the regex engines require a mutable "cache" in order to execute
+/// a search. Since regexes themselves tend to be global, the problem is then:
+/// how do you get a mutable cache to execute a search? You could:
+///
+/// 1. Use a `thread_local!`, which requires the standard library and requires
+/// that the regex pattern be statically known.
+/// 2. Use a `Pool`.
+/// 3. Make the cache an explicit dependency in your code and pass it around.
+/// 4. Put the cache state in a `Mutex`, but this means only one search can
+/// execute at a time.
+/// 5. Create a new cache for every search.
+///
+/// A `thread_local!` is perhaps the best choice if it works for your use case.
+/// Putting the cache in a mutex or creating a new cache for every search are
+/// perhaps the worst choices. Whether you use this `Pool` or thread through a
+/// cache explicitly in your code is a matter of taste and depends on your code
+/// architecture.
+///
+/// # Example
+///
+/// This example shows how to share a single hybrid regex among multiple
+/// threads, while also safely getting exclusive access to a hybrid's
+/// [`Cache`](crate::hybrid::regex::Cache) without preventing other searches
+/// from running while your thread uses the `Cache`.
+///
+/// ```
+/// use regex_automata::{
+///     hybrid::regex::{Cache, Regex},
+///     util::{lazy::Lazy, pool::Pool},
+///     Match,
+/// };
+///
+/// static RE: Lazy<Regex> =
+///     Lazy::new(|| Regex::new("foo[0-9]+bar").unwrap());
+/// static CACHE: Lazy<Pool<Cache>> =
+///     Lazy::new(|| Pool::new(|| RE.create_cache()));
+///
+/// let expected = Some(Match::must(0, 3..14));
+/// assert_eq!(expected, RE.find(&mut CACHE.get(), b"zzzfoo12345barzzz"));
+/// ```
 #[derive(Debug)]
 pub struct Pool<T, F = fn() -> T>(inner::Pool<T, F>);
 
-impl<T: Send, F: Fn() -> T> Pool<T, F> {
+impl<T, F> Pool<T, F> {
     /// Create a new pool. The given closure is used to create values in
     /// the pool when necessary.
     pub fn new(create: F) -> Pool<T, F> {
         Pool(inner::Pool::new(create))
     }
+}
 
+impl<T: Send, F: Fn() -> T> Pool<T, F> {
     /// Get a value from the pool. The caller is guaranteed to have
     /// exclusive access to the given value.
     ///
@@ -106,9 +156,16 @@ impl<'a, T: Send, F: Fn() -> T> core::ops::Deref for PoolGuard<'a, T, F> {
     }
 }
 
+impl<'a, T: Send, F: Fn() -> T> core::ops::DerefMut for PoolGuard<'a, T, F> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.0.value_mut()
+    }
+}
+
 #[cfg(feature = "std")]
 mod inner {
     use core::{
+        cell::UnsafeCell,
         panic::{RefUnwindSafe, UnwindSafe},
         sync::atomic::{AtomicUsize, Ordering},
     };
@@ -165,7 +222,10 @@ mod inner {
         owner: AtomicUsize,
         /// A value to return when the caller is in the same thread that
         /// first called `Pool::get`.
-        owner_val: T,
+        ///
+        /// This is set to None when a Pool is first created, and set to Some
+        /// once the first thread calls Pool::get.
+        owner_val: UnsafeCell<Option<T>>,
     }
 
     // SAFETY: Since we want to use a Pool from multiple threads simultaneously
@@ -202,15 +262,22 @@ mod inner {
     // from it if another thread panics while the lock is held.
     impl<T: UnwindSafe, F> RefUnwindSafe for Pool<T, F> {}
 
-    impl<T: Send, F: Fn() -> T> Pool<T, F> {
+    impl<T, F> Pool<T, F> {
         /// Create a new pool. The given closure is used to create values in
         /// the pool when necessary.
         pub(super) fn new(create: F) -> Pool<T, F> {
+            // MSRV(1.63): Mark this function as 'const'. I've arranged the
+            // code such that it should "just work." Then mark the public
+            // 'Pool::new' method as 'const' too. (The alloc-only Pool::new
+            // is already 'const', so that should "just work" too.) The only
+            // thing we're waiting for is Mutex::new to be const.
             let owner = AtomicUsize::new(0);
-            let owner_val = create();
+            let owner_val = UnsafeCell::new(None); // init'd on first access
             Pool { stack: Mutex::new(vec![]), create, owner, owner_val }
         }
+    }
 
+    impl<T: Send, F: Fn() -> T> Pool<T, F> {
         /// Get a value from the pool. This may block if another thread is also
         /// attempting to retrieve a value from the pool.
         pub(super) fn get(&self) -> PoolGuard<'_, T, F> {
@@ -255,6 +322,12 @@ mod inner {
                     Ordering::Acquire,
                 );
                 if res.is_ok() {
+                    // SAFETY: A successful CAS above implies this thread is
+                    // the owner and that this is the only such thread that
+                    // can reach here. Thus, there is no data race.
+                    unsafe {
+                        *self.owner_val.get() = Some((self.create)());
+                    }
                     return self.guard_owned();
                 }
             }
@@ -309,8 +382,44 @@ mod inner {
         /// Return the underlying value.
         pub(super) fn value(&self) -> &T {
             match self.value {
-                None => &self.pool.owner_val,
+                // SAFETY: This is safe because the only way a PoolGuard gets
+                // created for self.value=None is when the current thread
+                // corresponds to the owning thread, of which there can only
+                // be one. Thus, we are guaranteed to be providing exclusive
+                // access here which makes this safe.
+                //
+                // Also, since 'owner_val' is guaranteed to be initialized
+                // before an owned PoolGuard is created, the unchecked unwrap
+                // is safe.
+                None => unsafe {
+                    // MSRV(1.58): Use unwrap_unchecked here.
+                    (*self.pool.owner_val.get())
+                        .as_ref()
+                        .unwrap_or_else(|| core::hint::unreachable_unchecked())
+                },
                 Some(ref v) => &**v,
+            }
+        }
+
+        /// Return the underlying value as a mutable borrow.
+        pub(super) fn value_mut(&mut self) -> &mut T {
+            match self.value {
+                // SAFETY: This is safe because the only way a PoolGuard gets
+                // created for self.value=None is when the current thread
+                // corresponds to the owning thread, of which there can only
+                // be one. Thus, we are guaranteed to be providing exclusive
+                // access here which makes this safe.
+                //
+                // Also, since 'owner_val' is guaranteed to be initialized
+                // before an owned PoolGuard is created, the unwrap_unchecked
+                // is safe.
+                None => unsafe {
+                    // MSRV(1.58): Use unwrap_unchecked here.
+                    (*self.pool.owner_val.get())
+                        .as_mut()
+                        .unwrap_or_else(|| core::hint::unreachable_unchecked())
+                },
+                Some(ref mut v) => &mut **v,
             }
         }
     }
@@ -354,13 +463,15 @@ mod inner {
     // RefUnwindSafe.
     impl<T: UnwindSafe, F> RefUnwindSafe for Pool<T, F> {}
 
-    impl<T: Send, F: Fn() -> T> Pool<T, F> {
+    impl<T, F> Pool<T, F> {
         /// Create a new pool. The given closure is used to create values in
         /// the pool when necessary.
-        pub(super) fn new(create: F) -> Pool<T, F> {
+        pub(super) const fn new(create: F) -> Pool<T, F> {
             Pool { stack: Mutex::new(vec![]), create }
         }
+    }
 
+    impl<T: Send, F: Fn() -> T> Pool<T, F> {
         /// Get a value from the pool. This may block if another thread is also
         /// attempting to retrieve a value from the pool.
         pub(super) fn get(&self) -> PoolGuard<'_, T, F> {
@@ -402,6 +513,11 @@ mod inner {
         pub(super) fn value(&self) -> &T {
             self.value.as_deref().unwrap()
         }
+
+        /// Return the underlying value as a mutable borrow.
+        pub(super) fn value_mut(&mut self) -> &mut T {
+            self.value.as_deref_mut().unwrap()
+        }
     }
 
     impl<'a, T: Send, F: Fn() -> T> Drop for PoolGuard<'a, T, F> {
@@ -439,7 +555,7 @@ mod inner {
     impl<T> Mutex<T> {
         /// Create a new mutex for protecting access to the given value across
         /// multiple threads simultaneously.
-        fn new(value: T) -> Mutex<T> {
+        const fn new(value: T) -> Mutex<T> {
             Mutex {
                 locked: AtomicBool::new(false),
                 data: UnsafeCell::new(value),

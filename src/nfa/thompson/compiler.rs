@@ -1065,8 +1065,7 @@ impl Compiler {
                 // The unwraps below are OK because we've verified that this
                 // class only contains ASCII codepoints.
                 trans.push(Transition {
-                    // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once
-                    // we are at Rust 1.59+.
+                    // FIXME(1.59): use the 'TryFrom<char> for u8' impl.
                     start: u8::try_from(u32::from(r.start())).unwrap(),
                     end: u8::try_from(u32::from(r.end())).unwrap(),
                     next: end,

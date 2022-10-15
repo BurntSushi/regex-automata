@@ -1,0 +1,34 @@
+#!/bin/sh
+
+set -e
+
+# Man I don't *want* to have this many crate features, but... I really want
+# folks to be able to slim the crate down to just the things they want. But
+# the main downside is that I just can't feasible test every combination of
+# features because there are too many of them. Sad, but I'm not sure if there
+# is a better alternative.
+features=(
+  ""
+  unicode-word-boundary
+  unicode-word-boundary,syntax,unicode-perl
+  unicode-word-boundary,syntax,dfa-build
+  nfa
+  dfa
+  hybrid
+  nfa,dfa
+  nfa,hybrid
+  dfa,hybrid
+  dfa-onepass
+  nfa-pikevm
+  nfa-backtrack
+  std
+  alloc
+  transducer
+  syntax
+  syntax,nfa-pikevm
+  syntax,hybrid
+)
+for f in "${features[@]}"; do
+  echo "===== FEATURES: $f ==="
+  cargo test --no-default-features --lib --features "$f"
+done

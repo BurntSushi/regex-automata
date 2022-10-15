@@ -35,7 +35,7 @@ use core::fmt;
 /// ```
 pub struct Lazy<T, F = fn() -> T>(lazy::Lazy<T, F>);
 
-impl<T, F: Fn() -> T> Lazy<T, F> {
+impl<T, F> Lazy<T, F> {
     /// Create a new `Lazy` value that is initialized via the given function.
     ///
     /// The `T` type is automatically inferred from the return type of the
@@ -43,7 +43,9 @@ impl<T, F: Fn() -> T> Lazy<T, F> {
     pub const fn new(create: F) -> Lazy<T, F> {
         Lazy(lazy::Lazy::new(create))
     }
+}
 
+impl<T, F: Fn() -> T> Lazy<T, F> {
     /// Retrieve a reference to the lazily initialized.
     ///
     /// Note that this routine may block if another thread is initializing
@@ -100,14 +102,16 @@ mod lazy {
         create: F,
     }
 
-    impl<T, F: Fn() -> T> Lazy<T, F> {
+    impl<T, F> Lazy<T, F> {
         /// Create a new alloc but non-std lazy value that is racily
         /// initialized. That is, the 'create' function may be called more than
         /// once.
         pub(super) const fn new(create: F) -> Lazy<T, F> {
             Lazy { data: AtomicPtr::new(core::ptr::null_mut()), create }
         }
+    }
 
+    impl<T, F: Fn() -> T> Lazy<T, F> {
         /// Get the underlying lazy value. If it hasn't been initialized
         /// yet, then always attempt to initialize it (even if some other
         /// thread is initializing it) and atomicly attach it to this lazy
@@ -221,7 +225,7 @@ mod lazy {
     // 'create' function panics.
     impl<T: UnwindSafe, F: RefUnwindSafe> RefUnwindSafe for Lazy<T, F> {}
 
-    impl<T, F: FnOnce() -> T> Lazy<T, F> {
+    impl<T, F> Lazy<T, F> {
         /// Create a new non-alloc non-std lazy value that is initialized
         /// exactly once on first use using the given function.
         pub(super) const fn new(create: F) -> Lazy<T, F> {
@@ -231,7 +235,9 @@ mod lazy {
                 data: Cell::new(MaybeUninit::uninit()),
             }
         }
+    }
 
+    impl<T, F: FnOnce() -> T> Lazy<T, F> {
         /// Get the underlying lazy value. If it isn't been initialized
         /// yet, then either initialize it or block until some other thread
         /// initializes it. If the 'create' function given to Lazy::new panics
@@ -330,8 +336,8 @@ mod lazy {
                 // SAFETY: state is DONE if and only if data has been fully
                 // initialized. At which point, it is safe to drop.
                 unsafe {
-                    // FIXME(MSRV): For Rust 1.60+, use assume_init_drop. The
-                    // below is how assume_init_drop is implemented.
+                    // MSRV(1.60): Use assume_init_drop. The below is how
+                    // assume_init_drop is implemented.
                     core::ptr::drop_in_place(
                         (*self.data.as_ptr()).as_mut_ptr(),
                     )

@@ -1533,8 +1533,7 @@ The default for this flag is 'none', which sets no size limit.
                 if !ch.is_ascii() {
                     anyhow::bail!("quit bytes must be ASCII");
                 }
-                // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once we are
-                // at Rust 1.59+.
+                // MSRV(1.59): use the 'TryFrom<char> for u8' impl.
                 c = c.quit(u8::try_from(u32::from(ch)).unwrap(), true);
             }
         }
@@ -1947,8 +1946,7 @@ technique would likely be superior.
                 if !ch.is_ascii() {
                     anyhow::bail!("quit bytes must be ASCII");
                 }
-                // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once we are
-                // at Rust 1.59+.
+                // MSRV(1.59): use the 'TryFrom<char> for u8' impl.
                 c = c.quit(u8::try_from(u32::from(ch)).unwrap(), true);
             }
         }

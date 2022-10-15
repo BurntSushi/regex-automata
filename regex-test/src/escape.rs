@@ -136,8 +136,7 @@ pub fn unescape<B: AsRef<[u8]>>(s: B) -> Vec<u8> {
 /// Adds the given codepoint to the given string, escaping it if necessary.
 fn escape_char(cp: char, into: &mut String) {
     if cp.is_ascii() {
-        // FIXME(MSRV): use the 'TryFrom<char> for u8' impl once we are at Rust
-        // 1.59+.
+        // MSRV(1.59): use the 'TryFrom<char> for u8' impl.
         escape_byte(u8::try_from(u32::from(cp)).unwrap(), into);
     } else {
         into.push(cp);

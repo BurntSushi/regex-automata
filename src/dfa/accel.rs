@@ -54,6 +54,7 @@ use alloc::{vec, vec::Vec};
 
 use crate::util::{
     int::Pointer,
+    memchr,
     wire::{self, DeserializeError, Endian, SerializeError},
 };
 

@@ -539,9 +539,11 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 //
 // Which is a nice improvement.
 
+/// A module that looks for word codepoints using fully compiled DFAs.
 #[cfg(all(
     feature = "unicode-word-boundary",
     feature = "syntax",
+    feature = "unicode-perl",
     feature = "dfa-build"
 ))]
 mod is_word_char {
@@ -624,6 +626,7 @@ mod is_word_char {
     }
 }
 
+/// A module that looks for word codepoints using regex-syntax's data tables.
 #[cfg(all(
     feature = "unicode-word-boundary",
     feature = "syntax",
@@ -670,10 +673,14 @@ mod is_word_char {
     }
 }
 
-// This cfg should match the one in src/util/unicode_data/mod.rs for perl_word.
+/// A module that looks for word codepoints using regex-automata's data tables
+/// (which are only compiled when regex-syntax's tables aren't available).
+///
+/// Note that the cfg should match the one in src/util/unicode_data/mod.rs for
+/// perl_word.
 #[cfg(all(
     feature = "unicode-word-boundary",
-    not(all(feature = "syntax", feature = "unicode-perl",)),
+    not(all(feature = "syntax", feature = "unicode-perl")),
 ))]
 mod is_word_char {
     use crate::util::utf8;
@@ -736,6 +743,9 @@ mod is_word_char {
     }
 }
 
+/// A module that always returns an error if Unicode word boundaries are
+/// disabled. When this feature is disabled, then regex-automata will not
+/// include its own data tables even if regex-syntax is disabled.
 #[cfg(not(feature = "unicode-word-boundary"))]
 mod is_word_char {
     pub(super) fn check() -> Result<(), super::UnicodeWordBoundaryError> {
