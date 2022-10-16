@@ -37,122 +37,13 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     })
 }
 
-/*
-/// Like 'AggregateDuration', but uses throughputs instead of durations. In
-/// my opinion, throughput is easier to reason about for regex benchmarks. It
-/// gives you the same information, but it also gives you some intuition for
-/// how long it will take to search some data. Namely, throughput provides more
-/// bits of information when compared to benchmark iteration duration.
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-struct Aggregate {
-    full_name: String,
-    engine: String,
-    haystack_len: u64,
-    err: Option<String>,
-    iters: u64,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    total: Duration,
-    median: Throughput,
-    mean: Throughput,
-    stddev: Throughput,
-    min: Throughput,
-    max: Throughput,
-}
-
-impl Aggregate {
-    /// Get the corresponding throughput statistic from this aggregate.
-    fn throughput(&self, stat: Stat) -> Throughput {
-        match stat {
-            Stat::Median => self.median,
-            Stat::Mean => self.mean,
-            Stat::Min => self.min,
-            Stat::Max => self.max,
-        }
-    }
-
-    /// Get the corresponding duration statistic from this aggregate.
-    fn duration(&self, stat: Stat) -> Duration {
-        self.throughput(stat).duration(self.haystack_len)
-    }
-}
-
-/// Aggregate statistics for a particular benchmark in terms of durations. This
-/// is what we compute directly from the samples collected from a benchmark.
-/// But we quickly convert it to an aggregate that uses throughputs instead,
-/// based on the belief that they are easier to understand and related to real
-/// world use cases.
+/// The in-memory representation of a single benchmark execution for a single
+/// engine. It does not include all samples taken (those are thrown away and
+/// not recorded anywhere), but does include aggregate statistics about the
+/// samples.
 ///
-/// This could probably be simplified somewhat by attaching a `Benchmark`
-/// to it, but it is an intentionally flattened structure so as to make
-/// (de)serializing a bit more convenient.
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-struct AggregateDuration {
-    full_name: String,
-    engine: String,
-    haystack_len: u64,
-    err: Option<String>,
-    iters: u64,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    total: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    median: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    mean: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    stddev: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    min: Duration,
-    #[serde(serialize_with = "ShortHumanDuration::serialize_with")]
-    #[serde(deserialize_with = "ShortHumanDuration::deserialize_with")]
-    max: Duration,
-}
-
-impl AggregateDuration {
-    /// Convert this aggregate value from using duration to throughput.
-    fn into_throughput(self) -> Aggregate {
-        if self.err.is_some() {
-            return Aggregate {
-                full_name: self.full_name,
-                engine: self.engine,
-                err: self.err,
-                ..Aggregate::default()
-            };
-        }
-        // Getting stddev as a throughput is not quite as straight-forward. I
-        // believe the correct thing to do here is to compute the ratio between
-        // stddev and mean in terms of duration, then compute the throughput of
-        // the mean and then use the ratio on the mean throughput to find the
-        // stddev throughput.
-        let ratio = self.stddev.as_secs_f64() / self.mean.as_secs_f64();
-        let mean = Throughput::new(self.haystack_len, self.mean);
-        let stddev =
-            Throughput::from_bytes_per_second(mean.bytes_per_second() * ratio);
-        Aggregate {
-            full_name: self.full_name,
-            engine: self.engine,
-            haystack_len: self.haystack_len,
-            err: self.err,
-            iters: self.iters,
-            total: self.total,
-            median: Throughput::new(self.haystack_len, self.median),
-            mean,
-            stddev,
-            // For throughput, min/max are flipped. Which makes sense, the
-            // bigger the throughput, the better. But the smaller the duration,
-            // the better.
-            min: Throughput::new(self.haystack_len, self.max),
-            max: Throughput::new(self.haystack_len, self.min),
-        }
-    }
-}
-*/
-
+/// Note that when 'err' is set, most other fields are set to their
+/// empty/default values.
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(from = "MeasurementWire", into = "MeasurementWire")]
 struct Measurement {
@@ -161,15 +52,20 @@ struct Measurement {
     err: Option<String>,
     iters: u64,
     total: Duration,
-    aggregate: Aggregate2,
+    aggregate: Aggregate,
 }
 
+/// The aggregate statistics computed from samples taken from a benchmark.
+///
+/// This includes aggregate timings and throughputs, but only the latter when
+/// the benchmark includes a non-zero haystack length.
 #[derive(Clone, Debug, Default)]
-struct Aggregate2 {
+struct Aggregate {
     times: AggregateTimes,
     tputs: Option<AggregateThroughputs>,
 }
 
+/// The aggregate timings.
 #[derive(Clone, Debug, Default)]
 struct AggregateTimes {
     median: Duration,
@@ -179,6 +75,7 @@ struct AggregateTimes {
     max: Duration,
 }
 
+/// The aggregate throughputs. The `len` field is guaranteed to be non-zero.
 #[derive(Clone, Debug, Default)]
 struct AggregateThroughputs {
     len: u64,
@@ -219,12 +116,12 @@ impl Measurement {
     }
 }
 
-impl Aggregate2 {
+impl Aggregate {
     /// Creates a new set of aggregate statistics.
     ///
     /// If a non-zero haystack length is provided, then the aggregate returned
     /// includes throughputs.
-    fn new(times: AggregateTimes, haystack_len: Option<u64>) -> Aggregate2 {
+    fn new(times: AggregateTimes, haystack_len: Option<u64>) -> Aggregate {
         let tputs = haystack_len.and_then(|len| {
             // We treat an explicit length of 0 and a totally missing value as
             // the same. In practice, there is no difference. We can't get a
@@ -241,7 +138,7 @@ impl Aggregate2 {
                 max: Throughput::new(len, times.max),
             })
         });
-        Aggregate2 { times, tputs }
+        Aggregate { times, tputs }
     }
 }
 
@@ -283,7 +180,7 @@ impl From<MeasurementWire> for Measurement {
             min: w.min,
             max: w.max,
         };
-        let aggregate = Aggregate2::new(times, w.haystack_len);
+        let aggregate = Aggregate::new(times, w.haystack_len);
         Measurement {
             full_name: w.full_name,
             engine: w.engine,
@@ -321,11 +218,11 @@ impl FilterByBenchmarkName {
     /// Define a -f/--filter flag on the given app.
     fn define(app: App) -> App {
         const SHORT: &str = "Filter benchmarks by name using regex.";
-        const LONG: &str = "\
+        const LONG: &str = r#"\
 Filter benchmarks by name using regex.
 
 This flag may be given multiple times. The value can either be a whitelist
-regex or a blacklist regex. To make it a blacklist regex, start it with a '~'.
+regex or a blacklist regex. To make it a blacklist regex, start it with a '!'.
 If there is at least one whitelist regex, then a benchmark must match at least
 one of them in order to be included. If there are no whitelist regexes, then a
 benchmark is only included when it does not match any blacklist regexes. The
@@ -336,13 +233,13 @@ the comparison.
 
 So for example, consider the benchmarks 'foo', 'bar', 'baz' and 'quux'.
 
-* '-f foo' will include 'foo'.
-* '-f ~foo' will include 'bar', 'baz' and 'quux'.
-* '-f . -f ~ba -f bar' will include 'foo', 'bar' and 'quux'.
+* "-f foo" will include "foo".
+* "-f '!foo'" will include "bar", "baz" and "quux".
+* "-f . -f '!ba' -f bar" will include "foo", "bar" and "quux".
 
 Filter regexes are matched on the full name of the benchmark, which takes the
 form '{type}/{group}/{name}'.
-";
+"#;
         app.arg(app::mflag("filter").short("f").help(SHORT).long_help(LONG))
     }
 

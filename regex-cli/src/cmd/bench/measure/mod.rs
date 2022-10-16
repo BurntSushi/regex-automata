@@ -9,7 +9,7 @@ use {anyhow::Context, once_cell::sync::Lazy, regex::Regex};
 
 use crate::{
     app::{self, App, Args},
-    cmd::bench::{Aggregate2, AggregateTimes, Measurement},
+    cmd::bench::{Aggregate, AggregateTimes, Measurement},
     util::{Filter, ShortHumanDuration},
 };
 
@@ -1334,7 +1334,7 @@ impl Results {
             // We don't expect iterations to exceed 2**64.
             iters: u64::try_from(samples.len()).unwrap(),
             total: self.total,
-            aggregate: Aggregate2::new(times, haystack_len),
+            aggregate: Aggregate::new(times, haystack_len),
         }
     }
 }

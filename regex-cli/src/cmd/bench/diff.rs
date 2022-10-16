@@ -106,17 +106,19 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
                             .set_bold(true);
                         wtr.set_color(&spec)?;
                     }
+                    let ratio = group.ratio(data_name, diffargs.stat);
                     match diffargs.units {
                         Units::Throughput if has_throughput => {
                             if let Some(tput) = m.throughput(diffargs.stat) {
-                                write!(wtr, "{}", tput)?;
+                                write!(wtr, "{} ({:.2}x)", tput, ratio)?;
                             } else {
                                 write!(wtr, "NO-THROUGHPUT")?;
                             }
                         }
                         _ => {
                             let d = m.duration(diffargs.stat);
-                            write!(wtr, "{}", ShortHumanDuration::from(d))?;
+                            let humand = ShortHumanDuration::from(d);
+                            write!(wtr, "{} ({:.2}x)", humand, ratio)?;
                         }
                     }
                     if best == data_name {
@@ -296,6 +298,23 @@ impl MeasurementGroup {
             .duration(stat)
             .as_secs_f64();
         ((best - worst).abs() / best) * 100.0
+    }
+
+    /// Return the ratio between the 'this' benchmark and the best benchmark
+    /// in the group. The 'this' is the best, then the ratio returned is 1.0.
+    /// Thus, the ratio is how many times slower this benchmark is from the
+    /// best.
+    fn ratio(&self, this: &str, stat: Stat) -> f64 {
+        if self.measurements_by_data.len() < 2 {
+            // I believe this is a redundant base case.
+            return 1.0;
+        }
+        let this =
+            self.measurements_by_data[this].duration(stat).as_secs_f64();
+        let best = self.measurements_by_data[self.best(stat)]
+            .duration(stat)
+            .as_secs_f64();
+        this / best
     }
 
     /// Return the data name of the best measurement in this group. The name

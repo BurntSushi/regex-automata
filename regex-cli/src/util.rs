@@ -159,7 +159,7 @@ impl Filter {
                     anyhow::bail!("regex is not UTF-8: '{}'", raw)
                 }
             };
-            let (pattern, blacklist) = if rule.starts_with('~') {
+            let (pattern, blacklist) = if rule.starts_with('!') {
                 (&rule[1..], true)
             } else {
                 (&*rule, false)

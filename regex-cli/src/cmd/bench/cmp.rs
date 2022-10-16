@@ -103,17 +103,19 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
                             .set_bold(true);
                         wtr.set_color(&spec)?;
                     }
+                    let ratio = group.ratio(engine, cmpargs.stat);
                     match cmpargs.units {
                         Units::Throughput if has_throughput => {
                             if let Some(tput) = m.throughput(cmpargs.stat) {
-                                write!(wtr, "{}", tput)?;
+                                write!(wtr, "{} ({:.2}x)", tput, ratio)?;
                             } else {
                                 write!(wtr, "NO-THROUGHPUT")?;
                             }
                         }
                         _ => {
                             let d = m.duration(cmpargs.stat);
-                            write!(wtr, "{}", ShortHumanDuration::from(d))?;
+                            let humand = ShortHumanDuration::from(d);
+                            write!(wtr, "{} ({:.2}x)", humand, ratio)?;
                         }
                     }
                     if engine == group.best(cmpargs.stat) {
@@ -307,6 +309,23 @@ impl MeasurementGroup {
             .duration(stat)
             .as_secs_f64();
         ((best - worst).abs() / best) * 100.0
+    }
+
+    /// Return the ratio between the 'this' engine and the best benchmark in
+    /// the group. The 'this' is the best, then the ratio returned is 1.0.
+    /// Thus, the ratio is how many times slower this engine is from the best
+    /// for this particular benchmark.
+    fn ratio(&self, this: &str, stat: Stat) -> f64 {
+        if self.measurements_by_engine.len() < 2 {
+            // I believe this is a redundant base case.
+            return 1.0;
+        }
+        let this =
+            self.measurements_by_engine[this].duration(stat).as_secs_f64();
+        let best = self.measurements_by_engine[self.best(stat)]
+            .duration(stat)
+            .as_secs_f64();
+        this / best
     }
 
     /// Return the engine name of the best measurement in this group. The name
