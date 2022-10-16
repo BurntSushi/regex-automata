@@ -518,6 +518,14 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 // A possibly more sensible alternative is to use a lazy DFA when the full
 // DFA builder isn't available...
 //
+// Yet another choice would be to build the full DFA and then embed it into the
+// source. Then we'd only need to bring in the DFA search runtime, which is
+// considerably smaller than the DFA builder code. The problem here is that the
+// Debian people have spooked me[1] into avoiding cyclic dependencies. Namely,
+// we'd need to build regex-cli, which depends on regex-automata in order to
+// build some part of regex-automata. But to be honest, something like this has
+// to be allowed somehow? I just don't know what the right process is.
+//
 // There are perhaps other choices as well. Why did I stop at these 4? Because
 // I wanted to preserve my sanity. I suspect I'll wind up adding the lazy DFA
 // approach eventually, as the benefits of the DFA approach are somewhat
@@ -538,6 +546,8 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 //   internal/count/boundary-words-holmes  regex/automata/pikevm  18.6 MB/s  12.9 MB/s
 //
 // Which is a nice improvement.
+//
+// [1]: https://github.com/BurntSushi/ucd-generate/issues/11
 
 /// A module that looks for word codepoints using fully compiled DFAs.
 #[cfg(all(
