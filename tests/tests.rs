@@ -1,5 +1,6 @@
 mod dfa;
 mod hybrid;
+mod meta;
 mod nfa;
 mod util;
 

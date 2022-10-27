@@ -1,7 +1,4 @@
-use regex_automata::{
-    util::prefilter::{Candidate, Prefilter},
-    Span,
-};
+use regex_automata::{util::prefilter::Prefilter, Span};
 
 #[derive(Clone, Debug)]
 pub struct SubstringPrefilter(bstr::Finder<'static>);
@@ -14,15 +11,12 @@ impl SubstringPrefilter {
 
 impl Prefilter for SubstringPrefilter {
     #[inline]
-    fn find(&self, haystack: &[u8], span: Span) -> Candidate {
-        self.0
-            .find(&haystack[span])
-            .map(|i| {
-                let start = span.start + i;
-                let end = start + self.0.needle().len();
-                Candidate::PossibleMatch(Span { start, end })
-            })
-            .unwrap_or(Candidate::None)
+    fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        self.0.find(&haystack[span]).map(|i| {
+            let start = span.start + i;
+            let end = start + self.0.needle().len();
+            Span { start, end }
+        })
     }
 
     fn memory_usage(&self) -> usize {
@@ -44,8 +38,8 @@ impl BunkPrefilter {
 
 impl Prefilter for BunkPrefilter {
     #[inline]
-    fn find(&self, _haystack: &[u8], _span: Span) -> Candidate {
-        Candidate::None
+    fn find(&self, _haystack: &[u8], _span: Span) -> Option<Span> {
+        None
     }
 
     fn memory_usage(&self) -> usize {

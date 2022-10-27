@@ -28,13 +28,15 @@ regex = { path = "/home/andrew/rust/regex" }
 regex-syntax = { path = "/home/andrew/rust/regex/regex-syntax" }
 
 [features]
-default = ["std", "syntax", "perf", "unicode", "nfa", "dfa", "hybrid"]
+default = ["std", "syntax", "perf", "unicode", "meta", "nfa", "dfa", "hybrid"]
 std = ["regex-syntax/std", "memchr/std", "aho-corasick/std", "alloc"]
 alloc = []
 
 transducer = ["fst", "dfa-search"]
 logging = ["log"]
 syntax = ["regex-syntax", "alloc"]
+
+meta = ["syntax", "nfa-pikevm"]
 
 nfa = ["nfa-thompson", "nfa-pikevm", "nfa-backtrack"]
 nfa-thompson = ["alloc"]

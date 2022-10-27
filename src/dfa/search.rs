@@ -63,10 +63,10 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
         // ID, and the prefilter infrastructure doesn't report pattern IDs, we
         // limit this optimization to cases where there is exactly one pattern.
         // In that case, any match must be the 0th pattern.
-        match pre.find(input.haystack(), span).into_option() {
+        match pre.find(input.haystack(), span) {
             None => return Ok(mat),
-            Some(i) => {
-                at = i;
+            Some(ref span) => {
+                at = span.start;
             }
         }
     }
@@ -116,10 +116,10 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
             if dfa.is_start_state(sid) {
                 if let Some(ref pre) = pre {
                     let span = Span::from(at..input.end());
-                    match pre.find(input.haystack(), span).into_option() {
+                    match pre.find(input.haystack(), span) {
                         None => return Ok(mat),
-                        Some(i) => {
-                            at = i;
+                        Some(ref span) => {
+                            at = span.start;
                             // We want to skip any update to 'at' below
                             // at the end of this iteration and just
                             // jump immediately back to the next state
@@ -353,10 +353,10 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             if dfa.is_start_state(sid) {
                 if let Some(ref pre) = pre {
                     let span = Span::from(state.at..input.end());
-                    match pre.find(input.haystack(), span).into_option() {
+                    match pre.find(input.haystack(), span) {
                         None => return Ok(()),
-                        Some(i) => {
-                            state.at = i;
+                        Some(ref span) => {
+                            state.at = span.start;
                             continue;
                         }
                     }

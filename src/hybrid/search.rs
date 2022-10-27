@@ -64,10 +64,10 @@ fn find_fwd_imp(
 
     if let Some(ref pre) = pre {
         let span = Span::from(at..input.end());
-        match pre.find(input.haystack(), span).into_option() {
+        match pre.find(input.haystack(), span) {
             None => return Ok(mat),
-            Some(i) => {
-                at = i;
+            Some(ref span) => {
+                at = span.start;
             }
         }
     }
@@ -220,10 +220,10 @@ fn find_fwd_imp(
             if sid.is_start() {
                 if let Some(ref pre) = pre {
                     let span = Span::from(at..input.end());
-                    match pre.find(input.haystack(), span).into_option() {
+                    match pre.find(input.haystack(), span) {
                         None => return Ok(mat),
-                        Some(i) => {
-                            at = i;
+                        Some(ref span) => {
+                            at = span.start;
                             // We want to skip any update to 'at' below
                             // at the end of this iteration and just
                             // jump immediately back to the next state
@@ -469,10 +469,10 @@ fn find_overlapping_fwd_imp(
             if sid.is_start() {
                 if let Some(ref pre) = pre {
                     let span = Span::from(state.at..input.end());
-                    match pre.find(input.haystack(), span).into_option() {
+                    match pre.find(input.haystack(), span) {
                         None => return Ok(()),
-                        Some(i) => {
-                            state.at = i;
+                        Some(ref span) => {
+                            state.at = span.start;
                             continue;
                         }
                     }

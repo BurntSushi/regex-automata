@@ -11,7 +11,11 @@ create small config objects like this one that can be passed around and
 composed.
 */
 
-use regex_syntax::{hir::Hir, Error, ParserBuilder};
+use regex_syntax::{
+    ast,
+    hir::{self, Hir},
+    Error, ParserBuilder,
+};
 
 /// A convenience routine for parsing a regex using a `Config`.
 pub fn parse(config: &Config, pattern: &str) -> Result<Hir, Error> {
@@ -282,6 +286,28 @@ impl Config {
             .allow_invalid_utf8(!self.utf8)
             .nest_limit(self.nest_limit)
             .octal(self.octal);
+    }
+
+    /// Applies this configuration to the given AST parser.
+    pub(crate) fn apply_ast(&self, builder: &mut ast::parse::ParserBuilder) {
+        builder
+            .ignore_whitespace(self.ignore_whitespace)
+            .nest_limit(self.nest_limit)
+            .octal(self.octal);
+    }
+
+    /// Applies this configuration to the given AST-to-HIR translator.
+    pub(crate) fn apply_hir(
+        &self,
+        builder: &mut hir::translate::TranslatorBuilder,
+    ) {
+        builder
+            .unicode(self.unicode)
+            .case_insensitive(self.case_insensitive)
+            .multi_line(self.multi_line)
+            .dot_matches_new_line(self.dot_matches_new_line)
+            .swap_greed(self.swap_greed)
+            .allow_invalid_utf8(!self.utf8);
     }
 }
 

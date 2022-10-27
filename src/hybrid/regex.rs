@@ -20,7 +20,6 @@ use crate::{
     hybrid::{
         dfa::{self, DFA},
         error::BuildError,
-        search,
     },
     nfa::thompson,
     util::{
@@ -468,9 +467,9 @@ impl Regex {
         // Not only can we do an "earliest" search, but we can avoid doing a
         // reverse scan too.
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        let dfa = self.forward();
-        let cache = &mut cache.forward;
-        search::find_fwd(dfa, cache, &input).map(|m| m.is_some())
+        self.forward()
+            .try_search_fwd(&mut cache.forward, &input)
+            .map(|m| m.is_some())
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -593,9 +592,8 @@ impl Regex {
         // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
         // appear to have a bit more latency due to the 'search.as_ref()' call.
         // So we reach around them. This also avoids generics.
-        let (fdfa, rdfa) = (self.forward(), self.reverse());
         let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
-        let end = match search::find_fwd(fdfa, fcache, input)? {
+        let end = match self.forward().try_search_fwd(fcache, input)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -641,7 +639,9 @@ impl Regex {
             .span(input.start()..end.offset())
             .anchored(Anchored::Yes)
             .earliest(false);
-        let start = search::find_rev(rdfa, rcache, &revsearch)?
+        let start = self
+            .reverse()
+            .try_search_rev(rcache, &revsearch)?
             .expect("reverse search must match if forward search does");
         debug_assert_eq!(
             start.pattern(),

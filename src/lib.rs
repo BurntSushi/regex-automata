@@ -52,6 +52,8 @@ mod macros;
 pub mod dfa;
 #[cfg(feature = "hybrid")]
 pub mod hybrid;
+#[cfg(feature = "meta")]
+pub mod meta;
 #[cfg(feature = "nfa-thompson")]
 pub mod nfa;
 pub mod util;

@@ -981,6 +981,13 @@ impl Span {
     pub fn contains(&self, offset: usize) -> bool {
         !self.is_empty() && self.start <= offset && offset <= self.end
     }
+
+    /// Returns a new span with `offset` added to this span's `start` and `end`
+    /// values.
+    #[inline]
+    pub fn offset(&self, offset: usize) -> Span {
+        Span { start: self.start + offset, end: self.end + offset }
+    }
 }
 
 impl core::fmt::Debug for Span {

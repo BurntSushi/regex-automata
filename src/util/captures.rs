@@ -950,6 +950,9 @@ impl<'a> Iterator for CapturesPatternIter<'a> {
 /// by which a regex engine records offsets for each capturing group during a
 /// search.
 ///
+/// A `GroupInfo` uses reference counting internally and is thus cheap to
+/// clone.
+///
 /// # Mapping from capture groups to slots
 ///
 /// One of the main responsibilities of a `GroupInfo` is to build a mapping
@@ -972,11 +975,11 @@ impl<'a> Iterator for CapturesPatternIter<'a> {
 ///
 /// Because this crate provides first class support for multi-pattern regexes,
 /// and because of some performance related reasons, the mapping between
-/// capturing groups and slots is a little complex. However, in the simple case
-/// of a single pattern, the mapping can be described very simply: for all
-/// capture group indices `i`, its corresponding slots are at `i * 2` and `i *
-/// 2 + 1`. Notice that the pattern ID isn't involved at all here, because it
-/// only applies to a single-pattern regex, it is therefore always `0`.
+/// capturing groups and slots is a little complex. However, in the case of a
+/// single pattern, the mapping can be described very simply: for all capture
+/// group indices `i`, its corresponding slots are at `i * 2` and `i * 2 + 1`.
+/// Notice that the pattern ID isn't involved at all here, because it only
+/// applies to a single-pattern regex, it is therefore always `0`.
 ///
 /// In the multi-pattern case, the mapping is a bit more complicated. To talk
 /// about it, we must define what we mean by "implicit" vs "explicit"

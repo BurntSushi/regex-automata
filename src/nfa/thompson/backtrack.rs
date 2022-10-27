@@ -1196,7 +1196,7 @@ impl BoundedBacktracker {
     /// ```
     /// use regex_automata::{
     ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     util::prefilter::{Candidate, Prefilter},
+    ///     util::prefilter::Prefilter,
     ///     Match, Input, Span,
     /// };
     ///
@@ -1208,17 +1208,13 @@ impl BoundedBacktracker {
     ///         &self,
     ///         haystack: &[u8],
     ///         span: Span,
-    ///     ) -> Candidate {
+    ///     ) -> Option<Span> {
     ///         // Try changing b'z' to b'q' and observe this test fail since
     ///         // the prefilter will skip right over the match.
-    ///         match haystack[span].iter().position(|&b| b == b'z') {
-    ///             None => Candidate::None,
-    ///             Some(i) => {
-    ///                 let start = span.start + i;
-    ///                 let span = Span::from(start..start + 1);
-    ///                 Candidate::PossibleMatch(span)
-    ///             }
-    ///         }
+    ///         haystack[span].iter().position(|&b| b == b'z').map(|i| {
+    ///             let start = span.start + i;
+    ///             Span::from(start..start + 1)
+    ///         })
     ///     }
     ///
     ///     fn memory_usage(&self) -> usize {

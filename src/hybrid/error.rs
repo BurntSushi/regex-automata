@@ -23,10 +23,6 @@ enum BuildErrorKind {
 }
 
 impl BuildError {
-    fn kind(&self) -> &BuildErrorKind {
-        &self.kind
-    }
-
     pub(crate) fn nfa(err: nfa::thompson::BuildError) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
     }
@@ -60,7 +56,7 @@ impl BuildError {
 #[cfg(feature = "std")]
 impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self.kind() {
+        match self.kind {
             BuildErrorKind::NFA(ref err) => Some(err),
             BuildErrorKind::InsufficientCacheCapacity { .. } => None,
             // LazyStateIDError is an implementation detail, don't expose it.
@@ -72,7 +68,7 @@ impl std::error::Error for BuildError {
 
 impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.kind() {
+        match self.kind {
             BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
             BuildErrorKind::InsufficientCacheCapacity { minimum, given } => {
                 write!(
