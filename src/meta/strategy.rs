@@ -18,6 +18,64 @@ use crate::{
     },
 };
 
+// BREADCRUMBS:
+//
+// This whole 'Strategy' trait just doesn't feel right... At first I thought I
+// would have a whole bunch of impls, but the trait has a lot of surface area
+// and having a lot of impls would be really quite annoying.
+//
+// So maybe we need to list out what the actual strategies are? The other issue
+// is that we might want to change strategies if one proves ineffective.
+//
+// Maybe another way to think about this is to split strategies up into
+// different components and then compose them. Like one component could be
+// "call this to extract captures." And that routine knows whether to use
+// onpass, backtracking or the PikeVM.
+//
+// Issues crop up with unbridled composition though. For example, if someone
+// asks for captures, we would normally want to run the lazy DFA to find
+// the match bounds and *then* ask for captures. But if the lazy DFA is
+// unavailable, then we'd probably just want to just run an unanchored search
+// with backtracking or the PikeVM directly instead of first trying to find the
+// match bounds. OK, let's try to write this out in pseudo-code for each of the
+// 3 fundamental questions: has a match? where is it? where are the submatches?
+//
+// definitions
+// -----------
+// anchored_at_end:
+//   props.look_set_suffix().contains(Look::End)
+// ahocorasick:
+//   cfg(perf-literal-multisubstring)
+//     && props.captures_len() == 0
+//     && props.is_alternation_literal()
+// prefilter:
+//   cfg(perf-literal-substring)
+//     && props.captures_len() == 0
+//     && props.is_literal()
+// lazydfa:
+//   cfg(hybrid) && config.get_hybrid()
+//
+// is_match
+// --------
+// if anchored_at_end && lazydfa:
+//   if let Ok(matched) = lazydfa.reverse().run():
+//      return matched
+// elif substring:
+//   return substring.run()
+// elif ahocorasick:
+//   return ahocorasick.run()
+// elif reversesuffix:
+//   if let Ok(matched) = reversesuffix.run():
+//      return matched
+// elif lazydfa:
+//   if let Ok(matched) = lazydfa.forward().run():
+//      return matched
+// if onepass:
+//   return onepass.is_match()
+// if backtrack:
+//   return backtrack.is_match()
+// return pikevm.is_match()
+
 pub(super) trait Strategy:
     Debug + Send + Sync + RefUnwindSafe + UnwindSafe
 {

@@ -439,3 +439,10 @@ name = "aho-corasick-100"
 regex = 'samwise|sam|a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z'
 input = "samwise"
 matches = [[0, 7]]
+
+# See: https://github.com/rust-lang/regex/issues/921
+[[tests]]
+name = "interior-anchor-capture"
+regex = '(a$)b$'
+input = 'ab'
+matches = []
