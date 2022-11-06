@@ -48,12 +48,19 @@ use crate::{
 //   cfg(perf-literal-multisubstring)
 //     && props.captures_len() == 0
 //     && props.is_alternation_literal()
-// prefilter:
+// substring:
 //   cfg(perf-literal-substring)
 //     && props.captures_len() == 0
 //     && props.is_literal()
 // lazydfa:
 //   cfg(hybrid) && config.get_hybrid()
+// reversesuffix:
+//   lazydfa
+//     && len(suffixes.longest_common_suffix()) >= 3
+// onepass
+//   cfg(onepass) && config.get_onepass() && OneBuild::new().is_ok()
+// backtrack
+//   cfg(backtrack)
 //
 // is_match
 // --------
