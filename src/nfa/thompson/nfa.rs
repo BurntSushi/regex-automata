@@ -54,7 +54,7 @@ use crate::{
 /// like this, where `exp` is an arbitrary regex:
 ///
 /// * `(exp)` - An unnamed capturing group.
-/// * `(?P<name>exp) - A named capturing group.
+/// * `(?P<name>exp)` - A named capturing group.
 /// * `(?:exp)` - A non-capturing group.
 /// * `(?i:exp)` - A non-capturing group that sets flags.
 ///
