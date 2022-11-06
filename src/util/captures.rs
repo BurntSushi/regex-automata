@@ -1173,7 +1173,7 @@ impl GroupInfo {
     /// ```
     /// use regex_automata::util::captures::GroupInfo;
     ///
-    /// let info = GroupInfo::new(Vec::<Vec<Option<&str>>>::new())?;
+    /// let info = GroupInfo::empty();
     /// // Everything is zero.
     /// assert_eq!(0, info.pattern_len());
     /// assert_eq!(0, info.slot_len());
@@ -1262,6 +1262,31 @@ impl GroupInfo {
         }
         group_info.fixup_slot_ranges()?;
         Ok(GroupInfo(Arc::new(group_info)))
+    }
+
+    /// This creates an empty `GroupInfo`.
+    ///
+    /// This is a convenience routine for calling `GroupInfo::new` with an
+    /// iterator that yields no elements.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to build a new empty `GroupInfo` and query it
+    /// for information.
+    ///
+    /// ```
+    /// use regex_automata::util::captures::GroupInfo;
+    ///
+    /// let info = GroupInfo::empty();
+    /// // Everything is zero.
+    /// assert_eq!(0, info.pattern_len());
+    /// assert_eq!(0, info.slot_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn empty() -> GroupInfo {
+        GroupInfo::new(core::iter::empty::<Vec<Option<&str>>>())
+            .expect("empty group info is always valid")
     }
 
     /// Return the capture group index corresponding to the given name in the
