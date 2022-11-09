@@ -1084,7 +1084,50 @@ impl Builder {
     }
 
     /// Build a regex from its component forward and reverse hybrid NFA/DFAs.
-    fn build_from_dfas(&self, forward: DFA, reverse: DFA) -> Regex {
+    ///
+    /// This is useful when you've built a forward and reverse lazy DFA
+    /// separately, and want to combine them into a single regex. Once build,
+    /// the individual DFAs given can still be accessed via [`Regex::forward`]
+    /// and [`Regex::reverse`].
+    ///
+    /// It is important that the reverse lazy DFA be compiled under the
+    /// following conditions:
+    ///
+    /// * It should use [`MatchKind::All`] semantics.
+    /// * It should match in reverse.
+    /// * Otherwise, its configuration should match the forward DFA.
+    ///
+    /// If these conditions aren't satisfied, then the behavior of searches is
+    /// unspecified.
+    ///
+    /// Note that when using this constructor, only the configuration from
+    /// [`Config`] is applied. Since this routine provides the DFAs to the
+    /// builder, there is no opportunity to apply other configuration options.
+    ///
+    /// # Example
+    ///
+    /// This shows how to build individual lazy forward and reverse DFAs, and
+    /// then combine them into a single `Regex`.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::{dfa::DFA, regex::Regex},
+    ///     nfa::thompson,
+    ///     MatchKind,
+    /// };
+    ///
+    /// let fwd = DFA::new(r"foo[0-9]+")?;
+    /// let rev = DFA::builder()
+    ///     .configure(DFA::config().match_kind(MatchKind::All))
+    ///     .thompson(thompson::Config::new().reverse(true))
+    ///     .build(r"foo[0-9]+")?;
+    ///
+    /// let re = Regex::builder().build_from_dfas(fwd, rev);
+    /// let mut cache = re.create_cache();
+    /// assert_eq!(true, re.is_match(&mut cache, "foo123"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn build_from_dfas(&self, forward: DFA, reverse: DFA) -> Regex {
         // The congruous method on DFA-backed regexes is exposed, but it's
         // not clear this builder is useful here since lazy DFAs can't be
         // serialized and there is only one type of them.
