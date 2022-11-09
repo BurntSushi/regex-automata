@@ -18,6 +18,13 @@ use crate::{
     },
 };
 
+#[cfg(feature = "dfa-onepass")]
+use crate::dfa::onepass;
+#[cfg(feature = "hybrid")]
+use crate::hybrid;
+#[cfg(feature = "nfa-backtrack")]
+use crate::nfa::thompson::backtrack::BoundedBacktracker;
+
 // BREADCRUMBS:
 //
 // This whole 'Strategy' trait just doesn't feel right... At first I thought I
@@ -125,31 +132,54 @@ pub(super) fn new(
     props_union: &hir::Properties,
     hirs: &[&Hir],
 ) -> Result<Arc<dyn Strategy>, BuildError> {
-    Basic::new(config, hirs)
+    Core::new(config, hirs)
 }
 
 #[derive(Debug)]
-struct Basic {
+struct Core {
     pikevm: PikeVM,
+    #[cfg(feature = "nfa-backtrack")]
+    backtrack: Option<BoundedBacktracker>,
+    #[cfg(feature = "dfa-onepass")]
+    onepass: Option<onepass::DFA>,
+    #[cfg(feature = "hybrid")]
+    hybrid: Option<hybrid::regex::Regex>,
 }
 
-impl Basic {
+impl Core {
     fn new(
         config: &meta::Config,
         hirs: &[&Hir],
     ) -> Result<Arc<dyn Strategy>, BuildError> {
+        let thompson_config = thompson::Config::new()
+            .nfa_size_limit(config.get_nfa_size_limit())
+            .shrink(false)
+            .captures(true);
         let nfa = thompson::Compiler::new()
+            .configure(thompson_config)
             .build_many_from_hir(hirs)
             .map_err(meta::BuildError::nfa)?;
         let pikevm = PikeVM::builder()
-            .configure(PikeVM::config().match_kind(config.get_match_kind()))
+            .configure(
+                PikeVM::config()
+                    .match_kind(config.get_match_kind())
+                    .utf8(config.get_utf8()),
+            )
             .build_from_nfa(nfa)
             .map_err(meta::BuildError::nfa)?;
-        Ok(Arc::new(Basic { pikevm }))
+        Ok(Arc::new(Core {
+            pikevm,
+            #[cfg(feature = "nfa-backtrack")]
+            backtrack: None,
+            #[cfg(feature = "dfa-onepass")]
+            onepass: None,
+            #[cfg(feature = "hybrid")]
+            hybrid: None,
+        }))
     }
 }
 
-impl Strategy for Basic {
+impl Strategy for Core {
     fn create_captures(&self) -> Captures {
         self.pikevm.create_captures()
     }
@@ -158,6 +188,12 @@ impl Strategy for Basic {
         meta::Cache {
             capmatches: self.create_captures(),
             pikevm: Some(self.pikevm.create_cache()),
+            #[cfg(feature = "nfa-backtrack")]
+            backtrack: None,
+            #[cfg(feature = "dfa-onepass")]
+            onepass: None,
+            #[cfg(feature = "hybrid")]
+            hybrid: None,
         }
     }
 

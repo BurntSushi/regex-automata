@@ -27,8 +27,10 @@ use regex_syntax::{
 };
 
 use crate::{
+    dfa::onepass,
+    hybrid,
     meta::strategy::Strategy,
-    nfa::thompson::pikevm,
+    nfa::thompson::{backtrack, pikevm},
     util::{
         captures::Captures,
         iter,
@@ -258,6 +260,12 @@ impl<'r, 'c, 'h> Iterator for TryCapturesMatches<'r, 'c, 'h> {
 pub struct Cache {
     capmatches: Captures,
     pikevm: Option<pikevm::Cache>,
+    #[cfg(feature = "nfa-backtrack")]
+    backtrack: Option<backtrack::Cache>,
+    #[cfg(feature = "dfa-onepass")]
+    onepass: Option<onepass::Cache>,
+    #[cfg(feature = "hybrid")]
+    hybrid: Option<hybrid::regex::Cache>,
 }
 
 impl Cache {
@@ -270,7 +278,21 @@ impl Cache {
     }
 
     pub fn memory_usage(&self) -> usize {
-        0
+        let mut bytes = 0;
+        bytes += self.pikevm.as_ref().unwrap().memory_usage();
+        #[cfg(feature = "nfa-backtrack")]
+        if let Some(ref cache) = self.backtrack {
+            bytes += cache.memory_usage();
+        }
+        #[cfg(feature = "dfa-onepass")]
+        if let Some(ref cache) = self.onepass {
+            bytes += cache.memory_usage();
+        }
+        #[cfg(feature = "hybrid")]
+        if let Some(ref cache) = self.hybrid {
+            bytes += cache.memory_usage();
+        }
+        bytes
     }
 }
 
@@ -285,6 +307,7 @@ pub struct Config {
     // For docs on the fields below, see the corresponding method setters.
     match_kind: Option<MatchKind>,
     utf8: Option<bool>,
+    nfa_size_limit: Option<Option<usize>>,
     hybrid: Option<bool>,
     onepass: Option<bool>,
     backtrack: Option<bool>,
@@ -302,6 +325,10 @@ impl Config {
 
     pub fn utf8(self, yes: bool) -> Config {
         Config { utf8: Some(yes), ..self }
+    }
+
+    pub fn nfa_size_limit(self, limit: Option<usize>) -> Config {
+        Config { nfa_size_limit: Some(limit), ..self }
     }
 
     pub fn hybrid(self, yes: bool) -> Config {
@@ -328,6 +355,10 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
+    pub fn get_nfa_size_limit(&self) -> Option<usize> {
+        self.nfa_size_limit.unwrap_or(Some(10 * (1 << 20)))
+    }
+
     pub fn get_hybrid(&self) -> bool {
         self.hybrid.unwrap_or(true)
     }
@@ -352,6 +383,7 @@ impl Config {
         Config {
             match_kind: o.match_kind.or(self.match_kind),
             utf8: o.utf8.or(self.utf8),
+            nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
             hybrid: o.hybrid.or(self.hybrid),
             onepass: o.onepass.or(self.onepass),
             backtrack: o.backtrack.or(self.backtrack),
