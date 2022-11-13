@@ -9,7 +9,7 @@ use alloc::sync::Arc;
 use regex_syntax::hir::{self, Hir};
 
 use crate::{
-    meta::{self, wrappers, BuildError, RegexInfo},
+    meta::{wrappers, BuildError, Cache, RegexInfo},
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
         captures::Captures,
@@ -95,32 +95,32 @@ pub(super) trait Strategy:
 {
     fn create_captures(&self) -> Captures;
 
-    fn create_cache(&self) -> meta::Cache;
+    fn create_cache(&self) -> Cache;
 
-    fn reset_cache(&self, cache: &mut meta::Cache);
+    fn reset_cache(&self, cache: &mut Cache);
 
     fn try_is_match(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<bool, MatchError>;
 
     fn try_find(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError>;
 
     fn try_slots(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError>;
 
     fn try_which_overlapping_matches(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError>;
@@ -193,7 +193,7 @@ impl Core {
 
     fn try_find_no_hybrid(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         let caps = &mut cache.capmatches;
@@ -221,7 +221,7 @@ impl Core {
 
     fn try_slots_no_hybrid(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
@@ -244,8 +244,8 @@ impl Strategy for Core {
         Captures::all(self.nfa.group_info().clone())
     }
 
-    fn create_cache(&self) -> meta::Cache {
-        meta::Cache {
+    fn create_cache(&self) -> Cache {
+        Cache {
             capmatches: self.create_captures(),
             pikevm: self.pikevm.create_cache(),
             backtrack: self.backtrack.create_cache(),
@@ -254,7 +254,7 @@ impl Strategy for Core {
         }
     }
 
-    fn reset_cache(&self, cache: &mut meta::Cache) {
+    fn reset_cache(&self, cache: &mut Cache) {
         cache.pikevm.reset(&self.pikevm);
         cache.backtrack.reset(&self.backtrack);
         cache.onepass.reset(&self.onepass);
@@ -263,7 +263,7 @@ impl Strategy for Core {
 
     fn try_is_match(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<bool, MatchError> {
         if let Some(e) = self.hybrid.get(input) {
@@ -284,7 +284,7 @@ impl Strategy for Core {
 
     fn try_find(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         if let Some(e) = self.hybrid.get(input) {
@@ -304,7 +304,7 @@ impl Strategy for Core {
 
     fn try_slots(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
@@ -366,7 +366,7 @@ impl Strategy for Core {
 
     fn try_which_overlapping_matches(
         &self,
-        cache: &mut meta::Cache,
+        cache: &mut Cache,
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {

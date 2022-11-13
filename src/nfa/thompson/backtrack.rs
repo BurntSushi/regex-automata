@@ -1552,6 +1552,17 @@ impl BoundedBacktracker {
             }
             match *self.nfa.state(sid) {
                 State::ByteRange { ref trans } => {
+                    // Why do we need this? Unlike other regex engines in this
+                    // crate, the backtracker can steam roll ahead in the
+                    // haystack outside of the main loop over the bytes in the
+                    // haystack. While 'trans.matches()' below handles the case
+                    // of 'at' being out of bounds of 'input.haystack()', we
+                    // also need to handle the case of 'at' going out of bounds
+                    // of the span the caller asked to search.
+                    //
+                    // We should perhaps make the 'trans.matches()' API accept
+                    // an '&Input' instead of a '&[u8]'. Or at least, add a new
+                    // API that does it.
                     if at >= input.end() {
                         return None;
                     }

@@ -1,5 +1,5 @@
 use crate::{
-    meta::{self, BuildError, Config, RegexInfo},
+    meta::{BuildError, Config, RegexInfo},
     nfa::thompson::{pikevm, NFA},
     util::primitives::NonMaxUsize,
     Input, Match, MatchError, MatchKind, PatternID, PatternSet,
@@ -464,7 +464,6 @@ impl OnePass {
 
     #[inline(always)]
     pub(crate) fn get(&self, input: &Input<'_, '_>) -> Option<&OnePassEngine> {
-        return None;
         let engine = self.0.as_ref()?;
         if !input.get_anchored().is_anchored() {
             return None;
