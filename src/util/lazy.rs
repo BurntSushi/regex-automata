@@ -46,10 +46,9 @@ impl<T, F> Lazy<T, F> {
 }
 
 impl<T, F: Fn() -> T> Lazy<T, F> {
-    /// Retrieve a reference to the lazily initialized.
+    /// Return a reference to the lazily initialized value.
     ///
-    /// Note that this routine may block if another thread is initializing
-    /// a `T`.
+    /// This routine may block if another thread is initializing a `T`.
     ///
     /// Note that given a `x` which has type `Lazy`, this must be called via
     /// `Lazy::get(x)` and not `x.get()`. This routine is defined this way
@@ -97,6 +96,10 @@ mod lazy {
     /// type below, but I'm not sure how to do it. If you can do an alloc,
     /// then the implementation becomes very simple if you don't care about
     /// redundant work precisely because a pointer can be atomically swapped.
+    ///
+    /// Perhaps making this approach work in the non-alloc non-std case
+    /// requires asking the caller for a pointer? It would make the API less
+    /// convenient I think.
     pub(super) struct Lazy<T, F> {
         data: AtomicPtr<T>,
         create: F,
@@ -346,10 +349,12 @@ mod lazy {
         }
     }
 
-    /// A guard that will reset a Lazy's state back to INIT when dropped.
-    /// The idea here is to 'forget' this guard on success. On failure (when
-    /// a panic occurs), the Drop impl runs and causes all in-progress and
-    /// future 'get' calls to panic.
+    /// A guard that will reset a Lazy's state back to INIT when dropped. The
+    /// idea here is to 'forget' this guard on success. On failure (when a
+    /// panic occurs), the Drop impl runs and causes all in-progress and future
+    /// 'get' calls to panic. Without this guard, all in-progress and future
+    /// 'get' calls would spin forever. Crashing is much better than getting
+    /// stuck in an infinite loop.
     struct Guard<'a> {
         state: &'a AtomicU8,
     }

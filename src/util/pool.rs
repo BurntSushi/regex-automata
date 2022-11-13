@@ -448,7 +448,7 @@ mod inner {
     /// Unlike the std version, it doesn't seem possible(?) to implement the
     /// "thread owner" optimization because alloc-only doesn't have any concept
     /// of threads. So the best we can do is just a normal stack. This will
-    /// decrease latency a bit in alloc-only environments.
+    /// increase latency in alloc-only environments.
     pub(super) struct Pool<T, F> {
         /// A stack of T values to hand out. These are used when a Pool is
         /// accessed by a thread that didn't create it.

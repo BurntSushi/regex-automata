@@ -27,10 +27,8 @@ use regex_syntax::{
 };
 
 use crate::{
-    dfa::onepass,
-    hybrid,
     meta::strategy::Strategy,
-    nfa::thompson::{backtrack, pikevm},
+    nfa::thompson::pikevm,
     util::{
         captures::Captures,
         iter,
@@ -39,10 +37,18 @@ use crate::{
     },
 };
 
+#[cfg(feature = "dfa-onepass")]
+use crate::dfa::onepass;
+#[cfg(feature = "hybrid")]
+use crate::hybrid;
+#[cfg(feature = "nfa-backtrack")]
+use crate::nfa::thompson::backtrack;
+
 pub use self::error::BuildError;
 
 mod error;
 mod strategy;
+mod wrappers;
 
 #[derive(Clone, Debug)]
 pub struct Regex {
@@ -259,13 +265,10 @@ impl<'r, 'c, 'h> Iterator for TryCapturesMatches<'r, 'c, 'h> {
 #[derive(Debug, Clone)]
 pub struct Cache {
     capmatches: Captures,
-    pikevm: Option<pikevm::Cache>,
-    #[cfg(feature = "nfa-backtrack")]
-    backtrack: Option<backtrack::Cache>,
-    #[cfg(feature = "dfa-onepass")]
-    onepass: Option<onepass::Cache>,
-    #[cfg(feature = "hybrid")]
-    hybrid: Option<hybrid::regex::Cache>,
+    pikevm: wrappers::PikeVMCache,
+    backtrack: wrappers::BoundedBacktrackerCache,
+    onepass: wrappers::OnePassCache,
+    hybrid: wrappers::HybridCache,
 }
 
 impl Cache {
@@ -279,19 +282,10 @@ impl Cache {
 
     pub fn memory_usage(&self) -> usize {
         let mut bytes = 0;
-        bytes += self.pikevm.as_ref().unwrap().memory_usage();
-        #[cfg(feature = "nfa-backtrack")]
-        if let Some(ref cache) = self.backtrack {
-            bytes += cache.memory_usage();
-        }
-        #[cfg(feature = "dfa-onepass")]
-        if let Some(ref cache) = self.onepass {
-            bytes += cache.memory_usage();
-        }
-        #[cfg(feature = "hybrid")]
-        if let Some(ref cache) = self.hybrid {
-            bytes += cache.memory_usage();
-        }
+        bytes += self.pikevm.memory_usage();
+        bytes += self.backtrack.memory_usage();
+        bytes += self.onepass.memory_usage();
+        bytes += self.hybrid.memory_usage();
         bytes
     }
 }
@@ -308,6 +302,8 @@ pub struct Config {
     match_kind: Option<MatchKind>,
     utf8: Option<bool>,
     nfa_size_limit: Option<Option<usize>>,
+    onepass_size_limit: Option<Option<usize>>,
+    hybrid_cache_capacity: Option<usize>,
     hybrid: Option<bool>,
     onepass: Option<bool>,
     backtrack: Option<bool>,
@@ -329,6 +325,14 @@ impl Config {
 
     pub fn nfa_size_limit(self, limit: Option<usize>) -> Config {
         Config { nfa_size_limit: Some(limit), ..self }
+    }
+
+    pub fn onepass_size_limit(self, limit: Option<usize>) -> Config {
+        Config { onepass_size_limit: Some(limit), ..self }
+    }
+
+    pub fn hybrid_cache_capacity(self, limit: usize) -> Config {
+        Config { hybrid_cache_capacity: Some(limit), ..self }
     }
 
     pub fn hybrid(self, yes: bool) -> Config {
@@ -359,16 +363,45 @@ impl Config {
         self.nfa_size_limit.unwrap_or(Some(10 * (1 << 20)))
     }
 
+    pub fn get_onepass_size_limit(&self) -> Option<usize> {
+        self.onepass_size_limit.unwrap_or(Some(500 * (1 << 10)))
+    }
+
+    pub fn get_hybrid_cache_capacity(&self) -> usize {
+        self.hybrid_cache_capacity.unwrap_or(2 * (1 << 20))
+    }
+
     pub fn get_hybrid(&self) -> bool {
-        self.hybrid.unwrap_or(true)
+        #[cfg(feature = "hybrid")]
+        {
+            self.hybrid.unwrap_or(true)
+        }
+        #[cfg(not(feature = "hybrid"))]
+        {
+            false
+        }
     }
 
     pub fn get_onepass(&self) -> bool {
-        self.onepass.unwrap_or(true)
+        #[cfg(feature = "dfa-onepass")]
+        {
+            self.onepass.unwrap_or(true)
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            false
+        }
     }
 
     pub fn get_backtrack(&self) -> bool {
-        self.backtrack.unwrap_or(true)
+        #[cfg(feature = "nfa-backtrack")]
+        {
+            self.backtrack.unwrap_or(true)
+        }
+        #[cfg(not(feature = "nfa-backtrack"))]
+        {
+            false
+        }
     }
 
     pub fn get_byte_classes(&self) -> bool {
@@ -384,6 +417,12 @@ impl Config {
             match_kind: o.match_kind.or(self.match_kind),
             utf8: o.utf8.or(self.utf8),
             nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
+            onepass_size_limit: o
+                .onepass_size_limit
+                .or(self.onepass_size_limit),
+            hybrid_cache_capacity: o
+                .hybrid_cache_capacity
+                .or(self.hybrid_cache_capacity),
             hybrid: o.hybrid.or(self.hybrid),
             onepass: o.onepass.or(self.onepass),
             backtrack: o.backtrack.or(self.backtrack),

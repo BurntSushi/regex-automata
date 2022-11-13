@@ -973,6 +973,14 @@ impl Span {
         self.start >= self.end
     }
 
+    /// Returns the length of this span.
+    ///
+    /// This returns `0` in precisely the cases that `is_empty` returns `true`.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+
     /// Returns true when the given offset is contained within this span.
     ///
     /// Note that an empty span contains no offsets and will always return

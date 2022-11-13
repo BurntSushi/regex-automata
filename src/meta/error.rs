@@ -1,6 +1,6 @@
 use regex_syntax::{ast, hir};
 
-use crate::nfa;
+use crate::{hybrid, nfa};
 
 #[derive(Clone, Debug)]
 pub struct BuildError {
@@ -12,6 +12,7 @@ enum BuildErrorKind {
     AST(ast::Error),
     HIR(hir::Error),
     NFA(nfa::thompson::BuildError),
+    Hybrid(hybrid::BuildError),
 }
 
 impl BuildError {
@@ -26,6 +27,10 @@ impl BuildError {
     pub(crate) fn nfa(err: nfa::thompson::BuildError) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
     }
+
+    pub(crate) fn hybrid(err: hybrid::BuildError) -> BuildError {
+        BuildError { kind: BuildErrorKind::Hybrid(err) }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -35,6 +40,7 @@ impl std::error::Error for BuildError {
             BuildErrorKind::AST(ref err) => Some(err),
             BuildErrorKind::HIR(ref err) => Some(err),
             BuildErrorKind::NFA(ref err) => Some(err),
+            BuildErrorKind::Hybrid(ref err) => Some(err),
         }
     }
 }
@@ -45,6 +51,9 @@ impl core::fmt::Display for BuildError {
             BuildErrorKind::AST(_) => write!(f, "error parsing into AST"),
             BuildErrorKind::HIR(_) => write!(f, "error translating to HIR"),
             BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
+            BuildErrorKind::Hybrid(_) => {
+                write!(f, "error building hybrid NFA/DFA")
+            }
         }
     }
 }

@@ -9,13 +9,14 @@ use alloc::sync::Arc;
 use regex_syntax::hir::{self, Hir};
 
 use crate::{
-    meta::{self, BuildError},
+    meta::{self, wrappers, BuildError},
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
         captures::Captures,
         primitives::{NonMaxUsize, PatternID},
         search::{Input, Match, MatchError, PatternSet},
     },
+    MatchKind,
 };
 
 #[cfg(feature = "dfa-onepass")]
@@ -23,7 +24,7 @@ use crate::dfa::onepass;
 #[cfg(feature = "hybrid")]
 use crate::hybrid;
 #[cfg(feature = "nfa-backtrack")]
-use crate::nfa::thompson::backtrack::BoundedBacktracker;
+use crate::nfa::thompson::backtrack;
 
 // BREADCRUMBS:
 //
@@ -137,13 +138,12 @@ pub(super) fn new(
 
 #[derive(Debug)]
 struct Core {
-    pikevm: PikeVM,
-    #[cfg(feature = "nfa-backtrack")]
-    backtrack: Option<BoundedBacktracker>,
-    #[cfg(feature = "dfa-onepass")]
-    onepass: Option<onepass::DFA>,
-    #[cfg(feature = "hybrid")]
-    hybrid: Option<hybrid::regex::Regex>,
+    nfa: NFA,
+    nfarev: Option<NFA>,
+    pikevm: wrappers::PikeVM,
+    backtrack: wrappers::BoundedBacktracker,
+    onepass: wrappers::OnePass,
+    hybrid: wrappers::Hybrid,
 }
 
 impl Core {
@@ -156,49 +156,53 @@ impl Core {
             .shrink(false)
             .captures(true);
         let nfa = thompson::Compiler::new()
-            .configure(thompson_config)
+            .configure(thompson_config.clone())
             .build_many_from_hir(hirs)
-            .map_err(meta::BuildError::nfa)?;
-        let pikevm = PikeVM::builder()
-            .configure(
-                PikeVM::config()
-                    .match_kind(config.get_match_kind())
-                    .utf8(config.get_utf8()),
-            )
-            .build_from_nfa(nfa)
-            .map_err(meta::BuildError::nfa)?;
-        Ok(Arc::new(Core {
-            pikevm,
-            #[cfg(feature = "nfa-backtrack")]
-            backtrack: None,
-            #[cfg(feature = "dfa-onepass")]
-            onepass: None,
-            #[cfg(feature = "hybrid")]
-            hybrid: None,
-        }))
+            .map_err(BuildError::nfa)?;
+        let (nfarev, hybrid) = if !config.get_hybrid() {
+            (None, wrappers::Hybrid::none())
+        } else {
+            let nfarev = thompson::Compiler::new()
+                // Currently, reverse NFAs don't support capturing groups, so
+                // we MUST disable them. But even if we didn't have to, we
+                // would, because nothing in this crate does anything useful
+                // with capturing groups in reverse. And of course, the lazy
+                // DFA ignores capturing groups in all cases.
+                .configure(
+                    thompson_config.clone().captures(false).reverse(true),
+                )
+                .build_many_from_hir(hirs)
+                .map_err(BuildError::nfa)?;
+            let hybrid = wrappers::Hybrid::new(config, &nfa, &nfarev);
+            (Some(nfarev), hybrid)
+        };
+        let pikevm = wrappers::PikeVM::new(config, &nfa)?;
+        let backtrack = wrappers::BoundedBacktracker::new(config, &nfa)?;
+        let onepass = wrappers::OnePass::new(config, &nfa);
+        Ok(Arc::new(Core { nfa, nfarev, pikevm, backtrack, onepass, hybrid }))
     }
 }
 
 impl Strategy for Core {
     fn create_captures(&self) -> Captures {
-        self.pikevm.create_captures()
+        Captures::all(self.nfa.group_info().clone())
     }
 
     fn create_cache(&self) -> meta::Cache {
         meta::Cache {
             capmatches: self.create_captures(),
-            pikevm: Some(self.pikevm.create_cache()),
-            #[cfg(feature = "nfa-backtrack")]
-            backtrack: None,
-            #[cfg(feature = "dfa-onepass")]
-            onepass: None,
-            #[cfg(feature = "hybrid")]
-            hybrid: None,
+            pikevm: self.pikevm.create_cache(),
+            backtrack: self.backtrack.create_cache(),
+            onepass: self.onepass.create_cache(),
+            hybrid: self.hybrid.create_cache(),
         }
     }
 
     fn reset_cache(&self, cache: &mut meta::Cache) {
-        cache.pikevm.as_mut().unwrap().reset(&self.pikevm);
+        cache.pikevm.reset(&self.pikevm);
+        cache.backtrack.reset(&self.backtrack);
+        cache.onepass.reset(&self.onepass);
+        cache.hybrid.reset(&self.hybrid);
     }
 
     fn try_is_match(
@@ -206,9 +210,15 @@ impl Strategy for Core {
         cache: &mut meta::Cache,
         input: &Input<'_, '_>,
     ) -> Result<bool, MatchError> {
-        let cache = cache.pikevm.as_mut().unwrap();
+        if let Some(ref e) = self.backtrack.get(input) {
+            return e
+                .try_slots(&mut cache.backtrack, input, &mut [])
+                .map(|p| p.is_some());
+        }
         self.pikevm
-            .try_search_slots(cache, input, &mut [])
+            .get()
+            .expect("PikeVM is always available")
+            .try_slots(&mut cache.pikevm, input, &mut [])
             .map(|pid| pid.is_some())
     }
 
@@ -218,10 +228,13 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         let caps = &mut cache.capmatches;
-        let cache = cache.pikevm.as_mut().unwrap();
         caps.set_pattern(None);
-        let pid =
-            self.pikevm.try_search_slots(cache, input, caps.slots_mut())?;
+        let pid = if let Some(ref e) = self.backtrack.get(input) {
+            e.try_slots(&mut cache.backtrack, input, caps.slots_mut())?
+        } else {
+            let e = self.pikevm.get().expect("PikeVM is always available");
+            e.try_slots(&mut cache.pikevm, input, caps.slots_mut())?
+        };
         caps.set_pattern(pid);
         Ok(caps.get_match())
     }
@@ -232,8 +245,12 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
-        let cache = cache.pikevm.as_mut().unwrap();
-        self.pikevm.try_search_slots(cache, input, slots)
+        if let Some(ref e) = self.backtrack.get(input) {
+            e.try_slots(&mut cache.backtrack, input, slots)
+        } else {
+            let e = self.pikevm.get().expect("PikeVM is always available");
+            e.try_slots(&mut cache.pikevm, input, slots)
+        }
     }
 
     fn try_which_overlapping_matches(
@@ -242,7 +259,7 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        let cache = cache.pikevm.as_mut().unwrap();
-        self.pikevm.which_overlapping_matches(cache, input, patset)
+        let e = self.pikevm.get().expect("PikeVM is always available");
+        e.which_overlapping_matches(&mut cache.pikevm, input, patset)
     }
 }

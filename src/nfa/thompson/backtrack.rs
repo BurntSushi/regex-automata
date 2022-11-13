@@ -1547,7 +1547,7 @@ impl BoundedBacktracker {
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
         loop {
-            if !cache.visited.insert(sid, at) {
+            if !cache.visited.insert(sid, at - input.start()) {
                 return None;
             }
             match *self.nfa.state(sid) {
@@ -1988,7 +1988,9 @@ impl Visited {
         nfa: &NFA,
         input: &Input<'_, '_>,
     ) -> Result<(), MatchError> {
-        let haylen = input.haystack().len();
+        // Our haystack length is only the length of the span of the entire
+        // haystack that we'll be searching.
+        let haylen = input.get_span().len();
         let err = || MatchError::haystack_too_long(haylen);
         // Our stride is one more than the length of the input because our main
         // search loop includes the position at input.haystack().len(). (And
