@@ -101,6 +101,11 @@ bstr = { version = "0.2.16", default-features = false, features = ["std"] }
 quickcheck = { version = "1.0.3", default-features = false }
 ret = { package = "regex-test", version = "*", path = "regex-test" }
 
+[dev-dependencies.env_logger]
+version = "0.8.4"
+default-features = false
+features = ["atty", "humantime", "termcolor"]
+
 [package.metadata.docs.rs]
 # We want to document all features.
 all-features = true

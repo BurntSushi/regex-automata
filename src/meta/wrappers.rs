@@ -1,5 +1,5 @@
 use crate::{
-    meta,
+    meta::{self, BuildError, Config, RegexInfo},
     nfa::thompson::{pikevm, NFA},
     util::primitives::NonMaxUsize,
     Input, Match, MatchError, MatchKind, PatternID, PatternSet,
@@ -21,13 +21,12 @@ impl PikeVM {
     }
 
     pub(crate) fn new(
-        config: &meta::Config,
+        info: &RegexInfo,
         nfa: &NFA,
-    ) -> Result<PikeVM, meta::BuildError> {
-        PikeVMEngine::new(config, nfa).map(PikeVM)
+    ) -> Result<PikeVM, BuildError> {
+        PikeVMEngine::new(info, nfa).map(PikeVM)
     }
 
-    #[inline(always)]
     pub(crate) fn create_cache(&self) -> PikeVMCache {
         PikeVMCache::new(self)
     }
@@ -42,18 +41,18 @@ impl PikeVM {
 pub(crate) struct PikeVMEngine(pikevm::PikeVM);
 
 impl PikeVMEngine {
-    #[inline(always)]
     pub(crate) fn new(
-        config: &meta::Config,
+        info: &RegexInfo,
         nfa: &NFA,
-    ) -> Result<Option<PikeVMEngine>, meta::BuildError> {
+    ) -> Result<Option<PikeVMEngine>, BuildError> {
         let pikevm_config = pikevm::Config::new()
-            .match_kind(config.get_match_kind())
-            .utf8(config.get_utf8());
+            .match_kind(info.config.get_match_kind())
+            .utf8(info.config.get_utf8());
         let engine = pikevm::Builder::new()
             .configure(pikevm_config)
             .build_from_nfa(nfa.clone())
-            .map_err(meta::BuildError::nfa)?;
+            .map_err(BuildError::nfa)?;
+        trace!("PikeVM built");
         Ok(Some(PikeVMEngine(engine)))
     }
 
@@ -86,19 +85,16 @@ impl PikeVMEngine {
 pub(crate) struct PikeVMCache(Option<pikevm::Cache>);
 
 impl PikeVMCache {
-    #[inline(always)]
     pub(crate) fn new(builder: &PikeVM) -> PikeVMCache {
         PikeVMCache(builder.0.as_ref().map(|e| e.0.create_cache()))
     }
 
-    #[inline(always)]
     pub(crate) fn reset(&mut self, builder: &PikeVM) {
         if let Some(ref e) = builder.0 {
             self.0.as_mut().unwrap().reset(&e.0);
         }
     }
 
-    #[inline(always)]
     pub(crate) fn memory_usage(&self) -> usize {
         self.0.as_ref().map_or(0, |c| c.memory_usage())
     }
@@ -113,13 +109,12 @@ impl BoundedBacktracker {
     }
 
     pub(crate) fn new(
-        config: &meta::Config,
+        info: &RegexInfo,
         nfa: &NFA,
-    ) -> Result<BoundedBacktracker, meta::BuildError> {
-        BoundedBacktrackerEngine::new(config, nfa).map(BoundedBacktracker)
+    ) -> Result<BoundedBacktracker, BuildError> {
+        BoundedBacktrackerEngine::new(info, nfa).map(BoundedBacktracker)
     }
 
-    #[inline(always)]
     pub(crate) fn create_cache(&self) -> BoundedBacktrackerCache {
         BoundedBacktrackerCache::new(self)
     }
@@ -160,24 +155,24 @@ pub(crate) struct BoundedBacktrackerEngine(
 );
 
 impl BoundedBacktrackerEngine {
-    #[inline(always)]
     pub(crate) fn new(
-        config: &meta::Config,
+        info: &RegexInfo,
         nfa: &NFA,
-    ) -> Result<Option<BoundedBacktrackerEngine>, meta::BuildError> {
+    ) -> Result<Option<BoundedBacktrackerEngine>, BuildError> {
         #[cfg(feature = "nfa-backtrack")]
         {
-            if !config.get_backtrack()
-                || config.get_match_kind() != MatchKind::LeftmostFirst
+            if !info.config.get_backtrack()
+                || info.config.get_match_kind() != MatchKind::LeftmostFirst
             {
                 return Ok(None);
             }
             let backtrack_config =
-                backtrack::Config::new().utf8(config.get_utf8());
+                backtrack::Config::new().utf8(info.config.get_utf8());
             let engine = backtrack::Builder::new()
                 .configure(backtrack_config)
                 .build_from_nfa(nfa.clone())
-                .map_err(meta::BuildError::nfa)?;
+                .map_err(BuildError::nfa)?;
+            trace!("BoundedBacktracker built");
             Ok(Some(BoundedBacktrackerEngine(engine)))
         }
         #[cfg(not(feature = "nfa-backtrack"))]
@@ -227,7 +222,6 @@ pub(crate) struct BoundedBacktrackerCache(
 );
 
 impl BoundedBacktrackerCache {
-    #[inline(always)]
     pub(crate) fn new(
         builder: &BoundedBacktracker,
     ) -> BoundedBacktrackerCache {
@@ -243,7 +237,6 @@ impl BoundedBacktrackerCache {
         }
     }
 
-    #[inline(always)]
     pub(crate) fn reset(&mut self, builder: &BoundedBacktracker) {
         #[cfg(feature = "nfa-backtrack")]
         if let Some(ref e) = builder.0 {
@@ -251,7 +244,6 @@ impl BoundedBacktrackerCache {
         }
     }
 
-    #[inline(always)]
     pub(crate) fn memory_usage(&self) -> usize {
         #[cfg(feature = "nfa-backtrack")]
         {
@@ -272,15 +264,10 @@ impl Hybrid {
         Hybrid(None)
     }
 
-    pub(crate) fn new(
-        config: &meta::Config,
-        nfa: &NFA,
-        nfarev: &NFA,
-    ) -> Hybrid {
-        Hybrid(HybridEngine::new(config, nfa, nfarev))
+    pub(crate) fn new(info: &RegexInfo, nfa: &NFA, nfarev: &NFA) -> Hybrid {
+        Hybrid(HybridEngine::new(info, nfa, nfarev))
     }
 
-    #[inline(always)]
     pub(crate) fn create_cache(&self) -> HybridCache {
         HybridCache::new(self)
     }
@@ -299,19 +286,18 @@ pub(crate) struct HybridEngine(
 );
 
 impl HybridEngine {
-    #[inline(always)]
     pub(crate) fn new(
-        config: &meta::Config,
+        info: &RegexInfo,
         nfa: &NFA,
         nfarev: &NFA,
     ) -> Option<HybridEngine> {
         #[cfg(feature = "hybrid")]
         {
-            if !config.get_hybrid() {
+            if !info.config.get_hybrid() {
                 return None;
             }
             let dfa_config = hybrid::dfa::Config::new()
-                .match_kind(config.get_match_kind())
+                .match_kind(info.config.get_match_kind())
                 // Unconditionally enabling this seems fine for a meta regex
                 // engine. It isn't too costly. At worst, it just uses a bit
                 // more memory for lazy DFAs (and DFAs, but we don't use those
@@ -319,11 +305,11 @@ impl HybridEngine {
                 // always supporting anchored searches for any of the patterns
                 // in the regex.
                 .starts_for_each_pattern(true)
-                .byte_classes(config.get_byte_classes())
+                .byte_classes(info.config.get_byte_classes())
                 .unicode_word_boundary(true)
                 // Set this to true if we have a prefilter
                 .specialize_start_states(false)
-                .cache_capacity(config.get_hybrid_cache_capacity())
+                .cache_capacity(info.config.get_hybrid_cache_capacity())
                 // This makes it possible for building a lazy DFA to
                 // fail even though the NFA has already been built. Namely,
                 // if the cache capacity is too small to fit some minimum
@@ -350,15 +336,36 @@ impl HybridEngine {
                 .build_from_nfa(nfarev.clone())
                 .ok()?;
             let hybrid_config =
-                hybrid::regex::Config::new().utf8(config.get_utf8());
+                hybrid::regex::Config::new().utf8(info.config.get_utf8());
             let engine = hybrid::regex::Builder::new()
                 .configure(hybrid_config)
                 .build_from_dfas(fwd, rev);
+            trace!("lazy DFA built");
             Some(HybridEngine(engine))
         }
         #[cfg(not(feature = "hybrid"))]
         {
             None
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_is_match(
+        &self,
+        cache: &mut HybridCache,
+        input: &Input<'_, '_>,
+    ) -> Result<bool, MatchError> {
+        #[cfg(feature = "hybrid")]
+        {
+            let fwd = self.0.forward();
+            let mut fwdcache = cache.0.as_mut().unwrap().as_parts_mut().0;
+            fwd.try_search_fwd(&mut fwdcache, input).map(|m| m.is_some())
+        }
+        #[cfg(not(feature = "hybrid"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
         }
     }
 
@@ -379,6 +386,27 @@ impl HybridEngine {
             unreachable!()
         }
     }
+
+    #[inline]
+    pub(crate) fn try_which_overlapping_matches(
+        &self,
+        cache: &mut HybridCache,
+        input: &Input<'_, '_>,
+        patset: &mut PatternSet,
+    ) -> Result<(), MatchError> {
+        #[cfg(feature = "hybrid")]
+        {
+            let fwd = self.0.forward();
+            let mut fwdcache = cache.0.as_mut().unwrap().as_parts_mut().0;
+            fwd.try_which_overlapping_matches(&mut fwdcache, input, patset)
+        }
+        #[cfg(not(feature = "hybrid"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -388,7 +416,6 @@ pub(crate) struct HybridCache(
 );
 
 impl HybridCache {
-    #[inline(always)]
     pub(crate) fn new(builder: &Hybrid) -> HybridCache {
         #[cfg(feature = "hybrid")]
         {
@@ -400,7 +427,6 @@ impl HybridCache {
         }
     }
 
-    #[inline(always)]
     pub(crate) fn reset(&mut self, builder: &Hybrid) {
         #[cfg(feature = "hybrid")]
         if let Some(ref e) = builder.0 {
@@ -408,7 +434,6 @@ impl HybridCache {
         }
     }
 
-    #[inline(always)]
     pub(crate) fn memory_usage(&self) -> usize {
         #[cfg(feature = "hybrid")]
         {
@@ -429,18 +454,21 @@ impl OnePass {
         OnePass(None)
     }
 
-    pub(crate) fn new(config: &meta::Config, nfa: &NFA) -> OnePass {
-        OnePass(OnePassEngine::new(config, nfa))
+    pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> OnePass {
+        OnePass(OnePassEngine::new(info, nfa))
     }
 
-    #[inline(always)]
     pub(crate) fn create_cache(&self) -> OnePassCache {
         OnePassCache::new(self)
     }
 
     #[inline(always)]
     pub(crate) fn get(&self, input: &Input<'_, '_>) -> Option<&OnePassEngine> {
+        return None;
         let engine = self.0.as_ref()?;
+        if !input.get_anchored().is_anchored() {
+            return None;
+        }
         Some(engine)
     }
 }
@@ -452,29 +480,49 @@ pub(crate) struct OnePassEngine(
 );
 
 impl OnePassEngine {
-    #[inline(always)]
-    pub(crate) fn new(
-        config: &meta::Config,
-        nfa: &NFA,
-    ) -> Option<OnePassEngine> {
+    pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> Option<OnePassEngine> {
         #[cfg(feature = "dfa-onepass")]
         {
-            if !config.get_onepass() {
+            use regex_syntax::hir::Look;
+
+            if !info.config.get_onepass() {
+                return None;
+            }
+            // In order to even attempt building a one-pass DFA, we require
+            // that we either have at least one explicit capturing group or
+            // there's a Unicode word boundary somewhere. If we don't have
+            // either of these things, then the lazy DFA will almost certainly
+            // be useable and be much faster. The only case where it might
+            // not is if the lazy DFA isn't utilizing its cache effectively,
+            // but in those cases, the underlying regex is almost certainly
+            // not one-pass or is too big to fit within the current one-pass
+            // implementation limits.
+            if info.props_union.captures_len() == 0
+                && !info.props_union.look_set().contains_word_unicode()
+            {
+                trace!("not building OnePass because it isn't worth it");
                 return None;
             }
             let onepass_config = onepass::Config::new()
-                .match_kind(config.get_match_kind())
-                .utf8(config.get_utf8())
+                .match_kind(info.config.get_match_kind())
+                .utf8(info.config.get_utf8())
                 // Like for the lazy DFA, we unconditionally enable this
                 // because it doesn't cost much and makes the API more
                 // flexible.
                 .starts_for_each_pattern(true)
-                .byte_classes(config.get_byte_classes())
-                .size_limit(config.get_onepass_size_limit());
-            let engine = onepass::Builder::new()
+                .byte_classes(info.config.get_byte_classes())
+                .size_limit(info.config.get_onepass_size_limit());
+            let result = onepass::Builder::new()
                 .configure(onepass_config)
-                .build_from_nfa(nfa.clone())
-                .ok()?;
+                .build_from_nfa(nfa.clone());
+            let engine = match result {
+                Ok(engine) => engine,
+                Err(err) => {
+                    trace!("OnePass failed to build: {}", err);
+                    return None;
+                }
+            };
+            trace!("OnePass built");
             Some(OnePassEngine(engine))
         }
         #[cfg(not(feature = "dfa-onepass"))]
@@ -510,7 +558,6 @@ pub(crate) struct OnePassCache(
 );
 
 impl OnePassCache {
-    #[inline(always)]
     pub(crate) fn new(builder: &OnePass) -> OnePassCache {
         #[cfg(feature = "dfa-onepass")]
         {
@@ -522,7 +569,6 @@ impl OnePassCache {
         }
     }
 
-    #[inline(always)]
     pub(crate) fn reset(&mut self, builder: &OnePass) {
         #[cfg(feature = "dfa-onepass")]
         if let Some(ref e) = builder.0 {
@@ -530,7 +576,6 @@ impl OnePassCache {
         }
     }
 
-    #[inline(always)]
     pub(crate) fn memory_usage(&self) -> usize {
         #[cfg(feature = "dfa-onepass")]
         {

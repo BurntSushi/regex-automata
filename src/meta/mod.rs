@@ -52,9 +52,7 @@ mod wrappers;
 
 #[derive(Clone, Debug)]
 pub struct Regex {
-    config: Config,
-    props: Vec<hir::Properties>,
-    props_union: hir::Properties,
+    info: RegexInfo,
     strat: Arc<dyn Strategy>,
 }
 
@@ -69,18 +67,13 @@ impl Regex {
         Regex::builder().build_many(patterns)
     }
 
-    /*
-    // TODO: Not fully clear at time of writing how best to implement these.
-    // The impl below is likely what we'll do, but I'm not quite sure of the
-    // data structure layout yet.
     pub fn always_match() -> Result<Regex, BuildError> {
-        Regex::builder().build_from_nfa(NFA::always_match())
+        Regex::new("")
     }
 
     pub fn never_match() -> Result<Regex, BuildError> {
-        Regex::builder().build_from_nfa(NFA::never_match())
+        Regex::new(r"[a&&b]")
     }
-    */
 
     pub fn config() -> Config {
         Config::new()
@@ -114,11 +107,11 @@ impl Regex {
     }
 
     pub fn pattern_len(&self) -> usize {
-        self.props.len()
+        self.info.props.len()
     }
 
     pub fn get_config(&self) -> &Config {
-        &self.config
+        &self.info.config
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -213,6 +206,13 @@ impl Regex {
     ) -> Result<(), MatchError> {
         self.strat.try_which_overlapping_matches(cache, input, patset)
     }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RegexInfo {
+    pub(crate) config: Config,
+    pub(crate) props: Vec<hir::Properties>,
+    pub(crate) props_union: hir::Properties,
 }
 
 #[derive(Debug)]
@@ -490,8 +490,9 @@ impl Builder {
             props.push(hir.properties().clone());
         }
         let props_union = hir::Properties::union(&props);
-        let strat = self::strategy::new(&config, &props, &props_union, &hirs)?;
-        Ok(Regex { config, props, props_union, strat })
+        let info = RegexInfo { config, props, props_union };
+        let strat = self::strategy::new(&info, &hirs)?;
+        Ok(Regex { info, strat })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {

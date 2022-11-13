@@ -9,6 +9,8 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[cfg(not(miri))]
 fn suite() -> Result<ret::RegexTests> {
+    let _ = env_logger::try_init();
+
     let mut tests = ret::RegexTests::new();
     macro_rules! load {
         ($name:expr) => {{

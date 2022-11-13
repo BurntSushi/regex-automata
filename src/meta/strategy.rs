@@ -9,14 +9,13 @@ use alloc::sync::Arc;
 use regex_syntax::hir::{self, Hir};
 
 use crate::{
-    meta::{self, wrappers, BuildError},
+    meta::{self, wrappers, BuildError, RegexInfo},
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
         captures::Captures,
         primitives::{NonMaxUsize, PatternID},
-        search::{Input, Match, MatchError, PatternSet},
+        search::{Anchored, Input, Match, MatchError, MatchKind, PatternSet},
     },
-    MatchKind,
 };
 
 #[cfg(feature = "dfa-onepass")]
@@ -128,12 +127,10 @@ pub(super) trait Strategy:
 }
 
 pub(super) fn new(
-    config: &meta::Config,
-    props: &[hir::Properties],
-    props_union: &hir::Properties,
+    info: &RegexInfo,
     hirs: &[&Hir],
 ) -> Result<Arc<dyn Strategy>, BuildError> {
-    Core::new(config, hirs)
+    Core::new(info, hirs)
 }
 
 #[derive(Debug)]
@@ -148,18 +145,33 @@ struct Core {
 
 impl Core {
     fn new(
-        config: &meta::Config,
+        info: &RegexInfo,
         hirs: &[&Hir],
     ) -> Result<Arc<dyn Strategy>, BuildError> {
         let thompson_config = thompson::Config::new()
-            .nfa_size_limit(config.get_nfa_size_limit())
+            .nfa_size_limit(info.config.get_nfa_size_limit())
             .shrink(false)
             .captures(true);
         let nfa = thompson::Compiler::new()
             .configure(thompson_config.clone())
             .build_many_from_hir(hirs)
             .map_err(BuildError::nfa)?;
-        let (nfarev, hybrid) = if !config.get_hybrid() {
+        // It's possible for the PikeVM or the BB to fail to build, even though
+        // at this point, we already have a full NFA in hand. They can fail
+        // when a Unicode word boundary is used but where Unicode word boundary
+        // support is disabled at compile time, thus making it impossible to
+        // match. (Construction can also fail if the NFA was compiled without
+        // captures, but we always enable that above.)
+        let pikevm = wrappers::PikeVM::new(info, &nfa)?;
+        let backtrack = wrappers::BoundedBacktracker::new(info, &nfa)?;
+        let onepass = wrappers::OnePass::new(info, &nfa);
+        // We try to encapsulate whether a particular regex engine should
+        // be used within each respective wrapper, but the lazy DFA needs a
+        // reverse NFA to build itself, and we really do not want to build a
+        // reverse NFA if we know we aren't going to use the lazy DFA. So we do
+        // a config check up front, which is in practice the only way we won't
+        // try to use the lazy DFA.
+        let (nfarev, hybrid) = if !info.config.get_hybrid() {
             (None, wrappers::Hybrid::none())
         } else {
             let nfarev = thompson::Compiler::new()
@@ -173,13 +185,57 @@ impl Core {
                 )
                 .build_many_from_hir(hirs)
                 .map_err(BuildError::nfa)?;
-            let hybrid = wrappers::Hybrid::new(config, &nfa, &nfarev);
+            let hybrid = wrappers::Hybrid::new(info, &nfa, &nfarev);
             (Some(nfarev), hybrid)
         };
-        let pikevm = wrappers::PikeVM::new(config, &nfa)?;
-        let backtrack = wrappers::BoundedBacktracker::new(config, &nfa)?;
-        let onepass = wrappers::OnePass::new(config, &nfa);
         Ok(Arc::new(Core { nfa, nfarev, pikevm, backtrack, onepass, hybrid }))
+    }
+
+    fn try_find_no_hybrid(
+        &self,
+        cache: &mut meta::Cache,
+        input: &Input<'_, '_>,
+    ) -> Result<Option<Match>, MatchError> {
+        let caps = &mut cache.capmatches;
+        caps.set_pattern(None);
+        // We manually inline 'try_slots_no_hybrid' here because we need to
+        // borrow from 'cache.capmatches' in this method, but if we do, then
+        // we can't pass 'cache' wholesale to to 'try_slots_no_hybrid'. It's a
+        // classic example of how the borrow checker inhibits decomposition.
+        // There are of course work-arounds (more types and/or interior
+        // mutability), but that's more annoying than this IMO.
+        let pid = if let Some(ref e) = self.onepass.get(input) {
+            trace!("using OnePass for basic search");
+            e.try_slots(&mut cache.onepass, input, caps.slots_mut())
+        } else if let Some(ref e) = self.backtrack.get(input) {
+            trace!("using BoundedBacktracker for basic search");
+            e.try_slots(&mut cache.backtrack, input, caps.slots_mut())
+        } else {
+            trace!("using PikeVM for basic search");
+            let e = self.pikevm.get().expect("PikeVM is always available");
+            e.try_slots(&mut cache.pikevm, input, caps.slots_mut())
+        }?;
+        caps.set_pattern(pid);
+        Ok(caps.get_match())
+    }
+
+    fn try_slots_no_hybrid(
+        &self,
+        cache: &mut meta::Cache,
+        input: &Input<'_, '_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
+        if let Some(ref e) = self.onepass.get(input) {
+            trace!("using OnePass for capture search");
+            e.try_slots(&mut cache.onepass, input, slots)
+        } else if let Some(ref e) = self.backtrack.get(input) {
+            trace!("using BoundedBacktracker for capture search");
+            e.try_slots(&mut cache.backtrack, input, slots)
+        } else {
+            trace!("using PikeVM for capture search");
+            let e = self.pikevm.get().expect("PikeVM is always available");
+            e.try_slots(&mut cache.pikevm, input, slots)
+        }
     }
 }
 
@@ -210,15 +266,19 @@ impl Strategy for Core {
         cache: &mut meta::Cache,
         input: &Input<'_, '_>,
     ) -> Result<bool, MatchError> {
-        if let Some(ref e) = self.backtrack.get(input) {
-            return e
-                .try_slots(&mut cache.backtrack, input, &mut [])
-                .map(|p| p.is_some());
+        if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for 'is match'");
+            let err = match e.try_is_match(&mut cache.hybrid, input) {
+                Ok(matched) => return Ok(matched),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!("lazy DFA failed for 'is match', using fallback");
+            // Fallthrough to the fallback.
         }
-        self.pikevm
-            .get()
-            .expect("PikeVM is always available")
-            .try_slots(&mut cache.pikevm, input, &mut [])
+        self.try_slots_no_hybrid(cache, input, &mut [])
             .map(|pid| pid.is_some())
     }
 
@@ -227,16 +287,19 @@ impl Strategy for Core {
         cache: &mut meta::Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let caps = &mut cache.capmatches;
-        caps.set_pattern(None);
-        let pid = if let Some(ref e) = self.backtrack.get(input) {
-            e.try_slots(&mut cache.backtrack, input, caps.slots_mut())?
-        } else {
-            let e = self.pikevm.get().expect("PikeVM is always available");
-            e.try_slots(&mut cache.pikevm, input, caps.slots_mut())?
-        };
-        caps.set_pattern(pid);
-        Ok(caps.get_match())
+        if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for basic search");
+            let err = match e.try_find(&mut cache.hybrid, input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!("lazy DFA failed in basic search, using fallback");
+            // Fallthrough to the fallback.
+        }
+        self.try_find_no_hybrid(cache, input)
     }
 
     fn try_slots(
@@ -245,12 +308,60 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
-        if let Some(ref e) = self.backtrack.get(input) {
-            e.try_slots(&mut cache.backtrack, input, slots)
-        } else {
-            let e = self.pikevm.get().expect("PikeVM is always available");
-            e.try_slots(&mut cache.pikevm, input, slots)
+        // Even if the regex has explicit capture groups, if the caller didn't
+        // provide any explicit slots, then it doesn't make sense to try and do
+        // extra work to get offsets for those slots. Ideally the caller should
+        // realize this and not call this routine in the first place, but alas,
+        // we try to save the caller from themselves if they do.
+        if slots.len() <= self.nfa.group_info().explicit_slot_len() {
+            trace!("asked for slots unnecessarily, diverting to 'find'");
+            let m = match self.try_find(cache, input)? {
+                None => return Ok(None),
+                Some(m) => m,
+            };
+            let slot_start = m.pattern().as_usize() * 2;
+            let slot_end = slot_start + 1;
+            if slot_start < slots.len() {
+                slots[slot_start] = NonMaxUsize::new(m.start());
+                if slot_end < slots.len() {
+                    slots[slot_end] = NonMaxUsize::new(m.end());
+                }
+            }
+            return Ok(Some(m.pattern()));
         }
+        if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for capture search");
+            match e.try_find(&mut cache.hybrid, input) {
+                Ok(None) => return Ok(None),
+                Ok(Some(m)) => {
+                    // At this point, now that we've found the bounds of the
+                    // match, we need to re-run something that can resolve
+                    // capturing groups. But we only need to run on it on the
+                    // match bounds and not the entire haystack.
+                    trace!(
+                        "match found at {}..{}, \
+                         using another engine to find captures",
+                        m.start(),
+                        m.end(),
+                    );
+                    let input = input
+                        .clone()
+                        .span(m.start()..m.end())
+                        .anchored(Anchored::Yes);
+                    return self.try_slots_no_hybrid(cache, &input, slots);
+                }
+                Err(err) => {
+                    if !is_err_quit_or_gaveup(&err) {
+                        return Err(err);
+                    }
+                    trace!(
+                        "lazy DFA failed in capture search, using fallback"
+                    );
+                    // Otherwise fallthrough to the fallback below.
+                }
+            };
+        }
+        self.try_slots_no_hybrid(cache, input, slots)
     }
 
     fn try_which_overlapping_matches(
@@ -259,7 +370,36 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
+        if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for overlapping search");
+            let err = match e.try_which_overlapping_matches(
+                &mut cache.hybrid,
+                input,
+                patset,
+            ) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!("lazy DFA failed in overlapping search, using fallback");
+            // Fallthrough to the fallback.
+        }
         let e = self.pikevm.get().expect("PikeVM is always available");
         e.which_overlapping_matches(&mut cache.pikevm, input, patset)
     }
+}
+
+/// Returns true only when the given error corresponds to a search that failed
+/// quit because it saw a specific byte, or gave up because it thought itself
+/// to be too slow.
+///
+/// This is useful for checking whether an error returned by the lazy DFA
+/// should be bubbled up or if it should result in running another regex
+/// engine. Errors like "invalid pattern ID" should get bubbled up, while
+/// quitting or giving up should result in trying a different engine.
+fn is_err_quit_or_gaveup(err: &MatchError) -> bool {
+    use crate::MatchErrorKind::*;
+    matches!(*err.kind(), Quit { .. } | GaveUp { .. })
 }

@@ -40,7 +40,7 @@ use crate::{
 /// Be warned that this number could be quite large as it is multiplicative in
 /// the size the given NFA and haystack.
 pub fn min_visited_capacity(nfa: &NFA, input: &Input<'_, '_>) -> usize {
-    div_ceil(nfa.states().len() * (input.haystack().len() + 1), 8)
+    div_ceil(nfa.states().len() * (input.get_span().len() + 1), 8)
 }
 
 /// The configuration used for building a bounded backtracker.
@@ -1552,12 +1552,18 @@ impl BoundedBacktracker {
             }
             match *self.nfa.state(sid) {
                 State::ByteRange { ref trans } => {
+                    if at >= input.end() {
+                        return None;
+                    }
                     if trans.matches(input.haystack(), at) {
                         sid = trans.next;
                         at += 1;
                     }
                 }
                 State::Sparse(ref sparse) => {
+                    if at >= input.end() {
+                        return None;
+                    }
                     if let Some(next) = sparse.matches(input.haystack(), at) {
                         sid = next;
                         at += 1;
@@ -1993,9 +1999,8 @@ impl Visited {
         let haylen = input.get_span().len();
         let err = || MatchError::haystack_too_long(haylen);
         // Our stride is one more than the length of the input because our main
-        // search loop includes the position at input.haystack().len(). (And
-        // it does this because matches are delayed by one byte to account for
-        // look-around.)
+        // search loop includes the position at input.end(). (And it does this
+        // because matches are delayed by one byte to account for look-around.)
         self.stride = haylen + 1;
         let capacity = match nfa.states().len().checked_mul(self.stride) {
             None => return Err(err()),
