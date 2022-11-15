@@ -85,6 +85,10 @@ impl PikeVMEngine {
 pub(crate) struct PikeVMCache(Option<pikevm::Cache>);
 
 impl PikeVMCache {
+    pub(crate) fn none() -> PikeVMCache {
+        PikeVMCache(None)
+    }
+
     pub(crate) fn new(builder: &PikeVM) -> PikeVMCache {
         PikeVMCache(builder.0.as_ref().map(|e| e.0.create_cache()))
     }
@@ -222,6 +226,10 @@ pub(crate) struct BoundedBacktrackerCache(
 );
 
 impl BoundedBacktrackerCache {
+    pub(crate) fn none() -> BoundedBacktrackerCache {
+        BoundedBacktrackerCache(None)
+    }
+
     pub(crate) fn new(
         builder: &BoundedBacktracker,
     ) -> BoundedBacktrackerCache {
@@ -416,6 +424,10 @@ pub(crate) struct HybridCache(
 );
 
 impl HybridCache {
+    pub(crate) fn none() -> HybridCache {
+        HybridCache(None)
+    }
+
     pub(crate) fn new(builder: &Hybrid) -> HybridCache {
         #[cfg(feature = "hybrid")]
         {
@@ -557,6 +569,10 @@ pub(crate) struct OnePassCache(
 );
 
 impl OnePassCache {
+    pub(crate) fn none() -> OnePassCache {
+        OnePassCache(None)
+    }
+
     pub(crate) fn new(builder: &OnePass) -> OnePassCache {
         #[cfg(feature = "dfa-onepass")]
         {

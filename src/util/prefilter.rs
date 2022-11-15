@@ -12,26 +12,55 @@ use memchr::{memchr, memchr2, memchr3, memmem};
 
 use crate::util::search::{MatchKind, Span};
 
-pub trait Prefilter: Debug + Send + Sync + RefUnwindSafe + UnwindSafe {
+pub trait Prefilter:
+    Debug + Send + Sync + RefUnwindSafe + UnwindSafe + 'static
+{
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span>;
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span>;
 
     fn memory_usage(&self) -> usize;
 }
 
-impl<'a, P: Prefilter + ?Sized> Prefilter for &'a P {
-    #[inline]
-    fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        (**self).find(haystack, span)
-    }
-
-    #[inline]
-    fn memory_usage(&self) -> usize {
-        (**self).memory_usage()
-    }
+macro_rules! new {
+    ($needles:ident) => {{
+        let needles = $needles;
+        if needles.len() == 0 {
+            return None;
+        }
+        #[cfg(feature = "perf-literal-substring")]
+        if needles.len() == 1 {
+            return Some(match needles[0].as_ref().len() {
+                0 => return None,
+                1 => Arc::new(Memchr(needles[0].as_ref()[0])),
+                _ => Arc::new(Memmem::new(needles[0].as_ref())),
+            });
+        }
+        #[cfg(feature = "perf-literal-multisubstring")]
+        if let Some(byteset) = ByteSet::new(needles) {
+            return Some(Arc::new(byteset));
+        }
+        #[cfg(feature = "perf-literal-multisubstring")]
+        if let Some(packed) = Packed::new(needles) {
+            return Some(Arc::new(packed));
+        }
+        #[cfg(feature = "perf-literal-multisubstring")]
+        if let Some(ac) = AhoCorasick::new(needles) {
+            return Some(Arc::new(ac));
+        }
+        None
+    }};
 }
 
-pub fn new<B: AsRef<[u8]>>(_needles: &[B]) -> Arc<dyn Prefilter + 'static> {
-    todo!()
+pub fn new<B: AsRef<[u8]>>(
+    needles: &[B],
+) -> Option<Arc<dyn Prefilter + 'static>> {
+    new!(needles)
+}
+
+pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
+    needles: &[B],
+) -> Option<Arc<dyn crate::meta::Strategy + 'static>> {
+    new!(needles)
 }
 
 #[cfg(feature = "perf-literal-substring")]
@@ -46,6 +75,15 @@ impl Prefilter for Memchr {
             let end = start + 1;
             Span { start, end }
         })
+    }
+
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        let b = *haystack.get(span.start)?;
+        if self.0 == b {
+            Some(Span { start: span.start, end: span.start + 1 })
+        } else {
+            None
+        }
     }
 
     fn memory_usage(&self) -> usize {
@@ -67,6 +105,15 @@ impl Prefilter for Memchr2 {
         })
     }
 
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        let b = *haystack.get(span.start)?;
+        if self.0 == b || self.1 == b {
+            Some(Span { start: span.start, end: span.start + 1 })
+        } else {
+            None
+        }
+    }
+
     fn memory_usage(&self) -> usize {
         0
     }
@@ -86,6 +133,15 @@ impl Prefilter for Memchr3 {
         })
     }
 
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        let b = *haystack.get(span.start)?;
+        if self.0 == b || self.1 == b || self.2 == b {
+            Some(Span { start: span.start, end: span.start + 1 })
+        } else {
+            None
+        }
+    }
+
     fn memory_usage(&self) -> usize {
         0
     }
@@ -99,7 +155,10 @@ impl ByteSet {
         let mut set = [false; 256];
         for needle in needles.iter() {
             let needle = needle.as_ref();
-            set[usize::from(*needle.get(0)?)] = true;
+            if needle.len() != 1 {
+                return None;
+            }
+            set[usize::from(needle[0])] = true;
         }
         Some(ByteSet(set))
     }
@@ -112,6 +171,15 @@ impl Prefilter for ByteSet {
             let end = start + 1;
             Span { start, end }
         })
+    }
+
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        let b = *haystack.get(span.start)?;
+        if self.0[usize::from(b)] {
+            Some(Span { start: span.start, end: span.start + 1 })
+        } else {
+            None
+        }
     }
 
     fn memory_usage(&self) -> usize {
@@ -140,6 +208,15 @@ impl Prefilter for Memmem {
         })
     }
 
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        let needle = self.0.needle();
+        if haystack[span].starts_with(needle) {
+            Some(Span { end: span.start + needle.len(), ..span })
+        } else {
+            None
+        }
+    }
+
     fn memory_usage(&self) -> usize {
         self.0.needle().len()
     }
@@ -147,60 +224,47 @@ impl Prefilter for Memmem {
 
 #[cfg(feature = "perf-literal-multisubstring")]
 #[derive(Clone, Debug)]
-struct Packed(packed::Searcher);
+struct Packed {
+    packed: packed::Searcher,
+    /// When running an anchored search, the packed searcher can't handle it so
+    /// we defer to Aho-Corasick itself. Kind of sad, but changing the packed
+    /// searchers would be difficult at worst and annoying at best. Since
+    /// packed searchers only apply to small numbers of literals, we content
+    /// ourselves that this is not much of an added cost.
+    anchored_ac: aho_corasick::AhoCorasick<u32>,
+}
 
 #[cfg(feature = "perf-literal-multisubstring")]
 impl Packed {
     fn new<B: AsRef<[u8]>>(needles: &[B]) -> Option<Packed> {
-        packed::Config::new()
+        let packed = packed::Config::new()
             .match_kind(packed::MatchKind::LeftmostFirst)
             .builder()
             .extend(needles)
-            .build()
-            .map(Packed)
+            .build()?;
+        let anchored_ac = AhoCorasickBuilder::new()
+            .match_kind(aho_corasick::MatchKind::LeftmostFirst)
+            .anchored(true)
+            // OK because packed searchers only get build when the number of
+            // needles is very small.
+            .dfa(true)
+            .prefilter(false)
+            .build_with_size::<u32, _, _>(needles)
+            .ok()?;
+        Some(Packed { packed, anchored_ac })
     }
 }
 
 #[cfg(feature = "perf-literal-multisubstring")]
 impl Prefilter for Packed {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.0
+        self.packed
             .find_at(haystack, span.start)
             .map(|m| Span { start: m.start(), end: m.end() })
     }
 
-    fn memory_usage(&self) -> usize {
-        self.0.heap_bytes()
-    }
-}
-
-#[cfg(feature = "perf-literal-multisubstring")]
-#[derive(Clone, Debug)]
-struct AhoCorasick(aho_corasick::AhoCorasick<u32>);
-
-#[cfg(feature = "perf-literal-multisubstring")]
-impl AhoCorasick {
-    fn new<B: AsRef<[u8]>>(needles: &[B]) -> Option<AhoCorasick> {
-        AhoCorasickBuilder::new()
-            .match_kind(aho_corasick::MatchKind::LeftmostFirst)
-            .dfa(needles.len() <= 5_000)
-            // We try to handle all of the prefilter cases here, and only
-            // use Aho-Corasick for the actual automaton. The aho-corasick
-            // crate does have some extra prefilters, namely, looking for
-            // rare bytes to feed to memchr{,2,3} instead of just the first
-            // byte. If we end up wanting those---and they are somewhat tricky
-            // to implement---then we could port them to this crate.
-            .prefilter(false)
-            .build_with_size::<u32, _, _>(needles)
-            .ok()
-            .map(AhoCorasick)
-    }
-}
-
-#[cfg(feature = "perf-literal-multisubstring")]
-impl Prefilter for AhoCorasick {
-    fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.0.find(&haystack[span]).map(|m| {
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        self.anchored_ac.find(&haystack[span]).map(|m| {
             let start = span.start + m.start();
             let end = start + m.len();
             Span { start, end }
@@ -208,7 +272,77 @@ impl Prefilter for AhoCorasick {
     }
 
     fn memory_usage(&self) -> usize {
-        self.0.heap_bytes()
+        self.packed.heap_bytes() + self.anchored_ac.heap_bytes()
+    }
+}
+
+#[cfg(feature = "perf-literal-multisubstring")]
+#[derive(Clone, Debug)]
+struct AhoCorasick {
+    ac: aho_corasick::AhoCorasick<u32>,
+    /// Currently, an unanchored Aho-Corasick searcher cannot also do an
+    /// anchored search. So we need to build an entirely separate one just for
+    /// that.
+    ///
+    /// TODO: We should ideally fix this before release, but this particular
+    /// use of Aho-Corasick should be limited to small literal sets and
+    /// so the extra cost here is probably pretty small. The case where
+    /// we might build large Aho-Corasick automatons is handled inside of
+    /// src/meta/strategy.rs, and is a special case of regexes that just
+    /// consist of literals or alternations of literals. (And it is special
+    /// cased there because it needs to map between literals that matched with
+    /// their corresponding patterns. This module's prefilter API doesn't
+    /// provide that expressive power, mostly in the name of simplicity.)
+    anchored_ac: aho_corasick::AhoCorasick<u32>,
+}
+
+#[cfg(feature = "perf-literal-multisubstring")]
+impl AhoCorasick {
+    fn new<B: AsRef<[u8]>>(needles: &[B]) -> Option<AhoCorasick> {
+        let ac = AhoCorasickBuilder::new()
+            .match_kind(aho_corasick::MatchKind::LeftmostFirst)
+            .dfa(needles.len() <= 5_000)
+            // We try to handle all of the prefilter cases here, and only
+            // use Aho-Corasick for the actual automaton. The aho-corasick
+            // crate does have some extra prefilters, namely, looking for
+            // rare bytes to feed to memchr{,2,3} instead of just the first
+            // byte. If we end up wanting those---and they are somewhat tricky
+            // to implement---then we could port them to this crate. Although,
+            // IIRC, they do require some more prefilter infrastructure.
+            .prefilter(false)
+            .build_with_size::<u32, _, _>(needles)
+            .ok()?;
+        let anchored_ac = AhoCorasickBuilder::new()
+            .match_kind(aho_corasick::MatchKind::LeftmostFirst)
+            .anchored(true)
+            .dfa(needles.len() <= 5_000)
+            .prefilter(false)
+            .build_with_size::<u32, _, _>(needles)
+            .ok()?;
+        Some(AhoCorasick { ac, anchored_ac })
+    }
+}
+
+#[cfg(feature = "perf-literal-multisubstring")]
+impl Prefilter for AhoCorasick {
+    fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        self.ac.find(&haystack[span]).map(|m| {
+            let start = span.start + m.start();
+            let end = start + m.len();
+            Span { start, end }
+        })
+    }
+
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        self.anchored_ac.find(&haystack[span]).map(|m| {
+            let start = span.start + m.start();
+            let end = start + m.len();
+            Span { start, end }
+        })
+    }
+
+    fn memory_usage(&self) -> usize {
+        self.ac.heap_bytes() + self.anchored_ac.heap_bytes()
     }
 }
 
@@ -229,6 +363,10 @@ pub struct None {
 
 impl Prefilter for None {
     fn find(&self, _: &[u8], span: Span) -> Option<Span> {
+        Some(Span { start: span.start, end: span.start })
+    }
+
+    fn prefix(&self, _: &[u8], span: Span) -> Option<Span> {
         Some(Span { start: span.start, end: span.start })
     }
 

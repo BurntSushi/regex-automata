@@ -4,15 +4,16 @@ use core::{
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec};
 
-use regex_syntax::hir::{self, Hir};
+use regex_syntax::hir::{self, literal, Hir};
 
 use crate::{
     meta::{wrappers, BuildError, Cache, RegexInfo},
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
-        captures::Captures,
+        captures::{Captures, GroupInfo},
+        prefilter::{self, Prefilter},
         primitives::{NonMaxUsize, PatternID},
         search::{Anchored, Input, Match, MatchError, MatchKind, PatternSet},
     },
@@ -25,73 +26,8 @@ use crate::hybrid;
 #[cfg(feature = "nfa-backtrack")]
 use crate::nfa::thompson::backtrack;
 
-// BREADCRUMBS:
-//
-// This whole 'Strategy' trait just doesn't feel right... At first I thought I
-// would have a whole bunch of impls, but the trait has a lot of surface area
-// and having a lot of impls would be really quite annoying.
-//
-// So maybe we need to list out what the actual strategies are? The other issue
-// is that we might want to change strategies if one proves ineffective.
-//
-// Maybe another way to think about this is to split strategies up into
-// different components and then compose them. Like one component could be
-// "call this to extract captures." And that routine knows whether to use
-// onpass, backtracking or the PikeVM.
-//
-// Issues crop up with unbridled composition though. For example, if someone
-// asks for captures, we would normally want to run the lazy DFA to find
-// the match bounds and *then* ask for captures. But if the lazy DFA is
-// unavailable, then we'd probably just want to just run an unanchored search
-// with backtracking or the PikeVM directly instead of first trying to find the
-// match bounds. OK, let's try to write this out in pseudo-code for each of the
-// 3 fundamental questions: has a match? where is it? where are the submatches?
-//
-// definitions
-// -----------
-// anchored_at_end:
-//   props.look_set_suffix().contains(Look::End)
-// ahocorasick:
-//   cfg(perf-literal-multisubstring)
-//     && props.captures_len() == 0
-//     && props.is_alternation_literal()
-// substring:
-//   cfg(perf-literal-substring)
-//     && props.captures_len() == 0
-//     && props.is_literal()
-// lazydfa:
-//   cfg(hybrid) && config.get_hybrid()
-// reversesuffix:
-//   lazydfa
-//     && len(suffixes.longest_common_suffix()) >= 3
-// onepass
-//   cfg(onepass) && config.get_onepass() && OneBuild::new().is_ok()
-// backtrack
-//   cfg(backtrack)
-//
-// is_match
-// --------
-// if anchored_at_end && lazydfa:
-//   if let Ok(matched) = lazydfa.reverse().run():
-//      return matched
-// elif substring:
-//   return substring.run()
-// elif ahocorasick:
-//   return ahocorasick.run()
-// elif reversesuffix:
-//   if let Ok(matched) = reversesuffix.run():
-//      return matched
-// elif lazydfa:
-//   if let Ok(matched) = lazydfa.forward().run():
-//      return matched
-// if onepass:
-//   return onepass.is_match()
-// if backtrack:
-//   return backtrack.is_match()
-// return pikevm.is_match()
-
-pub(super) trait Strategy:
-    Debug + Send + Sync + RefUnwindSafe + UnwindSafe
+pub(crate) trait Strategy:
+    Debug + Send + Sync + RefUnwindSafe + UnwindSafe + 'static
 {
     fn create_captures(&self) -> Captures;
 
@@ -126,10 +62,162 @@ pub(super) trait Strategy:
     ) -> Result<(), MatchError>;
 }
 
+// Implement strategy for anything that implements prefilter.
+//
+// Note that this must only be used for regexes of length 1. Multi-regexes
+// don't work here. The prefilter interface only provides the span of a match
+// and not the pattern ID. (I did consider making it more expressive, but I
+// couldn't figure out how to tie everything together elegantly.) Thus, so long
+// as the regex only contains one pattern, we can simply assume that a match
+// corresponds to PatternID::ZERO. And indeed, that's what we do here.
+//
+// In practice, since this impl is used to report matches directly and thus
+// completely bypasses the regex engine, we only wind up using this under the
+// following restrictions:
+//
+// * There must be only one pattern. As explained above.
+// * The literal sequence must be finite and only contain exact literals.
+// * There must not be any look-around assertions. If there are, the literals
+// extracted might be exact, but a match doesn't necessarily imply an overall
+// match. As a trivial example, 'foo\bbar' does not match 'foobar'.
+// * The pattern must not have any explicit capturing groups. If it does, the
+// caller might expect them to be resolved. e.g., 'foo(bar)'.
+//
+// So when all of those things are true, we use a prefilter directly as a
+// strategy.
+//
+// In the case where the number of patterns is more than 1, we don't use this
+// but do use a special Aho-Corasick strategy if all of the regexes are just
+// simple literals or alternations of literals. (We also use the Aho-Corasick
+// strategy when len(patterns)==1 if the number of literals is large. In that
+// case, literal extraction gives up and will return an infinite set.)
+impl<T: Prefilter> Strategy for T {
+    fn create_captures(&self) -> Captures {
+        // The only thing we support here is the start and end of the overall
+        // match for a single pattern. In other words, exactly one implicit
+        // capturing group. In theory, capturing groups should never be used
+        // for this regex because the only way this impl gets used is if there
+        // are no explicit capturing groups. Thus, asking to resolve capturing
+        // groups is always wasteful.
+        let info = GroupInfo::new(vec![vec![None::<&str>]]).unwrap();
+        Captures::matches(info)
+    }
+
+    fn create_cache(&self) -> Cache {
+        Cache {
+            capmatches: self.create_captures(),
+            pikevm: wrappers::PikeVMCache::none(),
+            backtrack: wrappers::BoundedBacktrackerCache::none(),
+            onepass: wrappers::OnePassCache::none(),
+            hybrid: wrappers::HybridCache::none(),
+        }
+    }
+
+    fn reset_cache(&self, cache: &mut Cache) {}
+
+    fn try_is_match(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+    ) -> Result<bool, MatchError> {
+        self.try_find(cache, input).map(|m| m.is_some())
+    }
+
+    fn try_find(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+    ) -> Result<Option<Match>, MatchError> {
+        // BREADCRUMBS: So I got anchored searches working correctly, but the
+        // earliest searches are still not consistent with how the regex
+        // engines work. What to do?
+        //
+        // Maybe Prefilter needs to accept an Input? Although it's kind of
+        // chunky to create when calling the prefilter since the span needs
+        // to be modified. Annoying. But basically, if the prefilter knew an
+        // earliest search was requested, it could do something different.
+        //
+        // Aho-Corasick could just call 'earliest_find'.
+        //
+        // 'packed' could build another Aho-Corasick automaton for calling
+        // 'earliest_find'. (Which we could eliminate by making all
+        // Aho-Corasick automatons capable of doing anchored searches.) We
+        // could also add "earliest" searching to the packed searches, but
+        // that feels difficult given their highly specialized nature.
+        //
+        // Either that, or we declare that "earliest" isn't actually consistent
+        // and might return different results depending on implementation
+        // details. That's tempting, because that's the path of least
+        // resistant. And it would also let us use the bounded backtracker
+        // should we deem it worth it when 'earliest' is enabled...
+        //
+        // I think that's it for options?
+        if input.is_done() {
+            return Ok(None);
+        }
+        if input.get_anchored().is_anchored() {
+            return Ok(self
+                .prefix(input.haystack(), input.get_span())
+                .map(|sp| Match::new(PatternID::ZERO, sp)));
+        }
+        Ok(self
+            .find(input.haystack(), input.get_span())
+            .map(|sp| Match::new(PatternID::ZERO, sp)))
+    }
+
+    fn try_slots(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
+        let m = match self.try_find(cache, input)? {
+            None => return Ok(None),
+            Some(m) => m,
+        };
+        if slots.len() >= 1 {
+            slots[0] = NonMaxUsize::new(m.start());
+            if slots.len() >= 2 {
+                slots[1] = NonMaxUsize::new(m.end());
+            }
+        }
+        Ok(Some(m.pattern()))
+    }
+
+    fn try_which_overlapping_matches(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        patset: &mut PatternSet,
+    ) -> Result<(), MatchError> {
+        if self.try_find(cache, input)?.is_some() {
+            patset.insert(PatternID::ZERO);
+        }
+        Ok(())
+    }
+}
+
 pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
 ) -> Result<Arc<dyn Strategy>, BuildError> {
+    let lits = Literals::new(hirs);
+    if lits.prefixes.is_exact()
+        && hirs.len() == 1
+        && info.props[0].look_set().is_empty()
+        && info.props[0].captures_len() == 0
+        // We require this because our prefilters currently assume
+        // leftmost-first semantics.
+        && info.config.get_match_kind() == MatchKind::LeftmostFirst
+    {
+        // OK because we know the set is exact and thus finite.
+        let prefixes = lits.prefixes.literals().unwrap();
+        if let Some(pre) = prefilter::new_as_strategy(prefixes) {
+            // std::dbg!(&pre);
+            // std::dbg!(&lits);
+            return Ok(pre);
+        }
+    }
     Core::new(info, hirs)
 }
 
@@ -388,6 +476,42 @@ impl Strategy for Core {
         }
         let e = self.pikevm.get().expect("PikeVM is always available");
         e.which_overlapping_matches(&mut cache.pikevm, input, patset)
+    }
+}
+
+#[derive(Debug)]
+struct Literals {
+    prefixes: literal::Seq,
+    suffixes: literal::Seq,
+}
+
+impl Literals {
+    /// Extracts all of the prefix and suffix literals from the given HIR
+    /// expressions into a single `Seq` each. The literals in the sequence are
+    /// ordered with respect to the order of the given HIR expressions.
+    ///
+    /// The sequences returned are each "optimized." That is, they may be
+    /// shrunk or even truncated according to heuristics with the intent of
+    /// making them more useful as a prefilter. (Which translates to both
+    /// using faster algorithms and minimizing the false positive rate.)
+    ///
+    /// Note that this erases any connection between the literals and which
+    /// pattern (or patterns) they came from.
+    fn new(hirs: &[&Hir]) -> Literals {
+        let mut prefix_extractor = literal::Extractor::new();
+        prefix_extractor.kind(literal::ExtractKind::Prefix);
+        let mut suffix_extractor = literal::Extractor::new();
+        suffix_extractor.kind(literal::ExtractKind::Suffix);
+
+        let mut prefixes = literal::Seq::empty();
+        let mut suffixes = literal::Seq::empty();
+        for hir in hirs.iter() {
+            prefixes.union(&mut prefix_extractor.extract(hir));
+            suffixes.union(&mut suffix_extractor.extract(hir));
+        }
+        prefixes.optimize_for_prefix();
+        suffixes.optimize_for_suffix();
+        Literals { prefixes, suffixes }
     }
 }
 

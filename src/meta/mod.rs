@@ -27,11 +27,11 @@ use regex_syntax::{
 };
 
 use crate::{
-    meta::strategy::Strategy,
     nfa::thompson::pikevm,
     util::{
         captures::Captures,
         iter,
+        prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID},
         search::{Input, Match, MatchError, MatchKind, PatternSet},
     },
@@ -45,6 +45,7 @@ use crate::hybrid;
 use crate::nfa::thompson::backtrack;
 
 pub use self::error::BuildError;
+pub(crate) use self::strategy::Strategy;
 
 mod error;
 mod strategy;
@@ -301,6 +302,8 @@ pub struct Config {
     // For docs on the fields below, see the corresponding method setters.
     match_kind: Option<MatchKind>,
     utf8: Option<bool>,
+    autopre: Option<bool>,
+    pre: Option<Option<Arc<dyn Prefilter>>>,
     nfa_size_limit: Option<Option<usize>>,
     onepass_size_limit: Option<Option<usize>>,
     hybrid_cache_capacity: Option<usize>,
@@ -321,6 +324,14 @@ impl Config {
 
     pub fn utf8(self, yes: bool) -> Config {
         Config { utf8: Some(yes), ..self }
+    }
+
+    pub fn auto_prefilter(self, yes: bool) -> Config {
+        Config { autopre: Some(yes), ..self }
+    }
+
+    pub fn prefilter(self, pre: Option<Arc<dyn Prefilter>>) -> Config {
+        Config { pre: Some(pre), ..self }
     }
 
     pub fn nfa_size_limit(self, limit: Option<usize>) -> Config {
@@ -357,6 +368,14 @@ impl Config {
 
     pub fn get_utf8(&self) -> bool {
         self.utf8.unwrap_or(true)
+    }
+
+    pub fn get_auto_prefilter(&self) -> bool {
+        self.autopre.unwrap_or(true)
+    }
+
+    pub fn get_prefilter(&self) -> Option<&dyn Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_deref()
     }
 
     pub fn get_nfa_size_limit(&self) -> Option<usize> {
@@ -416,6 +435,8 @@ impl Config {
         Config {
             match_kind: o.match_kind.or(self.match_kind),
             utf8: o.utf8.or(self.utf8),
+            autopre: o.autopre.or(self.autopre),
+            pre: o.pre.or_else(|| self.pre.clone()),
             nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
             onepass_size_limit: o
                 .onepass_size_limit
@@ -492,6 +513,7 @@ impl Builder {
         let props_union = hir::Properties::union(&props);
         let info = RegexInfo { config, props, props_union };
         let strat = self::strategy::new(&info, &hirs)?;
+        // let strat = prefilter::new_as_strategy(&["foo"]).unwrap();
         Ok(Regex { info, strat })
     }
 
