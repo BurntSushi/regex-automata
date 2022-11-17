@@ -2,7 +2,7 @@ use crate::{
     meta::{BuildError, Config, RegexInfo},
     nfa::thompson::{pikevm, NFA},
     util::primitives::NonMaxUsize,
-    Input, Match, MatchError, MatchKind, PatternID, PatternSet,
+    HalfMatch, Input, Match, MatchError, MatchKind, PatternID, PatternSet,
 };
 
 #[cfg(feature = "dfa-onepass")]
@@ -138,9 +138,10 @@ impl BoundedBacktracker {
         // engine might be able to scan much less of the haystack than the
         // backtracker.
         //
-        // This also helps keep "earliest" match offsets more consistent,
-        // although we don't provide a guarantee about this.
-        if input.get_earliest() {
+        // Now, if the haystack is really short already, then we allow the
+        // backtracker to run. (This hasn't been litigated quantitatively with
+        // benchmarks. Just a hunch.)
+        if input.get_earliest() && input.haystack().len() > 128 {
             return None;
         }
         // If the backtracker is just going to return an error because the
@@ -358,16 +359,16 @@ impl HybridEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_is_match(
+    pub(crate) fn try_find_earliest(
         &self,
         cache: &mut HybridCache,
         input: &Input<'_, '_>,
-    ) -> Result<bool, MatchError> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "hybrid")]
         {
             let fwd = self.0.forward();
             let mut fwdcache = cache.0.as_mut().unwrap().as_parts_mut().0;
-            fwd.try_search_fwd(&mut fwdcache, input).map(|m| m.is_some())
+            fwd.try_search_fwd(&mut fwdcache, input)
         }
         #[cfg(not(feature = "hybrid"))]
         {

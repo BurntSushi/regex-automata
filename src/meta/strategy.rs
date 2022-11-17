@@ -15,7 +15,10 @@ use crate::{
         captures::{Captures, GroupInfo},
         prefilter::{self, Prefilter},
         primitives::{NonMaxUsize, PatternID},
-        search::{Anchored, Input, Match, MatchError, MatchKind, PatternSet},
+        search::{
+            Anchored, HalfMatch, Input, Match, MatchError, MatchKind,
+            PatternSet,
+        },
     },
 };
 
@@ -35,17 +38,21 @@ pub(crate) trait Strategy:
 
     fn reset_cache(&self, cache: &mut Cache);
 
-    fn try_is_match(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_, '_>,
-    ) -> Result<bool, MatchError>;
-
     fn try_find(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError>;
+
+    fn try_find_earliest(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        Ok(self
+            .try_find(cache, input)?
+            .map(|m| HalfMatch::new(m.pattern(), m.end())))
+    }
 
     fn try_slots(
         &self,
@@ -115,43 +122,11 @@ impl<T: Prefilter> Strategy for T {
 
     fn reset_cache(&self, cache: &mut Cache) {}
 
-    fn try_is_match(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_, '_>,
-    ) -> Result<bool, MatchError> {
-        self.try_find(cache, input).map(|m| m.is_some())
-    }
-
     fn try_find(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        // BREADCRUMBS: So I got anchored searches working correctly, but the
-        // earliest searches are still not consistent with how the regex
-        // engines work. What to do?
-        //
-        // Maybe Prefilter needs to accept an Input? Although it's kind of
-        // chunky to create when calling the prefilter since the span needs
-        // to be modified. Annoying. But basically, if the prefilter knew an
-        // earliest search was requested, it could do something different.
-        //
-        // Aho-Corasick could just call 'earliest_find'.
-        //
-        // 'packed' could build another Aho-Corasick automaton for calling
-        // 'earliest_find'. (Which we could eliminate by making all
-        // Aho-Corasick automatons capable of doing anchored searches.) We
-        // could also add "earliest" searching to the packed searches, but
-        // that feels difficult given their highly specialized nature.
-        //
-        // Either that, or we declare that "earliest" isn't actually consistent
-        // and might return different results depending on implementation
-        // details. That's tempting, because that's the path of least
-        // resistant. And it would also let us use the bounded backtracker
-        // should we deem it worth it when 'earliest' is enabled...
-        //
-        // I think that's it for options?
         if input.is_done() {
             return Ok(None);
         }
@@ -200,8 +175,42 @@ impl<T: Prefilter> Strategy for T {
 pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
-) -> Result<Arc<dyn Strategy>, BuildError> {
-    let lits = Literals::new(hirs);
+) -> Result<(Arc<dyn Strategy>, Option<Arc<dyn Prefilter>>), BuildError> {
+    let lits = Literals::new(&hirs);
+    // Check to see if our prefixes are exact, which means we might be able to
+    // bypass the regex engine entirely and just rely on literal searches. We
+    // need to meet a few criteria that basically lets us implement the full
+    // regex API. So for example, we can implement "ask for capturing groups"
+    // so long as they are no capturing groups in the regex.
+    //
+    // We also require that we have a single regex pattern. Namely, we reuse
+    // the prefilter infrastructure to implement search and prefilters only
+    // report spans. Prefilters don't know about patterns. The multi-regex case
+    // isn't a lost cause, we might still use Aho-Corasick and we might still
+    // just use a regular prefilter, but that's done below.
+    //
+    // If we do have only one pattern, then we also require that it has zero
+    // look-around assertions. Namely, literal extraction treats look-around
+    // assertions as if they match *every* empty string. But of course, that
+    // isn't true. So for example, 'foo\bquux' never matches anything, but
+    // 'fooquux' is extracted from that as an exact literal. Such cases should
+    // just run the regex engine. 'fooquux' will be used as a normal prefilter,
+    // and then the regex engine will try to look for an actual match.
+    //
+    // Finally, currently, our prefilters are all oriented around
+    // leftmost-first match semantics, so don't try to use them if the caller
+    // asked for anything else.
+    //
+    // This seems like a lot of requirements to meet, but it applies to a lot
+    // of cases. 'foo', '[abc][123]' and 'foo|bar|quux' all meet the above
+    // criteria, for example.
+    //
+    // Note that this is effectively a latency optimization. If we didn't
+    // do this, then the extracted literals would still get bundled into a
+    // prefilter, and every regex engine capable of running unanchored searches
+    // supports prefilters. So this optimization merely sidesteps having to run
+    // the regex engine at all to confirm the match. Thus, it decreases the
+    // latency of a match.
     if lits.prefixes.is_exact()
         && hirs.len() == 1
         && info.props[0].look_set().is_empty()
@@ -213,12 +222,42 @@ pub(super) fn new(
         // OK because we know the set is exact and thus finite.
         let prefixes = lits.prefixes.literals().unwrap();
         if let Some(pre) = prefilter::new_as_strategy(prefixes) {
-            // std::dbg!(&pre);
-            // std::dbg!(&lits);
-            return Ok(pre);
+            return Ok((pre, None));
         }
     }
-    Core::new(info, hirs)
+    let strat = Core::new(info, hirs)?;
+    // It looks like there is some problem with using the prefilter and
+    // look-around assertions. I *believe* the logic below is correct, so I'm
+    // thinking the problem is in the regex engine. And I think the only thing
+    // actually using prefilters right now is the lazy DFA. And I thought it
+    // was correct... Hmmm perhaps not. Because look-arounds at the beginning
+    // of the regex pattern (I believe all test failures have a look-around at
+    // the beginning) are only resolved when computing the "start state," so
+    // perhaps that needs to be done after a prefilter match whenever there is
+    // a look-around prefix?
+    //
+    // OK yeah something is very borked. Enabling "specialize start states"
+    // appears to cause an infinite loop.
+    //
+    // Makes sense. We didn't really test prefilters much...
+    //
+    // Ug. This is a mess. Getting the proper start state requires an Input
+    // everywhere, so now we need to build one with the updated position?
+    // Uuuugggggggggggggggggg.
+    //
+    // Yeah... the old regex crate didn't deal with this at all because it
+    // basically refused to use prefilters for regexes that began with a
+    // look-around assertion. GAH.
+    let pre = if let Some(Some(ref pre)) = info.config.pre {
+        Some(Arc::clone(pre))
+    } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
+        None
+    } else if info.config.get_auto_prefilter() {
+        lits.prefixes.literals().and_then(prefilter::new)
+    } else {
+        None
+    };
+    Ok((strat, pre))
 }
 
 #[derive(Debug)]
@@ -349,27 +388,6 @@ impl Strategy for Core {
         cache.hybrid.reset(&self.hybrid);
     }
 
-    fn try_is_match(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_, '_>,
-    ) -> Result<bool, MatchError> {
-        if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for 'is match'");
-            let err = match e.try_is_match(&mut cache.hybrid, input) {
-                Ok(matched) => return Ok(matched),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
-            }
-            trace!("lazy DFA failed for 'is match', using fallback");
-            // Fallthrough to the fallback.
-        }
-        self.try_slots_no_hybrid(cache, input, &mut [])
-            .map(|pid| pid.is_some())
-    }
-
     fn try_find(
         &self,
         cache: &mut Cache,
@@ -388,6 +406,36 @@ impl Strategy for Core {
             // Fallthrough to the fallback.
         }
         self.try_find_no_hybrid(cache, input)
+    }
+
+    fn try_find_earliest(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for 'is match'");
+            // This is the main difference with 'try_find'. If we only need a
+            // HalfMatch, then the lazy DFA can simply do a forward scan and
+            // return the end offset and skip the reverse scan since the start
+            // offset has not been requested.
+            let err = match e.try_find_earliest(&mut cache.hybrid, input) {
+                Ok(matched) => return Ok(matched),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!("lazy DFA failed for 'is match', using fallback");
+            // Fallthrough to the fallback.
+        }
+        // Only the lazy DFA returns half-matches, since the DFA requires
+        // a reverse scan to find the start position. These fallback regex
+        // engines can find the start and end in a single pass, so we just do
+        // that and throw away the start offset.
+        Ok(self
+            .try_find_no_hybrid(cache, input)?
+            .map(|m| HalfMatch::new(m.pattern(), m.end())))
     }
 
     fn try_slots(
@@ -479,6 +527,29 @@ impl Strategy for Core {
     }
 }
 
+/// Returns true only when the given error corresponds to a search that failed
+/// quit because it saw a specific byte, or gave up because it thought itself
+/// to be too slow.
+///
+/// This is useful for checking whether an error returned by the lazy DFA
+/// should be bubbled up or if it should result in running another regex
+/// engine. Errors like "invalid pattern ID" should get bubbled up, while
+/// quitting or giving up should result in trying a different engine.
+fn is_err_quit_or_gaveup(err: &MatchError) -> bool {
+    use crate::MatchErrorKind::*;
+    matches!(*err.kind(), Quit { .. } | GaveUp { .. })
+}
+
+/// The prefixes and suffixes extracted from zero or more HIR expressions.
+///
+/// The semantic here is that, given a finite sequence of prefixes (or
+/// suffixes), at least one of those prefixes (or suffixes) must match in order
+/// for an overall match of the regex to occur.
+///
+/// These literals are used to accelerate searches (by skipping ahead to
+/// possible matching positions more quickly than what a general regex engine
+/// can do) or even skip the regex engine entirely (when the sequence of
+/// literals is "exact", among other criteria).
 #[derive(Debug)]
 struct Literals {
     prefixes: literal::Seq,
@@ -513,17 +584,4 @@ impl Literals {
         suffixes.optimize_for_suffix();
         Literals { prefixes, suffixes }
     }
-}
-
-/// Returns true only when the given error corresponds to a search that failed
-/// quit because it saw a specific byte, or gave up because it thought itself
-/// to be too slow.
-///
-/// This is useful for checking whether an error returned by the lazy DFA
-/// should be bubbled up or if it should result in running another regex
-/// engine. Errors like "invalid pattern ID" should get bubbled up, while
-/// quitting or giving up should result in trying a different engine.
-fn is_err_quit_or_gaveup(err: &MatchError) -> bool {
-    use crate::MatchErrorKind::*;
-    matches!(*err.kind(), Quit { .. } | GaveUp { .. })
 }

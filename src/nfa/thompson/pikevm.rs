@@ -1286,7 +1286,7 @@ impl PikeVM {
             }
             // Instead of using the NFA's unanchored start state, we actually
             // always use its anchored starting state. As a result, when doing
-            // an unanchored search, we need to simulate our own '(?s:.)*?'
+            // an unanchored search, we need to simulate our own '(?s-u:.)*?'
             // prefix, to permit a match to appear anywhere.
             //
             // Now, we don't *have* to do things this way. We could use the
@@ -1300,7 +1300,7 @@ impl PikeVM {
             // substantially. The cost is itself small, but it adds up for
             // large haystacks.
             //
-            // In order to simulate the '(?s:.)*?' prefix---which is not
+            // In order to simulate the '(?s-u:.)*?' prefix---which is not
             // greedy---we are careful not to perform an epsilon closure on
             // the start state if we already have a match. Namely, if we
             // did otherwise, we would never reach a terminating condition
@@ -1347,7 +1347,7 @@ impl PikeVM {
             // Unless the caller asked us to return early, we need to mush on
             // to see if we can extend our match. (But note that 'nexts' will
             // quit right after seeing a match when match_kind==LeftmostFirst,
-            // as is consist with leftmost-first match priority.)
+            // as is consistent with leftmost-first match priority.)
             if input.get_earliest() && pid.is_some() {
                 break;
             }

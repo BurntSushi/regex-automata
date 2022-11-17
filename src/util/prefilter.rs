@@ -228,9 +228,9 @@ struct Packed {
     packed: packed::Searcher,
     /// When running an anchored search, the packed searcher can't handle it so
     /// we defer to Aho-Corasick itself. Kind of sad, but changing the packed
-    /// searchers would be difficult at worst and annoying at best. Since
-    /// packed searchers only apply to small numbers of literals, we content
-    /// ourselves that this is not much of an added cost.
+    /// searchers to support anchored search would be difficult at worst and
+    /// annoying at best. Since packed searchers only apply to small numbers of
+    /// literals, we content ourselves that this is not much of an added cost.
     anchored_ac: aho_corasick::AhoCorasick<u32>,
 }
 
@@ -280,19 +280,18 @@ impl Prefilter for Packed {
 #[derive(Clone, Debug)]
 struct AhoCorasick {
     ac: aho_corasick::AhoCorasick<u32>,
-    /// Currently, an unanchored Aho-Corasick searcher cannot also do an
-    /// anchored search. So we need to build an entirely separate one just for
-    /// that.
+    /// An unanchored Aho-Corasick searcher cannot also do an anchored search.
+    /// So we need to build an entirely separate one just for that.
     ///
-    /// TODO: We should ideally fix this before release, but this particular
-    /// use of Aho-Corasick should be limited to small literal sets and
-    /// so the extra cost here is probably pretty small. The case where
-    /// we might build large Aho-Corasick automatons is handled inside of
-    /// src/meta/strategy.rs, and is a special case of regexes that just
-    /// consist of literals or alternations of literals. (And it is special
-    /// cased there because it needs to map between literals that matched with
-    /// their corresponding patterns. This module's prefilter API doesn't
-    /// provide that expressive power, mostly in the name of simplicity.)
+    /// In the traditional Aho-Corasick formulation, adding support for
+    /// anchored search is as easy as treating as a trie and not following
+    /// failure transitions. That would work fine, except the aho-corasick
+    /// crate might actually use a DFA internally, which doesn't have any
+    /// explicit failure transitions. (The point of the DFA is to erase the
+    /// failure transitions completely by pre-computing them into the DFA's
+    /// transition table.) Or even a packed searcher. And so it can't just
+    /// provide anchored search on demand. Thus, that's why 'anchored' is a
+    /// build-time setting and we need a second one to support anchored search.
     anchored_ac: aho_corasick::AhoCorasick<u32>,
 }
 

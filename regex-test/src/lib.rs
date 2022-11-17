@@ -630,6 +630,21 @@ impl TestRunner {
         self
     }
 
+    /// Whitelist the given iterator substrings.
+    ///
+    /// This is a convenience routine for calling `whitelist` on each of the
+    /// substrings in the iterator provided.
+    pub fn whitelist_iter<I, S>(&mut self, substrings: I) -> &mut TestRunner
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for substring in substrings {
+            self.whitelist(substring.as_ref());
+        }
+        self
+    }
+
     /// Blacklist the given substring.
     ///
     /// A blacklisted test is never run, unless a whitelisted substring added
@@ -639,6 +654,24 @@ impl TestRunner {
             blacklist: true,
             substring: BString::from(substring),
         });
+        self
+    }
+
+    /// Blacklist the given iterator substrings.
+    ///
+    /// A blacklisted test is never run, unless a whitelisted substring added
+    /// after the blacklisted substring matches it.
+    ///
+    /// This is a convenience routine for calling `blacklist` on each of the
+    /// substrings in the iterator provided.
+    pub fn blacklist_iter<I, S>(&mut self, substrings: I) -> &mut TestRunner
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for substring in substrings {
+            self.blacklist(substring.as_ref());
+        }
         self
     }
 

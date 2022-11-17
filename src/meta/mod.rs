@@ -31,9 +31,9 @@ use crate::{
     util::{
         captures::Captures,
         iter,
-        prefilter::Prefilter,
+        prefilter::{self, Prefilter},
         primitives::{NonMaxUsize, PatternID},
-        search::{Input, Match, MatchError, MatchKind, PatternSet},
+        search::{HalfMatch, Input, Match, MatchError, MatchKind, PatternSet},
     },
 };
 
@@ -54,6 +54,7 @@ mod wrappers;
 #[derive(Clone, Debug)]
 pub struct Regex {
     info: RegexInfo,
+    pre: Option<Arc<dyn Prefilter>>,
     strat: Arc<dyn Strategy>,
 }
 
@@ -91,7 +92,7 @@ impl Regex {
     ) -> Input<'h, 'p> {
         let c = self.get_config();
         Input::new(haystack.as_ref())
-            // .prefilter(c.get_prefilter())
+            .prefilter(self.pre.as_deref())
             .utf8(c.get_utf8())
     }
 
@@ -100,11 +101,11 @@ impl Regex {
     }
 
     pub fn create_cache(&self) -> Cache {
-        Cache::new(self)
+        self.strat.create_cache()
     }
 
     pub fn reset_cache(&self, cache: &mut Cache) {
-        cache.reset(self)
+        self.strat.reset_cache(cache)
     }
 
     pub fn pattern_len(&self) -> usize {
@@ -127,8 +128,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let input = self.create_input(haystack.as_ref()).earliest(true);
-        self.strat.try_is_match(cache, &input)
+        self.try_find_earliest(cache, haystack).map(|m| m.is_some())
     }
 
     #[inline]
@@ -139,6 +139,16 @@ impl Regex {
     ) -> Result<Option<Match>, MatchError> {
         let input = self.create_input(haystack.as_ref());
         self.try_search(cache, &input)
+    }
+
+    #[inline]
+    pub fn try_find_earliest<H: AsRef<[u8]>>(
+        &self,
+        cache: &mut Cache,
+        haystack: H,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        let input = self.create_input(haystack.as_ref()).earliest(true);
+        self.try_search_earliest(cache, &input)
     }
 
     #[inline]
@@ -173,6 +183,15 @@ impl Regex {
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         self.strat.try_find(cache, input)
+    }
+
+    #[inline]
+    pub fn try_search_earliest(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.strat.try_find_earliest(cache, input)
     }
 
     #[inline]
@@ -274,11 +293,11 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(re: &Regex) -> Cache {
-        re.strat.create_cache()
+        re.create_cache()
     }
 
     pub fn reset(&mut self, re: &Regex) {
-        re.strat.reset_cache(self)
+        re.reset_cache(self)
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -501,20 +520,24 @@ impl Builder {
         &self,
         hirs: &[H],
     ) -> Result<Regex, BuildError> {
+        let config = self.config.clone();
         // We collect the HIRs into a vec so we can write internal routines
         // with '&[&Hir]'. i.e., Don't use generics everywhere to keep code
         // bloat down..
         let hirs: Vec<&Hir> = hirs.iter().map(|hir| hir.borrow()).collect();
-        let config = self.config.clone();
+
+        // Collect all of the properties from each of the HIRs, and also
+        // union them into one big set of properties representing all HIRs
+        // as if they were in one big alternation.
         let mut props = vec![];
         for hir in hirs.iter() {
             props.push(hir.properties().clone());
         }
         let props_union = hir::Properties::union(&props);
-        let info = RegexInfo { config, props, props_union };
-        let strat = self::strategy::new(&info, &hirs)?;
-        // let strat = prefilter::new_as_strategy(&["foo"]).unwrap();
-        Ok(Regex { info, strat })
+
+        let mut info = RegexInfo { config, props, props_union };
+        let (strat, pre) = strategy::new(&info, &hirs)?;
+        Ok(Regex { info, pre, strat })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {

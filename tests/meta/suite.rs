@@ -11,13 +11,32 @@ use ret::{
 
 use crate::{create_input, suite, testify_captures, Result};
 
+const BLACKLIST: &[&str] = &[
+    // These 'earliest' tests are blacklisted because the meta searcher doesn't
+    // give the same offsets that the test expects. This is legal because the
+    // 'earliest' routines don't guarantee a particular match offset other
+    // than "the earliest the regex engine can report a match." Some regex
+    // engines will quit earlier than others. The backtracker, for example,
+    // can't really quit before finding the full leftmost-first match. Many of
+    // the literal searchers also don't have the ability to quit fully or it's
+    // otherwise not worth doing. (A literal searcher not quitting as early as
+    // possible usually means looking at a few more bytes. That's no biggie.)
+    //
+    // Other 'earliest' tests can be added here if the need arises.
+    "earliest/no-leftmost-first-100/",
+    "earliest/no-leftmost-first-200/",
+];
+
 /// Tests the default configuration of the hybrid NFA/DFA.
 #[test]
 fn default() -> Result<()> {
     let builder = Regex::builder();
     let mut runner = TestRunner::new()?;
-    runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
-    runner.test_iter(suite()?.iter(), compiler(builder)).assert();
+    runner
+        .expand(&["is_match", "find", "captures"], |test| test.compiles())
+        .blacklist_iter(BLACKLIST)
+        .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
     Ok(())
 }
 
