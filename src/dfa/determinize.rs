@@ -324,8 +324,7 @@ impl<'a> Runner<'a> {
         assert!(dfa_state_ids.is_empty());
         // We only want to add (un)anchored starting states that is consistent
         // with our DFA's configuration. Unconditionally adding both (although
-        // it is the default) can make DFAs quite a bit bigger. Especially
-        // sparse DFAs.
+        // it is the default) can make DFAs quite a bit bigger.
         //
         // FIXME: I think we can skip this if the NFA is always anchored. But
         // if we do, should we also change the start kind? Or should the start
@@ -340,7 +339,7 @@ impl<'a> Runner<'a> {
         // 'dfa_state_ids' was non-empty, or the NFA had zero patterns. But it
         // turns out this isn't always true. For example, the NFA might have
         // one or more patterns but where all such patterns are just 'fail'
-        // states. These will ultimately just compiled down to DFA dead states,
+        // states. These will ultimately just compile down to DFA dead states,
         // and since the dead state was added earlier, no new DFA states are
         // added. And thus, it is valid and okay for 'dfa_state_ids' to be
         // empty even if there are a non-zero number of patterns in the NFA.
@@ -435,7 +434,7 @@ impl<'a> Runner<'a> {
         // Compute the look-behind assertions that are true in this starting
         // configuration, and the determine the epsilon closure. While
         // computing the epsilon closure, we only follow condiional epsilon
-        // transitions that satisfy the look-behind assertions in 'facts'.
+        // transitions that satisfy the look-behind assertions in 'look_have'.
         let mut builder_matches = self.get_state_builder().into_matches();
         util::determinize::set_lookbehind_from_start(
             &start,

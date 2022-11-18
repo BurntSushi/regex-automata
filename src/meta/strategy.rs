@@ -226,6 +226,8 @@ pub(super) fn new(
         }
     }
     let strat = Core::new(info, hirs)?;
+    // BREADCRUMBS:
+    //
     // It looks like there is some problem with using the prefilter and
     // look-around assertions. I *believe* the logic below is correct, so I'm
     // thinking the problem is in the regex engine. And I think the only thing
@@ -248,6 +250,23 @@ pub(super) fn new(
     // Yeah... the old regex crate didn't deal with this at all because it
     // basically refused to use prefilters for regexes that began with a
     // look-around assertion. GAH.
+    //
+    // OK, going to:
+    //
+    // 1) 'Input' should never return a prefilter for an unanchored search.
+    // 2) Expose 'LookSet' prefixes and "anywhere" on an NFA.
+    // 3) When building an AOT DFA we can look at those during determinization
+    // instead of the existing "has word boundary anywhere" (for example).
+    // 4) When an NFA's union of "starting" look-around assertions is empty,
+    // then the DFA will have universal starting states. We will make this
+    // information available on the DFAs. We will then query that in the search
+    // routine.
+    // 5) For lazy DFAs, we could query the NFA directly.
+    //
+    // When we have a universal starting state, we can avoid needing to
+    // re-litigate the starting state after a prefilter match. Otherwise, we
+    // need to create a new 'Input' with an updated 'start' position and fully
+    // re-compute the start state at that position.
     let pre = if let Some(Some(ref pre)) = info.config.pre {
         Some(Arc::clone(pre))
     } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
