@@ -622,6 +622,14 @@ impl DFA {
     ///         })
     ///     }
     ///
+    ///     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+    ///         if haystack[span].starts_with(&[b'z']) {
+    ///             Some(Span { end: span.start + 1, ..span })
+    ///         } else {
+    ///             None
+    ///         }
+    ///     }
+    ///
     ///     fn memory_usage(&self) -> usize {
     ///         0
     ///     }

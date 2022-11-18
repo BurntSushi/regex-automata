@@ -24,7 +24,15 @@ pub trait Prefilter:
 macro_rules! new {
     ($needles:ident) => {{
         let needles = $needles;
+        // An empty set means the regex matches nothing, so no sense in
+        // building a prefilter.
         if needles.len() == 0 {
+            return None;
+        }
+        // If the regex can match the empty string, then the prefilter will
+        // by definition match at every position. This is obviously completely
+        // ineffective.
+        if needles.iter().any(|n| n.as_ref().is_empty()) {
             return None;
         }
         #[cfg(feature = "perf-literal-substring")]

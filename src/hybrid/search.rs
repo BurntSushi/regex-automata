@@ -68,6 +68,9 @@ fn find_fwd_imp(
             None => return Ok(mat),
             Some(ref span) => {
                 at = span.start;
+                let mut input = input.clone();
+                input.set_start(at);
+                sid = init_fwd(dfa, cache, &input)?;
             }
         }
     }
@@ -223,13 +226,22 @@ fn find_fwd_imp(
                     match pre.find(input.haystack(), span) {
                         None => return Ok(mat),
                         Some(ref span) => {
-                            at = span.start;
                             // We want to skip any update to 'at' below
                             // at the end of this iteration and just
                             // jump immediately back to the next state
                             // transition at the leading position of the
                             // candidate match.
-                            continue;
+                            //
+                            // ... but only if we actually made progress
+                            // with our prefilter, otherwise if the start
+                            // state has a self-loop, we can get stuck.
+                            if span.start > at {
+                                at = span.start;
+                                let mut input = input.clone();
+                                input.set_start(at);
+                                sid = init_fwd(dfa, cache, &input)?;
+                                continue;
+                            }
                         }
                     }
                 }
@@ -472,8 +484,10 @@ fn find_overlapping_fwd_imp(
                     match pre.find(input.haystack(), span) {
                         None => return Ok(()),
                         Some(ref span) => {
-                            state.at = span.start;
-                            continue;
+                            if span.start > state.at {
+                                state.at = span.start;
+                                continue;
+                            }
                         }
                     }
                 }
