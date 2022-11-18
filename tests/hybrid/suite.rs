@@ -133,7 +133,7 @@ fn compiler(
         thompson.syntax(config_syntax(test)).configure(config_thompson(test));
         if let Ok(nfa) = thompson.build_many(&regexes) {
             let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
-            if nfa.has_word_boundary_unicode() && non_ascii {
+            if nfa.look_set_union().contains_word_unicode() && non_ascii {
                 return Ok(CompiledRegex::skip());
             }
         }

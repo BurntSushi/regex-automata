@@ -344,8 +344,8 @@ impl StateBuilderNFA {
 ///
 /// Byte 1 corresponds to the look-behind assertions that were satisfied by
 /// the transition that created this state. This generally only includes the
-/// StartLine and StartText assertions. (Look-ahead assertions are not tracked
-/// as part of states. Instead, these are applied by re-computing the epsilon
+/// StartLF and Start assertions. (Look-ahead assertions are not tracked as
+/// part of states. Instead, these are applied by re-computing the epsilon
 /// closure of a state when computing the transition function. See `next` in
 /// the parent module.)
 ///

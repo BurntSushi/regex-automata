@@ -1,6 +1,6 @@
 use core::{fmt, mem};
 
-use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 
 #[cfg(feature = "syntax")]
 use crate::nfa::thompson::{
@@ -12,11 +12,12 @@ use crate::{
     util::{
         alphabet::{self, ByteClassSet},
         captures::{GroupInfo, GroupInfoError},
-        look::Look,
+        look::{Look, LookSet},
         primitives::{
             IteratorIndexExt, PatternID, PatternIDIter, SmallIndex, StateID,
         },
         search::MatchError,
+        sparse_set::SparseSet,
     },
 };
 
@@ -196,7 +197,7 @@ pub struct NFA(
     // for an unnecessarily annoying API. Instead, we just let each structure
     // share ownership of the NFA. Using a deep clone would not be smart, since
     // the NFA can use quite a bit of heap space.
-    pub(super) Arc<Inner>,
+    Arc<Inner>,
 );
 
 impl NFA {
@@ -774,7 +775,7 @@ impl NFA {
     /// ```
     #[inline]
     pub fn has_capture(&self) -> bool {
-        self.0.facts.has_capture
+        self.0.has_capture
     }
 
     /// Returns true if and only if all starting states for this NFA correspond
@@ -833,154 +834,128 @@ impl NFA {
         self.start_anchored() == self.start_unanchored()
     }
 
-    /// Returns true if this NFA has any [`Look`](State::Look) states.
+    /// Returns the union of all look-around assertions used throughout this
+    /// NFA. When the returned set is empty, it implies that the NFA has no
+    /// look-around assertions and thus zero conditional epsilon transitions.
     ///
-    /// This is useful for cases where you want to use an NFA in contexts that
-    /// can't handle look-around.
+    /// This is useful in some cases enabling optimizations. It is not
+    /// unusual, for example, for optimizations to be of the form, "for any
+    /// regex with zero conditional epsilon transitions, do ..." where "..."
+    /// is some kind of optimization.
+    ///
+    /// This isn't only helpful for optimizations either. Sometimes look-around
+    /// assertions are difficult to support. For example, many of the DFAs in
+    /// this crate don't support Unicode word boundaries or handle them using
+    /// heuristics. Handling that correctly typically requires some kind of
+    /// cheap check of whether the NFA has a Unicode word boundary in the first
+    /// place.
     ///
     /// # Example
     ///
     /// This example shows how this routine varies based on the regex pattern:
     ///
     /// ```
-    /// use regex_automata::nfa::thompson::NFA;
+    /// use regex_automata::{nfa::thompson::NFA, util::look::Look};
     ///
     /// // No look-around at all.
     /// let nfa = NFA::new("a")?;
-    /// assert!(!nfa.has_look());
+    /// assert!(nfa.look_set_union().is_empty());
     ///
-    /// // Look-around via an anchor.
-    /// let nfa = NFA::new("^")?;
-    /// assert!(nfa.has_look());
+    /// // When multiple patterns are present, since this returns the union,
+    /// // it will include look-around assertions that only appear in one
+    /// // pattern.
+    /// let nfa = NFA::new_many(&["a", "b", "a^b", "c"])?;
+    /// assert!(nfa.look_set_union().contains(Look::Start));
     ///
-    /// // Look-around via a word boundary.
-    /// let nfa = NFA::new(r"\b")?;
-    /// assert!(nfa.has_look());
-    ///
-    /// // When multiple patterns are present, this still returns true even
-    /// // if only one of them has look-around.
-    /// let nfa = NFA::new_many(&["a", "b", "^", "c"])?;
-    /// assert!(nfa.has_look());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn has_look(&self) -> bool {
-        self.0.facts.has_look
-    }
-
-    /// Returns true if this NFA has any [`Look`](State::Look) states that
-    /// correspond to an anchor assertion (start/end of haystack or start/end
-    /// of line).
-    ///
-    /// This is useful for cases where you want to use an NFA in contexts that
-    /// can't handle anchor assertions.
-    ///
-    /// # Example
-    ///
-    /// This example shows how this routine varies based on the regex pattern:
-    ///
-    /// ```
-    /// use regex_automata::nfa::thompson::NFA;
-    ///
-    /// // With an anchor.
-    /// let nfa = NFA::new("^")?;
-    /// assert!(nfa.has_anchor());
-    ///
-    /// // A word boundary isn't an anchor.
-    /// let nfa = NFA::new(r"\b")?;
-    /// assert!(!nfa.has_anchor());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn has_anchor(&self) -> bool {
-        self.0.facts.has_anchor
-    }
-
-    /// Returns true if this NFA has any [`Look`](State::Look) states that
-    /// correspond to a word boundary assertion.
-    ///
-    /// This is useful for cases where you want to use an NFA in contexts that
-    /// can't handle word boundary assertions.
-    ///
-    /// # Example
-    ///
-    /// This example shows how this routine varies based on the regex pattern:
-    ///
-    /// ```
-    /// use regex_automata::nfa::thompson::NFA;
-    ///
-    /// // An anchor isn't a word boundary.
-    /// let nfa = NFA::new("^")?;
-    /// assert!(!nfa.has_word_boundary());
-    ///
-    /// // With a word boundary.
-    /// let nfa = NFA::new(r"\b")?;
-    /// assert!(nfa.has_word_boundary());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn has_word_boundary(&self) -> bool {
-        self.has_word_boundary_unicode() || self.has_word_boundary_ascii()
-    }
-
-    /// Returns true if this NFA has any [`Look`](State::Look) states that
-    /// correspond to a Unicode word boundary assertion.
-    ///
-    /// This is useful for cases where you want to use an NFA in contexts that
-    /// can't handle Unicode word boundary assertions (such as the DFAs in this
-    /// crate).
-    ///
-    /// # Example
-    ///
-    /// This example shows how this routine varies based on the regex pattern:
-    ///
-    /// ```
-    /// use regex_automata::nfa::thompson::NFA;
-    ///
-    /// // With a Unicode word boundary.
-    /// let nfa = NFA::new(r"\b")?;
-    /// assert!(nfa.has_word_boundary_unicode());
-    ///
-    /// // When Unicode is disabled, \b is only ASCII-aware.
+    /// // Groups of assertions have various shortcuts. For example:
     /// let nfa = NFA::new(r"(?-u:\b)")?;
-    /// assert!(!nfa.has_word_boundary_unicode());
+    /// assert!(nfa.look_set_union().contains_word());
+    /// assert!(!nfa.look_set_union().contains_word_unicode());
+    /// assert!(nfa.look_set_union().contains_word_ascii());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn has_word_boundary_unicode(&self) -> bool {
-        self.0.facts.has_word_boundary_unicode
+    pub fn look_set_union(&self) -> LookSet {
+        self.0.look_set_union
     }
 
-    /// Returns true if this NFA has any [`Look`](State::Look) states that
-    /// correspond to an ASCII word boundary assertion.
+    /// Returns the union of all prefix look-around assertions for every
+    /// pattern in this NFA. When the returned set is empty, it implies none of
+    /// the patterns require moving through a conditional epsilon transition
+    /// before inspecting the first byte in the haystack.
     ///
-    /// This is useful for cases where you want to use an NFA in contexts that
-    /// can't handle ASCII word boundary assertions.
+    /// This can be useful for determining what kinds of assertions need to be
+    /// satisfied at the beginning of a search. For example, typically DFAs
+    /// in this crate will build a distinct starting state for each possible
+    /// starting configuration that might result in look-around assertions
+    /// being satisfied differently. However, if the set returned here is
+    /// empty, then you know that the start state is invariant because there
+    /// are no conditional epsilon transitions to consider.
     ///
     /// # Example
     ///
     /// This example shows how this routine varies based on the regex pattern:
     ///
     /// ```
-    /// use regex_automata::nfa::thompson::NFA;
+    /// use regex_automata::{nfa::thompson::NFA, util::look::Look};
     ///
-    /// // With a Unicode word boundary, this returns false.
-    /// let nfa = NFA::new(r"\b")?;
-    /// assert!(!nfa.has_word_boundary_ascii());
+    /// // No look-around at all.
+    /// let nfa = NFA::new("a")?;
+    /// assert!(nfa.look_set_prefix_union().is_empty());
     ///
-    /// // When Unicode is disabled, \b is only ASCII-aware.
-    /// let nfa = NFA::new(r"(?-u:\b)")?;
-    /// assert!(nfa.has_word_boundary_ascii());
+    /// // When multiple patterns are present, since this returns the union,
+    /// // it will include look-around assertions that only appear in one
+    /// // pattern. But it will only include assertions that are in the prefix
+    /// // of a pattern. For example, this includes '^' but not '$' even though
+    /// // '$' does appear.
+    /// let nfa = NFA::new_many(&["a", "b", "^ab$", "c"])?;
+    /// assert!(nfa.look_set_prefix_union().contains(Look::Start));
+    /// assert!(!nfa.look_set_prefix_union().contains(Look::End));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn has_word_boundary_ascii(&self) -> bool {
-        self.0.facts.has_word_boundary_ascii
+    pub fn look_set_prefix_union(&self) -> LookSet {
+        self.0.look_set_prefix_union
+    }
+
+    /// Returns the intersection of all prefix look-around assertions for every
+    /// pattern in this NFA. When the returned set is empty, it implies none of
+    /// the patterns require moving through a conditional epsilon transition
+    /// before inspecting the first byte in the haystack. Conversely, when the
+    /// set contains an assertion, it implies that every pattern in the NFA
+    /// also contains that assertion in its prefix.
+    ///
+    /// This can be useful for determining what kinds of assertions need to be
+    /// satisfied at the beginning of a search. For example, if you know that
+    /// [`Look::Start`] is in the prefix intersection set returned here, then
+    /// you know that all searches, regardless of input configuration, will be
+    /// anchored.
+    ///
+    /// # Example
+    ///
+    /// This example shows how this routine varies based on the regex pattern:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, util::look::Look};
+    ///
+    /// // No look-around at all.
+    /// let nfa = NFA::new("a")?;
+    /// assert!(nfa.look_set_prefix_intersection().is_empty());
+    ///
+    /// // When multiple patterns are present, since this returns the
+    /// // intersection, it will only include assertions present in every
+    /// // prefix, and only the prefix.
+    /// let nfa = NFA::new_many(&["^a$", "^b$", "^ab$", "^c$"])?;
+    /// assert!(nfa.look_set_prefix_intersection().contains(Look::Start));
+    /// assert!(!nfa.look_set_prefix_intersection().contains(Look::End));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn look_set_prefix_intersection(&self) -> LookSet {
+        self.0.look_set_prefix_intersection
     }
 
     /// Returns the memory usage, in bytes, of this NFA.
@@ -1063,11 +1038,18 @@ pub(super) struct Inner {
     /// to represent transitions. Byte classes are most effective in a dense
     /// representation.
     byte_class_set: ByteClassSet,
-    /// Various facts about this NFA, which can be used to improve failure
-    /// modes (e.g., rejecting DFA construction if an NFA has Unicode word
-    /// boundaries) or for performing optimizations (avoiding an increase in
-    /// states if there are no look-around states).
-    facts: Facts,
+    /// Whether this NFA has a `Capture` state anywhere.
+    has_capture: bool,
+    /// The union of all look-around assertions that occur anywhere within
+    /// this NFA. If this set is empty, then it means there are precisely zero
+    /// conditional epsilon transitions in the NFA.
+    look_set_union: LookSet,
+    /// The union of all look-around assertions that occur as a zero-length
+    /// prefix for any of the patterns in this NFA.
+    look_set_prefix_union: LookSet,
+    /// The intersection of all look-around assertions that occur as a
+    /// zero-length prefix for any of the patterns in this NFA.
+    look_set_prefix_intersection: LookSet,
     /// Heap memory used indirectly by NFA states and other things (like the
     /// various capturing group representations above). Since each state
     /// might use a different amount of heap, we need to keep track of this
@@ -1076,6 +1058,53 @@ pub(super) struct Inner {
 }
 
 impl Inner {
+    /// Runs any last finalization bits and turns this into a full NFA.
+    pub(super) fn into_nfa(mut self) -> NFA {
+        // Do epsilon closure from the start state of every pattern in order
+        // to compute the look-around assertion prefix sets.
+        let mut stack = vec![];
+        let mut seen = SparseSet::new(self.states.len());
+        for &start_id in self.start_pattern.iter() {
+            stack.push(start_id);
+            seen.clear();
+            let mut prefix = LookSet::empty();
+            while let Some(sid) = stack.pop() {
+                if !seen.insert(sid) {
+                    continue;
+                }
+                match self.states[sid] {
+                    State::ByteRange { .. }
+                    | State::Sparse { .. }
+                    | State::Fail
+                    | State::Match { .. } => continue,
+                    State::Look { look, next } => {
+                        prefix = prefix.insert(look);
+                        stack.push(next);
+                    }
+                    State::Union { ref alternates } => {
+                        // Order doesn't matter here, since we're just dealing
+                        // with look-around sets. But if we do richer analysis
+                        // here that needs to care about preference order, then
+                        // this should be done in reverse.
+                        stack.extend(alternates.iter());
+                    }
+                    State::BinaryUnion { alt1, alt2 } => {
+                        stack.push(alt2);
+                        stack.push(alt1);
+                    }
+                    State::Capture { next, .. } => {
+                        stack.push(next);
+                    }
+                }
+            }
+            self.look_set_prefix_union =
+                self.look_set_prefix_union.union(prefix);
+            self.look_set_prefix_intersection =
+                self.look_set_prefix_intersection.union(prefix);
+        }
+        NFA(Arc::new(self))
+    }
+
     /// Returns the capturing group info for this NFA.
     pub(super) fn group_info(&self) -> &GroupInfo {
         &self.group_info
@@ -1098,22 +1127,11 @@ impl Inner {
                 }
             }
             State::Look { ref look, .. } => {
-                self.facts.has_look = true;
                 look.add_to_byteset(&mut self.byte_class_set);
-                match look {
-                    Look::StartLF | Look::EndLF | Look::Start | Look::End => {
-                        self.facts.has_anchor = true;
-                    }
-                    Look::WordUnicode | Look::WordUnicodeNegate => {
-                        self.facts.has_word_boundary_unicode = true;
-                    }
-                    Look::WordAscii | Look::WordAsciiNegate => {
-                        self.facts.has_word_boundary_ascii = true;
-                    }
-                }
+                self.look_set_union = self.look_set_union.insert(*look);
             }
             State::Capture { .. } => {
-                self.facts.has_capture = true;
+                self.has_capture = true;
             }
             State::Union { .. }
             | State::BinaryUnion { .. }
@@ -1490,21 +1508,6 @@ impl fmt::Debug for State {
             }
         }
     }
-}
-
-/// A collection of facts about an NFA.
-///
-/// There are no real cohesive principles behind what gets put in here. For
-/// the most part, it is implementation driven. That is, what we put here
-/// depends on what callers want to know cheaply. Most of these things could be
-/// computed on the fly, but it's convenient to have cheap access.
-#[derive(Clone, Copy, Debug, Default)]
-struct Facts {
-    has_capture: bool,
-    has_look: bool,
-    has_anchor: bool,
-    has_word_boundary_unicode: bool,
-    has_word_boundary_ascii: bool,
 }
 
 // THOUGHT: I wonder if it makes sense to add a DenseTransitions too? The main

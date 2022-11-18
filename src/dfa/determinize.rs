@@ -213,7 +213,7 @@ impl<'a> Runner<'a> {
     /// the chosen state identifier representation is too small), then an error
     /// is returned.
     fn run(mut self) -> Result<(), BuildError> {
-        if self.nfa.has_word_boundary_unicode()
+        if self.nfa.look_set_union().contains_word_unicode()
             && !self.config.quit.contains_range(0x80, 0xFF)
         {
             return Err(BuildError::unsupported_dfa_word_boundary_unicode());
@@ -381,6 +381,15 @@ impl<'a> Runner<'a> {
         // states for 'NonWordByte' and 'WordByte' starting configurations.
         // Instead, the 'WordByte' starting configuration can just point
         // directly to the start state for the 'NonWordByte' config.
+        //
+        // Note though that we only need to care about assertions in the prefix
+        // of an NFA since this only concerns the starting states. (Actually,
+        // the most precisely thing we could do it is look at the prefix
+        // assertions of each pattern when 'anchored == Anchored::Pattern',
+        // and then only compile extra states if the prefix is non-empty.) But
+        // we settle for simplicity here instead of absolute minimalism. It is
+        // somewhat rare, after all, for multiple patterns in the same regex to
+        // have different prefix look-arounds.
 
         let (id, is_new) =
             self.add_one_start(nfa_start, Start::NonWordByte)?;
@@ -389,7 +398,7 @@ impl<'a> Runner<'a> {
             dfa_state_ids.push(id);
         }
 
-        if !self.nfa.has_word_boundary() {
+        if !self.nfa.look_set_prefix_union().contains_word() {
             self.dfa.set_start_state(anchored, Start::WordByte, id);
         } else {
             let (id, is_new) =
@@ -399,7 +408,7 @@ impl<'a> Runner<'a> {
                 dfa_state_ids.push(id);
             }
         }
-        if !self.nfa.has_anchor() {
+        if !self.nfa.look_set_prefix_union().contains_anchor() {
             self.dfa.set_start_state(anchored, Start::Text, id);
             self.dfa.set_start_state(anchored, Start::Line, id);
         } else {

@@ -309,7 +309,7 @@ impl Builder {
         if !nfa.has_capture() && nfa.pattern_len() > 0 {
             return Err(BuildError::missing_captures());
         }
-        if nfa.has_word_boundary_unicode() {
+        if nfa.look_set_union().contains_word_unicode() {
             UnicodeWordBoundaryError::check().map_err(BuildError::word)?;
         }
         Ok(PikeVM { config: self.config.clone(), nfa })

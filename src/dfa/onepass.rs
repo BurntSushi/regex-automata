@@ -698,7 +698,7 @@ impl<'a> InternalBuilder<'a> {
     /// used, are configurable. Others, like the total patterns or slots, are
     /// hard-coded based on representational limitations.)
     fn build(mut self) -> Result<DFA, BuildError> {
-        if self.nfa.has_word_boundary_unicode() {
+        if self.nfa.look_set_union().contains_word_unicode() {
             UnicodeWordBoundaryError::check().map_err(BuildError::word)?;
         }
         if self.nfa.pattern_len().as_u64() > PatternEpsilons::PATTERN_ID_LIMIT

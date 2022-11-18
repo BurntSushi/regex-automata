@@ -1098,7 +1098,7 @@ impl Builder {
     ) -> Result<OwnedDFA, BuildError> {
         let mut quitset = self.config.quitset.unwrap_or(ByteSet::empty());
         if self.config.get_unicode_word_boundary()
-            && nfa.has_word_boundary_unicode()
+            && nfa.look_set_union().contains_word_unicode()
         {
             for b in 0x80..=0xFF {
                 quitset.add(b);
@@ -3592,10 +3592,10 @@ impl<T: AsMut<[u32]>> TransitionTable<T> {
 ///
 /// 1. If the search starts at the beginning of `context`, then the `Text`
 ///    start state is used. (Since `^` corresponds to
-///    `hir::Anchor::StartText`.)
+///    `hir::Anchor::Start`.)
 /// 2. If the search starts at a position immediately following a line
 ///    terminator, then the `Line` start state is used. (Since `(?m:^)`
-///    corresponds to `hir::Anchor::StartLine`.)
+///    corresponds to `hir::Anchor::StartLF`.)
 /// 3. If the search starts at a position immediately following a byte
 ///    classified as a "word" character (`[_0-9a-zA-Z]`), then the `WordByte`
 ///    start state is used. (Since `(?-u:\b)` corresponds to a word boundary.)

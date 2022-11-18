@@ -142,10 +142,10 @@ pub(crate) fn next(
             look_have = look_have.insert(Look::WordAscii);
         }
         // If we have new assertions satisfied that are among the set of
-        // assertions that exist in this state (that is, just because we
-        // added an EndLine assertion above doesn't mean there is an EndLine
-        // conditional epsilon transition in this state), then we re-compute
-        // this state's epsilon closure using the updated set of assertions.
+        // assertions that exist in this state (that is, just because we added
+        // an EndLF assertion above doesn't mean there is an EndLF conditional
+        // epsilon transition in this state), then we re-compute this state's
+        // epsilon closure using the updated set of assertions.
         //
         // Note that since our DFA states omit unconditional epsilon
         // transitions, this check is necessary for correctness. If we re-did
@@ -173,14 +173,14 @@ pub(crate) fn next(
     // Convert our empty builder into one that can record assertions and match
     // pattern IDs.
     let mut builder = empty_builder.into_matches();
-    // Set whether the StartLine look-behind assertion is true for this
+    // Set whether the StartLF look-behind assertion is true for this
     // transition or not. The look-behind assertion for ASCII word boundaries
     // is handled below.
-    if nfa.has_anchor() {
+    if nfa.look_set_union().contains_anchor_line() {
         if unit.as_u8().map_or(false, |b| b == b'\n') {
-            // Why only handle StartLine here and not StartText? That's
-            // because StartText can only impact the starting state, which
-            // is speical cased in start state handling.
+            // Why only handle StartLF here and not Start? That's because Start
+            // can only impact the starting state, which is speical cased in
+            // start state handling.
             builder.set_look_have(|have| have.insert(Look::StartLF));
         }
     }
@@ -266,7 +266,7 @@ pub(crate) fn next(
     // if one was detected once it enters a quit state (and indeed, the search
     // routines in this crate do just that), but it seems better to prevent
     // these things by construction if possible.)
-    if nfa.has_word_boundary()
+    if nfa.look_set_union().contains_word()
         && unit.is_word_byte()
         && !sparses.set2.is_empty()
     {
@@ -362,9 +362,9 @@ pub(crate) fn epsilon_closure(
 /// state (via `builder.look_have()`). The match pattern IDs should correspond
 /// to matches that occured on the previous transition, since all matches are
 /// delayed by one byte. The things that should _not_ be set are look-ahead
-/// assertions (EndLine, EndText and whether the next byte is a word byte or
-/// not). The builder state should also not have anything in `look_need` set,
-/// as this routine will compute that for you.
+/// assertions (EndLF, End and whether the next byte is a word byte or not).
+/// The builder state should also not have anything in `look_need` set, as this
+/// routine will compute that for you.
 ///
 /// The given NFA should be able to resolve all identifiers in `set` to a
 /// particular NFA state. Additionally, `set` must have capacity equivalent

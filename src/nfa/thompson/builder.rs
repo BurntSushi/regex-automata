@@ -554,7 +554,7 @@ impl Builder {
         }
         // Finally remap all of the state IDs.
         nfa.remap(&remap);
-        let final_nfa = NFA(Arc::new(nfa));
+        let final_nfa = nfa.into_nfa();
         trace!(
             "NFA compilation via builder complete, \
              final NFA size: {} states, {} bytes on heap",

@@ -4,9 +4,9 @@ use crate::util::{int::U32, utf8};
 ///
 /// A simulation of the NFA can only move through conditional epsilon
 /// transitions if the current position satisfies some look-around property.
-/// Some assertions are look-behind (`StartLine`, `StartText`), some assertions
-/// are look-ahead (`EndLine`, `EndText`) while other assertions are both
-/// look-behind and look-ahead (`WordBoundary*`).
+/// Some assertions are look-behind (`StartLF`, `Start`), some assertions are
+/// look-ahead (`EndLF`, `End`) while other assertions are both look-behind and
+/// look-ahead (`WordBoundary*`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Look {
     /// The current position is the beginning of the haystack (at position
@@ -129,7 +129,7 @@ impl Look {
     }
 
     /// Flip the look-around assertion to its equivalent for reverse searches.
-    /// For example, `StartLine` gets translated to `EndLine`.
+    /// For example, `StartLF` gets translated to `EndLF`.
     #[inline]
     pub const fn reversed(self) -> Look {
         match self {
@@ -288,11 +288,61 @@ impl LookSet {
         look.as_repr() & self.bits != 0
     }
 
+    /// Returns true if and only if this set contains any anchor assertions.
+    /// This includes both "start/end of haystack" and "start/end of line."
+    #[inline]
+    pub const fn contains_anchor(&self) -> bool {
+        self.contains_anchor_haystack() || self.contains_anchor_line()
+    }
+
+    /// Returns true if and only if this set contains any "start/end of
+    /// haystack" anchors. This doesn't include "start/end of line" anchors.
+    #[inline]
+    pub const fn contains_anchor_haystack(&self) -> bool {
+        self.contains(Look::Start) || self.contains(Look::End)
+    }
+
+    /// Returns true if and only if this set contains any "start/end of
+    /// line" anchors. This doesn't include "start/end of haystack" anchors.
+    #[inline]
+    pub const fn contains_anchor_line(&self) -> bool {
+        self.contains(Look::StartLF) || self.contains(Look::EndLF)
+    }
+
+    /// Returns true if and only if this set contains any word boundary or
+    /// negated word boundary assertions. This include both Unicode and ASCII
+    /// word boundaries.
+    #[inline]
+    pub const fn contains_word(&self) -> bool {
+        self.contains_word_unicode() || self.contains_word_ascii()
+    }
+
+    /// Returns true if and only if this set contains any Unicode word boundary
+    /// or negated Unicode word boundary assertions.
+    #[inline]
+    pub const fn contains_word_unicode(&self) -> bool {
+        self.contains(Look::WordUnicode)
+            || self.contains(Look::WordUnicodeNegate)
+    }
+
+    /// Returns true if and only if this set contains any ASCII word boundary
+    /// or negated ASCII word boundary assertions.
+    #[inline]
+    pub const fn contains_word_ascii(&self) -> bool {
+        self.contains(Look::WordAscii) || self.contains(Look::WordAsciiNegate)
+    }
+
     /// Subtract the given `other` set from the `self` set and return a new
     /// set.
     #[inline]
     pub const fn subtract(self, other: LookSet) -> LookSet {
         LookSet { bits: self.bits & !other.bits }
+    }
+
+    /// Modifies this set to be the union of itself and the set given.
+    #[inline]
+    pub const fn union(self, other: LookSet) -> LookSet {
+        LookSet { bits: self.bits | other.bits }
     }
 
     /// Return the intersection of the given `other` set with the `self` set
