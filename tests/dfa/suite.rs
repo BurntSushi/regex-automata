@@ -267,8 +267,7 @@ fn compiler(
 
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
-        let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
-        if non_ascii {
+        if !test.input().is_ascii() {
             for hir in hirs.iter() {
                 let looks = hir.properties().look_set();
                 if looks.contains(hir::Look::WordUnicode)

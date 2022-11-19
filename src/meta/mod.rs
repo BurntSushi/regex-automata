@@ -116,6 +116,10 @@ impl Regex {
         &self.info.config
     }
 
+    pub fn get_prefilter(&self) -> Option<&dyn Prefilter> {
+        self.pre.as_deref()
+    }
+
     pub fn memory_usage(&self) -> usize {
         0
     }

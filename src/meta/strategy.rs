@@ -226,65 +226,22 @@ pub(super) fn new(
             return Ok((pre, None));
         }
     }
+    // thought: if we have a Unicode word boundary and a prefilter, then does
+    // it make sense to disable the lazy DFA? The lazy DFA would likely be
+    // faster, but if there is non-ASCII in a match span, then it could lead
+    // to search restarts. Probably don't do this now and wait for a use case
+    // to appear?
+
     let strat = Core::new(info, hirs)?;
-    // BREADCRUMBS:
-    //
-    // It looks like there is some problem with using the prefilter and
-    // look-around assertions. I *believe* the logic below is correct, so I'm
-    // thinking the problem is in the regex engine. And I think the only thing
-    // actually using prefilters right now is the lazy DFA. And I thought it
-    // was correct... Hmmm perhaps not. Because look-arounds at the beginning
-    // of the regex pattern (I believe all test failures have a look-around at
-    // the beginning) are only resolved when computing the "start state," so
-    // perhaps that needs to be done after a prefilter match whenever there is
-    // a look-around prefix?
-    //
-    // OK yeah something is very borked. Enabling "specialize start states"
-    // appears to cause an infinite loop.
-    //
-    // Makes sense. We didn't really test prefilters much...
-    //
-    // Ug. This is a mess. Getting the proper start state requires an Input
-    // everywhere, so now we need to build one with the updated position?
-    // Uuuugggggggggggggggggg.
-    //
-    // Yeah... the old regex crate didn't deal with this at all because it
-    // basically refused to use prefilters for regexes that began with a
-    // look-around assertion. GAH.
-    //
-    // OK, going to:
-    //
-    // 1) 'Input' should never return a prefilter for an unanchored search.
-    // 2) Expose 'LookSet' prefixes and "anywhere" on an NFA.
-    // 3) When building an AOT DFA we can look at those during determinization
-    // instead of the existing "has word boundary anywhere" (for example).
-    // 4) When an NFA's union of "starting" look-around assertions is empty,
-    // then the DFA will have universal starting states. We will make this
-    // information available on the DFAs. We will then query that in the search
-    // routine.
-    // 5) For lazy DFAs, we could query the NFA directly.
-    //
-    // When we have a universal starting state, we can avoid needing to
-    // re-litigate the starting state after a prefilter match. Otherwise, we
-    // need to create a new 'Input' with an updated 'start' position and fully
-    // re-compute the start state at that position.
-    //
-    // FUCKING DONE! Nailed it. Finally, this means we can support prefilters
-    // for regexes like '\bfoo\b'. This was something the old regex engine
-    // could not do. And it makes sense now why. Recomputing the start state
-    // is a subtle thing.
-    //
-    // OK next is... Adding more prefilter tests to the suites. Maybe cleaning
-    // up the suites? They are a mess. And then adding prefilter support to the
-    // PikeVM and backtracker, since I skipped them on the first pass. Should
-    // be easy... right? We at least shouldn't have the "recompute start state"
-    // problem. That's a DFA thing.
     let pre = if let Some(Some(ref pre)) = info.config.pre {
         Some(Arc::clone(pre))
     } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
         None
     } else if info.config.get_auto_prefilter() {
-        lits.prefixes().literals().and_then(prefilter::new)
+        lits.prefixes().literals().and_then(|strings| {
+            trace!("creating prefilter from {:?}", strings);
+            prefilter::new(strings)
+        })
     } else {
         None
     };
@@ -363,13 +320,16 @@ impl Core {
         // There are of course work-arounds (more types and/or interior
         // mutability), but that's more annoying than this IMO.
         let pid = if let Some(ref e) = self.onepass.get(input) {
-            trace!("using OnePass for basic search");
+            trace!("using OnePass for basic search at {:?}", input.get_span());
             e.try_slots(&mut cache.onepass, input, caps.slots_mut())
         } else if let Some(ref e) = self.backtrack.get(input) {
-            trace!("using BoundedBacktracker for basic search");
+            trace!(
+                "using BoundedBacktracker for basic search at {:?}",
+                input.get_span()
+            );
             e.try_slots(&mut cache.backtrack, input, caps.slots_mut())
         } else {
-            trace!("using PikeVM for basic search");
+            trace!("using PikeVM for basic search at {:?}", input.get_span());
             let e = self.pikevm.get().expect("PikeVM is always available");
             e.try_slots(&mut cache.pikevm, input, caps.slots_mut())
         }?;
@@ -384,13 +344,22 @@ impl Core {
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         if let Some(ref e) = self.onepass.get(input) {
-            trace!("using OnePass for capture search");
+            trace!(
+                "using OnePass for capture search at {:?}",
+                input.get_span()
+            );
             e.try_slots(&mut cache.onepass, input, slots)
         } else if let Some(ref e) = self.backtrack.get(input) {
-            trace!("using BoundedBacktracker for capture search");
+            trace!(
+                "using BoundedBacktracker for capture search at {:?}",
+                input.get_span()
+            );
             e.try_slots(&mut cache.backtrack, input, slots)
         } else {
-            trace!("using PikeVM for capture search");
+            trace!(
+                "using PikeVM for capture search at {:?}",
+                input.get_span()
+            );
             let e = self.pikevm.get().expect("PikeVM is always available");
             e.try_slots(&mut cache.pikevm, input, slots)
         }
@@ -425,7 +394,10 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
         if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for basic search");
+            trace!(
+                "using lazy DFA for basic search at {:?}",
+                input.get_span()
+            );
             let err = match e.try_find(&mut cache.hybrid, input) {
                 Ok(m) => return Ok(m),
                 Err(err) => err,
@@ -433,7 +405,7 @@ impl Strategy for Core {
             if !is_err_quit_or_gaveup(&err) {
                 return Err(err);
             }
-            trace!("lazy DFA failed in basic search, using fallback");
+            trace!("lazy DFA failed in basic search, using fallback: {}", err);
             // Fallthrough to the fallback.
         }
         self.try_find_no_hybrid(cache, input)
@@ -445,7 +417,7 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for 'is match'");
+            trace!("using lazy DFA for 'is match' at {:?}", input.get_span());
             // This is the main difference with 'try_find'. If we only need a
             // HalfMatch, then the lazy DFA can simply do a forward scan and
             // return the end offset and skip the reverse scan since the start
@@ -457,7 +429,7 @@ impl Strategy for Core {
             if !is_err_quit_or_gaveup(&err) {
                 return Err(err);
             }
-            trace!("lazy DFA failed for 'is match', using fallback");
+            trace!("lazy DFA failed for 'is match', using fallback: {}", err);
             // Fallthrough to the fallback.
         }
         // Only the lazy DFA returns half-matches, since the DFA requires
@@ -497,7 +469,10 @@ impl Strategy for Core {
             return Ok(Some(m.pattern()));
         }
         if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for capture search");
+            trace!(
+                "using lazy DFA for capture search at {:?}",
+                input.get_span()
+            );
             match e.try_find(&mut cache.hybrid, input) {
                 Ok(None) => return Ok(None),
                 Ok(Some(m)) => {
@@ -522,7 +497,8 @@ impl Strategy for Core {
                         return Err(err);
                     }
                     trace!(
-                        "lazy DFA failed in capture search, using fallback"
+                        "lazy DFA failed in capture search, using fallback: {}",
+                        err,
                     );
                     // Otherwise fallthrough to the fallback below.
                 }
@@ -538,7 +514,10 @@ impl Strategy for Core {
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for overlapping search");
+            trace!(
+                "using lazy DFA for overlapping search at {:?}",
+                input.get_span()
+            );
             let err = match e.try_which_overlapping_matches(
                 &mut cache.hybrid,
                 input,
@@ -550,7 +529,10 @@ impl Strategy for Core {
             if !is_err_quit_or_gaveup(&err) {
                 return Err(err);
             }
-            trace!("lazy DFA failed in overlapping search, using fallback");
+            trace!(
+                "lazy DFA failed in overlapping search, using fallback: {}",
+                err
+            );
             // Fallthrough to the fallback.
         }
         let e = self.pikevm.get().expect("PikeVM is always available");

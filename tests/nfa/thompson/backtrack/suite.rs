@@ -4,7 +4,7 @@ use regex_automata::{
         backtrack::{self, BoundedBacktracker},
         NFA,
     },
-    util::{iter, syntax},
+    util::{iter, prefilter, syntax},
     Input,
 };
 
@@ -31,6 +31,28 @@ fn default() -> Result<()> {
     // wrong or smaller than it should be.
     runner.blacklist("expensive/backtrack-blow-visited-capacity");
     runner.test_iter(suite()?.iter(), compiler(builder)).assert();
+    Ok(())
+}
+
+/// Tests the backtracker with prefilters enabled.
+#[test]
+fn prefilter() -> Result<()> {
+    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+        // Parse regexes as HIRs so we can get literals to build a prefilter.
+        let mut hirs = vec![];
+        for pattern in regexes.iter() {
+            let pattern = pattern.to_str()?;
+            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+        }
+        let pre = prefilter::from_hirs(&hirs);
+        let mut builder = BoundedBacktracker::builder();
+        builder.configure(BoundedBacktracker::config().prefilter(pre));
+        compiler(builder)(test, regexes)
+    };
+    let mut runner = TestRunner::new()?;
+    runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
+    runner.blacklist("expensive/backtrack-blow-visited-capacity");
+    runner.test_iter(suite()?.iter(), my_compiler).assert();
     Ok(())
 }
 

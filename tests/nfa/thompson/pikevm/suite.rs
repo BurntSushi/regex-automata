@@ -3,7 +3,7 @@ use regex_automata::{
         self,
         pikevm::{self, PikeVM},
     },
-    util::{iter, syntax},
+    util::{iter, prefilter, syntax},
     MatchKind, PatternSet,
 };
 
@@ -21,6 +21,27 @@ fn default() -> Result<()> {
     let mut runner = TestRunner::new()?;
     runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
     runner.test_iter(suite()?.iter(), compiler(builder)).assert();
+    Ok(())
+}
+
+/// Tests the PikeVM with prefilters enabled.
+#[test]
+fn prefilter() -> Result<()> {
+    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+        // Parse regexes as HIRs so we can get literals to build a prefilter.
+        let mut hirs = vec![];
+        for pattern in regexes.iter() {
+            let pattern = pattern.to_str()?;
+            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+        }
+        let pre = prefilter::from_hirs(&hirs);
+        let mut builder = PikeVM::builder();
+        builder.configure(PikeVM::config().prefilter(pre));
+        compiler(builder)(test, regexes)
+    };
+    let mut runner = TestRunner::new()?;
+    runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
+    runner.test_iter(suite()?.iter(), my_compiler).assert();
     Ok(())
 }
 

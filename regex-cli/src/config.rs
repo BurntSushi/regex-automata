@@ -3,7 +3,7 @@ use std::{borrow::Borrow, convert::TryFrom, fs, path::PathBuf};
 use anyhow::Context;
 use automata::{
     dfa::{self, dense, onepass, sparse},
-    hybrid,
+    hybrid, meta,
     nfa::thompson::{self, backtrack, pikevm},
     Anchored, MatchKind, PatternID,
 };
@@ -311,6 +311,10 @@ impl Haystack {
 /// CLI flags. The only aspect of regex_automata::Input that this does not
 /// cover is the haystack, which should be provided by other means (usually
 /// with `Haystack`).
+///
+/// This also doesn't permit setting a prefilter at present. It's not quite
+/// clear if it should go here or not, because a prefilter really needs to be
+/// computed from the patterns given.
 #[derive(Debug)]
 pub struct Input {
     start: Option<usize>,
@@ -909,21 +913,6 @@ pub struct PikeVM {
 
 impl PikeVM {
     pub fn define(mut app: App) -> App {
-        {
-            const SHORT: &str = "Build an anchored Pike VM.";
-            const LONG: &str = "\
-Build an anchored Pike VM.
-
-When enabled, the Pike VM only executes anchored searches, even if the
-underlying NFA has an unanchored start state. This means that the Pike VM
-can only find matches that begin where the search starts. When disabled (the
-default), the Pike VM will have an \"unanchored\" prefix that permits it to
-match anywhere.
-";
-            app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
-            );
-        }
         {
             const SHORT: &str = "Disable UTF-8 handling for iterators.";
             const LONG: &str = "\
@@ -2042,6 +2031,240 @@ impl RegexHybrid {
     ) -> anyhow::Result<hybrid::regex::Regex> {
         let patterns = patterns.as_strings();
         let b = self.builder(syntax, thompson, hybrid);
+        let (re, time) = util::timeitr(|| b.build_many(patterns))?;
+        // let mem_fwd = re.forward().memory_usage();
+        // let mem_rev = re.forward().memory_usage();
+        table.add("build hybrid regex time", time);
+        // table.add("dense regex (forward DFA) memory", mem_fwd);
+        // table.add("dense regex (reverse DFA) memory", mem_rev);
+        // table.add("hybrid regex memory", mem_fwd + mem_rev);
+        Ok(re)
+    }
+}
+
+#[derive(Debug)]
+pub struct Meta {
+    config: meta::Config,
+}
+
+impl Meta {
+    pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Choose the match kind.";
+            const LONG: &str = "\
+Choose the match kind.
+
+This permits setting the match kind to either 'leftmost-first' (the default)
+or 'all'. The former will attempt to find the longest match starting at the
+leftmost position, but prioritizing alternations in the regex that appear
+first. For example, with leftmost-first enabled, 'Sam|Samwise' will match 'Sam'
+in 'Samwise' while 'Samwise|Sam' would match 'Samwise'.
+
+'all' match semantics will include all possible matches, including the longest
+possible match. 'all' is most commonly used when compiling a reverse DFA to
+determine the starting position of a match. Note that when 'all' is used, there
+is no distinction between greedy and non-greedy regexes. Everything is greedy
+all the time.
+";
+            app = app.arg(
+                flag("match-kind").short("k").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Disable UTF-8 handling for iterators.";
+            const LONG: &str = "\
+Disable UTF-8 handling for match iterators when an empty match is seen.
+
+When UTF-8 mode is enabled for regexes (the default) and an empty match is
+seen, the iterators will always start the next search at the next UTF-8 encoded
+codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
+searches are started at the next byte offset.
+
+Generally speaking, UTF-8 mode for regexes should only be used when you know
+you are searching valid UTF-8. Typically, this should only be disabled in
+precisely the cases where the regex itself is permitted to match invalid UTF-8.
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+together.
+
+This mode cannot be toggled inside the regex.
+";
+            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str = "Disable automatic prefilter.";
+            const LONG: &str = "\
+Disable automatic prefilter.
+
+When set, this causes the meta regex engine to never build or use a prefilter.
+By default, the meta regex engine will try to use a prefilter to accelerate
+searches.
+";
+            app = app.arg(switch("no-prefilter").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str = "Set a size limit, in bytes, on the NFA size.";
+            const LONG: &str = "\
+Set a size limit, in bytes, on the NFA size.
+
+This size limit is expressed in bytes of heap memory and is applied while
+converting the concrete syntax of a pattern to its corresponding NFA.
+
+The default for this flag is some reasonable size, but 'none' can be used
+to disable the limit entirely.
+";
+            app = app.arg(flag("nfa-size-limit").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str =
+                "Set a size limit, in bytes, on the one-pass DFA size.";
+            const LONG: &str = "\
+Set a size limit, in bytes, on the one-pass DFA size.
+
+This size limit is expressed in bytes of heap memory and is applied while
+converting the NFA of a regex to its corresponding one-pass DFA. This limit
+is only applied when one-pass DFA construction is attempted, which does not
+always occur.
+
+The default for this flag is some reasonable size, but 'none' can be used
+to disable the limit entirely.
+";
+            app = app
+                .arg(flag("onepass-size-limit").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str = "Set the cache capacity of the lazy DFA.";
+            const LONG: &str = "\
+Set the cache capacity of the lazy DFA.
+
+This size limit is expressed in bytes of heap memory and is applied to the
+capacity of the working memory used by the lazy DFA to store states. It can be
+used to increase this for especially large regexes or for regexes that generate
+many DFA states during powerset construction.
+
+The default for this flag is some reasonable size. Note that unlike other
+limits, this must be set to a valid value. It cannot be disabled via a 'none'
+value (because it is a capacity), although some large value may be used to
+achieve a similar effect.
+";
+            app = app.arg(
+                flag("hybrid-cache-capacity").help(SHORT).long_help(LONG),
+            );
+        }
+        {
+            const SHORT: &str = "Disable the hybrid NFA/DFA engine.";
+            const LONG: &str = "\
+Disable the hybrid NFA/DFA engine.
+
+When set, the meta regex engine will not attempt to use the hybrid NFA/DFA
+engine (also known as the lazy DFA).
+";
+            app = app.arg(switch("no-hybrid").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str = "Disable the one-pass DFA engine.";
+            const LONG: &str = "\
+Disable the one-pass DFA engine.
+
+When set, the meta regex engine will not attempt to use the one-pass DFA
+engine.
+";
+            app = app.arg(switch("no-onepass").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str = "Disable the bounded backtracking engine.";
+            const LONG: &str = "\
+Disable the bounded backtracking engine.
+
+When set, the meta regex engine will not attempt to use the bounded
+backtracking engine.
+";
+            app = app.arg(switch("no-backtrack").help(SHORT).long_help(LONG));
+        }
+        {
+            const SHORT: &str = "Disable the use of equivalence classes.";
+            const LONG: &str = "\
+Disable the use of equivalence classes.
+
+When disabled, every state in the lazy DFA and one-pass DFA will always
+have 256 transitions When enabled (the default), transitions are grouped
+into equivalence classes where every byte in the same class cannot possibly
+differentiate between a match and a non-match.
+
+Keep byte classes enabled is always a good idea, since it both decreases the
+amount of space required and also the amount of time it takes to build the DFA
+(since there are fewer transitions to create). The only reason to disable byte
+classes is for debugging the representation of a DFA, since equivalence class
+identifiers will be used for the transitions instead of the actual bytes.
+";
+            app = app.arg(
+                switch("no-byte-classes")
+                    .short("C")
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
+        }
+        app
+    }
+
+    pub fn get(args: &Args) -> anyhow::Result<Meta> {
+        let kind = match args.value_of_lossy("match-kind") {
+            None => MatchKind::LeftmostFirst,
+            Some(value) => match &*value {
+                "all" => MatchKind::All,
+                "leftmost-first" => MatchKind::LeftmostFirst,
+                unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
+            },
+        };
+        let mut c = meta::Config::new()
+            .utf8(!args.is_present("no-utf8-iter"))
+            .match_kind(kind)
+            .auto_prefilter(!args.is_present("no-prefilter"))
+            .hybrid(!args.is_present("no-hybrid"))
+            .onepass(!args.is_present("no-onepass"))
+            .backtrack(!args.is_present("no-backtrack"))
+            .byte_classes(!args.is_present("no-byte-classes"));
+        if let Some(x) = args.value_of_lossy("nfa-size-limit") {
+            if x.to_lowercase() == "none" {
+                c = c.nfa_size_limit(None);
+            } else {
+                let limit =
+                    x.parse().context("failed to parse --nfa-size-limit")?;
+                c = c.nfa_size_limit(Some(limit));
+            }
+        }
+        if let Some(x) = args.value_of_lossy("onepass-size-limit") {
+            if x.to_lowercase() == "none" {
+                c = c.onepass_size_limit(None);
+            } else {
+                let limit = x
+                    .parse()
+                    .context("failed to parse --onepass-size-limit")?;
+                c = c.onepass_size_limit(Some(limit));
+            }
+        }
+        if let Some(x) = args.value_of_lossy("hybrid-cache-capacity") {
+            let limit = x
+                .parse()
+                .context("failed to parse --hybrid-cache-capacity")?;
+            c = c.hybrid_cache_capacity(limit);
+        }
+        Ok(Meta { config: c })
+    }
+
+    pub fn builder(&self, syntax: &Syntax) -> meta::Builder {
+        let mut builder = meta::Builder::new();
+        builder.configure(self.config.clone()).syntax(syntax.0);
+        builder
+    }
+
+    pub fn from_patterns(
+        &self,
+        table: &mut Table,
+        syntax: &Syntax,
+        patterns: &Patterns,
+    ) -> anyhow::Result<meta::Regex> {
+        let patterns = patterns.as_strings();
+        let b = self.builder(syntax);
         let (re, time) = util::timeitr(|| b.build_many(patterns))?;
         // let mem_fwd = re.forward().memory_usage();
         // let mem_rev = re.forward().memory_usage();

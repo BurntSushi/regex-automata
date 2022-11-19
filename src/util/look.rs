@@ -597,6 +597,9 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 //
 // Which is a nice improvement.
 //
+// TODO: We should consider using the lazy DFA instead... It takes a brutal
+// 22ms to build the reverse \w automaton. Ug.
+//
 // [1]: https://github.com/BurntSushi/ucd-generate/issues/11
 
 /// A module that looks for word codepoints using fully compiled DFAs.
@@ -658,7 +661,11 @@ mod is_word_char {
         static WORD: Lazy<(DFA<Vec<u32>>, StateID)> = Lazy::new(|| {
             let dfa = DFA::builder()
                 .configure(DFA::config().start_kind(StartKind::Anchored))
-                .thompson(NFA::config().reverse(true).shrink(true))
+                // From ad hoc measurements, it looks like setting
+                // shrink==false is slightly faster than shrink==true. I kind
+                // of feel like this indicates that shrinking is probably a
+                // failure, although it can help in some cases. Sigh.
+                .thompson(NFA::config().reverse(true).shrink(false))
                 .build(r"\w")
                 .unwrap();
             // OK because our regex has no look-around.

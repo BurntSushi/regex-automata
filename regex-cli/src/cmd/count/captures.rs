@@ -8,6 +8,7 @@ use crate::{
 
 use automata::{
     dfa::onepass::{self, DFA},
+    meta,
     nfa::thompson::{
         backtrack::{self, BoundedBacktracker},
         pikevm::{self, PikeVM},
@@ -30,6 +31,7 @@ pub fn define() -> App {
         .before_help(ABOUT_LONG)
         .subcommand(define_api())
         .subcommand(define_dfa())
+        .subcommand(define_meta())
         .subcommand(define_nfa())
 }
 
@@ -37,6 +39,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
     util::run_subcommand(args, define, |cmd, args| match cmd {
         "api" => run_api(args),
         "dfa" => run_dfa(args),
+        "meta" => run_meta(args),
         "nfa" => run_nfa(args),
         _ => Err(util::UnrecognizedCommandError.into()),
     })
@@ -68,6 +71,18 @@ fn define_dfa() -> App {
     onepass = config::Find::define(onepass);
 
     app::command("dfa").about("Search using a DFA.").subcommand(onepass)
+}
+
+fn define_meta() -> App {
+    let mut meta =
+        app::leaf("meta").about("Search using the meta regex engine.");
+    meta = config::Haystack::define(meta);
+    meta = config::Input::define(meta);
+    meta = config::Patterns::define(meta);
+    meta = config::Syntax::define(meta);
+    meta = config::Meta::define(meta);
+    meta = config::Find::define(meta);
+    meta
 }
 
 fn define_nfa() -> App {
@@ -177,6 +192,43 @@ fn run_dfa_onepass(args: &Args) -> anyhow::Result<()> {
                     .group_info()
                     .to_name(pid, i)
                     .map(|n| n.to_string())
+            });
+            table.add(&format!("counts({})", pid.as_usize()), nicecaps);
+        }
+        table.print(stdout())?;
+        if !buf.is_empty() {
+            write!(stdout(), "\n{}", buf)?;
+        }
+        Ok(())
+    })
+}
+
+fn run_meta(args: &Args) -> anyhow::Result<()> {
+    let mut table = Table::empty();
+
+    let csyntax = config::Syntax::get(args)?;
+    let cmeta = config::Meta::get(args)?;
+    let chaystack = config::Haystack::get(args)?;
+    let cinput = config::Input::get(args)?;
+    let cpatterns = config::Patterns::get(args)?;
+    let ccaptures = config::Captures::get(args)?;
+
+    let re = cmeta.from_patterns(&mut table, &csyntax, &cpatterns)?;
+
+    let (mut cache, time) = util::timeit(|| re.create_cache());
+    table.add("create cache time", time);
+
+    cinput.with_input(&chaystack, |input| {
+        let mut buf = String::new();
+        let (counts, time) = util::timeitr(|| {
+            search_meta(&re, &mut cache, &ccaptures, input, &mut buf)
+        })?;
+        table.add("search time", time);
+        let caps = re.create_captures();
+        for (pid, groups) in counts.iter().enumerate() {
+            let pid = PatternID::must(pid);
+            let nicecaps = format_capture_counts(groups, |i| {
+                caps.group_info().to_name(pid, i).map(|n| n.to_string())
             });
             table.add(&format!("counts({})", pid.as_usize()), nicecaps);
         }
@@ -300,6 +352,46 @@ fn search_api_regex(
         }
         if captures.matches() {
             write_api_captures(&caps, buf);
+        }
+    }
+    Ok(counts)
+}
+
+fn search_meta(
+    re: &meta::Regex,
+    cache: &mut meta::Cache,
+    captures: &config::Captures,
+    input: &Input<'_, '_>,
+    buf: &mut String,
+) -> anyhow::Result<Vec<Vec<u64>>> {
+    let mut caps = re.create_captures();
+    let mut counts = vec![vec![]; re.pattern_len()];
+    for pid in 0..re.pattern_len() {
+        let pid = PatternID::must(pid);
+        counts[pid] = vec![0; caps.group_info().group_len(pid)];
+    }
+    // The standard iterators alloc a new 'Captures' for each match, so
+    // we use a slightly less convenient API to reuse 'Captures' for
+    // each match. Overall, this should result in zero amortized allocs
+    // per match.
+    let mut it =
+        iter::Searcher::new(input.clone().prefilter(re.get_prefilter()));
+    loop {
+        it.try_advance(|input| {
+            re.try_search_captures(cache, input, &mut caps)?;
+            Ok(caps.get_match())
+        })?;
+        let m = match caps.get_match() {
+            None => break,
+            Some(m) => m,
+        };
+        for (group_index, subm) in caps.iter().enumerate() {
+            if subm.is_some() {
+                counts[m.pattern()][group_index] += 1;
+            }
+        }
+        if captures.matches() {
+            write_automata_captures(&caps, buf);
         }
     }
     Ok(counts)

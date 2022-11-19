@@ -4,7 +4,7 @@ use regex_automata::{
         regex::{self, Regex},
     },
     nfa::thompson,
-    util::{iter, syntax},
+    util::{iter, prefilter, syntax},
     Anchored, Input, MatchKind, PatternSet,
 };
 
@@ -26,6 +26,30 @@ fn default() -> Result<()> {
         // Without NFA shrinking, this test blows the default cache capacity.
         .blacklist("expensive/regression-many-repeat-no-stack-overflow")
         .test_iter(suite()?.iter(), compiler(builder))
+        .assert();
+    Ok(())
+}
+
+/// Tests the hybrid NFA/DFA with prefilters enabled.
+#[test]
+fn prefilter() -> Result<()> {
+    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+        // Parse regexes as HIRs so we can get literals to build a prefilter.
+        let mut hirs = vec![];
+        for pattern in regexes.iter() {
+            let pattern = pattern.to_str()?;
+            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+        }
+        let pre = prefilter::from_hirs(&hirs);
+        let mut builder = Regex::builder();
+        builder.configure(Regex::config().prefilter(pre));
+        compiler(builder)(test, regexes)
+    };
+    TestRunner::new()?
+        .expand(EXPANSIONS, |t| t.compiles())
+        // Without NFA shrinking, this test blows the default cache capacity.
+        .blacklist("expensive/regression-many-repeat-no-stack-overflow")
+        .test_iter(suite()?.iter(), my_compiler)
         .assert();
     Ok(())
 }
@@ -127,14 +151,19 @@ fn compiler(
             .map(|r| r.to_str().map(|s| s.to_string()))
             .collect::<std::result::Result<Vec<String>, _>>()?;
 
+        // Parse regexes as HIRs for some analysis below.
+        let mut hirs = vec![];
+        for pattern in regexes.iter() {
+            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+        }
+
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
-        let mut thompson = thompson::Compiler::new();
-        thompson.syntax(config_syntax(test)).configure(config_thompson(test));
-        if let Ok(nfa) = thompson.build_many(&regexes) {
-            let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
-            if nfa.look_set_union().contains_word_unicode() && non_ascii {
-                return Ok(CompiledRegex::skip());
+        if !test.input().is_ascii() {
+            for hir in hirs.iter() {
+                if hir.properties().look_set().contains_word_unicode() {
+                    return Ok(CompiledRegex::skip());
+                }
             }
         }
         if !configure_regex_builder(test, &mut builder) {
@@ -221,17 +250,13 @@ fn configure_regex_builder(
         dfa_config = dfa_config.starts_for_each_pattern(true);
     }
     let regex_config = Regex::config().utf8(test.utf8());
+    let thompson_config = thompson::Config::new();
     builder
         .configure(regex_config)
         .syntax(config_syntax(test))
-        .thompson(config_thompson(test))
+        .thompson(thompson_config)
         .dfa(dfa_config);
     true
-}
-
-/// Configuration of a Thompson NFA compiler from a regex test.
-fn config_thompson(_test: &RegexTest) -> thompson::Config {
-    thompson::Config::new()
 }
 
 /// Configuration of the regex parser from a regex test.

@@ -20,7 +20,7 @@ use crate::{
         look::UnicodeWordBoundaryError,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
-        search::{Anchored, Input, Match, MatchError},
+        search::{Anchored, Input, Match, MatchError, Span},
     },
 };
 
@@ -1492,12 +1492,22 @@ impl BoundedBacktracker {
             let at = input.start();
             return Ok(self.backtrack(cache, input, at, start_id, slots));
         }
-        for at in input.start()..=input.end() {
+        let pre = input.get_prefilter();
+        let mut at = input.start();
+        while at <= input.end() {
+            if let Some(ref pre) = pre {
+                let span = Span::from(at..input.end());
+                match pre.find(input.haystack(), span) {
+                    None => break,
+                    Some(ref span) => at = span.start,
+                }
+            }
             if let Some(pid) =
                 self.backtrack(cache, input, at, start_id, slots)
             {
                 return Ok(Some(pid));
             }
+            at += 1;
         }
         Ok(None)
     }
