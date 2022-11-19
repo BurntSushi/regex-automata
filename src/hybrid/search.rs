@@ -26,7 +26,7 @@ pub(crate) fn find_fwd(
     // beneficial in ad hoc benchmarks. To see these differences, you often
     // need a query with a high match count. In other words, specializing these
     // four routines *tends* to help latency more than throughput.
-    if input.get_prefilter().is_some() && !input.get_anchored().is_anchored() {
+    if input.get_prefilter().is_some() {
         if input.get_earliest() {
             find_fwd_imp(dfa, cache, input, input.get_prefilter(), true)
         } else {
@@ -49,6 +49,8 @@ fn find_fwd_imp(
     pre: Option<&'_ dyn Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
+    // See 'prefilter_restart' docs for explanation.
+    let universal_start = dfa.get_nfa().look_set_prefix_union().is_empty();
     let mut mat = None;
     let mut sid = init_fwd(dfa, cache, input)?;
     let mut at = input.start();
@@ -68,9 +70,9 @@ fn find_fwd_imp(
             None => return Ok(mat),
             Some(ref span) => {
                 at = span.start;
-                let mut input = input.clone();
-                input.set_start(at);
-                sid = init_fwd(dfa, cache, &input)?;
+                if !universal_start {
+                    sid = prefilter_restart(dfa, cache, &input, at)?;
+                }
             }
         }
     }
@@ -237,9 +239,11 @@ fn find_fwd_imp(
                             // state has a self-loop, we can get stuck.
                             if span.start > at {
                                 at = span.start;
-                                let mut input = input.clone();
-                                input.set_start(at);
-                                sid = init_fwd(dfa, cache, &input)?;
+                                if !universal_start {
+                                    sid = prefilter_restart(
+                                        dfa, cache, &input, at,
+                                    )?;
+                                }
                                 continue;
                             }
                         }
@@ -430,7 +434,7 @@ pub(crate) fn find_overlapping_fwd(
     if input.is_done() {
         return Ok(());
     }
-    if input.get_prefilter().is_some() && !input.get_anchored().is_anchored() {
+    if input.get_prefilter().is_some() {
         let pre = input.get_prefilter();
         find_overlapping_fwd_imp(dfa, cache, input, pre, state)
     } else {
@@ -446,6 +450,8 @@ fn find_overlapping_fwd_imp(
     pre: Option<&'_ dyn Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
+    // See 'prefilter_restart' docs for explanation.
+    let universal_start = dfa.get_nfa().look_set_prefix_union().is_empty();
     let mut sid = match state.id {
         None => {
             state.at = input.start();
@@ -486,6 +492,11 @@ fn find_overlapping_fwd_imp(
                         Some(ref span) => {
                             if span.start > state.at {
                                 state.at = span.start;
+                                if !universal_start {
+                                    sid = prefilter_restart(
+                                        dfa, cache, &input, state.at,
+                                    )?;
+                                }
                                 continue;
                             }
                         }
@@ -716,6 +727,42 @@ fn eoi_rev(
         debug_assert!(!sid.is_quit());
     }
     Ok(())
+}
+
+/// Re-compute the starting state that a DFA should be in after finding a
+/// prefilter candidate match at the position `at`.
+///
+/// It is always correct to call this, but not always necessary. Namely,
+/// whenever the DFA has a universal start state, the DFA can remain in the
+/// start state that it was in when it ran the prefilter. Why? Because in that
+/// case, there is only one start state.
+///
+/// When does a DFA have a universal start state? In precisely cases where
+/// it has no look-around assertions in its prefix. So for example, `\bfoo`
+/// does not have a universal start state because the start state depends on
+/// whether the byte immediately before the start position is a word byte or
+/// not. However, `foo\b` does have a universal start state because the word
+/// boundary does not appear in the pattern's prefix.
+///
+/// So... most cases don't need this, but when a pattern doesn't have a
+/// universal start state, then after a prefilter candidate has been found, the
+/// current state *must* be re-litigated as if computing the start state at the
+/// beginning of the search because it might change. That is, not all start
+/// states are created equal.
+///
+/// Why avoid it? Because while it's not super expensive, it isn't a trivial
+/// operation to compute the start state. It is much better to avoid it and
+/// just state in the current state if you know it to be correct.
+#[inline(always)]
+fn prefilter_restart(
+    dfa: &DFA,
+    cache: &mut Cache,
+    input: &Input<'_, '_>,
+    at: usize,
+) -> Result<LazyStateID, MatchError> {
+    let mut input = input.clone();
+    input.set_start(at);
+    init_fwd(dfa, cache, &input)
 }
 
 /// A convenience routine for constructing a "gave up" match error.

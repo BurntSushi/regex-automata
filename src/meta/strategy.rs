@@ -19,6 +19,7 @@ use crate::{
             Anchored, HalfMatch, Input, Match, MatchError, MatchKind,
             PatternSet,
         },
+        syntax::Literals,
     },
 };
 
@@ -176,7 +177,7 @@ pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
 ) -> Result<(Arc<dyn Strategy>, Option<Arc<dyn Prefilter>>), BuildError> {
-    let lits = Literals::new(&hirs);
+    let lits = Literals::new(hirs);
     // Check to see if our prefixes are exact, which means we might be able to
     // bypass the regex engine entirely and just rely on literal searches. We
     // need to meet a few criteria that basically lets us implement the full
@@ -211,7 +212,7 @@ pub(super) fn new(
     // supports prefilters. So this optimization merely sidesteps having to run
     // the regex engine at all to confirm the match. Thus, it decreases the
     // latency of a match.
-    if lits.prefixes.is_exact()
+    if lits.prefixes().is_exact()
         && hirs.len() == 1
         && info.props[0].look_set().is_empty()
         && info.props[0].captures_len() == 0
@@ -220,7 +221,7 @@ pub(super) fn new(
         && info.config.get_match_kind() == MatchKind::LeftmostFirst
     {
         // OK because we know the set is exact and thus finite.
-        let prefixes = lits.prefixes.literals().unwrap();
+        let prefixes = lits.prefixes().literals().unwrap();
         if let Some(pre) = prefilter::new_as_strategy(prefixes) {
             return Ok((pre, None));
         }
@@ -267,12 +268,23 @@ pub(super) fn new(
     // re-litigate the starting state after a prefilter match. Otherwise, we
     // need to create a new 'Input' with an updated 'start' position and fully
     // re-compute the start state at that position.
+    //
+    // FUCKING DONE! Nailed it. Finally, this means we can support prefilters
+    // for regexes like '\bfoo\b'. This was something the old regex engine
+    // could not do. And it makes sense now why. Recomputing the start state
+    // is a subtle thing.
+    //
+    // OK next is... Adding more prefilter tests to the suites. Maybe cleaning
+    // up the suites? They are a mess. And then adding prefilter support to the
+    // PikeVM and backtracker, since I skipped them on the first pass. Should
+    // be easy... right? We at least shouldn't have the "recompute start state"
+    // problem. That's a DFA thing.
     let pre = if let Some(Some(ref pre)) = info.config.pre {
         Some(Arc::clone(pre))
     } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
         None
     } else if info.config.get_auto_prefilter() {
-        lits.prefixes.literals().and_then(prefilter::new)
+        lits.prefixes().literals().and_then(prefilter::new)
     } else {
         None
     };
@@ -557,50 +569,4 @@ impl Strategy for Core {
 fn is_err_quit_or_gaveup(err: &MatchError) -> bool {
     use crate::MatchErrorKind::*;
     matches!(*err.kind(), Quit { .. } | GaveUp { .. })
-}
-
-/// The prefixes and suffixes extracted from zero or more HIR expressions.
-///
-/// The semantic here is that, given a finite sequence of prefixes (or
-/// suffixes), at least one of those prefixes (or suffixes) must match in order
-/// for an overall match of the regex to occur.
-///
-/// These literals are used to accelerate searches (by skipping ahead to
-/// possible matching positions more quickly than what a general regex engine
-/// can do) or even skip the regex engine entirely (when the sequence of
-/// literals is "exact", among other criteria).
-#[derive(Debug)]
-struct Literals {
-    prefixes: literal::Seq,
-    suffixes: literal::Seq,
-}
-
-impl Literals {
-    /// Extracts all of the prefix and suffix literals from the given HIR
-    /// expressions into a single `Seq` each. The literals in the sequence are
-    /// ordered with respect to the order of the given HIR expressions.
-    ///
-    /// The sequences returned are each "optimized." That is, they may be
-    /// shrunk or even truncated according to heuristics with the intent of
-    /// making them more useful as a prefilter. (Which translates to both
-    /// using faster algorithms and minimizing the false positive rate.)
-    ///
-    /// Note that this erases any connection between the literals and which
-    /// pattern (or patterns) they came from.
-    fn new(hirs: &[&Hir]) -> Literals {
-        let mut prefix_extractor = literal::Extractor::new();
-        prefix_extractor.kind(literal::ExtractKind::Prefix);
-        let mut suffix_extractor = literal::Extractor::new();
-        suffix_extractor.kind(literal::ExtractKind::Suffix);
-
-        let mut prefixes = literal::Seq::empty();
-        let mut suffixes = literal::Seq::empty();
-        for hir in hirs.iter() {
-            prefixes.union(&mut prefix_extractor.extract(hir));
-            suffixes.union(&mut suffix_extractor.extract(hir));
-        }
-        prefixes.optimize_for_prefix();
-        suffixes.optimize_for_suffix();
-        Literals { prefixes, suffixes }
-    }
 }

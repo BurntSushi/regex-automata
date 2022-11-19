@@ -1231,6 +1231,15 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     }
 
     #[inline]
+    fn universal_start_state(&self, mode: Anchored) -> Option<StateID> {
+        match mode {
+            Anchored::No => self.starts.universal_start_unanchored,
+            Anchored::Yes => self.starts.universal_start_anchored,
+            Anchored::Pattern(_) => None,
+        }
+    }
+
+    #[inline]
     fn accelerator(&self, id: StateID) -> &[u8] {
         self.trans.state(id).accelerator()
     }
@@ -1737,22 +1746,41 @@ struct StartTable<T> {
     /// This may be zero for non-empty DFAs when the DFA was built without
     /// start states for each pattern.
     pattern_len: usize,
+    /// The universal starting state for unanchored searches. This is only
+    /// present when the DFA supports unanchored searches and when all starting
+    /// state IDs for an unanchored search are equivalent.
+    universal_start_unanchored: Option<StateID>,
+    /// The universal starting state for anchored searches. This is only
+    /// present when the DFA supports anchored searches and when all starting
+    /// state IDs for an anchored search are equivalent.
+    universal_start_anchored: Option<StateID>,
 }
 
 #[cfg(feature = "dfa-build")]
 impl StartTable<Vec<u8>> {
-    fn new(kind: StartKind, patterns: usize) -> StartTable<Vec<u8>> {
+    fn new<T: AsRef<[u32]>>(
+        dfa: &dense::DFA<T>,
+        pattern_len: usize,
+    ) -> StartTable<Vec<u8>> {
         let stride = Start::len();
         // This is OK since the only way we're here is if a dense DFA could be
         // constructed successfully, which uses the same space.
         let len = stride
-            .checked_mul(patterns)
+            .checked_mul(pattern_len)
             .unwrap()
             .checked_add(stride.checked_mul(2).unwrap())
             .unwrap()
             .checked_mul(StateID::SIZE)
             .unwrap();
-        StartTable { table: vec![0; len], kind, stride, pattern_len: patterns }
+        StartTable {
+            table: vec![0; len],
+            kind: dfa.start_kind(),
+            stride,
+            pattern_len,
+            universal_start_unanchored: dfa
+                .universal_start_state(Anchored::No),
+            universal_start_anchored: dfa.universal_start_state(Anchored::Yes),
+        }
     }
 
     fn from_dense_dfa<T: AsRef<[u32]>>(
@@ -1765,7 +1793,7 @@ impl StartTable<Vec<u8>> {
         // for the entire DFA.
         let start_pattern_len =
             if dfa.starts_for_each_pattern() { dfa.pattern_len() } else { 0 };
-        let mut sl = StartTable::new(dfa.start_kind(), start_pattern_len);
+        let mut sl = StartTable::new(dfa, start_pattern_len);
         for (old_start_id, anchored, sty) in dfa.starts() {
             let new_start_id = remap[dfa.to_index(old_start_id)];
             sl.set_start(anchored, sty, new_start_id);
@@ -1790,6 +1818,31 @@ impl<'a> StartTable<&'a [u8]> {
         let (pattern_len, nr) =
             wire::try_read_u32_as_usize(slice, "sparse start table patterns")?;
         slice = &slice[nr..];
+
+        let (universal_unanchored, nr) =
+            wire::try_read_u32(slice, "universal unanchored start")?;
+        slice = &slice[nr..];
+        let universal_start_unanchored = if universal_unanchored == u32::MAX {
+            None
+        } else {
+            Some(StateID::try_from(universal_unanchored).map_err(|e| {
+                DeserializeError::state_id_error(
+                    e,
+                    "universal unanchored start",
+                )
+            })?)
+        };
+
+        let (universal_anchored, nr) =
+            wire::try_read_u32(slice, "universal anchored start")?;
+        slice = &slice[nr..];
+        let universal_start_anchored = if universal_anchored == u32::MAX {
+            None
+        } else {
+            Some(StateID::try_from(universal_anchored).map_err(|e| {
+                DeserializeError::state_id_error(e, "universal anchored start")
+            })?)
+        };
 
         if stride != Start::len() {
             return Err(DeserializeError::generic(
@@ -1821,10 +1874,17 @@ impl<'a> StartTable<&'a [u8]> {
             table_bytes_len,
             "sparse start ID table",
         )?;
-        let table_bytes = &slice[..table_bytes_len];
+        let table = &slice[..table_bytes_len];
         slice = &slice[table_bytes_len..];
 
-        let sl = StartTable { table: table_bytes, kind, stride, pattern_len };
+        let sl = StartTable {
+            table,
+            kind,
+            stride,
+            pattern_len,
+            universal_start_unanchored,
+            universal_start_anchored,
+        };
         Ok((sl, slice.as_ptr().as_usize() - slice_start))
     }
 }
@@ -1851,6 +1911,19 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         // write pattern length
         E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
+        // write universal start unanchored state id, u32::MAX if absent
+        E::write_u32(
+            self.universal_start_unanchored
+                .map_or(u32::MAX, |sid| sid.as_u32()),
+            dst,
+        );
+        dst = &mut dst[size_of::<u32>()..];
+        // write universal start anchored state id, u32::MAX if absent
+        E::write_u32(
+            self.universal_start_anchored.map_or(u32::MAX, |sid| sid.as_u32()),
+            dst,
+        );
+        dst = &mut dst[size_of::<u32>()..];
         // write start IDs
         dst.copy_from_slice(self.table());
         Ok(nwrite)
@@ -1862,6 +1935,8 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         self.kind.write_to_len()
         + size_of::<u32>() // stride
         + size_of::<u32>() // # patterns
+        + size_of::<u32>() // universal unanchored start
+        + size_of::<u32>() // universal anchored start
         + self.table().len()
     }
 
@@ -1886,6 +1961,8 @@ impl<T: AsRef<[u8]>> StartTable<T> {
             kind: self.kind,
             stride: self.stride,
             pattern_len: self.pattern_len,
+            universal_start_unanchored: self.universal_start_unanchored,
+            universal_start_anchored: self.universal_start_anchored,
         }
     }
 
@@ -1897,6 +1974,8 @@ impl<T: AsRef<[u8]>> StartTable<T> {
             kind: self.kind,
             stride: self.stride,
             pattern_len: self.pattern_len,
+            universal_start_unanchored: self.universal_start_unanchored,
+            universal_start_anchored: self.universal_start_anchored,
         }
     }
 

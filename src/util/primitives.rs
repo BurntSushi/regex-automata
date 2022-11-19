@@ -460,7 +460,6 @@ macro_rules! index_type_impls {
             /// Like `new`, but panics if the given value is not valid.
             #[inline]
             pub fn must(value: usize) -> $name {
-                // $name::new(value).expect("invalid value")
                 $name::new(value).expect(concat!(
                     "invalid ",
                     stringify!($name),

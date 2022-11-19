@@ -787,6 +787,9 @@ impl<'h, 'p> Input<'h, 'p> {
 
     #[inline]
     pub fn get_prefilter(&self) -> Option<&'p dyn Prefilter> {
+        if self.get_anchored().is_anchored() {
+            return None;
+        }
         self.prefilter
     }
 

@@ -13,7 +13,7 @@ composed.
 
 use regex_syntax::{
     ast,
-    hir::{self, Hir},
+    hir::{self, literal, Hir},
     Error, ParserBuilder,
 };
 
@@ -314,5 +314,64 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config::new()
+    }
+}
+
+/// The prefixes and suffixes extracted from zero or more HIR expressions.
+///
+/// The semantic here is that, given a finite sequence of prefixes (or
+/// suffixes), at least one of those prefixes (or suffixes) must match in order
+/// for an overall match of the regex to occur.
+///
+/// These literals are used to accelerate searches (by skipping ahead to
+/// possible matching positions more quickly than what a general regex engine
+/// can do) or even skip the regex engine entirely (when the sequence of
+/// literals is "exact", among other criteria).
+#[derive(Debug)]
+pub(crate) struct Literals {
+    prefixes: literal::Seq,
+    suffixes: literal::Seq,
+}
+
+impl Literals {
+    /// Extracts all of the prefix and suffix literals from the given HIR
+    /// expressions into a single `Seq` each. The literals in the sequence are
+    /// ordered with respect to the order of the given HIR expressions.
+    ///
+    /// The sequences returned are each "optimized." That is, they may be
+    /// shrunk or even truncated according to heuristics with the intent of
+    /// making them more useful as a prefilter. (Which translates to both
+    /// using faster algorithms and minimizing the false positive rate.)
+    ///
+    /// Note that this erases any connection between the literals and which
+    /// pattern (or patterns) they came from.
+    pub(crate) fn new<H>(hirs: &[H]) -> Literals
+    where
+        H: core::borrow::Borrow<Hir>,
+    {
+        let mut prefix_extractor = literal::Extractor::new();
+        prefix_extractor.kind(literal::ExtractKind::Prefix);
+        let mut suffix_extractor = literal::Extractor::new();
+        suffix_extractor.kind(literal::ExtractKind::Suffix);
+
+        let mut prefixes = literal::Seq::empty();
+        let mut suffixes = literal::Seq::empty();
+        for hir in hirs {
+            prefixes.union(&mut prefix_extractor.extract(hir.borrow()));
+            suffixes.union(&mut suffix_extractor.extract(hir.borrow()));
+        }
+        prefixes.optimize_for_prefix();
+        suffixes.optimize_for_suffix();
+        Literals { prefixes, suffixes }
+    }
+
+    /// Returns the prefixes extracted.
+    pub(crate) fn prefixes(&self) -> &literal::Seq {
+        &self.prefixes
+    }
+
+    /// Returns the suffixes extracted.
+    pub(crate) fn suffixes(&self) -> &literal::Seq {
+        &self.suffixes
     }
 }

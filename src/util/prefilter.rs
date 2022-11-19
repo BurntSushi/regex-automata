@@ -1,4 +1,5 @@
 use core::{
+    borrow::Borrow,
     fmt::Debug,
     panic::{RefUnwindSafe, UnwindSafe},
 };
@@ -9,6 +10,8 @@ use alloc::sync::Arc;
 use aho_corasick::{self, packed, AhoCorasickBuilder};
 #[cfg(feature = "perf-literal-substring")]
 use memchr::{memchr, memchr2, memchr3, memmem};
+#[cfg(feature = "syntax")]
+use regex_syntax::hir::{literal, Hir};
 
 use crate::util::search::{MatchKind, Span};
 
@@ -17,8 +20,20 @@ pub trait Prefilter:
 {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span>;
     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span>;
-
     fn memory_usage(&self) -> usize;
+}
+
+#[cfg(feature = "alloc")]
+impl<P: Prefilter + ?Sized> Prefilter for Arc<P> {
+    fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        (&**self).find(haystack, span)
+    }
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        (&**self).prefix(haystack, span)
+    }
+    fn memory_usage(&self) -> usize {
+        (&**self).memory_usage()
+    }
 }
 
 macro_rules! new {
@@ -69,6 +84,25 @@ pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
     needles: &[B],
 ) -> Option<Arc<dyn crate::meta::Strategy + 'static>> {
     new!(needles)
+}
+
+#[cfg(feature = "syntax")]
+pub fn from_hir(hir: &Hir) -> Option<Arc<dyn Prefilter>> {
+    from_hirs(&[hir])
+}
+
+#[cfg(feature = "syntax")]
+pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Arc<dyn Prefilter>> {
+    let mut extractor = literal::Extractor::new();
+    extractor.kind(literal::ExtractKind::Prefix);
+
+    let mut prefixes = literal::Seq::empty();
+    for hir in hirs.iter() {
+        prefixes.union(&mut extractor.extract(hir.borrow()));
+    }
+    prefixes.optimize_for_prefix();
+
+    prefixes.literals().and_then(new)
 }
 
 #[cfg(feature = "perf-literal-substring")]

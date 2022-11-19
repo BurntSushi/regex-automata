@@ -1,10 +1,16 @@
+use std::sync::Arc;
+
 use regex_automata::{
     dfa::{
         self, dense, regex::Regex, sparse, Automaton, OverlappingState,
         StartKind,
     },
     nfa::thompson,
-    util::{iter, syntax},
+    util::{
+        iter,
+        prefilter::{self, Prefilter},
+        syntax,
+    },
     Anchored, Input, MatchKind, PatternSet,
 };
 use regex_syntax::hir;
@@ -26,6 +32,27 @@ fn unminimized_default() -> Result<()> {
         .expand(EXPANSIONS, |t| t.compiles())
         .blacklist("expensive")
         .test_iter(suite()?.iter(), dense_compiler(builder))
+        .assert();
+    Ok(())
+}
+
+/// Runs the test suite with the default configuration and a prefilter enabled,
+/// if one can be built.
+#[test]
+fn unminimized_prefilter() -> Result<()> {
+    let builder = Regex::builder();
+    let my_compiler = |builder| {
+        compiler(builder, |_, pre, re| {
+            let re = re.with_prefilter(pre);
+            Ok(CompiledRegex::compiled(move |test| -> TestResult {
+                run_test(&re, test)
+            }))
+        })
+    };
+    TestRunner::new()?
+        .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
+        .test_iter(suite()?.iter(), my_compiler(builder))
         .assert();
     Ok(())
 }
@@ -112,13 +139,35 @@ fn sparse_unminimized_default() -> Result<()> {
     Ok(())
 }
 
+/// Runs the test suite on a sparse unminimized DFA with prefilters enabled.
+#[test]
+fn sparse_unminimized_prefilter() -> Result<()> {
+    let builder = Regex::builder();
+    let my_compiler = |builder| {
+        compiler(builder, |builder, pre, re| {
+            let fwd = re.forward().to_sparse()?;
+            let rev = re.reverse().to_sparse()?;
+            let re = builder.build_from_dfas(fwd, rev).with_prefilter(pre);
+            Ok(CompiledRegex::compiled(move |test| -> TestResult {
+                run_test(&re, test)
+            }))
+        })
+    };
+    TestRunner::new()?
+        .expand(EXPANSIONS, |t| t.compiles())
+        .blacklist("expensive")
+        .test_iter(suite()?.iter(), my_compiler(builder))
+        .assert();
+    Ok(())
+}
+
 /// Another basic sanity test that checks we can serialize and then deserialize
 /// a regex, and that the resulting regex can be used for searching correctly.
 #[test]
 fn serialization_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     let my_compiler = |builder| {
-        compiler(builder, |builder, re| {
+        compiler(builder, |builder, _, re| {
             let builder = builder.clone();
             let (fwd_bytes, _) = re.forward().to_bytes_native_endian();
             let (rev_bytes, _) = re.reverse().to_bytes_native_endian();
@@ -148,7 +197,7 @@ fn serialization_unminimized_default() -> Result<()> {
 fn sparse_serialization_unminimized_default() -> Result<()> {
     let builder = Regex::builder();
     let my_compiler = |builder| {
-        compiler(builder, |builder, re| {
+        compiler(builder, |builder, _, re| {
             let builder = builder.clone();
             let fwd_bytes = re.forward().to_sparse()?.to_bytes_native_endian();
             let rev_bytes = re.reverse().to_sparse()?.to_bytes_native_endian();
@@ -173,7 +222,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
 fn dense_compiler(
     builder: dfa::regex::Builder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |_, re| {
+    compiler(builder, |_, _, re| {
         Ok(CompiledRegex::compiled(move |test| -> TestResult {
             run_test(&re, test)
         }))
@@ -183,7 +232,7 @@ fn dense_compiler(
 fn sparse_compiler(
     builder: dfa::regex::Builder,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
-    compiler(builder, |builder, re| {
+    compiler(builder, |builder, _, re| {
         let fwd = re.forward().to_sparse()?;
         let rev = re.reverse().to_sparse()?;
         let re = builder.build_from_dfas(fwd, rev);
@@ -197,6 +246,7 @@ fn compiler(
     mut builder: dfa::regex::Builder,
     mut create_matcher: impl FnMut(
         &dfa::regex::Builder,
+        Option<Arc<dyn Prefilter>>,
         Regex,
     ) -> Result<CompiledRegex>,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
@@ -206,12 +256,20 @@ fn compiler(
             .map(|r| r.to_str().map(|s| s.to_string()))
             .collect::<std::result::Result<Vec<String>, _>>()?;
 
+        // Parse regexes as HIRs for some analysis below.
+        let mut hirs = vec![];
+        for pattern in regexes.iter() {
+            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+        }
+
+        // Get a prefilter in case the test wants it.
+        let pre = prefilter::from_hirs(&hirs);
+
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
         let non_ascii = test.input().iter().any(|&b| !b.is_ascii());
         if non_ascii {
-            for pattern in regexes.iter() {
-                let hir = syntax::parse(&config_syntax(test), pattern)?;
+            for hir in hirs.iter() {
                 let looks = hir.properties().look_set();
                 if looks.contains(hir::Look::WordUnicode)
                     || looks.contains(hir::Look::WordUnicodeNegate)
@@ -223,11 +281,14 @@ fn compiler(
         if !configure_regex_builder(test, &mut builder) {
             return Ok(CompiledRegex::skip());
         }
-        create_matcher(&builder, builder.build_many(&regexes)?)
+        create_matcher(&builder, pre, builder.build_many(&regexes)?)
     }
 }
 
-fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
+fn run_test<A: Automaton, P: Prefilter>(
+    re: &Regex<A, P>,
+    test: &RegexTest,
+) -> TestResult {
     let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
         "is_match" => TestResult::matched(
@@ -347,8 +408,8 @@ fn config_syntax(test: &RegexTest) -> syntax::Config {
 /// Nevertheless, we provide this routine in our test suite because it's
 /// useful to test the low level DFA overlapping search and our test suite
 /// is written in a way that requires starting offsets.
-fn try_search_overlapping<A: Automaton>(
-    re: &Regex<A>,
+fn try_search_overlapping<A: Automaton, P: Prefilter>(
+    re: &Regex<A, P>,
     input: &Input<'_, '_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];

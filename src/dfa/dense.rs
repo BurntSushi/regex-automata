@@ -1154,6 +1154,8 @@ impl Builder {
         if !self.config.get_specialize_start_states() {
             dfa.special.set_no_special_start_states();
         }
+        // Look for and set the universal starting states.
+        dfa.set_universal_starts();
         Ok(dfa)
     }
 
@@ -2740,6 +2742,43 @@ impl OwnedDFA {
             );
         Ok(())
     }
+
+    /// Checks whether there are universal start states (both anchored and
+    /// unanchored), and if so, sets the relevant fields to the start state
+    /// IDs.
+    ///
+    /// Universal start states occur precisely when the all patterns in the
+    /// DFA have no look-around assertions in their prefix.
+    fn set_universal_starts(&mut self) {
+        assert_eq!(4, Start::len(), "expected 4 start configurations");
+
+        let start_id =
+            |dfa: &mut OwnedDFA, inp: &Input<'_, '_>, start: Start| {
+                // This OK because we only call 'start' under conditions
+                // in which we know it will succeed.
+                dfa.st.start(inp, start).expect("valid Input configuration")
+            };
+        if self.start_kind().has_unanchored() {
+            let inp = Input::new("").anchored(Anchored::No);
+            let sid = start_id(self, &inp, Start::NonWordByte);
+            if sid == start_id(self, &inp, Start::WordByte)
+                && sid == start_id(self, &inp, Start::Text)
+                && sid == start_id(self, &inp, Start::Line)
+            {
+                self.st.universal_start_unanchored = Some(sid);
+            }
+        }
+        if self.start_kind().has_anchored() {
+            let inp = Input::new("").anchored(Anchored::Yes);
+            let sid = start_id(self, &inp, Start::NonWordByte);
+            if sid == start_id(self, &inp, Start::WordByte)
+                && sid == start_id(self, &inp, Start::Text)
+                && sid == start_id(self, &inp, Start::Line)
+            {
+                self.st.universal_start_anchored = Some(sid);
+            }
+        }
+    }
 }
 
 // A variety of generic internal methods for accessing DFA internals.
@@ -3051,6 +3090,15 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         }
         let start = Start::from_position_rev(&input);
         self.st.start(input, start)
+    }
+
+    #[inline]
+    fn universal_start_state(&self, mode: Anchored) -> Option<StateID> {
+        match mode {
+            Anchored::No => self.st.universal_start_unanchored,
+            Anchored::Yes => self.st.universal_start_anchored,
+            Anchored::Pattern(_) => None,
+        }
     }
 
     #[inline(always)]
@@ -3656,6 +3704,14 @@ pub(crate) struct StartTable<T> {
     /// say how many patterns are in the DFA in all cases. It is specific to
     /// how many patterns are represented in this start table.
     pattern_len: usize,
+    /// The universal starting state for unanchored searches. This is only
+    /// present when the DFA supports unanchored searches and when all starting
+    /// state IDs for an unanchored search are equivalent.
+    universal_start_unanchored: Option<StateID>,
+    /// The universal starting state for anchored searches. This is only
+    /// present when the DFA supports anchored searches and when all starting
+    /// state IDs for an anchored search are equivalent.
+    universal_start_anchored: Option<StateID>,
 }
 
 #[cfg(feature = "dfa-build")]
@@ -3690,7 +3746,14 @@ impl StartTable<Vec<u32>> {
             return Err(BuildError::too_many_start_states());
         }
         let table = vec![DEAD.as_u32(); table_len];
-        Ok(StartTable { table, kind, stride, pattern_len })
+        Ok(StartTable {
+            table,
+            kind,
+            stride,
+            pattern_len,
+            universal_start_unanchored: None,
+            universal_start_anchored: None,
+        })
     }
 }
 
@@ -3734,6 +3797,31 @@ impl<'a> StartTable<&'a [u32]> {
         let (pattern_len, nr) =
             wire::try_read_u32_as_usize(slice, "start table patterns")?;
         slice = &slice[nr..];
+
+        let (universal_unanchored, nr) =
+            wire::try_read_u32(slice, "universal unanchored start")?;
+        slice = &slice[nr..];
+        let universal_start_unanchored = if universal_unanchored == u32::MAX {
+            None
+        } else {
+            Some(StateID::try_from(universal_unanchored).map_err(|e| {
+                DeserializeError::state_id_error(
+                    e,
+                    "universal unanchored start",
+                )
+            })?)
+        };
+
+        let (universal_anchored, nr) =
+            wire::try_read_u32(slice, "universal anchored start")?;
+        slice = &slice[nr..];
+        let universal_start_anchored = if universal_anchored == u32::MAX {
+            None
+        } else {
+            Some(StateID::try_from(universal_anchored).map_err(|e| {
+                DeserializeError::state_id_error(e, "universal anchored start")
+            })?)
+        };
 
         if stride != Start::len() {
             return Err(DeserializeError::generic(
@@ -3779,7 +3867,14 @@ impl<'a> StartTable<&'a [u32]> {
                 start_state_len,
             )
         };
-        let st = StartTable { table, kind, stride, pattern_len };
+        let st = StartTable {
+            table,
+            kind,
+            stride,
+            pattern_len,
+            universal_start_unanchored,
+            universal_start_anchored,
+        };
         Ok((st, slice.as_ptr().as_usize() - slice_start))
     }
 }
@@ -3811,6 +3906,19 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         // Unwrap is OK since number of patterns is guaranteed to fit in a u32.
         E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
+        // write universal start unanchored state id, u32::MAX if absent
+        E::write_u32(
+            self.universal_start_unanchored
+                .map_or(u32::MAX, |sid| sid.as_u32()),
+            dst,
+        );
+        dst = &mut dst[size_of::<u32>()..];
+        // write universal start anchored state id, u32::MAX if absent
+        E::write_u32(
+            self.universal_start_anchored.map_or(u32::MAX, |sid| sid.as_u32()),
+            dst,
+        );
+        dst = &mut dst[size_of::<u32>()..];
         // write start IDs
         for &sid in self.table() {
             let n = wire::write_state_id::<E>(sid, &mut dst);
@@ -3825,6 +3933,8 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         self.kind.write_to_len()
         + size_of::<u32>() // stride
         + size_of::<u32>() // # patterns
+        + size_of::<u32>() // universal unanchored start
+        + size_of::<u32>() // universal anchored start
         + (self.table().len() * StateID::SIZE)
     }
 
@@ -3836,6 +3946,16 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         &self,
         tt: &TransitionTable<T>,
     ) -> Result<(), DeserializeError> {
+        if !self.universal_start_unanchored.map_or(true, |s| tt.is_valid(s)) {
+            return Err(DeserializeError::generic(
+                "found invalid universal unanchored starting state ID",
+            ));
+        }
+        if !self.universal_start_anchored.map_or(true, |s| tt.is_valid(s)) {
+            return Err(DeserializeError::generic(
+                "found invalid universal anchored starting state ID",
+            ));
+        }
         for &id in self.table() {
             if !tt.is_valid(id) {
                 return Err(DeserializeError::generic(
@@ -3853,6 +3973,8 @@ impl<T: AsRef<[u32]>> StartTable<T> {
             kind: self.kind,
             stride: self.stride,
             pattern_len: self.pattern_len,
+            universal_start_unanchored: self.universal_start_unanchored,
+            universal_start_anchored: self.universal_start_anchored,
         }
     }
 
@@ -3864,15 +3986,17 @@ impl<T: AsRef<[u32]>> StartTable<T> {
             kind: self.kind,
             stride: self.stride,
             pattern_len: self.pattern_len,
+            universal_start_unanchored: self.universal_start_unanchored,
+            universal_start_anchored: self.universal_start_anchored,
         }
     }
 
-    /// Return the start state for the given start index and pattern ID. If the
-    /// pattern ID is None, then the corresponding start state for the entire
-    /// DFA is returned. If the pattern ID is not None, then the corresponding
-    /// starting state for the given pattern is returned. If this start table
-    /// does not have individual starting states for each pattern, then this
-    /// panics.
+    /// Return the start state for the given input and starting configuration.
+    /// This returns an error if the input configuration is not supported by
+    /// this DFA. For example, requesting an unanchored search when the DFA was
+    /// not built with unanchored starting states. Or asking for an anchored
+    /// pattern search with an invalid pattern ID or on a DFA that was not
+    /// built with start states for each pattern.
     fn start(
         &self,
         input: &Input<'_, '_>,

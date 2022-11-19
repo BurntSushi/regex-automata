@@ -732,10 +732,13 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 
     /// Attach the given prefilter to this regex.
-    pub fn with_prefilter<Q: Prefilter>(self, prefilter: Q) -> Regex<A, Q> {
+    pub fn with_prefilter<Q: Prefilter>(
+        self,
+        prefilter: Option<Q>,
+    ) -> Regex<A, Q> {
         Regex {
             config: self.config.clone(),
-            prefilter: Some(prefilter),
+            prefilter,
             forward: self.forward,
             reverse: self.reverse,
         }

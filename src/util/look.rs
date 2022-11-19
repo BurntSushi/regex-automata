@@ -535,8 +535,8 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 }
 
 // Below are FOUR different ways for checking whether whether a "word"
-// codepoint exists at a particular position in the haystack. The four different
-// approaches are, in order of preference:
+// codepoint exists at a particular position in the haystack. The four
+// different approaches are, in order of preference:
 //
 // 1. Parse '\w', convert to an NFA, convert to a fully compiled DFA on the
 // first call, and then use that DFA for all subsequent calls.
@@ -551,12 +551,12 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 //
 // The DFA approach is the fastest, but it requires the regex parser, the
 // NFA compiler, the DFA builder and the DFA search runtime. That's a lot to
-// bring in, but if it's available, it's the best we can do.
+// bring in, but if it's available, it's (probably) the best we can do.
 //
 // Approaches (2) and (3) are effectively equivalent, but (2) reuses the
 // data in regex-syntax and avoids duplicating it in regex-automata.
 //
-// Finally, (4) unconditionally returns an error if the requisite data isn't
+// Finally, (4) unconditionally returns an error since the requisite data isn't
 // available anywhere.
 //
 // There are actually more approaches possible that we didn't implement. For
@@ -630,10 +630,8 @@ mod is_word_char {
                 .configure(DFA::config().start_kind(StartKind::Anchored))
                 .build(r"\w")
                 .unwrap();
-            // This is OK since '\w' contains no look-around.
-            let input = Input::new("").anchored(Anchored::Yes);
-            let start_id =
-                dfa.start_state_forward(&input).expect("correct input");
+            // OK because our regex has no look-around.
+            let start_id = dfa.universal_start_state(Anchored::Yes).unwrap();
             (dfa, start_id)
         });
         let &(ref dfa, mut sid) = Lazy::get(&WORD);
@@ -663,10 +661,8 @@ mod is_word_char {
                 .thompson(NFA::config().reverse(true).shrink(true))
                 .build(r"\w")
                 .unwrap();
-            // This is OK since '\w' contains no look-around.
-            let input = Input::new("").anchored(Anchored::Yes);
-            let start_id =
-                dfa.start_state_reverse(&input).expect("correct input");
+            // OK because our regex has no look-around.
+            let start_id = dfa.universal_start_state(Anchored::Yes).unwrap();
             (dfa, start_id)
         });
         let &(ref dfa, mut sid) = Lazy::get(&WORD);

@@ -6,7 +6,7 @@ use crate::{
     util::{
         prefilter::Prefilter,
         primitives::StateID,
-        search::{HalfMatch, Input, Span},
+        search::{Anchored, HalfMatch, Input, Span},
     },
     MatchError,
 };
@@ -43,6 +43,8 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
     pre: Option<&'_ dyn Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
+    // See 'prefilter_restart' docs for explanation.
+    let universal_start = dfa.universal_start_state(Anchored::No).is_some();
     let mut mat = None;
     let mut sid = init_fwd(dfa, input)?;
     let mut at = input.start();
@@ -67,6 +69,9 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
             None => return Ok(mat),
             Some(ref span) => {
                 at = span.start;
+                if !universal_start {
+                    sid = prefilter_restart(dfa, &input, at)?;
+                }
             }
         }
     }
@@ -130,6 +135,9 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                             // state has a self-loop, we can get stuck.
                             if span.start > at {
                                 at = span.start;
+                                if !universal_start {
+                                    sid = prefilter_restart(dfa, &input, at)?;
+                                }
                                 continue;
                             }
                         }
@@ -326,6 +334,8 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     pre: Option<&'_ dyn Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
+    // See 'prefilter_restart' docs for explanation.
+    let universal_start = dfa.universal_start_state(Anchored::No).is_some();
     let mut sid = match state.id {
         None => {
             state.at = input.start();
@@ -364,6 +374,11 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
                         Some(ref span) => {
                             if span.start > state.at {
                                 state.at = span.start;
+                                if !universal_start {
+                                    sid = prefilter_restart(
+                                        dfa, &input, state.at,
+                                    )?;
+                                }
                                 continue;
                             }
                         }
@@ -614,4 +629,19 @@ fn eoi_rev<A: Automaton + ?Sized>(
         debug_assert!(!dfa.is_quit_state(*sid));
     }
     Ok(())
+}
+
+/// Re-compute the starting state that a DFA should be in after finding a
+/// prefilter candidate match at the position `at`.
+///
+/// The function with the same name has a bit more docs in hybrid/search.rs.
+#[inline(always)]
+fn prefilter_restart<A: Automaton + ?Sized>(
+    dfa: &A,
+    input: &Input<'_, '_>,
+    at: usize,
+) -> Result<StateID, MatchError> {
+    let mut input = input.clone();
+    input.set_start(at);
+    init_fwd(dfa, &input)
 }

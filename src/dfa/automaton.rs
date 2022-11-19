@@ -4,7 +4,7 @@ use crate::{
     dfa::search,
     util::{
         primitives::{PatternID, StateID},
-        search::{HalfMatch, Input, MatchError},
+        search::{Anchored, HalfMatch, Input, MatchError},
     },
 };
 
@@ -283,6 +283,65 @@ pub unsafe trait Automaton {
         &self,
         input: &Input<'_, '_>,
     ) -> Result<StateID, MatchError>;
+
+    /// If this DFA has a universal starting state for the given anchor mode
+    /// and the DFA supports universal starting states, then this returns that
+    /// state's identifier.
+    ///
+    /// A DFA is said to have a universal starting state when the starting
+    /// state is invariant with respect to the haystack. Usually, the starting
+    /// state is chosen depending on the bytes immediately surrounding the
+    /// starting position of a search. However, the starting state only differs
+    /// when one or more of the patterns in the DFA have look-around assertions
+    /// in its prefix.
+    ///
+    /// Stated differently, if none of the patterns in a DFA have look-around
+    /// assertions in their prefix, then the DFA has a universal starting state
+    /// and _may_ be returned by this method.
+    ///
+    /// It always correct for implementations to return `None`, and indeed,
+    /// this is what the default implementation does. When this returns `None`,
+    /// callers must use either `start_state_forward` or `start_state_reverse`
+    /// to get the starting state.
+    ///
+    /// # Use case
+    ///
+    /// There are a few reasons why one might want to use this:
+    ///
+    /// * If you know your regex patterns have no look-around assertions in
+    /// their prefix, then calling this routine is likely cheaper and perhaps
+    /// more semantically meaningful.
+    /// * When implementing prefilter support in a DFA regex implementation,
+    /// it is necessary to re-compute the start state after a candidate
+    /// is returned from the prefilter. However, this is only needed when
+    /// there isn't a universal start state. When one exists, one can avoid
+    /// re-computing the start state.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{Automaton, dense::DFA},
+    ///     Anchored,
+    /// };
+    ///
+    /// // There are no look-around assertions in the prefixes of any of the
+    /// // patterns, so we get a universal start state.
+    /// let dfa = DFA::new_many(&["[0-9]+", "[a-z]+$", "[A-Z]+"])?;
+    /// assert!(dfa.universal_start_state(Anchored::No).is_some());
+    /// assert!(dfa.universal_start_state(Anchored::Yes).is_some());
+    ///
+    /// // One of the patterns has a look-around assertion in its prefix,
+    /// // so this means there is no longer a universal start state.
+    /// let dfa = DFA::new_many(&["[0-9]+", "^[a-z]+$", "[A-Z]+"])?;
+    /// assert!(!dfa.universal_start_state(Anchored::No).is_some());
+    /// assert!(!dfa.universal_start_state(Anchored::Yes).is_some());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    fn universal_start_state(&self, _mode: Anchored) -> Option<StateID> {
+        None
+    }
 
     /// Returns true if and only if the given identifier corresponds to a
     /// "special" state. A special state is one or more of the following:
@@ -1461,6 +1520,11 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
         input: &Input<'_, '_>,
     ) -> Result<StateID, MatchError> {
         (**self).start_state_reverse(input)
+    }
+
+    #[inline]
+    fn universal_start_state(&self, mode: Anchored) -> Option<StateID> {
+        (**self).universal_start_state(mode)
     }
 
     #[inline]

@@ -70,7 +70,7 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
 fn prefilter_works() -> Result<(), Box<dyn Error>> {
     let re = Regex::new(r"a[0-9]+")
         .unwrap()
-        .with_prefilter(SubstringPrefilter::new("a"));
+        .with_prefilter(Some(SubstringPrefilter::new("a")));
     let text = b"foo abc foo a1a2a3 foo a123 bar aa456";
     let matches: Vec<(usize, usize)> =
         re.find_iter(text).map(|m| (m.start(), m.end())).collect();
@@ -87,10 +87,10 @@ fn prefilter_works() -> Result<(), Box<dyn Error>> {
 fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
     let re = Regex::new(r"a[0-9]+")
         .unwrap()
-        .with_prefilter(SubstringPrefilter::new("a"));
+        .with_prefilter(Some(SubstringPrefilter::new("a")));
     assert_eq!(re.find(b"za123"), Some(Match::must(0, 1..5)));
     assert_eq!(re.find(b"a123"), Some(Match::must(0, 0..4)));
-    let re = re.with_prefilter(BunkPrefilter::new());
+    let re = re.with_prefilter(Some(BunkPrefilter::new()));
     assert_eq!(re.find(b"za123"), None);
     // This checks that the prefilter is used when first starting the search,
     // instead of waiting until at least one transition has occurred.
