@@ -318,6 +318,16 @@ impl Prefilter for Packed {
     }
 }
 
+// BREADCRUMBS: It seems quite difficult to get aho-corasick to support both
+// anchored and unanchored searches simultaneously. In particular, it feels
+// like the DFA makes it difficult. Supporting it in the NFA is trivial though.
+// Simply do not follow failure transitions and only utilize the trie.
+//
+// I had been planning on re-working aho-corasick anyway to expose the NFA
+// and DFA as separate types, perhaps in a sub-module. If I do that, then I
+// can build the NFA and use that for anchored searches, and if the number of
+// patterns is small enough, build the DFA for unanchored searching.
+
 #[cfg(feature = "perf-literal-multisubstring")]
 #[derive(Clone, Debug)]
 struct AhoCorasick {
