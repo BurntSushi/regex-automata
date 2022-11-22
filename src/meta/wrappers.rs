@@ -52,7 +52,7 @@ impl PikeVMEngine {
             .configure(pikevm_config)
             .build_from_nfa(nfa.clone())
             .map_err(BuildError::nfa)?;
-        trace!("PikeVM built");
+        debug!("PikeVM built");
         Ok(Some(PikeVMEngine(engine)))
     }
 
@@ -177,7 +177,7 @@ impl BoundedBacktrackerEngine {
                 .configure(backtrack_config)
                 .build_from_nfa(nfa.clone())
                 .map_err(BuildError::nfa)?;
-            trace!("BoundedBacktracker built");
+            debug!("BoundedBacktracker built");
             Ok(Some(BoundedBacktrackerEngine(engine)))
         }
         #[cfg(not(feature = "nfa-backtrack"))]
@@ -349,7 +349,7 @@ impl HybridEngine {
             let engine = hybrid::regex::Builder::new()
                 .configure(hybrid_config)
                 .build_from_dfas(fwd, rev);
-            trace!("lazy DFA built");
+            debug!("lazy DFA built");
             Some(HybridEngine(engine))
         }
         #[cfg(not(feature = "hybrid"))]
@@ -512,7 +512,7 @@ impl OnePassEngine {
             if info.props_union.captures_len() == 0
                 && !info.props_union.look_set().contains_word_unicode()
             {
-                trace!("not building OnePass because it isn't worth it");
+                debug!("not building OnePass because it isn't worth it");
                 return None;
             }
             let onepass_config = onepass::Config::new()
@@ -530,11 +530,11 @@ impl OnePassEngine {
             let engine = match result {
                 Ok(engine) => engine,
                 Err(err) => {
-                    trace!("OnePass failed to build: {}", err);
+                    debug!("OnePass failed to build: {}", err);
                     return None;
                 }
             };
-            trace!("OnePass built");
+            debug!("OnePass built");
             Some(OnePassEngine(engine))
         }
         #[cfg(not(feature = "dfa-onepass"))]

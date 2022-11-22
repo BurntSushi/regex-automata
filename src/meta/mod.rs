@@ -406,7 +406,7 @@ impl Config {
     }
 
     pub fn get_onepass_size_limit(&self) -> Option<usize> {
-        self.onepass_size_limit.unwrap_or(Some(500 * (1 << 10)))
+        self.onepass_size_limit.unwrap_or(Some(1 * (1 << 20)))
     }
 
     pub fn get_hybrid_cache_capacity(&self) -> usize {

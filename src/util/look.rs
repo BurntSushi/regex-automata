@@ -597,11 +597,110 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 //
 // Which is a nice improvement.
 //
-// TODO: We should consider using the lazy DFA instead... It takes a brutal
-// 22ms to build the reverse \w automaton. Ug.
+// UPDATE: It turns out that it takes approximately 22ms to build the reverse
+// DFA for \w. (And about 3ms for the forward DFA.) It's probably not much in
+// the grand scheme things, but that is a significant latency cost. So I'm not
+// sure that's a good idea. I then tried using a lazy DFA instead, and that
+// eliminated the overhead, but since the lazy DFA requires mutable working
+// memory, that requires introducing a 'Cache' for every simultaneously call.
+//
+// I ended up deciding for now to just keep the "UTF-8 decode and check the
+// table." The DFA and lazy DFA approaches are still below, but commented out.
 //
 // [1]: https://github.com/BurntSushi/ucd-generate/issues/11
 
+/*
+/// A module that looks for word codepoints using lazy DFAs.
+#[cfg(all(
+    feature = "unicode-word-boundary",
+    feature = "syntax",
+    feature = "unicode-perl",
+    feature = "hybrid"
+))]
+mod is_word_char {
+    use alloc::vec::Vec;
+
+    use crate::{
+        hybrid::dfa::{Cache, DFA},
+        nfa::thompson::NFA,
+        util::{lazy::Lazy, pool::Pool, primitives::StateID},
+        Anchored, Input,
+    };
+
+    pub(super) fn check() -> Result<(), super::UnicodeWordBoundaryError> {
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub(super) fn fwd(
+        haystack: &[u8],
+        mut at: usize,
+    ) -> Result<bool, super::UnicodeWordBoundaryError> {
+        static WORD: Lazy<DFA> = Lazy::new(|| DFA::new(r"\w").unwrap());
+        static CACHE: Lazy<Pool<Cache>> =
+            Lazy::new(|| Pool::new(|| WORD.create_cache()));
+        let dfa = Lazy::get(&WORD);
+        let mut cache = Lazy::get(&CACHE).get();
+        let mut sid = dfa
+            .start_state_forward(
+                &mut cache,
+                &Input::new("").anchored(Anchored::Yes),
+            )
+            .unwrap();
+        while at < haystack.len() {
+            let byte = haystack[at];
+            sid = dfa.next_state(&mut cache, sid, byte).unwrap();
+            at += 1;
+            if sid.is_tagged() {
+                if sid.is_match() {
+                    return Ok(true);
+                } else if sid.is_dead() {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(dfa.next_eoi_state(&mut cache, sid).unwrap().is_match())
+    }
+
+    #[inline(always)]
+    pub(super) fn rev(
+        haystack: &[u8],
+        mut at: usize,
+    ) -> Result<bool, super::UnicodeWordBoundaryError> {
+        static WORD: Lazy<DFA> = Lazy::new(|| {
+            DFA::builder()
+                .thompson(NFA::config().reverse(true))
+                .build(r"\w")
+                .unwrap()
+        });
+        static CACHE: Lazy<Pool<Cache>> =
+            Lazy::new(|| Pool::new(|| WORD.create_cache()));
+        let dfa = Lazy::get(&WORD);
+        let mut cache = Lazy::get(&CACHE).get();
+        let mut sid = dfa
+            .start_state_reverse(
+                &mut cache,
+                &Input::new("").anchored(Anchored::Yes),
+            )
+            .unwrap();
+        while at > 0 {
+            at -= 1;
+            let byte = haystack[at];
+            sid = dfa.next_state(&mut cache, sid, byte).unwrap();
+            if sid.is_tagged() {
+                if sid.is_match() {
+                    return Ok(true);
+                } else if sid.is_dead() {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(dfa.next_eoi_state(&mut cache, sid).unwrap().is_match())
+    }
+}
+*/
+
+/*
 /// A module that looks for word codepoints using fully compiled DFAs.
 #[cfg(all(
     feature = "unicode-word-boundary",
@@ -688,13 +787,13 @@ mod is_word_char {
         Ok(dfa.is_match_state(dfa.next_eoi_state(sid)))
     }
 }
+*/
 
 /// A module that looks for word codepoints using regex-syntax's data tables.
 #[cfg(all(
     feature = "unicode-word-boundary",
     feature = "syntax",
     feature = "unicode-perl",
-    not(feature = "dfa-build"),
 ))]
 mod is_word_char {
     use regex_syntax::try_is_word_character;

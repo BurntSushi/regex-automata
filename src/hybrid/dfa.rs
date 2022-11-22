@@ -3542,12 +3542,11 @@ impl Builder {
             // then we simply force the cache capacity to its minimum amount
             // and mush on.
             if self.config.get_skip_cache_capacity_check() {
-                trace!(
+                debug!(
                     "given capacity ({}) is too small, \
                      since skip_cache_capacity_check is enabled, \
                      setting cache capacity to minimum ({})",
-                    cache_capacity,
-                    min_cache,
+                    cache_capacity, min_cache,
                 );
                 cache_capacity = min_cache;
             } else {

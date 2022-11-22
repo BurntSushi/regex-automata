@@ -486,7 +486,7 @@ impl Compiler {
                     .parse(p.as_ref())
                     .map_err(BuildError::syntax)?,
             );
-            log!(log::trace!("parsed: {:?}", p.as_ref()));
+            log!(log::debug!("parsed: {:?}", p.as_ref()));
         }
         self.build_many_from_hir(&hirs)
     }
@@ -672,7 +672,7 @@ impl Compiler {
             .borrow_mut()
             .build(compiled.start, unanchored_prefix.start)?;
 
-        trace!(
+        debug!(
             "HIR-to-NFA compilation complete (reverse? {:?})",
             self.config.get_reverse(),
         );

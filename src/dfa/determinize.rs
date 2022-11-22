@@ -250,7 +250,7 @@ impl<'a> Runner<'a> {
                 }
             }
         }
-        trace!(
+        debug!(
             "determinization complete, memory usage: {}, dense DFA size: {}",
             self.memory_usage(),
             self.dfa.memory_usage(),
@@ -277,7 +277,7 @@ impl<'a> Runner<'a> {
             let per_elem = size_of::<StateID>() + size_of::<Vec<PatternID>>();
             let pats = total_pat_len * size_of::<PatternID>();
             let mem = (matches.len() * per_elem) + pats;
-            log::trace!("matches map built, memory usage: {}", mem);
+            log::debug!("matches map built, memory usage: {}", mem);
         }
         // At this point, we shuffle the "special" states in the final DFA.
         // This permits a DFA's match loop to detect a match condition (among

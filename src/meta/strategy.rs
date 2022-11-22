@@ -226,11 +226,6 @@ pub(super) fn new(
             return Ok((pre, None));
         }
     }
-    // thought: if we have a Unicode word boundary and a prefilter, then does
-    // it make sense to disable the lazy DFA? The lazy DFA would likely be
-    // faster, but if there is non-ASCII in a match span, then it could lead
-    // to search restarts. Probably don't do this now and wait for a use case
-    // to appear?
 
     let strat = Core::new(info, hirs)?;
     let pre = if let Some(Some(ref pre)) = info.config.pre {
@@ -239,7 +234,7 @@ pub(super) fn new(
         None
     } else if info.config.get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
-            trace!("creating prefilter from {:?}", strings);
+            debug!("creating prefilter from {:?}", strings);
             prefilter::new(strings)
         })
     } else {

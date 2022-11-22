@@ -404,7 +404,7 @@ impl Builder {
         start_unanchored: StateID,
     ) -> Result<NFA, BuildError> {
         assert!(self.pattern_id.is_none(), "must call 'finish_pattern' first");
-        trace!(
+        debug!(
             "intermediate NFA compilation via builder is complete, \
              intermediate NFA size: {} states, {} bytes on heap",
             self.states.len(),
@@ -555,7 +555,7 @@ impl Builder {
         // Finally remap all of the state IDs.
         nfa.remap(&remap);
         let final_nfa = nfa.into_nfa();
-        trace!(
+        debug!(
             "NFA compilation via builder complete, \
              final NFA size: {} states, {} bytes on heap",
             final_nfa.states().len(),
