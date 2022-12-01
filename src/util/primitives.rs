@@ -29,7 +29,7 @@ reduces memory usage by a factor of 2. It is a legal optimization since Rust
 guarantees that slices never have a length that exceeds `isize::MAX`.
 */
 
-use core::{convert::TryFrom, num::NonZeroUsize};
+use core::num::NonZeroUsize;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;

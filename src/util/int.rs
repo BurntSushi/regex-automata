@@ -34,7 +34,7 @@ NOTE: for simplicity, we don't take target pointer width into account here for
 check when it can be proven it isn't needed at compile time doesn't really
 matter. Now, if we wind up wanting to do as many checks as possible in release
 mode, then we would want to skip those when we know the conversions are always
-lossy.
+non-lossy.
 
 NOTE: this module isn't an exhaustive API. For example, we still use things
 like `u64::from` where possible, or even `usize::try_from()` for when we do
