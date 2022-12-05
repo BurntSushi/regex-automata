@@ -323,7 +323,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     if input.get_prefilter().is_some() && !input.get_anchored().is_anchored() {
         find_overlapping_fwd_imp(dfa, input, input.get_prefilter(), state)
     } else {
-        find_overlapping_fwd_imp(dfa, input, input.get_prefilter(), state)
+        find_overlapping_fwd_imp(dfa, input, None, state)
     }
 }
 
