@@ -180,8 +180,6 @@ impl<'a> Minimizer<'a> {
         // Convenience function for remapping state IDs. This takes an old ID,
         // looks up its Hopcroft partition and then maps that to the new ID
         // range.
-        // let remap_by_index = |old| minimal_ids[as_index(state_to_part[old])];
-        // let remap = |old| remap_by_index(as_index(old));
         let remap = |old| minimal_ids[as_index(state_to_part[as_index(old)])];
 
         // Re-map this DFA in place such that the only states remaining

@@ -2596,14 +2596,16 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     hybrid::dfa::DFA,
+    ///     nfa::thompson::NFA,
     ///     Anchored, HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let haystack = "123foobar456";
-    /// let pattern = r"[a-z]+";
+    /// let pattern = r"[a-z]+r";
     ///
     /// let dfa_fwd = DFA::new(pattern)?;
     /// let dfa_rev = DFA::builder()
+    ///     .thompson(NFA::config().reverse(true))
     ///     .configure(DFA::config().match_kind(MatchKind::All))
     ///     .build(pattern)?;
     /// let mut cache_fwd = dfa_fwd.create_cache();

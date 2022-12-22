@@ -231,14 +231,16 @@ impl Config {
     /// ```
     /// use regex_automata::{
     ///     dfa::{dense, Automaton, StartKind},
+    ///     nfa::thompson::NFA,
     ///     Anchored, HalfMatch, Input, MatchKind,
     /// };
     ///
     /// let haystack = "123foobar456".as_bytes();
-    /// let pattern = r"[a-z]+";
+    /// let pattern = r"[a-z]+r";
     ///
     /// let dfa_fwd = dense::DFA::new(pattern)?;
     /// let dfa_rev = dense::Builder::new()
+    ///     .thompson(NFA::config().reverse(true))
     ///     .configure(dense::Config::new()
     ///         // This isn't strictly necessary since both anchored and
     ///         // unanchored searches are supported by default. But since
@@ -2376,14 +2378,15 @@ impl OwnedDFA {
     /// identifiers.
     pub(crate) fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
         // We could loop over each state ID and call 'remap_state' here, but
-        // this is more direct: just map every transition directly.
-        for i in 0..self.tt.table().len() {
-            let next = self.tt.table()[i];
-            self.tt.table_mut()[i] = map(next);
+        // this is more direct: just map every transition directly. This
+        // technically might do a little extra work since the alphabet length
+        // is likely less than the stride, but if that is indeed an issue we
+        // should benchmark it and fix it.
+        for sid in self.tt.table_mut().iter_mut() {
+            *sid = map(*sid);
         }
-        for i in 0..self.st.table().len() {
-            let start = self.st.table()[i];
-            self.st.table_mut()[i] = map(start);
+        for sid in self.st.table_mut().iter_mut() {
+            *sid = map(*sid);
         }
     }
 
