@@ -283,6 +283,20 @@ matches = [
   [[3, 3], []],
 ]
 
+# Plucked from "Why aren’t regular expressions a lingua franca? an empirical
+# study on the re-use and portability of regular expressions", The ACM Joint
+# European Software Engineering Conference and Symposium on the Foundations of
+# Software Engineering (ESEC/FSE), 2019.
+#
+# Link: https://dl.acm.org/doi/pdf/10.1145/3338906.3338909
+[[tests]]
+name = "captures-after-dfa-premature-end-400"
+regex = '(a)\d*\.?\d+\b'
+input = "a0.0c"
+matches = [
+  [[0, 2], [0, 1]],
+]
+
 # See: https://github.com/rust-lang/regex/issues/437
 [[tests]]
 name = "literal-panic"

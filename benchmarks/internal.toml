@@ -161,16 +161,16 @@ regex = '\pL{100}'
 haystack-path = "allcodepoints.txt"
 case-insensitive = false
 unicode = true
-match-count = 1203
+match-count = 1244
 engines = [
   'regex/api',
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
-  'regexold/api',
+  # 'regexold/api',
   # 're2/api',
-  'pcre2/api/jit',
-  'pcre2/api/nojit',
+  # 'pcre2/api/jit',
+  # 'pcre2/api/nojit',
 ]
 analysis = 'TODO'
 
@@ -287,12 +287,16 @@ regex = '''
 haystack-path = "allcodepoints.txt"
 case-insensitive = false
 unicode = true
-match-count = 1109199
+match-count = 1109158
 engines = [
   'regex/api',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
-  'regexold/api',
+  # FIXME: "update" regexold to bring in Unicode 15...
+  # Although eventually this will stagnate, we should
+  # at least make sure it's up-to-date before the
+  # cutover to regex-automata.
+  # 'regexold/api',
 ]
 analysis = 'TODO'
 

@@ -126,6 +126,15 @@ impl Patterns {
             const SHORT: &str = "Read patterns from a file.";
             app = app.arg(app::mflag("pattern-file").short("f").help(SHORT));
         }
+        {
+            const SHORT: &str = "Treat all patterns as literal strings.";
+            app = app.arg(app::switch("fixed-strings").short("F").help(SHORT));
+        }
+        {
+            const SHORT: &str =
+                "Join all patterns into one pattern via an alternation.";
+            app = app.arg(app::switch("combine-patterns").help(SHORT));
+        }
         app
     }
 
@@ -133,13 +142,13 @@ impl Patterns {
     /// or from pattern files. If no patterns could be found, then an error
     /// is returned.
     pub fn get(args: &Args) -> anyhow::Result<Patterns> {
-        if let Some(pfile) = args.value_of_os("pattern-file") {
+        let mut pats = if let Some(pfile) = args.value_of_os("pattern-file") {
             let path = std::path::Path::new(pfile);
             let contents =
                 std::fs::read_to_string(path).with_context(|| {
                     anyhow::anyhow!("failed to read {}", path.display())
                 })?;
-            Ok(Patterns(contents.lines().map(|x| x.to_string()).collect()))
+            contents.lines().map(|x| x.to_string()).collect()
         } else {
             if args.value_of_os("pattern-file").is_some() {
                 anyhow::bail!(
@@ -159,8 +168,17 @@ impl Patterns {
                     patterns.push(p.to_string());
                 }
             }
-            Ok(Patterns(patterns))
+            patterns
+        };
+        let escape = args.is_present("fixed-strings");
+        let combine = args.is_present("combine-patterns");
+        if escape {
+            pats = pats.iter().map(|s| syntax::escape(s)).collect();
         }
+        if combine {
+            pats = vec![pats.join("|")];
+        }
+        Ok(Patterns(pats))
     }
 
     /// Returns a slice of the patterns read.

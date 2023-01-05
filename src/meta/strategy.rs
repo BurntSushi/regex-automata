@@ -186,9 +186,9 @@ pub(super) fn new(
     //
     // We also require that we have a single regex pattern. Namely, we reuse
     // the prefilter infrastructure to implement search and prefilters only
-    // report spans. Prefilters don't know about patterns. The multi-regex case
-    // isn't a lost cause, we might still use Aho-Corasick and we might still
-    // just use a regular prefilter, but that's done below.
+    // report spans. Prefilters don't know about pattern IDs. The multi-regex
+    // case isn't a lost cause, we might still use Aho-Corasick and we might
+    // still just use a regular prefilter, but that's done below.
     //
     // If we do have only one pattern, then we also require that it has zero
     // look-around assertions. Namely, literal extraction treats look-around
@@ -222,12 +222,16 @@ pub(super) fn new(
     {
         // OK because we know the set is exact and thus finite.
         let prefixes = lits.prefixes().literals().unwrap();
+        debug!(
+            "trying to bypass regex engine by creating prefilter from: {:?}",
+            prefixes
+        );
         if let Some(pre) = prefilter::new_as_strategy(prefixes) {
             return Ok((pre, None));
         }
+        debug!("regex bypass failed because no prefilter could be extracted");
     }
 
-    let strat = Core::new(info, hirs)?;
     let pre = if let Some(Some(ref pre)) = info.config.pre {
         Some(Arc::clone(pre))
     } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
@@ -240,6 +244,7 @@ pub(super) fn new(
     } else {
         None
     };
+    let strat = Core::new(info, hirs)?;
     Ok((strat, pre))
 }
 
@@ -274,6 +279,10 @@ impl Core {
         // captures, but we always enable that above.)
         let pikevm = wrappers::PikeVM::new(info, &nfa)?;
         let backtrack = wrappers::BoundedBacktracker::new(info, &nfa)?;
+        // The onepass engine can of course fail to build, but we expect it to
+        // fail in many cases because it is an optimization that doesn't apply
+        // to all regexes. The 'OnePass' wrapper encapsulates this failure (and
+        // logs a message if it occurs).
         let onepass = wrappers::OnePass::new(info, &nfa);
         // We try to encapsulate whether a particular regex engine should
         // be used within each respective wrapper, but the lazy DFA needs a

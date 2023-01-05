@@ -7,7 +7,7 @@ use core::{
 use alloc::sync::Arc;
 
 #[cfg(feature = "perf-literal-multisubstring")]
-use aho_corasick::{self, packed, AhoCorasickBuilder};
+use aho_corasick::{self, packed};
 #[cfg(feature = "perf-literal-substring")]
 use memchr::{memchr, memchr2, memchr3, memmem};
 #[cfg(feature = "syntax")]
@@ -42,34 +42,46 @@ macro_rules! new {
         // An empty set means the regex matches nothing, so no sense in
         // building a prefilter.
         if needles.len() == 0 {
+            debug!("prefilter building failed: found empty set of literals");
             return None;
         }
         // If the regex can match the empty string, then the prefilter will
         // by definition match at every position. This is obviously completely
         // ineffective.
         if needles.iter().any(|n| n.as_ref().is_empty()) {
+            debug!("prefilter building failed: prefixes match empty string");
             return None;
         }
         #[cfg(feature = "perf-literal-substring")]
         if needles.len() == 1 {
             return Some(match needles[0].as_ref().len() {
                 0 => return None,
-                1 => Arc::new(Memchr(needles[0].as_ref()[0])),
-                _ => Arc::new(Memmem::new(needles[0].as_ref())),
+                1 => {
+                    debug!("prefilter built: memchr");
+                    Arc::new(Memchr(needles[0].as_ref()[0]))
+                }
+                _ => {
+                    debug!("prefilter built: memmem");
+                    Arc::new(Memmem::new(needles[0].as_ref()))
+                }
             });
         }
         #[cfg(feature = "perf-literal-multisubstring")]
         if let Some(byteset) = ByteSet::new(needles) {
+            debug!("prefilter built: byteset");
             return Some(Arc::new(byteset));
         }
         #[cfg(feature = "perf-literal-multisubstring")]
         if let Some(packed) = Packed::new(needles) {
+            debug!("prefilter built: packed (Teddy)");
             return Some(Arc::new(packed));
         }
         #[cfg(feature = "perf-literal-multisubstring")]
         if let Some(ac) = AhoCorasick::new(needles) {
+            debug!("prefilter built: aho-corasick");
             return Some(Arc::new(ac));
         }
+        debug!("prefilter building failed: no strategy could be found");
         None
     }};
 }
@@ -101,7 +113,6 @@ pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Arc<dyn Prefilter>> {
         prefixes.union(&mut extractor.extract(hir.borrow()));
     }
     prefixes.optimize_for_prefix();
-
     prefixes.literals().and_then(new)
 }
 
@@ -273,7 +284,10 @@ struct Packed {
     /// searchers to support anchored search would be difficult at worst and
     /// annoying at best. Since packed searchers only apply to small numbers of
     /// literals, we content ourselves that this is not much of an added cost.
-    anchored_ac: aho_corasick::AhoCorasick<u32>,
+    /// (That packed searchers only work with a small number of literals is
+    /// also why we use a DFA here. Otherwise, the memory usage of a DFA would
+    /// likely be unacceptable.)
+    anchored_ac: aho_corasick::dfa::DFA,
 }
 
 #[cfg(feature = "perf-literal-multisubstring")]
@@ -284,14 +298,11 @@ impl Packed {
             .builder()
             .extend(needles)
             .build()?;
-        let anchored_ac = AhoCorasickBuilder::new()
+        let anchored_ac = aho_corasick::dfa::DFA::builder()
             .match_kind(aho_corasick::MatchKind::LeftmostFirst)
-            .anchored(true)
-            // OK because packed searchers only get build when the number of
-            // needles is very small.
-            .dfa(true)
+            .start_kind(aho_corasick::StartKind::Anchored)
             .prefilter(false)
-            .build_with_size::<u32, _, _>(needles)
+            .build(needles)
             .ok()?;
         Some(Packed { packed, anchored_ac })
     }
@@ -300,100 +311,79 @@ impl Packed {
 #[cfg(feature = "perf-literal-multisubstring")]
 impl Prefilter for Packed {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        let ac_span = aho_corasick::Span { start: span.start, end: span.end };
         self.packed
-            .find_at(haystack, span.start)
+            .find_in(haystack, ac_span)
             .map(|m| Span { start: m.start(), end: m.end() })
     }
 
     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.anchored_ac.find(&haystack[span]).map(|m| {
-            let start = span.start + m.start();
-            let end = start + m.len();
-            Span { start, end }
-        })
+        use aho_corasick::automaton::Automaton;
+        let input = aho_corasick::Input::new(haystack)
+            .anchored(aho_corasick::Anchored::Yes)
+            .span(span.start..span.end);
+        self.anchored_ac
+            .try_find(&input)
+            // OK because we build the DFA with anchored support.
+            .expect("aho-corasick DFA should never fail")
+            .map(|m| Span { start: m.start(), end: m.end() })
     }
 
     fn memory_usage(&self) -> usize {
-        self.packed.heap_bytes() + self.anchored_ac.heap_bytes()
+        use aho_corasick::automaton::Automaton;
+        self.packed.memory_usage() + self.anchored_ac.memory_usage()
     }
 }
-
-// BREADCRUMBS: It seems quite difficult to get aho-corasick to support both
-// anchored and unanchored searches simultaneously. In particular, it feels
-// like the DFA makes it difficult. Supporting it in the NFA is trivial though.
-// Simply do not follow failure transitions and only utilize the trie.
-//
-// I had been planning on re-working aho-corasick anyway to expose the NFA
-// and DFA as separate types, perhaps in a sub-module. If I do that, then I
-// can build the NFA and use that for anchored searches, and if the number of
-// patterns is small enough, build the DFA for unanchored searching.
 
 #[cfg(feature = "perf-literal-multisubstring")]
 #[derive(Clone, Debug)]
 struct AhoCorasick {
-    ac: aho_corasick::AhoCorasick<u32>,
-    /// An unanchored Aho-Corasick searcher cannot also do an anchored search.
-    /// So we need to build an entirely separate one just for that.
-    ///
-    /// In the traditional Aho-Corasick formulation, adding support for
-    /// anchored search is as easy as treating as a trie and not following
-    /// failure transitions. That would work fine, except the aho-corasick
-    /// crate might actually use a DFA internally, which doesn't have any
-    /// explicit failure transitions. (The point of the DFA is to erase the
-    /// failure transitions completely by pre-computing them into the DFA's
-    /// transition table.) Or even a packed searcher. And so it can't just
-    /// provide anchored search on demand. Thus, that's why 'anchored' is a
-    /// build-time setting and we need a second one to support anchored search.
-    anchored_ac: aho_corasick::AhoCorasick<u32>,
+    ac: aho_corasick::AhoCorasick,
 }
 
 #[cfg(feature = "perf-literal-multisubstring")]
 impl AhoCorasick {
     fn new<B: AsRef<[u8]>>(needles: &[B]) -> Option<AhoCorasick> {
-        let ac = AhoCorasickBuilder::new()
+        let ac = aho_corasick::AhoCorasick::builder()
             .match_kind(aho_corasick::MatchKind::LeftmostFirst)
-            .dfa(needles.len() <= 5_000)
+            .start_kind(aho_corasick::StartKind::Both)
             // We try to handle all of the prefilter cases here, and only
             // use Aho-Corasick for the actual automaton. The aho-corasick
-            // crate does have some extra prefilters, namely, looking for
-            // rare bytes to feed to memchr{,2,3} instead of just the first
-            // byte. If we end up wanting those---and they are somewhat tricky
-            // to implement---then we could port them to this crate. Although,
+            // crate does have some extra prefilters, namely, looking for rare
+            // bytes to feed to memchr{,2,3} instead of just the first byte.
+            // If we end up wanting those---and they are somewhat tricky to
+            // implement---then we could port them to this crate. Although,
             // IIRC, they do require some more prefilter infrastructure.
+            //
+            // The main reason for doing things this way is so we have a
+            // complete and easy to understand picture of which prefilters are
+            // available and how they work. Otherwise it seems too easy to get
+            // into a situation where we have prefilters layered on top of
+            // prefilter, and that might have unintended consequences.
             .prefilter(false)
-            .build_with_size::<u32, _, _>(needles)
+            .build(needles)
             .ok()?;
-        let anchored_ac = AhoCorasickBuilder::new()
-            .match_kind(aho_corasick::MatchKind::LeftmostFirst)
-            .anchored(true)
-            .dfa(needles.len() <= 5_000)
-            .prefilter(false)
-            .build_with_size::<u32, _, _>(needles)
-            .ok()?;
-        Some(AhoCorasick { ac, anchored_ac })
+        Some(AhoCorasick { ac })
     }
 }
 
 #[cfg(feature = "perf-literal-multisubstring")]
 impl Prefilter for AhoCorasick {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.ac.find(&haystack[span]).map(|m| {
-            let start = span.start + m.start();
-            let end = start + m.len();
-            Span { start, end }
-        })
+        let input =
+            aho_corasick::Input::new(haystack).span(span.start..span.end);
+        self.ac.find(input).map(|m| Span { start: m.start(), end: m.end() })
     }
 
     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.anchored_ac.find(&haystack[span]).map(|m| {
-            let start = span.start + m.start();
-            let end = start + m.len();
-            Span { start, end }
-        })
+        let input = aho_corasick::Input::new(haystack)
+            .anchored(aho_corasick::Anchored::Yes)
+            .span(span.start..span.end);
+        self.ac.find(input).map(|m| Span { start: m.start(), end: m.end() })
     }
 
     fn memory_usage(&self) -> usize {
-        self.ac.heap_bytes() + self.anchored_ac.heap_bytes()
+        self.ac.memory_usage()
     }
 }
 

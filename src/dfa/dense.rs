@@ -1289,7 +1289,7 @@ pub struct DFA<T> {
     /// a match exists, but _which_ patterns match. So we need to store the
     /// matching pattern IDs for each match state. We do this even when there
     /// is only one pattern for the sake of simplicity. In practice, this uses
-    /// up very little space for the case of on pattern.
+    /// up very little space for the case of one pattern.
     ms: MatchStates<T>,
     /// Information about which states are "special." Special states are states
     /// that are dead, quit, matching, starting or accelerated. For more info,
@@ -2888,7 +2888,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
         debug_assert!(self.is_match_state(id));
         // This is one of the places where we rely on the fact that match
         // states are contiguous in the transition table. Namely, that the
-        // first match state ID always corresponds to dfa.special.min_start.
+        // first match state ID always corresponds to dfa.special.min_match.
         // From there, since we know the stride, we can compute the overall
         // index of any match state given the match state's ID.
         let min = self.special().min_match.as_usize();

@@ -1,20 +1,3 @@
-// Our base requirements are 'syntax' and the PikeVM. We could in theory only
-// require an NFA and at least one (any) regex engine, but that seems likely to
-// lead to a quite complicated internal setup. (And things are already going to
-// be complicated.) We really want 'syntax' so we can do literal extraction and
-// also control how the regex engines are built. For example, we might not want
-// to build an NFA at all, but instead just build an Aho-Corasick automaton.
-//
-// So I guess the meta regex engine has two different decision trees: one at
-// build time and one at search time.
-//
-// Build time
-// ----------
-//
-//
-// Search time
-// -----------
-
 #![allow(warnings)]
 
 use core::borrow::Borrow;

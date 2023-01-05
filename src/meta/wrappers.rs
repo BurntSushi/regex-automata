@@ -316,7 +316,7 @@ impl HybridEngine {
                 .starts_for_each_pattern(true)
                 .byte_classes(info.config.get_byte_classes())
                 .unicode_word_boundary(true)
-                // Set this to true if we have a prefilter
+                // TODO: Only set this to true if we have a prefilter
                 .specialize_start_states(true)
                 .cache_capacity(info.config.get_hybrid_cache_capacity())
                 // This makes it possible for building a lazy DFA to
