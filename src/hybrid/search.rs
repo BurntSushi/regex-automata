@@ -4,7 +4,7 @@ use crate::{
         id::LazyStateID,
     },
     util::{
-        prefilter::PrefilterI,
+        prefilter::Prefilter,
         search::{HalfMatch, Input, MatchError, Span},
     },
 };
@@ -46,7 +46,7 @@ fn find_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
     input: &Input<'_, '_>,
-    pre: Option<&'_ dyn PrefilterI>,
+    pre: Option<&'_ Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     // See 'prefilter_restart' docs for explanation.
@@ -447,7 +447,7 @@ fn find_overlapping_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
     input: &Input<'_, '_>,
-    pre: Option<&'_ dyn PrefilterI>,
+    pre: Option<&'_ Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
     // See 'prefilter_restart' docs for explanation.

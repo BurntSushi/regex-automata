@@ -14,7 +14,7 @@ use crate::{
     util::{
         captures::Captures,
         iter,
-        prefilter::{self, PrefilterI},
+        prefilter::{self, Prefilter},
         primitives::{NonMaxUsize, PatternID},
         search::{HalfMatch, Input, Match, MatchError, MatchKind, PatternSet},
     },
@@ -37,7 +37,7 @@ mod wrappers;
 #[derive(Clone, Debug)]
 pub struct Regex {
     info: RegexInfo,
-    pre: Option<Arc<dyn PrefilterI>>,
+    pre: Option<Prefilter>,
     strat: Arc<dyn Strategy>,
 }
 
@@ -75,7 +75,7 @@ impl Regex {
     ) -> Input<'h, 'p> {
         let c = self.get_config();
         Input::new(haystack.as_ref())
-            .prefilter(self.pre.as_deref())
+            .prefilter(self.pre.as_ref())
             .utf8(c.get_utf8())
     }
 
@@ -99,8 +99,8 @@ impl Regex {
         &self.info.config
     }
 
-    pub fn get_prefilter(&self) -> Option<&dyn PrefilterI> {
-        self.pre.as_deref()
+    pub fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref()
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -309,7 +309,7 @@ pub struct Config {
     match_kind: Option<MatchKind>,
     utf8: Option<bool>,
     autopre: Option<bool>,
-    pre: Option<Option<Arc<dyn PrefilterI>>>,
+    pre: Option<Option<Prefilter>>,
     nfa_size_limit: Option<Option<usize>>,
     onepass_size_limit: Option<Option<usize>>,
     hybrid_cache_capacity: Option<usize>,
@@ -336,7 +336,7 @@ impl Config {
         Config { autopre: Some(yes), ..self }
     }
 
-    pub fn prefilter(self, pre: Option<Arc<dyn PrefilterI>>) -> Config {
+    pub fn prefilter(self, pre: Option<Prefilter>) -> Config {
         Config { pre: Some(pre), ..self }
     }
 
@@ -380,8 +380,8 @@ impl Config {
         self.autopre.unwrap_or(true)
     }
 
-    pub fn get_prefilter(&self) -> Option<&dyn PrefilterI> {
-        self.pre.as_ref().unwrap_or(&None).as_deref()
+    pub fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_ref()
     }
 
     pub fn get_nfa_size_limit(&self) -> Option<usize> {

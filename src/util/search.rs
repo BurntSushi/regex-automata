@@ -5,7 +5,7 @@ Types and routines that support the search APIs of most regex engines.
 use core::ops::{Range, RangeBounds};
 
 use crate::util::{
-    escape::DebugByte, prefilter::PrefilterI, primitives::PatternID, utf8,
+    escape::DebugByte, prefilter::Prefilter, primitives::PatternID, utf8,
 };
 
 /// The parameters for a regex search.
@@ -118,7 +118,7 @@ pub struct Input<'h, 'p> {
     haystack: &'h [u8],
     span: Span,
     anchored: Anchored,
-    prefilter: Option<&'p dyn PrefilterI>,
+    prefilter: Option<&'p Prefilter>,
     earliest: bool,
     utf8: bool,
 }
@@ -358,7 +358,7 @@ impl<'h, 'p> Input<'h, 'p> {
     #[inline]
     pub fn prefilter(
         mut self,
-        prefilter: Option<&'p dyn PrefilterI>,
+        prefilter: Option<&'p Prefilter>,
     ) -> Input<'h, 'p> {
         self.set_prefilter(prefilter);
         self
@@ -629,7 +629,7 @@ impl<'h, 'p> Input<'h, 'p> {
     }
 
     #[inline]
-    pub fn set_prefilter(&mut self, prefilter: Option<&'p dyn PrefilterI>) {
+    pub fn set_prefilter(&mut self, prefilter: Option<&'p Prefilter>) {
         self.prefilter = prefilter;
     }
 
@@ -786,7 +786,7 @@ impl<'h, 'p> Input<'h, 'p> {
     }
 
     #[inline]
-    pub fn get_prefilter(&self) -> Option<&'p dyn PrefilterI> {
+    pub fn get_prefilter(&self) -> Option<&'p Prefilter> {
         if self.get_anchored().is_anchored() {
             return None;
         }

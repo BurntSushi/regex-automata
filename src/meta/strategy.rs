@@ -13,7 +13,7 @@ use crate::{
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
         captures::{Captures, GroupInfo},
-        prefilter::{self, PrefilterI},
+        prefilter::{self, Prefilter, PrefilterI},
         primitives::{NonMaxUsize, PatternID},
         search::{
             Anchored, HalfMatch, Input, Match, MatchError, MatchKind,
@@ -176,7 +176,7 @@ impl<T: PrefilterI> Strategy for T {
 pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
-) -> Result<(Arc<dyn Strategy>, Option<Arc<dyn PrefilterI>>), BuildError> {
+) -> Result<(Arc<dyn Strategy>, Option<Prefilter>), BuildError> {
     let lits = Literals::new(hirs);
     // Check to see if our prefixes are exact, which means we might be able to
     // bypass the regex engine entirely and just rely on literal searches. We
@@ -233,13 +233,13 @@ pub(super) fn new(
     }
 
     let pre = if let Some(Some(ref pre)) = info.config.pre {
-        Some(Arc::clone(pre))
+        Some(pre.clone())
     } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
         None
     } else if info.config.get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
             debug!("creating prefilter from {:?}", strings);
-            prefilter::new(strings)
+            Prefilter::new(strings)
         })
     } else {
         None

@@ -4,7 +4,7 @@ use crate::{
         automaton::{Automaton, OverlappingState},
     },
     util::{
-        prefilter::PrefilterI,
+        prefilter::Prefilter,
         primitives::StateID,
         search::{Anchored, HalfMatch, Input, Span},
     },
@@ -40,7 +40,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
 fn find_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
-    pre: Option<&'_ dyn PrefilterI>,
+    pre: Option<&'_ Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     // See 'prefilter_restart' docs for explanation.
@@ -331,7 +331,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_, '_>,
-    pre: Option<&'_ dyn PrefilterI>,
+    pre: Option<&'_ Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
     // See 'prefilter_restart' docs for explanation.

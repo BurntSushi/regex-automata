@@ -16,7 +16,7 @@ use crate::{
         captures::Captures,
         iter,
         look::UnicodeWordBoundaryError,
-        prefilter::PrefilterI,
+        prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{
             Anchored, Input, Match, MatchError, MatchKind, PatternSet, Span,
@@ -67,7 +67,7 @@ std::thread_local! {
 pub struct Config {
     match_kind: Option<MatchKind>,
     utf8: Option<bool>,
-    pre: Option<Option<Arc<dyn PrefilterI>>>,
+    pre: Option<Option<Prefilter>>,
 }
 
 impl Config {
@@ -175,7 +175,7 @@ impl Config {
     /// The given prefilter is automatically applied to every search done by a
     /// `PikeVM`, except for the lower level routines that accept a prefilter
     /// parameter from the caller.
-    pub fn prefilter(mut self, pre: Option<Arc<dyn PrefilterI>>) -> Config {
+    pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
         self.pre = Some(pre);
         self
     }
@@ -195,8 +195,8 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
-    pub fn get_prefilter(&self) -> Option<&dyn PrefilterI> {
-        self.pre.as_ref().unwrap_or(&None).as_deref()
+    pub fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_ref()
     }
 
     /// Overwrite the default configuration such that the options in `o` are

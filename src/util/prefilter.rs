@@ -65,7 +65,7 @@ macro_rules! new {
     }};
 }
 
-pub fn new<B: AsRef<[u8]>>(
+pub(crate) fn new<B: AsRef<[u8]>>(
     needles: &[B],
 ) -> Option<Arc<dyn PrefilterI + 'static>> {
     new!(needles)
@@ -116,7 +116,7 @@ impl Prefilter {
     }
 }
 
-pub trait PrefilterI:
+pub(crate) trait PrefilterI:
     Debug + Send + Sync + RefUnwindSafe + UnwindSafe + 'static
 {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span>;
@@ -135,24 +135,6 @@ impl<P: PrefilterI + ?Sized> PrefilterI for Arc<P> {
     fn memory_usage(&self) -> usize {
         (&**self).memory_usage()
     }
-}
-
-#[cfg(feature = "syntax")]
-pub fn from_hir(hir: &Hir) -> Option<Arc<dyn PrefilterI>> {
-    from_hirs(&[hir])
-}
-
-#[cfg(feature = "syntax")]
-pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Arc<dyn PrefilterI>> {
-    let mut extractor = literal::Extractor::new();
-    extractor.kind(literal::ExtractKind::Prefix);
-
-    let mut prefixes = literal::Seq::empty();
-    for hir in hirs.iter() {
-        prefixes.union(&mut extractor.extract(hir.borrow()));
-    }
-    prefixes.optimize_for_prefix();
-    prefixes.literals().and_then(new)
 }
 
 #[cfg(feature = "perf-literal-substring")]
