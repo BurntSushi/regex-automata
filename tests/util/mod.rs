@@ -1,5 +1,5 @@
 use bstr::ByteSlice;
-use regex_automata::{util::prefilter::Prefilter, Span};
+use regex_automata::{util::prefilter::PrefilterI, Span};
 
 #[derive(Clone, Debug)]
 pub struct SubstringPrefilter(bstr::Finder<'static>);
@@ -10,7 +10,7 @@ impl SubstringPrefilter {
     }
 }
 
-impl Prefilter for SubstringPrefilter {
+impl PrefilterI for SubstringPrefilter {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         self.0.find(&haystack[span]).map(|i| {
             let start = span.start + i;
@@ -44,7 +44,7 @@ impl BunkPrefilter {
     }
 }
 
-impl Prefilter for BunkPrefilter {
+impl PrefilterI for BunkPrefilter {
     fn find(&self, _haystack: &[u8], _span: Span) -> Option<Span> {
         None
     }

@@ -18,7 +18,7 @@ use crate::{
         captures::Captures,
         iter,
         look::UnicodeWordBoundaryError,
-        prefilter::Prefilter,
+        prefilter::PrefilterI,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{Anchored, Input, Match, MatchError, Span},
     },
@@ -50,7 +50,7 @@ pub fn min_visited_capacity(nfa: &NFA, input: &Input<'_, '_>) -> usize {
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     utf8: Option<bool>,
-    pre: Option<Option<Arc<dyn Prefilter>>>,
+    pre: Option<Option<Arc<dyn PrefilterI>>>,
     visited_capacity: Option<usize>,
 }
 
@@ -142,7 +142,7 @@ impl Config {
     /// The given prefilter is automatically applied to every search, except
     /// for the lower level routines that accept a prefilter parameter from the
     /// caller (via [`Input::prefilter`]).
-    pub fn prefilter(mut self, pre: Option<Arc<dyn Prefilter>>) -> Config {
+    pub fn prefilter(mut self, pre: Option<Arc<dyn PrefilterI>>) -> Config {
         self.pre = Some(pre);
         self
     }
@@ -206,7 +206,7 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
-    pub fn get_prefilter(&self) -> Option<&dyn Prefilter> {
+    pub fn get_prefilter(&self) -> Option<&dyn PrefilterI> {
         self.pre.as_ref().unwrap_or(&None).as_deref()
     }
 

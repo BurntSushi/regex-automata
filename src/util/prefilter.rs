@@ -15,27 +15,6 @@ use regex_syntax::hir::{literal, Hir};
 
 use crate::util::search::{MatchKind, Span};
 
-pub trait Prefilter:
-    Debug + Send + Sync + RefUnwindSafe + UnwindSafe + 'static
-{
-    fn find(&self, haystack: &[u8], span: Span) -> Option<Span>;
-    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span>;
-    fn memory_usage(&self) -> usize;
-}
-
-#[cfg(feature = "alloc")]
-impl<P: Prefilter + ?Sized> Prefilter for Arc<P> {
-    fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        (&**self).find(haystack, span)
-    }
-    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        (&**self).prefix(haystack, span)
-    }
-    fn memory_usage(&self) -> usize {
-        (&**self).memory_usage()
-    }
-}
-
 macro_rules! new {
     ($needles:ident) => {{
         let needles = $needles;
@@ -88,7 +67,7 @@ macro_rules! new {
 
 pub fn new<B: AsRef<[u8]>>(
     needles: &[B],
-) -> Option<Arc<dyn Prefilter + 'static>> {
+) -> Option<Arc<dyn PrefilterI + 'static>> {
     new!(needles)
 }
 
@@ -98,13 +77,73 @@ pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
     new!(needles)
 }
 
+#[derive(Clone, Debug)]
+pub struct Prefilter(Arc<dyn PrefilterI + 'static>);
+
+impl Prefilter {
+    pub fn new<B: AsRef<[u8]>>(needles: &[B]) -> Option<Prefilter> {
+        new(needles).map(Prefilter)
+    }
+
+    #[cfg(feature = "syntax")]
+    pub fn from_hir(hir: &Hir) -> Option<Prefilter> {
+        Prefilter::from_hirs(&[hir])
+    }
+
+    #[cfg(feature = "syntax")]
+    pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Prefilter> {
+        let mut extractor = literal::Extractor::new();
+        extractor.kind(literal::ExtractKind::Prefix);
+
+        let mut prefixes = literal::Seq::empty();
+        for hir in hirs.iter() {
+            prefixes.union(&mut extractor.extract(hir.borrow()));
+        }
+        prefixes.optimize_for_prefix();
+        prefixes.literals().and_then(Prefilter::new)
+    }
+
+    pub fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        self.0.find(haystack, span)
+    }
+
+    pub fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        self.0.prefix(haystack, span)
+    }
+
+    pub fn memory_usage(&self) -> usize {
+        self.0.memory_usage()
+    }
+}
+
+pub trait PrefilterI:
+    Debug + Send + Sync + RefUnwindSafe + UnwindSafe + 'static
+{
+    fn find(&self, haystack: &[u8], span: Span) -> Option<Span>;
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span>;
+    fn memory_usage(&self) -> usize;
+}
+
+#[cfg(feature = "alloc")]
+impl<P: PrefilterI + ?Sized> PrefilterI for Arc<P> {
+    fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        (&**self).find(haystack, span)
+    }
+    fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
+        (&**self).prefix(haystack, span)
+    }
+    fn memory_usage(&self) -> usize {
+        (&**self).memory_usage()
+    }
+}
+
 #[cfg(feature = "syntax")]
-pub fn from_hir(hir: &Hir) -> Option<Arc<dyn Prefilter>> {
+pub fn from_hir(hir: &Hir) -> Option<Arc<dyn PrefilterI>> {
     from_hirs(&[hir])
 }
 
 #[cfg(feature = "syntax")]
-pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Arc<dyn Prefilter>> {
+pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Arc<dyn PrefilterI>> {
     let mut extractor = literal::Extractor::new();
     extractor.kind(literal::ExtractKind::Prefix);
 
@@ -121,7 +160,7 @@ pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Arc<dyn Prefilter>> {
 struct Memchr(u8);
 
 #[cfg(feature = "perf-literal-substring")]
-impl Prefilter for Memchr {
+impl PrefilterI for Memchr {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         memchr(self.0, &haystack[span]).map(|i| {
             let start = span.start + i;
@@ -149,7 +188,7 @@ impl Prefilter for Memchr {
 struct Memchr2(u8, u8);
 
 #[cfg(feature = "perf-literal-substring")]
-impl Prefilter for Memchr2 {
+impl PrefilterI for Memchr2 {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         memchr2(self.0, self.1, &haystack[span]).map(|i| {
             let start = span.start + i;
@@ -177,7 +216,7 @@ impl Prefilter for Memchr2 {
 struct Memchr3(u8, u8, u8);
 
 #[cfg(feature = "perf-literal-substring")]
-impl Prefilter for Memchr3 {
+impl PrefilterI for Memchr3 {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         memchr3(self.0, self.1, self.2, &haystack[span]).map(|i| {
             let start = span.start + i;
@@ -217,7 +256,7 @@ impl ByteSet {
     }
 }
 
-impl Prefilter for ByteSet {
+impl PrefilterI for ByteSet {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         haystack[span].iter().position(|&b| self.0[usize::from(b)]).map(|i| {
             let start = span.start + i;
@@ -252,7 +291,7 @@ impl Memmem {
 }
 
 #[cfg(feature = "perf-literal-substring")]
-impl Prefilter for Memmem {
+impl PrefilterI for Memmem {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         self.0.find(&haystack[span]).map(|i| {
             let start = span.start + i;
@@ -309,7 +348,7 @@ impl Packed {
 }
 
 #[cfg(feature = "perf-literal-multisubstring")]
-impl Prefilter for Packed {
+impl PrefilterI for Packed {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         let ac_span = aho_corasick::Span { start: span.start, end: span.end };
         self.packed
@@ -368,7 +407,7 @@ impl AhoCorasick {
 }
 
 #[cfg(feature = "perf-literal-multisubstring")]
-impl Prefilter for AhoCorasick {
+impl PrefilterI for AhoCorasick {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         let input =
             aho_corasick::Input::new(haystack).span(span.start..span.end);
@@ -402,7 +441,7 @@ pub struct None {
     _priv: (),
 }
 
-impl Prefilter for None {
+impl PrefilterI for None {
     fn find(&self, _: &[u8], span: Span) -> Option<Span> {
         Some(Span { start: span.start, end: span.start })
     }

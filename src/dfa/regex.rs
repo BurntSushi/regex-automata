@@ -24,7 +24,7 @@ use crate::{
     dfa::{automaton::Automaton, dense},
     util::{
         iter,
-        prefilter::{self, Prefilter},
+        prefilter::{self, PrefilterI},
         search::Input,
     },
     Anchored, Match, MatchError,
@@ -360,7 +360,7 @@ impl Regex<dense::DFA<&'static [u32]>, prefilter::None> {
 }
 
 /// Standard search routines for finding and iterating over matches.
-impl<A: Automaton, P: Prefilter> Regex<A, P> {
+impl<A: Automaton, P: PrefilterI> Regex<A, P> {
     /// Returns true if and only if this regex matches the given haystack.
     ///
     /// This routine may short circuit if it knows that scanning future input
@@ -478,7 +478,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 ///
 /// Errors will never be returned using the default configuration. So these
 /// fallible routines are only needed for particular configurations.
-impl<A: Automaton, P: Prefilter> Regex<A, P> {
+impl<A: Automaton, P: PrefilterI> Regex<A, P> {
     /// Returns true if and only if this regex matches the given haystack.
     ///
     /// This routine may short circuit if it knows that scanning future input
@@ -563,7 +563,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 
 /// Lower level fallible search routines that permit controlling where the
 /// search starts and ends in a particular sequence.
-impl<A: Automaton, P: Prefilter> Regex<A, P> {
+impl<A: Automaton, P: PrefilterI> Regex<A, P> {
     /// Returns the start and end offset of the leftmost match. If no match
     /// exists, then `None` is returned.
     ///
@@ -706,7 +706,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
 
 /// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
-impl<A: Automaton, P: Prefilter> Regex<A, P> {
+impl<A: Automaton, P: PrefilterI> Regex<A, P> {
     /// Create a new `Input` for the given haystack.
     ///
     /// The `Input` returned is configured to match the configuration of this
@@ -732,7 +732,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     }
 
     /// Attach the given prefilter to this regex.
-    pub fn with_prefilter<Q: Prefilter>(
+    pub fn with_prefilter<Q: PrefilterI>(
         self,
         prefilter: Option<Q>,
     ) -> Regex<A, Q> {
@@ -793,7 +793,7 @@ impl<A: Automaton, P: Prefilter> Regex<A, P> {
     /// object.
     ///
     /// If this regex doesn't have a prefilter, then `None` is returned.
-    pub fn prefilter(&self) -> Option<&dyn Prefilter> {
+    pub fn prefilter(&self) -> Option<&dyn PrefilterI> {
         match self.prefilter {
             None => None,
             Some(ref x) => Some(&*x),
@@ -818,7 +818,7 @@ pub struct FindMatches<'r, 'h, A, P> {
     it: iter::Searcher<'h, 'r>,
 }
 
-impl<'r, 'h, A: Automaton, P: Prefilter> Iterator
+impl<'r, 'h, A: Automaton, P: PrefilterI> Iterator
     for FindMatches<'r, 'h, A, P>
 {
     type Item = Match;
@@ -847,7 +847,7 @@ pub struct TryFindMatches<'r, 'h, A, P> {
     it: iter::Searcher<'h, 'r>,
 }
 
-impl<'r, 'h, A: Automaton, P: Prefilter> Iterator
+impl<'r, 'h, A: Automaton, P: PrefilterI> Iterator
     for TryFindMatches<'r, 'h, A, P>
 {
     type Item = Result<Match, MatchError>;

@@ -13,7 +13,7 @@ use crate::{
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
         captures::{Captures, GroupInfo},
-        prefilter::{self, Prefilter},
+        prefilter::{self, PrefilterI},
         primitives::{NonMaxUsize, PatternID},
         search::{
             Anchored, HalfMatch, Input, Match, MatchError, MatchKind,
@@ -99,7 +99,7 @@ pub(crate) trait Strategy:
 // simple literals or alternations of literals. (We also use the Aho-Corasick
 // strategy when len(patterns)==1 if the number of literals is large. In that
 // case, literal extraction gives up and will return an infinite set.)
-impl<T: Prefilter> Strategy for T {
+impl<T: PrefilterI> Strategy for T {
     fn create_captures(&self) -> Captures {
         // The only thing we support here is the start and end of the overall
         // match for a single pattern. In other words, exactly one implicit
@@ -176,7 +176,7 @@ impl<T: Prefilter> Strategy for T {
 pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
-) -> Result<(Arc<dyn Strategy>, Option<Arc<dyn Prefilter>>), BuildError> {
+) -> Result<(Arc<dyn Strategy>, Option<Arc<dyn PrefilterI>>), BuildError> {
     let lits = Literals::new(hirs);
     // Check to see if our prefixes are exact, which means we might be able to
     // bypass the regex engine entirely and just rely on literal searches. We

@@ -8,7 +8,7 @@ use regex_automata::{
     nfa::thompson,
     util::{
         iter,
-        prefilter::{self, Prefilter},
+        prefilter::{self, PrefilterI},
         syntax,
     },
     Anchored, Input, MatchKind, PatternSet,
@@ -246,7 +246,7 @@ fn compiler(
     mut builder: dfa::regex::Builder,
     mut create_matcher: impl FnMut(
         &dfa::regex::Builder,
-        Option<Arc<dyn Prefilter>>,
+        Option<Arc<dyn PrefilterI>>,
         Regex,
     ) -> Result<CompiledRegex>,
 ) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
@@ -284,7 +284,7 @@ fn compiler(
     }
 }
 
-fn run_test<A: Automaton, P: Prefilter>(
+fn run_test<A: Automaton, P: PrefilterI>(
     re: &Regex<A, P>,
     test: &RegexTest,
 ) -> TestResult {
@@ -407,7 +407,7 @@ fn config_syntax(test: &RegexTest) -> syntax::Config {
 /// Nevertheless, we provide this routine in our test suite because it's
 /// useful to test the low level DFA overlapping search and our test suite
 /// is written in a way that requires starting offsets.
-fn try_search_overlapping<A: Automaton, P: Prefilter>(
+fn try_search_overlapping<A: Automaton, P: PrefilterI>(
     re: &Regex<A, P>,
     input: &Input<'_, '_>,
 ) -> Result<TestResult> {
