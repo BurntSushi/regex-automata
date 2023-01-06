@@ -4,7 +4,7 @@ use regex_automata::{
         backtrack::{self, BoundedBacktracker},
         NFA,
     },
-    util::{iter, prefilter, syntax},
+    util::{iter, prefilter::Prefilter, syntax},
     Input,
 };
 
@@ -44,7 +44,7 @@ fn prefilter() -> Result<()> {
             let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
-        let pre = prefilter::from_hirs(&hirs);
+        let pre = Prefilter::from_hirs(&hirs);
         let mut builder = BoundedBacktracker::builder();
         builder.configure(BoundedBacktracker::config().prefilter(pre));
         compiler(builder)(test, regexes)

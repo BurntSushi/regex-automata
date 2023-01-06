@@ -1190,59 +1190,6 @@ impl BoundedBacktracker {
     /// When an error is returned, callers cannot know whether a match
     /// exists or not.
     ///
-    /// # Example: prefilter
-    ///
-    /// This example shows how to provide a prefilter for a pattern where all
-    /// matches start with a `z` byte.
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     util::prefilter::Prefilter,
-    ///     Match, Input, Span,
-    /// };
-    ///
-    /// #[derive(Debug)]
-    /// pub struct ZPrefilter;
-    ///
-    /// impl Prefilter for ZPrefilter {
-    ///     fn find(
-    ///         &self,
-    ///         haystack: &[u8],
-    ///         span: Span,
-    ///     ) -> Option<Span> {
-    ///         // Try changing b'z' to b'q' and observe this test fail since
-    ///         // the prefilter will skip right over the match.
-    ///         haystack[span].iter().position(|&b| b == b'z').map(|i| {
-    ///             let start = span.start + i;
-    ///             Span::from(start..start + 1)
-    ///         })
-    ///     }
-    ///
-    ///     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-    ///         if haystack[span].starts_with(&[b'z']) {
-    ///             Some(Span { end: span.start + 1, ..span })
-    ///         } else {
-    ///             None
-    ///         }
-    ///     }
-    ///
-    ///     fn memory_usage(&self) -> usize {
-    ///         0
-    ///     }
-    /// }
-    ///
-    /// let re = BoundedBacktracker::new("z[0-9]{3}")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// let input = Input::new("foobar z123 q123")
-    ///     .prefilter(Some(&ZPrefilter));
-    /// let expected = Some(Match::must(0, 7..11));
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(expected, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
     /// # Example: specific pattern search
     ///
     /// This example shows how to build a multi bounded backtracker that

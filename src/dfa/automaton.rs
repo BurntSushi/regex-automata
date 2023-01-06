@@ -1103,58 +1103,6 @@ pub unsafe trait Automaton {
     /// This routine must panic if a pattern ID is given and the underlying
     /// DFA does not support specific pattern searches.
     ///
-    /// # Example: prefilter
-    ///
-    /// This example shows how to provide a prefilter for a pattern where all
-    /// matches start with a `z` byte.
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, dense},
-    ///     util::prefilter::Prefilter,
-    ///     HalfMatch, Span, Input,
-    /// };
-    ///
-    /// #[derive(Debug)]
-    /// pub struct ZPrefilter;
-    ///
-    /// impl Prefilter for ZPrefilter {
-    ///     fn find(
-    ///         &self,
-    ///         haystack: &[u8],
-    ///         span: Span,
-    ///     ) -> Option<Span> {
-    ///         // Try changing b'z' to b'q' and observe this test fail since
-    ///         // the prefilter will skip right over the match.
-    ///         haystack[span].iter().position(|&b| b == b'z').map(|i| {
-    ///             let start = span.start + i;
-    ///             Span::from(start..start + 1)
-    ///         })
-    ///     }
-    ///
-    ///     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-    ///         if haystack[span].starts_with(&[b'z']) {
-    ///             Some(Span { end: span.start + 1, ..span })
-    ///         } else {
-    ///             None
-    ///         }
-    ///     }
-    ///
-    ///     fn memory_usage(&self) -> usize {
-    ///         0
-    ///     }
-    /// }
-    ///
-    /// let dfa = dense::DFA::new("z[0-9]{3}")?;
-    /// let input = Input::new("foobar z123 q123")
-    ///     .prefilter(Some(&ZPrefilter));
-    /// let expected = Some(HalfMatch::must(0, 11));
-    /// let got = dfa.try_search_fwd(&input)?;
-    /// assert_eq!(expected, got);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
     /// # Example: specific pattern search
     ///
     /// This example shows how to build a multi-DFA that permits searching for

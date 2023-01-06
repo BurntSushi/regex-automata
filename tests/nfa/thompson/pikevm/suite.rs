@@ -3,7 +3,7 @@ use regex_automata::{
         self,
         pikevm::{self, PikeVM},
     },
-    util::{iter, prefilter, syntax},
+    util::{iter, prefilter::Prefilter, syntax},
     MatchKind, PatternSet,
 };
 
@@ -34,7 +34,7 @@ fn prefilter() -> Result<()> {
             let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
-        let pre = prefilter::from_hirs(&hirs);
+        let pre = Prefilter::from_hirs(&hirs);
         let mut builder = PikeVM::builder();
         builder.configure(PikeVM::config().prefilter(pre));
         compiler(builder)(test, regexes)

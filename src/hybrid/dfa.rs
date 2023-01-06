@@ -593,59 +593,6 @@ impl DFA {
     ///
     /// It also panics if the given haystack range is not valid.
     ///
-    /// # Example: prefilter
-    ///
-    /// This example shows how to provide a prefilter for a pattern where all
-    /// matches start with a `z` byte.
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     hybrid::dfa::DFA,
-    ///     util::prefilter::Prefilter,
-    ///     HalfMatch, Input, Span,
-    /// };
-    ///
-    /// #[derive(Debug)]
-    /// pub struct ZPrefilter;
-    ///
-    /// impl Prefilter for ZPrefilter {
-    ///     fn find(
-    ///         &self,
-    ///         haystack: &[u8],
-    ///         span: Span,
-    ///     ) -> Option<Span> {
-    ///         // Try changing b'z' to b'q' and observe this test fail since
-    ///         // the prefilter will skip right over the match.
-    ///         haystack[span].iter().position(|&b| b == b'z').map(|i| {
-    ///             let start = span.start + i;
-    ///             Span::from(start..start + 1)
-    ///         })
-    ///     }
-    ///
-    ///     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-    ///         if haystack[span].starts_with(&[b'z']) {
-    ///             Some(Span { end: span.start + 1, ..span })
-    ///         } else {
-    ///             None
-    ///         }
-    ///     }
-    ///
-    ///     fn memory_usage(&self) -> usize {
-    ///         0
-    ///     }
-    /// }
-    ///
-    /// let dfa = DFA::new("z[0-9]{3}")?;
-    /// let mut cache = dfa.create_cache();
-    /// let input = Input::new("foobar z123 q123")
-    ///     .prefilter(Some(&ZPrefilter));
-    /// let expected = Some(HalfMatch::must(0, 11));
-    /// let got = dfa.try_search_fwd(&mut cache, &input)?;
-    /// assert_eq!(expected, got);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
     /// # Example: specific pattern search
     ///
     /// This example shows how to build a lazy multi-DFA that permits searching

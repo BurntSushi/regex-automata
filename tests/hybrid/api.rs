@@ -1,15 +1,10 @@
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
 use regex_automata::{
-    hybrid::{
-        dfa::{OverlappingState, DFA},
-        regex::Regex,
-    },
+    hybrid::dfa::{OverlappingState, DFA},
     nfa::thompson,
-    HalfMatch, Input, Match, MatchError,
+    HalfMatch, Input, MatchError,
 };
-
-use crate::util::{BunkPrefilter, SubstringPrefilter};
 
 // Tests that too many cache resets cause the lazy DFA to quit.
 //
@@ -148,49 +143,5 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
     let mut cache = dfa.create_cache();
     let expected = HalfMatch::must(0, 1);
     assert_eq!(dfa.try_find_fwd(&mut cache, b" a"), Ok(Some(expected)));
-    Ok(())
-}
-
-// Tests that we can provide a prefilter to a Regex, and the search reports
-// correct results.
-#[test]
-fn prefilter_works() -> Result<(), Box<dyn Error>> {
-    let pre = Arc::new(SubstringPrefilter::new("a"));
-    let re = Regex::builder()
-        .configure(Regex::config().prefilter(Some(pre)))
-        .build(r"a[0-9]+")?;
-    let mut cache = re.create_cache();
-
-    let text = b"foo abc foo a1a2a3 foo a123 bar aa456";
-    let matches: Vec<(usize, usize)> =
-        re.find_iter(&mut cache, text).map(|m| (m.start(), m.end())).collect();
-    assert_eq!(
-        matches,
-        vec![(12, 14), (14, 16), (16, 18), (23, 27), (33, 37),]
-    );
-    Ok(())
-}
-
-// This test confirms that a prefilter is active by using a prefilter that
-// reports false negatives.
-#[test]
-fn prefilter_is_active() -> Result<(), Box<dyn Error>> {
-    let pre = Arc::new(SubstringPrefilter::new("a"));
-    let re = Regex::builder()
-        .configure(Regex::config().prefilter(Some(pre)))
-        .build(r"a[0-9]+")?;
-    let mut cache = re.create_cache();
-    assert_eq!(re.find(&mut cache, b"za123"), Some(Match::must(0, 1..5)));
-    assert_eq!(re.find(&mut cache, b"a123"), Some(Match::must(0, 0..4)));
-
-    let pre = Arc::new(BunkPrefilter::new());
-    let re = Regex::builder()
-        .configure(Regex::config().prefilter(Some(pre)))
-        .build(r"a[0-9]+")?;
-    let mut cache = re.create_cache();
-    assert_eq!(re.find(&mut cache, b"za123"), None);
-    // This checks that the prefilter is used when first starting the search,
-    // instead of waiting until at least one transition has occurred.
-    assert_eq!(re.find(&mut cache, b"a123"), None);
     Ok(())
 }
