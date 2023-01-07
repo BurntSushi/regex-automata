@@ -159,7 +159,7 @@ pub(super) fn regex_automata_onepass(
 pub(super) fn aho_corasick_nfa(
     b: &Benchmark,
 ) -> anyhow::Result<aho_corasick::AhoCorasick> {
-    use aho_corasick::{AhoCorasickBuilder, MatchKind};
+    use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 
     anyhow::ensure!(
         !(b.def.unicode && b.def.case_insensitive),
@@ -167,13 +167,12 @@ pub(super) fn aho_corasick_nfa(
          'case-insensitive = true'"
     );
     let patterns = b.regex.split(r"|").collect::<Vec<&str>>();
-    let ac = AhoCorasickBuilder::new()
+    let ac = AhoCorasick::builder()
+        .kind(AhoCorasickKind::ContiguousNFA)
         .match_kind(MatchKind::LeftmostFirst)
-        .auto_configure(&patterns)
         .ascii_case_insensitive(b.def.case_insensitive)
         .prefilter(false)
-        .dfa(false)
-        .build(&patterns);
+        .build(&patterns)?;
     Ok(ac)
 }
 
@@ -182,7 +181,7 @@ pub(super) fn aho_corasick_nfa(
 pub(super) fn aho_corasick_dfa(
     b: &Benchmark,
 ) -> anyhow::Result<aho_corasick::AhoCorasick> {
-    use aho_corasick::{AhoCorasickBuilder, MatchKind};
+    use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 
     anyhow::ensure!(
         !(b.def.unicode && b.def.case_insensitive),
@@ -190,13 +189,12 @@ pub(super) fn aho_corasick_dfa(
          'case-insensitive = true'"
     );
     let patterns = b.regex.split(r"|").collect::<Vec<&str>>();
-    let ac = AhoCorasickBuilder::new()
+    let ac = AhoCorasick::builder()
+        .kind(AhoCorasickKind::DFA)
         .match_kind(MatchKind::LeftmostFirst)
-        .auto_configure(&patterns)
         .ascii_case_insensitive(b.def.case_insensitive)
         .prefilter(false)
-        .dfa(true)
-        .build(&patterns);
+        .build(&patterns)?;
     Ok(ac)
 }
 

@@ -99,7 +99,7 @@ impl Prefilter {
         for hir in hirs.iter() {
             prefixes.union(&mut extractor.extract(hir.borrow()));
         }
-        prefixes.optimize_for_prefix();
+        prefixes.optimize_for_prefix_by_preference();
         prefixes.literals().and_then(Prefilter::new)
     }
 

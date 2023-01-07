@@ -360,8 +360,8 @@ impl Literals {
             prefixes.union(&mut prefix_extractor.extract(hir.borrow()));
             suffixes.union(&mut suffix_extractor.extract(hir.borrow()));
         }
-        prefixes.optimize_for_prefix();
-        suffixes.optimize_for_suffix();
+        prefixes.optimize_for_prefix_by_preference();
+        suffixes.optimize_for_suffix_by_preference();
         Literals { prefixes, suffixes }
     }
 
