@@ -721,9 +721,8 @@ impl<A: Automaton> Regex<A> {
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
-        Input::new(haystack)
-            .prefilter(self.prefilter())
-            .utf8(self.get_config().get_utf8())
+        let c = self.get_config();
+        Input::new(haystack).prefilter(c.get_prefilter()).utf8(c.get_utf8())
     }
 
     /// Return the config for this regex.
@@ -764,14 +763,6 @@ impl<A: Automaton> Regex<A> {
     pub fn pattern_len(&self) -> usize {
         assert_eq!(self.forward().pattern_len(), self.reverse().pattern_len());
         self.forward().pattern_len()
-    }
-
-    /// Convenience function for returning this regex's prefilter as a trait
-    /// object.
-    ///
-    /// If this regex doesn't have a prefilter, then `None` is returned.
-    pub fn prefilter(&self) -> Option<&Prefilter> {
-        self.prefilter.as_ref()
     }
 }
 
@@ -836,6 +827,7 @@ impl<'r, 'h, A: Automaton> Iterator for TryFindMatches<'r, 'h, A> {
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     utf8: Option<bool>,
+    pre: Option<Option<Prefilter>>,
 }
 
 impl Config {
@@ -910,6 +902,16 @@ impl Config {
         self
     }
 
+    /// Attach the given prefilter to this configuration.
+    ///
+    /// The given prefilter is automatically applied to every search done by
+    /// a `Regex`, except for the lower level routines that accept a prefilter
+    /// parameter from the caller.
+    pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
+        self.pre = Some(pre);
+        self
+    }
+
     /// Returns true if and only if this configuration has UTF-8 mode enabled.
     ///
     /// When UTF-8 mode is enabled and an empty match is seen, [`Regex`] will
@@ -920,12 +922,19 @@ impl Config {
         self.utf8.unwrap_or(true)
     }
 
+    pub fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_ref()
+    }
+
     /// Overwrite the default configuration such that the options in `o` are
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
     pub(crate) fn overwrite(&self, o: Config) -> Config {
-        Config { utf8: o.utf8.or(self.utf8) }
+        Config {
+            utf8: o.utf8.or(self.utf8),
+            pre: o.pre.or_else(|| self.pre.clone()),
+        }
     }
 }
 
