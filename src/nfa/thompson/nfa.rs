@@ -560,7 +560,7 @@ impl NFA {
     ///
     /// # Errors
     ///
-    /// If the pattern doesn't exist in this NFA, then this returns an erro.
+    /// If the pattern doesn't exist in this NFA, then this returns an error.
     /// This occurs when `pid.as_usize() >= nfa.pattern_len()`.
     ///
     /// # Example
@@ -778,6 +778,81 @@ impl NFA {
         self.0.has_capture
     }
 
+    /// Returns true if and only if this NFA can match the empty string.
+    /// When it returns false, all possible matches are guaranteed to have a
+    /// non-zero length.
+    ///
+    /// This is useful as cheap way to know whether code needs to handle the
+    /// case of a zero length match. This is particularly important when UTF-8
+    /// modes are enabled, as when UTF-8 mode is enabled, empty matches that
+    /// split a codepoint must never be reported. This extra handling can
+    /// sometimes be costly, and since regexes matching an empty string are
+    /// somewhat rare, it can be beneficial to treat such regexes specially.
+    ///
+    /// # Example
+    ///
+    /// This example shows a few different NFAs and whether they match the
+    /// empty string or not. Notice the empty string isn't merely a matter
+    /// of a string of length literally `0`, but rather, whether a match can
+    /// occur between specific pairs of bytes.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, util::syntax};
+    ///
+    /// // The empty regex matches the empty string.
+    /// let nfa = NFA::new("")?;
+    /// assert!(nfa.has_empty(), "empty matches empty");
+    /// // The '+' repetition operator requires at least one match, and so
+    /// // does not match the empty string.
+    /// let nfa = NFA::new("a+")?;
+    /// assert!(!nfa.has_empty(), "+ does not match empty");
+    /// // But the '*' repetition operator does.
+    /// let nfa = NFA::new("a*")?;
+    /// assert!(nfa.has_empty(), "* does match empty");
+    /// // And wrapping '+' in an operator that can match an empty string also
+    /// // causes it to match the empty string too.
+    /// let nfa = NFA::new("(a+)*")?;
+    /// assert!(nfa.has_empty(), "+ inside of * matches empty");
+    ///
+    /// // If a regex is just made of a look-around assertion, even if the
+    /// // assertion requires some kind of non-empty string around it (such as
+    /// // \b), then it is still treated as if it matches the empty string.
+    /// // Namely, if a match occurs of just a look-around assertion, then the
+    /// // match returned is empty.
+    /// let nfa = NFA::compiler()
+    ///     .syntax(syntax::Config::new().utf8(false))
+    ///     .build(r"^$\A\z\b\B(?-u:\b\B)")?;
+    /// assert!(nfa.has_empty(), "assertions match empty");
+    /// // Even when an assertion is wrapped in a '+', it still matches the
+    /// // empty string.
+    /// let nfa = NFA::new(r"\b+")?;
+    /// assert!(nfa.has_empty(), "+ of an assertion matches empty");
+    ///
+    /// // An alternation with even one branch that can match the empty string
+    /// // is also said to match the empty string overall.
+    /// let nfa = NFA::new("foo|(bar)?|quux")?;
+    /// assert!(nfa.has_empty(), "alternations can match empty");
+    ///
+    /// // An NFA that matches nothing does not match the empty string.
+    /// let nfa = NFA::new("[a&&b]")?;
+    /// assert!(!nfa.has_empty(), "never matching means not matching empty");
+    /// // But if it's wrapped in something that doesn't require a match at
+    /// // all, then it can match the empty string!
+    /// let nfa = NFA::new("[a&&b]*")?;
+    /// assert!(nfa.has_empty(), "* on never-match still matches empty");
+    /// // Since a '+' requires a match, using it on something that can never
+    /// // match will itself produce a regex that can never match anything,
+    /// // and thus does not match the empty string.
+    /// let nfa = NFA::new("[a&&b]+")?;
+    /// assert!(!nfa.has_empty(), "+ on never-match still matches nothing");
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn has_empty(&self) -> bool {
+        self.0.has_empty
+    }
+
     /// Returns true if and only if all starting states for this NFA correspond
     /// to the beginning of an anchored search.
     ///
@@ -867,7 +942,7 @@ impl NFA {
     /// let nfa = NFA::new_many(&["a", "b", "a^b", "c"])?;
     /// assert!(nfa.look_set_union().contains(Look::Start));
     ///
-    /// // Groups of assertions have various shortcuts. For example:
+    /// // Some groups of assertions have various shortcuts. For example:
     /// let nfa = NFA::new(r"(?-u:\b)")?;
     /// assert!(nfa.look_set_union().contains_word());
     /// assert!(!nfa.look_set_union().contains_word_unicode());
@@ -921,11 +996,11 @@ impl NFA {
     }
 
     /// Returns the intersection of all prefix look-around assertions for every
-    /// pattern in this NFA. When the returned set is empty, it implies none of
-    /// the patterns require moving through a conditional epsilon transition
-    /// before inspecting the first byte in the haystack. Conversely, when the
-    /// set contains an assertion, it implies that every pattern in the NFA
-    /// also contains that assertion in its prefix.
+    /// pattern in this NFA. When the returned set is empty, it implies at
+    /// least one of the patterns does not require moving through a conditional
+    /// epsilon transition before inspecting the first byte in the haystack.
+    /// Conversely, when the set contains an assertion, it implies that every
+    /// pattern in the NFA also contains that assertion in its prefix.
     ///
     /// This can be useful for determining what kinds of assertions need to be
     /// satisfied at the beginning of a search. For example, if you know that
@@ -981,11 +1056,11 @@ impl NFA {
     /// ```
     #[inline]
     pub fn memory_usage(&self) -> usize {
-        use core::mem::size_of as s;
+        use core::mem::size_of;
 
-        s::<Inner>()
-            + self.0.states.len() * s::<State>()
-            + self.0.start_pattern.len() * s::<StateID>()
+        size_of::<Inner>() // allocated on the heap via Arc
+            + self.0.states.len() * size_of::<State>()
+            + self.0.start_pattern.len() * size_of::<StateID>()
             + self.0.group_info.memory_usage()
             + self.0.memory_extra
     }
@@ -1040,6 +1115,8 @@ pub(super) struct Inner {
     byte_class_set: ByteClassSet,
     /// Whether this NFA has a `Capture` state anywhere.
     has_capture: bool,
+    /// When the empty string is in the language matched by this NFA.
+    has_empty: bool,
     /// The union of all look-around assertions that occur anywhere within
     /// this NFA. If this set is empty, then it means there are precisely zero
     /// conditional epsilon transitions in the NFA.
@@ -1061,7 +1138,8 @@ impl Inner {
     /// Runs any last finalization bits and turns this into a full NFA.
     pub(super) fn into_nfa(mut self) -> NFA {
         // Do epsilon closure from the start state of every pattern in order
-        // to compute the look-around assertion prefix sets.
+        // to compute various properties such as look-around assertions and
+        // whether the empty string can be matched.
         let mut stack = vec![];
         let mut seen = SparseSet::new(self.states.len());
         for &start_id in self.start_pattern.iter() {
@@ -1075,8 +1153,8 @@ impl Inner {
                 match self.states[sid] {
                     State::ByteRange { .. }
                     | State::Sparse { .. }
-                    | State::Fail
-                    | State::Match { .. } => continue,
+                    | State::Fail => continue,
+                    State::Match { .. } => self.has_empty = true,
                     State::Look { look, next } => {
                         prefix = prefix.insert(look);
                         stack.push(next);

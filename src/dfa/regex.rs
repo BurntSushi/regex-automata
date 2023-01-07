@@ -91,11 +91,6 @@ define_regex_type!(
     /// best search performance. When the `alloc` feature is disabled, no
     /// default type is used.
     ///
-    /// A `Regex` also has a `P` type parameter, which is used to select the
-    /// prefilter used during search. By default, no prefilter is enabled by
-    /// setting the type to default to [`prefilter::None`]. A prefilter can be
-    /// enabled by using the [`Regex::prefilter`] method.
-    ///
     /// # When should I use this?
     ///
     /// Generally speaking, if you can afford the overhead of building a full
