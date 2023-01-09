@@ -132,6 +132,7 @@ pub struct DFA<T> {
     starts: StartTable<T>,
     special: Special,
     quitset: ByteSet,
+    has_empty: bool,
 }
 
 #[cfg(feature = "dfa-build")]
@@ -394,6 +395,7 @@ impl DFA<Vec<u8>> {
             starts: StartTable::from_dense_dfa(dfa, &remap)?,
             special: dfa.special().remap(|id| remap[dfa.to_index(id)]),
             quitset: dfa.quitset().clone(),
+            has_empty: dfa.has_empty(),
         };
         // And here's our second pass. Iterate over all of the dense states
         // again, and update the transitions in each of the states in the
@@ -425,6 +427,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
             starts: self.starts.as_ref(),
             special: self.special,
             quitset: self.quitset,
+            has_empty: self.has_empty,
         }
     }
 
@@ -440,18 +443,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
             starts: self.starts.to_owned(),
             special: self.special,
             quitset: self.quitset,
+            has_empty: self.has_empty,
         }
-    }
-
-    /// Returns the memory usage, in bytes, of this DFA.
-    ///
-    /// The memory usage is computed based on the number of bytes used to
-    /// represent this DFA.
-    ///
-    /// This does **not** include the stack size used up by this DFA. To
-    /// compute that, use `std::mem::size_of::<sparse::DFA>()`.
-    pub fn memory_usage(&self) -> usize {
-        self.trans.memory_usage() + self.starts.memory_usage()
     }
 
     /// Returns true only if this DFA has starting states for each pattern.
@@ -465,6 +458,94 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// Note that if the DFA is empty, this always returns false.
     pub fn starts_for_each_pattern(&self) -> bool {
         self.starts.pattern_len > 0
+    }
+
+    /// Returns true if and only if this DFA can match the empty string.
+    /// When it returns false, all possible matches are guaranteed to have a
+    /// non-zero length.
+    ///
+    /// This is useful as cheap way to know whether code needs to handle the
+    /// case of a zero length match. This is particularly important when UTF-8
+    /// modes are enabled, as when UTF-8 mode is enabled, empty matches that
+    /// split a codepoint must never be reported. This extra handling can
+    /// sometimes be costly, and since regexes matching an empty string are
+    /// somewhat rare, it can be beneficial to treat such regexes specially.
+    ///
+    /// # Example
+    ///
+    /// This example shows a few different DFAs and whether they match the
+    /// empty string or not. Notice the empty string isn't merely a matter
+    /// of a string of length literally `0`, but rather, whether a match can
+    /// occur between specific pairs of bytes.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::{dense, sparse::DFA}, util::syntax};
+    ///
+    /// // The empty regex matches the empty string.
+    /// let dfa = DFA::new("")?;
+    /// assert!(dfa.has_empty(), "empty matches empty");
+    /// // The '+' repetition operator requires at least one match, and so
+    /// // does not match the empty string.
+    /// let dfa = DFA::new("a+")?;
+    /// assert!(!dfa.has_empty(), "+ does not match empty");
+    /// // But the '*' repetition operator does.
+    /// let dfa = DFA::new("a*")?;
+    /// assert!(dfa.has_empty(), "* does match empty");
+    /// // And wrapping '+' in an operator that can match an empty string also
+    /// // causes it to match the empty string too.
+    /// let dfa = DFA::new("(a+)*")?;
+    /// assert!(dfa.has_empty(), "+ inside of * matches empty");
+    ///
+    /// // If a regex is just made of a look-around assertion, even if the
+    /// // assertion requires some kind of non-empty string around it (such as
+    /// // \b), then it is still treated as if it matches the empty string.
+    /// // Namely, if a match occurs of just a look-around assertion, then the
+    /// // match returned is empty.
+    /// let dfa = dense::DFA::builder()
+    ///     .configure(dense::DFA::config().unicode_word_boundary(true))
+    ///     .syntax(syntax::Config::new().utf8(false))
+    ///     .build(r"^$\A\z\b\B(?-u:\b\B)")?
+    ///     .to_sparse()?;
+    /// assert!(dfa.has_empty(), "assertions match empty");
+    /// // Even when an assertion is wrapped in a '+', it still matches the
+    /// // empty string.
+    /// let dfa = DFA::new(r"^+")?;
+    /// assert!(dfa.has_empty(), "+ of an assertion matches empty");
+    ///
+    /// // An alternation with even one branch that can match the empty string
+    /// // is also said to match the empty string overall.
+    /// let dfa = DFA::new("foo|(bar)?|quux")?;
+    /// assert!(dfa.has_empty(), "alternations can match empty");
+    ///
+    /// // An NFA that matches nothing does not match the empty string.
+    /// let dfa = DFA::new("[a&&b]")?;
+    /// assert!(!dfa.has_empty(), "never matching means not matching empty");
+    /// // But if it's wrapped in something that doesn't require a match at
+    /// // all, then it can match the empty string!
+    /// let dfa = DFA::new("[a&&b]*")?;
+    /// assert!(dfa.has_empty(), "* on never-match still matches empty");
+    /// // Since a '+' requires a match, using it on something that can never
+    /// // match will itself produce a regex that can never match anything,
+    /// // and thus does not match the empty string.
+    /// let dfa = DFA::new("[a&&b]+")?;
+    /// assert!(!dfa.has_empty(), "+ on never-match still matches nothing");
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn has_empty(&self) -> bool {
+        self.has_empty
+    }
+
+    /// Returns the memory usage, in bytes, of this DFA.
+    ///
+    /// The memory usage is computed based on the number of bytes used to
+    /// represent this DFA.
+    ///
+    /// This does **not** include the stack size used up by this DFA. To
+    /// compute that, use `std::mem::size_of::<sparse::DFA>()`.
+    pub fn memory_usage(&self) -> usize {
+        self.trans.memory_usage() + self.starts.memory_usage()
     }
 }
 
@@ -801,6 +882,10 @@ impl<T: AsRef<[u8]>> DFA<T> {
         nw += self.starts.write_to::<E>(&mut dst[nw..])?;
         nw += self.special.write_to::<E>(&mut dst[nw..])?;
         nw += self.quitset.write_to::<E>(&mut dst[nw..])?;
+        nw += {
+            E::write_u32(if self.has_empty { 1 } else { 0 }, &mut dst[nw..]);
+            size_of::<u32>()
+        };
         Ok(nw)
     }
 
@@ -847,6 +932,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
         + self.starts.write_to_len()
         + self.special.write_to_len()
         + self.quitset.write_to_len()
+        + size_of::<u32>() // for has_empty flag
     }
 }
 
@@ -1092,7 +1178,12 @@ impl<'a> DFA<&'a [u8]> {
         let (quitset, nread) = ByteSet::from_bytes(&slice[nr..])?;
         nr += nread;
 
-        Ok((DFA { trans, starts, special, quitset }, nr))
+        let (has_empty, nread) =
+            wire::try_read_u32(&slice[nr..], "has_empty flag")
+                .map(|(value, nread)| (value == 1, nread))?;
+        nr += nread;
+
+        Ok((DFA { trans, starts, special, quitset, has_empty }, nr))
     }
 }
 
