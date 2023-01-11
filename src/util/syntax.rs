@@ -283,7 +283,7 @@ impl Config {
             .dot_matches_new_line(self.dot_matches_new_line)
             .swap_greed(self.swap_greed)
             .ignore_whitespace(self.ignore_whitespace)
-            .allow_invalid_utf8(!self.utf8)
+            .utf8(self.utf8)
             .nest_limit(self.nest_limit)
             .octal(self.octal);
     }
@@ -307,7 +307,7 @@ impl Config {
             .multi_line(self.multi_line)
             .dot_matches_new_line(self.dot_matches_new_line)
             .swap_greed(self.swap_greed)
-            .allow_invalid_utf8(!self.utf8);
+            .utf8(self.utf8);
     }
 }
 
