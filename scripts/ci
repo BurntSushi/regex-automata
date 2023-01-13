@@ -1,12 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
 
 # Man I don't *want* to have this many crate features, but... I really want
 # folks to be able to slim the crate down to just the things they want. But
-# the main downside is that I just can't feasible test every combination of
+# the main downside is that I just can't feasibly test every combination of
 # features because there are too many of them. Sad, but I'm not sure if there
 # is a better alternative.
+# shellcheck disable=SC2054
 features=(
   ""
   unicode-word-boundary

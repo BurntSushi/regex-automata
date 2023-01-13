@@ -1675,6 +1675,38 @@ impl GroupInfo {
         self.0.small_slot_len().as_usize()
     }
 
+    /// Returns the total number of slots for implicit capturing groups.
+    ///
+    /// This is like [`GroupInfo::slot_len`], except it doesn't include the
+    /// explicit slots for each pattern. Since there are always exactly 2
+    /// implicit slots for each pattern, the number of implicit slots is always
+    /// equal to twice the number of patterns.
+    ///
+    /// # Example
+    ///
+    /// This example shows the relationship between the number of capturing
+    /// groups, implicit slots and explicit slots.
+    ///
+    /// ```
+    /// use regex_automata::util::captures::GroupInfo;
+    ///
+    /// // There are 11 total groups here.
+    /// let info = GroupInfo::new(vec![vec![None, Some("foo"), Some("bar")]])?;
+    /// // 2 slots per group gives us 11*2=22 slots.
+    /// assert_eq!(6, info.slot_len());
+    /// // 2 implicit slots per pattern gives us 2 implicit slots since there
+    /// // is 1 pattern.
+    /// assert_eq!(2, info.implicit_slot_len());
+    /// // 2 explicit capturing groups gives us 2*2=4 explicit slots.
+    /// assert_eq!(4, info.explicit_slot_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn implicit_slot_len(&self) -> usize {
+        self.pattern_len() * 2
+    }
+
     /// Returns the total number of slots for explicit capturing groups.
     ///
     /// This is like [`GroupInfo::slot_len`], except it doesn't include the
@@ -1698,16 +1730,17 @@ impl GroupInfo {
     /// let info = GroupInfo::new(vec![vec![None, Some("foo"), Some("bar")]])?;
     /// // 2 slots per group gives us 11*2=22 slots.
     /// assert_eq!(6, info.slot_len());
+    /// // 2 implicit slots per pattern gives us 2 implicit slots since there
+    /// // is 1 pattern.
+    /// assert_eq!(2, info.implicit_slot_len());
     /// // 2 explicit capturing groups gives us 2*2=4 explicit slots.
     /// assert_eq!(4, info.explicit_slot_len());
-    /// // 2 implicit slots per pattern gives us 2 implicit slots.
-    /// assert_eq!(2, info.slot_len() - info.explicit_slot_len());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
     pub fn explicit_slot_len(&self) -> usize {
-        self.slot_len().saturating_sub(self.pattern_len() * 2)
+        self.slot_len().saturating_sub(self.implicit_slot_len())
     }
 
     /// Returns the memory usage, in bytes, of this `GroupInfo`.

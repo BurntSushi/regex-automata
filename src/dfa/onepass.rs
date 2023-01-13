@@ -127,10 +127,17 @@ impl Config {
     /// In this first snippet, we show the results when UTF-8 mode is disabled.
     ///
     /// ```
-    /// use regex_automata::{dfa::onepass::DFA, Match};
+    /// use regex_automata::{
+    ///     dfa::onepass::DFA,
+    ///     nfa::thompson,
+    ///     Match,
+    /// };
     ///
     /// let re = DFA::builder()
     ///     .configure(DFA::config().utf8(false))
+    ///     // TODO: I guess we'll be removing the UTF-8 option like this,
+    ///     // but we should incorporate these good doc examples somehow.
+    ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let mut input = re.create_input("a☃z");
@@ -1680,9 +1687,23 @@ impl DFA {
         haystack: H,
     ) -> bool {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        self.try_search_slots(cache, &input, &mut [])
-            .expect("correct input")
-            .is_some()
+        // See PikeVM::is_match for why we do this.
+        let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
+        if !utf8empty {
+            self.try_search_slots(cache, &input, &mut [])
+                .expect("correct input and slots")
+                .is_some()
+        } else if self.get_nfa().pattern_len() == 1 {
+            self.try_search_slots(cache, &input, &mut [None, None])
+                .expect("correct input and slots")
+                .is_some()
+        } else {
+            let slot_len = self.get_nfa().group_info().implicit_slot_len();
+            let mut slots = vec![None; slot_len];
+            self.try_search_slots(cache, &input, &mut slots)
+                .expect("correct input and slots")
+                .is_some()
+        }
     }
 
     /// Executes an anchored leftmost forward search and writes the spans
@@ -1896,25 +1917,32 @@ impl DFA {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
+        let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
+        if utf8empty {
+            let min = self.get_nfa().group_info().implicit_slot_len();
+            if slots.len() < min {
+                return Err(MatchError::invalid_input_slots(slots.len(), min));
+            }
+        }
         match self.search_imp(cache, input, slots)? {
             None => return Ok(None),
-            Some(pid) if !input.get_utf8() => return Ok(Some(pid)),
+            Some(pid) if !utf8empty => return Ok(Some(pid)),
             Some(pid) => {
                 // These slot indices are always correct because we know our
                 // 'pid' is valid and thus we know that the slot indices for it
                 // are valid.
                 let slot_start = pid.as_usize().wrapping_mul(2);
                 let slot_end = slot_start.wrapping_add(1);
-                if slot_end >= slots.len() {
-                    return Ok(Some(pid));
-                }
-                // These unwraps are OK because we know we have a match and
-                // we know our caller provided slots are big enough.
+                // These unwraps and indexing are OK because we know we have a
+                // match and we know our caller provided slots are big enough.
+                // Namely, we're only here when 'utf8empty' is true, and when
+                // that's true, we require slots for every pattern.
                 let start = slots[slot_start].unwrap().get();
                 let end = slots[slot_end].unwrap().get();
                 // If our match splits a codepoint, then we cannot report is
                 // as a match. And since one-pass DFAs only support anchored
                 // searches, we don't try to skip ahead to find the next match.
+                // We can just quit with nothing.
                 if start == end && !input.is_char_boundary(start) {
                     return Ok(None);
                 }

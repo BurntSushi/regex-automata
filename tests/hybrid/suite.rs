@@ -184,9 +184,16 @@ fn run_test(
 ) -> TestResult {
     let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
-        "is_match" => TestResult::matched(
-            re.try_search(cache, &input.earliest(true)).unwrap().is_some(),
-        ),
+        "is_match" => {
+            // TODO: Use 'is_match' API once it accetps 'Into<Input>'.
+            let input = input.earliest(true);
+            TestResult::matched(
+                re.forward()
+                    .try_search_fwd(cache.forward_mut(), &input)
+                    .unwrap()
+                    .is_some(),
+            )
+        }
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
                 let input = input
@@ -250,7 +257,7 @@ fn configure_regex_builder(
         dfa_config = dfa_config.starts_for_each_pattern(true);
     }
     let regex_config = Regex::config().utf8(test.utf8());
-    let thompson_config = thompson::Config::new();
+    let thompson_config = thompson::Config::new().utf8(test.utf8());
     builder
         .configure(regex_config)
         .syntax(config_syntax(test))

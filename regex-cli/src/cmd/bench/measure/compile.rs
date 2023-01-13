@@ -80,7 +80,7 @@ fn regex_hir(b: &Benchmark) -> anyhow::Result<Results> {
 
     let ast = ParserBuilder::new().build().parse(&b.regex)?;
     let mut translator = TranslatorBuilder::new()
-        .allow_invalid_utf8(true)
+        .utf8(false)
         .unicode(b.def.unicode)
         .case_insensitive(b.def.case_insensitive)
         .build();
@@ -102,7 +102,7 @@ fn regex_nfa(b: &Benchmark) -> anyhow::Result<Results> {
     }
 
     let hir = ParserBuilder::new()
-        .allow_invalid_utf8(true)
+        .utf8(false)
         .unicode(b.def.unicode)
         .case_insensitive(b.def.case_insensitive)
         .build()

@@ -127,8 +127,11 @@ fn run_test(
             }
             ret::SearchKind::Leftmost => {
                 let input = input.earliest(true);
+                // TODO: Use the actual 'is_match' method once it is generic on
+                // 'Into<Input>'.
+                let mut caps = re.create_captures();
                 TestResult::matched(
-                    re.try_search_slots(cache, &input, &mut [])
+                    re.try_search_slots(cache, &input, caps.slots_mut())
                         .unwrap()
                         .is_some(),
                 )
@@ -213,8 +216,8 @@ fn configure_backtrack_builder(
 }
 
 /// Configuration of a Thompson NFA compiler from a regex test.
-fn config_thompson(_test: &RegexTest) -> thompson::Config {
-    thompson::Config::new()
+fn config_thompson(test: &RegexTest) -> thompson::Config {
+    thompson::Config::new().utf8(test.utf8())
 }
 
 /// Configuration of the regex parser from a regex test.

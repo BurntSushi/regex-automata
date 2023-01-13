@@ -1135,7 +1135,7 @@ impl Builder {
             self.config.get_starts(),
             self.config.get_starts_for_each_pattern(),
             quitset,
-            nfa.has_empty(),
+            Flags::from_nfa(&nfa),
         )?;
         determinize::Config::new()
             .match_kind(self.config.get_match_kind())
@@ -1316,10 +1316,8 @@ pub struct DFA<T> {
     /// the DFA itself, by transitioning all quit bytes to a special "quit
     /// state."
     quitset: ByteSet,
-    /// Whether this DFA can match the empty string.
-    ///
-    /// See the public 'has_empty' method for more details and examples.
-    has_empty: bool,
+    /// Various flags describing the behavior of this DFA.
+    flags: Flags,
 }
 
 #[cfg(feature = "dfa-build")]
@@ -1416,7 +1414,7 @@ impl OwnedDFA {
         starts: StartKind,
         starts_for_each_pattern: bool,
         quitset: ByteSet,
-        has_empty: bool,
+        flags: Flags,
     ) -> Result<OwnedDFA, BuildError> {
         let start_pattern_len =
             if starts_for_each_pattern { pattern_len } else { 0 };
@@ -1427,7 +1425,7 @@ impl OwnedDFA {
             special: Special::new(),
             accels: Accels::empty(),
             quitset,
-            has_empty,
+            flags,
         })
     }
 }
@@ -1462,7 +1460,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
             special: self.special,
             accels: self.accels(),
             quitset: self.quitset,
-            has_empty: self.has_empty,
+            flags: self.flags,
         }
     }
 
@@ -1480,7 +1478,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
             special: self.special,
             accels: self.accels().to_owned(),
             quitset: self.quitset,
-            has_empty: self.has_empty,
+            flags: self.flags,
         }
     }
 
@@ -1569,82 +1567,6 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// returns it as the exponent of a power of 2.
     pub fn stride(&self) -> usize {
         self.tt.stride()
-    }
-
-    /// Returns true if and only if this DFA can match the empty string.
-    /// When it returns false, all possible matches are guaranteed to have a
-    /// non-zero length.
-    ///
-    /// This is useful as cheap way to know whether code needs to handle the
-    /// case of a zero length match. This is particularly important when UTF-8
-    /// modes are enabled, as when UTF-8 mode is enabled, empty matches that
-    /// split a codepoint must never be reported. This extra handling can
-    /// sometimes be costly, and since regexes matching an empty string are
-    /// somewhat rare, it can be beneficial to treat such regexes specially.
-    ///
-    /// # Example
-    ///
-    /// This example shows a few different DFAs and whether they match the
-    /// empty string or not. Notice the empty string isn't merely a matter
-    /// of a string of length literally `0`, but rather, whether a match can
-    /// occur between specific pairs of bytes.
-    ///
-    /// ```
-    /// use regex_automata::{dfa::dense::DFA, util::syntax};
-    ///
-    /// // The empty regex matches the empty string.
-    /// let dfa = DFA::new("")?;
-    /// assert!(dfa.has_empty(), "empty matches empty");
-    /// // The '+' repetition operator requires at least one match, and so
-    /// // does not match the empty string.
-    /// let dfa = DFA::new("a+")?;
-    /// assert!(!dfa.has_empty(), "+ does not match empty");
-    /// // But the '*' repetition operator does.
-    /// let dfa = DFA::new("a*")?;
-    /// assert!(dfa.has_empty(), "* does match empty");
-    /// // And wrapping '+' in an operator that can match an empty string also
-    /// // causes it to match the empty string too.
-    /// let dfa = DFA::new("(a+)*")?;
-    /// assert!(dfa.has_empty(), "+ inside of * matches empty");
-    ///
-    /// // If a regex is just made of a look-around assertion, even if the
-    /// // assertion requires some kind of non-empty string around it (such as
-    /// // \b), then it is still treated as if it matches the empty string.
-    /// // Namely, if a match occurs of just a look-around assertion, then the
-    /// // match returned is empty.
-    /// let dfa = DFA::builder()
-    ///     .configure(DFA::config().unicode_word_boundary(true))
-    ///     .syntax(syntax::Config::new().utf8(false))
-    ///     .build(r"^$\A\z\b\B(?-u:\b\B)")?;
-    /// assert!(dfa.has_empty(), "assertions match empty");
-    /// // Even when an assertion is wrapped in a '+', it still matches the
-    /// // empty string.
-    /// let dfa = DFA::new(r"^+")?;
-    /// assert!(dfa.has_empty(), "+ of an assertion matches empty");
-    ///
-    /// // An alternation with even one branch that can match the empty string
-    /// // is also said to match the empty string overall.
-    /// let dfa = DFA::new("foo|(bar)?|quux")?;
-    /// assert!(dfa.has_empty(), "alternations can match empty");
-    ///
-    /// // An NFA that matches nothing does not match the empty string.
-    /// let dfa = DFA::new("[a&&b]")?;
-    /// assert!(!dfa.has_empty(), "never matching means not matching empty");
-    /// // But if it's wrapped in something that doesn't require a match at
-    /// // all, then it can match the empty string!
-    /// let dfa = DFA::new("[a&&b]*")?;
-    /// assert!(dfa.has_empty(), "* on never-match still matches empty");
-    /// // Since a '+' requires a match, using it on something that can never
-    /// // match will itself produce a regex that can never match anything,
-    /// // and thus does not match the empty string.
-    /// let dfa = DFA::new("[a&&b]+")?;
-    /// assert!(!dfa.has_empty(), "+ on never-match still matches nothing");
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn has_empty(&self) -> bool {
-        self.has_empty
     }
 
     /// Returns the memory usage, in bytes, of this DFA.
@@ -2078,13 +2000,13 @@ impl<T: AsRef<[u32]>> DFA<T> {
         + wire::write_endianness_check_len()
         + wire::write_version_len()
         + size_of::<u32>() // unused, intended for future flexibility
+        + self.flags.write_to_len()
         + self.tt.write_to_len()
         + self.st.write_to_len()
         + self.ms.write_to_len()
         + self.special.write_to_len()
         + self.accels.write_to_len()
         + self.quitset.write_to_len()
-        + size_of::<u32>() // for has_empty flag
     }
 }
 
@@ -2330,6 +2252,9 @@ impl<'a> DFA<&'a [u32]> {
         let _unused = wire::try_read_u32(&slice[nr..], "unused space")?;
         nr += size_of::<u32>();
 
+        let (flags, nread) = Flags::from_bytes(&slice[nr..])?;
+        nr += nread;
+
         let (tt, nread) = TransitionTable::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
@@ -2349,12 +2274,7 @@ impl<'a> DFA<&'a [u32]> {
         let (quitset, nread) = ByteSet::from_bytes(&slice[nr..])?;
         nr += nread;
 
-        let (has_empty, nread) =
-            wire::try_read_u32(&slice[nr..], "has_empty flag")
-                .map(|(value, nread)| (value == 1, nread))?;
-        nr += nread;
-
-        Ok((DFA { tt, st, ms, special, accels, quitset, has_empty }, nr))
+        Ok((DFA { tt, st, ms, special, accels, quitset, flags }, nr))
     }
 
     /// The implementation of the public `write_to` serialization methods,
@@ -2380,16 +2300,13 @@ impl<'a> DFA<&'a [u32]> {
             E::write_u32(0, &mut dst[nw..]);
             size_of::<u32>()
         };
+        nw += self.flags.write_to::<E>(&mut dst[nw..])?;
         nw += self.tt.write_to::<E>(&mut dst[nw..])?;
         nw += self.st.write_to::<E>(&mut dst[nw..])?;
         nw += self.ms.write_to::<E>(&mut dst[nw..])?;
         nw += self.special.write_to::<E>(&mut dst[nw..])?;
         nw += self.accels.write_to::<E>(&mut dst[nw..])?;
         nw += self.quitset.write_to::<E>(&mut dst[nw..])?;
-        nw += {
-            E::write_u32(if self.has_empty { 1 } else { 0 }, &mut dst[nw..]);
-            size_of::<u32>()
-        };
         Ok(nw)
     }
 }
@@ -2876,6 +2793,11 @@ impl<T: AsRef<[u32]>> DFA<T> {
         &self.quitset
     }
 
+    /// Returns the flags for this DFA.
+    pub(crate) fn flags(&self) -> &Flags {
+        &self.flags
+    }
+
     /// Returns an iterator over all states in this DFA.
     ///
     /// This iterator yields a tuple for each state. The first element of the
@@ -3043,6 +2965,7 @@ impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
         }
         writeln!(f, "state length: {:?}", self.state_len())?;
         writeln!(f, "pattern length: {:?}", self.pattern_len())?;
+        writeln!(f, "flags: {:?}", self.flags)?;
         writeln!(f, ")")?;
         Ok(())
     }
@@ -3130,6 +3053,16 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         }
         let state_index = self.match_state_index(id);
         self.ms.pattern_id(state_index, match_index)
+    }
+
+    #[inline]
+    fn has_empty(&self) -> bool {
+        self.flags.has_empty
+    }
+
+    #[inline]
+    fn is_utf8(&self) -> bool {
+        self.flags.is_utf8
     }
 
     #[inline]
@@ -4405,8 +4338,8 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
         Ok(nwrite)
     }
 
-    /// Returns the number of bytes the serialized form of this transition
-    /// table will use.
+    /// Returns the number of bytes the serialized form of these match states
+    /// will use.
     fn write_to_len(&self) -> usize {
         size_of::<u32>()   // match state length
         + (self.slices().len() * PatternID::SIZE)
@@ -4574,6 +4507,75 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
     /// Return the memory usage, in bytes, of these match pairs.
     fn memory_usage(&self) -> usize {
         (self.slices().len() + self.pattern_ids().len()) * PatternID::SIZE
+    }
+}
+
+/// A common set of flags for both dense and sparse DFAs. This primarily
+/// centralizes the serialization format of these flags at a bitset.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Flags {
+    /// Whether the DFA can match the empty string. When this is false, all
+    /// matches returned by this DFA are guaranteed to have non-zero length.
+    pub(crate) has_empty: bool,
+    /// Whether the DFA should only produce matches with spans that correspond
+    /// to valid UTF-8. This also includes omitting any zero-width matches that
+    /// split the UTF-8 encoding of a codepoint.
+    pub(crate) is_utf8: bool,
+}
+
+impl Flags {
+    /// Creates a set of flags for a DFA from an NFA.
+    ///
+    /// N.B. This constructor was defined at the time of writing because all
+    /// of the flags are derived directly from the NFA. If this changes in the
+    /// future, we might be more thoughtful about how the `Flags` value is
+    /// itself built.
+    fn from_nfa(nfa: &thompson::NFA) -> Flags {
+        Flags { has_empty: nfa.has_empty(), is_utf8: nfa.is_utf8() }
+    }
+
+    /// Deserializes the flags from the given slice. On success, this also
+    /// returns the number of bytes read from the slice.
+    pub(crate) fn from_bytes(
+        slice: &[u8],
+    ) -> Result<(Flags, usize), DeserializeError> {
+        let (bits, nread) = wire::try_read_u32(slice, "flag bitset")?;
+        let flags = Flags {
+            has_empty: bits & (1 << 0) != 0,
+            is_utf8: bits & (1 << 1) != 0,
+        };
+        Ok((flags, nread))
+    }
+
+    /// Writes these flags to the given byte slice. If the buffer is too small,
+    /// then an error is returned. To determine how big the buffer must be,
+    /// use `write_to_len`.
+    pub(crate) fn write_to<E: Endian>(
+        &self,
+        dst: &mut [u8],
+    ) -> Result<usize, SerializeError> {
+        fn bool_to_int(b: bool) -> u32 {
+            if b {
+                1
+            } else {
+                0
+            }
+        }
+
+        let nwrite = self.write_to_len();
+        if dst.len() < nwrite {
+            return Err(SerializeError::buffer_too_small("flag bitset"));
+        }
+        let bits = (bool_to_int(self.has_empty) << 0)
+            | (bool_to_int(self.is_utf8) << 1);
+        E::write_u32(bits, dst);
+        Ok(nwrite)
+    }
+
+    /// Returns the number of bytes the serialized form of these flags
+    /// will use.
+    pub(crate) fn write_to_len(&self) -> usize {
+        size_of::<u32>()
     }
 }
 

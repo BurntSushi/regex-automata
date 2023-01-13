@@ -36,6 +36,7 @@ fn suite() -> Result<ret::RegexTests> {
     load!("set");
     load!("substring");
     load!("unicode");
+    load!("utf8");
     load!("word-boundary");
     load!("fowler/basic");
     load!("fowler/nullsubexpr");

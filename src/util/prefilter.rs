@@ -15,6 +15,14 @@ use regex_syntax::hir::{literal, Hir};
 
 use crate::util::search::{MatchKind, Span};
 
+// BREADCRUMBS: This module currently doesn't compile in no-std no-alloc mode,
+// even though it is used in no-std no-alloc mode. In practice, we really can't
+// provide many interesting prefilters in no-std no-alloc mode, and I'm not
+// sure if we ever will. For now, I think we should probably just slim down the
+// API of this module and expose the same in both configs, but with the no-std
+// no-alloc version doing effectively nothing. i.e., Make it impossible to
+// actually build a `Prefilter` value.
+
 macro_rules! new {
     ($needles:ident) => {{
         let needles = $needles;
@@ -71,6 +79,7 @@ pub(crate) fn new<B: AsRef<[u8]>>(
     new!(needles)
 }
 
+#[cfg(feature = "meta")]
 pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
     needles: &[B],
 ) -> Option<Arc<dyn crate::meta::Strategy + 'static>> {
@@ -405,34 +414,5 @@ impl PrefilterI for AhoCorasick {
 
     fn memory_usage(&self) -> usize {
         self.ac.memory_usage()
-    }
-}
-
-/// A `Prefilter` implementation that reports a possible match at every
-/// position.
-///
-/// This should generally not be used as an actual prefilter. It
-/// is only useful when one needs to represent the absence of a
-/// prefilter in a generic context at the type level. For example, a
-/// [`dfa::regex::Regex`](crate::dfa::regex::Regex) uses this prefilter by
-/// default to indicate that no prefilter should be used.
-///
-/// A `None` prefilter value cannot be constructed.
-#[derive(Clone, Debug)]
-pub struct None {
-    _priv: (),
-}
-
-impl PrefilterI for None {
-    fn find(&self, _: &[u8], span: Span) -> Option<Span> {
-        Some(Span { start: span.start, end: span.start })
-    }
-
-    fn prefix(&self, _: &[u8], span: Span) -> Option<Span> {
-        Some(Span { start: span.start, end: span.start })
-    }
-
-    fn memory_usage(&self) -> usize {
-        0
     }
 }

@@ -342,6 +342,10 @@ pub struct Builder {
     /// itself. In other words, this tracks heap memory used that isn't
     /// captured via `size_of::<State>() * states.len()`.
     memory_states: usize,
+    /// Whether this NFA only matches UTF-8 and whether regex engines using
+    /// this NFA for searching should report empty matches that split a
+    /// codepoint.
+    utf8: bool,
     /// A size limit to respect when building an NFA. If the total heap memory
     /// of the intermediate NFA states exceeds (or would exceed) this amount,
     /// then an error is returned.
@@ -357,8 +361,9 @@ impl Builder {
     /// Clear this builder.
     ///
     /// Clearing removes all state associated with building an NFA, but does
-    /// not reset configuration (such as size limits). After clearing, the
-    /// builder can be reused to assemble an entirely new NFA.
+    /// not reset configuration (such as size limits and whether the NFA
+    /// should only match UTF-8). After clearing, the builder can be reused to
+    /// assemble an entirely new NFA.
     pub fn clear(&mut self) {
         self.pattern_id = None;
         self.states.clear();
@@ -554,12 +559,16 @@ impl Builder {
         }
         // Finally remap all of the state IDs.
         nfa.remap(&remap);
+        nfa.set_utf8(self.utf8);
         let final_nfa = nfa.into_nfa();
         debug!(
             "NFA compilation via builder complete, \
-             final NFA size: {} states, {} bytes on heap",
+             final NFA size: {} states, {} bytes on heap, \
+             has empty? {:?}, utf8? {:?}",
             final_nfa.states().len(),
             final_nfa.memory_usage(),
+            final_nfa.has_empty(),
+            final_nfa.is_utf8(),
         );
         Ok(final_nfa)
     }
@@ -1145,6 +1154,51 @@ impl Builder {
             self.check_size_limit()?;
         }
         Ok(())
+    }
+
+    /// Set whether the NFA produced by this builder should only match UTF-8.
+    ///
+    /// This should be set when both of the following are true:
+    ///
+    /// 1. The caller guarantees that the NFA created by this build will only
+    /// report non-empty matches with spans that are valid UTF-8.
+    /// 2. The caller desires regex engines using this NFA to avoid reporting
+    /// empty matches with a span that splits a valid UTF-8 encoded codepoint.
+    ///
+    /// Property (1) is not checked. Instead, this requires the caller to
+    /// promise that it is true. Property (2) corresponds to the behavior of
+    /// regex engines using the NFA created by this builder. Namely, there
+    /// is no way in the NFA's graph itself to say that empty matches found
+    /// by, for example, the regex `a*` will fall on valid UTF-8 boundaries.
+    /// Instead, this option is used to communicate the UTF-8 semantic to regex
+    /// engines that will typically implement it as a post-processing step by
+    /// filtering out empty matches that don't fall on UTF-8 boundaries.
+    ///
+    /// If you're building an NFA from an HIR (and not using a
+    /// [`thompson::Compiler`](crate::nfa::thompson::Compiler)), then you can
+    /// use the [`syntax::Config::utf8`](crate::util::syntax::Config::utf8)
+    /// option to guarantee that if the HIR detects a non-empty match, then it
+    /// is guaranteed to be valid UTF-8.
+    ///
+    /// Note that property (2) does *not* specify the behavior of executing
+    /// a search on a haystack that is not valid UTF-8. Therefore, if you're
+    /// *not* running this NFA on strings that are guaranteed to be valid
+    /// UTF-8, you almost certainly do not want to enable this option.
+    /// Similarly, if you are running the NFA on strings that *are* guaranteed
+    /// to be valid UTF-8, then you almost certainly want to enable this option
+    /// unless you can guarantee that your NFA will never produce a zero-width
+    /// match.
+    ///
+    /// It is disabled by default.
+    pub fn set_utf8(&mut self, yes: bool) {
+        self.utf8 = yes;
+    }
+
+    /// Returns whether UTF-8 mode is enabled for this builder.
+    ///
+    /// See [`Builder::set_utf8`] for more details about what "UTF-8 mode" is.
+    pub fn get_utf8(&self) -> bool {
+        self.utf8
     }
 
     /// Set the size limit on this builder.

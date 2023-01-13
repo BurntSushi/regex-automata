@@ -563,8 +563,11 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
+        let utf8empty = self.forward().get_nfa().has_empty()
+            && self.forward().get_nfa().is_utf8();
         let m = match self.try_search_fwd_rev(cache, input)? {
             None => return Ok(None),
+            Some(m) if !utf8empty || !m.is_empty() => return Ok(Some(m)),
             Some(m) => m,
         };
         // skip_empty_utf8_splits handles the case of a non-empty match or
@@ -572,13 +575,9 @@ impl Regex {
         // a cold function that is forcefully not inlined, in order to make
         // this function tighter. So we balance this by not calling it unless
         // it has a chance of modifying the match reported.
-        if m.is_empty() && input.get_utf8() {
-            input.skip_empty_utf8_splits(m, |search| {
-                self.try_search_fwd_rev(cache, search)
-            })
-        } else {
-            Ok(Some(m))
-        }
+        input.skip_empty_utf8_splits(m, |search| {
+            self.try_search_fwd_rev(cache, search)
+        })
     }
 
     /// This search routine runs the regex engine forwards to find the end
@@ -845,13 +844,30 @@ impl Cache {
         self.reverse.reset(re.reverse());
     }
 
-    /// Returns the heap memory usage, in bytes, as a sum of the forward and
-    /// reverse lazy DFA caches.
+    /// Return a reference to the forward cache.
+    pub fn forward(&mut self) -> &dfa::Cache {
+        &self.forward
+    }
+
+    /// Return a reference to the reverse cache.
+    pub fn reverse(&mut self) -> &dfa::Cache {
+        &self.reverse
+    }
+
+    /// Return a mutable reference to the forward cache.
     ///
-    /// This does **not** include the stack size used up by this cache. To
-    /// compute that, use `std::mem::size_of::<Cache>()`.
-    pub fn memory_usage(&self) -> usize {
-        self.forward.memory_usage() + self.reverse.memory_usage()
+    /// If you need mutable references to both the forward and reverse caches,
+    /// then use [`Cache::as_parts_mut`].
+    pub fn forward_mut(&mut self) -> &mut dfa::Cache {
+        &mut self.forward
+    }
+
+    /// Return a mutable reference to the reverse cache.
+    ///
+    /// If you need mutable references to both the forward and reverse caches,
+    /// then use [`Cache::as_parts_mut`].
+    pub fn reverse_mut(&mut self) -> &mut dfa::Cache {
+        &mut self.reverse
     }
 
     /// Return references to the forward and reverse caches, respectively.
@@ -863,6 +879,15 @@ impl Cache {
     /// respectively.
     pub fn as_parts_mut(&mut self) -> (&mut dfa::Cache, &mut dfa::Cache) {
         (&mut self.forward, &mut self.reverse)
+    }
+
+    /// Returns the heap memory usage, in bytes, as a sum of the forward and
+    /// reverse lazy DFA caches.
+    ///
+    /// This does **not** include the stack size used up by this cache. To
+    /// compute that, use `std::mem::size_of::<Cache>()`.
+    pub fn memory_usage(&self) -> usize {
+        self.forward.memory_usage() + self.reverse.memory_usage()
     }
 }
 

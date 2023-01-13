@@ -71,11 +71,20 @@ fn run_test(
 ) -> TestResult {
     let input = create_input(test, |h| re.create_input(h));
     match test.additional_name() {
-        "is_match" => TestResult::matched(
-            re.try_search_slots(cache, &input.earliest(true), &mut [])
+        "is_match" => {
+            // TODO: Use the actual 'is_match' method once it is generic on
+            // 'Into<Input>'.
+            let mut caps = re.create_captures();
+            TestResult::matched(
+                re.try_search_slots(
+                    cache,
+                    &input.earliest(true),
+                    caps.slots_mut(),
+                )
                 .unwrap()
                 .is_some(),
-        ),
+            )
+        }
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
                 let input = input.earliest(true);
@@ -170,8 +179,8 @@ fn configure_pikevm_builder(
 }
 
 /// Configuration of a Thompson NFA compiler from a regex test.
-fn config_thompson(_test: &RegexTest) -> thompson::Config {
-    thompson::Config::new()
+fn config_thompson(test: &RegexTest) -> thompson::Config {
+    thompson::Config::new().utf8(test.utf8())
 }
 
 /// Configuration of the regex parser from a regex test.

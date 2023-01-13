@@ -881,6 +881,82 @@ pub unsafe trait Automaton {
     /// `PatternID`.
     fn match_pattern(&self, id: StateID, index: usize) -> PatternID;
 
+    /// Returns true if and only if this automaton can match the empty string.
+    /// When it returns false, all possible matches are guaranteed to have a
+    /// non-zero length.
+    ///
+    /// This is useful as cheap way to know whether code needs to handle the
+    /// case of a zero length match. This is particularly important when UTF-8
+    /// modes are enabled, as when UTF-8 mode is enabled, empty matches that
+    /// split a codepoint must never be reported. This extra handling can
+    /// sometimes be costly, and since regexes matching an empty string are
+    /// somewhat rare, it can be beneficial to treat such regexes specially.
+    ///
+    /// # Example
+    ///
+    /// This example shows a few different DFAs and whether they match the
+    /// empty string or not. Notice the empty string isn't merely a matter
+    /// of a string of length literally `0`, but rather, whether a match can
+    /// occur between specific pairs of bytes.
+    ///
+    /// ```
+    /// use regex_automata::{dfa::{dense::DFA, Automaton}, util::syntax};
+    ///
+    /// // The empty regex matches the empty string.
+    /// let dfa = DFA::new("")?;
+    /// assert!(dfa.has_empty(), "empty matches empty");
+    /// // The '+' repetition operator requires at least one match, and so
+    /// // does not match the empty string.
+    /// let dfa = DFA::new("a+")?;
+    /// assert!(!dfa.has_empty(), "+ does not match empty");
+    /// // But the '*' repetition operator does.
+    /// let dfa = DFA::new("a*")?;
+    /// assert!(dfa.has_empty(), "* does match empty");
+    /// // And wrapping '+' in an operator that can match an empty string also
+    /// // causes it to match the empty string too.
+    /// let dfa = DFA::new("(a+)*")?;
+    /// assert!(dfa.has_empty(), "+ inside of * matches empty");
+    ///
+    /// // If a regex is just made of a look-around assertion, even if the
+    /// // assertion requires some kind of non-empty string around it (such as
+    /// // \b), then it is still treated as if it matches the empty string.
+    /// // Namely, if a match occurs of just a look-around assertion, then the
+    /// // match returned is empty.
+    /// let dfa = DFA::builder()
+    ///     .configure(DFA::config().unicode_word_boundary(true))
+    ///     .syntax(syntax::Config::new().utf8(false))
+    ///     .build(r"^$\A\z\b\B(?-u:\b\B)")?;
+    /// assert!(dfa.has_empty(), "assertions match empty");
+    /// // Even when an assertion is wrapped in a '+', it still matches the
+    /// // empty string.
+    /// let dfa = DFA::new(r"^+")?;
+    /// assert!(dfa.has_empty(), "+ of an assertion matches empty");
+    ///
+    /// // An alternation with even one branch that can match the empty string
+    /// // is also said to match the empty string overall.
+    /// let dfa = DFA::new("foo|(bar)?|quux")?;
+    /// assert!(dfa.has_empty(), "alternations can match empty");
+    ///
+    /// // An NFA that matches nothing does not match the empty string.
+    /// let dfa = DFA::new("[a&&b]")?;
+    /// assert!(!dfa.has_empty(), "never matching means not matching empty");
+    /// // But if it's wrapped in something that doesn't require a match at
+    /// // all, then it can match the empty string!
+    /// let dfa = DFA::new("[a&&b]*")?;
+    /// assert!(dfa.has_empty(), "* on never-match still matches empty");
+    /// // Since a '+' requires a match, using it on something that can never
+    /// // match will itself produce a regex that can never match anything,
+    /// // and thus does not match the empty string.
+    /// let dfa = DFA::new("[a&&b]+")?;
+    /// assert!(!dfa.has_empty(), "+ on never-match still matches nothing");
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    fn has_empty(&self) -> bool;
+
+    /// TODO
+    fn is_utf8(&self) -> bool;
+
     /// Return a slice of bytes to accelerate for the given state, if possible.
     ///
     /// If the given state has no accelerator, then an empty slice must be
@@ -1518,6 +1594,16 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn match_pattern(&self, id: StateID, index: usize) -> PatternID {
         (**self).match_pattern(id, index)
+    }
+
+    #[inline]
+    fn has_empty(&self) -> bool {
+        (**self).has_empty()
+    }
+
+    #[inline]
+    fn is_utf8(&self) -> bool {
+        (**self).is_utf8()
     }
 
     #[inline]

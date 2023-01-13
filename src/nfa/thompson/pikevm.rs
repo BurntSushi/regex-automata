@@ -776,9 +776,33 @@ impl PikeVM {
         haystack: H,
     ) -> bool {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        self.try_search_slots(cache, &input, &mut [])
-            .expect("correct input")
-            .is_some()
+        // There is an unfortunate special case where if the regex can
+        // match the empty string and UTF-8 mode is enabled, the search
+        // implementation requires that the slots have at least as much space
+        // to report the bounds of any match. This is so zero-width matches
+        // that split a codepoint can be filtered out.
+        //
+        // Note that if utf8empty is true, we specialize the case for when
+        // the number of patterns is 1. In that case, we can just use a stack
+        // allocation. Otherwise we resort to a heap allocation, which we
+        // convince ourselves we're fine with due to the pathological nature of
+        // this case.
+        let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
+        if !utf8empty {
+            self.try_search_slots(cache, &input, &mut [])
+                .expect("correct input and slots")
+                .is_some()
+        } else if self.get_nfa().pattern_len() == 1 {
+            self.try_search_slots(cache, &input, &mut [None, None])
+                .expect("correct input and slots")
+                .is_some()
+        } else {
+            let slot_len = self.get_nfa().group_info().implicit_slot_len();
+            let mut slots = vec![None; slot_len];
+            self.try_search_slots(cache, &input, &mut slots)
+                .expect("correct input and slots")
+                .is_some()
+        }
     }
 
     /// Executes a leftmost forward search and writes the spans of capturing
@@ -1079,25 +1103,39 @@ impl PikeVM {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
+        // This is a weird special case where if the NFA can match the empty
+        // string and UTF-8 mode is enabled, then we require enough slots given
+        // such that we can know the bounds of any match reported. This is
+        // necessary in order to filter out any zero-width matches that split a
+        // codepoint. (Which we do below.)
+        let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
+        if utf8empty {
+            let min = self.get_nfa().group_info().implicit_slot_len();
+            if slots.len() < min {
+                return Err(MatchError::invalid_input_slots(slots.len(), min));
+            }
+        }
         let m = match self.search_imp(cache, input, slots)? {
             None => return Ok(None),
-            Some(pid) if !input.get_utf8() => return Ok(Some(pid)),
+            Some(pid) if !utf8empty => return Ok(Some(pid)),
             Some(pid) => {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;
-                if slot_end >= slots.len() {
-                    return Ok(Some(pid));
-                }
-                // These unwraps are OK because we know we have a match and
-                // we know our caller provided slots are big enough.
+                // These unwraps and indexing are OK because we know we have a
+                // match and we know our caller provided slots are big enough.
+                // Namely, we're only here when 'utf8empty' is true, and when
+                // that's true, we require slots for every pattern.
                 let start = slots[slot_start].unwrap().get();
                 let end = slots[slot_end].unwrap().get();
+                // If the match isn't empty, then we don't need to do any
+                // special filtering. So we can quit now.
                 if start < end {
                     return Ok(Some(pid));
                 }
                 Match::new(pid, start..end)
             }
         };
+        // Ok(Some(m.pattern()))
         Ok(input
             .skip_empty_utf8_splits(m, |search| {
                 let pid = match self.search_imp(cache, search, slots)? {

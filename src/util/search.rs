@@ -1715,6 +1715,27 @@ impl MatchError {
             pattern_len,
         })
     }
+
+    /// Create a new "invalid number of slots" error. `given` corresponds to
+    /// the number of slots provided by the caller, and `minimum` corresponds
+    /// the minimum number of slots required.
+    ///
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::InvalidInputSlots`] kind.
+    ///
+    /// # Panics
+    ///
+    /// This panics when `given >= minimum`.
+    pub fn invalid_input_slots(given: usize, minimum: usize) -> MatchError {
+        assert!(
+            given < minimum,
+            "expected given={} to be < minimum={}",
+            given,
+            minimum,
+        );
+        MatchError::new(MatchErrorKind::InvalidInputSlots { given, minimum })
+    }
 }
 
 /// The underlying kind of a [`MatchError`].
@@ -1799,6 +1820,13 @@ pub enum MatchErrorKind {
         /// if the regex was compiled with multiple patterns.
         pattern_len: usize,
     },
+    /// TODO
+    InvalidInputSlots {
+        /// The number of slots given.
+        given: usize,
+        /// The minimum number of slots required.
+        minimum: usize,
+    },
 }
 
 #[cfg(feature = "std")]
@@ -1843,6 +1871,13 @@ impl core::fmt::Display for MatchError {
                     "invalid pattern {}, up to {} patterns are supported",
                     pattern.as_usize(),
                     pattern_len
+                )
+            }
+            MatchErrorKind::InvalidInputSlots { given, minimum } => {
+                write!(
+                    f,
+                    "invalid number of slots {}, expected at least {} slots",
+                    given, minimum,
                 )
             }
         }

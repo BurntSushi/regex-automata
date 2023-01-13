@@ -26,6 +26,7 @@ use crate::{
 /// The configuration used for a Thompson NFA compiler.
 #[derive(Clone, Debug, Default)]
 pub struct Config {
+    utf8: Option<bool>,
     reverse: Option<bool>,
     nfa_size_limit: Option<Option<usize>>,
     shrink: Option<bool>,
@@ -38,6 +39,11 @@ impl Config {
     /// Return a new default Thompson NFA compiler configuration.
     pub fn new() -> Config {
         Config::default()
+    }
+
+    pub fn utf8(mut self, yes: bool) -> Config {
+        self.utf8 = Some(yes);
+        self
     }
 
     /// Reverse the NFA.
@@ -227,6 +233,11 @@ impl Config {
         self
     }
 
+    /// Returns whether this configuration has enabled UTF-8 mode.
+    pub fn get_utf8(&self) -> bool {
+        self.utf8.unwrap_or(true)
+    }
+
     /// Returns whether this configuration has enabled reverse NFA compilation.
     pub fn get_reverse(&self) -> bool {
         self.reverse.unwrap_or(false)
@@ -269,6 +280,7 @@ impl Config {
     /// remains not set.
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
+            utf8: o.utf8.or(self.utf8),
             reverse: o.reverse.or(self.reverse),
             nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
             shrink: o.shrink.or(self.shrink),
@@ -637,6 +649,7 @@ impl Compiler {
         }
 
         self.builder.borrow_mut().clear();
+        self.builder.borrow_mut().set_utf8(self.config.get_utf8());
         self.builder
             .borrow_mut()
             .set_size_limit(self.config.get_nfa_size_limit())?;
@@ -672,10 +685,7 @@ impl Compiler {
             .borrow_mut()
             .build(compiled.start, unanchored_prefix.start)?;
 
-        debug!(
-            "HIR-to-NFA compilation complete (reverse? {:?})",
-            self.config.get_reverse(),
-        );
+        debug!("HIR-to-NFA compilation complete, config: {:?}", self.config);
         Ok(nfa)
     }
 

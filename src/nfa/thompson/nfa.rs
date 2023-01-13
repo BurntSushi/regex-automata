@@ -853,6 +853,11 @@ impl NFA {
         self.0.has_empty
     }
 
+    #[inline]
+    pub fn is_utf8(&self) -> bool {
+        self.0.utf8
+    }
+
     /// Returns true if and only if all starting states for this NFA correspond
     /// to the beginning of an anchored search.
     ///
@@ -1117,6 +1122,12 @@ pub(super) struct Inner {
     has_capture: bool,
     /// When the empty string is in the language matched by this NFA.
     has_empty: bool,
+    /// Whether UTF-8 mode is enabled for this NFA. Briefly, this means that
+    /// all non-empty matches produced by this NFA correspond to spans of valid
+    /// UTF-8, and any empty matches produced by this NFA that split a UTF-8
+    /// encoded codepoint should be filtered out by the corresponding regex
+    /// engine.
+    utf8: bool,
     /// The union of all look-around assertions that occur anywhere within
     /// this NFA. If this set is empty, then it means there are precisely zero
     /// conditional epsilon transitions in the NFA.
@@ -1238,6 +1249,11 @@ impl Inner {
         self.start_anchored = start_anchored;
         self.start_unanchored = start_unanchored;
         self.start_pattern = start_pattern.to_vec();
+    }
+
+    /// Sets the UTF-8 mode of this NFA.
+    pub(super) fn set_utf8(&mut self, yes: bool) {
+        self.utf8 = yes;
     }
 
     /// Set the capturing groups for this NFA.

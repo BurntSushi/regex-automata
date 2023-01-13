@@ -771,7 +771,7 @@ This mode cannot be toggled inside the regex.
         ast: &syntax::ast::Ast,
     ) -> anyhow::Result<syntax::hir::Hir> {
         syntax::hir::translate::TranslatorBuilder::new()
-            .allow_invalid_utf8(!self.0.get_utf8())
+            .utf8(self.0.get_utf8())
             .case_insensitive(self.0.get_case_insensitive())
             .multi_line(self.0.get_multi_line())
             .dot_matches_new_line(self.0.get_dot_matches_new_line())
@@ -809,6 +809,17 @@ pub struct Thompson(thompson::Config);
 
 impl Thompson {
     pub fn define(mut app: App) -> App {
+        {
+            const SHORT: &str = "Disable UTF-8 mode for the NFA.";
+            const LONG: &str = "\
+Disables UTF-8 mode for the NFA.
+
+This mode cannot be toggled inside the regex.
+";
+            app = app.arg(
+                switch("no-utf8-nfa").short("B").help(SHORT).long_help(LONG),
+            );
+        }
         {
             const SHORT: &str = "Compile a reverse NFA.";
             const LONG: &str = "\
@@ -898,6 +909,7 @@ groups (such as a search with the PikeVM).
 
     pub fn get(args: &Args) -> anyhow::Result<Thompson> {
         let mut c = thompson::Config::new()
+            .utf8(!args.is_present("no-utf8-nfa"))
             .reverse(args.is_present("reverse"))
             .shrink(args.is_present("shrink"))
             .captures(!args.is_present("no-captures"));
@@ -944,7 +956,7 @@ searches are started at the next byte offset.
 Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-nfa'
 together.
 
 This mode cannot be toggled inside the regex.
@@ -1038,7 +1050,7 @@ searches are started at the next byte offset.
 Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-nfa'
 together.
 
 This mode cannot be toggled inside the regex.
@@ -2101,7 +2113,7 @@ searches are started at the next byte offset.
 Generally speaking, UTF-8 mode for regexes should only be used when you know
 you are searching valid UTF-8. Typically, this should only be disabled in
 precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-iter'
+This means you usually want to use '--no-utf8-syntax' and '--no-utf8-nfa'
 together.
 
 This mode cannot be toggled inside the regex.
