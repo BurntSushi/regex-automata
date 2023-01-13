@@ -5,7 +5,7 @@ use regex_automata::{
     },
     nfa::thompson,
     util::{iter, prefilter::Prefilter, syntax},
-    Anchored, Input, MatchKind, PatternSet,
+    Anchored, Input, PatternSet,
 };
 
 use ret::{
@@ -13,7 +13,7 @@ use ret::{
     CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
-use crate::{create_input, suite, Result};
+use crate::{create_input, suite, untestify_kind, Result};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
 
@@ -40,7 +40,11 @@ fn prefilter() -> Result<()> {
             let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
-        let pre = Prefilter::from_hirs(&hirs);
+        let kind = match untestify_kind(test.match_kind()) {
+            None => return Ok(CompiledRegex::skip()),
+            Some(kind) => kind,
+        };
+        let pre = Prefilter::from_hirs(kind, &hirs);
         let mut builder = Regex::builder();
         builder.configure(Regex::config().prefilter(pre));
         compiler(builder)(test, regexes)
@@ -239,10 +243,9 @@ fn configure_regex_builder(
     test: &RegexTest,
     builder: &mut regex::Builder,
 ) -> bool {
-    let match_kind = match test.match_kind() {
-        ret::MatchKind::All => MatchKind::All,
-        ret::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
-        ret::MatchKind::LeftmostLongest => return false,
+    let match_kind = match untestify_kind(test.match_kind()) {
+        None => return false,
+        Some(k) => k,
     };
 
     let mut dfa_config =

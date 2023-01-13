@@ -5,13 +5,16 @@ mod imp;
 
 #[cfg(not(feature = "alloc"))]
 mod imp {
-    use crate::util::search::Span;
+    use crate::util::search::{MatchKind, Span};
 
     #[derive(Clone, Debug)]
     pub struct Prefilter(());
 
     impl Prefilter {
-        pub fn new<B: AsRef<[u8]>>(_needles: &[B]) -> Option<Prefilter> {
+        pub fn new<B: AsRef<[u8]>>(
+            _kind: MatchKind,
+            _needles: &[B],
+        ) -> Option<Prefilter> {
             None
         }
 

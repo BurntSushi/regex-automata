@@ -75,3 +75,15 @@ fn testify_captures(
     // group being non-None.
     ret::Captures::new(caps.pattern().unwrap().as_usize(), spans).unwrap()
 }
+
+/// Convert a test harness match kind to a regex-automata match kind. If
+/// regex-automata doesn't support the harness kind, then `None` is returned.
+fn untestify_kind(kind: ret::MatchKind) -> Option<regex_automata::MatchKind> {
+    match kind {
+        ret::MatchKind::All => Some(regex_automata::MatchKind::All),
+        ret::MatchKind::LeftmostFirst => {
+            Some(regex_automata::MatchKind::LeftmostFirst)
+        }
+        ret::MatchKind::LeftmostLongest => None,
+    }
+}

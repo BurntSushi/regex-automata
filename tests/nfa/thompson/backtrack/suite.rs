@@ -5,7 +5,7 @@ use regex_automata::{
         NFA,
     },
     util::{iter, prefilter::Prefilter, syntax},
-    Input,
+    Input, MatchKind,
 };
 
 use ret::{
@@ -44,7 +44,9 @@ fn prefilter() -> Result<()> {
             let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
-        let pre = Prefilter::from_hirs(&hirs);
+        // We can always select leftmost-first here because the backtracker
+        // only supports leftmost-first matching.
+        let pre = Prefilter::from_hirs(MatchKind::LeftmostFirst, &hirs);
         let mut builder = BoundedBacktracker::builder();
         builder.configure(BoundedBacktracker::config().prefilter(pre));
         compiler(builder)(test, regexes)

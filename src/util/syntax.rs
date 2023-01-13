@@ -17,6 +17,8 @@ use regex_syntax::{
     Error, ParserBuilder,
 };
 
+use crate::util::search::MatchKind;
+
 /// A convenience routine for parsing a regex using a `Config`.
 pub fn parse(config: &Config, pattern: &str) -> Result<Hir, Error> {
     let mut builder = ParserBuilder::new();
@@ -345,7 +347,11 @@ impl Literals {
     ///
     /// Note that this erases any connection between the literals and which
     /// pattern (or patterns) they came from.
-    pub(crate) fn new<H>(hirs: &[H]) -> Literals
+    ///
+    /// The match kind given must correspond to the match semantics of the
+    /// regex that is represented by the HIRs given. The match semantics may
+    /// change the literal sets returned.
+    pub(crate) fn new<H>(kind: MatchKind, hirs: &[H]) -> Literals
     where
         H: core::borrow::Borrow<Hir>,
     {
@@ -360,8 +366,20 @@ impl Literals {
             prefixes.union(&mut prefix_extractor.extract(hir.borrow()));
             suffixes.union(&mut suffix_extractor.extract(hir.borrow()));
         }
-        prefixes.optimize_for_prefix_by_preference();
-        suffixes.optimize_for_suffix_by_preference();
+        debug!("prefixes extracted before optimization: {:?}", prefixes);
+        debug!("suffixes extracted before optimization: {:?}", suffixes);
+        match kind {
+            MatchKind::All => {
+                prefixes.sort();
+                prefixes.dedup();
+                suffixes.sort();
+                suffixes.dedup();
+            }
+            MatchKind::LeftmostFirst => {
+                prefixes.optimize_for_prefix_by_preference();
+                suffixes.optimize_for_suffix_by_preference();
+            }
+        }
         Literals { prefixes, suffixes }
     }
 

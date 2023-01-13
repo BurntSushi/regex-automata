@@ -2,7 +2,6 @@ use regex_automata::{
     dfa::onepass::{self, DFA},
     nfa::thompson,
     util::{iter, syntax},
-    MatchKind,
 };
 
 use ret::{
@@ -10,7 +9,7 @@ use ret::{
     CompiledRegex, RegexTest, TestResult, TestRunner,
 };
 
-use crate::{create_input, suite, testify_captures, Result};
+use crate::{create_input, suite, testify_captures, untestify_kind, Result};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "captures"];
 
@@ -182,10 +181,9 @@ fn configure_onepass_builder(
     if !test.anchored() {
         return false;
     }
-    let match_kind = match test.match_kind() {
-        ret::MatchKind::All => MatchKind::All,
-        ret::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
-        ret::MatchKind::LeftmostLongest => return false,
+    let match_kind = match untestify_kind(test.match_kind()) {
+        None => return false,
+        Some(k) => k,
     };
 
     let config = DFA::config().match_kind(match_kind).utf8(test.utf8());

@@ -151,11 +151,11 @@ impl<T: PrefilterI> Strategy for T {
             None => return Ok(None),
             Some(m) => m,
         };
-        if slots.len() >= 1 {
-            slots[0] = NonMaxUsize::new(m.start());
-            if slots.len() >= 2 {
-                slots[1] = NonMaxUsize::new(m.end());
-            }
+        if let Some(slot) = slots.get_mut(0) {
+            *slot = NonMaxUsize::new(m.start());
+        }
+        if let Some(slot) = slots.get_mut(1) {
+            *slot = NonMaxUsize::new(m.end());
         }
         Ok(Some(m.pattern()))
     }
@@ -177,7 +177,8 @@ pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
 ) -> Result<(Arc<dyn Strategy>, Option<Prefilter>), BuildError> {
-    let lits = Literals::new(hirs);
+    let kind = info.config.get_match_kind();
+    let lits = Literals::new(kind, hirs);
     // Check to see if our prefixes are exact, which means we might be able to
     // bypass the regex engine entirely and just rely on literal searches. We
     // need to meet a few criteria that basically lets us implement the full
@@ -216,8 +217,14 @@ pub(super) fn new(
         && hirs.len() == 1
         && info.props[0].look_set().is_empty()
         && info.props[0].captures_len() == 0
-        // We require this because our prefilters currently assume
-        // leftmost-first semantics.
+        // We require this because our prefilters can't currently handle
+        // assuming the responsibility of being the regex engine in all
+        // cases. For example, when running a leftmost search with 'All'
+        // match semantics for the regex 'foo|foobar', the prefilter will
+        // currently report 'foo' as a match against 'foobar'. 'foo' is a
+        // correct candidate, but it is not the correct leftmost match in this
+        // circumstance, since the 'all' semantic demands that the search
+        // continue until a dead state is reached.
         && info.config.get_match_kind() == MatchKind::LeftmostFirst
     {
         // OK because we know the set is exact and thus finite.
@@ -226,7 +233,7 @@ pub(super) fn new(
             "trying to bypass regex engine by creating prefilter from: {:?}",
             prefixes
         );
-        if let Some(pre) = prefilter::new_as_strategy(prefixes) {
+        if let Some(pre) = prefilter::new_as_strategy(kind, prefixes) {
             return Ok((pre, None));
         }
         debug!("regex bypass failed because no prefilter could be extracted");
@@ -239,7 +246,7 @@ pub(super) fn new(
     } else if info.config.get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
             debug!("creating prefilter from {:?}", strings);
-            Prefilter::new(strings)
+            Prefilter::new(kind, strings)
         })
     } else {
         None

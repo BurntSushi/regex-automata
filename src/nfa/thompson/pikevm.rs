@@ -2071,7 +2071,7 @@ impl SlotTable {
             // for the lazy DFA cache? If you're tripping this assert, please
             // file a bug.
             .expect("slot table length doesn't overflow");
-        trace!("resizing PikeVM active states table to {} entries", len);
+        debug!("resizing PikeVM active states table to {} entries", len);
         self.table.resize(len, None);
     }
 

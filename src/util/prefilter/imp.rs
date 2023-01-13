@@ -15,16 +15,14 @@ use regex_syntax::hir::{literal, Hir};
 
 use crate::util::search::{MatchKind, Span};
 
-// BREADCRUMBS: This module currently doesn't compile in no-std no-alloc mode,
-// even though it is used in no-std no-alloc mode. In practice, we really can't
-// provide many interesting prefilters in no-std no-alloc mode, and I'm not
-// sure if we ever will. For now, I think we should probably just slim down the
-// API of this module and expose the same in both configs, but with the no-std
-// no-alloc version doing effectively nothing. i.e., Make it impossible to
-// actually build a `Prefilter` value.
-
+// Creates a new prefilter as a trait object. This is wrapped in a macro
+// because we want to create both a Arc<dyn PrefilterI> and also a Arc<dyn
+// meta::Strategy>. I'm not sure there's a way to get code reuse without a
+// macro for this particular case, but if so and it only uses safe code, I'd be
+// happy for a patch.
 macro_rules! new {
-    ($needles:ident) => {{
+    ($kind:ident, $needles:ident) => {{
+        let kind = $kind;
         let needles = $needles;
         // An empty set means the regex matches nothing, so no sense in
         // building a prefilter.
@@ -58,13 +56,16 @@ macro_rules! new {
             debug!("prefilter built: byteset");
             return Some(Arc::new(byteset));
         }
+        // Packed substring search only supports leftmost-first matching.
         #[cfg(feature = "perf-literal-multisubstring")]
-        if let Some(packed) = Packed::new(needles) {
-            debug!("prefilter built: packed (Teddy)");
-            return Some(Arc::new(packed));
+        if kind == MatchKind::LeftmostFirst {
+            if let Some(packed) = Packed::new(needles) {
+                debug!("prefilter built: packed (Teddy)");
+                return Some(Arc::new(packed));
+            }
         }
         #[cfg(feature = "perf-literal-multisubstring")]
-        if let Some(ac) = AhoCorasick::new(needles) {
+        if let Some(ac) = AhoCorasick::new(kind, needles) {
             debug!("prefilter built: aho-corasick");
             return Some(Arc::new(ac));
         }
@@ -73,34 +74,54 @@ macro_rules! new {
     }};
 }
 
-pub(crate) fn new<B: AsRef<[u8]>>(
+/// Creates a new prefilter, if possible, from the given set of needles and
+/// returns it as a `PrefilterI` trait object.
+fn new<B: AsRef<[u8]>>(
+    kind: MatchKind,
     needles: &[B],
 ) -> Option<Arc<dyn PrefilterI + 'static>> {
-    new!(needles)
+    new!(kind, needles)
 }
 
+/// Creates a new prefilter, if possible, from the given set of needles and
+/// returns it as a `meta::Strategy` trait object. This is used internally
+/// in the meta regex engine so that a prefilter can be used *directly* as a
+/// regex engine. We could use a `PrefilterI` trait object I believe, and turn
+/// that into a `meta::Strategy` trait object, but then I think this would go
+/// through two virtual calls. This should only need one virtual call.
+///
+/// See the docs on the `impl<T: PrefilterI> Strategy for T` for more info.
+/// In particular, it is not always valid to call this. There are a number of
+/// subtle preconditions required that cannot be checked by this function.
 #[cfg(feature = "meta")]
 pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
+    kind: MatchKind,
     needles: &[B],
 ) -> Option<Arc<dyn crate::meta::Strategy + 'static>> {
-    new!(needles)
+    new!(kind, needles)
 }
 
 #[derive(Clone, Debug)]
 pub struct Prefilter(Arc<dyn PrefilterI + 'static>);
 
 impl Prefilter {
-    pub fn new<B: AsRef<[u8]>>(needles: &[B]) -> Option<Prefilter> {
-        new(needles).map(Prefilter)
+    pub fn new<B: AsRef<[u8]>>(
+        kind: MatchKind,
+        needles: &[B],
+    ) -> Option<Prefilter> {
+        new(kind, needles).map(Prefilter)
     }
 
     #[cfg(feature = "syntax")]
-    pub fn from_hir(hir: &Hir) -> Option<Prefilter> {
-        Prefilter::from_hirs(&[hir])
+    pub fn from_hir(kind: MatchKind, hir: &Hir) -> Option<Prefilter> {
+        Prefilter::from_hirs(kind, &[hir])
     }
 
     #[cfg(feature = "syntax")]
-    pub fn from_hirs<H: Borrow<Hir>>(hirs: &[H]) -> Option<Prefilter> {
+    pub fn from_hirs<H: Borrow<Hir>>(
+        kind: MatchKind,
+        hirs: &[H],
+    ) -> Option<Prefilter> {
         let mut extractor = literal::Extractor::new();
         extractor.kind(literal::ExtractKind::Prefix);
 
@@ -108,8 +129,16 @@ impl Prefilter {
         for hir in hirs.iter() {
             prefixes.union(&mut extractor.extract(hir.borrow()));
         }
-        prefixes.optimize_for_prefix_by_preference();
-        prefixes.literals().and_then(Prefilter::new)
+        match kind {
+            MatchKind::All => {
+                prefixes.sort();
+                prefixes.dedup();
+            }
+            MatchKind::LeftmostFirst => {
+                prefixes.optimize_for_prefix_by_preference();
+            }
+        }
+        prefixes.literals().and_then(|lits| Prefilter::new(kind, lits))
     }
 
     pub fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
@@ -373,9 +402,16 @@ struct AhoCorasick {
 
 #[cfg(feature = "perf-literal-multisubstring")]
 impl AhoCorasick {
-    fn new<B: AsRef<[u8]>>(needles: &[B]) -> Option<AhoCorasick> {
+    fn new<B: AsRef<[u8]>>(
+        kind: MatchKind,
+        needles: &[B],
+    ) -> Option<AhoCorasick> {
+        let ackind = match kind {
+            MatchKind::LeftmostFirst => aho_corasick::MatchKind::LeftmostFirst,
+            MatchKind::All => aho_corasick::MatchKind::Standard,
+        };
         let ac = aho_corasick::AhoCorasick::builder()
-            .match_kind(aho_corasick::MatchKind::LeftmostFirst)
+            .match_kind(ackind)
             .start_kind(aho_corasick::StartKind::Both)
             // We try to handle all of the prefilter cases here, and only
             // use Aho-Corasick for the actual automaton. The aho-corasick
