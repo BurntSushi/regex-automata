@@ -4530,6 +4530,7 @@ impl Flags {
     /// of the flags are derived directly from the NFA. If this changes in the
     /// future, we might be more thoughtful about how the `Flags` value is
     /// itself built.
+    #[cfg(feature = "dfa-build")]
     fn from_nfa(nfa: &thompson::NFA) -> Flags {
         Flags { has_empty: nfa.has_empty(), is_utf8: nfa.is_utf8() }
     }
