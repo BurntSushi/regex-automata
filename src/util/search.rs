@@ -1726,7 +1726,8 @@ impl MatchError {
     ///
     /// # Panics
     ///
-    /// This panics when `given >= minimum`.
+    /// This panics when `given >= minimum` or if either `given` or `minimum`
+    /// are not representable as a `u32`.
     pub fn invalid_input_slots(given: usize, minimum: usize) -> MatchError {
         assert!(
             given < minimum,
@@ -1734,6 +1735,10 @@ impl MatchError {
             given,
             minimum,
         );
+        let given = u32::try_from(given)
+            .expect("number of given slots should fit in a u32");
+        let minimum = u32::try_from(given)
+            .expect("number of minimum slots should fit in a u32");
         MatchError::new(MatchErrorKind::InvalidInputSlots { given, minimum })
     }
 }
@@ -1820,12 +1825,25 @@ pub enum MatchErrorKind {
         /// if the regex was compiled with multiple patterns.
         pattern_len: usize,
     },
-    /// TODO
+    /// This error is returned by regex engines that resolve capturing groups
+    /// via slots. In some cases, the regex engine will require some minimum
+    /// number of slots in order to proceed, and if that minimum is not met,
+    /// then this error should be returned.
+    ///
+    /// In practice and in this crate, this error only occurs under the
+    /// following conditions: 1) the regex can match the empty string, 2) the
+    /// regex was built in UTF-8 mode and 3) the number of slots provided by
+    /// the caller is fewer than twice the number of patterns. The reason why
+    /// this special case exists is so that the regex engine can determine
+    /// whether the match found splits a codepoint or not. If it does, then the
+    /// match is not reported. Since slots are the only way for a match span
+    /// to be recorded, the logic for handling empty matches requires at least
+    /// enough space to record the match spans for any matching pattern.
     InvalidInputSlots {
         /// The number of slots given.
-        given: usize,
+        given: u32,
         /// The minimum number of slots required.
-        minimum: usize,
+        minimum: u32,
     },
 }
 
