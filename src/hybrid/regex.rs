@@ -162,20 +162,18 @@ impl Regex {
     ///
     /// # Example
     ///
-    /// This example shows how to disable UTF-8 mode for `Regex` searches.
-    /// When UTF-8 mode is disabled, the position immediately following an
-    /// empty match is where the next search begins, instead of the next
-    /// position of a UTF-8 encoded codepoint.
+    /// This example shows how to disable UTF-8 mode. When UTF-8 mode is
+    /// disabled, zero-width matches that split a codepoint are allowed.
+    /// Otherwise they are never reported.
     ///
     /// In the code below, notice that `""` is permitted to match positions
-    /// that split the encoding of a codepoint. When the [`Config::utf8`]
-    /// option is disabled, those positions are not reported.
+    /// that split the encoding of a codepoint.
     ///
     /// ```
-    /// use regex_automata::{hybrid::regex::Regex, Match};
+    /// use regex_automata::{hybrid::regex::Regex, nfa::thompson, Match};
     ///
     /// let re = Regex::builder()
-    ///     .configure(Regex::config().utf8(false))
+    ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"")?;
     /// let mut cache = re.create_cache();
     ///
@@ -207,11 +205,13 @@ impl Regex {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::regex::Regex, util::syntax, Match};
+    /// use regex_automata::{
+    ///     hybrid::regex::Regex, nfa::thompson, util::syntax, Match,
+    /// };
     ///
     /// let re = Regex::builder()
-    ///     .configure(Regex::config().utf8(false))
     ///     .syntax(syntax::Config::new().utf8(false))
+    ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let mut cache = re.create_cache();
     ///
@@ -241,9 +241,7 @@ impl Regex {
         haystack: &'h H,
     ) -> Input<'h, 'p> {
         let c = self.get_config();
-        Input::new(haystack.as_ref())
-            .prefilter(c.get_prefilter())
-            .utf8(c.get_utf8())
+        Input::new(haystack.as_ref()).prefilter(c.get_prefilter())
     }
 
     /// Create a new cache for this `Regex`.
@@ -872,7 +870,6 @@ impl Cache {
 /// [`Builder::configure`].
 #[derive(Clone, Debug, Default)]
 pub struct Config {
-    utf8: Option<bool>,
     pre: Option<Option<Prefilter>>,
 }
 
@@ -880,76 +877,6 @@ impl Config {
     /// Return a new default regex compiler configuration.
     pub fn new() -> Config {
         Config::default()
-    }
-
-    /// Whether to enable UTF-8 mode or not.
-    ///
-    /// When UTF-8 mode is enabled (the default) and an empty match is seen,
-    /// the search APIs of [`Regex`] will always start the next search at the
-    /// next UTF-8 encoded codepoint when searching valid UTF-8. When UTF-8
-    /// mode is disabled, such searches are begun at the next byte offset.
-    ///
-    /// If this mode is enabled and invalid UTF-8 is given to search, then
-    /// behavior is unspecified.
-    ///
-    /// Generally speaking, one should enable this when
-    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8)
-    /// is enabled, and disable it otherwise.
-    ///
-    /// # Example
-    ///
-    /// This example demonstrates the differences between when this option is
-    /// enabled and disabled. The differences only arise when the regex can
-    /// return matches of length zero.
-    ///
-    /// In this first snippet, we show the results when UTF-8 mode is disabled.
-    ///
-    /// ```
-    /// use regex_automata::{hybrid::regex::Regex, Match};
-    ///
-    /// let re = Regex::builder()
-    ///     .configure(Regex::config().utf8(false))
-    ///     .build(r"")?;
-    /// let mut cache = re.create_cache();
-    ///
-    /// let haystack = "a☃z";
-    /// let mut it = re.find_iter(&mut cache, haystack);
-    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
-    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// And in this snippet, we execute the same search on the same haystack,
-    /// but with UTF-8 mode enabled. Notice that byte offsets that would
-    /// otherwise split the encoding of `☃` are not returned.
-    ///
-    /// ```
-    /// use regex_automata::{hybrid::regex::Regex, Match};
-    ///
-    /// let re = Regex::builder()
-    ///     .configure(Regex::config().utf8(true))
-    ///     .build(r"")?;
-    /// let mut cache = re.create_cache();
-    ///
-    /// let haystack = "a☃z";
-    /// let mut it = re.find_iter(&mut cache, haystack);
-    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn utf8(mut self, yes: bool) -> Config {
-        self.utf8 = Some(yes);
-        self
     }
 
     /// Attach the given prefilter to this configuration.
@@ -962,16 +889,6 @@ impl Config {
         self
     }
 
-    /// Returns true if and only if this configuration has UTF-8 mode enabled.
-    ///
-    /// When UTF-8 mode is enabled and an empty match is seen, [`Regex`] will
-    /// always start the next search at the next UTF-8 encoded codepoint.
-    /// When UTF-8 mode is disabled, such searches are begun at the next byte
-    /// offset.
-    pub fn get_utf8(&self) -> bool {
-        self.utf8.unwrap_or(true)
-    }
-
     pub fn get_prefilter(&self) -> Option<&Prefilter> {
         self.pre.as_ref().unwrap_or(&None).as_ref()
     }
@@ -981,10 +898,7 @@ impl Config {
     /// option in `self` is used. If it's not set in `self` either, then it
     /// remains not set.
     pub(crate) fn overwrite(&self, o: Config) -> Config {
-        Config {
-            utf8: o.utf8.or(self.utf8),
-            pre: o.pre.or_else(|| self.pre.clone()),
-        }
+        Config { pre: o.pre.or_else(|| self.pre.clone()) }
     }
 }
 
@@ -1022,11 +936,13 @@ impl Config {
 ///
 /// ```
 /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-/// use regex_automata::{hybrid::regex::Regex, util::syntax, Match};
+/// use regex_automata::{
+///     hybrid::regex::Regex, nfa::thompson, util::syntax, Match,
+/// };
 ///
 /// let re = Regex::builder()
-///     .configure(Regex::config().utf8(false))
 ///     .syntax(syntax::Config::new().utf8(false))
+///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let mut cache = re.create_cache();
 ///

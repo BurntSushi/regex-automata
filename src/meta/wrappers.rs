@@ -45,9 +45,8 @@ impl PikeVMEngine {
         info: &RegexInfo,
         nfa: &NFA,
     ) -> Result<Option<PikeVMEngine>, BuildError> {
-        let pikevm_config = pikevm::Config::new()
-            .match_kind(info.config.get_match_kind())
-            .utf8(info.config.get_utf8());
+        let pikevm_config =
+            pikevm::Config::new().match_kind(info.config.get_match_kind());
         let engine = pikevm::Builder::new()
             .configure(pikevm_config)
             .build_from_nfa(nfa.clone())
@@ -171,8 +170,7 @@ impl BoundedBacktrackerEngine {
             {
                 return Ok(None);
             }
-            let backtrack_config =
-                backtrack::Config::new().utf8(info.config.get_utf8());
+            let backtrack_config = backtrack::Config::new();
             let engine = backtrack::Builder::new()
                 .configure(backtrack_config)
                 .build_from_nfa(nfa.clone())
@@ -344,8 +342,7 @@ impl HybridEngine {
                 .configure(dfa_config.clone().match_kind(MatchKind::All))
                 .build_from_nfa(nfarev.clone())
                 .ok()?;
-            let hybrid_config =
-                hybrid::regex::Config::new().utf8(info.config.get_utf8());
+            let hybrid_config = hybrid::regex::Config::new();
             let engine = hybrid::regex::Builder::new()
                 .configure(hybrid_config)
                 .build_from_dfas(fwd, rev);

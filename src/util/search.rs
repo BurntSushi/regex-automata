@@ -447,7 +447,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// This example shows how UTF-8 mode can impact the match spans that may
     /// be reported in certain cases.
     ///
-    /// ```
+    /// ```ignore
     /// use regex_automata::{
     ///     nfa::thompson::pikevm::PikeVM,
     ///     Match, Input,

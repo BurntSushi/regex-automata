@@ -172,8 +172,7 @@ fn configure_pikevm_builder(
         None => return false,
         Some(k) => k,
     };
-    let pikevm_config =
-        PikeVM::config().match_kind(match_kind).utf8(test.utf8());
+    let pikevm_config = PikeVM::config().match_kind(match_kind);
     builder
         .configure(pikevm_config)
         .syntax(config_syntax(test))

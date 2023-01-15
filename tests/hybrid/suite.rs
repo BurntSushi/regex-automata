@@ -259,7 +259,7 @@ fn configure_regex_builder(
     if test.search_kind() == ret::SearchKind::Overlapping {
         dfa_config = dfa_config.starts_for_each_pattern(true);
     }
-    let regex_config = Regex::config().utf8(test.utf8());
+    let regex_config = Regex::config();
     let thompson_config = thompson::Config::new().utf8(test.utf8());
     builder
         .configure(regex_config)
@@ -332,14 +332,6 @@ fn try_search_overlapping(
             rev_state.get_match()
         } {
             let span = ret::Span { start: start.offset(), end: end.offset() };
-            // Some tests check that we don't yield matches that split a
-            // codepoint when UTF-8 mode is enabled, so skip those here.
-            if input.get_utf8()
-                && span.start == span.end
-                && !input.is_char_boundary(span.end)
-            {
-                continue;
-            }
             let mat = ret::Match { id: end.pattern().as_usize(), span };
             matches.push(mat);
         }

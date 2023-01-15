@@ -365,7 +365,7 @@ fn configure_regex_builder(
     if test.search_kind() == ret::SearchKind::Overlapping {
         dense_config = dense_config.starts_for_each_pattern(true);
     }
-    let regex_config = Regex::config().utf8(test.utf8());
+    let regex_config = Regex::config();
 
     builder
         .configure(regex_config)
@@ -436,14 +436,6 @@ fn try_search_overlapping<A: Automaton>(
             // .try_search_rev(rev_cache, &revsearch)?
             // .expect("reverse search must match if forward search does");
             let span = ret::Span { start: start.offset(), end: end.offset() };
-            // Some tests check that we don't yield matches that split a
-            // codepoint when UTF-8 mode is enabled, so skip those here.
-            if input.get_utf8()
-                && span.start == span.end
-                && !input.is_char_boundary(span.end)
-            {
-                continue;
-            }
             let mat = ret::Match { id: end.pattern().as_usize(), span };
             matches.push(mat);
         }

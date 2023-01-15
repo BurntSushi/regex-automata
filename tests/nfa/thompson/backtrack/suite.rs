@@ -209,7 +209,7 @@ fn configure_backtrack_builder(
         // Not supported at all in regex-automata.
         (_, ret::MatchKind::LeftmostLongest) => return false,
     };
-    let backtrack_config = BoundedBacktracker::config().utf8(test.utf8());
+    let backtrack_config = BoundedBacktracker::config();
     builder
         .configure(backtrack_config)
         .syntax(config_syntax(test))
