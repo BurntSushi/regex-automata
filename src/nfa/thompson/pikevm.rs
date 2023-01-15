@@ -14,7 +14,7 @@ use crate::{
     nfa::thompson::{self, BuildError, State, NFA},
     util::{
         captures::Captures,
-        iter,
+        empty, iter,
         look::UnicodeWordBoundaryError,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
@@ -1115,40 +1115,28 @@ impl PikeVM {
                 return Err(MatchError::invalid_input_slots(slots.len(), min));
             }
         }
-        let m = match self.search_imp(cache, input, slots)? {
+        let (pid, end) = match self.search_imp(cache, input, slots)? {
             None => return Ok(None),
             Some(pid) if !utf8empty => return Ok(Some(pid)),
             Some(pid) => {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;
-                // These unwraps and indexing are OK because we know we have a
-                // match and we know our caller provided slots are big enough.
-                // Namely, we're only here when 'utf8empty' is true, and when
-                // that's true, we require slots for every pattern.
-                let start = slots[slot_start].unwrap().get();
-                let end = slots[slot_end].unwrap().get();
-                // If the match isn't empty, then we don't need to do any
-                // special filtering. So we can quit now.
-                if start < end {
-                    return Ok(Some(pid));
-                }
-                Match::new(pid, start..end)
+                // OK because we know we have a match and we know our caller
+                // provided slots are big enough. Namely, we're only here when
+                // 'utf8empty' is true, and when that's true, we require slots
+                // for every pattern.
+                (pid, slots[slot_end].unwrap().get())
             }
         };
-        // Ok(Some(m.pattern()))
-        Ok(input
-            .skip_empty_utf8_splits(m, |search| {
-                let pid = match self.search_imp(cache, search, slots)? {
-                    None => return Ok(None),
-                    Some(pid) => pid,
-                };
-                let slot_start = pid.as_usize() * 2;
-                let slot_end = slot_start + 1;
-                let start = slots[slot_start].unwrap().get();
-                let end = slots[slot_end].unwrap().get();
-                Ok(Some(Match::new(pid, start..end)))
-            })?
-            .map(|m| m.pattern()))
+        empty::skip_splits_fwd(input, pid, end, |input| {
+            let pid = match self.search_imp(cache, input, slots)? {
+                None => return Ok(None),
+                Some(pid) => pid,
+            };
+            let slot_start = pid.as_usize() * 2;
+            let slot_end = slot_start + 1;
+            Ok(Some((pid, slots[slot_end].unwrap().get())))
+        })
     }
 
     /// Writes the set of patterns that match anywhere in the given search
@@ -1490,6 +1478,7 @@ impl PikeVM {
         patset: &mut PatternSet,
     ) {
         instrument!(|c| c.record_state_set(&curr.set));
+        let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
         let ActiveStates { ref set, ref mut slot_table } = *curr;
         for sid in set.iter() {
             let pid = match self.next(stack, slot_table, next, input, at, sid)
@@ -1497,6 +1486,16 @@ impl PikeVM {
                 None => continue,
                 Some(pid) => pid,
             };
+            // This handles the case of finding a zero-width match that splits
+            // a codepoint. Namely, if we're in UTF-8 mode AND we know we can
+            // match the empty string, then the only valid way of getting to
+            // this point with an offset that splits a codepoint is when we
+            // have an empty match. Such matches, in UTF-8 mode, must not be
+            // reported. So we just skip them here and pretend as if we did
+            // not see a match.
+            if utf8empty && !input.is_char_boundary(at) {
+                continue;
+            }
             patset.insert(pid);
             if !self.config.get_match_kind().continue_past_first_match() {
                 break;

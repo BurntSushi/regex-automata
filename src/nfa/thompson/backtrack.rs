@@ -16,7 +16,7 @@ use crate::{
     nfa::thompson::{self, BuildError, State, NFA},
     util::{
         captures::Captures,
-        iter,
+        empty, iter,
         look::UnicodeWordBoundaryError,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
@@ -1380,39 +1380,28 @@ impl BoundedBacktracker {
                 return Err(MatchError::invalid_input_slots(slots.len(), min));
             }
         }
-        let m = match self.search_imp(cache, input, slots)? {
+        let (pid, end) = match self.search_imp(cache, input, slots)? {
             None => return Ok(None),
             Some(pid) if !utf8empty => return Ok(Some(pid)),
             Some(pid) => {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;
-                // These unwraps and indexing are OK because we know we have a
-                // match and we know our caller provided slots are big enough.
-                // Namely, we're only here when 'utf8empty' is true, and when
-                // that's true, we require slots for every pattern.
-                let start = slots[slot_start].unwrap().get();
-                let end = slots[slot_end].unwrap().get();
-                // If the match isn't empty, then we don't need to do any
-                // special filtering. So we can quit now.
-                if start < end {
-                    return Ok(Some(pid));
-                }
-                Match::new(pid, start..end)
+                // OK because we know we have a match and we know our caller
+                // provided slots are big enough. Namely, we're only here when
+                // 'utf8empty' is true, and when that's true, we require slots
+                // for every pattern.
+                (pid, slots[slot_end].unwrap().get())
             }
         };
-        Ok(input
-            .skip_empty_utf8_splits(m, |search| {
-                let pid = match self.search_imp(cache, search, slots)? {
-                    None => return Ok(None),
-                    Some(pid) => pid,
-                };
-                let slot_start = pid.as_usize() * 2;
-                let slot_end = slot_start + 1;
-                let start = slots[slot_start].unwrap().get();
-                let end = slots[slot_end].unwrap().get();
-                Ok(Some(Match::new(pid, start..end)))
-            })?
-            .map(|m| m.pattern()))
+        empty::skip_splits_fwd(input, pid, end, |input| {
+            let pid = match self.search_imp(cache, input, slots)? {
+                None => return Ok(None),
+                Some(pid) => pid,
+            };
+            let slot_start = pid.as_usize() * 2;
+            let slot_end = slot_start + 1;
+            Ok(Some((pid, slots[slot_end].unwrap().get())))
+        })
     }
 
     /// The implementation of standard leftmost backtracking search.

@@ -588,13 +588,10 @@ impl<'h, 'p> Searcher<'h, 'p> {
         // Since we both need to make progress *and* prevent overlapping
         // matches, we discard this match and advance the search by 1.
         //
-        // Note that we do not prevent this iterator from returning an offset
-        // that splits a codepoint. In order to do that, we need both the start
-        // and end of a match, which is not available when we only have a half
-        // match.
-        //
-        // We could prevent *any* match from being returned if it splits a
-        // codepoint, but that seems like it's going too far.
+        // Note that this may start a search in the middle of a codepoint. The
+        // regex engines themselves are expected to deal with that and not
+        // report any matches within a codepoint if they are configured in
+        // UTF-8 mode.
         self.input.set_start(self.input.start().checked_add(1).unwrap());
         finder(&self.input)
     }

@@ -563,31 +563,6 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let utf8empty = self.forward().get_nfa().has_empty()
-            && self.forward().get_nfa().is_utf8();
-        let m = match self.try_search_fwd_rev(cache, input)? {
-            None => return Ok(None),
-            Some(m) if !utf8empty || !m.is_empty() => return Ok(Some(m)),
-            Some(m) => m,
-        };
-        // skip_empty_utf8_splits handles the case of a non-empty match or
-        // even when input.get_utf8() is disabled. But it's also intentionally
-        // a cold function that is forcefully not inlined, in order to make
-        // this function tighter. So we balance this by not calling it unless
-        // it has a chance of modifying the match reported.
-        input.skip_empty_utf8_splits(m, |search| {
-            self.try_search_fwd_rev(cache, search)
-        })
-    }
-
-    /// This search routine runs the regex engine forwards to find the end
-    /// of a match, and then backwards to find the start of the match.
-    #[inline(always)]
-    fn try_search_fwd_rev(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_, '_>,
-    ) -> Result<Option<Match>, MatchError> {
         // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
         // appear to have a bit more latency due to the 'search.as_ref()' call.
         // So we reach around them. This also avoids generics.

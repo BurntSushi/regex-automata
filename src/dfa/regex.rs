@@ -589,22 +589,23 @@ impl<A: Automaton> Regex<A> {
         &self,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        let m = match self.try_search_fwd_back(input)? {
-            None => return Ok(None),
-            Some(m) => m,
-        };
-        // skip_empty_utf8_splits handles the case of a non-empty match or
-        // even when input.get_utf8() is disabled. But it's also intentionally
-        // a cold function that is forcefully not inlined, in order to make
-        // this function tighter. So we balance this by not calling it unless
-        // it has a chance of modifying the match reported.
-        if m.is_empty() && input.get_utf8() {
-            input.skip_empty_utf8_splits(m, |search| {
-                self.try_search_fwd_back(search)
-            })
-        } else {
-            Ok(Some(m))
-        }
+        self.try_search_fwd_back(input)
+        // let m = match self.try_search_fwd_back(input)? {
+        // None => return Ok(None),
+        // Some(m) => m,
+        // };
+        // // skip_empty_utf8_splits handles the case of a non-empty match or
+        // // even when input.get_utf8() is disabled. But it's also intentionally
+        // // a cold function that is forcefully not inlined, in order to make
+        // // this function tighter. So we balance this by not calling it unless
+        // // it has a chance of modifying the match reported.
+        // if m.is_empty() && input.get_utf8() {
+        // input.skip_empty_utf8_splits(m, |search| {
+        // self.try_search_fwd_back(search)
+        // })
+        // } else {
+        // Ok(Some(m))
+        // }
     }
 
     /// The implementation of leftmost searching, where a prefilter scanner

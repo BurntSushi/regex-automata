@@ -23,6 +23,52 @@ analysis = 'TODO'
 
 [[benches]]
 type = "grep"
+name = "whole-line"
+regex = '(?m)^.*$'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = true
+line-count = 239_963
+engines = [
+  'regex/api',
+  'regex/automata/dense',
+  'regex/automata/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep"
+name = "whole-line-nonempty"
+regex = '(?m)^.+$'
+haystack-path = "rust-src-tools-3b0d4813.txt"
+case-insensitive = false
+unicode = true
+line-count = 213_755
+engines = [
+  'regex/api',
+  'regex/automata/dense',
+  'regex/automata/sparse',
+  'regex/automata/hybrid',
+  'regex/automata/backtrack',
+  'regex/automata/pikevm',
+  'regex/automata/onepass',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep"
 name = "long-words-unicode"
 regex = '\b\w{25,}\b'
 haystack-path = "rust-src-tools-3b0d4813.txt"

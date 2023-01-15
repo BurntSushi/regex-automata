@@ -18,6 +18,7 @@ pub mod wire;
 
 #[cfg(any(feature = "dfa-build", feature = "hybrid"))]
 pub(crate) mod determinize;
+pub(crate) mod empty;
 pub(crate) mod escape;
 pub(crate) mod int;
 pub(crate) mod memchr;

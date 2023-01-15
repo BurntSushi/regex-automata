@@ -271,6 +271,7 @@ impl Core {
         hirs: &[&Hir],
     ) -> Result<Arc<dyn Strategy>, BuildError> {
         let thompson_config = thompson::Config::new()
+            .utf8(info.config.get_utf8())
             .nfa_size_limit(info.config.get_nfa_size_limit())
             .shrink(false)
             .captures(true);

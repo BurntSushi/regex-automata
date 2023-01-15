@@ -354,6 +354,9 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
             // Once we've reported all matches at a given position, we need to
             // advance the search to the next position.
             state.at += 1;
+            if state.at > input.end() {
+                return Ok(());
+            }
             sid
         }
     };

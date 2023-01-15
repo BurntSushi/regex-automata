@@ -871,58 +871,6 @@ impl<'h, 'p> Input<'h, 'p> {
     pub fn is_char_boundary(&self, offset: usize) -> bool {
         utf8::is_boundary(self.haystack(), offset)
     }
-
-    /// This skips any empty matches that split a codepoint when this search's
-    /// "utf8" option is enabled. The match given should be the initial match
-    /// found, and 'find' should be a closure that can execute a regex search.
-    ///
-    /// We don't export this routine because it could be quite confusing. Folks
-    /// might use this to call another regex engine's find routine that already
-    /// calls this internally. Plus, its implementation can be written entirely
-    /// using existing public APIs.
-    ///
-    /// N.B. This is written as a non-inlineable cold function that accepts
-    /// a pre-existing match because it generally leads to better codegen in
-    /// my experience. Namely, we could write a routine that doesn't accept
-    /// a pre-existing match and just does the initial search for you. But
-    /// doing it this way forcefully separates the hot path from the handling
-    /// of pathological cases. That is, one can guard calls to this with
-    /// 'm.is_empty()', even though it isn't necessary for correctness.
-    #[cold]
-    #[inline(never)]
-    pub(crate) fn skip_empty_utf8_splits<F>(
-        &self,
-        mut m: Match,
-        mut find: F,
-    ) -> Result<Option<Match>, MatchError>
-    where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
-    {
-        if !self.get_utf8() || !m.is_empty() {
-            return Ok(Some(m));
-        }
-        // If our config says to do an anchored search, then we're definitely
-        // done. We just need to determine whether we have a valid match or
-        // not.
-        if self.get_anchored().is_anchored() {
-            return Ok(if self.is_char_boundary(m.end()) {
-                Some(m)
-            } else {
-                None
-            });
-        }
-        // Otherwise, we have an unanchored search, so just keep looking for
-        // matches until we don't have one that splits a codepoint.
-        let mut input = self.clone();
-        while m.is_empty() && !input.is_char_boundary(m.end()) {
-            input.set_start(input.start().checked_add(1).unwrap());
-            m = match find(&input)? {
-                None => return Ok(None),
-                Some(m) => m,
-            };
-        }
-        Ok(Some(m))
-    }
 }
 
 impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
