@@ -1461,10 +1461,7 @@ impl DFA {
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
-        let c = self.get_config();
-        Input::new(haystack.as_ref())
-            .anchored(Anchored::Yes)
-            .utf8(c.get_utf8())
+        Input::new(haystack.as_ref()).anchored(Anchored::Yes)
     }
 
     /// Create a new empty set of capturing groups that is guaranteed to be

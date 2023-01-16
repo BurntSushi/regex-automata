@@ -89,12 +89,6 @@ use crate::util::{
 /// regex engine can provide a way to search that is unanchored, it should be
 /// permitted. That is, panicking should be a property of the regex engine
 /// itself and not a property of the regex pattern.)
-/// * If [`Input::utf8`] is enabled and the regex engine doesn't support it,
-/// then a panic should occur. It is permissible to panic only in cases where
-/// the regex engine would return a match inconsistent with the `utf8`
-/// setting. (For example, a zero-width match that splits the UTF-8 encoding
-/// of a codepoint.) Panicking may be more expansive than this, i.e., any time
-/// it's set.
 ///
 /// The following should *not* result in a panic:
 ///
@@ -120,7 +114,6 @@ pub struct Input<'h, 'p> {
     anchored: Anchored,
     prefilter: Option<&'p Prefilter>,
     earliest: bool,
-    utf8: bool,
 }
 
 impl<'h, 'p> Input<'h, 'p> {
@@ -135,7 +128,6 @@ impl<'h, 'p> Input<'h, 'p> {
             anchored: Anchored::No,
             prefilter: None,
             earliest: false,
-            utf8: true,
         }
     }
 
@@ -416,83 +408,6 @@ impl<'h, 'p> Input<'h, 'p> {
         self
     }
 
-    /// Whether to enable UTF-8 mode during search or not.
-    ///
-    /// UTF-8 mode on a `Input` refers to whether a regex engine should
-    /// treat the haystack as valid UTF-8 in cases where that could make a
-    /// difference.
-    ///
-    /// An example of this occurs when a regex pattern semantically matches the
-    /// empty string. In such cases, the underlying finite state machine will
-    /// likely not distiguish between empty strings that do and do not split
-    /// codepoints in UTF-8 haystacks. When this option is enabled, the regex
-    /// engine will insert higher level code that checks for whether the match
-    /// splits a codepoint, and if so, skip that match entirely and look for
-    /// the next one.
-    ///
-    /// In effect, this option is useful to enable when both of the following
-    /// are true:
-    ///
-    /// 1. Your haystack is valid UTF-8.
-    /// 2. You never want to report spans that fall on invalid UTF-8
-    /// boundaries.
-    ///
-    /// Typically, this is enabled in concert with
-    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8).
-    ///
-    /// This is enabled by default.
-    ///
-    /// # Example
-    ///
-    /// This example shows how UTF-8 mode can impact the match spans that may
-    /// be reported in certain cases.
-    ///
-    /// ```ignore
-    /// use regex_automata::{
-    ///     nfa::thompson::pikevm::PikeVM,
-    ///     Match, Input,
-    /// };
-    ///
-    /// let re = PikeVM::new("")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    ///
-    /// // UTF-8 mode is enabled by default.
-    /// let mut input = Input::new("☃");
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
-    ///
-    /// // Even though an empty regex matches at 1..1, our next match is
-    /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
-    /// // three bytes long).
-    /// input.set_start(1);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
-    ///
-    /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
-    /// let mut noutf8 = input.clone().utf8(false);
-    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
-    ///
-    /// noutf8.set_start(2);
-    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
-    ///
-    /// noutf8.set_start(3);
-    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
-    ///
-    /// noutf8.set_start(4);
-    /// re.try_search(&mut cache, &noutf8, &mut caps)?;
-    /// assert_eq!(None, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn utf8(mut self, yes: bool) -> Input<'h, 'p> {
-        self.set_utf8(yes);
-        self
-    }
-
     /// Set the span for this search configuration.
     ///
     /// This is like the [`Input::span`] method, except this mutates the
@@ -653,26 +568,6 @@ impl<'h, 'p> Input<'h, 'p> {
         self.earliest = yes;
     }
 
-    /// Set whether the search should execute in UTF-8 mode or not.
-    ///
-    /// This is like [`Input::utf8`], except it mutates the search
-    /// configuration in place.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::Input;
-    ///
-    /// let mut input = Input::new("foobar");
-    /// assert!(input.get_utf8());
-    /// input.set_utf8(false);
-    /// assert!(!input.get_utf8());
-    /// ```
-    #[inline]
-    pub fn set_utf8(&mut self, yes: bool) {
-        self.utf8 = yes;
-    }
-
     /// Return a borrow of the underlying haystack as a slice of bytes.
     ///
     /// # Example
@@ -808,21 +703,6 @@ impl<'h, 'p> Input<'h, 'p> {
         self.earliest
     }
 
-    /// Return whether this search should execute in UTF-8 mode.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::Input;
-    ///
-    /// let input = Input::new("foobar");
-    /// assert!(input.get_utf8());
-    /// ```
-    #[inline]
-    pub fn get_utf8(&self) -> bool {
-        self.utf8
-    }
-
     /// Return true if and only if this search can never return any other
     /// matches.
     ///
@@ -883,7 +763,6 @@ impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
             .field("anchored", &self.anchored)
             .field("prefilter", &self.prefilter)
             .field("earliest", &self.earliest)
-            .field("utf8", &self.utf8)
             .finish()
     }
 }

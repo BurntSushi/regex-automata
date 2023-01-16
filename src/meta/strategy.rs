@@ -304,11 +304,11 @@ impl Core {
                 (None, wrappers::Hybrid::none(), wrappers::DFA::none())
             } else {
                 let nfarev = thompson::Compiler::new()
-                    // Currently, reverse NFAs don't support capturing groups, so
-                    // we MUST disable them. But even if we didn't have to, we
-                    // would, because nothing in this crate does anything useful
-                    // with capturing groups in reverse. And of course, the lazy
-                    // DFA ignores capturing groups in all cases.
+                    // Currently, reverse NFAs don't support capturing groups,
+                    // so we MUST disable them. But even if we didn't have to,
+                    // we would, because nothing in this crate does anything
+                    // useful with capturing groups in reverse. And of course,
+                    // the lazy DFA ignores capturing groups in all cases.
                     .configure(
                         thompson_config.clone().captures(false).reverse(true),
                     )

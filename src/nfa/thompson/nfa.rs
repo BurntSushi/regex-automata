@@ -853,6 +853,65 @@ impl NFA {
         self.0.has_empty
     }
 
+    /// Whether UTF-8 mode is enabled for this NFA or not.
+    ///
+    /// When UTF-8 mode is enabled, all matches reported by a regex engine
+    /// derived from this NFA are guaranteed to correspond to spans of valid
+    /// UTF-8. This includes zero-width matches. For example, the empty regex
+    /// will not match at the positions between code units in the UTF-8
+    /// encoding of a single codepoint.
+    ///
+    /// See [`Config::utf8`] for more information.
+    ///
+    /// This is enabled by default.
+    ///
+    /// # Example
+    ///
+    /// This example shows how UTF-8 mode can impact the match spans that may
+    /// be reported in certain cases.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{self, pikevm::PikeVM},
+    ///     Match, Input,
+    /// };
+    ///
+    /// let re = PikeVM::new("")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    ///
+    /// // UTF-8 mode is enabled by default.
+    /// let mut input = Input::new("☃");
+    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
+    ///
+    /// // Even though an empty regex matches at 1..1, our next match is
+    /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
+    /// // three bytes long).
+    /// input.set_start(1);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
+    ///
+    /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
+    /// let re = PikeVM::builder()
+    ///     .thompson(thompson::Config::new().utf8(false))
+    ///     .build("")?;
+    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
+    ///
+    /// input.set_start(2);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
+    ///
+    /// input.set_start(3);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
+    ///
+    /// input.set_start(4);
+    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// assert_eq!(None, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn is_utf8(&self) -> bool {
         self.0.utf8

@@ -318,6 +318,7 @@ impl HybridEngine {
                 .unicode_word_boundary(true)
                 // TODO: Only set this to true if we have a prefilter
                 .specialize_start_states(true)
+                // .cache_capacity(info.config.get_hybrid_cache_capacity())
                 .cache_capacity(info.config.get_hybrid_cache_capacity())
                 // This makes it possible for building a lazy DFA to
                 // fail even though the NFA has already been built. Namely,
@@ -336,14 +337,26 @@ impl HybridEngine {
                 // This and enabling heuristic Unicode word boundary support
                 // above make it so the lazy DFA can quit at match time.
                 .minimum_cache_clear_count(Some(10));
-            let fwd = hybrid::dfa::Builder::new()
+            let result = hybrid::dfa::Builder::new()
                 .configure(dfa_config.clone())
-                .build_from_nfa(nfa.clone())
-                .ok()?;
-            let rev = hybrid::dfa::Builder::new()
+                .build_from_nfa(nfa.clone());
+            let fwd = match result {
+                Ok(fwd) => fwd,
+                Err(err) => {
+                    debug!("forward lazy DFA failed to build: {}", err);
+                    return None;
+                }
+            };
+            let result = hybrid::dfa::Builder::new()
                 .configure(dfa_config.clone().match_kind(MatchKind::All))
-                .build_from_nfa(nfarev.clone())
-                .ok()?;
+                .build_from_nfa(nfarev.clone());
+            let rev = match result {
+                Ok(rev) => rev,
+                Err(err) => {
+                    debug!("reverse lazy DFA failed to build: {}", err);
+                    return None;
+                }
+            };
             let hybrid_config = hybrid::regex::Config::new();
             let engine = hybrid::regex::Builder::new()
                 .configure(hybrid_config)

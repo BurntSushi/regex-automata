@@ -74,9 +74,7 @@ impl Regex {
         haystack: &'h H,
     ) -> Input<'h, 'p> {
         let c = self.get_config();
-        Input::new(haystack.as_ref())
-            .prefilter(self.pre.as_ref())
-            .utf8(c.get_utf8())
+        Input::new(haystack.as_ref()).prefilter(self.pre.as_ref())
     }
 
     pub fn create_captures(&self) -> Captures {
