@@ -1163,9 +1163,33 @@ impl Inner {
                 }
                 match self.states[sid] {
                     State::ByteRange { .. }
-                    | State::Sparse { .. }
                     | State::Dense { .. }
                     | State::Fail => continue,
+                    State::Sparse(_) => {
+                        // This snippet below will rewrite this sparse state
+                        // as a dense state. By doing it here, we apply this
+                        // optimization to all hot "sparse" states since these
+                        // are the states that are reachable from the start
+                        // state via an epsilon closure.
+                        //
+                        // Unfortunately, this optimization did not seem to
+                        // help much in some very limited ad hoc benchmarking.
+                        //
+                        // I left the 'Dense' state type in place in case we
+                        // want to revisit this, but I suspect the real way
+                        // to make forward progress is a more fundamental
+                        // rearchitecting of how data in the NFA is laid out.
+                        // I think we should consider a single contiguous
+                        // allocation instead of all this indirection and
+                        // potential heap allocations for every state. But this
+                        // is a large design and will require API breaking
+                        // changes.
+                        // self.memory_extra -= self.states[sid].memory_usage();
+                        // let trans = DenseTransitions::from_sparse(sparse);
+                        // self.states[sid] = State::Dense(trans);
+                        // self.memory_extra += self.states[sid].memory_usage();
+                        continue;
+                    }
                     State::Match { .. } => self.has_empty = true,
                     State::Look { look, next } => {
                         prefix = prefix.insert(look);
@@ -1738,6 +1762,16 @@ impl DenseTransitions {
         } else {
             Some(next)
         }
+    }
+
+    pub(crate) fn from_sparse(sparse: &SparseTransitions) -> DenseTransitions {
+        let mut dense = vec![StateID::ZERO; 256];
+        for t in sparse.transitions.iter() {
+            for b in t.start..=t.end {
+                dense[usize::from(b)] = t.next;
+            }
+        }
+        DenseTransitions { transitions: dense.into_boxed_slice() }
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = Transition> + '_ {
