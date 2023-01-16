@@ -96,7 +96,7 @@ macro_rules! new {
 fn new<B: AsRef<[u8]>>(
     kind: MatchKind,
     needles: &[B],
-) -> Option<Arc<dyn PrefilterI + 'static>> {
+) -> Option<Arc<dyn PrefilterI>> {
     new!(kind, needles)
 }
 
@@ -114,12 +114,12 @@ fn new<B: AsRef<[u8]>>(
 pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
     kind: MatchKind,
     needles: &[B],
-) -> Option<Arc<dyn crate::meta::Strategy + 'static>> {
+) -> Option<Arc<dyn crate::meta::Strategy>> {
     new!(kind, needles)
 }
 
 #[derive(Clone, Debug)]
-pub struct Prefilter(Arc<dyn PrefilterI + 'static>);
+pub struct Prefilter(Arc<dyn PrefilterI>);
 
 impl Prefilter {
     pub fn new<B: AsRef<[u8]>>(

@@ -539,7 +539,20 @@ impl Builder {
 
             debug!("building meta regex with {} patterns:", patterns.len());
             for (pid, p) in patterns.iter().with_pattern_ids() {
-                debug!("{:?}: {}", pid, p.as_ref());
+                let p = p.as_ref();
+                // We might split a grapheme with this truncation logic, but
+                // that's fine. We at least avoid splitting a codepoint.
+                let maxoff = p
+                    .char_indices()
+                    .map(|(i, ch)| i + ch.len_utf8())
+                    .take(1000)
+                    .last()
+                    .unwrap_or(0);
+                if maxoff < p.len() {
+                    debug!("{:?}: {}[... snip ...]", pid, &p[..maxoff]);
+                } else {
+                    debug!("{:?}: {}", pid, p);
+                }
             }
         }
         let (mut asts, mut hirs) = (vec![], vec![]);

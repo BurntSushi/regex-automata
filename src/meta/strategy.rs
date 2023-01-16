@@ -236,7 +236,7 @@ pub(super) fn new(
         if let Some(pre) = prefilter::new_as_strategy(kind, prefixes) {
             return Ok((pre, None));
         }
-        debug!("regex bypass failed because no prefilter could be extracted");
+        debug!("regex bypass failed because no prefilter could be built");
     }
 
     let pre = if let Some(Some(ref pre)) = info.config.pre {
@@ -245,7 +245,7 @@ pub(super) fn new(
         None
     } else if info.config.get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
-            debug!("creating prefilter from {:?}", strings);
+            debug!("creating prefilter from: {:?}", strings);
             Prefilter::new(kind, strings)
         })
     } else {
