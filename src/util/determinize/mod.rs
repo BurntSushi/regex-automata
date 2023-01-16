@@ -247,6 +247,17 @@ pub(crate) fn next(
                     );
                 }
             }
+            thompson::State::Dense(ref dense) => {
+                if let Some(next) = dense.matches_unit(unit) {
+                    epsilon_closure(
+                        nfa,
+                        next,
+                        builder.look_have(),
+                        stack,
+                        &mut sparses.set2,
+                    );
+                }
+            }
         }
     }
     // We only set the word byte if there's a word boundary look-around
@@ -321,6 +332,7 @@ pub(crate) fn epsilon_closure(
             match *nfa.state(id) {
                 thompson::State::ByteRange { .. }
                 | thompson::State::Sparse { .. }
+                | thompson::State::Dense { .. }
                 | thompson::State::Fail
                 | thompson::State::Match { .. } => break,
                 thompson::State::Look { look, next } => {
@@ -380,6 +392,9 @@ pub(crate) fn add_nfa_states(
                 builder.add_nfa_state_id(nfa_id);
             }
             thompson::State::Sparse { .. } => {
+                builder.add_nfa_state_id(nfa_id);
+            }
+            thompson::State::Dense { .. } => {
                 builder.add_nfa_state_id(nfa_id);
             }
             thompson::State::Look { look, .. } => {

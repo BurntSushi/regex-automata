@@ -34,7 +34,7 @@ std = ["regex-syntax/std", "memchr/std", "aho-corasick/std", "alloc"]
 alloc = []
 
 transducer = ["fst", "dfa-search"]
-logging = ["log"]
+logging = ["log", "aho-corasick/logging"]
 syntax = ["regex-syntax", "alloc"]
 
 meta = ["syntax", "nfa-pikevm"]

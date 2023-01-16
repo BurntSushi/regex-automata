@@ -8,6 +8,7 @@ pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
         "regex/ast" => regex_ast(b),
         "regex/hir" => regex_hir(b),
         "regex/nfa" => regex_nfa(b),
+        "regex/automata/meta" => regex_automata_meta(b),
         "regex/automata/dense" => regex_automata_dfa_dense(b),
         "regex/automata/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
@@ -110,6 +111,14 @@ fn regex_nfa(b: &Benchmark) -> anyhow::Result<Results> {
     b.run(verify, || {
         let nfa = Compiler::new().build_from_hir(&hir)?;
         Ok(nfa)
+    })
+}
+
+fn regex_automata_meta(b: &Benchmark) -> anyhow::Result<Results> {
+    b.run(verify, || {
+        let re = new::regex_automata_meta(b)?;
+        let mut cache = re.create_cache();
+        Ok(Box::new(move |h| Ok(re.find_iter(&mut cache, h).count())))
     })
 }
 

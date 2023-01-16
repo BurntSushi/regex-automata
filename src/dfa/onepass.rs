@@ -761,6 +761,11 @@ impl<'a> InternalBuilder<'a> {
                             self.compile_transition(dfa_id, trans, epsilons)?;
                         }
                     }
+                    thompson::State::Dense(ref dense) => {
+                        for trans in dense.iter() {
+                            self.compile_transition(dfa_id, &trans, epsilons)?;
+                        }
+                    }
                     thompson::State::Look { look, next } => {
                         let looks = epsilons.looks().insert(look);
                         self.stack_push(next, epsilons.set_looks(looks))?;

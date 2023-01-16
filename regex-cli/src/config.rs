@@ -339,7 +339,6 @@ pub struct Input {
     end: Option<usize>,
     anchored: bool,
     pattern_id: Option<PatternID>,
-    utf8: bool,
     earliest: bool,
 }
 
@@ -368,11 +367,6 @@ impl Input {
         }
         {
             const SHORT: &str =
-                "Whether to permit empty matches to split UTF-8 codepoints.";
-            app = app.arg(switch("no-utf8").help(SHORT))
-        }
-        {
-            const SHORT: &str =
                 "Whether to report matches as early as possible.";
             app = app.arg(switch("earliest").help(SHORT))
         }
@@ -386,7 +380,6 @@ impl Input {
             end: None,
             anchored: args.is_present("anchored"),
             pattern_id: None,
-            utf8: !args.is_present("no-utf8"),
             earliest: args.is_present("earliest"),
         };
         if let Some(n) = args.value_of_lossy("start") {
@@ -406,9 +399,7 @@ impl Input {
     /// configuration (other than the haystack) is drawn from the CLI flags
     /// passed for `Input`.
     pub fn input<'h>(&self, haystack: &'h [u8]) -> automata::Input<'h, '_> {
-        let mut input = automata::Input::new(haystack)
-            .utf8(self.utf8)
-            .earliest(self.earliest);
+        let mut input = automata::Input::new(haystack).earliest(self.earliest);
         if let Some(start) = self.start {
             input.set_start(start);
         }
@@ -944,26 +935,6 @@ pub struct PikeVM {
 impl PikeVM {
     pub fn define(mut app: App) -> App {
         {
-            const SHORT: &str = "Disable UTF-8 handling for iterators.";
-            const LONG: &str = "\
-Disable UTF-8 handling for match iterators when an empty match is seen.
-
-When UTF-8 mode is enabled for regexes (the default) and an empty match is
-seen, the iterators will always start the next search at the next UTF-8 encoded
-codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
-searches are started at the next byte offset.
-
-Generally speaking, UTF-8 mode for regexes should only be used when you know
-you are searching valid UTF-8. Typically, this should only be disabled in
-precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-nfa'
-together.
-
-This mode cannot be toggled inside the regex.
-";
-            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
-        }
-        {
             const SHORT: &str = "Choose the match kind.";
             const LONG: &str = "\
 Choose the match kind.
@@ -996,9 +967,7 @@ all the time.
                 unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
             },
         };
-        let config = pikevm::Config::new()
-            .utf8(!args.is_present("no-utf8-iter"))
-            .match_kind(kind);
+        let config = pikevm::Config::new().match_kind(kind);
         Ok(PikeVM { config })
     }
 
@@ -1038,26 +1007,6 @@ pub struct Backtrack {
 impl Backtrack {
     pub fn define(mut app: App) -> App {
         {
-            const SHORT: &str = "Disable UTF-8 handling for iterators.";
-            const LONG: &str = "\
-Disable UTF-8 handling for match iterators when an empty match is seen.
-
-When UTF-8 mode is enabled for regexes (the default) and an empty match is
-seen, the iterators will always start the next search at the next UTF-8 encoded
-codepoint when searching valid UTF-8. When UTF-8 mode is disabled, such
-searches are started at the next byte offset.
-
-Generally speaking, UTF-8 mode for regexes should only be used when you know
-you are searching valid UTF-8. Typically, this should only be disabled in
-precisely the cases where the regex itself is permitted to match invalid UTF-8.
-This means you usually want to use '--no-utf8-syntax' and '--no-utf8-nfa'
-together.
-
-This mode cannot be toggled inside the regex.
-";
-            app = app.arg(switch("no-utf8-iter").help(SHORT).long_help(LONG));
-        }
-        {
             const SHORT: &str =
                 "Set the visited set capacity used to bound backtracking.";
             const LONG: &str = "\
@@ -1081,8 +1030,7 @@ The default capacity is a reasonable but empirically chosen size.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Backtrack> {
-        let mut config =
-            backtrack::Config::new().utf8(!args.is_present("no-utf8-iter"));
+        let mut config = backtrack::Config::new();
         if let Some(x) = args.value_of_lossy("visited-capacity") {
             let limit =
                 x.parse().context("failed to parse --visited-capacity")?;

@@ -7,6 +7,7 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
+        "regex/automata/meta" => regex_automata_meta(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         "regex/automata/onepass" => regex_automata_onepass(b),
@@ -59,6 +60,37 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
                 // Benchmark definition says we may assume empty matches are
                 // impossible.
                 at = m.end();
+            }
+            capture_count += count;
+            if count > 0 {
+                line_count += 1;
+            }
+        }
+        Ok((line_count, capture_count))
+    })
+}
+
+fn regex_automata_meta(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::regex_automata_meta(b)?;
+    let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    b.run(verify, || {
+        let (mut line_count, mut capture_count) = (0, 0);
+        for line in haystack.lines() {
+            let mut count = 0;
+            let mut input = re.create_input(line);
+            while let Some(m) = {
+                re.try_search_captures(&mut cache, &input, &mut caps)?;
+                caps.get_match()
+            } {
+                for i in 0..caps.group_len() {
+                    if caps.get_group(i).is_some() {
+                        count += 1;
+                    }
+                }
+                // Benchmark definition says we may assume empty matches are
+                // impossible.
+                input.set_start(m.end());
             }
             capture_count += count;
             if count > 0 {

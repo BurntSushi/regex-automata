@@ -51,6 +51,23 @@ macro_rules! new {
                 }
             });
         }
+        #[cfg(feature = "perf-literal-substring")]
+        if needles.len() == 2 && needles.iter().all(|n| n.as_ref().len() == 1)
+        {
+            debug!("prefilter built: memchr2");
+            let b1 = needles[0].as_ref()[0];
+            let b2 = needles[1].as_ref()[0];
+            return Some(Arc::new(Memchr2(b1, b2)));
+        }
+        #[cfg(feature = "perf-literal-substring")]
+        if needles.len() == 3 && needles.iter().all(|n| n.as_ref().len() == 1)
+        {
+            debug!("prefilter built: memchr3");
+            let b1 = needles[0].as_ref()[0];
+            let b2 = needles[1].as_ref()[0];
+            let b3 = needles[2].as_ref()[0];
+            return Some(Arc::new(Memchr3(b1, b2, b3)));
+        }
         #[cfg(feature = "perf-literal-multisubstring")]
         if let Some(byteset) = ByteSet::new(needles) {
             debug!("prefilter built: byteset");
@@ -164,12 +181,17 @@ pub(crate) trait PrefilterI:
 
 #[cfg(feature = "alloc")]
 impl<P: PrefilterI + ?Sized> PrefilterI for Arc<P> {
+    #[inline(always)]
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         (&**self).find(haystack, span)
     }
+
+    #[inline(always)]
     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
         (&**self).prefix(haystack, span)
     }
+
+    #[inline(always)]
     fn memory_usage(&self) -> usize {
         (&**self).memory_usage()
     }

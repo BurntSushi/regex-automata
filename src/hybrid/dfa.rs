@@ -1873,7 +1873,9 @@ impl Cache {
             memory_usage_state: 0,
             clear_count: 0,
         };
+        debug!("pre-init lazy DFA cache size: {}", cache.memory_usage());
         Lazy { dfa, cache: &mut cache }.init_cache();
+        debug!("post-init lazy DFA cache size: {}", cache.memory_usage());
         cache
     }
 

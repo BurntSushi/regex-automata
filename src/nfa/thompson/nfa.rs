@@ -1164,6 +1164,7 @@ impl Inner {
                 match self.states[sid] {
                     State::ByteRange { .. }
                     | State::Sparse { .. }
+                    | State::Dense { .. }
                     | State::Fail => continue,
                     State::Match { .. } => self.has_empty = true,
                     State::Look { look, next } => {
@@ -1215,6 +1216,7 @@ impl Inner {
                     self.byte_class_set.set_range(trans.start, trans.end);
                 }
             }
+            State::Dense { .. } => unreachable!(),
             State::Look { ref look, .. } => {
                 look.add_to_byteset(&mut self.byte_class_set);
                 self.look_set_union = self.look_set_union.insert(*look);
@@ -1367,6 +1369,8 @@ pub enum State {
     /// decreases the overhead of traversing the NFA. This can improve both
     /// matching time and DFA construction time.
     Sparse(SparseTransitions),
+    /// A dense representation of a state with multiple transitions.
+    Dense(DenseTransitions),
     /// A conditional epsilon transition satisfied via some sort of
     /// look-around. Look-around is limited to anchor and word boundary
     /// assertions.
@@ -1495,6 +1499,7 @@ impl State {
         match *self {
             State::ByteRange { .. }
             | State::Sparse { .. }
+            | State::Dense { .. }
             | State::Fail
             | State::Match { .. } => false,
             State::Look { .. }
@@ -1516,6 +1521,7 @@ impl State {
             State::Sparse(SparseTransitions { ref transitions }) => {
                 transitions.len() * mem::size_of::<Transition>()
             }
+            State::Dense { .. } => 256 * mem::size_of::<StateID>(),
             State::Union { ref alternates } => {
                 alternates.len() * mem::size_of::<StateID>()
             }
@@ -1538,6 +1544,11 @@ impl State {
                     t.next = remap[t.next];
                 }
             }
+            State::Dense(DenseTransitions { ref mut transitions }) => {
+                for sid in transitions.iter_mut() {
+                    *sid = remap[*sid];
+                }
+            }
             State::Look { ref mut next, .. } => *next = remap[*next],
             State::Union { ref mut alternates } => {
                 for alt in alternates.iter_mut() {
@@ -1557,6 +1568,8 @@ impl State {
 
 impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::util::escape::DebugByte;
+
         match *self {
             State::ByteRange { ref trans } => trans.fmt(f),
             State::Sparse(SparseTransitions { ref transitions }) => {
@@ -1566,6 +1579,16 @@ impl fmt::Debug for State {
                     .collect::<Vec<String>>()
                     .join(", ");
                 write!(f, "sparse({})", rs)
+            }
+            State::Dense(ref dense) => {
+                write!(f, "dense(")?;
+                for (i, t) in dense.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{:?}", t)?;
+                }
+                write!(f, ")")
             }
             State::Look { ref look, next } => {
                 write!(f, "{:?} => {:?}", look, next.as_usize())
@@ -1689,6 +1712,45 @@ impl SparseTransitions {
             .ok()
             .map(|i| self.transitions[i].next)
         */
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DenseTransitions {
+    /// A dense representation of this state's transitions on the heap. This
+    /// always has length 256.
+    pub transitions: Box<[StateID]>,
+}
+
+impl DenseTransitions {
+    pub fn matches(&self, haystack: &[u8], at: usize) -> Option<StateID> {
+        haystack.get(at).and_then(|&b| self.matches_byte(b))
+    }
+
+    pub fn matches_unit(&self, unit: alphabet::Unit) -> Option<StateID> {
+        unit.as_u8().map_or(None, |byte| self.matches_byte(byte))
+    }
+
+    pub fn matches_byte(&self, byte: u8) -> Option<StateID> {
+        let next = self.transitions[usize::from(byte)];
+        if next == StateID::ZERO {
+            None
+        } else {
+            Some(next)
+        }
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = Transition> + '_ {
+        use crate::util::int::Usize;
+        self.transitions
+            .iter()
+            .enumerate()
+            .filter(|&(_, &sid)| sid != StateID::ZERO)
+            .map(|(byte, &next)| Transition {
+                start: byte.as_u8(),
+                end: byte.as_u8(),
+                next,
+            })
     }
 }
 

@@ -8,6 +8,7 @@ unicode = false
 match-count = 7384532
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/sparse',
   'regex/automata/hybrid',
@@ -30,6 +31,7 @@ unicode = true
 match-count = 213766
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/sparse',
   'regex/automata/hybrid',
@@ -51,6 +53,7 @@ unicode = false
 match-count = 664
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/sparse',
   'regex/automata/hybrid',
@@ -72,6 +75,7 @@ unicode = true
 match-count = 666
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/sparse',
   'regex/automata/hybrid',
@@ -92,6 +96,7 @@ unicode = false
 match-count = 0
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/sparse',
   'regex/automata/hybrid',
@@ -113,6 +118,7 @@ unicode = true
 match-count = 56798
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   'pcre2/api/jit',
@@ -130,6 +136,7 @@ unicode = true
 match-count = 1
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   'pcre2/api/jit',
@@ -147,6 +154,7 @@ unicode = true
 match-count = 351
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   'pcre2/api/jit',
@@ -164,6 +172,7 @@ unicode = true
 match-count = 1244
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
@@ -184,6 +193,7 @@ unicode = true
 match-count = 0
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
@@ -203,6 +213,7 @@ unicode = true
 capture-count = 874
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   're2/api',
@@ -227,6 +238,7 @@ unicode = true
 capture-count = 30
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/backtrack',
   'regex/automata/pikevm',
   'regexold/api',
@@ -246,6 +258,7 @@ unicode = true
 match-count = 1112063
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regexold/api',
@@ -290,6 +303,7 @@ unicode = true
 match-count = 1109158
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   # FIXME: "update" regexold to bring in Unicode 15...
@@ -310,6 +324,7 @@ unicode = false
 capture-count = 948
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   're2/api',
@@ -339,6 +354,7 @@ unicode = false
 match-count = 49
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/dense',
   'regex/automata/hybrid',
   'regexold/api',
@@ -358,6 +374,7 @@ unicode = false
 capture-count = 148
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   're2/api',
@@ -376,6 +393,7 @@ unicode = false
 capture-count = 81_494
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   'pcre2/api/jit',

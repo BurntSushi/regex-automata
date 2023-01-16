@@ -5,6 +5,7 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
+        "regex/automata/meta" => regex_automata_meta(b),
         "regex/automata/backtrack" => regex_automata_backtrack(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
         #[cfg(feature = "old-regex-crate")]
@@ -46,6 +47,32 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
             // Benchmark definition says we may assume empty matches are
             // impossible.
             at = m.end();
+        }
+        Ok(count)
+    })
+}
+
+fn regex_automata_meta(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::Input;
+
+    let mut input = Input::new(&b.haystack);
+    let re = new::regex_automata_meta(b)?;
+    let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    b.run(verify, || {
+        input.set_start(0);
+        let mut count = 0;
+        while let Some(m) = {
+            re.try_search_captures(&mut cache, &input, &mut caps)?;
+            caps.get_match()
+        } {
+            for i in 0..caps.group_len() {
+                if caps.get_group(i).is_some() {
+                    count += 1;
+                }
+            }
+            // Benchmark definition says we may assume empty matches are
+            // impossible.
+            input.set_start(m.end());
         }
         Ok(count)
     })

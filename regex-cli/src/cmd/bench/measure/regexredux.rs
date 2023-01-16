@@ -5,6 +5,7 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
+        "regex/automata/meta" => regex_automata_meta(b),
         "regex/automata/dense" => regex_automata_dfa_dense(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
         "regex/automata/pikevm" => regex_automata_pikevm(b),
@@ -58,13 +59,30 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
     b.run(verify, || generic_regex_redux(&b.haystack, compile))
 }
 
-fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::dfa::regex::Regex;
+fn regex_automata_meta(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::meta::Regex;
 
     let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
         let re = Regex::builder()
-            .configure(Regex::config().utf8(false))
             .syntax(new::automata_syntax_config(b))
+            .configure(Regex::config().utf8(false))
+            .build(pattern)?;
+        let mut cache = re.create_cache();
+        let find = move |h: &[u8]| {
+            Ok(re.find(&mut cache, h).map(|m| (m.start(), m.end())))
+        };
+        Ok(Box::new(find))
+    };
+    b.run(verify, || generic_regex_redux(&b.haystack, compile))
+}
+
+fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
+    use automata::{dfa::regex::Regex, nfa::thompson};
+
+    let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
+        let re = Regex::builder()
+            .syntax(new::automata_syntax_config(b))
+            .thompson(thompson::Config::new().utf8(false))
             .build(pattern)?;
         let find = move |h: &[u8]| -> anyhow::Result<Option<(usize, usize)>> {
             Ok(re.find(h).map(|m| (m.start(), m.end())))
@@ -75,13 +93,16 @@ fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::hybrid::{dfa::DFA, regex::Regex};
+    use automata::{
+        hybrid::{dfa::DFA, regex::Regex},
+        nfa::thompson,
+    };
 
     let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
         let re = Regex::builder()
-            .configure(Regex::config().utf8(false))
-            .dfa(DFA::config().skip_cache_capacity_check(true))
             .syntax(new::automata_syntax_config(b))
+            .thompson(thompson::Config::new().utf8(false))
+            .dfa(DFA::config().skip_cache_capacity_check(true))
             .build(pattern)?;
         let mut cache = re.create_cache();
         let find = move |h: &[u8]| -> anyhow::Result<Option<(usize, usize)>> {
@@ -93,12 +114,15 @@ fn regex_automata_hybrid(b: &Benchmark) -> anyhow::Result<Results> {
 }
 
 fn regex_automata_pikevm(b: &Benchmark) -> anyhow::Result<Results> {
-    use automata::{nfa::thompson::pikevm::PikeVM, util::captures::Captures};
+    use automata::{
+        nfa::thompson::{self, pikevm::PikeVM},
+        util::captures::Captures,
+    };
 
     let compile = |pattern: &str| -> anyhow::Result<RegexFn> {
         let re = PikeVM::builder()
-            .configure(PikeVM::config().utf8(false))
             .syntax(new::automata_syntax_config(b))
+            .thompson(thompson::Config::new().utf8(false))
             .build(pattern)?;
         let mut cache = re.create_cache();
         let mut caps = Captures::matches(re.get_nfa().group_info().clone());

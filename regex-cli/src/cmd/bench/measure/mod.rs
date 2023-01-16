@@ -252,7 +252,7 @@ pub fn run(args: &Args) -> anyhow::Result<()> {
                 wtr.write_record(&[
                     b.def.full_name(),
                     b.engine.clone(),
-                    err.to_string(),
+                    format!("{:#}", err),
                 ])?;
             } else if runner.verbose {
                 wtr.write_record(&[
@@ -1196,7 +1196,7 @@ impl Benchmark {
     fn aggregate(&self, result: anyhow::Result<Results>) -> Measurement {
         match result {
             Ok(results) => results.to_measurement(),
-            Err(err) => self.measurement_error(err.to_string()),
+            Err(err) => self.measurement_error(format!("{:#}", err)),
         }
     }
 

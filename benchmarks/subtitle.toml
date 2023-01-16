@@ -10,6 +10,7 @@ engines = [
   'regex/api',
   'memchr/memmem',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -28,6 +29,7 @@ engines = [
   'regex/api',
   'memchr/memmem',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -45,6 +47,7 @@ match-count = 1
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -62,6 +65,7 @@ match-count = 1
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',

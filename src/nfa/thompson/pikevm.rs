@@ -1472,6 +1472,18 @@ impl PikeVM {
                 }
                 None
             }
+            State::Dense(ref dense) => {
+                if let Some(next_sid) = dense.matches(input.haystack(), at) {
+                    let slots = curr_slot_table.for_state(sid);
+                    // OK because 'at <= haystack.len() < usize::MAX', so
+                    // adding 1 will never wrap.
+                    let at = at.wrapping_add(1);
+                    self.epsilon_closure(
+                        stack, slots, next, input, at, next_sid,
+                    );
+                }
+                None
+            }
             State::Match { pattern_id } => Some(pattern_id),
         }
     }
@@ -1569,7 +1581,8 @@ impl PikeVM {
                 State::Fail
                 | State::Match { .. }
                 | State::ByteRange { .. }
-                | State::Sparse { .. } => {
+                | State::Sparse { .. }
+                | State::Dense { .. } => {
                     next.slot_table.for_state(sid).copy_from_slice(curr_slots);
                     return;
                 }
@@ -1988,7 +2001,10 @@ impl SlotTable {
             // for the lazy DFA cache? If you're tripping this assert, please
             // file a bug.
             .expect("slot table length doesn't overflow");
-        debug!("resizing PikeVM active states table to {} entries", len);
+        // This happens about as often as a regex is compiled, so it probably
+        // should be at debug level, but I found it quite distracting and not
+        // particularly useful.
+        trace!("resizing PikeVM active states table to {} entries", len);
         self.table.resize(len, None);
     }
 

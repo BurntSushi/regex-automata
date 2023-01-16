@@ -263,6 +263,7 @@ struct Core {
     backtrack: wrappers::BoundedBacktracker,
     onepass: wrappers::OnePass,
     hybrid: wrappers::Hybrid,
+    dfa: wrappers::DFA,
 }
 
 impl Core {
@@ -292,33 +293,54 @@ impl Core {
         // to all regexes. The 'OnePass' wrapper encapsulates this failure (and
         // logs a message if it occurs).
         let onepass = wrappers::OnePass::new(info, &nfa);
-        // We try to encapsulate whether a particular regex engine should
-        // be used within each respective wrapper, but the lazy DFA needs a
-        // reverse NFA to build itself, and we really do not want to build a
-        // reverse NFA if we know we aren't going to use the lazy DFA. So we do
-        // a config check up front, which is in practice the only way we won't
-        // try to use the lazy DFA.
-        let (nfarev, hybrid) = if !info.config.get_hybrid() {
-            (None, wrappers::Hybrid::none())
-        } else {
-            let nfarev = thompson::Compiler::new()
-                // Currently, reverse NFAs don't support capturing groups, so
-                // we MUST disable them. But even if we didn't have to, we
-                // would, because nothing in this crate does anything useful
-                // with capturing groups in reverse. And of course, the lazy
-                // DFA ignores capturing groups in all cases.
-                .configure(
-                    thompson_config.clone().captures(false).reverse(true),
-                )
-                .build_many_from_hir(hirs)
-                .map_err(BuildError::nfa)?;
-            let hybrid = wrappers::Hybrid::new(info, &nfa, &nfarev);
-            (Some(nfarev), hybrid)
-        };
-        Ok(Arc::new(Core { nfa, nfarev, pikevm, backtrack, onepass, hybrid }))
+        // We try to encapsulate whether a particular regex engine should be
+        // used within each respective wrapper, but the DFAs need a reverse NFA
+        // to build itself, and we really do not want to build a reverse NFA if
+        // we know we aren't going to use the lazy DFA. So we do a config check
+        // up front, which is in practice the only way we won't try to use the
+        // DFA.
+        let (nfarev, hybrid, dfa) =
+            if !info.config.get_hybrid() && !info.config.get_dfa() {
+                (None, wrappers::Hybrid::none(), wrappers::DFA::none())
+            } else {
+                let nfarev = thompson::Compiler::new()
+                    // Currently, reverse NFAs don't support capturing groups, so
+                    // we MUST disable them. But even if we didn't have to, we
+                    // would, because nothing in this crate does anything useful
+                    // with capturing groups in reverse. And of course, the lazy
+                    // DFA ignores capturing groups in all cases.
+                    .configure(
+                        thompson_config.clone().captures(false).reverse(true),
+                    )
+                    .build_many_from_hir(hirs)
+                    .map_err(BuildError::nfa)?;
+                let dfa = if !info.config.get_dfa() {
+                    wrappers::DFA::none()
+                } else {
+                    wrappers::DFA::new(info, &nfa, &nfarev)
+                };
+                let hybrid = if !info.config.get_hybrid() {
+                    wrappers::Hybrid::none()
+                } else if dfa.is_some() {
+                    debug!("skipping lazy DFA because we have a full DFA");
+                    wrappers::Hybrid::none()
+                } else {
+                    wrappers::Hybrid::new(info, &nfa, &nfarev)
+                };
+                (Some(nfarev), hybrid, dfa)
+            };
+        Ok(Arc::new(Core {
+            nfa,
+            nfarev,
+            pikevm,
+            backtrack,
+            onepass,
+            hybrid,
+            dfa,
+        }))
     }
 
-    fn try_find_no_hybrid(
+    fn try_find_fallback(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
@@ -349,7 +371,7 @@ impl Core {
         Ok(caps.get_match())
     }
 
-    fn try_slots_no_hybrid(
+    fn try_slots_fallback(
         &self,
         cache: &mut Cache,
         input: &Input<'_, '_>,
@@ -405,7 +427,21 @@ impl Strategy for Core {
         cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<Match>, MatchError> {
-        if let Some(e) = self.hybrid.get(input) {
+        if let Some(e) = self.dfa.get(input) {
+            trace!(
+                "using full DFA for basic search at {:?}",
+                input.get_span()
+            );
+            let err = match e.try_find(input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!("full DFA failed in basic search, using fallback: {}", err);
+            // Fallthrough to the fallback.
+        } else if let Some(e) = self.hybrid.get(input) {
             trace!(
                 "using lazy DFA for basic search at {:?}",
                 input.get_span()
@@ -420,7 +456,7 @@ impl Strategy for Core {
             trace!("lazy DFA failed in basic search, using fallback: {}", err);
             // Fallthrough to the fallback.
         }
-        self.try_find_no_hybrid(cache, input)
+        self.try_find_fallback(cache, input)
     }
 
     fn try_find_earliest(
@@ -428,12 +464,31 @@ impl Strategy for Core {
         cache: &mut Cache,
         input: &Input<'_, '_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for 'is match' at {:?}", input.get_span());
-            // This is the main difference with 'try_find'. If we only need a
-            // HalfMatch, then the lazy DFA can simply do a forward scan and
-            // return the end offset and skip the reverse scan since the start
-            // offset has not been requested.
+        // The main difference with 'try_find' is that if we're using a DFA,
+        // we can use a single forward scan without needing to run the reverse
+        // DFA.
+        if let Some(e) = self.dfa.get(input) {
+            trace!(
+                "using full DFA for earliest search at {:?}",
+                input.get_span()
+            );
+            let err = match e.try_find_earliest(input) {
+                Ok(matched) => return Ok(matched),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!(
+                "full DFA failed for earliest search, using fallback: {}",
+                err
+            );
+            // Fallthrough to the fallback.
+        } else if let Some(e) = self.hybrid.get(input) {
+            trace!(
+                "using lazy DFA for earliest search at {:?}",
+                input.get_span()
+            );
             let err = match e.try_find_earliest(&mut cache.hybrid, input) {
                 Ok(matched) => return Ok(matched),
                 Err(err) => err,
@@ -441,15 +496,18 @@ impl Strategy for Core {
             if !is_err_quit_or_gaveup(&err) {
                 return Err(err);
             }
-            trace!("lazy DFA failed for 'is match', using fallback: {}", err);
+            trace!(
+                "lazy DFA failed for earliest search, using fallback: {}",
+                err
+            );
             // Fallthrough to the fallback.
         }
-        // Only the lazy DFA returns half-matches, since the DFA requires
+        // Only the lazy/full DFA returns half-matches, since the DFA requires
         // a reverse scan to find the start position. These fallback regex
         // engines can find the start and end in a single pass, so we just do
         // that and throw away the start offset.
         Ok(self
-            .try_find_no_hybrid(cache, input)?
+            .try_find_fallback(cache, input)?
             .map(|m| HalfMatch::new(m.pattern(), m.end())))
     }
 
@@ -464,6 +522,9 @@ impl Strategy for Core {
         // extra work to get offsets for those slots. Ideally the caller should
         // realize this and not call this routine in the first place, but alas,
         // we try to save the caller from themselves if they do.
+        //
+        // FIXME: I think this should use 'implicit_slot_len'. Write a doc test
+        // for this and fix the bug.
         if slots.len() <= self.nfa.group_info().explicit_slot_len() {
             trace!("asked for slots unnecessarily, diverting to 'find'");
             let m = match self.try_find(cache, input)? {
@@ -472,17 +533,52 @@ impl Strategy for Core {
             };
             let slot_start = m.pattern().as_usize() * 2;
             let slot_end = slot_start + 1;
-            if slot_start < slots.len() {
-                slots[slot_start] = NonMaxUsize::new(m.start());
-                if slot_end < slots.len() {
-                    slots[slot_end] = NonMaxUsize::new(m.end());
-                }
+            if let Some(slot) = slots.get_mut(slot_start) {
+                *slot = NonMaxUsize::new(m.start());
+            }
+            if let Some(slot) = slots.get_mut(slot_end) {
+                *slot = NonMaxUsize::new(m.end());
             }
             return Ok(Some(m.pattern()));
         }
-        if let Some(e) = self.hybrid.get(input) {
+        if let Some(e) = self.dfa.get(input) {
             trace!(
-                "using lazy DFA for capture search at {:?}",
+                "using full DFA for initial capture search at {:?}",
+                input.get_span()
+            );
+            match e.try_find(input) {
+                Ok(None) => return Ok(None),
+                Ok(Some(m)) => {
+                    // At this point, now that we've found the bounds of the
+                    // match, we need to re-run something that can resolve
+                    // capturing groups. But we only need to run on it on the
+                    // match bounds and not the entire haystack.
+                    trace!(
+                        "match found at {}..{}, \
+                         using another engine to find captures",
+                        m.start(),
+                        m.end(),
+                    );
+                    let input = input
+                        .clone()
+                        .span(m.start()..m.end())
+                        .anchored(Anchored::Yes);
+                    return self.try_slots_fallback(cache, &input, slots);
+                }
+                Err(err) => {
+                    if !is_err_quit_or_gaveup(&err) {
+                        return Err(err);
+                    }
+                    trace!(
+                        "full DFA failed in capture search, using fallback: {}",
+                        err,
+                    );
+                    // Otherwise fallthrough to the fallback below.
+                }
+            };
+        } else if let Some(e) = self.hybrid.get(input) {
+            trace!(
+                "using lazy DFA for initial capture search at {:?}",
                 input.get_span()
             );
             match e.try_find(&mut cache.hybrid, input) {
@@ -502,7 +598,7 @@ impl Strategy for Core {
                         .clone()
                         .span(m.start()..m.end())
                         .anchored(Anchored::Yes);
-                    return self.try_slots_no_hybrid(cache, &input, slots);
+                    return self.try_slots_fallback(cache, &input, slots);
                 }
                 Err(err) => {
                     if !is_err_quit_or_gaveup(&err) {
@@ -516,7 +612,7 @@ impl Strategy for Core {
                 }
             };
         }
-        self.try_slots_no_hybrid(cache, input, slots)
+        self.try_slots_fallback(cache, input, slots)
     }
 
     fn try_which_overlapping_matches(
@@ -525,7 +621,24 @@ impl Strategy for Core {
         input: &Input<'_, '_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        if let Some(e) = self.hybrid.get(input) {
+        if let Some(e) = self.dfa.get(input) {
+            trace!(
+                "using full DFA for overlapping search at {:?}",
+                input.get_span()
+            );
+            let err = match e.try_which_overlapping_matches(input, patset) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!(
+                "full DFA failed in overlapping search, using fallback: {}",
+                err
+            );
+            // Fallthrough to the fallback.
+        } else if let Some(e) = self.hybrid.get(input) {
             trace!(
                 "using lazy DFA for overlapping search at {:?}",
                 input.get_span()

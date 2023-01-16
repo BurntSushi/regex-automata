@@ -20,6 +20,7 @@ unicode = false
 match-count = 1
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regex/automata/backtrack',
@@ -40,6 +41,7 @@ unicode = false
 match-count = 1
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regex/automata/backtrack',
@@ -60,6 +62,7 @@ unicode = false
 match-count = 1
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/hybrid',
   'regex/automata/pikevm',
   'regexold/api',
@@ -79,6 +82,7 @@ unicode = false
 capture-count = 6
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regex/automata/backtrack',
   'regexold/api',
@@ -98,6 +102,7 @@ unicode = false
 capture-count = 6
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regex/automata/backtrack',
   'regexold/api',
@@ -117,6 +122,7 @@ unicode = false
 capture-count = 6
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regex/automata/pikevm',
   'regexold/api',
   're2/api',

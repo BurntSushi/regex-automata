@@ -8,6 +8,7 @@ unicode = false
 match-count = 97
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'memchr/memmem',
   'regexold/api',
   're2/api',
@@ -26,6 +27,7 @@ unicode = false
 match-count = 461
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'memchr/memmem',
   'regexold/api',
   're2/api',
@@ -44,6 +46,7 @@ unicode = false
 match-count = 91
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'memchr/memmem',
   'regexold/api',
   're2/api',
@@ -62,6 +65,7 @@ unicode = false
 match-count = 102
 engines = [
   'regex/api',
+  'regex/automata/meta',
   'regexold/api',
   're2/api',
   'pcre2/api/jit',
@@ -80,6 +84,7 @@ match-count = 467
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -97,6 +102,7 @@ match-count = 96
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -114,6 +120,7 @@ match-count = 97
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -131,6 +138,7 @@ match-count = 158
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -148,6 +156,7 @@ match-count = 558
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -165,6 +174,7 @@ match-count = 740
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -182,6 +192,7 @@ match-count = 753
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -199,6 +210,7 @@ match-count = 582
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -216,6 +228,7 @@ match-count = 697
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -233,6 +246,7 @@ match-count = 639
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -250,6 +264,7 @@ match-count = 650
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -267,6 +282,7 @@ match-count = 0
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -284,6 +300,7 @@ match-count = 0
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -301,6 +318,7 @@ match-count = 0
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -319,6 +337,7 @@ engines = [
   'regex/api',
   'memchr/memmem',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -337,6 +356,7 @@ engines = [
   'regex/api',
   'memchr/memmem',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -354,6 +374,7 @@ match-count = 7987
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -371,6 +392,7 @@ match-count = 13053
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
 ]
@@ -387,6 +409,7 @@ match-count = 1
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -404,6 +427,7 @@ match-count = 447_160
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   # 'pcre2/api/nojit', # why so slow?
@@ -421,6 +445,7 @@ match-count = 14_180
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   # 'pcre2/api/nojit', # why so slow?
@@ -438,6 +463,7 @@ match-count = 432_980
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   # 'pcre2/api/nojit', # why so slow?
@@ -455,6 +481,7 @@ match-count = 109_222
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -472,6 +499,7 @@ match-count = 319
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -489,6 +517,7 @@ match-count = 137
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -506,6 +535,7 @@ match-count = 7
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -523,6 +553,7 @@ match-count = 51
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
 ]
 analysis = 'TODO'
@@ -538,6 +569,7 @@ match-count = 767
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -555,6 +587,7 @@ match-count = 34
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -572,6 +605,7 @@ match-count = 8366
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -589,6 +623,7 @@ match-count = 142
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -606,6 +641,7 @@ match-count = 2824
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',
@@ -623,6 +659,7 @@ match-count = 2081
 engines = [
   'regex/api',
   'regexold/api',
+  'regex/automata/meta',
   're2/api',
   'pcre2/api/jit',
   'pcre2/api/nojit',

@@ -110,55 +110,55 @@ impl Regex {
 
 impl Regex {
     #[inline]
-    pub fn try_is_match<H: AsRef<[u8]>>(
+    pub fn is_match<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
         haystack: H,
-    ) -> Result<bool, MatchError> {
-        self.try_find_earliest(cache, haystack).map(|m| m.is_some())
+    ) -> bool {
+        self.find_earliest(cache, haystack).is_some()
     }
 
     #[inline]
-    pub fn try_find<H: AsRef<[u8]>>(
+    pub fn find<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
         haystack: H,
-    ) -> Result<Option<Match>, MatchError> {
+    ) -> Option<Match> {
         let input = self.create_input(haystack.as_ref());
-        self.try_search(cache, &input)
+        self.try_search(cache, &input).unwrap()
     }
 
     #[inline]
-    pub fn try_find_earliest<H: AsRef<[u8]>>(
+    pub fn find_earliest<H: AsRef<[u8]>>(
         &self,
         cache: &mut Cache,
         haystack: H,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Option<HalfMatch> {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        self.try_search_earliest(cache, &input)
+        self.try_search_earliest(cache, &input).unwrap()
     }
 
     #[inline]
-    pub fn try_find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> TryFindMatches<'r, 'c, 'h> {
+    ) -> FindMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
         let it = iter::Searcher::new(input);
-        TryFindMatches { re: self, cache, it }
+        FindMatches { re: self, cache, it }
     }
 
     #[inline]
-    pub fn try_captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
         &'r self,
         cache: &'c mut Cache,
         haystack: &'h H,
-    ) -> TryCapturesMatches<'r, 'c, 'h> {
+    ) -> CapturesMatches<'r, 'c, 'h> {
         let input = self.create_input(haystack.as_ref());
         let caps = self.create_captures();
         let it = iter::Searcher::new(input);
-        TryCapturesMatches { re: self, cache, caps, it }
+        CapturesMatches { re: self, cache, caps, it }
     }
 }
 
@@ -223,46 +223,44 @@ pub(crate) struct RegexInfo {
 }
 
 #[derive(Debug)]
-pub struct TryFindMatches<'r, 'c, 'h> {
+pub struct FindMatches<'r, 'c, 'h> {
     re: &'r Regex,
     cache: &'c mut Cache,
     it: iter::Searcher<'h, 'r>,
 }
 
-impl<'r, 'c, 'h> Iterator for TryFindMatches<'r, 'c, 'h> {
-    type Item = Result<Match, MatchError>;
+impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
+    type Item = Match;
 
     #[inline]
-    fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        let TryFindMatches { re, ref mut cache, ref mut it } = *self;
-        it.try_advance(|input| re.try_search(cache, input)).transpose()
+    fn next(&mut self) -> Option<Match> {
+        let FindMatches { re, ref mut cache, ref mut it } = *self;
+        it.advance(|input| re.try_search(cache, input))
     }
 }
 
 #[derive(Debug)]
-pub struct TryCapturesMatches<'r, 'c, 'h> {
+pub struct CapturesMatches<'r, 'c, 'h> {
     re: &'r Regex,
     cache: &'c mut Cache,
     caps: Captures,
     it: iter::Searcher<'h, 'r>,
 }
 
-impl<'r, 'c, 'h> Iterator for TryCapturesMatches<'r, 'c, 'h> {
-    type Item = Result<Captures, MatchError>;
+impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
+    type Item = Captures;
 
     #[inline]
-    fn next(&mut self) -> Option<Result<Captures, MatchError>> {
+    fn next(&mut self) -> Option<Captures> {
         // Splitting 'self' apart seems necessary to appease borrowck.
-        let TryCapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
+        let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
-        let _ = it
-            .try_advance(|input| {
-                re.try_search_captures(cache, input, caps)?;
-                Ok(caps.get_match())
-            })
-            .transpose()?;
+        let _ = it.advance(|input| {
+            re.try_search_captures(cache, input, caps)?;
+            Ok(caps.get_match())
+        });
         if caps.is_match() {
-            Some(Ok(caps.clone()))
+            Some(caps.clone())
         } else {
             None
         }
@@ -314,6 +312,9 @@ pub struct Config {
     onepass_size_limit: Option<Option<usize>>,
     hybrid_cache_capacity: Option<usize>,
     hybrid: Option<bool>,
+    dfa: Option<bool>,
+    dfa_size_limit: Option<Option<usize>>,
+    dfa_state_limit: Option<Option<usize>>,
     onepass: Option<bool>,
     backtrack: Option<bool>,
     byte_classes: Option<bool>,
@@ -352,8 +353,20 @@ impl Config {
         Config { hybrid_cache_capacity: Some(limit), ..self }
     }
 
+    pub fn dfa_size_limit(self, limit: Option<usize>) -> Config {
+        Config { dfa_size_limit: Some(limit), ..self }
+    }
+
+    pub fn dfa_state_limit(self, limit: Option<usize>) -> Config {
+        Config { dfa_state_limit: Some(limit), ..self }
+    }
+
     pub fn hybrid(self, yes: bool) -> Config {
         Config { hybrid: Some(yes), ..self }
+    }
+
+    pub fn dfa(self, yes: bool) -> Config {
+        Config { dfa: Some(yes), ..self }
     }
 
     pub fn onepass(self, yes: bool) -> Config {
@@ -396,12 +409,50 @@ impl Config {
         self.hybrid_cache_capacity.unwrap_or(2 * (1 << 20))
     }
 
+    pub fn get_dfa_size_limit(&self) -> Option<usize> {
+        // The default for this is VERY small because building a full DFA is
+        // ridiculously costly. But for regexes that are very small, it can be
+        // beneficial to use a full DFA. In particular, a full DFA can enable
+        // additional optimizations via something called "accelerated" states.
+        // Namely, when there's a state with only a few outgoing transitions,
+        // we can temporary suspend walking the transition table and use memchr
+        // for just those outgoing transitions to skip ahead very quickly.
+        //
+        // Generally speaking, if Unicode is enabled in your regex and you're
+        // using some kind of Unicode feature, then it's going to blow this
+        // size limit. Moreover, Unicode tends to defeat the "accelerated"
+        // state optimization too, so it's a double whammy.
+        //
+        // We also use a limit on the number of NFA states to avoid even
+        // starting the DFA construction process. Namely, DFA construction
+        // itself could make lots of initial allocs proportional to the size
+        // of the NFA, and if the NFA is large, it doesn't make sense to pay
+        // that cost if we know it's likely to be blown by a large margin.
+        self.dfa_size_limit.unwrap_or(Some(40 * (1 << 10)))
+    }
+
+    pub fn get_dfa_state_limit(&self) -> Option<usize> {
+        // Again, as with the size limit, we keep this very small.
+        self.dfa_state_limit.unwrap_or(Some(30))
+    }
+
     pub fn get_hybrid(&self) -> bool {
         #[cfg(feature = "hybrid")]
         {
             self.hybrid.unwrap_or(true)
         }
         #[cfg(not(feature = "hybrid"))]
+        {
+            false
+        }
+    }
+
+    pub fn get_dfa(&self) -> bool {
+        #[cfg(feature = "dfa-build")]
+        {
+            self.dfa.unwrap_or(true)
+        }
+        #[cfg(not(feature = "dfa-build"))]
         {
             false
         }
@@ -451,6 +502,9 @@ impl Config {
                 .hybrid_cache_capacity
                 .or(self.hybrid_cache_capacity),
             hybrid: o.hybrid.or(self.hybrid),
+            dfa: o.dfa.or(self.dfa),
+            dfa_size_limit: o.dfa_size_limit.or(self.dfa_size_limit),
+            dfa_state_limit: o.dfa_state_limit.or(self.dfa_state_limit),
             onepass: o.onepass.or(self.onepass),
             backtrack: o.backtrack.or(self.backtrack),
             byte_classes: o.byte_classes.or(self.byte_classes),
@@ -482,6 +536,14 @@ impl Builder {
         &self,
         patterns: &[P],
     ) -> Result<Regex, BuildError> {
+        log! {
+            use crate::util::primitives::IteratorIndexExt;
+
+            debug!("building meta regex with {} patterns:", patterns.len());
+            for (pid, p) in patterns.iter().with_pattern_ids() {
+                debug!("{:?}: {}", pid, p.as_ref());
+            }
+        }
         let (mut asts, mut hirs) = (vec![], vec![]);
         for p in patterns.iter() {
             asts.push(

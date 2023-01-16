@@ -5,6 +5,8 @@ use crate::{
     HalfMatch, Input, Match, MatchError, MatchKind, PatternID, PatternSet,
 };
 
+#[cfg(feature = "dfa-build")]
+use crate::dfa;
 #[cfg(feature = "dfa-onepass")]
 use crate::dfa::onepass;
 #[cfg(feature = "hybrid")]
@@ -452,6 +454,151 @@ impl HybridCache {
         #[cfg(not(feature = "hybrid"))]
         {
             0
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct DFA(Option<DFAEngine>);
+
+impl DFA {
+    pub(crate) fn none() -> DFA {
+        DFA(None)
+    }
+
+    pub(crate) fn new(info: &RegexInfo, nfa: &NFA, nfarev: &NFA) -> DFA {
+        DFA(DFAEngine::new(info, nfa, nfarev))
+    }
+
+    #[inline(always)]
+    pub(crate) fn get(&self, input: &Input<'_, '_>) -> Option<&DFAEngine> {
+        let engine = self.0.as_ref()?;
+        Some(engine)
+    }
+
+    pub(crate) fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct DFAEngine(
+    #[cfg(feature = "dfa-build")] dfa::regex::Regex,
+    #[cfg(not(feature = "dfa-build"))] (),
+);
+
+impl DFAEngine {
+    pub(crate) fn new(
+        info: &RegexInfo,
+        nfa: &NFA,
+        nfarev: &NFA,
+    ) -> Option<DFAEngine> {
+        #[cfg(feature = "dfa-build")]
+        {
+            if !info.config.get_dfa() {
+                return None;
+            }
+            // If our NFA is anything but small, don't even bother with a DFA.
+            if let Some(state_limit) = info.config.get_dfa_state_limit() {
+                if nfa.states().len() > state_limit {
+                    return None;
+                }
+            }
+            // We cut the size limit in four because the total heap used by
+            // DFA construction is determinization aux memory and the DFA
+            // itself, and those things are configured independently in the
+            // lower level DFA builder API. And then split that in two because
+            // of forward and reverse DFAs.
+            let size_limit = info.config.get_dfa_size_limit().map(|n| n / 4);
+            let dfa_config = dfa::dense::Config::new()
+                .match_kind(info.config.get_match_kind())
+                // Unconditionally enabling this seems fine for a meta regex
+                // engine. It can be most costly for DFAs than lazy DFAs,
+                // because it means computing the transition table for both
+                // unanchored and anchored starting states. But since we keep
+                // a VERY TIGHT bound on the total size of the DFA, this just
+                // in practice means we don't use the DFA as much as we might
+                // otherwise if we only had to build anchored or unanchored
+                // support instead of both.
+                .starts_for_each_pattern(true)
+                .byte_classes(info.config.get_byte_classes())
+                .unicode_word_boundary(true)
+                // TODO: Only set this to true if we have a prefilter
+                .specialize_start_states(true)
+                .determinize_size_limit(size_limit)
+                .dfa_size_limit(size_limit);
+            let fwd = dfa::dense::Builder::new()
+                .configure(dfa_config.clone())
+                .build_from_nfa(&nfa)
+                .ok()?;
+            let rev = dfa::dense::Builder::new()
+                .configure(dfa_config.clone().match_kind(MatchKind::All))
+                .build_from_nfa(&nfarev)
+                .ok()?;
+            let regex_config = dfa::regex::Config::new();
+            let engine = dfa::regex::Builder::new()
+                .configure(regex_config)
+                .build_from_dfas(fwd, rev);
+            debug!("fully compiled DFA built");
+            Some(DFAEngine(engine))
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_find_earliest(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            use crate::dfa::Automaton;
+            self.0.forward().try_search_fwd(input)
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_find(
+        &self,
+        input: &Input<'_, '_>,
+    ) -> Result<Option<Match>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            self.0.try_search(input)
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline]
+    pub(crate) fn try_which_overlapping_matches(
+        &self,
+        input: &Input<'_, '_>,
+        patset: &mut PatternSet,
+    ) -> Result<(), MatchError> {
+        #[cfg(feature = "hybrid")]
+        {
+            use crate::dfa::Automaton;
+            self.0.forward().try_which_overlapping_matches(input, patset)
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
         }
     }
 }

@@ -3,6 +3,7 @@ use super::{new, Benchmark, Results};
 pub(super) fn run(b: &Benchmark) -> anyhow::Result<Results> {
     match &*b.engine {
         "regex/api" => regex_api(b),
+        "regex/automata/meta" => regex_automata_meta(b),
         "regex/automata/dense" => regex_automata_dfa_dense(b),
         "regex/automata/sparse" => regex_automata_dfa_sparse(b),
         "regex/automata/hybrid" => regex_automata_hybrid(b),
@@ -38,6 +39,13 @@ fn regex_api(b: &Benchmark) -> anyhow::Result<Results> {
     let haystack = &*b.haystack;
     let re = new::regex_api(b)?;
     b.run(verify, || Ok(re.find_iter(haystack).count()))
+}
+
+fn regex_automata_meta(b: &Benchmark) -> anyhow::Result<Results> {
+    let haystack = &*b.haystack;
+    let re = new::regex_automata_meta(b)?;
+    let mut cache = re.create_cache();
+    b.run(verify, || Ok(re.find_iter(&mut cache, haystack).count()))
 }
 
 fn regex_automata_dfa_dense(b: &Benchmark) -> anyhow::Result<Results> {

@@ -1463,6 +1463,15 @@ impl BoundedBacktracker {
                         at += 1;
                     }
                 }
+                State::Dense(ref dense) => {
+                    if at >= input.end() {
+                        return None;
+                    }
+                    if let Some(next) = dense.matches(input.haystack(), at) {
+                        sid = next;
+                        at += 1;
+                    }
+                }
                 State::Look { look, next } => {
                     // Unwrap is OK because we don't permit building a searcher
                     // with a Unicode word boundary if the requisite Unicode

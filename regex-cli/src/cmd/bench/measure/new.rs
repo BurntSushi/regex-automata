@@ -35,17 +35,35 @@ pub(super) fn regexold_api(
     Ok(re)
 }
 
+/// Constructor for regex-automata's "meta" regex engine.
+pub(super) fn regex_automata_meta(
+    b: &Benchmark,
+) -> anyhow::Result<automata::meta::Regex> {
+    use automata::meta::Regex;
+
+    let config = Regex::config()
+        // Disabling UTF-8 here just means that zero-width matches that split
+        // a codepoint are allowed.
+        .utf8(false)
+        .nfa_size_limit(Some((1 << 20) * 100));
+    let re = Regex::builder()
+        .syntax(automata_syntax_config(b))
+        .configure(config)
+        .build(&b.regex)?;
+    Ok(re)
+}
+
 /// Constructor for the fully compiled "dense" DFA.
 pub(super) fn regex_automata_dfa_dense(
     b: &Benchmark,
 ) -> anyhow::Result<automata::dfa::regex::Regex> {
-    use automata::dfa::regex::Regex;
+    use automata::{dfa::regex::Regex, nfa::thompson};
 
     let re = Regex::builder()
-        // Disabling UTF-8 here just means that iterators built by this regex
-        // may report matches that split a UTF-8 encoding of a codepoint.
-        .configure(Regex::config().utf8(false))
         .syntax(automata_syntax_config(b))
+        // Disabling UTF-8 here just means that zero-width matches that split
+        // a codepoint are allowed.
+        .thompson(thompson::Config::new().utf8(false))
         .build(&b.regex)?;
     Ok(re)
 }
@@ -59,13 +77,13 @@ pub(super) fn regex_automata_dfa_sparse(
 ) -> anyhow::Result<
     automata::dfa::regex::Regex<automata::dfa::sparse::DFA<Vec<u8>>>,
 > {
-    use automata::dfa::regex::Regex;
+    use automata::{dfa::regex::Regex, nfa::thompson};
 
     let re = Regex::builder()
-        // Disabling UTF-8 here just means that iterators built by this regex
-        // may report matches that split a UTF-8 encoding of a codepoint.
-        .configure(Regex::config().utf8(false))
         .syntax(automata_syntax_config(b))
+        // Disabling UTF-8 here just means that zero-width matches that split
+        // a codepoint are allowed.
+        .thompson(thompson::Config::new().utf8(false))
         .build_sparse(&b.regex)?;
     Ok(re)
 }
@@ -78,12 +96,12 @@ pub(super) fn regex_automata_dfa_sparse(
 pub(super) fn regex_automata_hybrid(
     b: &Benchmark,
 ) -> anyhow::Result<automata::hybrid::regex::Regex> {
-    use automata::hybrid::{dfa::DFA, regex::Regex};
+    use automata::{
+        hybrid::{dfa::DFA, regex::Regex},
+        nfa::thompson,
+    };
 
     let re = Regex::builder()
-        // Disabling UTF-8 here just means that iterators built by this regex
-        // may report matches that split a UTF-8 encoding of a codepoint.
-        .configure(Regex::config().utf8(false))
         // This makes it so the cache built by this regex will be at least bit
         // enough to make progress, no matter how big it needs to be. This is
         // useful in benchmarking to avoid cases where construction of hybrid
@@ -93,8 +111,11 @@ pub(super) fn regex_automata_hybrid(
         // happens when the cache is just barely big enough. (When barely big
         // enough, it's likely to get cleared very frequently and this will
         // overall reduce search speed.)
-        .dfa(DFA::config().skip_cache_capacity_check(true))
         .syntax(automata_syntax_config(b))
+        // Disabling UTF-8 here just means that zero-width matches that split
+        // a codepoint are allowed.
+        .thompson(thompson::Config::new().utf8(false))
+        .dfa(DFA::config().skip_cache_capacity_check(true))
         .build(&b.regex)?;
     Ok(re)
 }
@@ -104,13 +125,13 @@ pub(super) fn regex_automata_hybrid(
 pub(super) fn regex_automata_pikevm(
     b: &Benchmark,
 ) -> anyhow::Result<automata::nfa::thompson::pikevm::PikeVM> {
-    use automata::nfa::thompson::pikevm::PikeVM;
+    use automata::nfa::thompson::{self, pikevm::PikeVM};
 
     let re = PikeVM::builder()
-        // Disabling UTF-8 here just means that iterators built by this regex
-        // may report matches that split a UTF-8 encoding of a codepoint.
-        .configure(PikeVM::config().utf8(false))
         .syntax(automata_syntax_config(b))
+        // Disabling UTF-8 here just means that zero-width matches that split
+        // a codepoint are allowed.
+        .thompson(thompson::Config::new().utf8(false))
         .build(&b.regex)?;
     Ok(re)
 }
@@ -125,13 +146,13 @@ pub(super) fn regex_automata_pikevm(
 pub(super) fn regex_automata_backtrack(
     b: &Benchmark,
 ) -> anyhow::Result<automata::nfa::thompson::backtrack::BoundedBacktracker> {
-    use automata::nfa::thompson::backtrack::BoundedBacktracker;
+    use automata::nfa::thompson::{self, backtrack::BoundedBacktracker};
 
     let re = BoundedBacktracker::builder()
-        // Disabling UTF-8 here just means that iterators built by this regex
-        // may report matches that split a UTF-8 encoding of a codepoint.
-        .configure(BoundedBacktracker::config().utf8(false))
         .syntax(automata_syntax_config(b))
+        // Disabling UTF-8 here just means that zero-width matches that split
+        // a codepoint are allowed.
+        .thompson(thompson::Config::new().utf8(false))
         .build(&b.regex)?;
     Ok(re)
 }
@@ -143,13 +164,13 @@ pub(super) fn regex_automata_backtrack(
 pub(super) fn regex_automata_onepass(
     b: &Benchmark,
 ) -> anyhow::Result<automata::dfa::onepass::DFA> {
-    use automata::dfa::onepass::DFA;
+    use automata::{dfa::onepass::DFA, nfa::thompson};
 
     let re = DFA::builder()
-        // Disabling UTF-8 here just means that search routines may report
-        // empty matches that split a UTF-8 encoding of a codepoint.
-        .configure(DFA::config().utf8(false))
         .syntax(automata_syntax_config(b))
+        // Disabling UTF-8 here just means that zero-width matches that split
+        // a codepoint are allowed.
+        .thompson(thompson::Config::new().utf8(false))
         .build(&b.regex)?;
     Ok(re)
 }
