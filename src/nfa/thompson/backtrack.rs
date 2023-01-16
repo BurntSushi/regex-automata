@@ -815,6 +815,20 @@ impl BoundedBacktracker {
     /// assert!(!re.is_match(&mut cache, "foobar"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    ///
+    /// # Example: consistency with search APIs
+    ///
+    /// TODO: Fill this out more once `is_match` accepts an `Into<Input>`.
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
+    ///
+    /// let re = BoundedBacktracker::new("a*")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// assert!(re.is_match(&mut cache, "xyz"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn is_match<H: AsRef<[u8]>>(
         &self,
@@ -998,20 +1012,7 @@ impl BoundedBacktracker {
         haystack: H,
     ) -> Result<bool, MatchError> {
         let input = self.create_input(haystack.as_ref()).earliest(true);
-        // See PikeVM::is_match for why we do this.
-        let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
-        if !utf8empty {
-            self.try_search_slots(cache, &input, &mut [])
-                .map(|pid| pid.is_some())
-        } else if self.get_nfa().pattern_len() == 1 {
-            self.try_search_slots(cache, &input, &mut [None, None])
-                .map(|pid| pid.is_some())
-        } else {
-            let slot_len = self.get_nfa().group_info().implicit_slot_len();
-            let mut slots = vec![None; slot_len];
-            self.try_search_slots(cache, &input, &mut slots)
-                .map(|pid| pid.is_some())
-        }
+        self.try_search_slots(cache, &input, &mut []).map(|pid| pid.is_some())
     }
 
     /// Executes a leftmost forward search and writes the spans of capturing
@@ -1279,14 +1280,43 @@ impl BoundedBacktracker {
         input: &Input<'_, '_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
-        // See PikeVM::try_search_slots, for why we do this.
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
-        if utf8empty {
-            let min = self.get_nfa().group_info().implicit_slot_len();
-            if slots.len() < min {
-                return Err(MatchError::invalid_input_slots(slots.len(), min));
-            }
+        if !utf8empty {
+            return self.try_search_slots_imp(cache, input, slots);
         }
+        // See PikeVM::try_search_slots for why we do this.
+        let min = self.get_nfa().group_info().implicit_slot_len();
+        if slots.len() >= min {
+            return self.try_search_slots_imp(cache, input, slots);
+        }
+        if self.get_nfa().pattern_len() == 1 {
+            let mut enough = [None, None];
+            let got = self.try_search_slots(cache, input, &mut enough)?;
+            // This is OK because we know `enough_slots` is strictly bigger
+            // than `slots`, otherwise this special case isn't reached.
+            slots.copy_from_slice(&enough[..slots.len()]);
+            return Ok(got);
+        }
+        let mut enough = vec![None; min];
+        let got = self.try_search_slots(cache, input, &mut enough)?;
+        // This is OK because we know `enough_slots` is strictly bigger than
+        // `slots`, otherwise this special case isn't reached.
+        slots.copy_from_slice(&enough[..slots.len()]);
+        Ok(got)
+    }
+
+    /// This is the actual implementation of `try_search_slots_imp` that
+    /// doesn't account for the special case when 1) the NFA has UTF-8 mode
+    /// enabled, 2) the NFA can match the empty string and 3) the caller has
+    /// provided an insufficient number of slots to record match offsets.
+    #[inline(never)]
+    fn try_search_slots_imp(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_, '_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
+        let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
         let (pid, end) = match self.search_imp(cache, input, slots)? {
             None => return Ok(None),
             Some(pid) if !utf8empty => return Ok(Some(pid)),
@@ -1294,9 +1324,10 @@ impl BoundedBacktracker {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;
                 // OK because we know we have a match and we know our caller
-                // provided slots are big enough. Namely, we're only here when
-                // 'utf8empty' is true, and when that's true, we require slots
-                // for every pattern.
+                // provided slots are big enough (which we make true above if
+                // the caller didn't). Namely, we're only here when 'utf8empty'
+                // is true, and when that's true, we require slots for every
+                // pattern.
                 (pid, slots[slot_end].unwrap().get())
             }
         };

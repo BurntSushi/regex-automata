@@ -1564,7 +1564,7 @@ impl MatchError {
         );
         let given = u32::try_from(given)
             .expect("number of given slots should fit in a u32");
-        let minimum = u32::try_from(given)
+        let minimum = u32::try_from(minimum)
             .expect("number of minimum slots should fit in a u32");
         MatchError::new(MatchErrorKind::InvalidInputSlots { given, minimum })
     }
