@@ -674,7 +674,7 @@ impl DFA {
     pub fn try_search_fwd(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
         let hm = match search::find_fwd(self, cache, input)? {
@@ -835,7 +835,7 @@ impl DFA {
     pub fn try_search_rev(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
         let hm = match search::find_rev(self, cache, input)? {
@@ -940,7 +940,7 @@ impl DFA {
     pub fn try_search_overlapping_fwd(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1081,7 +1081,7 @@ impl DFA {
     pub fn try_search_overlapping_rev(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1165,7 +1165,7 @@ impl DFA {
     pub fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
@@ -1587,7 +1587,7 @@ impl DFA {
     pub fn start_state_forward(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<LazyStateID, MatchError> {
         if !self.quitset.is_empty() && input.start() > 0 {
             let offset = input.start() - 1;
@@ -1637,7 +1637,7 @@ impl DFA {
     pub fn start_state_reverse(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<LazyStateID, MatchError> {
         if !self.quitset.is_empty() && input.end() < input.haystack().len() {
             let offset = input.end();
@@ -2057,7 +2057,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
     #[inline(never)]
     fn cache_start_group(
         &mut self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         start: Start,
     ) -> Result<LazyStateID, MatchError> {
         let nfa_start_id = match input.get_anchored() {
@@ -2451,7 +2451,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
     /// 'starts_for_each_pattern' is not enabled.
     fn set_start_state(
         &mut self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         start: Start,
         id: LazyStateID,
     ) {
@@ -2518,7 +2518,7 @@ impl<'i, 'c> LazyRef<'i, 'c> {
     /// unknown lazy state ID.
     fn get_cached_start_id(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         start: Start,
     ) -> Result<LazyStateID, MatchError> {
         let start_index = start.as_usize();
@@ -3924,12 +3924,12 @@ impl OverlappingState {
 #[cold]
 #[inline(never)]
 fn skip_empty_utf8_splits_overlapping<F>(
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     state: &mut OverlappingState,
     mut search: F,
 ) -> Result<(), MatchError>
 where
-    F: FnMut(&Input<'_, '_>, &mut OverlappingState) -> Result<(), MatchError>,
+    F: FnMut(&Input<'_>, &mut OverlappingState) -> Result<(), MatchError>,
 {
     // Note that this routine works for forwards and reverse searches
     // even though there's no code here to handle those cases. That's

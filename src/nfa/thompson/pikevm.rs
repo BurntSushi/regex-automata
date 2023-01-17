@@ -913,7 +913,7 @@ impl PikeVM {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
         caps.set_pattern(None);
@@ -991,7 +991,7 @@ impl PikeVM {
     pub fn try_search_slots(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1037,7 +1037,7 @@ impl PikeVM {
     fn try_search_slots_imp(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1124,7 +1124,7 @@ impl PikeVM {
     pub fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         self.which_overlapping_imp(cache, input, patset)
@@ -1142,7 +1142,7 @@ impl PikeVM {
     fn search_imp(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         cache.setup_search(slots.len());
@@ -1298,7 +1298,7 @@ impl PikeVM {
     fn which_overlapping_imp(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         // NOTE: This is effectively a copy of 'search_imp' above, but with no
@@ -1373,7 +1373,7 @@ impl PikeVM {
         stack: &mut Vec<FollowEpsilon>,
         curr: &mut ActiveStates,
         next: &mut ActiveStates,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         at: usize,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
@@ -1401,7 +1401,7 @@ impl PikeVM {
         stack: &mut Vec<FollowEpsilon>,
         curr: &mut ActiveStates,
         next: &mut ActiveStates,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         at: usize,
         patset: &mut PatternSet,
     ) {
@@ -1447,7 +1447,7 @@ impl PikeVM {
         stack: &mut Vec<FollowEpsilon>,
         curr_slot_table: &mut SlotTable,
         next: &mut ActiveStates,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         at: usize,
         sid: StateID,
     ) -> Option<PatternID> {
@@ -1517,7 +1517,7 @@ impl PikeVM {
         stack: &mut Vec<FollowEpsilon>,
         curr_slots: &mut [Option<NonMaxUsize>],
         next: &mut ActiveStates,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         at: usize,
         sid: StateID,
     ) {
@@ -1570,7 +1570,7 @@ impl PikeVM {
         stack: &mut Vec<FollowEpsilon>,
         curr_slots: &mut [Option<NonMaxUsize>],
         next: &mut ActiveStates,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         at: usize,
         mut sid: StateID,
     ) {
@@ -1667,7 +1667,7 @@ impl PikeVM {
     /// pattern, then the starting state ID returned will reflect that.
     fn start_config(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<(bool, StateID), MatchError> {
         match input.get_anchored() {
             // Only way we're unanchored is if both the caller asked for an
@@ -1701,7 +1701,7 @@ pub struct FindMatches<'r, 'c, 'h> {
     re: &'r PikeVM,
     cache: &'c mut Cache,
     caps: Captures,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
@@ -1741,7 +1741,7 @@ pub struct CapturesMatches<'r, 'c, 'h> {
     re: &'r PikeVM,
     cache: &'c mut Cache,
     caps: Captures,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {

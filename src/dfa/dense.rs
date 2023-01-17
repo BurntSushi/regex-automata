@@ -2767,7 +2767,7 @@ impl OwnedDFA {
         assert_eq!(4, Start::len(), "expected 4 start configurations");
 
         let start_id =
-            |dfa: &mut OwnedDFA, inp: &Input<'_, '_>, start: Start| {
+            |dfa: &mut OwnedDFA, inp: &Input<'_>, start: Start| {
                 // This OK because we only call 'start' under conditions
                 // in which we know it will succeed.
                 dfa.st.start(inp, start).expect("valid Input configuration")
@@ -3098,7 +3098,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     #[inline]
     fn start_state_forward(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError> {
         if !self.quitset.is_empty() && input.start() > 0 {
             let offset = input.start() - 1;
@@ -3114,7 +3114,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     #[inline]
     fn start_state_reverse(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError> {
         if !self.quitset.is_empty() && input.end() < input.haystack().len() {
             let offset = input.end();
@@ -4039,7 +4039,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     /// built with start states for each pattern.
     fn start(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         start: Start,
     ) -> Result<StateID, MatchError> {
         let start_index = start.as_usize();

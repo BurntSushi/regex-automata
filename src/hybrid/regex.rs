@@ -498,7 +498,7 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
         // appear to have a bit more latency due to the 'search.as_ref()' call.
@@ -565,7 +565,7 @@ impl Regex {
 
     /// Returns true if either the given input specifies an anchored search
     /// or if the underlying NFA is always anchored.
-    fn is_anchored(&self, input: &Input<'_, '_>) -> bool {
+    fn is_anchored(&self, input: &Input<'_>) -> bool {
         match input.get_anchored() {
             Anchored::No => {
                 self.forward().get_nfa().is_always_start_anchored()
@@ -629,7 +629,7 @@ impl Regex {
 pub struct FindMatches<'r, 'c, 'h> {
     re: &'r Regex,
     cache: &'c mut Cache,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
@@ -659,7 +659,7 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
 pub struct TryFindMatches<'r, 'c, 'h> {
     re: &'r Regex,
     cache: &'c mut Cache,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for TryFindMatches<'r, 'c, 'h> {

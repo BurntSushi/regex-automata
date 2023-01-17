@@ -1235,7 +1235,7 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     #[inline]
     fn start_state_forward(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError> {
         if !self.quitset.is_empty() && input.start() > 0 {
             let offset = input.start() - 1;
@@ -1251,7 +1251,7 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     #[inline]
     fn start_state_reverse(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError> {
         if !self.quitset.is_empty() && input.end() < input.haystack().len() {
             let offset = input.end();
@@ -2026,7 +2026,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
     /// panics.
     fn start(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         start: Start,
     ) -> Result<StateID, MatchError> {
         let start_index = start.as_usize();

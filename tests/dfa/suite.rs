@@ -428,7 +428,7 @@ fn config_syntax(test: &RegexTest) -> syntax::Config {
 /// is written in a way that requires starting offsets.
 fn try_search_overlapping<A: Automaton>(
     re: &Regex<A>,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut fwd_state = OverlappingState::start();

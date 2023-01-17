@@ -156,7 +156,7 @@ impl Regex {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         self.strat.try_find(cache, input)
     }
@@ -165,7 +165,7 @@ impl Regex {
     pub fn try_search_earliest(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         self.strat.try_find_earliest(cache, input)
     }
@@ -174,7 +174,7 @@ impl Regex {
     pub fn try_search_captures(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
         caps.set_pattern(None);
@@ -187,7 +187,7 @@ impl Regex {
     pub fn try_search_slots(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         self.strat.try_slots(cache, input, slots)
@@ -197,7 +197,7 @@ impl Regex {
     pub fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         self.strat.try_which_overlapping_matches(cache, input, patset)
@@ -215,7 +215,7 @@ pub(crate) struct RegexInfo {
 pub struct FindMatches<'r, 'c, 'h> {
     re: &'r Regex,
     cache: &'c mut Cache,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
@@ -233,7 +233,7 @@ pub struct CapturesMatches<'r, 'c, 'h> {
     re: &'r Regex,
     cache: &'c mut Cache,
     caps: Captures,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {

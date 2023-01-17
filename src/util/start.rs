@@ -54,7 +54,7 @@ impl Start {
     /// Returns the starting state configuration for the given search
     /// parameters.
     #[inline(always)]
-    pub(crate) fn from_position_fwd(input: &Input<'_, '_>) -> Start {
+    pub(crate) fn from_position_fwd(input: &Input<'_>) -> Start {
         match input
             .start()
             .checked_sub(1)
@@ -69,7 +69,7 @@ impl Start {
     /// given search parameters. If the given offset range is not valid, then
     /// this panics.
     #[inline(always)]
-    pub(crate) fn from_position_rev(input: &Input<'_, '_>) -> Start {
+    pub(crate) fn from_position_rev(input: &Input<'_>) -> Start {
         match input.haystack().get(input.end()) {
             None => Start::Text,
             Some(&byte) => byte_to_start(byte),

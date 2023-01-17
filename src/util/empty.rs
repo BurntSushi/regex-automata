@@ -2,26 +2,26 @@ use crate::util::search::{Input, MatchError};
 
 #[inline]
 pub(crate) fn skip_splits_fwd<T, F>(
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     init_value: T,
     match_offset: usize,
     find: F,
 ) -> Result<Option<T>, MatchError>
 where
-    F: FnMut(&Input<'_, '_>) -> Result<Option<(T, usize)>, MatchError>,
+    F: FnMut(&Input<'_>) -> Result<Option<(T, usize)>, MatchError>,
 {
     skip_splits(true, input, init_value, match_offset, find)
 }
 
 #[inline]
 pub(crate) fn skip_splits_rev<T, F>(
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     init_value: T,
     match_offset: usize,
     find: F,
 ) -> Result<Option<T>, MatchError>
 where
-    F: FnMut(&Input<'_, '_>) -> Result<Option<(T, usize)>, MatchError>,
+    F: FnMut(&Input<'_>) -> Result<Option<(T, usize)>, MatchError>,
 {
     skip_splits(false, input, init_value, match_offset, find)
 }
@@ -30,13 +30,13 @@ where
 #[inline(never)]
 fn skip_splits<T, F>(
     forward: bool,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     init_value: T,
     mut match_offset: usize,
     mut find: F,
 ) -> Result<Option<T>, MatchError>
 where
-    F: FnMut(&Input<'_, '_>) -> Result<Option<(T, usize)>, MatchError>,
+    F: FnMut(&Input<'_>) -> Result<Option<(T, usize)>, MatchError>,
 {
     // If our config says to do an anchored search, then we're definitely
     // done. We just need to determine whether we have a valid match or

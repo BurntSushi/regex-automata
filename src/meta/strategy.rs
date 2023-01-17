@@ -42,13 +42,13 @@ pub(crate) trait Strategy:
     fn try_find(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError>;
 
     fn try_find_earliest(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         Ok(self
             .try_find(cache, input)?
@@ -58,14 +58,14 @@ pub(crate) trait Strategy:
     fn try_slots(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError>;
 
     fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError>;
 }
@@ -126,7 +126,7 @@ impl<T: PrefilterI> Strategy for T {
     fn try_find(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         if input.is_done() {
             return Ok(None);
@@ -144,7 +144,7 @@ impl<T: PrefilterI> Strategy for T {
     fn try_slots(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         let m = match self.try_find(cache, input)? {
@@ -163,7 +163,7 @@ impl<T: PrefilterI> Strategy for T {
     fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         if self.try_find(cache, input)?.is_some() {
@@ -345,7 +345,7 @@ impl Core {
     fn try_find_fallback(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         let caps = &mut cache.capmatches;
         caps.set_pattern(None);
@@ -376,7 +376,7 @@ impl Core {
     fn try_slots_fallback(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         if let Some(ref e) = self.onepass.get(input) {
@@ -431,7 +431,7 @@ impl Strategy for Core {
     fn try_find(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         if let Some(e) = self.dfa.get(input) {
             trace!(
@@ -469,7 +469,7 @@ impl Strategy for Core {
     fn try_find_earliest(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         // The main difference with 'try_find' is that if we're using a DFA,
         // we can use a single forward scan without needing to run the reverse
@@ -522,7 +522,7 @@ impl Strategy for Core {
     fn try_slots(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         // Even if the regex has explicit capture groups, if the caller didn't
@@ -624,7 +624,7 @@ impl Strategy for Core {
     fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         if let Some(e) = self.dfa.get(input) {

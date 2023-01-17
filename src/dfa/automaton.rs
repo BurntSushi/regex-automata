@@ -250,7 +250,7 @@ pub unsafe trait Automaton {
     /// with anchored start states for each pattern.
     fn start_state_forward(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError>;
 
     /// Return the ID of the start state for this DFA when executing a reverse
@@ -283,7 +283,7 @@ pub unsafe trait Automaton {
     /// with anchored start states for each pattern.
     fn start_state_reverse(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError>;
 
     /// If this DFA has a universal starting state for the given anchor mode
@@ -1263,7 +1263,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_fwd(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         let utf8empty = self.has_empty() && self.is_utf8();
         let hm = match search::find_fwd(self, input)? {
@@ -1423,7 +1423,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_rev(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         let utf8empty = self.has_empty() && self.is_utf8();
         let hm = match search::find_rev(self, input)? {
@@ -1525,7 +1525,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_overlapping_fwd(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
         let utf8empty = self.has_empty() && self.is_utf8();
@@ -1662,7 +1662,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_search_overlapping_rev(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
         let utf8empty = self.has_empty() && self.is_utf8();
@@ -1750,7 +1750,7 @@ pub unsafe trait Automaton {
     #[inline]
     fn try_which_overlapping_matches(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         let mut state = OverlappingState::start();
@@ -1792,7 +1792,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn start_state_forward(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError> {
         (**self).start_state_forward(input)
     }
@@ -1800,7 +1800,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn start_state_reverse(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<StateID, MatchError> {
         (**self).start_state_reverse(input)
     }
@@ -1899,7 +1899,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_fwd(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_fwd(input)
     }
@@ -1907,7 +1907,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_rev(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         (**self).try_search_rev(input)
     }
@@ -1915,7 +1915,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_overlapping_fwd(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
         (**self).try_search_overlapping_fwd(input, state)
@@ -1924,7 +1924,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_search_overlapping_rev(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         state: &mut OverlappingState,
     ) -> Result<(), MatchError> {
         (**self).try_search_overlapping_rev(input, state)
@@ -1934,7 +1934,7 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     #[inline]
     fn try_which_overlapping_matches(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         (**self).try_which_overlapping_matches(input, patset)
@@ -2032,12 +2032,12 @@ impl OverlappingState {
 #[cold]
 #[inline(never)]
 fn skip_empty_utf8_splits_overlapping<F>(
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     state: &mut OverlappingState,
     mut search: F,
 ) -> Result<(), MatchError>
 where
-    F: FnMut(&Input<'_, '_>, &mut OverlappingState) -> Result<(), MatchError>,
+    F: FnMut(&Input<'_>, &mut OverlappingState) -> Result<(), MatchError>,
 {
     // Note that this routine works for forwards and reverse searches
     // even though there's no code here to handle those cases. That's

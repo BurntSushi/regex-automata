@@ -48,11 +48,10 @@ use crate::util::search::{HalfMatch, Input, Match, MatchError};
 /// accept a closure (representing how a regex engine executes a search) and
 /// returns a conventional iterator.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type passed
-/// to [`Searcher::new`]:
+/// The lifetime parameters come from the [`Input`] type passed to
+/// [`Searcher::new`]:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
-/// * `'p` is the lifetime of the prefilter.
 ///
 /// # Searcher vs Iterator
 ///
@@ -106,25 +105,25 @@ use crate::util::search::{HalfMatch, Input, Match, MatchError};
 /// iterators or when you need more flexibility, while the latter are useful
 /// for conveniently writing custom iterators on-the-fly.
 #[derive(Clone, Debug)]
-pub struct Searcher<'h, 'p> {
+pub struct Searcher<'h> {
     /// The input parameters to give to each regex engine call.
     ///
     /// The start position of the search is mutated during iteration.
-    input: Input<'h, 'p>,
+    input: Input<'h>,
     /// Records the end offset of the most recent match. This is necessary to
     /// handle a corner case for preventing empty matches from overlapping with
     /// the ending bounds of a prior match.
     last_match_end: Option<usize>,
 }
 
-impl<'h, 'p> Searcher<'h, 'p> {
+impl<'h> Searcher<'h> {
     /// Create a new fallible non-overlapping matches iterator.
     ///
     /// The given `input` provides the parameters (including the haystack),
     /// while the `finder` represents a closure that calls the underlying regex
     /// engine. The closure may borrow any additional state that is needed,
     /// such as a prefilter scanner.
-    pub fn new(input: Input<'h, 'p>) -> Searcher<'h, 'p> {
+    pub fn new(input: Input<'h>) -> Searcher<'h> {
         Searcher { input, last_match_end: None }
     }
 
@@ -213,7 +212,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
     #[inline]
     pub fn advance_half<F>(&mut self, finder: F) -> Option<HalfMatch>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<HalfMatch>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<HalfMatch>, MatchError>,
     {
         match self.try_advance_half(finder) {
             Ok(m) => m,
@@ -328,7 +327,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
     #[inline]
     pub fn advance<F>(&mut self, finder: F) -> Option<Match>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
     {
         match self.try_advance(finder) {
             Ok(m) => m,
@@ -351,7 +350,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
         mut finder: F,
     ) -> Result<Option<HalfMatch>, MatchError>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<HalfMatch>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<HalfMatch>, MatchError>,
     {
         let mut m = match finder(&self.input)? {
             None => return Ok(None),
@@ -379,7 +378,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
         mut finder: F,
     ) -> Result<Option<Match>, MatchError>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
     {
         let mut m = match finder(&self.input)? {
             None => return Ok(None),
@@ -441,9 +440,9 @@ impl<'h, 'p> Searcher<'h, 'p> {
     pub fn into_half_matches_iter<F>(
         self,
         finder: F,
-    ) -> TryHalfMatchesIter<'h, 'p, F>
+    ) -> TryHalfMatchesIter<'h, F>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<HalfMatch>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<HalfMatch>, MatchError>,
     {
         TryHalfMatchesIter { it: self, finder }
     }
@@ -490,9 +489,9 @@ impl<'h, 'p> Searcher<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn into_matches_iter<F>(self, finder: F) -> TryMatchesIter<'h, 'p, F>
+    pub fn into_matches_iter<F>(self, finder: F) -> TryMatchesIter<'h, F>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
     {
         TryMatchesIter { it: self, finder }
     }
@@ -561,9 +560,9 @@ impl<'h, 'p> Searcher<'h, 'p> {
         self,
         caps: Captures,
         finder: F,
-    ) -> TryCapturesIter<'h, 'p, F>
+    ) -> TryCapturesIter<'h, F>
     where
-        F: FnMut(&Input<'_, '_>, &mut Captures) -> Result<(), MatchError>,
+        F: FnMut(&Input<'_>, &mut Captures) -> Result<(), MatchError>,
     {
         TryCapturesIter { it: self, caps, finder }
     }
@@ -581,7 +580,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
         mut finder: F,
     ) -> Result<Option<HalfMatch>, MatchError>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<HalfMatch>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<HalfMatch>, MatchError>,
     {
         // Since we are only here when 'm.offset()' matches the offset of the
         // last match, it follows that this must have been an empty match.
@@ -625,7 +624,7 @@ impl<'h, 'p> Searcher<'h, 'p> {
         mut finder: F,
     ) -> Result<Option<Match>, MatchError>
     where
-        F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
+        F: FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
     {
         assert!(m.is_empty());
         if Some(m.end()) == self.last_match_end {
@@ -648,35 +647,34 @@ impl<'h, 'p> Searcher<'h, 'p> {
 ///
 /// * `F` represents the type of a closure that executes the search.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type:
+/// The lifetime parameters come from the [`Input`] type:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
-/// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This tries to abstract over the regex engine and is thus a bit more
 /// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_half_matches_iter`].
-pub struct TryHalfMatchesIter<'h, 'p, F> {
-    it: Searcher<'h, 'p>,
+pub struct TryHalfMatchesIter<'h, F> {
+    it: Searcher<'h>,
     finder: F,
 }
 
-impl<'h, 'p, F> TryHalfMatchesIter<'h, 'p, F> {
+impl<'h, F> TryHalfMatchesIter<'h, F> {
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic. This
     /// is useful if your underlying regex engine is configured in a way that
     /// it is guaranteed to never return an error.
-    pub fn infallible(self) -> HalfMatchesIter<'h, 'p, F> {
+    pub fn infallible(self) -> HalfMatchesIter<'h, F> {
         HalfMatchesIter(self)
     }
 }
 
-impl<'h, 'p, F> Iterator for TryHalfMatchesIter<'h, 'p, F>
+impl<'h, F> Iterator for TryHalfMatchesIter<'h, F>
 where
-    F: FnMut(&Input<'_, '_>) -> Result<Option<HalfMatch>, MatchError>,
+    F: FnMut(&Input<'_>) -> Result<Option<HalfMatch>, MatchError>,
 {
     type Item = Result<HalfMatch, MatchError>;
 
@@ -686,7 +684,7 @@ where
     }
 }
 
-impl<'h, 'p, F> core::fmt::Debug for TryHalfMatchesIter<'h, 'p, F> {
+impl<'h, F> core::fmt::Debug for TryHalfMatchesIter<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TryHalfMatchesIter")
             .field("it", &self.it)
@@ -704,10 +702,9 @@ impl<'h, 'p, F> core::fmt::Debug for TryHalfMatchesIter<'h, 'p, F> {
 ///
 /// * `F` represents the type of a closure that executes the search.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type:
+/// The lifetime parameters come from the [`Input`] type:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
-/// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This tries to abstract over the regex engine and is thus a bit more
@@ -716,11 +713,11 @@ impl<'h, 'p, F> core::fmt::Debug for TryHalfMatchesIter<'h, 'p, F> {
 /// This iterator is created by [`Searcher::into_half_matches_iter`] and
 /// then calling [`TryHalfMatchesIter::infallible`].
 #[derive(Debug)]
-pub struct HalfMatchesIter<'h, 'p, F>(TryHalfMatchesIter<'h, 'p, F>);
+pub struct HalfMatchesIter<'h, F>(TryHalfMatchesIter<'h, F>);
 
-impl<'h, 'p, F> Iterator for HalfMatchesIter<'h, 'p, F>
+impl<'h, F> Iterator for HalfMatchesIter<'h, F>
 where
-    F: FnMut(&Input<'_, '_>) -> Result<Option<HalfMatch>, MatchError>,
+    F: FnMut(&Input<'_>) -> Result<Option<HalfMatch>, MatchError>,
 {
     type Item = HalfMatch;
 
@@ -746,35 +743,34 @@ where
 ///
 /// * `F` represents the type of a closure that executes the search.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type:
+/// The lifetime parameters come from the [`Input`] type:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
-/// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This tries to abstract over the regex engine and is thus a bit more
 /// unwieldy to use.
 ///
 /// This iterator is created by [`Searcher::into_matches_iter`].
-pub struct TryMatchesIter<'h, 'p, F> {
-    it: Searcher<'h, 'p>,
+pub struct TryMatchesIter<'h, F> {
+    it: Searcher<'h>,
     finder: F,
 }
 
-impl<'h, 'p, F> TryMatchesIter<'h, 'p, F> {
+impl<'h, F> TryMatchesIter<'h, F> {
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic. This
     /// is useful if your underlying regex engine is configured in a way that
     /// it is guaranteed to never return an error.
-    pub fn infallible(self) -> MatchesIter<'h, 'p, F> {
+    pub fn infallible(self) -> MatchesIter<'h, F> {
         MatchesIter(self)
     }
 }
 
-impl<'h, 'p, F> Iterator for TryMatchesIter<'h, 'p, F>
+impl<'h, F> Iterator for TryMatchesIter<'h, F>
 where
-    F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
+    F: FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
 {
     type Item = Result<Match, MatchError>;
 
@@ -784,7 +780,7 @@ where
     }
 }
 
-impl<'h, 'p, F> core::fmt::Debug for TryMatchesIter<'h, 'p, F> {
+impl<'h, F> core::fmt::Debug for TryMatchesIter<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TryMatchesIter")
             .field("it", &self.it)
@@ -801,10 +797,9 @@ impl<'h, 'p, F> core::fmt::Debug for TryMatchesIter<'h, 'p, F> {
 ///
 /// * `F` represents the type of a closure that executes the search.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type:
+/// The lifetime parameters come from the [`Input`] type:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
-/// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This tries to abstract over the regex engine and is thus a bit more
@@ -813,11 +808,11 @@ impl<'h, 'p, F> core::fmt::Debug for TryMatchesIter<'h, 'p, F> {
 /// This iterator is created by [`Searcher::into_matches_iter`] and
 /// then calling [`TryMatchesIter::infallible`].
 #[derive(Debug)]
-pub struct MatchesIter<'h, 'p, F>(TryMatchesIter<'h, 'p, F>);
+pub struct MatchesIter<'h, F>(TryMatchesIter<'h, F>);
 
-impl<'h, 'p, F> Iterator for MatchesIter<'h, 'p, F>
+impl<'h, F> Iterator for MatchesIter<'h, F>
 where
-    F: FnMut(&Input<'_, '_>) -> Result<Option<Match>, MatchError>,
+    F: FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
 {
     type Item = Match;
 
@@ -843,10 +838,9 @@ where
 ///
 /// * `F` represents the type of a closure that executes the search.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type:
+/// The lifetime parameters come from the [`Input`] type:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
-/// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This tries to abstract over the regex engine and is thus a bit more
@@ -854,28 +848,28 @@ where
 ///
 /// This iterator is created by [`Searcher::into_captures_iter`].
 #[cfg(feature = "alloc")]
-pub struct TryCapturesIter<'h, 'p, F> {
-    it: Searcher<'h, 'p>,
+pub struct TryCapturesIter<'h, F> {
+    it: Searcher<'h>,
     caps: Captures,
     finder: F,
 }
 
 #[cfg(feature = "alloc")]
-impl<'h, 'p, F> TryCapturesIter<'h, 'p, F> {
+impl<'h, F> TryCapturesIter<'h, F> {
     /// Return an infallible version of this iterator.
     ///
     /// Any item yielded that corresponds to an error results in a panic. This
     /// is useful if your underlying regex engine is configured in a way that
     /// it is guaranteed to never return an error.
-    pub fn infallible(self) -> CapturesIter<'h, 'p, F> {
+    pub fn infallible(self) -> CapturesIter<'h, F> {
         CapturesIter(self)
     }
 }
 
 #[cfg(feature = "alloc")]
-impl<'h, 'p, F> Iterator for TryCapturesIter<'h, 'p, F>
+impl<'h, F> Iterator for TryCapturesIter<'h, F>
 where
-    F: FnMut(&Input<'_, '_>, &mut Captures) -> Result<(), MatchError>,
+    F: FnMut(&Input<'_>, &mut Captures) -> Result<(), MatchError>,
 {
     type Item = Result<Captures, MatchError>;
 
@@ -897,7 +891,7 @@ where
 }
 
 #[cfg(feature = "alloc")]
-impl<'h, 'p, F> core::fmt::Debug for TryCapturesIter<'h, 'p, F> {
+impl<'h, F> core::fmt::Debug for TryCapturesIter<'h, F> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TryCapturesIter")
             .field("it", &self.it)
@@ -916,10 +910,9 @@ impl<'h, 'p, F> core::fmt::Debug for TryCapturesIter<'h, 'p, F> {
 ///
 /// * `F` represents the type of a closure that executes the search.
 ///
-/// The lifetime parameters, `'h` and `'p`, come from the [`Input`] type:
+/// The lifetime parameters come from the [`Input`] type:
 ///
 /// * `'h` is the lifetime of the underlying haystack.
-/// * `'p` is the lifetime of the prefilter.
 ///
 /// When possible, prefer the iterators defined on the regex engine you're
 /// using. This tries to abstract over the regex engine and is thus a bit more
@@ -929,12 +922,12 @@ impl<'h, 'p, F> core::fmt::Debug for TryCapturesIter<'h, 'p, F> {
 /// calling [`TryCapturesIter::infallible`].
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
-pub struct CapturesIter<'h, 'p, F>(TryCapturesIter<'h, 'p, F>);
+pub struct CapturesIter<'h, F>(TryCapturesIter<'h, F>);
 
 #[cfg(feature = "alloc")]
-impl<'h, 'p, F> Iterator for CapturesIter<'h, 'p, F>
+impl<'h, F> Iterator for CapturesIter<'h, F>
 where
-    F: FnMut(&Input<'_, '_>, &mut Captures) -> Result<(), MatchError>,
+    F: FnMut(&Input<'_>, &mut Captures) -> Result<(), MatchError>,
 {
     type Item = Captures;
 

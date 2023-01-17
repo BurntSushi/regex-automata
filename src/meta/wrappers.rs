@@ -64,7 +64,7 @@ impl PikeVMEngine {
     pub(crate) fn try_slots(
         &self,
         cache: &mut PikeVMCache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         self.0.try_search_slots(cache.0.as_mut().unwrap(), input, slots)
@@ -74,7 +74,7 @@ impl PikeVMEngine {
     pub(crate) fn which_overlapping_matches(
         &self,
         cache: &mut PikeVMCache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         self.0.which_overlapping_matches(
@@ -131,7 +131,7 @@ impl BoundedBacktracker {
     #[inline(always)]
     pub(crate) fn get(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Option<&BoundedBacktrackerEngine> {
         let engine = self.0.as_ref()?;
         // It is difficult to make the backtracker give up early if it is
@@ -195,7 +195,7 @@ impl BoundedBacktrackerEngine {
     pub(crate) fn try_slots(
         &self,
         cache: &mut BoundedBacktrackerCache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         #[cfg(feature = "nfa-backtrack")]
@@ -292,7 +292,7 @@ impl Hybrid {
     }
 
     #[inline(always)]
-    pub(crate) fn get(&self, input: &Input<'_, '_>) -> Option<&HybridEngine> {
+    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&HybridEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
     }
@@ -388,7 +388,7 @@ impl HybridEngine {
     pub(crate) fn try_find_earliest(
         &self,
         cache: &mut HybridCache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "hybrid")]
         {
@@ -408,7 +408,7 @@ impl HybridEngine {
     pub(crate) fn try_find(
         &self,
         cache: &mut HybridCache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         #[cfg(feature = "hybrid")]
         {
@@ -426,7 +426,7 @@ impl HybridEngine {
     pub(crate) fn try_which_overlapping_matches(
         &self,
         cache: &mut HybridCache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         #[cfg(feature = "hybrid")]
@@ -503,7 +503,7 @@ impl DFA {
     }
 
     #[inline(always)]
-    pub(crate) fn get(&self, input: &Input<'_, '_>) -> Option<&DFAEngine> {
+    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&DFAEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
     }
@@ -604,7 +604,7 @@ impl DFAEngine {
     #[inline(always)]
     pub(crate) fn try_find_earliest(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
@@ -622,7 +622,7 @@ impl DFAEngine {
     #[inline(always)]
     pub(crate) fn try_find(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
@@ -639,7 +639,7 @@ impl DFAEngine {
     #[inline]
     pub(crate) fn try_which_overlapping_matches(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
         #[cfg(feature = "hybrid")]
@@ -673,7 +673,7 @@ impl OnePass {
     }
 
     #[inline(always)]
-    pub(crate) fn get(&self, input: &Input<'_, '_>) -> Option<&OnePassEngine> {
+    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&OnePassEngine> {
         let engine = self.0.as_ref()?;
         if !input.get_anchored().is_anchored() {
             return None;
@@ -744,7 +744,7 @@ impl OnePassEngine {
     pub(crate) fn try_slots(
         &self,
         cache: &mut OnePassCache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         #[cfg(feature = "dfa-onepass")]

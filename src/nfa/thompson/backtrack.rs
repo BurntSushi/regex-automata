@@ -39,7 +39,7 @@ use crate::{
 ///
 /// Be warned that this number could be quite large as it is multiplicative in
 /// the size the given NFA and haystack.
-pub fn min_visited_capacity(nfa: &NFA, input: &Input<'_, '_>) -> usize {
+pub fn min_visited_capacity(nfa: &NFA, input: &Input<'_>) -> usize {
     div_ceil(nfa.states().len() * (input.get_span().len() + 1), 8)
 }
 
@@ -1172,7 +1172,7 @@ impl BoundedBacktracker {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
         caps.set_pattern(None);
@@ -1260,7 +1260,7 @@ impl BoundedBacktracker {
     pub fn try_search_slots(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1296,7 +1296,7 @@ impl BoundedBacktracker {
     fn try_search_slots_imp(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1335,7 +1335,7 @@ impl BoundedBacktracker {
     fn search_imp(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         // Unlike in the PikeVM, we write our capturing group spans directly
@@ -1401,7 +1401,7 @@ impl BoundedBacktracker {
     fn backtrack(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         at: usize,
         start_id: StateID,
         slots: &mut [Option<NonMaxUsize>],
@@ -1438,7 +1438,7 @@ impl BoundedBacktracker {
     fn step(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         mut sid: StateID,
         mut at: usize,
         slots: &mut [Option<NonMaxUsize>],
@@ -1549,7 +1549,7 @@ pub struct FindMatches<'r, 'c, 'h> {
     re: &'r BoundedBacktracker,
     cache: &'c mut Cache,
     caps: Captures,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
@@ -1586,7 +1586,7 @@ pub struct CapturesMatches<'r, 'c, 'h> {
     re: &'r BoundedBacktracker,
     cache: &'c mut Cache,
     caps: Captures,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
@@ -1627,7 +1627,7 @@ pub struct TryFindMatches<'r, 'c, 'h> {
     re: &'r BoundedBacktracker,
     cache: &'c mut Cache,
     caps: Captures,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for TryFindMatches<'r, 'c, 'h> {
@@ -1665,7 +1665,7 @@ pub struct TryCapturesMatches<'r, 'c, 'h> {
     re: &'r BoundedBacktracker,
     cache: &'c mut Cache,
     caps: Captures,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'c, 'h> Iterator for TryCapturesMatches<'r, 'c, 'h> {
@@ -1798,7 +1798,7 @@ impl Cache {
     fn setup_search(
         &mut self,
         nfa: &NFA,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<(), MatchError> {
         self.stack.clear();
         self.visited.setup_search(nfa, input)?;
@@ -1909,7 +1909,7 @@ impl Visited {
     fn setup_search(
         &mut self,
         nfa: &NFA,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<(), MatchError> {
         // Our haystack length is only the length of the span of the entire
         // haystack that we'll be searching.

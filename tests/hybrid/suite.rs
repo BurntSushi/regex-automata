@@ -301,7 +301,7 @@ fn config_syntax(test: &RegexTest) -> syntax::Config {
 fn try_search_overlapping(
     re: &Regex,
     cache: &mut regex::Cache,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> Result<TestResult> {
     let mut matches = vec![];
     let mut fwd_state = OverlappingState::start();

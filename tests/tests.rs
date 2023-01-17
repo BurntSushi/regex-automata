@@ -47,9 +47,7 @@ fn suite() -> Result<ret::RegexTests> {
 
 /// Configure a regex_automata::Input with the given test configuration.
 #[cfg(not(miri))]
-fn create_input<'a, 'b>(
-    test: &'a ret::RegexTest,
-) -> regex_automata::Input<'a, 'b> {
+fn create_input<'h>(test: &'h ret::RegexTest) -> regex_automata::Input<'h> {
     use regex_automata::Anchored;
 
     let bounds = test.bounds();

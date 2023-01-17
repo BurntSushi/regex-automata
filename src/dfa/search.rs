@@ -14,7 +14,7 @@ use crate::{
 #[inline(never)]
 pub fn find_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if input.is_done() {
         return Ok(None);
@@ -44,7 +44,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn find_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     pre: Option<&'_ Prefilter>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
@@ -189,7 +189,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
 #[inline(never)]
 pub fn find_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> Result<Option<HalfMatch>, MatchError> {
     if input.is_done() {
         return Ok(None);
@@ -204,7 +204,7 @@ pub fn find_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn find_rev_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut mat = None;
@@ -316,7 +316,7 @@ fn find_rev_imp<A: Automaton + ?Sized>(
 #[inline(never)]
 pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
     state.mat = None;
@@ -338,7 +338,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     pre: Option<&'_ Prefilter>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
@@ -446,7 +446,7 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
 #[inline(never)]
 pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
     state.mat = None;
@@ -553,7 +553,7 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn init_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> Result<StateID, MatchError> {
     let state = dfa.start_state_forward(input)?;
     // Start states can never be match states, since all matches are delayed
@@ -565,7 +565,7 @@ fn init_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn init_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> Result<StateID, MatchError> {
     let state = dfa.start_state_reverse(input)?;
     // Start states can never be match states, since all matches are delayed
@@ -577,7 +577,7 @@ fn init_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn eoi_fwd<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     sid: &mut StateID,
     mat: &mut Option<HalfMatch>,
 ) -> Result<(), MatchError> {
@@ -612,7 +612,7 @@ fn eoi_fwd<A: Automaton + ?Sized>(
 #[inline(always)]
 fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     sid: &mut StateID,
     mat: &mut Option<HalfMatch>,
 ) -> Result<(), MatchError> {
@@ -649,7 +649,7 @@ fn eoi_rev<A: Automaton + ?Sized>(
 #[inline(always)]
 fn prefilter_restart<A: Automaton + ?Sized>(
     dfa: &A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     at: usize,
 ) -> Result<StateID, MatchError> {
     let mut input = input.clone();

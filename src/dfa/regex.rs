@@ -547,7 +547,7 @@ impl<A: Automaton> Regex<A> {
     #[inline]
     pub fn try_search(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         // N.B. We use `&&A` here to call `Automaton` methods, which ensures
         // that we always use the `impl Automaton for &A` for calling methods.
@@ -614,7 +614,7 @@ impl<A: Automaton> Regex<A> {
 
     /// Returns true if either the given input specifies an anchored search
     /// or if the underlying DFA is always anchored.
-    fn is_anchored(&self, input: &Input<'_, '_>) -> bool {
+    fn is_anchored(&self, input: &Input<'_>) -> bool {
         match input.get_anchored() {
             Anchored::No => self.forward().is_always_start_anchored(),
             Anchored::Yes | Anchored::Pattern(_) => true,
@@ -675,7 +675,7 @@ impl<A: Automaton> Regex<A> {
 #[derive(Debug)]
 pub struct FindMatches<'r, 'h, A> {
     re: &'r Regex<A>,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'h, A: Automaton> Iterator for FindMatches<'r, 'h, A> {
@@ -702,7 +702,7 @@ impl<'r, 'h, A: Automaton> Iterator for FindMatches<'r, 'h, A> {
 #[derive(Debug)]
 pub struct TryFindMatches<'r, 'h, A> {
     re: &'r Regex<A>,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'h, A: Automaton> Iterator for TryFindMatches<'r, 'h, A> {

@@ -728,7 +728,6 @@ impl<'h> core::fmt::Debug for Input<'h> {
             .field("haystack", &DebugHaystack(self.haystack()))
             .field("span", &self.span)
             .field("anchored", &self.anchored)
-            .field("prefilter", &self.prefilter)
             .field("earliest", &self.earliest)
             .finish()
     }
