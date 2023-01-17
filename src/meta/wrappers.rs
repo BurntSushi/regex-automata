@@ -77,7 +77,7 @@ impl PikeVMEngine {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        self.0.which_overlapping_matches(
+        self.0.try_which_overlapping_matches(
             cache.0.as_mut().unwrap(),
             input,
             patset,

@@ -733,6 +733,12 @@ impl<'h> core::fmt::Debug for Input<'h> {
     }
 }
 
+impl<'h, H: ?Sized + AsRef<[u8]>> From<&'h H> for Input<'h> {
+    fn from(haystack: &'h H) -> Input<'h> {
+        Input::new(haystack)
+    }
+}
+
 /// A representation of a span reported by a regex engine.
 ///
 /// A span corresponds to the starting and ending _byte offsets_ of a

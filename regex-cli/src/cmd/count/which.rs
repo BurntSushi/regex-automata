@@ -301,6 +301,6 @@ fn search_pikevm(
     input: &Input<'_>,
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-    re.which_overlapping_matches(cache, &input, &mut patset)?;
+    re.try_which_overlapping_matches(cache, &input, &mut patset)?;
     Ok(patset.iter().map(|pid| pid.as_usize()).collect())
 }

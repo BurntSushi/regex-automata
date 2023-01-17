@@ -685,12 +685,12 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn is_match<H: AsRef<[u8]>>(
+    pub fn is_match<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
     ) -> bool {
-        let input = Input::new(haystack.as_ref()).earliest(true);
+        let input = input.into().earliest(true);
         self.try_search_slots(cache, &input, &mut [])
             .expect("correct input and slots")
             .is_some()
@@ -739,14 +739,13 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find<H: AsRef<[u8]>>(
+    pub fn find<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
         caps: &mut Captures,
     ) {
-        let input = Input::new(haystack.as_ref());
-        self.try_search(cache, &input, caps).expect("correct input")
+        self.try_search(cache, &input.into(), caps).expect("correct input")
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -770,14 +769,13 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h H,
+        input: I,
     ) -> FindMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
         let caps = Captures::matches(self.get_nfa().group_info().clone());
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         FindMatches { re: self, cache, caps, it }
     }
 
@@ -814,14 +812,13 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn captures_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h H,
+        input: I,
     ) -> CapturesMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack.as_ref());
         let caps = self.create_captures();
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         CapturesMatches { re: self, cache, caps, it }
     }
 }
@@ -1121,7 +1118,7 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn which_overlapping_matches(
+    pub fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,

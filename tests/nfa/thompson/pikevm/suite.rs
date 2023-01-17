@@ -3,7 +3,7 @@ use regex_automata::{
         self,
         pikevm::{self, PikeVM},
     },
-    util::{iter, prefilter::Prefilter, syntax},
+    util::{prefilter::Prefilter, syntax},
     PatternSet,
 };
 
@@ -75,30 +75,11 @@ fn run_test(
 ) -> TestResult {
     let input = create_input(test);
     match test.additional_name() {
-        "is_match" => {
-            // TODO: Use the actual 'is_match' method once it is generic on
-            // 'Into<Input>'.
-            let mut caps = re.create_captures();
-            TestResult::matched(
-                re.try_search_slots(
-                    cache,
-                    &input.earliest(true),
-                    caps.slots_mut(),
-                )
-                .unwrap()
-                .is_some(),
-            )
-        }
+        "is_match" => TestResult::matched(re.is_match(cache, input)),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let input = input.earliest(true);
-                let mut caps = re.create_captures();
-                let it = iter::Searcher::new(input)
-                    .into_matches_iter(|input| {
-                        re.try_search(cache, input, &mut caps)?;
-                        Ok(caps.get_match())
-                    })
-                    .infallible()
+                let it = re
+                    .find_iter(cache, input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| ret::Match {
                         id: m.pattern().as_usize(),
@@ -107,13 +88,8 @@ fn run_test(
                 TestResult::matches(it)
             }
             ret::SearchKind::Leftmost => {
-                let mut caps = re.create_captures();
-                let it = iter::Searcher::new(input)
-                    .into_matches_iter(|input| {
-                        re.try_search(cache, input, &mut caps)?;
-                        Ok(caps.get_match())
-                    })
-                    .infallible()
+                let it = re
+                    .find_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| ret::Match {
                         id: m.pattern().as_usize(),
@@ -123,29 +99,22 @@ fn run_test(
             }
             ret::SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-                re.which_overlapping_matches(cache, &input, &mut patset)
+                re.try_which_overlapping_matches(cache, &input, &mut patset)
                     .unwrap();
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
         "captures" => match test.search_kind() {
             ret::SearchKind::Earliest => {
-                let input = input.earliest(true);
-                let it = iter::Searcher::new(input)
-                    .into_captures_iter(re.create_captures(), |input, caps| {
-                        re.try_search(cache, input, caps)
-                    })
-                    .infallible()
+                let it = re
+                    .captures_iter(cache, input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
             ret::SearchKind::Leftmost => {
-                let it = iter::Searcher::new(input)
-                    .into_captures_iter(re.create_captures(), |input, caps| {
-                        re.try_search(cache, input, caps)
-                    })
-                    .infallible()
+                let it = re
+                    .captures_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
