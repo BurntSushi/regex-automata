@@ -46,7 +46,7 @@ fn prefilter() -> Result<()> {
         };
         let pre = Prefilter::from_hirs(kind, &hirs);
         let mut builder = Regex::builder();
-        builder.configure(Regex::config().prefilter(pre));
+        builder.dfa(DFA::config().prefilter(pre));
         compiler(builder)(test, regexes)
     };
     TestRunner::new()?
@@ -259,10 +259,8 @@ fn configure_regex_builder(
     if test.search_kind() == ret::SearchKind::Overlapping {
         dfa_config = dfa_config.starts_for_each_pattern(true);
     }
-    let regex_config = Regex::config();
     let thompson_config = thompson::Config::new().utf8(test.utf8());
     builder
-        .configure(regex_config)
         .syntax(config_syntax(test))
         .thompson(thompson_config)
         .dfa(dfa_config);

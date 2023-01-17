@@ -374,8 +374,7 @@ fn search_meta(
     // we use a slightly less convenient API to reuse 'Captures' for
     // each match. Overall, this should result in zero amortized allocs
     // per match.
-    let mut it =
-        iter::Searcher::new(input.clone().prefilter(re.get_prefilter()));
+    let mut it = iter::Searcher::new(input.clone());
     loop {
         it.try_advance(|input| {
             re.try_search_captures(cache, input, &mut caps)?;

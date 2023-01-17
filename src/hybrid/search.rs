@@ -18,6 +18,11 @@ pub(crate) fn find_fwd(
     if input.is_done() {
         return Ok(None);
     }
+    let pre = if input.get_anchored().is_anchored() {
+        None
+    } else {
+        dfa.get_config().get_prefilter()
+    };
     // So what we do here is specialize four different versions of 'find_fwd':
     // one for each of the combinations for 'has prefilter' and 'is earliest
     // search'. The reason for doing this is that both of these things require
@@ -26,11 +31,11 @@ pub(crate) fn find_fwd(
     // beneficial in ad hoc benchmarks. To see these differences, you often
     // need a query with a high match count. In other words, specializing these
     // four routines *tends* to help latency more than throughput.
-    if input.get_prefilter().is_some() {
+    if pre.is_some() {
         if input.get_earliest() {
-            find_fwd_imp(dfa, cache, input, input.get_prefilter(), true)
+            find_fwd_imp(dfa, cache, input, pre, true)
         } else {
-            find_fwd_imp(dfa, cache, input, input.get_prefilter(), false)
+            find_fwd_imp(dfa, cache, input, pre, false)
         }
     } else {
         if input.get_earliest() {
@@ -434,8 +439,12 @@ pub(crate) fn find_overlapping_fwd(
     if input.is_done() {
         return Ok(());
     }
-    if input.get_prefilter().is_some() {
-        let pre = input.get_prefilter();
+    let pre = if input.get_anchored().is_anchored() {
+        None
+    } else {
+        dfa.get_config().get_prefilter()
+    };
+    if pre.is_some() {
         find_overlapping_fwd_imp(dfa, cache, input, pre, state)
     } else {
         find_overlapping_fwd_imp(dfa, cache, input, None, state)

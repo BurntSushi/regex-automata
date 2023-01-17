@@ -4,6 +4,7 @@ use crate::{
     dfa::search,
     util::{
         empty,
+        prefilter::Prefilter,
         primitives::{PatternID, StateID},
         search::{Anchored, HalfMatch, Input, MatchError},
     },
@@ -958,6 +959,9 @@ pub unsafe trait Automaton {
     /// TODO
     fn is_utf8(&self) -> bool;
 
+    /// TODO
+    fn is_always_start_anchored(&self) -> bool;
+
     /// Return a slice of bytes to accelerate for the given state, if possible.
     ///
     /// If the given state has no accelerator, then an empty slice must be
@@ -1011,6 +1015,12 @@ pub unsafe trait Automaton {
     #[inline]
     fn accelerator(&self, _id: StateID) -> &[u8] {
         &[]
+    }
+
+    /// TODO
+    #[inline]
+    fn get_prefilter(&self) -> Option<&Prefilter> {
+        None
     }
 
     /// Executes a forward search and returns the end position of the leftmost
@@ -1856,8 +1866,18 @@ unsafe impl<'a, T: Automaton> Automaton for &'a T {
     }
 
     #[inline]
+    fn is_always_start_anchored(&self) -> bool {
+        (**self).is_always_start_anchored()
+    }
+
+    #[inline]
     fn accelerator(&self, id: StateID) -> &[u8] {
         (**self).accelerator(id)
+    }
+
+    #[inline]
+    fn get_prefilter(&self) -> Option<&Prefilter> {
+        (**self).get_prefilter()
     }
 
     #[inline]

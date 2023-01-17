@@ -30,29 +30,37 @@ fn unminimized_default() -> Result<()> {
     Ok(())
 }
 
-/*
-TODO: Fix this test.
 /// Runs the test suite with the default configuration and a prefilter enabled,
 /// if one can be built.
 #[test]
 fn unminimized_prefilter() -> Result<()> {
-    let builder = Regex::builder();
-    let my_compiler = |builder| {
-        compiler(builder, |_, pre, re| {
-            let re = re.with_prefilter(pre);
+    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+        // Parse regexes as HIRs so we can get literals to build a prefilter.
+        let mut hirs = vec![];
+        for pattern in regexes.iter() {
+            let pattern = pattern.to_str()?;
+            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+        }
+        let kind = match untestify_kind(test.match_kind()) {
+            None => return Ok(CompiledRegex::skip()),
+            Some(kind) => kind,
+        };
+        let pre = Prefilter::from_hirs(kind, &hirs);
+        let mut builder = Regex::builder();
+        builder.dense(dense::DFA::config().prefilter(pre));
+        compiler(builder, |_, _, re| {
             Ok(CompiledRegex::compiled(move |test| -> TestResult {
                 run_test(&re, test)
             }))
-        })
+        })(test, regexes)
     };
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
         .blacklist("expensive")
-        .test_iter(suite()?.iter(), my_compiler(builder))
+        .test_iter(suite()?.iter(), my_compiler)
         .assert();
     Ok(())
 }
-*/
 
 /// Runs the test suite with start states specialized.
 #[test]
@@ -136,30 +144,39 @@ fn sparse_unminimized_default() -> Result<()> {
     Ok(())
 }
 
-/*
-TODO: Fix this test
 /// Runs the test suite on a sparse unminimized DFA with prefilters enabled.
 #[test]
 fn sparse_unminimized_prefilter() -> Result<()> {
-    let builder = Regex::builder();
-    let my_compiler = |builder| {
-        compiler(builder, |builder, pre, re| {
+    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+        // Parse regexes as HIRs so we can get literals to build a prefilter.
+        let mut hirs = vec![];
+        for pattern in regexes.iter() {
+            let pattern = pattern.to_str()?;
+            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+        }
+        let kind = match untestify_kind(test.match_kind()) {
+            None => return Ok(CompiledRegex::skip()),
+            Some(kind) => kind,
+        };
+        let pre = Prefilter::from_hirs(kind, &hirs);
+        let mut builder = Regex::builder();
+        builder.dense(dense::DFA::config().prefilter(pre));
+        compiler(builder, |builder, _, re| {
             let fwd = re.forward().to_sparse()?;
             let rev = re.reverse().to_sparse()?;
-            let re = builder.build_from_dfas(fwd, rev).with_prefilter(pre);
+            let re = builder.build_from_dfas(fwd, rev);
             Ok(CompiledRegex::compiled(move |test| -> TestResult {
                 run_test(&re, test)
             }))
-        })
+        })(test, regexes)
     };
     TestRunner::new()?
         .expand(EXPANSIONS, |t| t.compiles())
         .blacklist("expensive")
-        .test_iter(suite()?.iter(), my_compiler(builder))
+        .test_iter(suite()?.iter(), my_compiler)
         .assert();
     Ok(())
 }
-*/
 
 /// Another basic sanity test that checks we can serialize and then deserialize
 /// a regex, and that the resulting regex can be used for searching correctly.
@@ -365,10 +382,8 @@ fn configure_regex_builder(
     if test.search_kind() == ret::SearchKind::Overlapping {
         dense_config = dense_config.starts_for_each_pattern(true);
     }
-    let regex_config = Regex::config();
 
     builder
-        .configure(regex_config)
         .syntax(config_syntax(test))
         .thompson(config_thompson(test))
         .dense(dense_config);

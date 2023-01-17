@@ -9,11 +9,14 @@ use alloc::sync::Arc;
 #[cfg(feature = "perf-literal-multisubstring")]
 use aho_corasick::{self, packed};
 #[cfg(feature = "perf-literal-substring")]
-use memchr::{memchr, memchr2, memchr3, memmem};
+use memchr::memmem;
 #[cfg(feature = "syntax")]
 use regex_syntax::hir::{literal, Hir};
 
-use crate::util::search::{MatchKind, Span};
+use crate::util::{
+    memchr::{memchr, memchr2, memchr3},
+    search::{MatchKind, Span},
+};
 
 // Creates a new prefilter as a trait object. This is wrapped in a macro
 // because we want to create both a Arc<dyn PrefilterI> and also a Arc<dyn

@@ -73,8 +73,7 @@ impl Regex {
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
-        let c = self.get_config();
-        Input::new(haystack.as_ref()).prefilter(self.pre.as_ref())
+        Input::new(haystack.as_ref())
     }
 
     pub fn create_captures(&self) -> Captures {

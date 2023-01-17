@@ -1,10 +1,10 @@
-# These are benchmarks meant to specifically test the one-pass DFA
-# in isolation. These might make it look like it's less useful than it really
-# is. In practice, the one-pass DFA can be used to resolve capturing groups
-# after the more general purpose hybrid NFA/DFA has found a match. So the
-# one-pass DFA will show up in the more general meta regex engine called
-# 'regex/api'. However, it is still useful to be able to measure the speed
-# of the one-pass DFA in isolation and in comparison to other engines.
+# These are benchmarks meant to specifically test the one-pass DFA in
+# isolation. These might make it look like it's less useful than it really is.
+# In practice, the one-pass DFA can be used to resolve capturing groups after
+# the more general purpose hybrid NFA/DFA has found a match. So the one-pass
+# DFA will show up in the more general meta regex engine called 'regex/api' and
+# 'regex/automata/meta'. However, it is still useful to be able to measure the
+# speed of the one-pass DFA in isolation and in comparison to other engines.
 
 [[benches]]
 type = "grep-captures"

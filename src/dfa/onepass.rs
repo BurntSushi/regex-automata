@@ -2905,7 +2905,7 @@ impl Iterator for SlotsIter {
 /// generally only two things you can do with it:
 ///
 /// * Obtain a human readable message via its `std::fmt::Display` impl.
-/// * Access an underlying [`nfa::thompson::Error`] type from its `source`
+/// * Access an underlying [`thompson::BuildError`] type from its `source`
 /// method via the `std::error::Error` trait. This error only occurs when using
 /// convenience routines for building a one-pass DFA directly from a pattern
 /// string.

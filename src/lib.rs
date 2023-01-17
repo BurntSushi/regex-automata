@@ -15,16 +15,37 @@ create issues for this release unless it's for a critical bug.
 // #![deny(missing_docs)]
 // Some intra-doc links are broken when certain features are disabled, so we
 // only bleat about it when most (all?) features are enabled.
-#![cfg_attr(all(std, nfa, dfa, hybrid), deny(rustdoc::broken_intra_doc_links))]
 #![cfg_attr(
-    not(all(std, nfa, dfa, hybrid)),
+    all(
+        feature = "std",
+        feature = "nfa",
+        feature = "dfa",
+        feature = "hybrid"
+    ),
+    deny(rustdoc::broken_intra_doc_links)
+)]
+#![cfg_attr(
+    not(all(
+        feature = "std",
+        feature = "nfa",
+        feature = "dfa",
+        feature = "hybrid"
+    )),
     allow(rustdoc::broken_intra_doc_links)
 )]
 // Kinda similar, but eliminating all of the dead code and unused import
 // warnings for every feature combo is a fool's errand. Instead, we just
 // suppress those, but still let them through in a common configuration when we
 // build most of everything.
-#![cfg_attr(not(all(std, nfa, dfa, hybrid)), allow(dead_code, unused_imports))]
+#![cfg_attr(
+    not(all(
+        feature = "std",
+        feature = "nfa",
+        feature = "dfa",
+        feature = "hybrid"
+    )),
+    allow(dead_code, unused_imports, unused_variables)
+)]
 #![warn(missing_debug_implementations)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 

@@ -1,7 +1,7 @@
 use crate::{
     meta::{BuildError, Config, RegexInfo},
     nfa::thompson::{pikevm, NFA},
-    util::primitives::NonMaxUsize,
+    util::{prefilter::Prefilter, primitives::NonMaxUsize},
     HalfMatch, Input, Match, MatchError, MatchKind, PatternID, PatternSet,
 };
 
@@ -24,9 +24,10 @@ impl PikeVM {
 
     pub(crate) fn new(
         info: &RegexInfo,
+        pre: Option<Prefilter>,
         nfa: &NFA,
     ) -> Result<PikeVM, BuildError> {
-        PikeVMEngine::new(info, nfa).map(PikeVM)
+        PikeVMEngine::new(info, pre, nfa).map(PikeVM)
     }
 
     pub(crate) fn create_cache(&self) -> PikeVMCache {
@@ -45,10 +46,12 @@ pub(crate) struct PikeVMEngine(pikevm::PikeVM);
 impl PikeVMEngine {
     pub(crate) fn new(
         info: &RegexInfo,
+        pre: Option<Prefilter>,
         nfa: &NFA,
     ) -> Result<Option<PikeVMEngine>, BuildError> {
-        let pikevm_config =
-            pikevm::Config::new().match_kind(info.config.get_match_kind());
+        let pikevm_config = pikevm::Config::new()
+            .match_kind(info.config.get_match_kind())
+            .prefilter(pre);
         let engine = pikevm::Builder::new()
             .configure(pikevm_config)
             .build_from_nfa(nfa.clone())
@@ -115,9 +118,10 @@ impl BoundedBacktracker {
 
     pub(crate) fn new(
         info: &RegexInfo,
+        pre: Option<Prefilter>,
         nfa: &NFA,
     ) -> Result<BoundedBacktracker, BuildError> {
-        BoundedBacktrackerEngine::new(info, nfa).map(BoundedBacktracker)
+        BoundedBacktrackerEngine::new(info, pre, nfa).map(BoundedBacktracker)
     }
 
     pub(crate) fn create_cache(&self) -> BoundedBacktrackerCache {
@@ -163,6 +167,7 @@ pub(crate) struct BoundedBacktrackerEngine(
 impl BoundedBacktrackerEngine {
     pub(crate) fn new(
         info: &RegexInfo,
+        pre: Option<Prefilter>,
         nfa: &NFA,
     ) -> Result<Option<BoundedBacktrackerEngine>, BuildError> {
         #[cfg(feature = "nfa-backtrack")]
@@ -172,7 +177,7 @@ impl BoundedBacktrackerEngine {
             {
                 return Ok(None);
             }
-            let backtrack_config = backtrack::Config::new();
+            let backtrack_config = backtrack::Config::new().prefilter(pre);
             let engine = backtrack::Builder::new()
                 .configure(backtrack_config)
                 .build_from_nfa(nfa.clone())
@@ -273,8 +278,13 @@ impl Hybrid {
         Hybrid(None)
     }
 
-    pub(crate) fn new(info: &RegexInfo, nfa: &NFA, nfarev: &NFA) -> Hybrid {
-        Hybrid(HybridEngine::new(info, nfa, nfarev))
+    pub(crate) fn new(
+        info: &RegexInfo,
+        pre: Option<Prefilter>,
+        nfa: &NFA,
+        nfarev: &NFA,
+    ) -> Hybrid {
+        Hybrid(HybridEngine::new(info, pre, nfa, nfarev))
     }
 
     pub(crate) fn create_cache(&self) -> HybridCache {
@@ -297,6 +307,7 @@ pub(crate) struct HybridEngine(
 impl HybridEngine {
     pub(crate) fn new(
         info: &RegexInfo,
+        pre: Option<Prefilter>,
         nfa: &NFA,
         nfarev: &NFA,
     ) -> Option<HybridEngine> {
@@ -307,6 +318,7 @@ impl HybridEngine {
             }
             let dfa_config = hybrid::dfa::Config::new()
                 .match_kind(info.config.get_match_kind())
+                .prefilter(pre.clone())
                 // Unconditionally enabling this seems fine for a meta regex
                 // engine. It isn't too costly. At worst, it just uses a bit
                 // more memory for lazy DFAs (and DFAs, but we don't use those
@@ -316,8 +328,7 @@ impl HybridEngine {
                 .starts_for_each_pattern(true)
                 .byte_classes(info.config.get_byte_classes())
                 .unicode_word_boundary(true)
-                // TODO: Only set this to true if we have a prefilter
-                .specialize_start_states(true)
+                .specialize_start_states(pre.is_some())
                 // .cache_capacity(info.config.get_hybrid_cache_capacity())
                 .cache_capacity(info.config.get_hybrid_cache_capacity())
                 // This makes it possible for building a lazy DFA to
@@ -348,7 +359,12 @@ impl HybridEngine {
                 }
             };
             let result = hybrid::dfa::Builder::new()
-                .configure(dfa_config.clone().match_kind(MatchKind::All))
+                .configure(
+                    dfa_config
+                        .clone()
+                        .match_kind(MatchKind::All)
+                        .prefilter(None),
+                )
                 .build_from_nfa(nfarev.clone());
             let rev = match result {
                 Ok(rev) => rev,
@@ -357,10 +373,8 @@ impl HybridEngine {
                     return None;
                 }
             };
-            let hybrid_config = hybrid::regex::Config::new();
-            let engine = hybrid::regex::Builder::new()
-                .configure(hybrid_config)
-                .build_from_dfas(fwd, rev);
+            let engine =
+                hybrid::regex::Builder::new().build_from_dfas(fwd, rev);
             debug!("lazy DFA built");
             Some(HybridEngine(engine))
         }
@@ -479,8 +493,13 @@ impl DFA {
         DFA(None)
     }
 
-    pub(crate) fn new(info: &RegexInfo, nfa: &NFA, nfarev: &NFA) -> DFA {
-        DFA(DFAEngine::new(info, nfa, nfarev))
+    pub(crate) fn new(
+        info: &RegexInfo,
+        pre: Option<Prefilter>,
+        nfa: &NFA,
+        nfarev: &NFA,
+    ) -> DFA {
+        DFA(DFAEngine::new(info, pre, nfa, nfarev))
     }
 
     #[inline(always)]
@@ -503,6 +522,7 @@ pub(crate) struct DFAEngine(
 impl DFAEngine {
     pub(crate) fn new(
         info: &RegexInfo,
+        pre: Option<Prefilter>,
         nfa: &NFA,
         nfarev: &NFA,
     ) -> Option<DFAEngine> {
@@ -514,6 +534,12 @@ impl DFAEngine {
             // If our NFA is anything but small, don't even bother with a DFA.
             if let Some(state_limit) = info.config.get_dfa_state_limit() {
                 if nfa.states().len() > state_limit {
+                    debug!(
+                        "skipping full DFA because NFA has {} states, \
+                         which exceeds the heuristic limit of {}",
+                        nfa.states().len(),
+                        state_limit,
+                    );
                     return None;
                 }
             }
@@ -525,6 +551,7 @@ impl DFAEngine {
             let size_limit = info.config.get_dfa_size_limit().map(|n| n / 4);
             let dfa_config = dfa::dense::Config::new()
                 .match_kind(info.config.get_match_kind())
+                .prefilter(pre.clone())
                 // Unconditionally enabling this seems fine for a meta regex
                 // engine. It can be most costly for DFAs than lazy DFAs,
                 // because it means computing the transition table for both
@@ -536,22 +563,35 @@ impl DFAEngine {
                 .starts_for_each_pattern(true)
                 .byte_classes(info.config.get_byte_classes())
                 .unicode_word_boundary(true)
-                // TODO: Only set this to true if we have a prefilter
-                .specialize_start_states(true)
+                .specialize_start_states(pre.is_some())
                 .determinize_size_limit(size_limit)
                 .dfa_size_limit(size_limit);
-            let fwd = dfa::dense::Builder::new()
+            let result = dfa::dense::Builder::new()
                 .configure(dfa_config.clone())
-                .build_from_nfa(&nfa)
-                .ok()?;
-            let rev = dfa::dense::Builder::new()
-                .configure(dfa_config.clone().match_kind(MatchKind::All))
-                .build_from_nfa(&nfarev)
-                .ok()?;
-            let regex_config = dfa::regex::Config::new();
-            let engine = dfa::regex::Builder::new()
-                .configure(regex_config)
-                .build_from_dfas(fwd, rev);
+                .build_from_nfa(&nfa);
+            let fwd = match result {
+                Ok(fwd) => fwd,
+                Err(err) => {
+                    debug!("forward full DFA failed to build: {}", err);
+                    return None;
+                }
+            };
+            let result = dfa::dense::Builder::new()
+                .configure(
+                    dfa_config
+                        .clone()
+                        .match_kind(MatchKind::All)
+                        .prefilter(None),
+                )
+                .build_from_nfa(&nfarev);
+            let rev = match result {
+                Ok(rev) => rev,
+                Err(err) => {
+                    debug!("reverse full DFA failed to build: {}", err);
+                    return None;
+                }
+            };
+            let engine = dfa::regex::Builder::new().build_from_dfas(fwd, rev);
             debug!("fully compiled DFA built");
             Some(DFAEngine(engine))
         }

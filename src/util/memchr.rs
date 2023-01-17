@@ -1,4 +1,4 @@
-pub use self::inner::*;
+pub(crate) use self::inner::*;
 
 #[cfg(feature = "perf-literal-substring")]
 pub(super) mod inner {

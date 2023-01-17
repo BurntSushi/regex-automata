@@ -8,7 +8,7 @@ resolving all spans of capturing groups that participate in a match.
 #[cfg(feature = "instrument-pikevm")]
 use core::cell::RefCell;
 
-use alloc::{sync::Arc, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{self, BuildError, State, NFA},
@@ -142,8 +142,8 @@ impl Config {
 /// * [`util::syntax::Config::utf8`](crate::util::syntax::Config::utf8)
 /// controls whether the pattern itself can contain sub-expressions that match
 /// invalid UTF-8.
-/// * [`Config::utf8`] controls whether empty matches that split a Unicode
-/// codepoint are reported or not.
+/// * [`thompson::Config::utf8`] controls whether empty matches that split a
+/// Unicode codepoint are reported or not.
 ///
 /// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.
@@ -529,20 +529,11 @@ impl PikeVM {
     }
 
     /// Create a new `Input` for the given haystack.
-    ///
-    /// The `Input` returned is configured to match the configuration of this
-    /// `PikeVM`. For example, if this `PikeVM` was built with [`Config::utf8`]
-    /// enabled, then the `Input` returned will also have its [`Input::utf8`]
-    /// knob enabled.
-    ///
-    /// This routine is useful when using the lower-level
-    /// [`PikeVM::try_search`] API.
     pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
-        let c = self.get_config();
-        Input::new(haystack.as_ref()).prefilter(c.get_prefilter())
+        Input::new(haystack.as_ref())
     }
 
     /// Create a new empty set of capturing groups that is guaranteed to be
@@ -1184,7 +1175,8 @@ impl PikeVM {
             self.config.get_match_kind().continue_past_first_match();
         let (anchored, start_id) = self.start_config(input)?;
 
-        let pre = input.get_prefilter();
+        let pre =
+            if anchored { None } else { self.get_config().get_prefilter() };
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         let mut pid = None;
         // Yes, our search doesn't end at input.end(), but includes it. This

@@ -1651,8 +1651,6 @@ impl State {
 
 impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use crate::util::escape::DebugByte;
-
         match *self {
             State::ByteRange { ref trans } => trans.fmt(f),
             State::Sparse(SparseTransitions { ref transitions }) => {
@@ -1823,6 +1821,9 @@ impl DenseTransitions {
         }
     }
 
+    /// The dense state optimization isn't currently enabled, so permit a
+    /// little bit of dead code.
+    #[allow(dead_code)]
     pub(crate) fn from_sparse(sparse: &SparseTransitions) -> DenseTransitions {
         let mut dense = vec![StateID::ZERO; 256];
         for t in sparse.transitions.iter() {

@@ -38,6 +38,7 @@ use crate::{
     util::{
         alphabet::{self, ByteClasses, ByteSet},
         int::Pointer,
+        prefilter::Prefilter,
         primitives::{PatternID, StateID},
         search::{Anchored, Input, MatchError},
         start::Start,
@@ -76,6 +77,7 @@ pub struct Config {
     //
     // For docs on the fields below, see the corresponding method setters.
     accelerate: Option<bool>,
+    pre: Option<Option<Prefilter>>,
     minimize: Option<bool>,
     match_kind: Option<MatchKind>,
     start_kind: Option<StartKind>,
@@ -115,6 +117,11 @@ impl Config {
     /// This is enabled by default.
     pub fn accelerate(mut self, yes: bool) -> Config {
         self.accelerate = Some(yes);
+        self
+    }
+
+    pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
+        self.pre = Some(pre);
         self
     }
 
@@ -855,6 +862,11 @@ impl Config {
         self.accelerate.unwrap_or(true)
     }
 
+    /// Returns the prefilter attached to this configuration, if any.
+    pub fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_ref()
+    }
+
     /// Returns whether this configuration has enabled the expensive process
     /// of minimizing a DFA.
     pub fn get_minimize(&self) -> bool {
@@ -939,6 +951,7 @@ impl Config {
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             accelerate: o.accelerate.or(self.accelerate),
+            pre: o.pre.or_else(|| self.pre.clone()),
             minimize: o.minimize.or(self.minimize),
             match_kind: o.match_kind.or(self.match_kind),
             start_kind: o.start_kind.or(self.start_kind),
@@ -1134,6 +1147,7 @@ impl Builder {
             nfa.pattern_len(),
             self.config.get_starts(),
             self.config.get_starts_for_each_pattern(),
+            self.config.get_prefilter().map(|p| p.clone()),
             quitset,
             Flags::from_nfa(&nfa),
         )?;
@@ -1307,6 +1321,11 @@ pub struct DFA<T> {
     /// transition table. See dfa/special.rs for more details on how states are
     /// arranged.
     accels: Accels<T>,
+    /// Any prefilter attached to this DFA.
+    ///
+    /// Note that currently prefilters are not serialized. When deserializing
+    /// a DFA from bytes, this is always set to `None`.
+    pre: Option<Prefilter>,
     /// The set of "quit" bytes for this DFA.
     ///
     /// This is only used when computing the start state for a particular
@@ -1413,6 +1432,7 @@ impl OwnedDFA {
         pattern_len: usize,
         starts: StartKind,
         starts_for_each_pattern: bool,
+        pre: Option<Prefilter>,
         quitset: ByteSet,
         flags: Flags,
     ) -> Result<OwnedDFA, BuildError> {
@@ -1424,6 +1444,7 @@ impl OwnedDFA {
             ms: MatchStates::empty(pattern_len),
             special: Special::new(),
             accels: Accels::empty(),
+            pre,
             quitset,
             flags,
         })
@@ -1459,6 +1480,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
             ms: self.ms.as_ref(),
             special: self.special,
             accels: self.accels(),
+            pre: self.pre.clone(),
             quitset: self.quitset,
             flags: self.flags,
         }
@@ -1477,6 +1499,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
             ms: self.ms.to_owned(),
             special: self.special,
             accels: self.accels().to_owned(),
+            pre: self.pre.clone(),
             quitset: self.quitset,
             flags: self.flags,
         }
@@ -2274,7 +2297,9 @@ impl<'a> DFA<&'a [u32]> {
         let (quitset, nread) = ByteSet::from_bytes(&slice[nr..])?;
         nr += nread;
 
-        Ok((DFA { tt, st, ms, special, accels, quitset, flags }, nr))
+        // Prefilters don't support serialization, so they're always absent.
+        let pre = None;
+        Ok((DFA { tt, st, ms, special, accels, pre, quitset, flags }, nr))
     }
 
     /// The implementation of the public `write_to` serialization methods,
@@ -3066,6 +3091,11 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     }
 
     #[inline]
+    fn is_always_start_anchored(&self) -> bool {
+        self.flags.is_always_start_anchored
+    }
+
+    #[inline]
     fn start_state_forward(
         &self,
         input: &Input<'_, '_>,
@@ -3112,6 +3142,11 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
             return &[];
         }
         self.accels.needles(self.accelerator_index(id))
+    }
+
+    #[inline]
+    fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref()
     }
 }
 
@@ -4521,6 +4556,10 @@ pub(crate) struct Flags {
     /// to valid UTF-8. This also includes omitting any zero-width matches that
     /// split the UTF-8 encoding of a codepoint.
     pub(crate) is_utf8: bool,
+    /// Whether the DFA is always anchored or not, regardless of `Input`
+    /// configuration. This is useful for avoiding a reverse scan even when
+    /// executing unanchored searches.
+    pub(crate) is_always_start_anchored: bool,
 }
 
 impl Flags {
@@ -4532,7 +4571,11 @@ impl Flags {
     /// itself built.
     #[cfg(feature = "dfa-build")]
     fn from_nfa(nfa: &thompson::NFA) -> Flags {
-        Flags { has_empty: nfa.has_empty(), is_utf8: nfa.is_utf8() }
+        Flags {
+            has_empty: nfa.has_empty(),
+            is_utf8: nfa.is_utf8(),
+            is_always_start_anchored: nfa.is_always_start_anchored(),
+        }
     }
 
     /// Deserializes the flags from the given slice. On success, this also
@@ -4544,6 +4587,7 @@ impl Flags {
         let flags = Flags {
             has_empty: bits & (1 << 0) != 0,
             is_utf8: bits & (1 << 1) != 0,
+            is_always_start_anchored: bits & (1 << 2) != 0,
         };
         Ok((flags, nread))
     }
@@ -4568,7 +4612,8 @@ impl Flags {
             return Err(SerializeError::buffer_too_small("flag bitset"));
         }
         let bits = (bool_to_int(self.has_empty) << 0)
-            | (bool_to_int(self.is_utf8) << 1);
+            | (bool_to_int(self.is_utf8) << 1)
+            | (bool_to_int(self.is_always_start_anchored) << 2);
         E::write_u32(bits, dst);
         Ok(nwrite)
     }

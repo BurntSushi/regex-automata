@@ -509,6 +509,7 @@ pub fn is_word_unicode_negate(
 pub struct UnicodeWordBoundaryError(());
 
 impl UnicodeWordBoundaryError {
+    #[cfg(not(feature = "unicode-word-boundary"))]
     pub(crate) fn new() -> UnicodeWordBoundaryError {
         UnicodeWordBoundaryError(())
     }

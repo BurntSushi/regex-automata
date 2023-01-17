@@ -332,6 +332,8 @@ impl Default for Config {
 #[derive(Debug)]
 pub(crate) struct Literals {
     prefixes: literal::Seq,
+    // TODO: Implement suffix literal optimization.
+    #[allow(dead_code)]
     suffixes: literal::Seq,
 }
 
@@ -380,6 +382,8 @@ impl Literals {
                 suffixes.optimize_for_suffix_by_preference();
             }
         }
+        debug!("prefixes extracted after optimization: {:?}", prefixes);
+        debug!("suffixes extracted after optimization: {:?}", suffixes);
         Literals { prefixes, suffixes }
     }
 
@@ -389,6 +393,8 @@ impl Literals {
     }
 
     /// Returns the suffixes extracted.
+    // TODO: Implement suffix literal optimization.
+    #[allow(dead_code)]
     pub(crate) fn suffixes(&self) -> &literal::Seq {
         &self.suffixes
     }

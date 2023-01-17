@@ -1582,7 +1582,8 @@ The default for this flag is 'none', which sets no size limit.
 
 #[derive(Debug)]
 pub struct RegexDFA {
-    config: dfa::regex::Config,
+    /// DFA regexes have no config currently.
+    _nothing: (),
 }
 
 impl RegexDFA {
@@ -1591,8 +1592,7 @@ impl RegexDFA {
     }
 
     pub fn get(_args: &Args) -> anyhow::Result<RegexDFA> {
-        let config = dfa::regex::Config::new();
-        Ok(RegexDFA { config })
+        Ok(RegexDFA { _nothing: () })
     }
 
     pub fn builder(
@@ -1603,7 +1603,6 @@ impl RegexDFA {
     ) -> dfa::regex::Builder {
         let mut builder = dfa::regex::Builder::new();
         builder
-            .configure(self.config.clone())
             .syntax(syntax.0)
             .thompson(thompson.0.clone())
             .dense(dense.config.clone());
@@ -1971,7 +1970,8 @@ technique would likely be superior.
 
 #[derive(Debug)]
 pub struct RegexHybrid {
-    config: hybrid::regex::Config,
+    /// Hybrid NFA/DFA regexes have no config currently.
+    _nothing: (),
 }
 
 impl RegexHybrid {
@@ -1980,8 +1980,7 @@ impl RegexHybrid {
     }
 
     pub fn get(_args: &Args) -> anyhow::Result<RegexHybrid> {
-        let config = hybrid::regex::Config::new();
-        Ok(RegexHybrid { config })
+        Ok(RegexHybrid { _nothing: () })
     }
 
     pub fn builder(
@@ -1992,7 +1991,6 @@ impl RegexHybrid {
     ) -> hybrid::regex::Builder {
         let mut builder = hybrid::regex::Builder::new();
         builder
-            .configure(self.config.clone())
             .syntax(syntax.0)
             .thompson(thompson.0.clone())
             .dfa(hybrid.config.clone());

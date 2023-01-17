@@ -286,7 +286,7 @@ performance.
 operate on `&[u8]`. By default, match indices are
 guaranteed to fall on UTF-8 boundaries, unless either of
 [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) or
-[`regex::Config::utf8`] are disabled.
+[`thompson::Config::utf8`](crate::nfa::thompson::Config::utf8) are disabled.
 
 With some of the downsides out of the way, here are some positive differences:
 

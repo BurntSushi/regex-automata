@@ -22,6 +22,7 @@ use crate::{
         alphabet::{self, ByteClasses, ByteSet},
         determinize::{self, State, StateBuilderEmpty, StateBuilderNFA},
         empty,
+        prefilter::Prefilter,
         primitives::{PatternID, StateID as NFAStateID},
         search::{
             Anchored, HalfMatch, Input, MatchError, MatchKind, PatternSet,
@@ -2712,6 +2713,7 @@ pub struct Config {
     //
     // For docs on the fields below, see the corresponding method setters.
     match_kind: Option<MatchKind>,
+    pre: Option<Option<Prefilter>>,
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
     unicode_word_boundary: Option<bool>,
@@ -2837,6 +2839,11 @@ impl Config {
     /// ```
     pub fn match_kind(mut self, kind: MatchKind) -> Config {
         self.match_kind = Some(kind);
+        self
+    }
+
+    pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
+        self.pre = Some(pre);
         self
     }
 
@@ -3416,6 +3423,11 @@ impl Config {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
+    /// Returns the prefilter set in this configuration, if one at all.
+    pub fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref().unwrap_or(&None).as_ref()
+    }
+
     /// Returns whether this configuration has enabled anchored starting states
     /// for every pattern in the DFA.
     pub fn get_starts_for_each_pattern(&self) -> bool {
@@ -3566,6 +3578,7 @@ impl Config {
     fn overwrite(&self, o: Config) -> Config {
         Config {
             match_kind: o.match_kind.or(self.match_kind),
+            pre: o.pre.or_else(|| self.pre.clone()),
             starts_for_each_pattern: o
                 .starts_for_each_pattern
                 .or(self.starts_for_each_pattern),

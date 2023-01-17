@@ -10,7 +10,7 @@ is can be faster than the [`PikeVM`](thompson::pikevm::PikeVM) in many cases
 because it does less book-keeping.
 */
 
-use alloc::{sync::Arc, vec, vec::Vec};
+use alloc::{vec, vec::Vec};
 
 use crate::{
     nfa::thompson::{self, BuildError, State, NFA},
@@ -155,9 +155,9 @@ impl Config {
 /// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
 /// whether the pattern itself can contain sub-expressions that match invalid
 /// UTF-8.
-/// * [`Config::utf8`] controls how the regex iterators themselves advance
-/// the starting position of the next search when a match with zero length is
-/// found.
+/// * [`thompson::Config::utf8`] controls how the regex iterators themselves
+/// advance the starting position of the next search when a match with zero
+/// length is found.
 ///
 /// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.
@@ -595,20 +595,11 @@ impl BoundedBacktracker {
     }
 
     /// Create a new `Input` for the given haystack.
-    ///
-    /// The `Input` returned is configured to match the configuration of this
-    /// `BoundedBacktracker`. For example, if this `BoundedBacktracker` was
-    /// built with [`Config::utf8`] enabled, then the `Input` returned will
-    /// also have its [`Input::utf8`] knob enabled.
-    ///
-    /// This routine is useful when using the lower-level
-    /// [`BoundedBacktracker::try_search`] API.
     pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
-        let c = self.get_config();
-        Input::new(haystack.as_ref()).prefilter(c.get_prefilter())
+        Input::new(haystack.as_ref())
     }
 
     /// Create a new cache for this regex.
@@ -1388,7 +1379,7 @@ impl BoundedBacktracker {
             let at = input.start();
             return Ok(self.backtrack(cache, input, at, start_id, slots));
         }
-        let pre = input.get_prefilter();
+        let pre = self.get_config().get_prefilter();
         let mut at = input.start();
         while at <= input.end() {
             if let Some(ref pre) = pre {

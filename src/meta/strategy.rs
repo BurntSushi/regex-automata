@@ -251,7 +251,7 @@ pub(super) fn new(
     } else {
         None
     };
-    let strat = Core::new(info, hirs)?;
+    let strat = Core::new(info, pre.clone(), hirs)?;
     Ok((strat, pre))
 }
 
@@ -269,6 +269,7 @@ struct Core {
 impl Core {
     fn new(
         info: &RegexInfo,
+        pre: Option<Prefilter>,
         hirs: &[&Hir],
     ) -> Result<Arc<dyn Strategy>, BuildError> {
         let thompson_config = thompson::Config::new()
@@ -286,8 +287,9 @@ impl Core {
         // support is disabled at compile time, thus making it impossible to
         // match. (Construction can also fail if the NFA was compiled without
         // captures, but we always enable that above.)
-        let pikevm = wrappers::PikeVM::new(info, &nfa)?;
-        let backtrack = wrappers::BoundedBacktracker::new(info, &nfa)?;
+        let pikevm = wrappers::PikeVM::new(info, pre.clone(), &nfa)?;
+        let backtrack =
+            wrappers::BoundedBacktracker::new(info, pre.clone(), &nfa)?;
         // The onepass engine can of course fail to build, but we expect it to
         // fail in many cases because it is an optimization that doesn't apply
         // to all regexes. The 'OnePass' wrapper encapsulates this failure (and
@@ -317,7 +319,7 @@ impl Core {
                 let dfa = if !info.config.get_dfa() {
                     wrappers::DFA::none()
                 } else {
-                    wrappers::DFA::new(info, &nfa, &nfarev)
+                    wrappers::DFA::new(info, pre.clone(), &nfa, &nfarev)
                 };
                 let hybrid = if !info.config.get_hybrid() {
                     wrappers::Hybrid::none()
@@ -325,7 +327,7 @@ impl Core {
                     debug!("skipping lazy DFA because we have a full DFA");
                     wrappers::Hybrid::none()
                 } else {
-                    wrappers::Hybrid::new(info, &nfa, &nfarev)
+                    wrappers::Hybrid::new(info, pre.clone(), &nfa, &nfarev)
                 };
                 (Some(nfarev), hybrid, dfa)
             };
@@ -401,10 +403,12 @@ impl Core {
 }
 
 impl Strategy for Core {
+    #[inline(always)]
     fn create_captures(&self) -> Captures {
         Captures::all(self.nfa.group_info().clone())
     }
 
+    #[inline(always)]
     fn create_cache(&self) -> Cache {
         Cache {
             capmatches: self.create_captures(),
@@ -415,6 +419,7 @@ impl Strategy for Core {
         }
     }
 
+    #[inline(always)]
     fn reset_cache(&self, cache: &mut Cache) {
         cache.pikevm.reset(&self.pikevm);
         cache.backtrack.reset(&self.backtrack);
@@ -422,6 +427,7 @@ impl Strategy for Core {
         cache.hybrid.reset(&self.hybrid);
     }
 
+    #[inline(always)]
     fn try_find(
         &self,
         cache: &mut Cache,
@@ -459,6 +465,7 @@ impl Strategy for Core {
         self.try_find_fallback(cache, input)
     }
 
+    #[inline(always)]
     fn try_find_earliest(
         &self,
         cache: &mut Cache,
@@ -511,6 +518,7 @@ impl Strategy for Core {
             .map(|m| HalfMatch::new(m.pattern(), m.end())))
     }
 
+    #[inline(always)]
     fn try_slots(
         &self,
         cache: &mut Cache,
@@ -522,10 +530,7 @@ impl Strategy for Core {
         // extra work to get offsets for those slots. Ideally the caller should
         // realize this and not call this routine in the first place, but alas,
         // we try to save the caller from themselves if they do.
-        //
-        // FIXME: I think this should use 'implicit_slot_len'. Write a doc test
-        // for this and fix the bug.
-        if slots.len() <= self.nfa.group_info().explicit_slot_len() {
+        if slots.len() <= self.nfa.group_info().implicit_slot_len() {
             trace!("asked for slots unnecessarily, diverting to 'find'");
             let m = match self.try_find(cache, input)? {
                 None => return Ok(None),
@@ -615,6 +620,7 @@ impl Strategy for Core {
         self.try_slots_fallback(cache, input, slots)
     }
 
+    #[inline(always)]
     fn try_which_overlapping_matches(
         &self,
         cache: &mut Cache,

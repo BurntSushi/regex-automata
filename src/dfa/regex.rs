@@ -22,11 +22,7 @@ use alloc::vec::Vec;
 use crate::dfa::dense::BuildError;
 use crate::{
     dfa::{automaton::Automaton, dense},
-    util::{
-        iter,
-        prefilter::{self, Prefilter},
-        search::Input,
-    },
+    util::{iter, search::Input},
     Anchored, Match, MatchError,
 };
 #[cfg(feature = "alloc")]
@@ -49,8 +45,6 @@ macro_rules! define_regex_type {
         #[cfg(feature = "alloc")]
         $(#[$doc])*
         pub struct Regex<A = dense::OwnedDFA> {
-            config: Config,
-            prefilter: Option<Prefilter>,
             forward: A,
             reverse: A,
         }
@@ -58,8 +52,6 @@ macro_rules! define_regex_type {
         #[cfg(not(feature = "alloc"))]
         $(#[$doc])*
         pub struct Regex<A> {
-            config: Config,
-            prefilter: Option<Prefilter>,
             forward: A,
             reverse: A,
         }
@@ -97,7 +89,8 @@ define_regex_type!(
     /// DFA for your regex, and you don't need things like capturing groups,
     /// then this is a good choice if you're looking to optimize for matching
     /// speed. Note however that its speed may be worse than a general purpose
-    /// regex engine if you don't select a good [prefilter].
+    /// regex engine if you don't provide a [`dense::Config::prefilter`] to the
+    /// underlying DFA.
     ///
     /// # Sparse DFAs
     ///
@@ -289,39 +282,6 @@ impl Regex<sparse::DFA<Vec<u8>>> {
 
 /// Convenience routines for regex construction.
 impl Regex<dense::DFA<&'static [u32]>> {
-    /// Return a default configuration for a `Regex`.
-    ///
-    /// This is a convenience routine to avoid needing to import the `Config`
-    /// type when customizing the construction of a regex.
-    ///
-    /// # Example
-    ///
-    /// This example shows how to disable UTF-8 mode. When UTF-8 mode is
-    /// disabled, zero-width matches that split a codepoint are allowed.
-    /// Otherwise they are never reported.
-    ///
-    /// ```
-    /// use regex_automata::{dfa::regex::Regex, nfa::thompson, Match};
-    ///
-    /// let re = Regex::builder()
-    ///     .thompson(thompson::Config::new().utf8(false))
-    ///     .build(r"")?;
-    /// let haystack = "a☃z".as_bytes();
-    /// let mut it = re.find_iter(haystack);
-    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
-    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn config() -> Config {
-        Config::new()
-    }
-
     /// Return a builder for configuring the construction of a `Regex`.
     ///
     /// This is a convenience routine to avoid needing to import the
@@ -655,20 +615,8 @@ impl<A: Automaton> Regex<A> {
     /// Returns true if either the given input specifies an anchored search
     /// or if the underlying DFA is always anchored.
     fn is_anchored(&self, input: &Input<'_, '_>) -> bool {
-        // FIXME: This isn't wrong per se, but it returns 'false' in cases
-        // where it is actually 'true'. For example, if 'input' specifies
-        // an unanchored search, then the search is still anchored if the
-        // underlying automaton is anchored. But we have no way to introspect
-        // that fact via the generic 'Automaton' trait. And even if we were
-        // using a 'dense::DFA' directly, we could use 'start_kind', but even
-        // that might not be good enough. For example, a DFA might be built
-        // with StartKind::Both, but the original NFA might be always anchored,
-        // in which case, the DFA is always anchored.
-        //
-        // The corresponding predicate in the hybrid NFA/DFA gets this correct
-        // 100% of the time because it has the NFA handy.
         match input.get_anchored() {
-            Anchored::No => false,
+            Anchored::No => self.forward().is_always_start_anchored(),
             Anchored::Yes | Anchored::Pattern(_) => true,
         }
     }
@@ -678,26 +626,12 @@ impl<A: Automaton> Regex<A> {
 /// prefilter.
 impl<A: Automaton> Regex<A> {
     /// Create a new `Input` for the given haystack.
-    ///
-    /// The `Input` returned is configured to match the configuration of this
-    /// `Regex`. For example, if this `Regex` was built with [`Config::utf8`]
-    /// enabled, then the `Input` returned will also have its [`Input::utf8`]
-    /// knob enabled.
-    ///
-    /// This routine is useful when using the lower-level [`Regex::try_search`]
-    /// API.
     #[inline]
     pub fn create_input<'p, 'h, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
-        let c = self.get_config();
-        Input::new(haystack).prefilter(c.get_prefilter())
-    }
-
-    /// Return the config for this regex.
-    pub fn get_config(&self) -> &Config {
-        &self.config
+        Input::new(haystack)
     }
 
     /// Return the underlying DFA responsible for forward matching.
@@ -790,44 +724,6 @@ impl<'r, 'h, A: Automaton> Iterator for TryFindMatches<'r, 'h, A> {
     }
 }
 
-/// The configuration used for compiling a DFA-backed regex.
-///
-/// A regex configuration is a simple data object that is typically used with
-/// [`Builder::configure`].
-#[derive(Clone, Debug, Default)]
-pub struct Config {
-    pre: Option<Option<Prefilter>>,
-}
-
-impl Config {
-    /// Return a new default regex compiler configuration.
-    pub fn new() -> Config {
-        Config::default()
-    }
-
-    /// Attach the given prefilter to this configuration.
-    ///
-    /// The given prefilter is automatically applied to every search done by
-    /// a `Regex`, except for the lower level routines that accept a prefilter
-    /// parameter from the caller.
-    pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
-        self.pre = Some(pre);
-        self
-    }
-
-    pub fn get_prefilter(&self) -> Option<&Prefilter> {
-        self.pre.as_ref().unwrap_or(&None).as_ref()
-    }
-
-    /// Overwrite the default configuration such that the options in `o` are
-    /// always used. If an option in `o` is not set, then the corresponding
-    /// option in `self` is used. If it's not set in `self` either, then it
-    /// remains not set.
-    pub(crate) fn overwrite(&self, o: Config) -> Config {
-        Config { pre: o.pre.or_else(|| self.pre.clone()) }
-    }
-}
-
 /// A builder for a regex based on deterministic finite automatons.
 ///
 /// This builder permits configuring options for the syntax of a pattern, the
@@ -841,9 +737,9 @@ impl Config {
 /// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
 /// whether the pattern itself can contain sub-expressions that match invalid
 /// UTF-8.
-/// * [`Config::utf8`] controls how the regex iterators themselves advance
-/// the starting position of the next search when a match with zero length is
-/// found.
+/// * [`thompson::Config::utf8`] controls how the regex iterators themselves
+/// advance the starting position of the next search when a match with zero
+/// length is found.
 ///
 /// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.
@@ -911,7 +807,6 @@ impl Config {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Builder {
-    config: Config,
     #[cfg(feature = "dfa-build")]
     dfa: dense::Builder,
 }
@@ -920,7 +815,6 @@ impl Builder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> Builder {
         Builder {
-            config: Config::default(),
             #[cfg(feature = "dfa-build")]
             dfa: dense::Builder::new(),
         }
@@ -959,6 +853,7 @@ impl Builder {
             .clone()
             .configure(
                 dense::Config::new()
+                    .prefilter(None)
                     .start_kind(StartKind::Anchored)
                     .match_kind(MatchKind::All),
             )
@@ -998,9 +893,9 @@ impl Builder {
     /// If these conditions aren't satisfied, then the behavior of searches is
     /// unspecified.
     ///
-    /// Note that when using this constructor, only the configuration from
-    /// [`Config`] is applied. Since this routine provides the DFAs to the
-    /// builder, there is no opportunity to apply other configuration options.
+    /// Note that when using this constructor, no configuration is applied.
+    /// Since this routine provides the DFAs to the builder, there is no
+    /// opportunity to apply other configuration options.
     ///
     /// # Example
     ///
@@ -1042,14 +937,7 @@ impl Builder {
         forward: A,
         reverse: A,
     ) -> Regex<A> {
-        let config = self.config.clone();
-        Regex { config, prefilter: None, forward, reverse }
-    }
-
-    /// Apply the given regex configuration options to this builder.
-    pub fn configure(&mut self, config: Config) -> &mut Builder {
-        self.config = self.config.overwrite(config);
-        self
+        Regex { forward, reverse }
     }
 
     /// Set the syntax configuration for this builder using

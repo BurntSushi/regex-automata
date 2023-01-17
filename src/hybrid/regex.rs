@@ -14,8 +14,6 @@ find the start offset of a match.
 See the [parent module](crate::hybrid) for examples.
 */
 
-use alloc::sync::Arc;
-
 use crate::{
     hybrid::{
         dfa::{self, DFA},
@@ -24,7 +22,6 @@ use crate::{
     nfa::thompson,
     util::{
         iter,
-        prefilter::Prefilter,
         search::{Anchored, Input, Match, MatchError, MatchKind},
     },
 };
@@ -84,8 +81,6 @@ use crate::{
 /// ```
 #[derive(Debug)]
 pub struct Regex {
-    /// The config for this regex.
-    config: Config,
     /// The forward lazy DFA. This can only find the end of a match.
     forward: DFA,
     /// The reverse lazy DFA. This can only find the start of a match.
@@ -155,44 +150,6 @@ impl Regex {
         Regex::builder().build_many(patterns)
     }
 
-    /// Return a default configuration for a `Regex`.
-    ///
-    /// This is a convenience routine to avoid needing to import the `Config`
-    /// type when customizing the construction of a regex.
-    ///
-    /// # Example
-    ///
-    /// This example shows how to disable UTF-8 mode. When UTF-8 mode is
-    /// disabled, zero-width matches that split a codepoint are allowed.
-    /// Otherwise they are never reported.
-    ///
-    /// In the code below, notice that `""` is permitted to match positions
-    /// that split the encoding of a codepoint.
-    ///
-    /// ```
-    /// use regex_automata::{hybrid::regex::Regex, nfa::thompson, Match};
-    ///
-    /// let re = Regex::builder()
-    ///     .thompson(thompson::Config::new().utf8(false))
-    ///     .build(r"")?;
-    /// let mut cache = re.create_cache();
-    ///
-    /// let haystack = "a☃z";
-    /// let mut it = re.find_iter(&mut cache, haystack);
-    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
-    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
-    /// assert_eq!(None, it.next());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn config() -> Config {
-        Config::new()
-    }
-
     /// Return a builder for configuring the construction of a `Regex`.
     ///
     /// This is a convenience routine to avoid needing to import the
@@ -227,21 +184,12 @@ impl Regex {
     }
 
     /// Create a new `Input` for the given haystack.
-    ///
-    /// The `Input` returned is configured to match the configuration of this
-    /// `Regex`. For example, if this `Regex` was built with [`Config::utf8`]
-    /// enabled, then the `Input` returned will also have its [`Input::utf8`]
-    /// knob enabled.
-    ///
-    /// This routine is useful when using the lower-level [`Regex::try_search`]
-    /// API.
     #[inline]
     pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
         &'p self,
         haystack: &'h H,
     ) -> Input<'h, 'p> {
-        let c = self.get_config();
-        Input::new(haystack.as_ref()).prefilter(c.get_prefilter())
+        Input::new(haystack.as_ref())
     }
 
     /// Create a new cache for this `Regex`.
@@ -639,11 +587,6 @@ impl Regex {
 /// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl Regex {
-    /// Return the config for this regex.
-    pub fn get_config(&self) -> &Config {
-        &self.config
-    }
-
     /// Return the underlying lazy DFA responsible for forward matching.
     ///
     /// This is useful for accessing the underlying lazy DFA and using it
@@ -864,44 +807,6 @@ impl Cache {
     }
 }
 
-/// The configuration used for compiling a hybrid NFA/DFA regex.
-///
-/// A regex configuration is a simple data object that is typically used with
-/// [`Builder::configure`].
-#[derive(Clone, Debug, Default)]
-pub struct Config {
-    pre: Option<Option<Prefilter>>,
-}
-
-impl Config {
-    /// Return a new default regex compiler configuration.
-    pub fn new() -> Config {
-        Config::default()
-    }
-
-    /// Attach the given prefilter to this configuration.
-    ///
-    /// The given prefilter is automatically applied to every search done by
-    /// a `Regex`, except for the lower level routines that accept a prefilter
-    /// parameter from the caller.
-    pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
-        self.pre = Some(pre);
-        self
-    }
-
-    pub fn get_prefilter(&self) -> Option<&Prefilter> {
-        self.pre.as_ref().unwrap_or(&None).as_ref()
-    }
-
-    /// Overwrite the default configuration such that the options in `o` are
-    /// always used. If an option in `o` is not set, then the corresponding
-    /// option in `self` is used. If it's not set in `self` either, then it
-    /// remains not set.
-    pub(crate) fn overwrite(&self, o: Config) -> Config {
-        Config { pre: o.pre.or_else(|| self.pre.clone()) }
-    }
-}
-
 /// A builder for a regex based on a hybrid NFA/DFA.
 ///
 /// This builder permits configuring options for the syntax of a pattern, the
@@ -915,9 +820,9 @@ impl Config {
 /// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
 /// whether the pattern itself can contain sub-expressions that match invalid
 /// UTF-8.
-/// * [`Config::utf8`] controls how the regex iterators themselves advance
-/// the starting position of the next search when a match with zero length is
-/// found.
+/// * [`thompson::Config::utf8`] controls how the regex iterators themselves
+/// advance the starting position of the next search when a match with zero
+/// length is found.
 ///
 /// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.
@@ -964,14 +869,13 @@ impl Config {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Builder {
-    config: Config,
     dfa: dfa::Builder,
 }
 
 impl Builder {
     /// Create a new regex builder with the default configuration.
     pub fn new() -> Builder {
-        Builder { config: Config::default(), dfa: DFA::builder() }
+        Builder { dfa: DFA::builder() }
     }
 
     /// Build a regex from the given pattern.
@@ -993,7 +897,9 @@ impl Builder {
         let reverse = self
             .dfa
             .clone()
-            .configure(DFA::config().match_kind(MatchKind::All))
+            .configure(
+                DFA::config().prefilter(None).match_kind(MatchKind::All),
+            )
             .thompson(thompson::Config::new().reverse(true))
             .build_many(patterns)?;
         Ok(self.build_from_dfas(forward, reverse))
@@ -1016,9 +922,9 @@ impl Builder {
     /// If these conditions aren't satisfied, then the behavior of searches is
     /// unspecified.
     ///
-    /// Note that when using this constructor, only the configuration from
-    /// [`Config`] is applied. Since this routine provides the DFAs to the
-    /// builder, there is no opportunity to apply other configuration options.
+    /// Note that when using this constructor, no configuration is applied.
+    /// Since this routine provides the DFAs to the builder, there is no
+    /// opportunity to apply other configuration options.
     ///
     /// # Example
     ///
@@ -1044,17 +950,7 @@ impl Builder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn build_from_dfas(&self, forward: DFA, reverse: DFA) -> Regex {
-        // The congruous method on DFA-backed regexes is exposed, but it's
-        // not clear this builder is useful here since lazy DFAs can't be
-        // serialized and there is only one type of them.
-        let config = self.config.clone();
-        Regex { config, forward, reverse }
-    }
-
-    /// Apply the given regex configuration options to this builder.
-    pub fn configure(&mut self, config: Config) -> &mut Builder {
-        self.config = self.config.overwrite(config);
-        self
+        Regex { forward, reverse }
     }
 
     /// Set the syntax configuration for this builder using

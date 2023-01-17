@@ -61,6 +61,7 @@ use crate::{
         alphabet::{ByteClasses, ByteSet},
         escape::DebugByte,
         int::{Pointer, U16, U32},
+        prefilter::Prefilter,
         primitives::{PatternID, StateID},
         search::{Anchored, Input, MatchError},
         start::Start,
@@ -132,6 +133,7 @@ pub struct DFA<T> {
     trans: Transitions<T>,
     starts: StartTable<T>,
     special: Special,
+    pre: Option<Prefilter>,
     quitset: ByteSet,
     flags: Flags,
 }
@@ -395,6 +397,7 @@ impl DFA<Vec<u8>> {
             },
             starts: StartTable::from_dense_dfa(dfa, &remap)?,
             special: dfa.special().remap(|id| remap[dfa.to_index(id)]),
+            pre: dfa.get_prefilter().map(|p| p.clone()),
             quitset: dfa.quitset().clone(),
             flags: dfa.flags().clone(),
         };
@@ -427,6 +430,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
             trans: self.trans.as_ref(),
             starts: self.starts.as_ref(),
             special: self.special,
+            pre: self.pre.clone(),
             quitset: self.quitset,
             flags: self.flags,
         }
@@ -443,6 +447,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
             trans: self.trans.to_owned(),
             starts: self.starts.to_owned(),
             special: self.special,
+            pre: self.pre.clone(),
             quitset: self.quitset,
             flags: self.flags,
         }
@@ -1102,7 +1107,9 @@ impl<'a> DFA<&'a [u8]> {
         let (quitset, nread) = ByteSet::from_bytes(&slice[nr..])?;
         nr += nread;
 
-        Ok((DFA { trans, starts, special, quitset, flags }, nr))
+        // Prefilters don't support serialization, so they're always absent.
+        let pre = None;
+        Ok((DFA { trans, starts, special, pre, quitset, flags }, nr))
     }
 }
 
@@ -1221,6 +1228,11 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     }
 
     #[inline]
+    fn is_always_start_anchored(&self) -> bool {
+        self.flags.is_always_start_anchored
+    }
+
+    #[inline]
     fn start_state_forward(
         &self,
         input: &Input<'_, '_>,
@@ -1264,6 +1276,11 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     #[inline]
     fn accelerator(&self, id: StateID) -> &[u8] {
         self.trans.state(id).accelerator()
+    }
+
+    #[inline]
+    fn get_prefilter(&self) -> Option<&Prefilter> {
+        self.pre.as_ref()
     }
 }
 
