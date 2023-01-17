@@ -4,9 +4,7 @@ Types and routines that support the search APIs of most regex engines.
 
 use core::ops::{Range, RangeBounds};
 
-use crate::util::{
-    escape::DebugByte, prefilter::Prefilter, primitives::PatternID, utf8,
-};
+use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 
 /// The parameters for a regex search.
 ///
@@ -48,12 +46,7 @@ use crate::util::{
 /// factor is that regex engines should accept a `&Input`, which means that
 /// implementors should only use the "getter" APIs of a `Input`.
 ///
-/// The lifetime parameters have the following meaning:
-///
-/// * `'h` refers to the lifetime of the haystack.
-/// * `'p` refers to the lifetime of the prefilter. Since a prefilter is
-/// optional, this defaults to the `'static` lifetime when a prefilter is not
-/// present.
+/// The lifetime parameter `'h` refers to the lifetime of the haystack.
 ///
 /// # Regex engine support
 ///
@@ -108,25 +101,21 @@ use crate::util::{
 /// strategy for implementing predicate routines like `is_match` where the
 /// specific offset isn't important, but sometimes the offset is useful.
 #[derive(Clone)]
-pub struct Input<'h, 'p> {
+pub struct Input<'h> {
     haystack: &'h [u8],
     span: Span,
     anchored: Anchored,
-    prefilter: Option<&'p Prefilter>,
     earliest: bool,
 }
 
-impl<'h, 'p> Input<'h, 'p> {
+impl<'h> Input<'h> {
     /// Create a new search configuration for the given haystack.
     #[inline]
-    pub fn new<H: ?Sized + AsRef<[u8]>>(
-        haystack: &'h H,
-    ) -> Input<'h, 'static> {
+    pub fn new<H: ?Sized + AsRef<[u8]>>(haystack: &'h H) -> Input<'h> {
         Input {
             haystack: haystack.as_ref(),
             span: Span { start: 0, end: haystack.as_ref().len() },
             anchored: Anchored::No,
-            prefilter: None,
             earliest: false,
         }
     }
@@ -206,7 +195,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// reported a match at position `0`, even though `at` starts at offset
     /// `1` because we sliced the haystack.
     #[inline]
-    pub fn span<S: Into<Span>>(mut self, span: S) -> Input<'h, 'p> {
+    pub fn span<S: Into<Span>>(mut self, span: S) -> Input<'h> {
         self.set_span(span);
         self
     }
@@ -241,7 +230,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// assert_eq!(2..5, input.get_range());
     /// ```
     #[inline]
-    pub fn range<R: RangeBounds<usize>>(mut self, range: R) -> Input<'h, 'p> {
+    pub fn range<R: RangeBounds<usize>>(mut self, range: R) -> Input<'h> {
         self.set_range(range);
         self
     }
@@ -342,17 +331,8 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn anchored(mut self, mode: Anchored) -> Input<'h, 'p> {
+    pub fn anchored(mut self, mode: Anchored) -> Input<'h> {
         self.set_anchored(mode);
-        self
-    }
-
-    #[inline]
-    pub fn prefilter(
-        mut self,
-        prefilter: Option<&'p Prefilter>,
-    ) -> Input<'h, 'p> {
-        self.set_prefilter(prefilter);
         self
     }
 
@@ -403,7 +383,7 @@ impl<'h, 'p> Input<'h, 'p> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn earliest(mut self, yes: bool) -> Input<'h, 'p> {
+    pub fn earliest(mut self, yes: bool) -> Input<'h> {
         self.set_earliest(yes);
         self
     }
@@ -543,11 +523,6 @@ impl<'h, 'p> Input<'h, 'p> {
         self.anchored = mode;
     }
 
-    #[inline]
-    pub fn set_prefilter(&mut self, prefilter: Option<&'p Prefilter>) {
-        self.prefilter = prefilter;
-    }
-
     /// Set whether the search should execute in "earliest" mode or not.
     ///
     /// This is like [`Input::earliest`], except it mutates the search
@@ -680,14 +655,6 @@ impl<'h, 'p> Input<'h, 'p> {
         self.anchored
     }
 
-    #[inline]
-    pub fn get_prefilter(&self) -> Option<&'p Prefilter> {
-        if self.get_anchored().is_anchored() {
-            return None;
-        }
-        self.prefilter
-    }
-
     /// Return whether this search should execute in "earliest" mode.
     ///
     /// # Example
@@ -753,7 +720,7 @@ impl<'h, 'p> Input<'h, 'p> {
     }
 }
 
-impl<'h, 'p> core::fmt::Debug for Input<'h, 'p> {
+impl<'h> core::fmt::Debug for Input<'h> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         use crate::util::escape::DebugHaystack;
 

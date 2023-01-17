@@ -1841,7 +1841,7 @@ impl DFA {
     pub fn try_search(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
         let pid = self.try_search_slots(cache, input, caps.slots_mut())?;
@@ -1912,7 +1912,7 @@ impl DFA {
     pub fn try_search_slots(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1944,7 +1944,7 @@ impl DFA {
     fn try_search_slots_imp(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
@@ -1981,7 +1981,7 @@ impl DFA {
     fn search_imp(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         // PERF: Some ideas. I ran out of steam after my initial impl to try
@@ -2096,7 +2096,7 @@ impl DFA {
     fn find_match(
         &self,
         cache: &mut Cache,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         at: usize,
         sid: StateID,
         slots: &mut [Option<NonMaxUsize>],
