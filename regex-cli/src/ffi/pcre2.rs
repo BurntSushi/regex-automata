@@ -163,7 +163,7 @@ impl Regex {
     /// an error occurred while searching, then that is returned.
     pub fn try_find(
         &self,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
         match_data: &mut MatchData,
     ) -> anyhow::Result<bool> {
         let matched = match_data.try_find(self, input)?;
@@ -180,7 +180,7 @@ impl Regex {
     /// it with `Regex::find`.
     pub fn try_find_iter<'r, 'h, 'm>(
         &'r self,
-        input: Input<'h, 'r>,
+        input: Input<'h>,
         match_data: &'m mut MatchData,
     ) -> TryFindMatches<'r, 'h, 'm> {
         TryFindMatches { re: self, match_data, input, last_match_end: None }
@@ -352,7 +352,7 @@ impl MatchData {
     fn try_find(
         &mut self,
         re: &Regex,
-        input: &Input<'_, '_>,
+        input: &Input<'_>,
     ) -> Result<bool, Error> {
         self.matched = false;
         // The regex-automata handle this case correctly, but I'm not sure if
@@ -485,7 +485,7 @@ impl MatchData {
 pub struct TryFindMatches<'r, 'h, 'm> {
     re: &'r Regex,
     match_data: &'m mut MatchData,
-    input: Input<'h, 'r>,
+    input: Input<'h>,
     last_match_end: Option<usize>,
 }
 

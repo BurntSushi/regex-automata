@@ -72,7 +72,7 @@ impl Regex {
     }
 
     /// Return true if the given input matches anywhere.
-    pub fn is_match(&self, input: &Input<'_, '_>) -> bool {
+    pub fn is_match(&self, input: &Input<'_>) -> bool {
         // SAFETY: By construction, self.re is non-null. So is our haystack.
         // We assume RE2 searching can't throw an exception.
         unsafe {
@@ -87,7 +87,7 @@ impl Regex {
 
     /// Return the first 'Match' found in the given input. If no such match
     /// exists, then return None.
-    pub fn find(&self, input: &Input<'_, '_>) -> Option<Match> {
+    pub fn find(&self, input: &Input<'_>) -> Option<Match> {
         let (mut match_start, mut match_end): (c_int, c_int) = (0, 0);
         // SAFETY: By construction, self.re is non-null. So is our haystack.
         // We assume RE2 searching can't throw an exception.
@@ -114,7 +114,7 @@ impl Regex {
     /// given input.
     pub fn find_iter<'r, 'h>(
         &'r self,
-        input: Input<'h, 'r>,
+        input: Input<'h>,
     ) -> FindMatches<'r, 'h> {
         let it = iter::Searcher::new(input);
         FindMatches { re: self, it }
@@ -122,11 +122,7 @@ impl Regex {
 
     /// Write the matching capturing groups in 'caps' if a match could be
     /// found in the given input.
-    pub fn captures(
-        &self,
-        input: &Input<'_, '_>,
-        caps: &mut Captures,
-    ) -> bool {
+    pub fn captures(&self, input: &Input<'_>, caps: &mut Captures) -> bool {
         // We make sure to reset this to avoid having incorrect haystack
         // addresses in our captures. Also, this being None is a sentinel for
         // indicating that 'Captures' does not represent a match, regardless of
@@ -298,7 +294,7 @@ impl std::fmt::Debug for Captures {
 #[derive(Debug)]
 pub struct FindMatches<'r, 'h> {
     re: &'r Regex,
-    it: iter::Searcher<'h, 'r>,
+    it: iter::Searcher<'h>,
 }
 
 impl<'r, 'h> Iterator for FindMatches<'r, 'h> {

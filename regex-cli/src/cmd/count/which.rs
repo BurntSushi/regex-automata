@@ -271,14 +271,14 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 
 fn search_api_regex(
     re: &regex::bytes::RegexSet,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> anyhow::Result<Vec<usize>> {
     Ok(re.matches(input.haystack()).into_iter().collect())
 }
 
 fn search_dfa_automaton<A: Automaton>(
     dfa: A,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
     dfa.try_which_overlapping_matches(&input, &mut patset)?;
@@ -288,7 +288,7 @@ fn search_dfa_automaton<A: Automaton>(
 fn search_hybrid_dfa<'i, 'c>(
     dfa: &hybrid::dfa::DFA,
     cache: &mut hybrid::dfa::Cache,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(dfa.pattern_len());
     dfa.try_which_overlapping_matches(cache, &input, &mut patset)?;
@@ -298,7 +298,7 @@ fn search_hybrid_dfa<'i, 'c>(
 fn search_pikevm(
     re: &PikeVM,
     cache: &mut pikevm::Cache,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
 ) -> anyhow::Result<Vec<usize>> {
     let mut patset = PatternSet::new(re.get_nfa().pattern_len());
     re.which_overlapping_matches(cache, &input, &mut patset)?;

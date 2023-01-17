@@ -576,7 +576,7 @@ fn search_dfa_automaton<A: Automaton>(
     dfa: A,
     overlapping: &config::Overlapping,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; dfa.pattern_len()];
@@ -608,7 +608,7 @@ fn search_dfa_automaton<A: Automaton>(
 fn search_dfa_regex<A: Automaton>(
     re: &dfa::regex::Regex<A>,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
@@ -628,7 +628,7 @@ fn search_dfa_onepass(
     re: &dfa::onepass::DFA,
     cache: &mut dfa::onepass::Cache,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
@@ -652,7 +652,7 @@ fn search_hybrid_dfa<'i, 'c>(
     cache: &mut hybrid::dfa::Cache,
     overlapping: &config::Overlapping,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; dfa.pattern_len()];
@@ -685,7 +685,7 @@ fn search_hybrid_regex(
     re: &hybrid::regex::Regex,
     cache: &mut hybrid::regex::Cache,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
@@ -705,7 +705,7 @@ fn search_backtrack(
     re: &BoundedBacktracker,
     cache: &mut backtrack::Cache,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];
@@ -732,7 +732,7 @@ fn search_pikevm(
     re: &PikeVM,
     cache: &mut pikevm::Cache,
     find: &config::Find,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0u64; re.pattern_len()];

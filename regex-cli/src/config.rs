@@ -398,7 +398,7 @@ impl Input {
     /// Return an input configuration given the haystack to search. The input
     /// configuration (other than the haystack) is drawn from the CLI flags
     /// passed for `Input`.
-    pub fn input<'h>(&self, haystack: &'h [u8]) -> automata::Input<'h, '_> {
+    pub fn input<'h>(&self, haystack: &'h [u8]) -> automata::Input<'h> {
         let mut input = automata::Input::new(haystack).earliest(self.earliest);
         if let Some(start) = self.start {
             input.set_start(start);
@@ -426,7 +426,7 @@ impl Input {
     pub fn with_input<T>(
         &self,
         haystack: &Haystack,
-        mut f: impl FnMut(&automata::Input<'_, '_>) -> anyhow::Result<T>,
+        mut f: impl FnMut(&automata::Input<'_>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
         haystack.with_bytes(|bytes| f(&self.input(bytes)))
     }

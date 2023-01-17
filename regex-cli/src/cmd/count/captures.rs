@@ -340,7 +340,7 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 fn search_api_regex(
     re: &regex::bytes::Regex,
     captures: &config::Captures,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<u64>> {
     let mut counts = vec![0; re.captures_len()];
@@ -361,7 +361,7 @@ fn search_meta(
     re: &meta::Regex,
     cache: &mut meta::Cache,
     captures: &config::Captures,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut caps = re.create_captures();
@@ -400,7 +400,7 @@ fn search_onepass(
     re: &DFA,
     cache: &mut onepass::Cache,
     captures: &config::Captures,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; re.get_nfa().pattern_len()];
@@ -438,7 +438,7 @@ fn search_backtrack(
     re: &BoundedBacktracker,
     cache: &mut backtrack::Cache,
     captures: &config::Captures,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; re.get_nfa().pattern_len()];
@@ -476,7 +476,7 @@ fn search_pikevm(
     re: &PikeVM,
     cache: &mut pikevm::Cache,
     captures: &config::Captures,
-    input: &Input<'_, '_>,
+    input: &Input<'_>,
     buf: &mut String,
 ) -> anyhow::Result<Vec<Vec<u64>>> {
     let mut counts = vec![vec![]; re.get_nfa().pattern_len()];
