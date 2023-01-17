@@ -1110,7 +1110,7 @@ impl PikeVM {
     ///
     /// let input = Input::new("foobar");
     /// let mut patset = PatternSet::new(re.pattern_len());
-    /// re.which_overlapping_matches(&mut cache, &input, &mut patset)?;
+    /// re.try_which_overlapping_matches(&mut cache, &input, &mut patset)?;
     /// let expected = vec![0, 2, 3, 4, 6];
     /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);
