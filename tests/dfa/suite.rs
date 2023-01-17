@@ -306,7 +306,7 @@ fn compiler(
 }
 
 fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
-    let input = create_input(test, |h| re.create_input(h));
+    let input = create_input(test);
     match test.additional_name() {
         "is_match" => {
             // TODO: Use 'is_match' API once it accetps 'Into<Input>'.

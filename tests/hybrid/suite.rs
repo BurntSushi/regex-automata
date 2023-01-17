@@ -186,7 +186,7 @@ fn run_test(
     cache: &mut regex::Cache,
     test: &RegexTest,
 ) -> TestResult {
-    let input = create_input(test, |h| re.create_input(h));
+    let input = create_input(test);
     match test.additional_name() {
         "is_match" => {
             // TODO: Use 'is_match' API once it accetps 'Into<Input>'.

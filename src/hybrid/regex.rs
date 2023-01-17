@@ -183,15 +183,6 @@ impl Regex {
         Builder::new()
     }
 
-    /// Create a new `Input` for the given haystack.
-    #[inline]
-    pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
-        &'p self,
-        haystack: &'h H,
-    ) -> Input<'h, 'p> {
-        Input::new(haystack.as_ref())
-    }
-
     /// Create a new cache for this `Regex`.
     ///
     /// The cache returned should only be used for searches for this
@@ -367,7 +358,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, it }
     }
@@ -412,7 +403,7 @@ impl Regex {
     ) -> Result<bool, MatchError> {
         // Not only can we do an "earliest" search, but we can avoid doing a
         // reverse scan too.
-        let input = self.create_input(haystack.as_ref()).earliest(true);
+        let input = Input::new(haystack.as_ref()).earliest(true);
         self.forward()
             .try_search_fwd(&mut cache.forward, &input)
             .map(|m| m.is_some())
@@ -440,7 +431,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack.as_ref());
         self.try_search(cache, &input)
     }
 
@@ -468,7 +459,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> TryFindMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let it = iter::Searcher::new(input);
         TryFindMatches { re: self, cache, it }
     }

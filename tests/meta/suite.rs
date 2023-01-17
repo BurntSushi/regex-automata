@@ -64,7 +64,7 @@ fn run_test(
     cache: &mut meta::Cache,
     test: &RegexTest,
 ) -> TestResult {
-    let input = create_input(test, |h| re.create_input(h));
+    let input = create_input(test);
     match test.additional_name() {
         "is_match" => TestResult::matched(
             re.try_search_slots(cache, &input.earliest(true), &mut [])

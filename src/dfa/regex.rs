@@ -417,7 +417,7 @@ impl<A: Automaton> Regex<A> {
         &'r self,
         haystack: &'h H,
     ) -> FindMatches<'r, 'h, A> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let it = iter::Searcher::new(input);
         FindMatches { re: self, it }
     }
@@ -460,7 +460,7 @@ impl<A: Automaton> Regex<A> {
     ) -> Result<bool, MatchError> {
         // Not only can we do an "earliest" search, but we can avoid doing a
         // reverse scan too.
-        let input = self.create_input(haystack.as_ref()).earliest(true);
+        let input = Input::new(haystack.as_ref()).earliest(true);
         self.forward().try_search_fwd(&input).map(|x| x.is_some())
     }
 
@@ -484,7 +484,7 @@ impl<A: Automaton> Regex<A> {
         &self,
         haystack: H,
     ) -> Result<Option<Match>, MatchError> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack.as_ref());
         self.try_search(&input)
     }
 
@@ -510,7 +510,7 @@ impl<A: Automaton> Regex<A> {
         &'r self,
         haystack: &'h H,
     ) -> TryFindMatches<'r, 'h, A> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let it = iter::Searcher::new(input);
         TryFindMatches { re: self, it }
     }
@@ -625,15 +625,6 @@ impl<A: Automaton> Regex<A> {
 /// Non-search APIs for querying information about the regex and setting a
 /// prefilter.
 impl<A: Automaton> Regex<A> {
-    /// Create a new `Input` for the given haystack.
-    #[inline]
-    pub fn create_input<'p, 'h, H: ?Sized + AsRef<[u8]>>(
-        &'p self,
-        haystack: &'h H,
-    ) -> Input<'h, 'p> {
-        Input::new(haystack)
-    }
-
     /// Return the underlying DFA responsible for forward matching.
     ///
     /// This is useful for accessing the underlying DFA and converting it to

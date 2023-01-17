@@ -528,14 +528,6 @@ impl PikeVM {
         Builder::new()
     }
 
-    /// Create a new `Input` for the given haystack.
-    pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
-        &'p self,
-        haystack: &'h H,
-    ) -> Input<'h, 'p> {
-        Input::new(haystack.as_ref())
-    }
-
     /// Create a new empty set of capturing groups that is guaranteed to be
     /// valid for the search APIs on this `PikeVM`.
     ///
@@ -698,7 +690,7 @@ impl PikeVM {
         cache: &mut Cache,
         haystack: H,
     ) -> bool {
-        let input = self.create_input(haystack.as_ref()).earliest(true);
+        let input = Input::new(haystack.as_ref()).earliest(true);
         self.try_search_slots(cache, &input, &mut [])
             .expect("correct input and slots")
             .is_some()
@@ -753,7 +745,7 @@ impl PikeVM {
         haystack: H,
         caps: &mut Captures,
     ) {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack.as_ref());
         self.try_search(cache, &input, caps).expect("correct input")
     }
 
@@ -783,7 +775,7 @@ impl PikeVM {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let caps = Captures::matches(self.get_nfa().group_info().clone());
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, caps, it }
@@ -827,7 +819,7 @@ impl PikeVM {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> CapturesMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack.as_ref());
         let caps = self.create_captures();
         let it = iter::Searcher::new(input);
         CapturesMatches { re: self, cache, caps, it }

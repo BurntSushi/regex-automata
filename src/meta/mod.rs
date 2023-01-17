@@ -68,14 +68,6 @@ impl Regex {
         Builder::new()
     }
 
-    #[inline]
-    pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
-        &'p self,
-        haystack: &'h H,
-    ) -> Input<'h, 'p> {
-        Input::new(haystack.as_ref())
-    }
-
     pub fn create_captures(&self) -> Captures {
         self.strat.create_captures()
     }
@@ -121,7 +113,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Option<Match> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack.as_ref());
         self.try_search(cache, &input).unwrap()
     }
 
@@ -131,7 +123,7 @@ impl Regex {
         cache: &mut Cache,
         haystack: H,
     ) -> Option<HalfMatch> {
-        let input = self.create_input(haystack.as_ref()).earliest(true);
+        let input = Input::new(haystack.as_ref()).earliest(true);
         self.try_search_earliest(cache, &input).unwrap()
     }
 
@@ -141,7 +133,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, it }
     }
@@ -152,7 +144,7 @@ impl Regex {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> CapturesMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let caps = self.create_captures();
         let it = iter::Searcher::new(input);
         CapturesMatches { re: self, cache, caps, it }

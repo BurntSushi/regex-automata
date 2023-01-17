@@ -594,14 +594,6 @@ impl BoundedBacktracker {
         Builder::new()
     }
 
-    /// Create a new `Input` for the given haystack.
-    pub fn create_input<'h, 'p, H: ?Sized + AsRef<[u8]>>(
-        &'p self,
-        haystack: &'h H,
-    ) -> Input<'h, 'p> {
-        Input::new(haystack.as_ref())
-    }
-
     /// Create a new cache for this regex.
     ///
     /// The cache returned should only be used for searches for this
@@ -919,7 +911,7 @@ impl BoundedBacktracker {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> FindMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let caps = Captures::matches(self.get_nfa().group_info().clone());
         let it = iter::Searcher::new(input);
         FindMatches { re: self, cache, caps, it }
@@ -970,7 +962,7 @@ impl BoundedBacktracker {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> CapturesMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let caps = self.create_captures();
         let it = iter::Searcher::new(input);
         CapturesMatches { re: self, cache, caps, it }
@@ -1002,7 +994,7 @@ impl BoundedBacktracker {
         cache: &mut Cache,
         haystack: H,
     ) -> Result<bool, MatchError> {
-        let input = self.create_input(haystack.as_ref()).earliest(true);
+        let input = Input::new(haystack.as_ref()).earliest(true);
         self.try_search_slots(cache, &input, &mut []).map(|pid| pid.is_some())
     }
 
@@ -1029,7 +1021,7 @@ impl BoundedBacktracker {
         haystack: H,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack.as_ref());
         self.try_search(cache, &input, caps)
     }
 
@@ -1044,7 +1036,7 @@ impl BoundedBacktracker {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> TryFindMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let caps = Captures::matches(self.get_nfa().group_info().clone());
         let it = iter::Searcher::new(input);
         TryFindMatches { re: self, cache, caps, it }
@@ -1070,7 +1062,7 @@ impl BoundedBacktracker {
         cache: &'c mut Cache,
         haystack: &'h H,
     ) -> TryCapturesMatches<'r, 'c, 'h> {
-        let input = self.create_input(haystack.as_ref());
+        let input = Input::new(haystack);
         let caps = self.create_captures();
         let it = iter::Searcher::new(input);
         TryCapturesMatches { re: self, cache, caps, it }

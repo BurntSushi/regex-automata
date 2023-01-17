@@ -49,13 +49,14 @@ fn suite() -> Result<ret::RegexTests> {
 #[cfg(not(miri))]
 fn create_input<'a, 'b>(
     test: &'a ret::RegexTest,
-    create: impl Fn(&'a [u8]) -> regex_automata::Input<'a, 'b>,
 ) -> regex_automata::Input<'a, 'b> {
     use regex_automata::Anchored;
 
     let bounds = test.bounds();
     let anchored = if test.anchored() { Anchored::Yes } else { Anchored::No };
-    create(test.input()).range(bounds.start..bounds.end).anchored(anchored)
+    regex_automata::Input::new(test.input())
+        .range(bounds.start..bounds.end)
+        .anchored(anchored)
 }
 
 /// Convert capture matches into the test suite's capture values.
