@@ -181,8 +181,8 @@ impl Config {
 /// let mut cache = re.create_cache();
 ///
 /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
-/// let expected = Some(Match::must(0, 1..9));
-/// let got = re.find_iter(&mut cache, haystack).next();
+/// let expected = Some(Ok(Match::must(0, 1..9)));
+/// let got = re.try_find_iter(&mut cache, haystack).next();
 /// assert_eq!(expected, got);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
 /// // but the subsequent `.*` does not! Disabling UTF-8
@@ -192,7 +192,7 @@ impl Config {
 /// // disabling UTF-8 mode on a BoundedBacktracker Config, since that
 /// // only impacts regexes that can produce matches of
 /// // length 0.
-/// assert_eq!(b"foo\xFFarzz", &haystack[got.unwrap().range()]);
+/// assert_eq!(b"foo\xFFarzz", &haystack[got.unwrap()?.range()]);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -344,9 +344,9 @@ impl Builder {
 /// let re = BoundedBacktracker::new(r"\b\w+\b")?;
 /// let mut cache = re.create_cache();
 ///
-/// let mut it = re.find_iter(&mut cache, "Шерлок Холмс");
-/// assert_eq!(Some(Match::must(0, 0..12)), it.next());
-/// assert_eq!(Some(Match::must(0, 13..23)), it.next());
+/// let mut it = re.try_find_iter(&mut cache, "Шерлок Холмс");
+/// assert_eq!(Some(Ok(Match::must(0, 0..12))), it.next());
+/// assert_eq!(Some(Ok(Match::must(0, 13..23))), it.next());
 /// assert_eq!(None, it.next());
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -366,13 +366,13 @@ impl Builder {
 /// let re = BoundedBacktracker::new_many(&["[a-z]+", "[0-9]+"])?;
 /// let mut cache = re.create_cache();
 ///
-/// let mut it = re.find_iter(&mut cache, "abc 1 foo 4567 0 quux");
-/// assert_eq!(Some(Match::must(0, 0..3)), it.next());
-/// assert_eq!(Some(Match::must(1, 4..5)), it.next());
-/// assert_eq!(Some(Match::must(0, 6..9)), it.next());
-/// assert_eq!(Some(Match::must(1, 10..14)), it.next());
-/// assert_eq!(Some(Match::must(1, 15..16)), it.next());
-/// assert_eq!(Some(Match::must(0, 17..21)), it.next());
+/// let mut it = re.try_find_iter(&mut cache, "abc 1 foo 4567 0 quux");
+/// assert_eq!(Some(Ok(Match::must(0, 0..3))), it.next());
+/// assert_eq!(Some(Ok(Match::must(1, 4..5))), it.next());
+/// assert_eq!(Some(Ok(Match::must(0, 6..9))), it.next());
+/// assert_eq!(Some(Ok(Match::must(1, 10..14))), it.next());
+/// assert_eq!(Some(Ok(Match::must(1, 15..16))), it.next());
+/// assert_eq!(Some(Ok(Match::must(0, 17..21))), it.next());
 /// assert_eq!(None, it.next());
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -400,8 +400,8 @@ impl BoundedBacktracker {
     /// let re = BoundedBacktracker::new("foo[0-9]+bar")?;
     /// let mut cache = re.create_cache();
     /// assert_eq!(
-    ///     Some(Match::must(0, 3..14)),
-    ///     re.find_iter(&mut cache, "zzzfoo12345barzzz").next(),
+    ///     Some(Ok(Match::must(0, 3..14))),
+    ///     re.try_find_iter(&mut cache, "zzzfoo12345barzzz").next(),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -424,13 +424,13 @@ impl BoundedBacktracker {
     /// let re = BoundedBacktracker::new_many(&["[a-z]+", "[0-9]+"])?;
     /// let mut cache = re.create_cache();
     ///
-    /// let mut it = re.find_iter(&mut cache, "abc 1 foo 4567 0 quux");
-    /// assert_eq!(Some(Match::must(0, 0..3)), it.next());
-    /// assert_eq!(Some(Match::must(1, 4..5)), it.next());
-    /// assert_eq!(Some(Match::must(0, 6..9)), it.next());
-    /// assert_eq!(Some(Match::must(1, 10..14)), it.next());
-    /// assert_eq!(Some(Match::must(1, 15..16)), it.next());
-    /// assert_eq!(Some(Match::must(0, 17..21)), it.next());
+    /// let mut it = re.try_find_iter(&mut cache, "abc 1 foo 4567 0 quux");
+    /// assert_eq!(Some(Ok(Match::must(0, 0..3))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(1, 4..5))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(0, 6..9))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(1, 10..14))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(1, 15..16))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(0, 17..21))), it.next());
     /// assert_eq!(None, it.next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -466,7 +466,7 @@ impl BoundedBacktracker {
     /// let re = BoundedBacktracker::new_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Some(Match::must(0, 3..4));
-    /// re.find(&mut cache, "!@#A#@!", &mut caps);
+    /// re.try_find(&mut cache, "!@#A#@!", &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -488,9 +488,9 @@ impl BoundedBacktracker {
     /// let re = BoundedBacktracker::always_match()?;
     /// let mut cache = re.create_cache();
     ///
-    /// let expected = Some(Match::must(0, 0..0));
-    /// assert_eq!(expected, re.find_iter(&mut cache, "").next());
-    /// assert_eq!(expected, re.find_iter(&mut cache, "foo").next());
+    /// let expected = Some(Ok(Match::must(0, 0..0)));
+    /// assert_eq!(expected, re.try_find_iter(&mut cache, "").next());
+    /// assert_eq!(expected, re.try_find_iter(&mut cache, "foo").next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn always_match() -> Result<BoundedBacktracker, BuildError> {
@@ -508,8 +508,8 @@ impl BoundedBacktracker {
     /// let re = BoundedBacktracker::never_match()?;
     /// let mut cache = re.create_cache();
     ///
-    /// assert_eq!(None, re.find_iter(&mut cache, "").next());
-    /// assert_eq!(None, re.find_iter(&mut cache, "foo").next());
+    /// assert_eq!(None, re.try_find_iter(&mut cache, "").next());
+    /// assert_eq!(None, re.try_find_iter(&mut cache, "foo").next());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn never_match() -> Result<BoundedBacktracker, BuildError> {
@@ -543,13 +543,13 @@ impl BoundedBacktracker {
     /// let mut cache = re.create_cache();
     ///
     /// let haystack = "a☃z";
-    /// let mut it = re.find_iter(&mut cache, haystack);
-    /// assert_eq!(Some(Match::must(0, 0..0)), it.next());
-    /// assert_eq!(Some(Match::must(0, 1..1)), it.next());
-    /// assert_eq!(Some(Match::must(0, 2..2)), it.next());
-    /// assert_eq!(Some(Match::must(0, 3..3)), it.next());
-    /// assert_eq!(Some(Match::must(0, 4..4)), it.next());
-    /// assert_eq!(Some(Match::must(0, 5..5)), it.next());
+    /// let mut it = re.try_find_iter(&mut cache, haystack);
+    /// assert_eq!(Some(Ok(Match::must(0, 0..0))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(0, 1..1))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(0, 2..2))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(0, 3..3))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(0, 4..4))), it.next());
+    /// assert_eq!(Some(Ok(Match::must(0, 5..5))), it.next());
     /// assert_eq!(None, it.next());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -585,7 +585,7 @@ impl BoundedBacktracker {
     ///
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 1..9));
-    /// re.find(&mut cache, haystack, &mut caps);
+    /// re.try_find(&mut cache, haystack, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -641,8 +641,8 @@ impl BoundedBacktracker {
     ///
     /// let mut cache = re1.create_cache();
     /// assert_eq!(
-    ///     Some(Match::must(0, 0..2)),
-    ///     re1.find_iter(&mut cache, "Δ").next(),
+    ///     Some(Ok(Match::must(0, 0..2))),
+    ///     re1.try_find_iter(&mut cache, "Δ").next(),
     /// );
     ///
     /// // Using 'cache' with re2 is not allowed. It may result in panics or
@@ -653,8 +653,8 @@ impl BoundedBacktracker {
     /// // allowed.
     /// cache.reset(&re2);
     /// assert_eq!(
-    ///     Some(Match::must(0, 0..3)),
-    ///     re2.find_iter(&mut cache, "☃").next(),
+    ///     Some(Ok(Match::must(0, 0..3))),
+    ///     re2.try_find_iter(&mut cache, "☃").next(),
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -744,8 +744,8 @@ impl BoundedBacktracker {
     /// assert_eq!(re.max_haystack_len(), 299_592);
     /// // Things work up to the max.
     /// let mut haystack = "a".repeat(299_592);
-    /// let expected = Some(Match::must(0, 0..299_592));
-    /// assert_eq!(expected, re.find_iter(&mut cache, &haystack).next());
+    /// let expected = Some(Ok(Match::must(0, 0..299_592)));
+    /// assert_eq!(expected, re.try_find_iter(&mut cache, &haystack).next());
     /// // But you'll get an error if you provide a haystack that's too big.
     /// // Notice that we use the 'try_find_iter' routine instead, which
     /// // yields Result<Match, MatchError> instead of Match.
@@ -775,197 +775,6 @@ impl BoundedBacktracker {
         let blocks = div_ceil(capacity, Visited::BLOCK_SIZE);
         let real_capacity = blocks * Visited::BLOCK_SIZE;
         (real_capacity / self.nfa.states().len()) - 1
-    }
-}
-
-impl BoundedBacktracker {
-    /// Returns true if and only if this regex matches the given haystack.
-    ///
-    /// In the case of a backtracking regex engine, and unlike most other
-    /// regex engines in this crate, short circuiting isn't possible. However,
-    /// this routine may still be faster because it instructs backtracking to
-    /// not keep track of any capturing groups.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
-    ///
-    /// let re = BoundedBacktracker::new("foo[0-9]+bar")?;
-    /// let mut cache = re.create_cache();
-    ///
-    /// assert!(re.is_match(&mut cache, "foo12345bar"));
-    /// assert!(!re.is_match(&mut cache, "foobar"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// # Example: consistency with search APIs
-    ///
-    /// TODO: Fill this out more once `is_match` accepts an `Into<Input>`.
-    ///
-    /// ```
-    /// use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
-    ///
-    /// let re = BoundedBacktracker::new("a*")?;
-    /// let mut cache = re.create_cache();
-    ///
-    /// assert!(re.is_match(&mut cache, "xyz"));
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn is_match<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        haystack: H,
-    ) -> bool {
-        self.try_is_match(cache, haystack.as_ref()).unwrap()
-    }
-
-    /// Executes a leftmost forward search and writes the spans of capturing
-    /// groups that participated in a match into the provided [`Captures`]
-    /// value. If no match was found, then [`Captures::is_match`] is guaranteed
-    /// to return `false`.
-    ///
-    /// For more control over the input parameters, see
-    /// [`BoundedBacktracker::try_search`].
-    ///
-    /// # Example
-    ///
-    /// Leftmost first match semantics corresponds to the match with the
-    /// smallest starting offset, but where the end offset is determined by
-    /// preferring earlier branches in the original regular expression. For
-    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
-    /// will match `Samwise` in `Samwise`.
-    ///
-    /// Generally speaking, the "leftmost first" match is how most backtracking
-    /// regular expressions tend to work. This is in contrast to POSIX-style
-    /// regular expressions that yield "leftmost longest" matches. Namely,
-    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
-    /// leftmost longest semantics. (This crate does not currently support
-    /// leftmost longest semantics, and this backtracking regex engine will
-    /// likely never support it.)
-    ///
-    /// ```
-    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{
-    ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     Match,
-    /// };
-    ///
-    /// let re = BoundedBacktracker::new("foo[0-9]+")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// let expected = Match::must(0, 0..8);
-    /// re.find(&mut cache, "foo12345", &mut caps);
-    /// assert_eq!(Some(expected), caps.get_match());
-    ///
-    /// // Even though a match is found after reading the first byte (`a`),
-    /// // the leftmost first match semantics demand that we find the earliest
-    /// // match that prefers earlier parts of the pattern over later parts.
-    /// let re = BoundedBacktracker::new("abc|a")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// let expected = Match::must(0, 0..3);
-    /// re.find(&mut cache, "abc", &mut caps);
-    /// assert_eq!(Some(expected), caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn find<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        haystack: H,
-        caps: &mut Captures,
-    ) {
-        self.try_find(cache, haystack.as_ref(), caps).unwrap();
-    }
-
-    /// Returns an iterator over all non-overlapping leftmost matches in the
-    /// given bytes. If no match exists, then the iterator yields no elements.
-    ///
-    /// If the regex engine returns an error at any point, then the iterator
-    /// will panic.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     Match,
-    /// };
-    ///
-    /// let re = BoundedBacktracker::new("foo[0-9]+")?;
-    /// let mut cache = re.create_cache();
-    ///
-    /// let text = "foo1 foo12 foo123";
-    /// let matches: Vec<Match> = re.find_iter(&mut cache, text).collect();
-    /// assert_eq!(matches, vec![
-    ///     Match::must(0, 0..4),
-    ///     Match::must(0, 5..10),
-    ///     Match::must(0, 11..17),
-    /// ]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'h H,
-    ) -> FindMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
-        let caps = Captures::matches(self.get_nfa().group_info().clone());
-        let it = iter::Searcher::new(input);
-        FindMatches { re: self, cache, caps, it }
-    }
-
-    /// Returns an iterator over all non-overlapping `Captures` values. If no
-    /// match exists, then the iterator yields no elements.
-    ///
-    /// This yields the same matches as [`BoundedBacktracker::find_iter`], but
-    /// it includes the spans of all capturing groups that participate in each
-    /// match.
-    ///
-    /// If the regex engine returns an error at any point, then the iterator
-    /// will panic.
-    ///
-    /// **Tip:** See [`util::iter::Searcher`](crate::util::iter::Searcher) for
-    /// how to correctly iterate over all matches in a haystack while avoiding
-    /// the creation of a new `Captures` value for every match. (Which you are
-    /// forced to do with an `Iterator`.)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     nfa::thompson::backtrack::BoundedBacktracker,
-    ///     Span,
-    /// };
-    ///
-    /// let re = BoundedBacktracker::new("foo(?P<numbers>[0-9]+)")?;
-    /// let mut cache = re.create_cache();
-    ///
-    /// let text = "foo1 foo12 foo123";
-    /// let matches: Vec<Span> = re
-    ///     .captures_iter(&mut cache, text)
-    ///     // The unwrap is OK since 'numbers' matches if the pattern matches.
-    ///     .map(|caps| caps.get_group_by_name("numbers").unwrap())
-    ///     .collect();
-    /// assert_eq!(matches, vec![
-    ///     Span::from(3..4),
-    ///     Span::from(8..10),
-    ///     Span::from(14..17),
-    /// ]);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'h H,
-    ) -> CapturesMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
-        let caps = self.create_captures();
-        let it = iter::Searcher::new(input);
-        CapturesMatches { re: self, cache, caps, it }
     }
 }
 
@@ -1754,8 +1563,8 @@ impl Cache {
     ///
     /// let mut cache = re1.create_cache();
     /// assert_eq!(
-    ///     Some(Match::must(0, 0..2)),
-    ///     re1.find_iter(&mut cache, "Δ").next(),
+    ///     Some(Ok(Match::must(0, 0..2))),
+    ///     re1.try_find_iter(&mut cache, "Δ").next(),
     /// );
     ///
     /// // Using 'cache' with re2 is not allowed. It may result in panics or
@@ -1766,8 +1575,8 @@ impl Cache {
     /// // allowed.
     /// cache.reset(&re2);
     /// assert_eq!(
-    ///     Some(Match::must(0, 0..3)),
-    ///     re2.find_iter(&mut cache, "☃").next(),
+    ///     Some(Ok(Match::must(0, 0..3))),
+    ///     re2.try_find_iter(&mut cache, "☃").next(),
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
