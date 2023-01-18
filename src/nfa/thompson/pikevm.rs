@@ -279,6 +279,23 @@ impl Builder {
 
 /// A virtual machine for executing regex searches with capturing groups.
 ///
+/// # Fallible APIs
+///
+/// The PikeVM can only return an error during a search when the caller
+/// provides an [`Input`] that is configured to perform an anchored search
+/// for an invalid pattern ID. Since the pattern ID is usually a static
+/// property of the program and not determined by user input, most of the
+/// APIs on the PikeVM are infallible. That is, if an invalid pattern ID
+/// is given, then the routine will panic.
+///
+/// However, both [`PikeVM::try_search`] and its lower level sibling
+/// [`PikeVM::try_search_slots`] are both fallible and will never panic.
+/// Instead, an invalid pattern ID will cause them to return an error.
+///
+/// The PikeVM always supports all anchor configurations. It also supports all
+/// functionality in an [`NFA`] and is never limited by the contents or length
+/// of the haystack.
+///
 /// # Advice
 ///
 /// The `PikeVM` is generally the most "powerful" regex engine in this crate.
@@ -299,12 +316,13 @@ impl Builder {
 ///
 /// Unfortunately, this isn't always possible because the faster regex engines
 /// don't support all of the regex features in `regex-syntax`. This notably
-/// includes (and is currently limited to) Unicode word boundaries. So if your
-/// pattern has Unicode word boundaries, you typically can't use a DFA-based
-/// regex engine at all (unless you
-/// [enable heuristic support for it](crate::hybrid::dfa::Config::unicode_word_boundary)). (The [one-pass DFA](crate::dfa::onepass::DFA) can handle Unicode word
-/// boundaries, but in a cruel sort of joke, many Unicode features tend to
-/// result in making the regex _not_ one-pass.)
+/// includes (and is currently limited to) Unicode word boundaries. So if
+/// your pattern has Unicode word boundaries, you typically can't use a
+/// DFA-based regex engine at all (unless you [enable heuristic support for
+/// it](crate::hybrid::dfa::Config::unicode_word_boundary)). (The [one-pass
+/// DFA](crate::dfa::onepass::DFA) can handle Unicode word boundaries for
+/// anchored searches only, but in a cruel sort of joke, many Unicode features
+/// tend to result in making the regex _not_ one-pass.)
 ///
 /// # Example
 ///
@@ -660,6 +678,8 @@ impl PikeVM {
     ///
     /// # Example
     ///
+    /// This shows basic usage:
+    ///
     /// ```
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
@@ -673,15 +693,33 @@ impl PikeVM {
     ///
     /// # Example: consistency with search APIs
     ///
-    /// TODO: Fill this out more once `is_match` accepts an `Into<Input>`.
+    /// `is_match` is guaranteed to return `true` whenever `find` returns a
+    /// match. This includes searches that are executed entirely within a
+    /// codepoint:
     ///
     /// ```
-    /// use regex_automata::nfa::thompson::pikevm::PikeVM;
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Input};
     ///
     /// let re = PikeVM::new("a*")?;
     /// let mut cache = re.create_cache();
     ///
-    /// assert!(re.is_match(&mut cache, "xyz"));
+    /// assert!(!re.is_match(&mut cache, Input::new("☃").span(1..2)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Notice that when UTF-8 mode is disabled, then the above reports a
+    /// match because the restriction against zero-width matches that split a
+    /// codepoint has been lifted:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::{pikevm::PikeVM, NFA}, Input};
+    ///
+    /// let re = PikeVM::builder()
+    ///     .thompson(NFA::config().utf8(false))
+    ///     .build("a*")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// assert!(re.is_match(&mut cache, Input::new("☃").span(1..2)));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
@@ -692,7 +730,7 @@ impl PikeVM {
     ) -> bool {
         let input = input.into().earliest(true);
         self.try_search_slots(cache, &input, &mut [])
-            .expect("correct input and slots")
+            .expect("correct input")
             .is_some()
     }
 

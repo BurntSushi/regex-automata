@@ -122,18 +122,18 @@ mod tests {
     use crate::Input;
 
     #[test]
-    fn start_fwd_bad_range() {
+    fn start_fwd_done_range() {
         assert_eq!(
             Start::Text,
-            Start::from_position_fwd(&Input::new("").range(0..1))
+            Start::from_position_fwd(&Input::new("").range(1..0))
         );
     }
 
     #[test]
-    fn start_rev_bad_range() {
+    fn start_rev_done_range() {
         assert_eq!(
             Start::Text,
-            Start::from_position_rev(&Input::new("").range(0..1))
+            Start::from_position_rev(&Input::new("").range(1..0))
         );
     }
 

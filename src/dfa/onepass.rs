@@ -3064,8 +3064,13 @@ mod tests {
     #[test]
     fn is_not_one_pass() {
         assert!(DFA::new(r"a*a").is_err());
-        assert!(DFA::new(r"\w*\s").is_err());
         assert!(DFA::new(r"(?s-u:.)*?").is_err());
         assert!(DFA::new(r"(?s:.)*?a").is_err());
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn is_not_one_pass_bigger() {
+        assert!(DFA::new(r"\w*\s").is_err());
     }
 }

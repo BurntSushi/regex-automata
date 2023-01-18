@@ -6,47 +6,75 @@ use core::ops::{Range, RangeBounds};
 
 use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 
-/// The parameters for a regex search.
+/// The parameters for a regex search including the haystack to search.
 ///
-/// While most regex engines in this crate expose a convenience `find`-like
-/// routine that accepts a haystack and returns a match if one was found, it
-/// turns out that regex searches have a lot of parameters. The `find`-like
-/// methods represent the common use case, while this `Input` type represents
-/// the full configurability of a regex search. That configurability includes:
+/// It turns out that regex searches have a few parameters, and in most cases,
+/// those parameters have defaults that work in the vast majority of cases. This
+/// `Input` type exists to make that common case seamnless while also providing
+/// an avenue for changing the parameters of search. In particular, this type
+/// enables doing so without a combinatorial explosion of different methods
+/// and/or superfluous parameters in the common cases.
+///
+/// An `Input` permits configuring the following things:
 ///
 /// * Search only a substring of a haystack, while taking the broader context
 /// into account for resolving look-around assertions.
-/// * Whether to use a prefilter for the search or not.
-/// * Indicating whether to search for all patterns in a regex object, or to
+/// * Indicating whether to search for all patterns in a regex, or to
 /// only search for one pattern in particular.
+/// * Whether to perform an anchored on unanchored search.
 /// * Whether to report a match as early as possible.
-/// * Whether to report matches that might split a codepoint in valid UTF-8.
 ///
 /// All of these parameters, except for the haystack, have sensible default
 /// values. This means that the minimal search configuration is simply a call
 /// to [`Input::new`] with your haystack. Setting any other parameter is
 /// optional.
 ///
+/// Moreover, for any `H` that implements `AsRef<[u8]>`, there exists a
+/// `From<H> for Input` implementation. This is useful because many of the
+/// search APIs in this crate accept an `Into<Input>`. This means you can
+/// provide string or byte strings to these routines directly, and they'll
+/// automatically get converted into an `Input` for you.
+///
+/// The lifetime parameter `'h` refers to the lifetime of the haystack.
+///
+/// # Organization
+///
 /// The API of `Input` is split into a few different parts:
 ///
 /// * A builder-like API that transforms a `Input` by value. Examples:
-/// [`Input::span`] and [`Input::prefilter`].
+/// [`Input::span`] and [`Input::anchored`].
 /// * A setter API that permits mutating parameters in place. Examples:
-/// [`Input::set_span`] and [`Input::set_prefilter`].
+/// [`Input::set_span`] and [`Input::set_anchored`].
 /// * A getter API that permits retrieving any of the search parameters.
-/// Examples: [`Input::get_span`] and [`Input::get_prefilter`].
+/// Examples: [`Input::get_span`] and [`Input::get_anchored`].
 /// * A few convenience getter routines that don't conform to the above naming
 /// pattern due to how common they are. Examples: [`Input::haystack`],
 /// [`Input::start`] and [`Input::end`].
 /// * Miscellaneous predicates and other helper routines that are useful
 /// in some contexts. Examples: [`Input::is_char_boundary`].
 ///
-/// A `Input` exposes so much because it is meant to be used by both callers
-/// of regex engines _and_ implementors of regex engines. A constraining
-/// factor is that regex engines should accept a `&Input`, which means that
-/// implementors should only use the "getter" APIs of a `Input`.
+/// A `Input` exposes so much because it is meant to be used by both callers of
+/// regex engines _and_ implementors of regex engines. A constraining factor is
+/// that regex engines should accept a `&Input` as its lowest level API, which
+/// means that implementors should only use the "getter" APIs of a `Input`.
 ///
-/// The lifetime parameter `'h` refers to the lifetime of the haystack.
+/// # Valid bounds and search termination
+///
+/// An `Input` permits setting the bounds of a search via either
+/// [`Input::span`] or [`Input::range`]. The bounds set must be valid, or
+/// else a panic will occur. Bounds are valid if and only if:
+///
+/// * The bounds represent a valid range into the input's haystack.
+/// * **or** the end bound is a valid ending bound for the haystack *and*
+/// the start bound is exactly one greater than the start bound.
+///
+/// In the latter case, [`Input::is_done`] will return true and indicates any
+/// search receiving such an input should immediately return with no match.
+///
+/// Note that while `Input` is used for reverse searches in this crate, the
+/// `Input::is_done` predicate assumes a forward search. Because unsigned
+/// offsets are used internally, there is no way to tell from only the offsets
+/// whether a reverse search is done or not.
 ///
 /// # Regex engine support
 ///
@@ -56,50 +84,50 @@ use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 /// * Searching a `&[u8]` for matches.
 /// * Searching a substring of `&[u8]` for a match, such that any match
 /// reported must appear entirely within that substring.
-/// * A match should never be reported when [`Input::is_done`] returns true.
+/// * For a forwards search, a match should never be reported when
+/// [`Input::is_done`] returns true. (For reverse searches, termination should
+/// be handled outside of `Input`.)
 ///
 /// Supporting other aspects of an `Input` are optional, but regex engines
-/// should panic when something is requested that it cannot fulfill. (See the
-/// `Panics` section below.)
+/// should return an error when something is requested that it cannot fulfill.
+/// Regex engines may provide infallible routines that panic in such cases, but
+/// they should always expose a fallible API as well.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Since `Input` is meant to be a superset of most of the input parameters to
-/// a search for any regex engine in this crate, it is possible to enable or
-/// disable some options that might not have the intended effect. For this
-/// reason, regex engines accepting an `Input` should panic when specific
-/// options are set but cannot be provided.
+/// Since `Input` is meant to be a superset of most of the input parameters
+/// to a search for any regex engine in this crate, it is possible to enable
+/// or disable some options that might not have the intended effect. For this
+/// reason, regex engines accepting an `Input` should return an error when
+/// specific options are set but cannot be provided.
 ///
-/// What follows is a complete set of rules of when a regex engine should panic
-/// based on the given `Input` configuration. Every regex engine in this crate
-/// follows these rules.
+/// What follows is a complete set of rules of when a regex engine should
+/// return an error based on the given `Input` configuration. Every regex
+/// engine in this crate follows these rules.
 ///
 /// * An [`Anchored`] setting is provided that isn't supported. For example, a
 /// DFA might be compiled with only an unanchored starting state. Therefore,
 /// if the caller asked for an [`Anchored::Yes`] search, then the regex engine
-/// should panic. (Note though that if the caller asks for an `Anchored::No`
-/// search and the regex pattern itself is anchored, then so long as the
-/// regex engine can provide a way to search that is unanchored, it should be
-/// permitted. That is, panicking should be a property of the regex engine
-/// itself and not a property of the regex pattern.)
-///
-/// The following should *not* result in a panic:
-///
-/// * If a [`Input::prefilter`] is set and the regex engine doesn't support
-/// them, then the regex engine is safe to simply ignore the prefilter. The
-/// reason for this is that a prefilter is a best effort optimization technique
-/// that must never impact the match semantics. Therefore, neglecting it is
-/// merely an optimization decision. For example, a regex engine might support
-/// prefilters but might decide in some cases not to use a prefilter even if
-/// one is given based on some fact about the search.
+/// should return an error. (Note though that if the caller asks for an
+/// `Anchored::No` search and the regex pattern itself is anchored, then so
+/// long as the regex engine can provide a way to search that is unanchored, it
+/// should be permitted. That is, reporting an error should be a property of
+/// the regex engine itself and not a property of the regex pattern.) Another
+/// example of this is using [`Anchored::Pattern`] with an invalid pattern ID.
 /// * If [`Input::earliest`] is enabled and the regex engine doesn't support
 /// returning the "earliest" match, then the regex engine is safe to simply
-/// ignore the option. This is because "earliest" is not defined as a
-/// particular match semantic itself, but rather, a mechanism by which a
-/// particular regex engine can "return early" *if the opportunity arises*. The
-/// "earliest" option is generally intended to be used as an implementation
-/// strategy for implementing predicate routines like `is_match` where the
-/// specific offset isn't important, but sometimes the offset is useful.
+/// ignore the option and _not_ return an error. This is because "earliest" is
+/// not defined as a particular match semantic itself, but rather, a mechanism
+/// by which a particular regex engine can "return early" *if the opportunity
+/// arises*. The "earliest" option is generally intended to be used as an
+/// implementation strategy for implementing predicate routines like `is_match`
+/// where the specific offset isn't important, but sometimes the offset is
+/// useful.
+///
+/// Since `Input` itself guarantees that its bounds are valid for its haystack,
+/// regex engines must never panic because of an out-of-bounds access.
+/// This can be guaranteed by ensuring a regex engine never tries to index
+/// [`Input::haystack`] when [`Input::is_done`] returns `true`.
 #[derive(Clone)]
 pub struct Input<'h> {
     haystack: &'h [u8],
@@ -397,6 +425,11 @@ impl<'h> Input<'h> {
     /// a [`Span`] may be given directly, one may also provide a
     /// `std::ops::Range<usize>`.
     ///
+    /// # Panics
+    ///
+    /// This panics if the given span does not correspond to valid bounds in
+    /// the haystack or the termination of a search.
+    ///
     /// # Example
     ///
     /// ```
@@ -409,7 +442,15 @@ impl<'h> Input<'h> {
     /// ```
     #[inline]
     pub fn set_span<S: Into<Span>>(&mut self, span: S) {
-        self.span = span.into();
+        let span = span.into();
+        assert!(
+            span.end <= self.haystack.len()
+                && span.start <= span.end.wrapping_add(1),
+            "invalid span {:?} for haystack of length {}",
+            span,
+            self.haystack.len(),
+        );
+        self.span = span;
     }
 
     /// Set the span for this search configuration given any range.
@@ -428,6 +469,9 @@ impl<'h> Input<'h> {
     /// to a valid [`Range`]. For example, this would panic when given
     /// `0..=usize::MAX` since it cannot be represented using a half-open
     /// interval in terms of `usize`.
+    ///
+    /// This also panics if the given span does not correspond to valid bounds
+    /// in the haystack or the termination of a search.
     ///
     /// # Example
     ///
@@ -466,6 +510,12 @@ impl<'h> Input<'h> {
     /// This is a convenience routine for only mutating the start of a span
     /// without having to set the entire span.
     ///
+    /// # Panics
+    ///
+    /// This panics if the span resulting from the new start position does not
+    /// correspond to valid bounds in the haystack or the termination of a
+    /// search.
+    ///
     /// # Example
     ///
     /// ```
@@ -478,13 +528,19 @@ impl<'h> Input<'h> {
     /// ```
     #[inline]
     pub fn set_start(&mut self, start: usize) {
-        self.span.start = start;
+        self.set_span(Span { start, ..self.get_span() });
     }
 
     /// Set the ending offset for the span for this search configuration.
     ///
     /// This is a convenience routine for only mutating the end of a span
     /// without having to set the entire span.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the span resulting from the new end position does not
+    /// correspond to valid bounds in the haystack or the termination of a
+    /// search.
     ///
     /// # Example
     ///
@@ -498,7 +554,7 @@ impl<'h> Input<'h> {
     /// ```
     #[inline]
     pub fn set_end(&mut self, end: usize) {
-        self.span.end = end;
+        self.set_span(Span { end, ..self.get_span() });
     }
 
     /// Set the anchor mode of a search.
@@ -562,6 +618,10 @@ impl<'h> Input<'h> {
     ///
     /// This is a convenience routine for `search.get_span().start()`.
     ///
+    /// When [`Input::is_done`] is `false`, this is guaranteed to return
+    /// an offset that is less than or equal to [`Input::end`]. Otherwise,
+    /// the offset is one greater than [`Input::end`].
+    ///
     /// # Example
     ///
     /// ```
@@ -581,6 +641,9 @@ impl<'h> Input<'h> {
     /// Return the end position of this search.
     ///
     /// This is a convenience routine for `search.get_span().end()`.
+    ///
+    /// This is guaranteed to return an offset that is a valid exclusive end
+    /// bound for this input's haystack.
     ///
     /// # Example
     ///
@@ -603,6 +666,9 @@ impl<'h> Input<'h> {
     /// If one was not explicitly set, then the span corresponds to the entire
     /// range of the haystack.
     ///
+    /// When [`Input::is_done`] is `false`, the span returned is guaranteed
+    /// to correspond to valid bounds for this input's haystack.
+    ///
     /// # Example
     ///
     /// ```
@@ -620,6 +686,9 @@ impl<'h> Input<'h> {
     ///
     /// If one was not explicitly set, then the span corresponds to the entire
     /// range of the haystack.
+    ///
+    /// When [`Input::is_done`] is `false`, the range returned is guaranteed
+    /// to correspond to valid bounds for this input's haystack.
     ///
     /// # Example
     ///
@@ -673,7 +742,7 @@ impl<'h> Input<'h> {
     /// Return true if and only if this search can never return any other
     /// matches.
     ///
-    /// For example, if the start position of this search is greater than the
+    /// This occurs when the start position of this search is greater than the
     /// end position of the search.
     ///
     /// # Example
