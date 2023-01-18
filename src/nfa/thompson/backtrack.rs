@@ -325,12 +325,14 @@ impl Builder {
 ///
 /// Unlike other regex engines that may return an error at search time (like
 /// the DFA or the hybrid NFA/DFA), there is no way to guarantee that a bounded
-/// backtracker will work for every haystack. Therefore, it is strongly advised
-/// to use the fallible search APIs (methods beginning with `try_`).
+/// backtracker will work for every haystack. Therefore, this regex engine
+/// _only_ exposes fallible search routines to avoid the footgun of panicking
+/// when running a search on a haystack that is too big.
 ///
-/// If you do want to use the infallible search APIs, the only way to do so
-/// without it potentially panicking is to ensure that your haystack's length
-/// does not exceed [`BoundedBacktracker::max_haystack_len`].
+/// If want to use the fallible search APIs without handling the
+/// error, the only way to guarantee an error won't occur from the
+/// haystack length is to ensure the haystack length does not exceed
+/// [`BoundedBacktracker::max_haystack_len`].
 ///
 /// # Example: Unicode word boundaries
 ///
