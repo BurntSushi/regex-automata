@@ -1286,7 +1286,7 @@ pub(crate) type OwnedDFA = DFA<alloc::vec::Vec<u32>>;
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 /// let expected = HalfMatch::must(0, 8);
-/// assert_eq!(Some(expected), dfa.try_search_fwd(&Input::new(b"foo12345"))?);
+/// assert_eq!(Some(expected), dfa.try_search_fwd(&Input::new("foo12345"))?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
@@ -1358,7 +1358,7 @@ impl OwnedDFA {
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+bar")?;
     /// let expected = Some(HalfMatch::must(0, 11));
-    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new(b"foo12345bar"))?);
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345bar"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]

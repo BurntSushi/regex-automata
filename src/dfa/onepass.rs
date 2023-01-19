@@ -1801,7 +1801,7 @@ impl DFA {
     /// [`Captures`] value. If no match was found, then [`Captures::is_match`]
     /// is guaranteed to return `false`.
     ///
-    /// The differences with [`DFA::find`] are:
+    /// The differences with [`DFA::captures`] are:
     ///
     /// 1. This returns an error instead of panicking if the search fails.
     /// 2. Accepts an `&Input` instead of a `Into<Input>`. This permits reusing

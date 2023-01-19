@@ -466,7 +466,7 @@ impl BoundedBacktracker {
     /// let re = BoundedBacktracker::new_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Some(Match::must(0, 3..4));
-    /// re.try_find(&mut cache, "!@#A#@!", &mut caps)?;
+    /// re.try_captures(&mut cache, "!@#A#@!", &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -585,7 +585,7 @@ impl BoundedBacktracker {
     ///
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 1..9));
-    /// re.try_find(&mut cache, haystack, &mut caps)?;
+    /// re.try_captures(&mut cache, haystack, &mut caps)?;
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -782,7 +782,7 @@ impl BoundedBacktracker {
     /// Returns true if and only if this regex matches the given haystack.
     ///
     /// In the case of a backtracking regex engine, and unlike most other
-    /// regex engines in this crate, short circuiting isn't possible. However,
+    /// regex engines in this crate, short circuiting isn't practical. However,
     /// this routine may still be faster because it instructs backtracking to
     /// not keep track of any capturing groups.
     ///
@@ -804,6 +804,66 @@ impl BoundedBacktracker {
         self.try_search_slots(cache, &input, &mut []).map(|pid| pid.is_some())
     }
 
+    /// Executes a leftmost forward search and returns a `Match` if one exists.
+    ///
+    /// This routine only includes the overall match span. To get
+    /// access to the individual spans of each capturing group, use
+    /// [`BoundedBacktracker::try_captures`].
+    ///
+    /// # Example
+    ///
+    /// This example shows basic usage:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     Match,
+    /// };
+    ///
+    /// let re = BoundedBacktracker::new("foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    /// let expected = Match::must(0, 0..8);
+    /// assert_eq!(Some(expected), re.try_find(&mut cache, "foo12345")?);
+    ///
+    /// // Even though a match is found after reading the first byte (`a`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over later parts.
+    /// let re = BoundedBacktracker::new("abc|a")?;
+    /// let mut cache = re.create_cache();
+    /// let expected = Match::must(0, 0..3);
+    /// assert_eq!(Some(expected), re.try_find(&mut cache, "abc")?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn try_find<'h, I: Into<Input<'h>>>(
+        &self,
+        cache: &mut Cache,
+        input: I,
+    ) -> Result<Option<Match>, MatchError> {
+        let input = input.into();
+        if self.get_nfa().pattern_len() == 1 {
+            let mut slots = [None, None];
+            let pid = match self.try_search_slots(cache, &input, &mut slots)? {
+                None => return Ok(None),
+                Some(pid) => pid,
+            };
+            let start = slots[0].unwrap().get();
+            let end = slots[1].unwrap().get();
+            return Ok(Some(Match::new(pid, Span { start, end })));
+        }
+        let ginfo = self.get_nfa().group_info();
+        let slots_len = ginfo.implicit_slot_len();
+        let mut slots = vec![None; slots_len];
+        let pid = match self.try_search_slots(cache, &input, &mut slots)? {
+            None => return Ok(None),
+            Some(pid) => pid,
+        };
+        let start = slots[pid.as_usize() * 2].unwrap().get();
+        let end = slots[pid.as_usize() * 2 + 1].unwrap().get();
+        Ok(Some(Match::new(pid, Span { start, end })))
+    }
+
     /// Executes a leftmost forward search and writes the spans of capturing
     /// groups that participated in a match into the provided [`Captures`]
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
@@ -818,7 +878,7 @@ impl BoundedBacktracker {
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
     #[inline]
-    pub fn try_find<'h, I: Into<Input<'h>>>(
+    pub fn try_captures<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
         input: I,
@@ -1321,84 +1381,6 @@ impl BoundedBacktracker {
                     return Some(pattern_id);
                 }
             }
-        }
-    }
-}
-
-/// An iterator over all non-overlapping matches for an infallible search.
-///
-/// The iterator yields a [`Match`] value until no more matches could be found.
-/// If the underlying regex engine returns an error, then a panic occurs.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'r` represents the lifetime of the BoundedBacktracker.
-/// * `'c` represents the lifetime of the BoundedBacktracker's cache.
-/// * `'h` represents the lifetime of the haystack being searched.
-///
-/// This iterator is created with the [`BoundedBacktracker::try_find_iter`]
-/// method.
-#[derive(Debug)]
-pub struct FindMatches<'r, 'c, 'h> {
-    re: &'r BoundedBacktracker,
-    cache: &'c mut Cache,
-    caps: Captures,
-    it: iter::Searcher<'h>,
-}
-
-impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
-    type Item = Match;
-
-    #[inline]
-    fn next(&mut self) -> Option<Match> {
-        // Splitting 'self' apart seems necessary to appease borrowck.
-        let FindMatches { re, ref mut cache, ref mut caps, ref mut it } =
-            *self;
-        it.advance(|input| {
-            re.try_search(cache, input, caps)?;
-            Ok(caps.get_match())
-        })
-    }
-}
-
-/// An iterator over all non-overlapping leftmost matches, with their capturing
-/// groups, for an infallible search.
-///
-/// The iterator yields a [`Captures`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'r` represents the lifetime of the BoundedBacktracker.
-/// * `'c` represents the lifetime of the BoundedBacktracker's cache.
-/// * `'h` represents the lifetime of the haystack being searched.
-///
-/// This iterator is created with the
-/// [`BoundedBacktracker::try_captures_iter`] method.
-#[derive(Debug)]
-pub struct CapturesMatches<'r, 'c, 'h> {
-    re: &'r BoundedBacktracker,
-    cache: &'c mut Cache,
-    caps: Captures,
-    it: iter::Searcher<'h>,
-}
-
-impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
-    type Item = Captures;
-
-    #[inline]
-    fn next(&mut self) -> Option<Captures> {
-        // Splitting 'self' apart seems necessary to appease borrowck.
-        let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
-            *self;
-        it.advance(|input| {
-            re.try_search(cache, input, caps)?;
-            Ok(caps.get_match())
-        });
-        if caps.is_match() {
-            Some(caps.clone())
-        } else {
-            None
         }
     }
 }

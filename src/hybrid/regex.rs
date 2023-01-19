@@ -39,19 +39,18 @@ use crate::{
 ///
 /// # Fallibility
 ///
-/// In non-default configurations, the lazy DFAs generated in this module may
-/// return an error during a search. (Currently, the only way this happens
-/// is if quit bytes are added, Unicode word boundaries are heuristically
-/// enabled, or if the cache is configured to "give up" on a search if it
-/// has been cleared too many times. All of these are turned off by default,
-/// which means a search can never fail in the default configuration.) For
-/// convenience, the main search routines, like [`find`](Regex::find), will
-/// panic if an error occurs. However, if you need to use DFAs which may
-/// produce an error at search time, then there are fallible equivalents of
-/// all search routines. For example, for `find`, its fallible analog is
-/// [`try_find`](Regex::try_find). The routines prefixed with `try_` return
-/// `Result<Option<Match>, MatchError>`, where as the infallible routines
-/// simply return `Option<Match>`.
+/// Most of the search routines defined on this type will _panic_ when the
+/// underlying search fails. This might be because the DFA gave up because it
+/// saw a quit byte, whether configured explicitly or via heuristic Unicode
+/// word boundary support, although neither are enabled by default. It might
+/// also fail if the underlying DFA determines it isn't making effective use of
+/// the cache (which also never happens by default). Or it might fail because
+/// an invalid `Input` configuration is given, either with an unsupported
+/// [`Anchored`] mode or an invalid pattern ID.
+///
+/// If you need to handle these error cases instead of allowing them to trigger
+/// a panic, then the lower level [`Regex::try_search`] provides a fallible API
+/// that never panics.
 ///
 /// # Example
 ///

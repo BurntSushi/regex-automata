@@ -735,26 +735,13 @@ impl PikeVM {
     }
 
     /// Executes a leftmost forward search and returns a `Match` if one exists.
-    /// If no match was found, then [`Captures::is_match`] is guaranteed to
-    /// return `false`.
     ///
     /// This routine only includes the overall match span. To get access to the
     /// individual spans of each capturing group, use [`PikeVM::captures`].
     ///
     /// # Example
     ///
-    /// Leftmost first match semantics corresponds to the match with the
-    /// smallest starting offset, but where the end offset is determined by
-    /// preferring earlier branches in the original regular expression. For
-    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
-    /// will match `Samwise` in `Samwise`.
-    ///
-    /// Generally speaking, the "leftmost first" match is how most backtracking
-    /// regular expressions tend to work. This is in contrast to POSIX-style
-    /// regular expressions that yield "leftmost longest" matches. Namely,
-    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
-    /// leftmost longest semantics. (This crate does not currently support
-    /// leftmost longest semantics.)
+    /// This example shows basic usage:
     ///
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};

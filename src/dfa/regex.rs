@@ -135,17 +135,17 @@ define_regex_type!(
     ///
     /// # Fallibility
     ///
-    /// In non-default configurations, the DFAs generated in this module may
-    /// return an error during a search. (Currently, the only way this happens
-    /// is if quit bytes are added or Unicode word boundaries are heuristically
-    /// enabled, both of which are turned off by default.) For convenience,
-    /// the main search routines, like [`find`](Regex::find), will panic if
-    /// an error occurs. However, if you need to use DFAs which may produce
-    /// an error at search time, then there are fallible equivalents of all
-    /// search routines. For example, for `find`, its fallible analog is
-    /// [`try_find`](Regex::try_find). The routines prefixed with `try_` return
-    /// `Result<Option<Match>, MatchError>`, where as the infallible routines
-    /// simply return `Option<Match>`.
+    /// Most of the search routines defined on this type will _panic_ when the
+    /// underlying search fails. This might be because the DFA gave up because
+    /// it saw a quit byte, whether configured explicitly or via heuristic
+    /// Unicode word boundary support, although neither are enabled by default.
+    /// Or it might fail because an invalid `Input` configuration is given,
+    /// either with an unsupported [`Anchored`] mode or an invalid pattern
+    /// ID.
+    ///
+    /// If you need to handle these error cases instead of allowing them to
+    /// trigger a panic, then the lower level [`Regex::try_search`] provides
+    /// a fallible API that never panics.
     ///
     /// # Example
     ///
@@ -410,10 +410,10 @@ impl<A: Automaton> Regex<A> {
     /// # Panics
     ///
     /// If the search returns an error during iteration, then iteration
-    /// panics. See [`DFA::find`] for the panic conditions.
+    /// panics. See [`Regex::find`] for the panic conditions.
     ///
     /// Use [`Regex::try_search`] with
-    /// [`util::iter::Searcher`](crate::util::iter::Search) if you want to
+    /// [`util::iter::Searcher`](crate::util::iter::Searcher) if you want to
     /// handle these error conditions.
     ///
     /// # Example
@@ -462,12 +462,18 @@ impl<A: Automaton> Regex<A> {
     ///
     /// # Errors
     ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used or Unicode word boundaries are heuristically
-    /// enabled.
+    /// This routine errors if the search could not complete. This can occur
+    /// in the following circumstances:
     ///
-    /// When a search cannot complete, callers cannot know whether a match
+    /// * The configuration of the DFA may permit it to "quit" the search.
+    /// For example, setting quit bytes or enabling heuristic support for
+    /// Unicode word boundaries. The default configuration does not enable any
+    /// option that could result in the DFA quitting.
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
     #[inline]
     pub fn try_search(
