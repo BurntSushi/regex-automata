@@ -103,13 +103,15 @@ const SENTINEL_STATES: usize = 3;
 /// a cache and pass it to our search routine.
 ///
 /// ```
-/// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+/// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 /// let mut cache = dfa.create_cache();
 ///
 /// let expected = Some(HalfMatch::must(0, 8));
-/// assert_eq!(expected, dfa.try_find_fwd(&mut cache, "foo12345")?);
+/// assert_eq!(expected, dfa.try_search_fwd(
+///     &mut cache, &Input::new("foo12345"))?,
+/// );
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone, Debug)]
@@ -132,7 +134,7 @@ impl DFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let dfa = DFA::new("foo[0-9]+bar")?;
     /// let mut cache = dfa.create_cache();
@@ -140,7 +142,7 @@ impl DFA {
     /// let expected = HalfMatch::must(0, 11);
     /// assert_eq!(
     ///     Some(expected),
-    ///     dfa.try_find_fwd(&mut cache, "foo12345bar")?,
+    ///     dfa.try_search_fwd(&mut cache, &Input::new("foo12345bar"))?,
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -158,7 +160,7 @@ impl DFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let dfa = DFA::new_many(&["[0-9]+", "[a-z]+"])?;
     /// let mut cache = dfa.create_cache();
@@ -166,7 +168,7 @@ impl DFA {
     /// let expected = HalfMatch::must(1, 3);
     /// assert_eq!(
     ///     Some(expected),
-    ///     dfa.try_find_fwd(&mut cache, "foo12345bar")?,
+    ///     dfa.try_search_fwd(&mut cache, &Input::new("foo12345bar"))?,
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -180,14 +182,18 @@ impl DFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let dfa = DFA::always_match()?;
     /// let mut cache = dfa.create_cache();
     ///
     /// let expected = HalfMatch::must(0, 0);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(&mut cache, "")?);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(&mut cache, "foo")?);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(
+    ///     &mut cache, &Input::new(""))?,
+    /// );
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(
+    ///     &mut cache, &Input::new("foo"))?,
+    /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn always_match() -> Result<DFA, BuildError> {
@@ -200,13 +206,13 @@ impl DFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::hybrid::dfa::DFA;
+    /// use regex_automata::{hybrid::dfa::DFA, Input};
     ///
     /// let dfa = DFA::never_match()?;
     /// let mut cache = dfa.create_cache();
     ///
-    /// assert_eq!(None, dfa.try_find_fwd(&mut cache, "")?);
-    /// assert_eq!(None, dfa.try_find_fwd(&mut cache, "foo")?);
+    /// assert_eq!(None, dfa.try_search_fwd(&mut cache, &Input::new(""))?);
+    /// assert_eq!(None, dfa.try_search_fwd(&mut cache, &Input::new("foo"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn never_match() -> Result<DFA, BuildError> {
@@ -226,7 +232,7 @@ impl DFA {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, MatchError, Input};
     ///
     /// let re = DFA::builder()
     ///     .configure(DFA::config().unicode_word_boundary(true))
@@ -236,15 +242,15 @@ impl DFA {
     /// // Since our haystack is all ASCII, the DFA search sees then and knows
     /// // it is legal to interpret Unicode word boundaries as ASCII word
     /// // boundaries.
+    /// let input = Input::new("!!foo!!");
     /// let expected = HalfMatch::must(0, 5);
-    /// let haystack = "!!foo!!";
-    /// assert_eq!(Some(expected), re.try_find_fwd(&mut cache, haystack)?);
+    /// assert_eq!(Some(expected), re.try_search_fwd(&mut cache, &input)?);
     ///
     /// // But if our haystack contains non-ASCII, then the search will fail
     /// // with an error.
+    /// let input = Input::new("!!βββ!!");
     /// let expected = MatchError::quit(b'\xCE', 2);
-    /// let haystack = "!!βββ!!";
-    /// assert_eq!(Err(expected), re.try_find_fwd(&mut cache, haystack));
+    /// assert_eq!(Err(expected), re.try_search_fwd(&mut cache, &input));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -264,16 +270,16 @@ impl DFA {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch, Input};
     ///
     /// let re = DFA::builder()
     ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let mut cache = re.create_cache();
     ///
-    /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
+    /// let input = Input::new(b"\xFEfoo\xFFarzz\xE2\x98\xFF\n");
     /// let expected = Some(HalfMatch::must(0, 9));
-    /// let got = re.try_find_fwd(&mut cache, haystack)?;
+    /// let got = re.try_search_fwd(&mut cache, &input)?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -311,7 +317,7 @@ impl DFA {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let dfa1 = DFA::new(r"\w")?;
     /// let dfa2 = DFA::new(r"\W")?;
@@ -319,7 +325,7 @@ impl DFA {
     /// let mut cache = dfa1.create_cache();
     /// assert_eq!(
     ///     Some(HalfMatch::must(0, 2)),
-    ///     dfa1.try_find_fwd(&mut cache, "Δ")?,
+    ///     dfa1.try_search_fwd(&mut cache, &Input::new("Δ"))?,
     /// );
     ///
     /// // Using 'cache' with dfa2 is not allowed. It may result in panics or
@@ -331,7 +337,7 @@ impl DFA {
     /// dfa2.reset_cache(&mut cache);
     /// assert_eq!(
     ///     Some(HalfMatch::must(0, 3)),
-    ///     dfa2.try_find_fwd(&mut cache, "☃")?,
+    ///     dfa2.try_search_fwd(&mut cache, &Input::new("☃"))?,
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -450,135 +456,6 @@ impl DFA {
     ///
     /// # Errors
     ///
-    /// This routine only errors if the search could not complete. For
-    /// lazy DFAs generated by this crate, this only occurs in non-default
-    /// configurations where quit bytes are used, Unicode word boundaries are
-    /// heuristically enabled or limits are set on the number of times the lazy
-    /// DFA's cache may be cleared.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// # Example
-    ///
-    /// Leftmost first match semantics corresponds to the match with the
-    /// smallest starting offset, but where the end offset is determined by
-    /// preferring earlier branches in the original regular expression. For
-    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
-    /// will match `Samwise` in `Samwise`.
-    ///
-    /// Generally speaking, the "leftmost first" match is how most backtracking
-    /// regular expressions tend to work. This is in contrast to POSIX-style
-    /// regular expressions that yield "leftmost longest" matches. Namely,
-    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
-    /// leftmost longest semantics. (This crate does not currently support
-    /// leftmost longest semantics.)
-    ///
-    /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
-    ///
-    /// let dfa = DFA::new("foo[0-9]+")?;
-    /// let mut cache = dfa.create_cache();
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(&mut cache, "foo12345")?);
-    ///
-    /// // Even though a match is found after reading the first byte (`a`),
-    /// // the leftmost first match semantics demand that we find the earliest
-    /// // match that prefers earlier parts of the pattern over later parts.
-    /// let dfa = DFA::new("abc|a")?;
-    /// let mut cache = dfa.create_cache();
-    /// let expected = HalfMatch::must(0, 3);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(&mut cache, "abc")?);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn try_find_fwd<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        bytes: H,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_fwd(cache, &Input::new(bytes.as_ref()))
-    }
-
-    /// Executes a reverse search and returns the start of the position of the
-    /// leftmost match that is found. If no match exists, then `None` is
-    /// returned.
-    ///
-    /// In particular, this method continues searching even after it enters
-    /// a match state. The search only terminates once it has reached the
-    /// end of the input or when it has entered a dead or quit state. Upon
-    /// termination, the position of the last byte seen while still in a match
-    /// state is returned.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// lazy DFAs generated by this crate, this only occurs in non-default
-    /// configurations where quit bytes are used, Unicode word boundaries are
-    /// heuristically enabled or limits are set on the number of times the lazy
-    /// DFA's cache may be cleared.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// # Example
-    ///
-    /// In particular, this routine is principally useful when used in
-    /// conjunction with the
-    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse)
-    /// configuration. In general, it's unlikely to be correct to use both
-    /// `try_find_fwd` and `try_find_rev` with the same DFA since any
-    /// particular DFA will only support searching in one direction with
-    /// respect to the pattern.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson, hybrid::dfa::DFA, HalfMatch};
-    ///
-    /// let dfa = DFA::builder()
-    ///     .thompson(thompson::Config::new().reverse(true))
-    ///     .build("foo[0-9]+")?;
-    /// let mut cache = dfa.create_cache();
-    /// let expected = HalfMatch::must(0, 0);
-    /// assert_eq!(
-    ///     Some(expected),
-    ///     dfa.try_find_rev(&mut cache, "foo12345")?,
-    /// );
-    ///
-    /// // Even though a match is found after reading the last byte (`c`),
-    /// // the leftmost first match semantics demand that we find the earliest
-    /// // match that prefers earlier parts of the pattern over latter parts.
-    /// let dfa = DFA::builder()
-    ///     .thompson(thompson::Config::new().reverse(true))
-    ///     .build("abc|c")?;
-    /// let mut cache = dfa.create_cache();
-    /// let expected = HalfMatch::must(0, 0);
-    /// assert_eq!(Some(expected), dfa.try_find_rev(&mut cache, "abc")?);
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn try_find_rev<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        bytes: H,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        self.try_search_rev(cache, &Input::new(bytes.as_ref()))
-    }
-}
-
-impl DFA {
-    /// Executes a forward search and returns the end position of the leftmost
-    /// match that is found. If no match exists, then `None` is returned.
-    ///
-    /// This is like [`DFA::try_find_fwd`], except it provides some additional
-    /// control over how the search is executed. Those parameters are
-    /// configured via a [`Input`].
-    ///
-    /// The examples below demonstrate each of these additional parameters.
-    ///
-    /// # Errors
-    ///
     /// This routine errors if the search could not complete. This can occur
     /// in a number of circumstances:
     ///
@@ -596,6 +473,33 @@ impl DFA {
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to run a basic search.
+    ///
+    /// ```
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
+    ///
+    /// let dfa = DFA::new("foo[0-9]+")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 8);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(
+    ///     &mut cache, &Input::new("foo12345"))?,
+    /// );
+    ///
+    /// // Even though a match is found after reading the first byte (`a`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over later parts.
+    /// let dfa = DFA::new("abc|a")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 3);
+    /// assert_eq!(Some(expected), dfa.try_search_fwd(
+    ///     &mut cache, &Input::new("abc"))?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     ///
     /// # Example: specific pattern search
     ///
@@ -730,6 +634,48 @@ impl DFA {
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// This routine is principally useful when used in
+    /// conjunction with the
+    /// [`nfa::thompson::Config::reverse`](crate::nfa::thompson::Config::reverse)
+    /// configuration. In general, it's unlikely to be correct to use both
+    /// `try_search_fwd` and `try_search_rev` with the same DFA since any
+    /// particular DFA will only support searching in one direction with
+    /// respect to the pattern.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson,
+    ///     hybrid::dfa::DFA,
+    ///     HalfMatch, Input,
+    /// };
+    ///
+    /// let dfa = DFA::builder()
+    ///     .thompson(thompson::Config::new().reverse(true))
+    ///     .build("foo[0-9]+")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 0);
+    /// assert_eq!(
+    ///     Some(expected),
+    ///     dfa.try_search_rev(&mut cache, &Input::new("foo12345"))?,
+    /// );
+    ///
+    /// // Even though a match is found after reading the last byte (`c`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over latter parts.
+    /// let dfa = DFA::builder()
+    ///     .thompson(thompson::Config::new().reverse(true))
+    ///     .build("abc|c")?;
+    /// let mut cache = dfa.create_cache();
+    /// let expected = HalfMatch::must(0, 0);
+    /// assert_eq!(Some(expected), dfa.try_search_rev(
+    ///     &mut cache, &Input::new("abc"))?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     ///
     /// # Example: UTF-8 mode
     ///
@@ -1913,7 +1859,7 @@ impl Cache {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let dfa1 = DFA::new(r"\w")?;
     /// let dfa2 = DFA::new(r"\W")?;
@@ -1921,7 +1867,7 @@ impl Cache {
     /// let mut cache = dfa1.create_cache();
     /// assert_eq!(
     ///     Some(HalfMatch::must(0, 2)),
-    ///     dfa1.try_find_fwd(&mut cache, "Δ")?,
+    ///     dfa1.try_search_fwd(&mut cache, &Input::new("Δ"))?,
     /// );
     ///
     /// // Using 'cache' with dfa2 is not allowed. It may result in panics or
@@ -1933,7 +1879,7 @@ impl Cache {
     /// cache.reset(&dfa2);
     /// assert_eq!(
     ///     Some(HalfMatch::must(0, 3)),
-    ///     dfa2.try_find_fwd(&mut cache, "☃")?,
+    ///     dfa2.try_search_fwd(&mut cache, &Input::new("☃"))?,
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2821,7 +2767,7 @@ impl Config {
     ///     Anchored, HalfMatch, Input, MatchKind,
     /// };
     ///
-    /// let haystack = "123foobar456";
+    /// let input = Input::new("123foobar456");
     /// let pattern = r"[a-z]+r";
     ///
     /// let dfa_fwd = DFA::new(pattern)?;
@@ -2834,7 +2780,7 @@ impl Config {
     ///
     /// let expected_fwd = HalfMatch::must(0, 9);
     /// let expected_rev = HalfMatch::must(0, 3);
-    /// let got_fwd = dfa_fwd.try_find_fwd(&mut cache_fwd, haystack)?.unwrap();
+    /// let got_fwd = dfa_fwd.try_search_fwd(&mut cache_fwd, &input)?.unwrap();
     /// // Here we don't specify the pattern to search for since there's only
     /// // one pattern and we're doing a leftmost search. But if this were an
     /// // overlapping search, you'd need to specify the pattern that matched
@@ -2842,7 +2788,8 @@ impl Config {
     /// // starting position of a match of some other pattern.) That in turn
     /// // requires building the reverse automaton with starts_for_each_pattern
     /// // enabled.
-    /// let input = Input::new(haystack)
+    /// let input = input
+    ///     .clone()
     ///     .range(..got_fwd.offset())
     ///     .anchored(Anchored::Yes);
     /// let got_rev = dfa_rev.try_search_rev(&mut cache_rev, &input)?.unwrap();
@@ -3026,7 +2973,7 @@ impl Config {
     /// // character, so no error occurs.
     /// let haystack = "foo 123 ☃";
     /// let expected = Some(HalfMatch::must(0, 7));
-    /// let got = dfa.try_find_fwd(&mut cache, haystack)?;
+    /// let got = dfa.try_search_fwd(&mut cache, &Input::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// // Notice that this search fails, even though the snowman character
@@ -3036,7 +2983,7 @@ impl Config {
     /// // the trailing \b matches.
     /// let haystack = "foo 123☃";
     /// let expected = MatchError::quit(0xE2, 7);
-    /// let got = dfa.try_find_fwd(&mut cache, haystack);
+    /// let got = dfa.try_search_fwd(&mut cache, &Input::new(haystack));
     /// assert_eq!(Err(expected), got);
     ///
     /// // Another example is executing a search where the span of the haystack
@@ -3110,7 +3057,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, MatchError};
+    /// use regex_automata::{hybrid::dfa::DFA, MatchError, Input};
     ///
     /// let dfa = DFA::builder()
     ///     .configure(DFA::config().quit(b'\n', true))
@@ -3122,7 +3069,10 @@ impl Config {
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
     /// let expected = MatchError::quit(b'\n', 3);
-    /// let got = dfa.try_find_fwd(&mut cache, haystack).unwrap_err();
+    /// let got = dfa.try_search_fwd(
+    ///     &mut cache,
+    ///     &Input::new(haystack),
+    /// ).unwrap_err();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3252,7 +3202,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let pattern = r"\p{L}{1000}";
     ///
@@ -3268,7 +3218,7 @@ impl Config {
     ///
     /// let haystack = "ͰͲͶͿΆΈΉΊΌΎΏΑΒΓΔΕΖΗΘΙ".repeat(50);
     /// let expected = Some(HalfMatch::must(0, 2000));
-    /// let got = dfa.try_find_fwd(&mut cache, haystack)?;
+    /// let got = dfa.try_search_fwd(&mut cache, &Input::new(&haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3306,7 +3256,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch};
+    /// use regex_automata::{hybrid::dfa::DFA, HalfMatch, Input};
     ///
     /// let pattern = r"\p{L}{1000}";
     ///
@@ -3323,7 +3273,7 @@ impl Config {
     ///
     /// let haystack = "ͰͲͶͿΆΈΉΊΌΎΏΑΒΓΔΕΖΗΘΙ".repeat(50);
     /// let expected = Some(HalfMatch::must(0, 2000));
-    /// let got = dfa.try_find_fwd(&mut cache, haystack)?;
+    /// let got = dfa.try_search_fwd(&mut cache, &Input::new(&haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3369,7 +3319,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, MatchError};
+    /// use regex_automata::{hybrid::dfa::DFA, Input, MatchError};
     ///
     /// // This is a carefully chosen regex. The idea is to pick one
     /// // that requires some decent number of states (hence the bounded
@@ -3396,7 +3346,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     Err(MatchError::gave_up(26)),
-    ///     dfa.try_find_fwd(&mut cache, &haystack),
+    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
     /// );
     ///
     /// // Now that we know the cache is full, if we search a haystack that we
@@ -3405,7 +3355,7 @@ impl Config {
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     Err(MatchError::gave_up(2)),
-    ///     dfa.try_find_fwd(&mut cache, &haystack),
+    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
     /// );
     ///
     /// // If we reset the cache, then we should be able to create more states
@@ -3414,7 +3364,7 @@ impl Config {
     /// let haystack = "β".repeat(101).into_bytes();
     /// assert_eq!(
     ///     Err(MatchError::gave_up(28)),
-    ///     dfa.try_find_fwd(&mut cache, &haystack),
+    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
     /// );
     ///
     /// // ... switching back to ASCII still makes progress since it just needs
@@ -3422,7 +3372,7 @@ impl Config {
     /// let haystack = "a".repeat(101).into_bytes();
     /// assert_eq!(
     ///     Err(MatchError::gave_up(14)),
-    ///     dfa.try_find_fwd(&mut cache, &haystack),
+    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3659,7 +3609,7 @@ impl Config {
 ///   things like `[^a]` that match any byte except for `a` are permitted.
 ///
 /// ```
-/// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch};
+/// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch, Input};
 ///
 /// let dfa = DFA::builder()
 ///     .configure(DFA::config().cache_capacity(5_000))
@@ -3669,7 +3619,7 @@ impl Config {
 ///
 /// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";
 /// let expected = Some(HalfMatch::must(0, 10));
-/// let got = dfa.try_find_fwd(&mut cache, haystack)?;
+/// let got = dfa.try_search_fwd(&mut cache, &Input::new(haystack))?;
 /// assert_eq!(expected, got);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -3733,7 +3683,11 @@ impl Builder {
     /// in hand.
     ///
     /// ```
-    /// use regex_automata::{hybrid::dfa::DFA, nfa::thompson, HalfMatch};
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     nfa::thompson,
+    ///     HalfMatch, Input,
+    /// };
     ///
     /// let haystack = "foo123bar";
     ///
@@ -3744,7 +3698,7 @@ impl Builder {
     /// let dfa = DFA::builder().build_from_nfa(nfa)?;
     /// let mut cache = dfa.create_cache();
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.try_find_fwd(&mut cache, haystack)?;
+    /// let got = dfa.try_search_fwd(&mut cache, &Input::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())

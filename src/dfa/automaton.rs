@@ -1027,6 +1027,12 @@ pub unsafe trait Automaton {
     /// Executes a forward search and returns the end position of the leftmost
     /// match that is found. If no match exists, then `None` is returned.
     ///
+    /// In particular, this method continues searching even after it enters
+    /// a match state. The search only terminates once it has reached the
+    /// end of the input or when it has entered a dead or quit state. Upon
+    /// termination, the position of the last byte seen while still in a match
+    /// state is returned.
+    ///
     /// # Errors
     ///
     /// This routine errors if the search could not complete. This can occur
