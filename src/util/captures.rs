@@ -101,10 +101,10 @@ use crate::util::{
 /// ```
 /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
 ///
-/// let vm = PikeVM::new(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")?;
-/// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+/// let re = PikeVM::new(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")?;
+/// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
 ///
-/// vm.find(&mut cache, "2010-03-14", &mut caps);
+/// re.captures(&mut cache, "2010-03-14", &mut caps);
 /// assert!(caps.is_match());
 /// assert_eq!(Some(Span::from(0..4)), caps.get_group(1));
 /// assert_eq!(Some(Span::from(5..7)), caps.get_group(2));
@@ -121,10 +121,10 @@ use crate::util::{
 /// ```
 /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
 ///
-/// let vm = PikeVM::new(r"^(?P<y>[0-9]{4})-(?P<m>[0-9]{2})-(?P<d>[0-9]{2})$")?;
-/// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+/// let re = PikeVM::new(r"^(?P<y>[0-9]{4})-(?P<m>[0-9]{2})-(?P<d>[0-9]{2})$")?;
+/// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
 ///
-/// vm.find(&mut cache, "2010-03-14", &mut caps);
+/// re.captures(&mut cache, "2010-03-14", &mut caps);
 /// assert!(caps.is_match());
 /// assert_eq!(Some(Span::from(0..4)), caps.get_group_by_name("y"));
 /// assert_eq!(Some(Span::from(5..7)), caps.get_group_by_name("m"));
@@ -202,13 +202,13 @@ impl Captures {
     ///     Span, Match,
     /// };
     ///
-    /// let vm = PikeVM::new(
+    /// let re = PikeVM::new(
     ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
     /// )?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::all(vm.get_nfa().group_info().clone());
+    /// let mut cache = re.create_cache();
+    /// let mut caps = Captures::all(re.get_nfa().group_info().clone());
     ///
-    /// vm.find(&mut cache, "ABC123", &mut caps);
+    /// re.captures(&mut cache, "ABC123", &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(Match::must(0, 0..6)), caps.get_match());
     /// // The 'lower' group didn't match, so it won't have any offsets.
@@ -243,13 +243,13 @@ impl Captures {
     ///     Match,
     /// };
     ///
-    /// let vm = PikeVM::new(
+    /// let re = PikeVM::new(
     ///     r"^(?:(?P<lower>[a-z]+)|(?P<upper>[A-Z]+))(?P<digits>[0-9]+)$",
     /// )?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::matches(vm.get_nfa().group_info().clone());
+    /// let mut cache = re.create_cache();
+    /// let mut caps = Captures::matches(re.get_nfa().group_info().clone());
     ///
-    /// vm.find(&mut cache, "ABC123", &mut caps);
+    /// re.captures(&mut cache, "ABC123", &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(Match::must(0, 0..6)), caps.get_match());
     /// // We didn't ask for capturing group offsets, so they aren't available.
@@ -286,17 +286,17 @@ impl Captures {
     ///     PatternID,
     /// };
     ///
-    /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::empty(vm.get_nfa().group_info().clone());
+    /// let re = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = Captures::empty(re.get_nfa().group_info().clone());
     ///
-    /// vm.find(&mut cache, "aABCz", &mut caps);
+    /// re.captures(&mut cache, "aABCz", &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(PatternID::must(0)), caps.pattern());
     /// // We didn't ask for any offsets, so they aren't available.
     /// assert_eq!(None, caps.get_match());
     ///
-    /// vm.find(&mut cache, &"aABCz"[1..], &mut caps);
+    /// re.captures(&mut cache, &"aABCz"[1..], &mut caps);
     /// assert!(caps.is_match());
     /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
     /// // We didn't ask for any offsets, so they aren't available.
@@ -324,11 +324,11 @@ impl Captures {
     ///     util::captures::Captures,
     /// };
     ///
-    /// let vm = PikeVM::new(r"[a-z]+")?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::empty(vm.get_nfa().group_info().clone());
+    /// let re = PikeVM::new(r"[a-z]+")?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = Captures::empty(re.get_nfa().group_info().clone());
     ///
-    /// vm.find(&mut cache, "aABCz", &mut caps);
+    /// re.captures(&mut cache, "aABCz", &mut caps);
     /// assert!(caps.is_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -359,11 +359,11 @@ impl Captures {
     ///     PatternID,
     /// };
     ///
-    /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = Captures::empty(vm.get_nfa().group_info().clone());
+    /// let re = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = Captures::empty(re.get_nfa().group_info().clone());
     ///
-    /// vm.find(&mut cache, "ABC", &mut caps);
+    /// re.captures(&mut cache, "ABC", &mut caps);
     /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
     /// // Recall that offsets are only available when using a non-empty
     /// // Captures value. So even though a match occurred, this returns None!
@@ -392,10 +392,10 @@ impl Captures {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new_many(&[r"[a-z]+", r"[A-Z]+"])?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "ABC", &mut caps);
+    /// re.captures(&mut cache, "ABC", &mut caps);
     /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -441,10 +441,10 @@ impl Captures {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, Match};
     ///
-    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
+    /// re.captures(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..17)), caps.get_match());
     /// assert_eq!(Some(Span::from(0..5)), caps.get_group(1));
     /// assert_eq!(Some(Span::from(6..17)), caps.get_group(2));
@@ -495,10 +495,10 @@ impl Captures {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span, Match};
     ///
-    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
+    /// re.captures(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..17)), caps.get_match());
     /// assert_eq!(Some(Span::from(0..5)), caps.get_group_by_name("first"));
     /// assert_eq!(Some(Span::from(6..17)), caps.get_group_by_name("last"));
@@ -530,13 +530,13 @@ impl Captures {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
-    /// let vm = PikeVM::new(
+    /// let re = PikeVM::new(
     ///     // Matches first/last names, with an optional middle name.
     ///     r"^(?P<first>\pL+)\s+(?:(?P<middle>\pL+)\s+)?(?P<last>\pL+)$",
     /// )?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "Harry James Potter", &mut caps);
+    /// re.captures(&mut cache, "Harry James Potter", &mut caps);
     /// assert!(caps.is_match());
     /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
@@ -558,13 +558,13 @@ impl Captures {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
-    /// let vm = PikeVM::new(
+    /// let re = PikeVM::new(
     ///     // Matches first/last names, with an optional middle name.
     ///     r"^(?P<first>\pL+)\s+(?:(?P<middle>\pL+)\s+)?(?P<last>\pL+)$",
     /// )?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "Harry Potter", &mut caps);
+    /// re.captures(&mut cache, "Harry Potter", &mut caps);
     /// assert!(caps.is_match());
     /// let groups: Vec<Option<Span>> = caps.iter().collect();
     /// assert_eq!(groups, vec![
@@ -602,13 +602,13 @@ impl Captures {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::new(
+    /// let re = PikeVM::new(
     ///     // Matches first/last names, with an optional middle name.
     ///     r"^(?P<first>\pL+)\s+(?:(?P<middle>\pL+)\s+)?(?P<last>\pL+)$",
     /// )?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "Harry Potter", &mut caps);
+    /// re.captures(&mut cache, "Harry Potter", &mut caps);
     /// assert_eq!(4, caps.group_len());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -643,14 +643,14 @@ impl Captures {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
     ///
-    /// let vm = PikeVM::new_many(&[
+    /// let re = PikeVM::new_many(&[
     ///     r"(?P<foo>a)",
     ///     r"(a)(b)",
     ///     r"ab",
     ///     r"(?P<bar>a)(?P<quux>a)",
     ///     r"(?P<foo>z)",
     /// ])?;
-    /// let caps = vm.create_captures();
+    /// let caps = re.create_captures();
     ///
     /// let expected = vec![
     ///     (PatternID::must(0), 0, None),
@@ -665,7 +665,7 @@ impl Captures {
     ///     (PatternID::must(4), 0, None),
     ///     (PatternID::must(4), 1, Some("foo")),
     /// ];
-    /// // We could also just use 'vm.get_nfa().group_info()'.
+    /// // We could also just use 're.get_nfa().group_info()'.
     /// let got: Vec<(PatternID, usize, Option<&str>)> =
     ///     caps.group_info().all_names().collect();
     /// assert_eq!(expected, got);
@@ -707,10 +707,10 @@ impl Captures {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
+    /// re.captures(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert!(caps.is_match());
     /// let slots: Vec<Option<usize>> =
     ///     caps.slots().iter().map(|s| s.map(|x| x.get())).collect();
@@ -767,10 +767,10 @@ impl Captures {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::nfa::thompson::pikevm::PikeVM;
     ///
-    /// let vm = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new(r"^(?P<first>\pL+)\s+(?P<last>\pL+)$")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, "Bruce Springsteen", &mut caps);
+    /// re.captures(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert!(caps.is_match());
     /// assert!(caps.pattern().is_some());
     /// let slots: Vec<Option<usize>> =
@@ -841,7 +841,7 @@ impl Captures {
     /// ])?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// re.find(&mut cache, "123", &mut caps);
+    /// re.captures(&mut cache, "123", &mut caps);
     /// assert_eq!(Some(PatternID::must(1)), caps.pattern());
     /// // Note that the only guarantee we have here is that slots 2 and 3
     /// // are set to correct values. The contents of the first two slots are

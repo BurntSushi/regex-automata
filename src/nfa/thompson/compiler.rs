@@ -463,11 +463,11 @@ mutably both inside and outside the closure at the same time.
 /// let config = NFA::config().nfa_size_limit(Some(1_000));
 /// let nfa = NFA::compiler().configure(config).build(r"(?-u)\w")?;
 ///
-/// let vm = PikeVM::new_from_nfa(nfa)?;
-/// let mut cache = vm.create_cache();
-/// let mut caps = vm.create_captures();
+/// let re = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = re.create_cache();
+/// let mut caps = re.create_captures();
 /// let expected = Some(Match::must(0, 3..4));
-/// vm.find(&mut cache, "!@#A#@!", &mut caps);
+/// re.captures(&mut cache, "!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -492,11 +492,11 @@ mutably both inside and outside the closure at the same time.
 /// let config = NFA::config().nfa_size_limit(Some(1_000));
 /// let nfa = NFA::compiler().configure(config).build_from_hir(&hir)?;
 ///
-/// let vm = PikeVM::new_from_nfa(nfa)?;
-/// let mut cache = vm.create_cache();
-/// let mut caps = vm.create_captures();
+/// let re = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = re.create_cache();
+/// let mut caps = re.create_captures();
 /// let expected = Some(Match::must(0, 3..4));
-/// vm.find(&mut cache, "!@#A#@!", &mut caps);
+/// re.captures(&mut cache, "!@#A#@!", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -553,11 +553,11 @@ impl Compiler {
     /// let config = NFA::config().nfa_size_limit(Some(1_000));
     /// let nfa = NFA::compiler().configure(config).build(r"(?-u)\w")?;
     ///
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
     /// let expected = Some(Match::must(0, 3..4));
-    /// vm.find(&mut cache, "!@#A#@!", &mut caps);
+    /// re.captures(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -582,11 +582,11 @@ impl Compiler {
     ///     r"(?-u)\w",
     /// ])?;
     ///
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
     /// let expected = Some(Match::must(1, 1..2));
-    /// vm.find(&mut cache, "!A! !A!", &mut caps);
+    /// re.captures(&mut cache, "!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -633,11 +633,11 @@ impl Compiler {
     /// let config = NFA::config().nfa_size_limit(Some(1_000));
     /// let nfa = NFA::compiler().configure(config).build_from_hir(&hir)?;
     ///
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
     /// let expected = Some(Match::must(0, 3..4));
-    /// vm.find(&mut cache, "!@#A#@!", &mut caps);
+    /// re.captures(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -674,11 +674,11 @@ impl Compiler {
     /// let config = NFA::config().nfa_size_limit(Some(1_000));
     /// let nfa = NFA::compiler().configure(config).build_many_from_hir(hirs)?;
     ///
-    /// let vm = PikeVM::new_from_nfa(nfa)?;
-    /// let mut cache = vm.create_cache();
-    /// let mut caps = vm.create_captures();
+    /// let re = PikeVM::new_from_nfa(nfa)?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
     /// let expected = Some(Match::must(1, 1..2));
-    /// vm.find(&mut cache, "!A! !A!", &mut caps);
+    /// re.captures(&mut cache, "!A! !A!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())

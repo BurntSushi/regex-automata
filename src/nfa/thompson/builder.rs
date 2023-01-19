@@ -300,11 +300,11 @@ impl State {
 ///
 /// // Now build a Pike VM from our NFA, and use it for searching. This shows
 /// // how we can use a regex engine without ever worrying about syntax!
-/// let vm = PikeVM::new_from_nfa(nfa)?;
-/// let mut cache = vm.create_cache();
-/// let mut caps = vm.create_captures();
+/// let re = PikeVM::new_from_nfa(nfa)?;
+/// let mut cache = re.create_cache();
+/// let mut caps = re.create_captures();
 /// let expected = Some(Match::must(0, 0..3));
-/// vm.find(&mut cache, "foo0", &mut caps);
+/// re.captures(&mut cache, "foo0", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())

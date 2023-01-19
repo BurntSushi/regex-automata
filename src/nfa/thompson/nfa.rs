@@ -128,12 +128,12 @@ use crate::{
 /// ```
 /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
 ///
-/// let vm = PikeVM::new(r"foo[0-9]+")?;
-/// let mut cache = vm.create_cache();
-/// let mut caps = vm.create_captures();
+/// let re = PikeVM::new(r"foo[0-9]+")?;
+/// let mut cache = re.create_cache();
+/// let mut caps = re.create_captures();
 ///
 /// let expected = Some(Match::must(0, 0..8));
-/// vm.find(&mut cache, b"foo12345", &mut caps);
+/// re.captures(&mut cache, b"foo12345", &mut caps);
 /// assert_eq!(expected, caps.get_match());
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -174,12 +174,12 @@ use crate::{
 /// ```
 /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
 ///
-/// let vm = PikeVM::new(r"([a-z]){4}")?;
-/// let mut cache = vm.create_cache();
-/// let mut caps = vm.create_captures();
+/// let re = PikeVM::new(r"([a-z]){4}")?;
+/// let mut cache = re.create_cache();
+/// let mut caps = re.create_captures();
 ///
 /// let haystack = b"quux";
-/// vm.find(&mut cache, haystack, &mut caps);
+/// re.captures(&mut cache, haystack, &mut caps);
 /// assert!(caps.is_match());
 /// assert_eq!(Some(Span::from(3..4)), caps.get_group(1));
 ///
@@ -212,11 +212,11 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::new(r"foo[0-9]+")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new(r"foo[0-9]+")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// let expected = Some(Match::must(0, 0..8));
-    /// vm.find(&mut cache, b"foo12345", &mut caps);
+    /// re.captures(&mut cache, b"foo12345", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -237,11 +237,11 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
     ///
-    /// let vm = PikeVM::new_many(&["[0-9]+", "[a-z]+"])?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new_many(&["[0-9]+", "[a-z]+"])?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// let expected = Some(Match::must(1, 0..3));
-    /// vm.find(&mut cache, b"foo12345bar", &mut caps);
+    /// re.captures(&mut cache, b"foo12345bar", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -259,13 +259,13 @@ impl NFA {
     /// ```
     /// use regex_automata::{nfa::thompson::{NFA, pikevm::PikeVM}, Match};
     ///
-    /// let vm = PikeVM::new_from_nfa(NFA::always_match())?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new_from_nfa(NFA::always_match())?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// let expected = Some(Match::must(0, 0..0));
-    /// vm.find(&mut cache, b"", &mut caps);
+    /// re.captures(&mut cache, b"", &mut caps);
     /// assert_eq!(expected, caps.get_match());
-    /// vm.find(&mut cache, b"foo", &mut caps);
+    /// re.captures(&mut cache, b"foo", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -304,12 +304,12 @@ impl NFA {
     /// ```
     /// use regex_automata::nfa::thompson::{NFA, pikevm::PikeVM};
     ///
-    /// let vm = PikeVM::new_from_nfa(NFA::never_match())?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let re = PikeVM::new_from_nfa(NFA::never_match())?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// vm.find(&mut cache, b"", &mut caps);
+    /// re.captures(&mut cache, b"", &mut caps);
     /// assert!(!caps.is_match());
-    /// vm.find(&mut cache, b"foo", &mut caps);
+    /// re.captures(&mut cache, b"foo", &mut caps);
     /// assert!(!caps.is_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -365,13 +365,13 @@ impl NFA {
     ///     Match,
     /// };
     ///
-    /// let vm = PikeVM::builder()
+    /// let re = PikeVM::builder()
     ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"[a-z]+(?-u:.)")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// let expected = Some(Match::must(0, 1..5));
-    /// vm.find(&mut cache, b"\xFFabc\xFF", &mut caps);
+    /// re.captures(&mut cache, b"\xFFabc\xFF", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())

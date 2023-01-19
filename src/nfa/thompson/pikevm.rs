@@ -426,7 +426,7 @@ impl PikeVM {
     /// let re = PikeVM::new_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Some(Match::must(0, 3..4));
-    /// re.find(&mut cache, "!@#A#@!", &mut caps);
+    /// re.captures(&mut cache, "!@#A#@!", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -537,7 +537,7 @@ impl PikeVM {
     ///
     /// let haystack = b"\xFEfoo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 1..9));
-    /// re.find(&mut cache, haystack, &mut caps);
+    /// re.captures(&mut cache, haystack, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -734,6 +734,70 @@ impl PikeVM {
             .is_some()
     }
 
+    /// Executes a leftmost forward search and returns a `Match` if one exists.
+    /// If no match was found, then [`Captures::is_match`] is guaranteed to
+    /// return `false`.
+    ///
+    /// This routine only includes the overall match span. To get access to the
+    /// individual spans of each capturing group, use [`PikeVM::captures`].
+    ///
+    /// # Example
+    ///
+    /// Leftmost first match semantics corresponds to the match with the
+    /// smallest starting offset, but where the end offset is determined by
+    /// preferring earlier branches in the original regular expression. For
+    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
+    /// will match `Samwise` in `Samwise`.
+    ///
+    /// Generally speaking, the "leftmost first" match is how most backtracking
+    /// regular expressions tend to work. This is in contrast to POSIX-style
+    /// regular expressions that yield "leftmost longest" matches. Namely,
+    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
+    /// leftmost longest semantics. (This crate does not currently support
+    /// leftmost longest semantics.)
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    ///
+    /// let re = PikeVM::new("foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    /// let expected = Match::must(0, 0..8);
+    /// assert_eq!(Some(expected), re.find(&mut cache, "foo12345"));
+    ///
+    /// // Even though a match is found after reading the first byte (`a`),
+    /// // the leftmost first match semantics demand that we find the earliest
+    /// // match that prefers earlier parts of the pattern over later parts.
+    /// let re = PikeVM::new("abc|a")?;
+    /// let mut cache = re.create_cache();
+    /// let expected = Match::must(0, 0..3);
+    /// assert_eq!(Some(expected), re.find(&mut cache, "abc"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn find<'h, I: Into<Input<'h>>>(
+        &self,
+        cache: &mut Cache,
+        input: I,
+    ) -> Option<Match> {
+        let input = input.into();
+        if self.get_nfa().pattern_len() == 1 {
+            let mut slots = [None, None];
+            let pid =
+                self.try_search_slots(cache, &input, &mut slots).unwrap()?;
+            let start = slots[0].unwrap().get();
+            let end = slots[1].unwrap().get();
+            return Some(Match::new(pid, Span { start, end }));
+        }
+        let ginfo = self.get_nfa().group_info();
+        let slots_len = ginfo.implicit_slot_len();
+        let mut slots = vec![None; slots_len];
+        let pid = self.try_search_slots(cache, &input, &mut slots).unwrap()?;
+        let start = slots[pid.as_usize() * 2].unwrap().get();
+        let end = slots[pid.as_usize() * 2 + 1].unwrap().get();
+        Some(Match::new(pid, Span { start, end }))
+    }
+
     /// Executes a leftmost forward search and writes the spans of capturing
     /// groups that participated in a match into the provided [`Captures`]
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
@@ -762,7 +826,7 @@ impl PikeVM {
     /// let re = PikeVM::new("foo[0-9]+")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Match::must(0, 0..8);
-    /// re.find(&mut cache, "foo12345", &mut caps);
+    /// re.captures(&mut cache, "foo12345", &mut caps);
     /// assert_eq!(Some(expected), caps.get_match());
     ///
     /// // Even though a match is found after reading the first byte (`a`),
@@ -771,13 +835,13 @@ impl PikeVM {
     /// let re = PikeVM::new("abc|a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Match::must(0, 0..3);
-    /// re.find(&mut cache, "abc", &mut caps);
+    /// re.captures(&mut cache, "abc", &mut caps);
     /// assert_eq!(Some(expected), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find<'h, I: Into<Input<'h>>>(
+    pub fn captures<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
         input: I,
