@@ -4,7 +4,7 @@ use regex_automata::{
         StartKind,
     },
     nfa::thompson,
-    util::{iter, prefilter::Prefilter, syntax},
+    util::{prefilter::Prefilter, syntax},
     Anchored, Input, PatternSet,
 };
 use regex_syntax::hir;
@@ -308,26 +308,19 @@ fn compiler(
 fn run_test<A: Automaton>(re: &Regex<A>, test: &RegexTest) -> TestResult {
     let input = create_input(test);
     match test.additional_name() {
-        "is_match" => {
-            // TODO: Use 'is_match' API once it accetps 'Into<Input>'.
-            let input = input.earliest(true);
-            TestResult::matched(
-                re.forward().try_search_fwd(&input).unwrap().is_some(),
-            )
-        }
+        "is_match" => TestResult::matched(re.is_match(input.earliest(true))),
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
                 let input = input
                     .earliest(test.search_kind() == ret::SearchKind::Earliest);
-                let it = iter::Searcher::new(input)
-                    .into_matches_iter(|input| re.try_search(input))
-                    .infallible()
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
+                TestResult::matches(
+                    re.find_iter(input)
+                        .take(test.match_limit().unwrap_or(std::usize::MAX))
+                        .map(|m| ret::Match {
+                            id: m.pattern().as_usize(),
+                            span: ret::Span { start: m.start(), end: m.end() },
+                        }),
+                )
             }
             ret::SearchKind::Overlapping => {
                 try_search_overlapping(re, &input).unwrap()
@@ -447,9 +440,6 @@ fn try_search_overlapping<A: Automaton>(
             rev_dfa.try_search_overlapping_rev(&revsearch, &mut rev_state)?;
             rev_state.get_match()
         } {
-            // let start = rev_dfa
-            // .try_search_rev(rev_cache, &revsearch)?
-            // .expect("reverse search must match if forward search does");
             let span = ret::Span { start: start.offset(), end: end.offset() };
             let mat = ret::Match { id: end.pattern().as_usize(), span };
             matches.push(mat);

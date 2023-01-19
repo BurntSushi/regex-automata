@@ -156,18 +156,18 @@ define_regex_type!(
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{dfa::{self, regex::Regex}, MatchError};
+    /// use regex_automata::{dfa::{self, regex::Regex}, Input, MatchError};
     ///
     /// let re = Regex::builder()
     ///     .dense(dfa::dense::Config::new().quit(b'\n', true))
     ///     .build(r"foo\p{any}+bar")?;
     ///
-    /// let haystack = "foo\nbar".as_bytes();
+    /// let input = Input::new("foo\nbar");
     /// // Normally this would produce a match, since \p{any} contains '\n'.
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
     /// let expected = MatchError::quit(b'\n', 3);
-    /// let got = re.try_find(haystack).unwrap_err();
+    /// let got = re.try_search(&input).unwrap_err();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -325,12 +325,21 @@ impl<A: Automaton> Regex<A> {
     ///
     /// # Panics
     ///
-    /// If the underlying DFAs return an error, then this routine panics. This
-    /// only occurs in non-default configurations where quit bytes are used or
-    /// Unicode word boundaries are heuristically enabled.
+    /// This routine panics if the search could not complete. This can occur
+    /// in a number of circumstances:
     ///
-    /// The fallible version of this routine is
-    /// [`try_is_match`](Regex::try_is_match).
+    /// * The configuration of the DFA may permit it to "quit" the search.
+    /// For example, setting quit bytes or enabling heuristic support for
+    /// Unicode word boundaries. The default configuration does not enable any
+    /// option that could result in the DFA quitting.
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search panics, callers cannot know whether a match exists or
+    /// not.
+    ///
+    /// Use [`Regex::try_search`] if you want to handle these error conditions.
     ///
     /// # Example
     ///
@@ -338,13 +347,16 @@ impl<A: Automaton> Regex<A> {
     /// use regex_automata::dfa::regex::Regex;
     ///
     /// let re = Regex::new("foo[0-9]+bar")?;
-    /// assert_eq!(true, re.is_match(b"foo12345bar"));
-    /// assert_eq!(false, re.is_match(b"foobar"));
+    /// assert_eq!(true, re.is_match("foo12345bar"));
+    /// assert_eq!(false, re.is_match("foobar"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn is_match<H: AsRef<[u8]>>(&self, haystack: H) -> bool {
-        self.try_is_match(haystack.as_ref()).unwrap()
+    pub fn is_match<'h, I: Into<Input<'h>>>(&self, input: I) -> bool {
+        // Not only can we do an "earliest" search, but we can avoid doing a
+        // reverse scan too.
+        let input = input.into().earliest(true);
+        self.forward().try_search_fwd(&input).map(|x| x.is_some()).unwrap()
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -352,11 +364,21 @@ impl<A: Automaton> Regex<A> {
     ///
     /// # Panics
     ///
-    /// If the underlying DFAs return an error, then this routine panics. This
-    /// only occurs in non-default configurations where quit bytes are used or
-    /// Unicode word boundaries are heuristically enabled.
+    /// This routine panics if the search could not complete. This can occur
+    /// in a number of circumstances:
     ///
-    /// The fallible version of this routine is [`try_find`](Regex::try_find).
+    /// * The configuration of the DFA may permit it to "quit" the search.
+    /// For example, setting quit bytes or enabling heuristic support for
+    /// Unicode word boundaries. The default configuration does not enable any
+    /// option that could result in the DFA quitting.
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search panics, callers cannot know whether a match exists or
+    /// not.
+    ///
+    /// Use [`Regex::try_search`] if you want to handle these error conditions.
     ///
     /// # Example
     ///
@@ -365,22 +387,19 @@ impl<A: Automaton> Regex<A> {
     ///
     /// // Greediness is applied appropriately.
     /// let re = Regex::new("foo[0-9]+")?;
-    /// assert_eq!(
-    ///     Some(Match::must(0, 3..11)),
-    ///     re.find(b"zzzfoo12345zzz"),
-    /// );
+    /// assert_eq!(Some(Match::must(0, 3..11)), re.find("zzzfoo12345zzz"));
     ///
     /// // Even though a match is found after reading the first byte (`a`),
     /// // the default leftmost-first match semantics demand that we find the
     /// // earliest match that prefers earlier parts of the pattern over latter
     /// // parts.
     /// let re = Regex::new("abc|a")?;
-    /// assert_eq!(Some(Match::must(0, 0..3)), re.find(b"abc"));
+    /// assert_eq!(Some(Match::must(0, 0..3)), re.find("abc"));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find<H: AsRef<[u8]>>(&self, haystack: H) -> Option<Match> {
-        self.try_find(haystack.as_ref()).unwrap()
+    pub fn find<'h, I: Into<Input<'h>>>(&self, input: I) -> Option<Match> {
+        self.try_search(&input.into()).unwrap()
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -390,12 +409,12 @@ impl<A: Automaton> Regex<A> {
     ///
     /// # Panics
     ///
-    /// If the underlying DFAs return an error during iteration, then iteration
-    /// panics. This only occurs in non-default configurations where quit bytes
-    /// are used or Unicode word boundaries are heuristically enabled.
+    /// If the search returns an error during iteration, then iteration
+    /// panics. See [`DFA::find`] for the panic conditions.
     ///
-    /// The fallible version of this routine is
-    /// [`try_find_iter`](Regex::try_find_iter).
+    /// Use [`Regex::try_search`] with
+    /// [`util::iter::Searcher`](crate::util::iter::Search) if you want to
+    /// handle these error conditions.
     ///
     /// # Example
     ///
@@ -403,7 +422,7 @@ impl<A: Automaton> Regex<A> {
     /// use regex_automata::{Match, dfa::regex::Regex};
     ///
     /// let re = Regex::new("foo[0-9]+")?;
-    /// let text = b"foo1 foo12 foo123";
+    /// let text = "foo1 foo12 foo123";
     /// let matches: Vec<Match> = re.find_iter(text).collect();
     /// assert_eq!(matches, vec![
     ///     Match::must(0, 0..4),
@@ -413,106 +432,12 @@ impl<A: Automaton> Regex<A> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'h, I: Into<Input<'h>>>(
         &'r self,
-        haystack: &'h H,
+        input: I,
     ) -> FindMatches<'r, 'h, A> {
-        let input = Input::new(haystack);
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         FindMatches { re: self, it }
-    }
-}
-
-/// Fallible search routines. These may return an error when the underlying
-/// DFAs have been configured in a way that permits them to fail during a
-/// search.
-///
-/// Errors during search only occur when the DFA has been explicitly
-/// configured to do so, usually by specifying one or more "quit" bytes or by
-/// heuristically enabling Unicode word boundaries.
-///
-/// Errors will never be returned using the default configuration. So these
-/// fallible routines are only needed for particular configurations.
-impl<A: Automaton> Regex<A> {
-    /// Returns true if and only if this regex matches the given haystack.
-    ///
-    /// This routine may short circuit if it knows that scanning future input
-    /// will never lead to a different result. In particular, if the underlying
-    /// DFA enters a match state or a dead state, then this routine will return
-    /// `true` or `false`, respectively, without inspecting any future input.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used or Unicode word boundaries are heuristically
-    /// enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`is_match`](Regex::is_match).
-    #[inline]
-    pub fn try_is_match<H: AsRef<[u8]>>(
-        &self,
-        haystack: H,
-    ) -> Result<bool, MatchError> {
-        // Not only can we do an "earliest" search, but we can avoid doing a
-        // reverse scan too.
-        let input = Input::new(haystack.as_ref()).earliest(true);
-        self.forward().try_search_fwd(&input).map(|x| x.is_some())
-    }
-
-    /// Returns the start and end offset of the leftmost match. If no match
-    /// exists, then `None` is returned.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used or Unicode word boundaries are heuristically
-    /// enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find`](Regex::find).
-    #[inline]
-    pub fn try_find<H: AsRef<[u8]>>(
-        &self,
-        haystack: H,
-    ) -> Result<Option<Match>, MatchError> {
-        let input = Input::new(haystack.as_ref());
-        self.try_search(&input)
-    }
-
-    /// Returns an iterator over all non-overlapping leftmost matches in the
-    /// given bytes. If no match exists, then the iterator yields no elements.
-    ///
-    /// This corresponds to the "standard" regex search iterator.
-    ///
-    /// # Errors
-    ///
-    /// This iterator only yields errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used or Unicode word boundaries are heuristically
-    /// enabled.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find_iter`](Regex::find_iter).
-    #[inline]
-    pub fn try_find_iter<'r, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        haystack: &'h H,
-    ) -> TryFindMatches<'r, 'h, A> {
-        let input = Input::new(haystack);
-        let it = iter::Searcher::new(input);
-        TryFindMatches { re: self, it }
     }
 }
 
@@ -685,33 +610,6 @@ impl<'r, 'h, A: Automaton> Iterator for FindMatches<'r, 'h, A> {
     fn next(&mut self) -> Option<Match> {
         let FindMatches { re, ref mut it } = *self;
         it.advance(|input| re.try_search(input))
-    }
-}
-
-/// An iterator over all non-overlapping matches for a fallible search.
-///
-/// The iterator yields a `Result<Match, MatchError>` value until no more
-/// matches could be found.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'h` represents the lifetime of the haystack being searched.
-/// * `'r` represents the lifetime of the regex object itself.
-///
-/// This iterator can be created with the [`Regex::try_find_iter`] method.
-#[derive(Debug)]
-pub struct TryFindMatches<'r, 'h, A> {
-    re: &'r Regex<A>,
-    it: iter::Searcher<'h>,
-}
-
-impl<'r, 'h, A: Automaton> Iterator for TryFindMatches<'r, 'h, A> {
-    type Item = Result<Match, MatchError>;
-
-    #[inline]
-    fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        let TryFindMatches { re, ref mut it } = *self;
-        it.try_advance(|input| re.try_search(input)).transpose()
     }
 }
 

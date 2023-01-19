@@ -612,9 +612,6 @@ impl DFA {
     /// leftmost match that is found. If no match exists, then `None` is
     /// returned.
     ///
-    /// This is like [`DFA::try_find_rev`], except it provides some
-    /// additional control over how the search is executed.
-    ///
     /// # Errors
     ///
     /// This routine errors if the search could not complete. This can occur

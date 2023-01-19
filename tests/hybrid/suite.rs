@@ -4,7 +4,7 @@ use regex_automata::{
         regex::{self, Regex},
     },
     nfa::thompson,
-    util::{iter, prefilter::Prefilter, syntax},
+    util::{prefilter::Prefilter, syntax},
     Anchored, Input, PatternSet,
 };
 
@@ -189,28 +189,20 @@ fn run_test(
     let input = create_input(test);
     match test.additional_name() {
         "is_match" => {
-            // TODO: Use 'is_match' API once it accetps 'Into<Input>'.
-            let input = input.earliest(true);
-            TestResult::matched(
-                re.forward()
-                    .try_search_fwd(cache.forward_mut(), &input)
-                    .unwrap()
-                    .is_some(),
-            )
+            TestResult::matched(re.is_match(cache, input.earliest(true)))
         }
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
                 let input = input
                     .earliest(test.search_kind() == ret::SearchKind::Earliest);
-                let it = iter::Searcher::new(input)
-                    .into_matches_iter(|input| re.try_search(cache, input))
-                    .infallible()
-                    .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
-                        id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
+                TestResult::matches(
+                    re.find_iter(cache, input)
+                        .take(test.match_limit().unwrap_or(std::usize::MAX))
+                        .map(|m| ret::Match {
+                            id: m.pattern().as_usize(),
+                            span: ret::Span { start: m.start(), end: m.end() },
+                        }),
+                )
             }
             ret::SearchKind::Overlapping => {
                 try_search_overlapping(re, cache, &input).unwrap()

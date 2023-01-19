@@ -62,19 +62,19 @@ use crate::{
 ///
 /// ```
 /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-/// use regex_automata::{hybrid::{dfa, regex::Regex}, MatchError};
+/// use regex_automata::{hybrid::{dfa, regex::Regex}, Input, MatchError};
 ///
 /// let re = Regex::builder()
 ///     .dfa(dfa::Config::new().quit(b'\n', true))
 ///     .build(r"foo\p{any}+bar")?;
 /// let mut cache = re.create_cache();
 ///
-/// let haystack = "foo\nbar";
+/// let input = Input::new("foo\nbar");
 /// // Normally this would produce a match, since \p{any} contains '\n'.
 /// // But since we instructed the automaton to enter a quit state if a
 /// // '\n' is observed, this produces a match error instead.
 /// let expected = MatchError::quit(b'\n', 3);
-/// let got = re.try_find(&mut cache, haystack).unwrap_err();
+/// let got = re.try_search(&mut cache, &input).unwrap_err();
 /// assert_eq!(expected, got);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -251,13 +251,25 @@ impl Regex {
     ///
     /// # Panics
     ///
-    /// If the underlying lazy DFAs return an error, then this routine panics.
-    /// This only occurs in non-default configurations where quit bytes are
-    /// used, Unicode word boundaries are heuristically enabled or limits are
-    /// set on the number of times the lazy DFA's cache may be cleared.
+    /// This routine panics if the search could not complete. This can occur
+    /// in a number of circumstances:
     ///
-    /// The fallible version of this routine is
-    /// [`try_is_match`](Regex::try_is_match).
+    /// * The configuration of the lazy DFA may permit it to "quit" the search.
+    /// For example, setting quit bytes or enabling heuristic support for
+    /// Unicode word boundaries. The default configuration does not enable any
+    /// option that could result in the lazy DFA quitting.
+    /// * The configuration of the lazy DFA may also permit it to "give up"
+    /// on a search if it makes ineffective use of its transition table
+    /// cache. The default configuration does not enable this by default,
+    /// although it is typically a good idea to.
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search panics, callers cannot know whether a match exists or
+    /// not.
+    ///
+    /// Use [`Regex::try_search`] if you want to handle these error conditions.
     ///
     /// # Example
     ///
@@ -272,12 +284,17 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn is_match<H: AsRef<[u8]>>(
+    pub fn is_match<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
     ) -> bool {
-        self.try_is_match(cache, haystack.as_ref()).unwrap()
+        // Not only can we do an "earliest" search, but we can avoid doing a
+        // reverse scan too.
+        self.forward()
+            .try_search_fwd(&mut cache.forward, &input.into().earliest(true))
+            .unwrap()
+            .is_some()
     }
 
     /// Returns the start and end offset of the leftmost match. If no match
@@ -285,12 +302,25 @@ impl Regex {
     ///
     /// # Panics
     ///
-    /// If the underlying lazy DFAs return an error, then this routine panics.
-    /// This only occurs in non-default configurations where quit bytes are
-    /// used, Unicode word boundaries are heuristically enabled or limits are
-    /// set on the number of times the lazy DFA's cache may be cleared.
+    /// This routine panics if the search could not complete. This can occur
+    /// in a number of circumstances:
     ///
-    /// The fallible version of this routine is [`try_find`](Regex::try_find).
+    /// * The configuration of the lazy DFA may permit it to "quit" the search.
+    /// For example, setting quit bytes or enabling heuristic support for
+    /// Unicode word boundaries. The default configuration does not enable any
+    /// option that could result in the lazy DFA quitting.
+    /// * The configuration of the lazy DFA may also permit it to "give up"
+    /// on a search if it makes ineffective use of its transition table
+    /// cache. The default configuration does not enable this by default,
+    /// although it is typically a good idea to.
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search panics, callers cannot know whether a match exists or
+    /// not.
+    ///
+    /// Use [`Regex::try_search`] if you want to handle these error conditions.
     ///
     /// # Example
     ///
@@ -314,12 +344,12 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find<H: AsRef<[u8]>>(
+    pub fn find<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
     ) -> Option<Match> {
-        self.try_find(cache, haystack.as_ref()).unwrap()
+        self.try_search(cache, &input.into()).unwrap()
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -327,13 +357,26 @@ impl Regex {
     ///
     /// # Panics
     ///
-    /// If the underlying lazy DFAs return an error, then this routine panics.
-    /// This only occurs in non-default configurations where quit bytes are
-    /// used, Unicode word boundaries are heuristically enabled or limits are
-    /// set on the number of times the lazy DFA's cache may be cleared.
+    /// This routine panics if the search could not complete. This can occur
+    /// in a number of circumstances:
     ///
-    /// The fallible version of this routine is
-    /// [`try_find_iter`](Regex::try_find_iter).
+    /// * The configuration of the lazy DFA may permit it to "quit" the search.
+    /// For example, setting quit bytes or enabling heuristic support for
+    /// Unicode word boundaries. The default configuration does not enable any
+    /// option that could result in the lazy DFA quitting.
+    /// * The configuration of the lazy DFA may also permit it to "give up"
+    /// on a search if it makes ineffective use of its transition table
+    /// cache. The default configuration does not enable this by default,
+    /// although it is typically a good idea to.
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search panics, callers cannot know whether a match exists or
+    /// not.
+    ///
+    /// Use [`Regex::try_search`] with [`util::iter::Searcher`](iter::Searcher)
+    /// if you want to handle these error conditions.
     ///
     /// # Example
     ///
@@ -353,146 +396,48 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h H,
+        input: I,
     ) -> FindMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         FindMatches { re: self, cache, it }
     }
 }
 
-/// Fallible search routines. These may return an error when the underlying
-/// lazy DFAs have been configured in a way that permits them to fail during a
-/// search.
-///
-/// Errors during search only occur when the lazy DFA has been explicitly
-/// configured to do so, usually by specifying one or more "quit" bytes or by
-/// heuristically enabling Unicode word boundaries.
-///
-/// Errors will never be returned using the default configuration. So these
-/// fallible routines are only needed for particular configurations.
-impl Regex {
-    /// Returns true if and only if this regex matches the given haystack.
-    ///
-    /// This routine may short circuit if it knows that scanning future input
-    /// will never lead to a different result. In particular, if the underlying
-    /// DFA enters a match state or a dead state, then this routine will return
-    /// `true` or `false`, respectively, without inspecting any future input.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used, Unicode word boundaries are heuristically
-    /// enabled or limits are set on the number of times the lazy DFA's cache
-    /// may be cleared.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`is_match`](Regex::is_match).
-    #[inline]
-    pub fn try_is_match<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        haystack: H,
-    ) -> Result<bool, MatchError> {
-        // Not only can we do an "earliest" search, but we can avoid doing a
-        // reverse scan too.
-        let input = Input::new(haystack.as_ref()).earliest(true);
-        self.forward()
-            .try_search_fwd(&mut cache.forward, &input)
-            .map(|m| m.is_some())
-    }
-
-    /// Returns the start and end offset of the leftmost match. If no match
-    /// exists, then `None` is returned.
-    ///
-    /// # Errors
-    ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used, Unicode word boundaries are heuristically
-    /// enabled or limits are set on the number of times the lazy DFA's cache
-    /// may be cleared.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find`](Regex::find).
-    #[inline]
-    pub fn try_find<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        haystack: H,
-    ) -> Result<Option<Match>, MatchError> {
-        let input = Input::new(haystack.as_ref());
-        self.try_search(cache, &input)
-    }
-
-    /// Returns an iterator over all non-overlapping leftmost matches in the
-    /// given bytes. If no match exists, then the iterator yields no elements.
-    ///
-    /// This corresponds to the "standard" regex search iterator.
-    ///
-    /// # Errors
-    ///
-    /// This iterator only yields errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used, Unicode word boundaries are heuristically
-    /// enabled or limits are set on the number of times the lazy DFA's cache
-    /// may be cleared.
-    ///
-    /// When a search cannot complete, callers cannot know whether a match
-    /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find_iter`](Regex::find_iter).
-    #[inline]
-    pub fn try_find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
-        &'r self,
-        cache: &'c mut Cache,
-        haystack: &'h H,
-    ) -> TryFindMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
-        let it = iter::Searcher::new(input);
-        TryFindMatches { re: self, cache, it }
-    }
-}
-
-/// Lower level "search" primitives that permit complete control over the
-/// regex search.
+/// Lower level "search" primitives that accept a `&Input` for cheap reuse
+/// and return an error if one occurs instead of panicking.
 impl Regex {
     /// Returns the start and end offset of the leftmost match. If no match
     /// exists, then `None` is returned.
     ///
-    /// # Searching a substring of the haystack
+    /// This is like [`Regex::find`] but with two differences:
     ///
-    /// Being a "search" routine, this permits callers to search a substring
-    /// of `haystack` by specifying a range in `haystack`. Why expose this as
-    /// an API instead of just asking callers to use `&slice[start..end]`?
-    /// The reason is that regex matching often wants to take the surrounding
-    /// context into account in order to handle look-around (`^`, `$` and
-    /// `\b`).
-    ///
-    /// This is useful when implementing an iterator over matches
-    /// within the same haystack, which cannot be done correctly by simply
-    /// providing a subslice of `haystack`.
+    /// 1. It is not generic over `Into<Input>` and instead accepts a
+    /// `&Input`. This permits reusing the same `Input` for multiple searches
+    /// without needing to create a new one. This _may_ help with latency.
+    /// 2. It returns an error if the search could not complete where as
+    /// [`Regex::find`] will panic.
     ///
     /// # Errors
     ///
-    /// This routine only errors if the search could not complete. For
-    /// DFA-based regexes, this only occurs in a non-default configuration
-    /// where quit bytes are used, Unicode word boundaries are heuristically
-    /// enabled or limits are set on the number of times the lazy DFA's cache
-    /// may be cleared.
+    /// This routine errors if the search could not complete. This can occur
+    /// in a number of circumstances:
     ///
-    /// When a search cannot complete, callers cannot know whether a match
+    /// * The configuration of the lazy DFA may permit it to "quit" the search.
+    /// For example, setting quit bytes or enabling heuristic support for
+    /// Unicode word boundaries. The default configuration does not enable any
+    /// option that could result in the lazy DFA quitting.
+    /// * The configuration of the lazy DFA may also permit it to "give up"
+    /// on a search if it makes ineffective use of its transition table
+    /// cache. The default configuration does not enable this by default,
+    /// although it is typically a good idea to.
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
     #[inline]
     pub fn try_search(
@@ -500,9 +445,6 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        // N.B. We don't use the DFA::try_search_{fwd,rev} methods because they
-        // appear to have a bit more latency due to the 'search.as_ref()' call.
-        // So we reach around them. This also avoids generics.
         let (fcache, rcache) = (&mut cache.forward, &mut cache.reverse);
         let end = match self.forward().try_search_fwd(fcache, input)? {
             None => return Ok(None),
@@ -639,36 +581,6 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
     fn next(&mut self) -> Option<Match> {
         let FindMatches { re, ref mut cache, ref mut it } = *self;
         it.advance(|input| re.try_search(cache, input))
-    }
-}
-
-/// An iterator over all non-overlapping matches for a fallible search.
-///
-/// The iterator yields a `Result<Match, MatchError>` value until no more
-/// matches could be found.
-///
-/// The lifetime parameters are as follows:
-///
-/// * `'h` represents the lifetime of the haystack being searched.
-/// * `'c` represents the lifetime of the regex cache. The lifetime of the
-/// regex object itself must outlive `'c`.
-///
-/// This iterator can be created with the [`Regex::try_find_iter`]
-/// method.
-#[derive(Debug)]
-pub struct TryFindMatches<'r, 'c, 'h> {
-    re: &'r Regex,
-    cache: &'c mut Cache,
-    it: iter::Searcher<'h>,
-}
-
-impl<'r, 'c, 'h> Iterator for TryFindMatches<'r, 'c, 'h> {
-    type Item = Result<Match, MatchError>;
-
-    #[inline]
-    fn next(&mut self) -> Option<Result<Match, MatchError>> {
-        let TryFindMatches { re, ref mut cache, ref mut it } = *self;
-        it.try_advance(|input| re.try_search(cache, input)).transpose()
     }
 }
 
