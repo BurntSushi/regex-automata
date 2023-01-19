@@ -260,7 +260,7 @@ impl Config {
     ///     .build(pattern)?;
     /// let expected_fwd = HalfMatch::must(0, 9);
     /// let expected_rev = HalfMatch::must(0, 3);
-    /// let got_fwd = dfa_fwd.try_find_fwd(haystack)?.unwrap();
+    /// let got_fwd = dfa_fwd.try_search_fwd(&Input::new(haystack))?.unwrap();
     /// // Here we don't specify the pattern to search for since there's only
     /// // one pattern and we're doing a leftmost search. But if this were an
     /// // overlapping search, you'd need to specify the pattern that matched
@@ -486,7 +486,7 @@ impl Config {
     /// // character, so no error occurs.
     /// let haystack = "foo 123 ☃".as_bytes();
     /// let expected = Some(HalfMatch::must(0, 7));
-    /// let got = dfa.try_find_fwd(haystack)?;
+    /// let got = dfa.try_search_fwd(&Input::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// // Notice that this search fails, even though the snowman character
@@ -496,7 +496,7 @@ impl Config {
     /// // the trailing \b matches.
     /// let haystack = "foo 123☃".as_bytes();
     /// let expected = MatchError::quit(0xE2, 7);
-    /// let got = dfa.try_find_fwd(haystack);
+    /// let got = dfa.try_search_fwd(&Input::new(haystack));
     /// assert_eq!(Err(expected), got);
     ///
     /// // Another example is executing a search where the span of the haystack
@@ -570,7 +570,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{dfa::{Automaton, dense}, MatchError};
+    /// use regex_automata::{dfa::{Automaton, dense}, Input, MatchError};
     ///
     /// let dfa = dense::Builder::new()
     ///     .configure(dense::Config::new().quit(b'\n', true))
@@ -581,7 +581,7 @@ impl Config {
     /// // But since we instructed the automaton to enter a quit state if a
     /// // '\n' is observed, this produces a match error instead.
     /// let expected = MatchError::quit(b'\n', 3);
-    /// let got = dfa.try_find_fwd(haystack).unwrap_err();
+    /// let got = dfa.try_search_fwd(&Input::new(haystack)).unwrap_err();
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -701,7 +701,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::dfa::{dense, Automaton};
+    /// use regex_automata::{dfa::{dense, Automaton}, Input};
     ///
     /// // 6MB isn't enough!
     /// dense::Builder::new()
@@ -715,7 +715,7 @@ impl Config {
     ///     .configure(dense::Config::new().dfa_size_limit(Some(7_000_000)))
     ///     .build(r"\w{20}")?;
     /// let haystack = "A".repeat(20).into_bytes();
-    /// assert!(dfa.try_find_fwd(&haystack)?.is_some());
+    /// assert!(dfa.try_search_fwd(&Input::new(&haystack))?.is_some());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -733,7 +733,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::dfa::{dense, Automaton, StartKind};
+    /// use regex_automata::{dfa::{dense, Automaton, StartKind}, Input};
     ///
     /// // 3MB isn't enough!
     /// dense::Builder::new()
@@ -753,7 +753,7 @@ impl Config {
     ///     )
     ///     .build(r"\w{20}")?;
     /// let haystack = "A".repeat(20).into_bytes();
-    /// assert!(dfa.try_find_fwd(&haystack)?.is_some());
+    /// assert!(dfa.try_search_fwd(&Input::new(&haystack))?.is_some());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -789,7 +789,7 @@ impl Config {
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::dfa::{dense, Automaton};
+    /// use regex_automata::{dfa::{dense, Automaton}, Input};
     ///
     /// // 600KB isn't enough!
     /// dense::Builder::new()
@@ -808,7 +808,7 @@ impl Config {
     ///     )
     ///     .build(r"\w{20}")?;
     /// let haystack = "A".repeat(20).into_bytes();
-    /// assert!(dfa.try_find_fwd(&haystack)?.is_some());
+    /// assert!(dfa.try_search_fwd(&Input::new(&haystack))?.is_some());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1018,7 +1018,11 @@ impl Config {
 ///   things like `[^a]` that match any byte except for `a` are permitted.
 ///
 /// ```
-/// use regex_automata::{dfa::{Automaton, dense}, util::syntax, HalfMatch};
+/// use regex_automata::{
+///     dfa::{Automaton, dense},
+///     util::syntax,
+///     HalfMatch, Input,
+/// };
 ///
 /// let dfa = dense::Builder::new()
 ///     .configure(dense::Config::new().minimize(false))
@@ -1027,7 +1031,7 @@ impl Config {
 ///
 /// let haystack = b"\xFEfoo\xFFar\xE2\x98\xFF\n";
 /// let expected = Some(HalfMatch::must(0, 10));
-/// let got = dfa.try_find_fwd(haystack)?;
+/// let got = dfa.try_search_fwd(&Input::new(haystack))?;
 /// assert_eq!(expected, got);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1091,7 +1095,7 @@ impl Builder {
     /// use regex_automata::{
     ///     dfa::{Automaton, dense},
     ///     nfa::thompson::NFA,
-    ///     HalfMatch,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let haystack = "foo123bar".as_bytes();
@@ -1102,7 +1106,7 @@ impl Builder {
     ///     .build(r"[0-9]+")?;
     /// let dfa = dense::Builder::new().build_from_nfa(&nfa)?;
     /// let expected = Some(HalfMatch::must(0, 6));
-    /// let got = dfa.try_find_fwd(haystack)?;
+    /// let got = dfa.try_search_fwd(&Input::new(haystack))?;
     /// assert_eq!(expected, got);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1278,11 +1282,11 @@ pub(crate) type OwnedDFA = DFA<alloc::vec::Vec<u32>>;
 /// for searching. For example:
 ///
 /// ```
-/// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+/// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
 /// let expected = HalfMatch::must(0, 8);
-/// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+/// assert_eq!(Some(expected), dfa.try_search_fwd(&Input::new(b"foo12345"))?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
@@ -1350,11 +1354,11 @@ impl OwnedDFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
     ///
     /// let dfa = dense::DFA::new("foo[0-9]+bar")?;
-    /// let expected = HalfMatch::must(0, 11);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
+    /// let expected = Some(HalfMatch::must(0, 11));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new(b"foo12345bar"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
@@ -1371,11 +1375,11 @@ impl OwnedDFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
     ///
     /// let dfa = dense::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
-    /// let expected = HalfMatch::must(1, 3);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
+    /// let expected = Some(HalfMatch::must(1, 3));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345bar"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
@@ -1393,13 +1397,13 @@ impl OwnedDFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
     ///
     /// let dfa = dense::DFA::always_match()?;
     ///
-    /// let expected = HalfMatch::must(0, 0);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"")?);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo")?);
+    /// let expected = Some(HalfMatch::must(0, 0));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new(""))?);
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn always_match() -> Result<OwnedDFA, BuildError> {
@@ -1412,11 +1416,11 @@ impl OwnedDFA {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, dense};
+    /// use regex_automata::{dfa::{Automaton, dense}, Input};
     ///
     /// let dfa = dense::DFA::never_match()?;
-    /// assert_eq!(None, dfa.try_find_fwd(b"")?);
-    /// assert_eq!(None, dfa.try_find_fwd(b"foo")?);
+    /// assert_eq!(None, dfa.try_search_fwd(&Input::new(""))?);
+    /// assert_eq!(None, dfa.try_search_fwd(&Input::new("foo"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn never_match() -> Result<OwnedDFA, BuildError> {
@@ -1620,13 +1624,13 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense}, HalfMatch, Input};
     ///
     /// let dense = dense::DFA::new("foo[0-9]+")?;
     /// let sparse = dense.to_sparse()?;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), sparse.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, sparse.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
@@ -1656,7 +1660,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1668,8 +1672,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // ignore it.
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
@@ -1699,7 +1703,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1711,8 +1715,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // ignore it.
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
@@ -1751,7 +1755,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1761,8 +1765,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// // ignore it.
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
@@ -1810,7 +1814,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1830,8 +1834,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let written = original_dfa.write_to_native_endian(&mut buf.bytes)?;
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf.bytes[..written])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_little_endian(
@@ -1868,7 +1872,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1888,8 +1892,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let written = original_dfa.write_to_native_endian(&mut buf.bytes)?;
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf.bytes[..written])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_big_endian(
@@ -1935,7 +1939,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -1953,8 +1957,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// let written = original_dfa.write_to_native_endian(&mut buf.bytes)?;
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&buf.bytes[..written])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_native_endian(
@@ -1983,7 +1987,7 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// a DFA.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// let original_dfa = DFA::new("foo[0-9]+")?;
     ///
@@ -2008,8 +2012,8 @@ impl<T: AsRef<[u32]>> DFA<T> {
     ///     Ok((dfa, _)) => dfa,
     /// };
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -2088,14 +2092,14 @@ impl<'a> DFA<&'a [u32]> {
     /// and then use it for searching.
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let (bytes, _) = initial.to_bytes_native_endian();
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&bytes)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -2110,7 +2114,7 @@ impl<'a> DFA<&'a [u32]> {
     /// alternative way to write the above example:
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// // Serialization returns the number of leading padding bytes added to
@@ -2118,8 +2122,8 @@ impl<'a> DFA<&'a [u32]> {
     /// let (bytes, pad) = initial.to_bytes_native_endian();
     /// let dfa: DFA<&[u32]> = DFA::from_bytes(&bytes[pad..])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -2160,7 +2164,7 @@ impl<'a> DFA<&'a [u32]> {
     /// use regex_automata::{
     ///     dfa::{Automaton, dense::DFA},
     ///     util::lazy::Lazy,
-    ///     HalfMatch,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// // This crate provides its own "lazy" type, kind of like
@@ -2202,17 +2206,17 @@ impl<'a> DFA<&'a [u32]> {
     ///     dfa
     /// });
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Ok(Some(expected)), RE.try_find_fwd(b"foo12345"));
+    /// let expected = Ok(Some(HalfMatch::must(0, 8)));
+    /// assert_eq!(expected, RE.try_search_fwd(&Input::new("foo12345")));
     /// ```
     ///
     /// An alternative to [`util::lazy::Lazy`](crate::util::lazy::Lazy)
     /// is [`lazy_static`](https://crates.io/crates/lazy_static) or
     /// [`once_cell`](https://crates.io/crates/once_cell), which provide
-    /// stronger guarantees (like the initialization function only be executed
-    /// once). And `once_cell` in particular provides a more expressive
-    /// API. But a `Lazy` value from this crate is likely just fine in most
-    /// circumstances.
+    /// stronger guarantees (like the initialization function only being
+    /// executed once). And `once_cell` in particular provides a more
+    /// expressive API. But a `Lazy` value from this crate is likely just fine
+    /// in most circumstances.
     ///
     /// Note that regardless of which initialization method you use, you will
     /// still need to use the `Aligned` trick above to force correct alignment,
@@ -2249,7 +2253,7 @@ impl<'a> DFA<&'a [u32]> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch};
+    /// use regex_automata::{dfa::{Automaton, dense::DFA}, HalfMatch, Input};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let (bytes, _) = initial.to_bytes_native_endian();
@@ -2257,8 +2261,8 @@ impl<'a> DFA<&'a [u32]> {
     /// // directly from a compatible serialization routine.
     /// let dfa: DFA<&[u32]> = unsafe { DFA::from_bytes_unchecked(&bytes)?.0 };
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub unsafe fn from_bytes_unchecked(
@@ -2766,12 +2770,11 @@ impl OwnedDFA {
     fn set_universal_starts(&mut self) {
         assert_eq!(4, Start::len(), "expected 4 start configurations");
 
-        let start_id =
-            |dfa: &mut OwnedDFA, inp: &Input<'_>, start: Start| {
-                // This OK because we only call 'start' under conditions
-                // in which we know it will succeed.
-                dfa.st.start(inp, start).expect("valid Input configuration")
-            };
+        let start_id = |dfa: &mut OwnedDFA, inp: &Input<'_>, start: Start| {
+            // This OK because we only call 'start' under conditions
+            // in which we know it will succeed.
+            dfa.st.start(inp, start).expect("valid Input configuration")
+        };
         if self.start_kind().has_unanchored() {
             let inp = Input::new("").anchored(Anchored::No);
             let sid = start_id(self, &inp, Start::NonWordByte);
@@ -4994,7 +4997,7 @@ mod tests {
         let (buf, _) = dfa.to_bytes_native_endian();
         let dfa: DFA<&[u32]> = DFA::from_bytes(&buf).unwrap().0;
 
-        assert_eq!(None, dfa.try_find_fwd(b"foo12345").unwrap());
+        assert_eq!(None, dfa.try_search_fwd(&Input::new("foo12345")).unwrap());
     }
 
     #[test]
@@ -5007,7 +5010,7 @@ mod tests {
 
         assert_eq!(
             Some(HalfMatch::must(0, 0)),
-            dfa.try_find_fwd(b"foo12345").unwrap()
+            dfa.try_search_fwd(&Input::new("foo12345")).unwrap()
         );
     }
 

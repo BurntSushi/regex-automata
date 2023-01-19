@@ -178,14 +178,17 @@ impl Config {
     /// use regex_automata::{
     ///     dfa::{self, Automaton},
     ///     nfa::thompson::NFA,
-    ///     HalfMatch,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let dfa = dfa::dense::Builder::new()
     ///     .thompson(NFA::config().captures(false).reverse(true))
     ///     .build("baz[0-9]+")?;
-    /// let expected = HalfMatch::must(0, 3);
-    /// assert_eq!(Some(expected), dfa.try_find_rev(b"foobaz12345bar")?);
+    /// let expected = Some(HalfMatch::must(0, 3));
+    /// assert_eq!(
+    ///     expected,
+    ///     dfa.try_search_rev(&Input::new("foobaz12345bar"))?,
+    /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```

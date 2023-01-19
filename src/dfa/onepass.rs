@@ -1069,9 +1069,8 @@ impl<'a> InternalBuilder<'a> {
 /// there is no `DFA::find_iter` method.
 /// * For lower level routines like [`DFA::try_search`], an error will be
 /// returned if the given [`Input`] is configured to do an unanchored search.
-/// (An [`Input`] is configured to do an unanchored search by default. However,
-/// if you use [`DFA::create_input`] to build one, then it will automatically
-/// be configured to do an anchored search.)
+/// (Note that an [`Input`] is configured to do an unanchored search by
+/// default.)
 ///
 /// # Other limitations
 ///

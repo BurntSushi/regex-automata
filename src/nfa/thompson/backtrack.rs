@@ -61,9 +61,7 @@ impl Config {
 
     /// Attach the given prefilter to this configuration.
     ///
-    /// The given prefilter is automatically applied to every search, except
-    /// for the lower level routines that accept a prefilter parameter from the
-    /// caller (via [`Input::prefilter`]).
+    /// The given prefilter is automatically applied to every search.
     pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
         self.pre = Some(pre);
         self
@@ -796,16 +794,13 @@ impl BoundedBacktracker {
     ///
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`is_match`](BoundedBacktracker::is_match).
     #[inline]
-    pub fn try_is_match<H: AsRef<[u8]>>(
+    pub fn try_is_match<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
     ) -> Result<bool, MatchError> {
-        let input = Input::new(haystack.as_ref()).earliest(true);
+        let input = input.into().earliest(true);
         self.try_search_slots(cache, &input, &mut []).map(|pid| pid.is_some())
     }
 
@@ -822,18 +817,14 @@ impl BoundedBacktracker {
     ///
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
-    ///
-    /// The infallible (panics on error) version of this routine is
-    /// [`find`](BoundedBacktracker::find).
     #[inline]
-    pub fn try_find<H: AsRef<[u8]>>(
+    pub fn try_find<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
         caps: &mut Captures,
     ) -> Result<(), MatchError> {
-        let input = Input::new(haystack.as_ref());
-        self.try_search(cache, &input, caps)
+        self.try_search(cache, &input.into(), caps)
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -842,14 +833,13 @@ impl BoundedBacktracker {
     /// If the regex engine returns an error at any point, then the iterator
     /// will yield that error.
     #[inline]
-    pub fn try_find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn try_find_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h H,
+        input: I,
     ) -> TryFindMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
         let caps = Captures::matches(self.get_nfa().group_info().clone());
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         TryFindMatches { re: self, cache, caps, it }
     }
 
@@ -868,14 +858,13 @@ impl BoundedBacktracker {
     /// the creation of a new `Captures` value for every match. (Which you are
     /// forced to do with an `Iterator`.)
     #[inline]
-    pub fn try_captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn try_captures_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h H,
+        input: I,
     ) -> TryCapturesMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
         let caps = self.create_captures();
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         TryCapturesMatches { re: self, cache, caps, it }
     }
 }
@@ -885,12 +874,6 @@ impl BoundedBacktracker {
     /// groups that participated in a match into the provided [`Captures`]
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
     /// to return `false`.
-    ///
-    /// This is like [`BoundedBacktracker::find`], except it provides some
-    /// additional control over how the search is executed. Those parameters
-    /// are configured via a [`Input`].
-    ///
-    /// The examples below demonstrate each of these additional parameters.
     ///
     /// # Errors
     ///
@@ -1353,7 +1336,7 @@ impl BoundedBacktracker {
 /// * `'c` represents the lifetime of the BoundedBacktracker's cache.
 /// * `'h` represents the lifetime of the haystack being searched.
 ///
-/// This iterator can be created with the [`BoundedBacktracker::find_iter`]
+/// This iterator is created with the [`BoundedBacktracker::try_find_iter`]
 /// method.
 #[derive(Debug)]
 pub struct FindMatches<'r, 'c, 'h> {
@@ -1390,8 +1373,8 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
 /// * `'c` represents the lifetime of the BoundedBacktracker's cache.
 /// * `'h` represents the lifetime of the haystack being searched.
 ///
-/// This iterator can be created with the [`BoundedBacktracker::captures_iter`]
-/// method.
+/// This iterator is created with the
+/// [`BoundedBacktracker::try_captures_iter`] method.
 #[derive(Debug)]
 pub struct CapturesMatches<'r, 'c, 'h> {
     re: &'r BoundedBacktracker,

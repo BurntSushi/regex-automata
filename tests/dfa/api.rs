@@ -13,7 +13,10 @@ fn quit_fwd() -> Result<(), Box<dyn Error>> {
         .configure(dense::Config::new().quit(b'x', true))
         .build("[[:word:]]+$")?;
 
-    assert_eq!(dfa.try_find_fwd(b"abcxyz"), Err(MatchError::quit(b'x', 3)),);
+    assert_eq!(
+        Err(MatchError::quit(b'x', 3)),
+        dfa.try_search_fwd(&Input::new(b"abcxyz"))
+    );
     assert_eq!(
         dfa.try_search_overlapping_fwd(
             &Input::new(b"abcxyz"),
@@ -33,7 +36,10 @@ fn quit_rev() -> Result<(), Box<dyn Error>> {
         .thompson(thompson::Config::new().reverse(true))
         .build("^[[:word:]]+")?;
 
-    assert_eq!(dfa.try_find_rev(b"abcxyz"), Err(MatchError::quit(b'x', 3)),);
+    assert_eq!(
+        Err(MatchError::quit(b'x', 3)),
+        dfa.try_search_rev(&Input::new(b"abcxyz"))
+    );
 
     Ok(())
 }
@@ -58,6 +64,6 @@ fn unicode_word_implicitly_works() -> Result<(), Box<dyn Error>> {
     }
     let dfa = dense::Builder::new().configure(config).build(r"\b")?;
     let expected = HalfMatch::must(0, 1);
-    assert_eq!(dfa.try_find_fwd(b" a"), Ok(Some(expected)));
+    assert_eq!(Ok(Some(expected)), dfa.try_search_fwd(&Input::new(b" a")));
     Ok(())
 }

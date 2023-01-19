@@ -1230,9 +1230,6 @@ impl PatternSet {
     ///
     /// This panics if `pid` exceeds the capacity of this set.
     pub fn insert(&mut self, pid: PatternID) {
-        // TODO: Consider whether to panic here or not. For no panics, then
-        // 'insert' is a no-op for a pid that exceeds capacity, which seems
-        // like a silent failure to me?
         if self.which[pid] {
             return;
         }
@@ -1298,6 +1295,29 @@ impl PatternSet {
     /// in a regex object with which you are searching.
     pub fn capacity(&self) -> usize {
         self.which.len()
+    }
+
+    /// Checks whether this pattern set has sufficient capacity to store all
+    /// possible pattern IDs for a regex with the given number of patterns.
+    ///
+    /// This is a convenience routine for checking whether a caller provided
+    /// `PatternSet` has sufficient capacity, and if not, returning an
+    /// appropriate error.
+    ///
+    /// # Panics
+    ///
+    /// This panics if the given `pattern_len` exceeds `PatternID::LIMIT`. This
+    /// never occurs for any of the regex engines in this crate.
+    pub fn check_capacity(
+        &self,
+        pattern_len: usize,
+    ) -> Result<(), MatchError> {
+        if self.capacity() >= pattern_len {
+            return Ok(());
+        }
+        let given = u32::try_from(self.capacity()).unwrap();
+        let minimum = u32::try_from(pattern_len).unwrap();
+        Err(MatchError::invalid_set_capacity(given, minimum))
     }
 
     /// Returns an iterator over all pattern identifiers in this set.
@@ -1584,30 +1604,14 @@ impl MatchError {
         })
     }
 
-    /// Create a new "invalid number of slots" error. `given` corresponds to
-    /// the number of slots provided by the caller, and `minimum` corresponds
-    /// the minimum number of slots required.
-    ///
+    /// Create a new invalid pattern set capacity error. This occurs when a
+    /// caller provided `PatternSet` has insufficient capacity for the number
+    /// of patterns in the regex.
     ///
     /// This is the same as calling `MatchError::new` with a
-    /// [`MatchErrorKind::InvalidInputSlots`] kind.
-    ///
-    /// # Panics
-    ///
-    /// This panics when `given >= minimum` or if either `given` or `minimum`
-    /// are not representable as a `u32`.
-    pub fn invalid_input_slots(given: usize, minimum: usize) -> MatchError {
-        assert!(
-            given < minimum,
-            "expected given={} to be < minimum={}",
-            given,
-            minimum,
-        );
-        let given = u32::try_from(given)
-            .expect("number of given slots should fit in a u32");
-        let minimum = u32::try_from(minimum)
-            .expect("number of minimum slots should fit in a u32");
-        MatchError::new(MatchErrorKind::InvalidInputSlots { given, minimum })
+    /// [`MatchErrorKind::InvalidSetCapacity`] kind.
+    pub fn invalid_set_capacity(given: u32, minimum: u32) -> MatchError {
+        MatchError::new(MatchErrorKind::InvalidSetCapacity { given, minimum })
     }
 }
 
@@ -1693,24 +1697,13 @@ pub enum MatchErrorKind {
         /// if the regex was compiled with multiple patterns.
         pattern_len: usize,
     },
-    /// This error is returned by regex engines that resolve capturing groups
-    /// via slots. In some cases, the regex engine will require some minimum
-    /// number of slots in order to proceed, and if that minimum is not met,
-    /// then this error should be returned.
-    ///
-    /// In practice and in this crate, this error only occurs under the
-    /// following conditions: 1) the regex can match the empty string, 2) the
-    /// regex was built in UTF-8 mode and 3) the number of slots provided by
-    /// the caller is fewer than twice the number of patterns. The reason why
-    /// this special case exists is so that the regex engine can determine
-    /// whether the match found splits a codepoint or not. If it does, then the
-    /// match is not reported. Since slots are the only way for a match span
-    /// to be recorded, the logic for handling empty matches requires at least
-    /// enough space to record the match spans for any matching pattern.
-    InvalidInputSlots {
-        /// The number of slots given.
+    /// An error that occurs when a caller provides an insufficiently sized
+    /// [`PatternSet`] to APIs that use it. This happens when the capacity of
+    /// the `PatternSet` is smaller than the number of patterns in the regex.
+    InvalidSetCapacity {
+        /// The capacity of the `PatternSet` provided.
         given: u32,
-        /// The minimum number of slots required.
+        /// The minimum capacity required.
         minimum: u32,
     },
 }
@@ -1759,10 +1752,11 @@ impl core::fmt::Display for MatchError {
                     pattern_len
                 )
             }
-            MatchErrorKind::InvalidInputSlots { given, minimum } => {
+            MatchErrorKind::InvalidSetCapacity { given, minimum } => {
                 write!(
                     f,
-                    "invalid number of slots {}, expected at least {} slots",
+                    "insufficient pattern set capacity of {}, \
+                     a capacity of at least {} is required",
                     given, minimum,
                 )
             }

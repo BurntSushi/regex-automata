@@ -107,14 +107,11 @@ const VERSION: u32 = 2;
 /// for searching. For example:
 ///
 /// ```
-/// use regex_automata::{
-///     dfa::{Automaton, sparse::DFA},
-///     HalfMatch,
-/// };
+/// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
 ///
 /// let dfa = DFA::new("foo[0-9]+")?;
-/// let expected = HalfMatch::must(0, 8);
-/// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+/// let expected = Some(HalfMatch::must(0, 8));
+/// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone)]
@@ -152,15 +149,12 @@ impl DFA<Vec<u8>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse}, HalfMatch, Input};
     ///
     /// let dfa = sparse::DFA::new("foo[0-9]+bar")?;
     ///
-    /// let expected = HalfMatch::must(0, 11);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
+    /// let expected = Some(HalfMatch::must(0, 11));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345bar"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
@@ -182,14 +176,11 @@ impl DFA<Vec<u8>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse}, HalfMatch, Input};
     ///
     /// let dfa = sparse::DFA::new_many(&["[0-9]+", "[a-z]+"])?;
-    /// let expected = HalfMatch::must(1, 3);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345bar")?);
+    /// let expected = Some(HalfMatch::must(1, 3));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345bar"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "syntax")]
@@ -211,14 +202,14 @@ impl DFA<Vec<u8>> {
     /// ```
     /// use regex_automata::{
     ///     dfa::{Automaton, sparse},
-    ///     HalfMatch,
+    ///     HalfMatch, Input,
     /// };
     ///
     /// let dfa = sparse::DFA::always_match()?;
     ///
-    /// let expected = HalfMatch::must(0, 0);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"")?);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo")?);
+    /// let expected = Some(HalfMatch::must(0, 0));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new(""))?);
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn always_match() -> Result<DFA<Vec<u8>>, BuildError> {
@@ -230,11 +221,11 @@ impl DFA<Vec<u8>> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::dfa::{Automaton, sparse};
+    /// use regex_automata::{dfa::{Automaton, sparse}, Input};
     ///
     /// let dfa = sparse::DFA::never_match()?;
-    /// assert_eq!(None, dfa.try_find_fwd(b"")?);
-    /// assert_eq!(None, dfa.try_find_fwd(b"foo")?);
+    /// assert_eq!(None, dfa.try_search_fwd(&Input::new(""))?);
+    /// assert_eq!(None, dfa.try_search_fwd(&Input::new("foo"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn never_match() -> Result<DFA<Vec<u8>>, BuildError> {
@@ -502,10 +493,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -517,8 +505,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// // ignore it.
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
@@ -547,10 +535,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -562,8 +547,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// // ignore it.
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
@@ -601,10 +586,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// This example shows how to serialize and deserialize a DFA:
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -614,8 +596,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// // ignore it.
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[cfg(feature = "dfa-build")]
@@ -659,10 +641,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -674,8 +653,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_little_endian(
@@ -709,10 +688,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -724,8 +700,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_big_endian(
@@ -768,10 +744,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// dynamic memory allocation.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -781,8 +754,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_native_endian(
@@ -833,10 +806,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// a sparse DFA.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// // Compile our original DFA.
     /// let original_dfa = DFA::new("foo[0-9]+")?;
@@ -845,8 +815,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// let written = original_dfa.write_to_native_endian(&mut buf)?;
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&buf[..written])?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn write_to_len(&self) -> usize {
@@ -919,17 +889,14 @@ impl<'a> DFA<&'a [u8]> {
     /// and then use it for searching.
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_bytes_native_endian();
     /// let dfa: DFA<&[u8]> = DFA::from_bytes(&bytes)?.0;
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
@@ -961,23 +928,22 @@ impl<'a> DFA<&'a [u8]> {
     ///
     /// And now the second part is embedding the DFA into the compiled program
     /// and deserializing it at runtime on first use. We use conditional
-    /// compilation to choose the correct endianness. As mentioned above, we
-    /// do not need to employ any special tricks to ensure a proper alignment,
-    /// since a sparse DFA has no alignment requirements.
+    /// compilation to choose the correct endianness. We do not need to employ
+    /// any special tricks to ensure a proper alignment, since a sparse DFA has
+    /// no alignment requirements.
     ///
     /// ```no_run
     /// use regex_automata::{
-    ///     dfa::{Automaton, sparse},
-    ///     HalfMatch,
+    ///     dfa::{Automaton, sparse::DFA},
+    ///     util::lazy::Lazy,
+    ///     HalfMatch, Input,
     /// };
     ///
-    /// type DFA = sparse::DFA<&'static [u8]>;
-    ///
-    /// fn get_foo() -> &'static DFA {
-    ///     use std::cell::Cell;
-    ///     use std::mem::MaybeUninit;
-    ///     use std::sync::Once;
-    ///
+    /// // This crate provides its own "lazy" type, kind of like
+    /// // lazy_static! or once_cell::sync::Lazy. But it works in no-alloc
+    /// // no-std environments and let's us write this using completely
+    /// // safe code.
+    /// static RE: Lazy<DFA<&'static [u8]>> = Lazy::new(|| {
     ///     # const _: &str = stringify! {
     ///     #[cfg(target_endian = "big")]
     ///     static BYTES: &[u8] = include_bytes!("foo.bigendian.dfa");
@@ -986,33 +952,13 @@ impl<'a> DFA<&'a [u8]> {
     ///     # };
     ///     # static BYTES: &[u8] = b"";
     ///
-    ///     struct Lazy(Cell<MaybeUninit<DFA>>);
-    ///     // SAFETY: This is safe because DFA impls Sync.
-    ///     unsafe impl Sync for Lazy {}
+    ///     let (dfa, _) = DFA::from_bytes(BYTES)
+    ///         .expect("serialized DFA should be valid");
+    ///     dfa
+    /// });
     ///
-    ///     static INIT: Once = Once::new();
-    ///     static DFA: Lazy = Lazy(Cell::new(MaybeUninit::uninit()));
-    ///
-    ///     INIT.call_once(|| {
-    ///         let (dfa, _) = DFA::from_bytes(BYTES)
-    ///             .expect("serialized DFA should be valid");
-    ///         // SAFETY: This is guaranteed to only execute once, and all
-    ///         // we do with the pointer is write the DFA to it.
-    ///         unsafe {
-    ///             (*DFA.0.as_ptr()).as_mut_ptr().write(dfa);
-    ///         }
-    ///     });
-    ///     // SAFETY: DFA is guaranteed to by initialized via INIT and is
-    ///     // stored in static memory.
-    ///     unsafe {
-    ///         let dfa = (*DFA.0.as_ptr()).as_ptr();
-    ///         std::mem::transmute::<*const DFA, &'static DFA>(dfa)
-    ///     }
-    /// }
-    ///
-    /// let dfa = get_foo();
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Ok(Some(expected)), dfa.try_find_fwd(b"foo12345"));
+    /// let expected = Ok(Some(HalfMatch::must(0, 8)));
+    /// assert_eq!(expected, RE.try_search_fwd(&Input::new("foo12345")));
     /// ```
     ///
     /// Alternatively, consider using
@@ -1060,10 +1006,7 @@ impl<'a> DFA<&'a [u8]> {
     /// # Example
     ///
     /// ```
-    /// use regex_automata::{
-    ///     dfa::{Automaton, sparse::DFA},
-    ///     HalfMatch,
-    /// };
+    /// use regex_automata::{dfa::{Automaton, sparse::DFA}, HalfMatch, Input};
     ///
     /// let initial = DFA::new("foo[0-9]+")?;
     /// let bytes = initial.to_bytes_native_endian();
@@ -1071,8 +1014,8 @@ impl<'a> DFA<&'a [u8]> {
     /// // directly from a compatible serialization routine.
     /// let dfa: DFA<&[u8]> = unsafe { DFA::from_bytes_unchecked(&bytes)?.0 };
     ///
-    /// let expected = HalfMatch::must(0, 8);
-    /// assert_eq!(Some(expected), dfa.try_find_fwd(b"foo12345")?);
+    /// let expected = Some(HalfMatch::must(0, 8));
+    /// assert_eq!(expected, dfa.try_search_fwd(&Input::new("foo12345"))?);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub unsafe fn from_bytes_unchecked(

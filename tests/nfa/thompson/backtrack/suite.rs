@@ -4,7 +4,7 @@ use regex_automata::{
         backtrack::{self, BoundedBacktracker},
         NFA,
     },
-    util::{iter, prefilter::Prefilter, syntax},
+    util::{prefilter::Prefilter, syntax},
     Input, MatchKind,
 };
 
@@ -23,7 +23,7 @@ fn default() -> Result<()> {
     runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
     // At the time of writing, every regex search in the test suite fits
     // into the backtracker's default visited capacity (except for the
-    // blacklisted one below). If regexes are added that blow that capacity,
+    // blacklisted tests below). If regexes are added that blow that capacity,
     // then they should be blacklisted here. A tempting alternative is to
     // automatically skip them by checking the haystack length against
     // BoundedBacktracker::max_haystack_len, but that could wind up hiding
@@ -129,50 +129,33 @@ fn run_test(
             }
             ret::SearchKind::Leftmost => {
                 let input = input.earliest(true);
-                // TODO: Use the actual 'is_match' method once it is generic on
-                // 'Into<Input>'.
-                let mut caps = re.create_captures();
-                TestResult::matched(
-                    re.try_search_slots(cache, &input, caps.slots_mut())
-                        .unwrap()
-                        .is_some(),
-                )
+                TestResult::matched(re.try_is_match(cache, input).unwrap())
             }
         },
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {
                 TestResult::skip()
             }
-            ret::SearchKind::Leftmost => {
-                let mut caps = re.create_captures();
-                let it = iter::Searcher::new(input)
-                    .into_matches_iter(|input| {
-                        re.try_search(cache, input, &mut caps)?;
-                        Ok(caps.get_match())
-                    })
-                    .infallible()
+            ret::SearchKind::Leftmost => TestResult::matches(
+                re.try_find_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
+                    .map(|result| result.unwrap())
                     .map(|m| ret::Match {
                         id: m.pattern().as_usize(),
                         span: ret::Span { start: m.start(), end: m.end() },
-                    });
-                TestResult::matches(it)
-            }
+                    }),
+            ),
         },
         "captures" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {
                 TestResult::skip()
             }
-            ret::SearchKind::Leftmost => {
-                let it = iter::Searcher::new(input)
-                    .into_captures_iter(re.create_captures(), |input, caps| {
-                        re.try_search(cache, input, caps)
-                    })
-                    .infallible()
+            ret::SearchKind::Leftmost => TestResult::captures(
+                re.try_captures_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|caps| testify_captures(&caps));
-                TestResult::captures(it)
-            }
+                    .map(|result| result.unwrap())
+                    .map(|caps| testify_captures(&caps)),
+            ),
         },
         name => TestResult::fail(&format!("unrecognized test name: {}", name)),
     }
