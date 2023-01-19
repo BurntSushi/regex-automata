@@ -103,18 +103,7 @@ fn run_test(
     let input = create_input(test);
     match test.additional_name() {
         "is_match" => {
-            // TODO: Use the actual 'is_match' method once it is generic on
-            // 'Into<Input>'.
-            let mut caps = re.create_captures();
-            TestResult::matched(
-                re.try_search_slots(
-                    cache,
-                    &input.earliest(true),
-                    caps.slots_mut(),
-                )
-                .unwrap()
-                .is_some(),
-            )
+            TestResult::matched(re.is_match(cache, input.earliest(true)))
         }
         "find" => match test.search_kind() {
             ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {

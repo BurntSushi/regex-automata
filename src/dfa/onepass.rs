@@ -352,7 +352,7 @@ impl Config {
     ///     .build(r"\w{20}")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let haystack = "A".repeat(20);
-    /// re.find(&mut cache, &haystack, &mut caps);
+    /// re.captures(&mut cache, &haystack, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..20)), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -448,7 +448,7 @@ impl Config {
 /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
 ///
 /// let haystack = b"foo\xFFarzz\xE2\x98\xFF\n";
-/// re.find(&mut cache, haystack, &mut caps);
+/// re.captures(&mut cache, haystack, &mut caps);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
 /// // but the subsequent `.*` does not! Disabling UTF-8
 /// // on the syntax permits this.
@@ -517,7 +517,7 @@ impl Builder {
     ///     .build(r"[a-z0-9]+")?;
     /// let re = DFA::builder().build_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// re.find(&mut cache, "foo123bar", &mut caps);
+    /// re.captures(&mut cache, "foo123bar", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..9)), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1063,14 +1063,15 @@ impl<'a> InternalBuilder<'a> {
 /// To clarify, when we say that unanchored searches are not supported, what
 /// that actually means is:
 ///
-/// * All of the high level routines, like [`DFA::find`], always do anchored
-/// searches.
+/// * The high level routines, [`DFA::is_match`] and [`DFA::captures`], always
+/// do anchored searches.
 /// * Since iterators are most useful in the context of unanchored searches,
-/// there is no `DFA::find_iter` method.
+/// there is no `DFA::captures_iter` method.
 /// * For lower level routines like [`DFA::try_search`], an error will be
-/// returned if the given [`Input`] is configured to do an unanchored search.
-/// (Note that an [`Input`] is configured to do an unanchored search by
-/// default.)
+/// returned if the given [`Input`] is configured to do an unanchored search or
+/// search for an invalid pattern ID. (Note that an [`Input`] is configured to
+/// do an unanchored search by default, so just giving a `Input::new` is
+/// guaranteed to return an error.)
 ///
 /// # Other limitations
 ///
@@ -1143,7 +1144,7 @@ impl<'a> InternalBuilder<'a> {
 /// let re = DFA::new(r"\b(?P<first>\w+)[[:space:]]+(?P<last>\w+)\b")?;
 /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
 ///
-/// re.find(&mut cache, "Шерлок Холмс", &mut caps);
+/// re.captures(&mut cache, "Шерлок Холмс", &mut caps);
 /// assert_eq!(Some(Match::must(0, 0..23)), caps.get_match());
 /// assert_eq!(Some(Span::from(0..12)), caps.get_group_by_name("first"));
 /// assert_eq!(Some(Span::from(13..23)), caps.get_group_by_name("last"));
@@ -1268,7 +1269,7 @@ impl DFA {
     /// let re = DFA::new("foo[0-9]+bar")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// re.find(&mut cache, "foo12345barzzz", &mut caps);
+    /// re.captures(&mut cache, "foo12345barzzz", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..11)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1289,10 +1290,10 @@ impl DFA {
     /// let re = DFA::new_many(&["[a-z]+", "[0-9]+"])?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// re.find(&mut cache, "abc123", &mut caps);
+    /// re.captures(&mut cache, "abc123", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..3)), caps.get_match());
     ///
-    /// re.find(&mut cache, "123abc", &mut caps);
+    /// re.captures(&mut cache, "123abc", &mut caps);
     /// assert_eq!(Some(Match::must(1, 0..3)), caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1333,7 +1334,7 @@ impl DFA {
     /// let re = DFA::new_from_nfa(nfa)?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let expected = Some(Match::must(0, 0..1));
-    /// re.find(&mut cache, "A", &mut caps);
+    /// re.captures(&mut cache, "A", &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1354,9 +1355,9 @@ impl DFA {
     /// let mut caps = dfa.create_captures();
     ///
     /// let expected = Match::must(0, 0..0);
-    /// dfa.find(&mut cache, "", &mut caps);
+    /// dfa.captures(&mut cache, "", &mut caps);
     /// assert_eq!(Some(expected), caps.get_match());
-    /// dfa.find(&mut cache, "foo", &mut caps);
+    /// dfa.captures(&mut cache, "foo", &mut caps);
     /// assert_eq!(Some(expected), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1376,9 +1377,9 @@ impl DFA {
     /// let mut cache = dfa.create_cache();
     /// let mut caps = dfa.create_captures();
     ///
-    /// dfa.find(&mut cache, "", &mut caps);
+    /// dfa.captures(&mut cache, "", &mut caps);
     /// assert_eq!(None, caps.get_match());
-    /// dfa.find(&mut cache, "foo", &mut caps);
+    /// dfa.captures(&mut cache, "foo", &mut caps);
     /// assert_eq!(None, caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1410,7 +1411,7 @@ impl DFA {
     /// let mut cache = re.create_cache();
     /// let mut caps = re.create_captures();
     ///
-    /// re.find(&mut cache, "abcabc", &mut caps);
+    /// re.captures(&mut cache, "abcabc", &mut caps);
     /// // Normally, the non-greedy repetition would give us a 0..3 match.
     /// assert_eq!(Some(Match::must(0, 0..6)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1437,15 +1438,15 @@ impl DFA {
     ///     Match,
     /// };
     ///
-    /// let vm = DFA::builder()
+    /// let re = DFA::builder()
     ///     .configure(DFA::config().utf8(false))
     ///     .syntax(syntax::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
-    /// let (mut cache, mut caps) = (vm.create_cache(), vm.create_captures());
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
     /// let haystack = b"foo\xFFarzz\xE2\x98\xFF\n";
     /// let expected = Some(Match::must(0, 0..8));
-    /// vm.find(&mut cache, haystack, &mut caps);
+    /// re.captures(&mut cache, haystack, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1503,7 +1504,7 @@ impl DFA {
     /// let mut cache = re1.create_cache();
     /// assert_eq!(
     ///     Some(Match::must(0, 0..2)),
-    ///     { re1.find(&mut cache, "Δ", &mut caps1); caps1.get_match() },
+    ///     { re1.captures(&mut cache, "Δ", &mut caps1); caps1.get_match() },
     /// );
     ///
     /// // Using 'cache' with re2 is not allowed. It may result in panics or
@@ -1515,7 +1516,7 @@ impl DFA {
     /// re2.reset_cache(&mut cache);
     /// assert_eq!(
     ///     Some(Match::must(0, 0..3)),
-    ///     { re2.find(&mut cache, "☃", &mut caps2); caps2.get_match() },
+    ///     { re2.captures(&mut cache, "☃", &mut caps2); caps2.get_match() },
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1661,7 +1662,26 @@ impl DFA {
     /// but routines like `find` need to continue searching because `+` is
     /// greedy by default.)
     ///
+    /// The given `Input` is forcefully set to use [`Anchored::Yes`] if the
+    /// given configuration was [`Anchored::No`] (which is the default).
+    ///
+    /// # Panics
+    ///
+    /// This routine panics if the search could not complete. This can occur
+    /// in the following circumstances:
+    ///
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search panics, callers cannot know whether a match exists or
+    /// not.
+    ///
+    /// Use [`DFA::try_search`] if you want to handle these error conditions.
+    ///
     /// # Example
+    ///
+    /// This shows basic usage:
     ///
     /// ```
     /// use regex_automata::dfa::onepass::DFA;
@@ -1676,29 +1696,46 @@ impl DFA {
     ///
     /// # Example: consistency with search APIs
     ///
-    /// TODO: Fill this out more once `is_match` accepts an `Into<Input>`.
+    /// `is_match` is guaranteed to return `true` whenever `captures` returns
+    /// a match. This includes searches that are executed entirely within a
+    /// codepoint:
     ///
     /// ```
-    /// use regex_automata::dfa::onepass::DFA;
+    /// use regex_automata::{dfa::onepass::DFA, Input};
     ///
     /// let re = DFA::new("a*")?;
     /// let mut cache = re.create_cache();
     ///
-    /// assert!(re.is_match(&mut cache, "xyz"));
+    /// assert!(!re.is_match(&mut cache, Input::new("☃").span(1..2)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Notice that when UTF-8 mode is disabled, then the above reports a
+    /// match because the restriction against zero-width matches that split a
+    /// codepoint has been lifted:
+    ///
+    /// ```
+    /// use regex_automata::{dfa::onepass::DFA, nfa::thompson::NFA, Input};
+    ///
+    /// let re = DFA::builder()
+    ///     .thompson(NFA::config().utf8(false))
+    ///     .build("a*")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// assert!(re.is_match(&mut cache, Input::new("☃").span(1..2)));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn is_match<H: AsRef<[u8]>>(
+    pub fn is_match<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
     ) -> bool {
-        let input = Input::new(haystack.as_ref())
-            .anchored(Anchored::Yes)
-            .earliest(true);
-        self.try_search_slots(cache, &input, &mut [])
-            .expect("correct input and slots")
-            .is_some()
+        let mut input = input.into().earliest(true);
+        if matches!(input.get_anchored(), Anchored::No) {
+            input.set_anchored(Anchored::Yes);
+        }
+        self.try_search_slots(cache, &input, &mut []).unwrap().is_some()
     }
 
     /// Executes an anchored leftmost forward search and writes the spans
@@ -1706,7 +1743,22 @@ impl DFA {
     /// [`Captures`] value. If no match was found, then [`Captures::is_match`]
     /// is guaranteed to return `false`.
     ///
-    /// For more control over the input parameters, see [`DFA::try_search`].
+    /// The given `Input` is forcefully set to use [`Anchored::Yes`] if the
+    /// given configuration was [`Anchored::No`] (which is the default).
+    ///
+    /// # Panics
+    ///
+    /// This routine panics if the search could not complete. This can occur
+    /// in the following circumstances:
+    ///
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search panics, callers cannot know whether a match exists or
+    /// not.
+    ///
+    /// Use [`DFA::try_search`] if you want to handle these error conditions.
     ///
     /// # Example
     ///
@@ -1723,7 +1775,7 @@ impl DFA {
     /// )?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///
-    /// re.find(&mut cache, "Bruce Springsteen", &mut caps);
+    /// re.captures(&mut cache, "Bruce Springsteen", &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..17)), caps.get_match());
     /// assert_eq!(Some(Span::from(0..5)), caps.get_group(1));
     /// assert_eq!(Some(Span::from(6..17)), caps.get_group_by_name("last"));
@@ -1731,14 +1783,17 @@ impl DFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn find<H: AsRef<[u8]>>(
+    pub fn captures<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
         caps: &mut Captures,
     ) {
-        let input = Input::new(haystack.as_ref()).anchored(Anchored::Yes);
-        self.try_search(cache, &input, caps).expect("correct input")
+        let mut input = input.into();
+        if matches!(input.get_anchored(), Anchored::No) {
+            input.set_anchored(Anchored::Yes);
+        }
+        self.try_search(cache, &input, caps).unwrap();
     }
 
     /// Executes an anchored leftmost forward search and writes the spans
@@ -1746,15 +1801,27 @@ impl DFA {
     /// [`Captures`] value. If no match was found, then [`Captures::is_match`]
     /// is guaranteed to return `false`.
     ///
-    /// This is like [`DFA::find`], except it provides some additional control
-    /// over how the search is executed. Those parameters are configured via a
-    /// [`Input`].
+    /// The differences with [`DFA::find`] are:
     ///
-    /// The examples below demonstrate each of these additional parameters.
+    /// 1. This returns an error instead of panicking if the search fails.
+    /// 2. Accepts an `&Input` instead of a `Into<Input>`. This permits reusing
+    /// the same input for multiple searches, which _may_ be important for
+    /// latency.
+    /// 3. This does not automatically change the [`Anchored`] mode from `No`
+    /// to `Yes`. Instead, if [`Input::anchored`] is `Anchored::No`, then an
+    /// error is returned.
     ///
-    /// Note that not all parameters on an `Input` are used by a one-pass
-    /// DFA. For example, a one-pass DFA only executes anchored searches,
-    /// and thus does not use any prefilter even if one is configured.
+    /// # Errors
+    ///
+    /// This routine errors if the search could not complete. This can occur
+    /// in the following circumstances:
+    ///
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search returns an error, callers cannot know whether a match
+    /// exists or not.
     ///
     /// # Example: specific pattern search
     ///
@@ -1873,6 +1940,18 @@ impl DFA {
     /// [`slot_len()`](crate::util::captures::GroupInfo::slot_len) slots, which
     /// permits recording match offsets for every capturing group in every
     /// pattern.
+    ///
+    /// # Errors
+    ///
+    /// This routine errors if the search could not complete. This can occur
+    /// in the following circumstances:
+    ///
+    /// * When the provided `Input` configuration is not supported. For
+    /// example, by providing an unsupported anchor mode or an invalid pattern
+    /// ID.
+    ///
+    /// When a search returns an error, callers cannot know whether a match
+    /// exists or not.
     ///
     /// # Example
     ///
@@ -2470,7 +2549,7 @@ impl Cache {
     /// let mut cache = re1.create_cache();
     /// assert_eq!(
     ///     Some(Match::must(0, 0..2)),
-    ///     { re1.find(&mut cache, "Δ", &mut caps1); caps1.get_match() },
+    ///     { re1.captures(&mut cache, "Δ", &mut caps1); caps1.get_match() },
     /// );
     ///
     /// // Using 'cache' with re2 is not allowed. It may result in panics or
@@ -2482,7 +2561,7 @@ impl Cache {
     /// re2.reset_cache(&mut cache);
     /// assert_eq!(
     ///     Some(Match::must(0, 0..3)),
-    ///     { re2.find(&mut cache, "☃", &mut caps2); caps2.get_match() },
+    ///     { re2.captures(&mut cache, "☃", &mut caps2); caps2.get_match() },
     /// );
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
