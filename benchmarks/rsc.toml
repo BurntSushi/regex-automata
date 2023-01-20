@@ -1,7 +1,19 @@
+# These benchmarks primarily come from Russ Cox's RE2 and Go regexp
+# libraries[1]. They were originally included as "misc" benchmarks in the regex
+# crate[2] before being ported here.
+#
+# There are likely some small changes and a few benchmarks that I've added, but
+# they should be largely the same.
+#
+# [1]: https://github.com/golang/go/blob/5724daa6825db0a9097254060633439e6538d845/src/regexp/all_test.go#L666
+# [2]: https://github.com/rust-lang/regex/blob/a9b2e02352db92ce1f6e5b7ecd41b8bbffbe161a/bench/src/misc.rs
+
 [[benches]]
 type = "count"
 name = "no-exponential"
 regex = '(a+)*[b-z]'
+# Do no increase this haystack size much more, as it will greatly slow down the
+# PCRE2 benchmarks.
 haystack = 'aaaaaaaaaaaaaaaaaaaaaaaaa'
 case-insensitive = false
 unicode = false
