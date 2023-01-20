@@ -280,6 +280,31 @@ impl MatchData {
         })
         .expect("failed to allocate match context");
 
+        // We increase PCRE2's match limit so that we can observe how slow it
+        // can get when catastrophic backtracking occurs. Without bumping the
+        // limit, PCRE2 will usually just return an error.
+        //
+        // This is maybe somewhat questionable, since PCRE2 returning an error
+        // if it "takes too long" is generally a good thing, because it serves
+        // as a heuristic to prevent ReDoS. However, in this context, we want
+        // to try to measure how long a regex engine takes to execute. End
+        // users might, for example, increase the match limit in order to "make
+        // PCRE2 just work." In so doing, they might unintentionally open a
+        // path to ReDoS.
+        //
+        // But bottom line here is that we want to know how long it takes for
+        // PCRE2 to service a regex, and some benchmarks do indeed lead to
+        // catastrophic backtracking.
+        //
+        // SAFETY: Our match_context pointer is valid, otherwise the above
+        // would have panickied. PCRE2 documents no restrictions on the maximum
+        // limit value, so we just set it to the max.
+        let rc = unsafe {
+            pcre2_set_match_limit_8(match_context.as_ptr(), u32::MAX)
+        };
+        // PCRE2 docs claim the return value is always 0.
+        assert_eq!(rc, 0);
+
         // SAFETY: 'code' is valid by construction and passing null is OK as
         // a general context, like above.
         let match_data = NonNull::new(unsafe {
@@ -732,6 +757,10 @@ extern "C" {
         ctx: *mut pcre2_general_context_8,
     ) -> *mut pcre2_match_data_8;
     fn pcre2_match_data_free_8(data: *mut pcre2_match_data_8);
+    fn pcre2_set_match_limit_8(
+        ctx: *mut pcre2_match_context_8,
+        limit: u32,
+    ) -> c_int;
     fn pcre2_set_offset_limit_8(
         ctx: *mut pcre2_match_context_8,
         offset: usize,

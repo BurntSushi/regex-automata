@@ -1,0 +1,737 @@
+[[benches]]
+type = "count"
+name = "no-exponential"
+regex = '(a+)*[b-z]'
+haystack = 'aaaaaaaaaaaaaaaaaaaaaaaaa'
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "literal"
+regex = 'y'
+haystack = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxy'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "not-literal"
+regex = '.y'
+haystack = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxy'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "match-class"
+regex = '[abcdw]'
+haystack = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxw'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "match-class-in-range"
+regex = '[ac]'
+haystack = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "match-class-unicode"
+regex = '\pL'
+haystack = '☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5☃5a'
+case-insensitive = false
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "anchored-literal-short-non-match"
+regex = '^zbc(d|e)'
+haystack = 'abcdefghijklmnopqrstuvwxyz'
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "anchored-literal-long-non-match"
+regex = '^zbc(d|e)'
+haystack-path = "rsc/anchored-literal-long.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "anchored-literal-short-match"
+regex = '^.bc(d|e)'
+haystack = 'abcdefghijklmnopqrstuvwxyz'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "anchored-literal-long-match"
+regex = '^.bc(d|e)'
+haystack-path = "rsc/anchored-literal-long.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "one-pass-short"
+regex = '^.bc(d|e)*$'
+haystack = 'abcddddddeeeededd'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "one-pass-short-not"
+regex = '.bc(d|e)*$'
+haystack = 'abcddddddeeeededd'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "one-pass-long-prefix"
+regex = '^abcdefghijklmnopqrstuvwxyz.*$'
+haystack = 'abcdefghijklmnopqrstuvwxyz'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "one-pass-long-prefix-not"
+regex = '^.bcdefghijklmnopqrstuvwxyz.*$'
+haystack = 'abcdefghijklmnopqrstuvwxyz'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "long-needle1"
+regex = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab'
+haystack-path = 'rsc/long-needle1.txt'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "long-needle2"
+regex = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbba'
+haystack-path = 'rsc/long-needle2.txt'
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reverse-suffix-no-quadratic"
+regex = '[r-z].*bcdefghijklmnopq'
+haystack-path = "rsc/reverse-suffix-no-quadratic.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy0-32"
+regex = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+haystack-path = "rsc/easy0/32.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy0-1k"
+regex = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+haystack-path = "rsc/easy0/1K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy0-32k"
+regex = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+haystack-path = "rsc/easy0/32K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy0-1mb"
+regex = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+haystack-path = "rsc/easy0/1MB.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy1-32"
+regex = 'A[AB]B[BC]C[CD]D[DE]E[EF]F[FG]G[GH]H[HI]I[IJ]J$'
+haystack-path = "rsc/easy1/32.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy1-1k"
+regex = 'A[AB]B[BC]C[CD]D[DE]E[EF]F[FG]G[GH]H[HI]I[IJ]J$'
+haystack-path = "rsc/easy1/1K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy1-32k"
+regex = 'A[AB]B[BC]C[CD]D[DE]E[EF]F[FG]G[GH]H[HI]I[IJ]J$'
+haystack-path = "rsc/easy1/32K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "easy1-1mb"
+regex = 'A[AB]B[BC]C[CD]D[DE]E[EF]F[FG]G[GH]H[HI]I[IJ]J$'
+haystack-path = "rsc/easy1/1MB.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "medium-32"
+regex = '[XYZ]ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/medium/32.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "medium-1k"
+regex = '[XYZ]ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/medium/1K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "medium-32k"
+regex = '[XYZ]ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/medium/32K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "medium-1mb"
+regex = '[XYZ]ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/medium/1MB.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "hard-32"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/hard/32.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "hard-1k"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/hard/1K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "hard-32k"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/hard/32K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "hard-1mb"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ$'
+haystack-path = "rsc/hard/1MB.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard0-32"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ.*'
+haystack-path = "rsc/reallyhard0/32.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard0-1k"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ.*'
+haystack-path = "rsc/reallyhard0/1K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard0-32k"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ.*'
+haystack-path = "rsc/reallyhard0/32K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard0-1mb"
+regex = '[ -~]*ABCDEFGHIJKLMNOPQRSTUVWXYZ.*'
+haystack-path = "rsc/reallyhard0/1MB.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard1-32"
+regex = '\w+\s+Holmes'
+haystack-path = "rsc/reallyhard1/32.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard1-1k"
+regex = '\w+\s+Holmes'
+haystack-path = "rsc/reallyhard1/1K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard1-32k"
+regex = '\w+\s+Holmes'
+haystack-path = "rsc/reallyhard1/32K.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reallyhard1-1mb"
+regex = '\w+\s+Holmes'
+haystack-path = "rsc/reallyhard1/1MB.txt"
+case-insensitive = false
+unicode = false
+match-count = 1
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
