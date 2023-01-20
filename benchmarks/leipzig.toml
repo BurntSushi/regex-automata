@@ -1,0 +1,350 @@
+# This benchmark seems to have originated from John Maddock as part of
+# measuring the performance of boost's regex engine[1]. It was then adapted
+# by Zoltan Herczeg to benchmark sljit[3], the JIT backend for PCRE and PCRE2.
+# The benchmark was then further adapted by the Rust Leipzig User Group[4]. The
+# last iteration is the one we use here.
+#
+# As alluded to in the benchmark methodology, and as demonstrated in the runner
+# program[5], the benchmark is of the "find all matches" variety. That is, it
+# is not line oriented. It loads the entire haystack into memory and then finds
+# all matches.
+#
+# As appears to be a pattern in regex benchmarks, this one also does not
+# compare apples-to-apples. It goes out of its way, for example, to disable
+# Unicode mode for RE2[6], but does not do the same for the regex crate. PCRE2
+# also has Unicode mode disabled (which is the default). Anyway, we disable
+# Unicode for almost all benchmarks, since this is a predominantly ASCII. There
+# are a couple benchmarks that make use of Unicode features, and for those, we
+# enable Unicode for all regex engines.
+#
+# [1]: https://www.boost.org/doc/libs/1_41_0/libs/regex/doc/gcc-performance.html
+# [2]: https://zherczeg.github.io/sljit/regex_perf.html
+# [3]: https://github.com/zherczeg/sljit/
+# [4]: https://github.com/rust-leipzig/regex-performance
+# [5]: https://github.com/rust-leipzig/regex-performance/blob/52cb0538eca86ad549f6895dbfa9a2f71bc82244/src/main.c
+# [6]: https://github.com/rust-leipzig/regex-performance/blob/52cb0538eca86ad549f6895dbfa9a2f71bc82244/src/re2.cpp#L13
+# [7]: https://github.com/rust-leipzig/regex-performance/blob/52cb0538eca86ad549f6895dbfa9a2f71bc82244/src/rust/src/lib.rs#L17-L20
+
+[[benches]]
+type = "count"
+name = "twain"
+regex = 'Twain'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 811
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "twain-insensitive"
+regex = '(?i)Twain'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 965
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "shing"
+regex = '[a-z]shing'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 1_540
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "huck-saw"
+regex = 'Huck[a-zA-Z]+|Saw[a-zA-Z]+'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 262
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "word-ending-nn"
+regex = '\b\w+nn\b'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 262
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "certain-long-strings-ending-x"
+regex = '[a-q][^u-z]{13}x'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 4_094
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "tom-sawyer-huckle-finn"
+regex = 'Tom|Sawyer|Huckleberry|Finn'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 2_598
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "tom-sawyer-huckle-fin-insensitive"
+regex = '(?i)Tom|Sawyer|Huckleberry|Finn'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 4_152
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "tom-sawyer-huckle-fin-prefix-short"
+regex = '.{0,2}(Tom|Sawyer|Huckleberry|Finn)'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 2_598
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "tom-sawyer-huckle-fin-prefix-long"
+regex = '.{2,4}(Tom|Sawyer|Huckleberry|Finn)'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 1_976
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "tom-river"
+regex = 'Tom.{10,25}river|river.{10,25}Tom'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 2
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "ing"
+regex = '[a-zA-Z]+ing'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 78_424
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "ing-whitespace"
+regex = '\s[a-zA-Z]{0,12}ing\s'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 55_248
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "awyer-inn"
+regex = '([A-Za-z]awyer|[A-Za-z]inn)\s'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 209
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "quotes-bounded"
+regex = '''["'][^"']{0,30}[?!\.]["']'''
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 8_886
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "non-ascii-alternate"
+regex = '∞|✓'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = true
+match-count = 2
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "math-symbols"
+regex = '\p{Sm}'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = true
+match-count = 69
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "bounded-strings-ending-z"
+regex = '(.*?,){13}z'
+haystack-path = "leipzig-3200.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

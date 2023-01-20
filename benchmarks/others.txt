@@ -1,6 +1,0 @@
-https://www.boost.org/doc/libs/1_41_0/libs/regex/doc/gcc-performance.html
-https://www.boost.org/doc/libs/1_45_0/libs/regex/doc/vc71-performance.html
-
-https://rust-leipzig.github.io/regex/2017/03/28/comparison-of-regex-engines/
-
-https://benchmarksgame-team.pages.debian.net/benchmarksgame/performance/regexredux.html
