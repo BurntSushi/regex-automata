@@ -1,5 +1,8 @@
 use crate::{
-    meta::{BuildError, Config, RegexInfo},
+    meta::{
+        error::BuildError,
+        regex::{Config, RegexInfo},
+    },
     nfa::thompson::{pikevm, NFA},
     util::{prefilter::Prefilter, primitives::NonMaxUsize},
     HalfMatch, Input, Match, MatchError, MatchKind, PatternID, PatternSet,

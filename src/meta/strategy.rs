@@ -9,7 +9,11 @@ use alloc::{sync::Arc, vec};
 use regex_syntax::hir::{self, literal, Hir};
 
 use crate::{
-    meta::{wrappers, BuildError, Cache, RegexInfo},
+    meta::{
+        error::BuildError,
+        regex::{Cache, RegexInfo},
+        wrappers,
+    },
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
         captures::{Captures, GroupInfo},
@@ -39,23 +43,23 @@ pub(crate) trait Strategy:
 
     fn reset_cache(&self, cache: &mut Cache);
 
-    fn try_find(
+    fn try_search(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError>;
 
-    fn try_find_earliest(
+    fn try_search_earliest(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         Ok(self
-            .try_find(cache, input)?
+            .try_search(cache, input)?
             .map(|m| HalfMatch::new(m.pattern(), m.end())))
     }
 
-    fn try_slots(
+    fn try_search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -123,7 +127,7 @@ impl<T: PrefilterI> Strategy for T {
 
     fn reset_cache(&self, cache: &mut Cache) {}
 
-    fn try_find(
+    fn try_search(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -141,13 +145,13 @@ impl<T: PrefilterI> Strategy for T {
             .map(|sp| Match::new(PatternID::ZERO, sp)))
     }
 
-    fn try_slots(
+    fn try_search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
-        let m = match self.try_find(cache, input)? {
+        let m = match self.try_search(cache, input)? {
             None => return Ok(None),
             Some(m) => m,
         };
@@ -166,7 +170,7 @@ impl<T: PrefilterI> Strategy for T {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        if self.try_find(cache, input)?.is_some() {
+        if self.try_search(cache, input)?.is_some() {
             patset.insert(PatternID::ZERO);
         }
         Ok(())
@@ -239,7 +243,7 @@ pub(super) fn new(
         debug!("regex bypass failed because no prefilter could be built");
     }
 
-    let pre = if let Some(Some(ref pre)) = info.config.pre {
+    let pre = if let Some(pre) = info.config.get_prefilter() {
         Some(pre.clone())
     } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
         None
@@ -428,7 +432,7 @@ impl Strategy for Core {
     }
 
     #[inline(always)]
-    fn try_find(
+    fn try_search(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -466,7 +470,7 @@ impl Strategy for Core {
     }
 
     #[inline(always)]
-    fn try_find_earliest(
+    fn try_search_earliest(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -519,7 +523,7 @@ impl Strategy for Core {
     }
 
     #[inline(always)]
-    fn try_slots(
+    fn try_search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -532,7 +536,7 @@ impl Strategy for Core {
         // we try to save the caller from themselves if they do.
         if slots.len() <= self.nfa.group_info().implicit_slot_len() {
             trace!("asked for slots unnecessarily, diverting to 'find'");
-            let m = match self.try_find(cache, input)? {
+            let m = match self.try_search(cache, input)? {
                 None => return Ok(None),
                 Some(m) => m,
             };

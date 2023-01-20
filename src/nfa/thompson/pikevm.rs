@@ -834,7 +834,7 @@ impl PikeVM {
         input: I,
         caps: &mut Captures,
     ) {
-        self.try_search(cache, &input.into(), caps).expect("correct input")
+        self.try_search(cache, &input.into(), caps).unwrap()
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
