@@ -1,6 +1,6 @@
 use bstr::ByteSlice;
 
-use automata::Input;
+use automata::{Anchored, Input};
 
 use super::{new, Benchmark, Results};
 
@@ -171,7 +171,7 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
         let (mut line_count, mut capture_count) = (0, 0);
         for line in haystack.lines() {
             let mut count = 0;
-            let mut input = Input::new(line);
+            let mut input = Input::new(line).anchored(Anchored::Yes);
             while let Some(m) = {
                 re.try_search(&mut cache, &input, &mut caps)?;
                 caps.get_match()

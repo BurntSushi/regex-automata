@@ -157,14 +157,14 @@ fn regex_automata_onepass(b: &Benchmark) -> anyhow::Result<Results> {
         let re = new::regex_automata_onepass(b)?;
         let mut cache = re.create_cache();
         Ok(Box::new(move |h| {
-            use automata::{util::iter::Searcher, Input};
+            use automata::{util::iter::Searcher, Anchored, Input};
 
             // The one-pass DFA only does anchored searches, so it doesn't
             // provide an iterator API. Technically though, we can still report
             // multiple matches if the regex matches are directly adjacent. So
             // we just build our own iterator.
             let mut caps = re.create_captures();
-            let it = Searcher::new(Input::new(h))
+            let it = Searcher::new(Input::new(h).anchored(Anchored::Yes))
                 .into_matches_iter(|input| {
                     re.try_search(&mut cache, input, &mut caps)?;
                     Ok(caps.get_match())
