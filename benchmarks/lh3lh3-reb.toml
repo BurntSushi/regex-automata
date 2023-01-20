@@ -1,8 +1,82 @@
 # Source: http://lh3lh3.users.sourceforge.net/reb.shtml
+#
+# According to the brief methodology description, this is a line oriented
+# benchmark. That is, it proceeds by reading the input line-by-line and
+# printing lines that match. So it doesn't measure the time for finding all
+# matches, but rather, all matching lines. This is why we use the 'grep'
+# benchmark type here.
+#
+# It's also consistent with the benchmark programs itself, e.g.,
+# https://sourceforge.net/p/klib/code/HEAD/tree/trunk/reb/re2/test.cc
 
-# Haystack is: lh3lh3-reb-howto.txt
+[[benches]]
+type = "grep"
+name = "uri"
+regex = '([a-zA-Z][a-zA-Z0-9]*)://([^ /]+)(/[^ ]*)?'
+haystack-path = "lh3lh3-reb-howto.txt"
+case-insensitive = false
+unicode = false
+line-count = 17_549
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
 
-# ([a-zA-Z][a-zA-Z0-9]*)://([^ /]+)(/[^ ]*)?
-# ([^ @]+)@([^ @]+)
-# ([0-9][0-9]?)/([0-9][0-9]?)/([0-9][0-9]([0-9][0-9])?)
-# ([a-zA-Z][a-zA-Z0-9]*)://([^ /]+)(/[^ ]*)?|([^ @]+)@([^ @]+)
+[[benches]]
+type = "grep"
+name = "email"
+regex = '([^ @]+)@([^ @]+)'
+haystack-path = "lh3lh3-reb-howto.txt"
+case-insensitive = false
+unicode = false
+line-count = 15_057
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep"
+name = "date"
+regex = '([0-9][0-9]?)/([0-9][0-9]?)/([0-9][0-9]([0-9][0-9])?)'
+haystack-path = "lh3lh3-reb-howto.txt"
+case-insensitive = false
+unicode = false
+line-count = 668
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "grep"
+name = "uri-or-email"
+regex = '([a-zA-Z][a-zA-Z0-9]*)://([^ /]+)(/[^ ]*)?|([^ @]+)@([^ @]+)'
+haystack-path = "lh3lh3-reb-howto.txt"
+case-insensitive = false
+unicode = false
+line-count = 32_539
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

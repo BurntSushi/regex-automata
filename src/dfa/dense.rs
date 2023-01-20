@@ -2461,6 +2461,11 @@ impl OwnedDFA {
         let (mut cmatch, mut cstart, mut cnormal) = (0, 0, 0);
         for state in self.states() {
             if let Some(accel) = state.accelerate(self.byte_classes()) {
+                debug!(
+                    "accelerating full DFA state {}: {:?}",
+                    state.id().as_usize(),
+                    accel,
+                );
                 accels.insert(state.id(), accel);
                 if self.is_match_state(state.id()) {
                     cmatch += 1;

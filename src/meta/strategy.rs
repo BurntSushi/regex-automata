@@ -240,8 +240,10 @@ pub(super) fn new(
         // OK because we know the set is exact and thus finite.
         let prefixes = lits.prefixes().literals().unwrap();
         debug!(
-            "trying to bypass regex engine by creating prefilter from: {:?}",
-            prefixes
+            "trying to bypass regex engine by creating \
+             prefilter from {} literals: {:?}",
+            prefixes.len(),
+            prefixes,
         );
         if let Some(pre) = prefilter::new_as_strategy(kind, prefixes) {
             return Ok((pre, None));
@@ -255,7 +257,11 @@ pub(super) fn new(
         None
     } else if info.config.get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
-            debug!("creating prefilter from: {:?}", strings);
+            debug!(
+                "creating prefilter from {} literals: {:?}",
+                strings.len(),
+                strings,
+            );
             Prefilter::new(kind, strings)
         })
     } else {

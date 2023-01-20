@@ -368,8 +368,16 @@ impl Literals {
             prefixes.union(&mut prefix_extractor.extract(hir.borrow()));
             suffixes.union(&mut suffix_extractor.extract(hir.borrow()));
         }
-        debug!("prefixes extracted before optimization: {:?}", prefixes);
-        debug!("suffixes extracted before optimization: {:?}", suffixes);
+        debug!(
+            "prefixes (len={:?}) extracted before optimization: {:?}",
+            prefixes.len(),
+            prefixes
+        );
+        debug!(
+            "suffixes (len={:?}) extracted before optimization: {:?}",
+            suffixes.len(),
+            suffixes
+        );
         match kind {
             MatchKind::All => {
                 prefixes.sort();
@@ -382,8 +390,16 @@ impl Literals {
                 suffixes.optimize_for_suffix_by_preference();
             }
         }
-        debug!("prefixes extracted after optimization: {:?}", prefixes);
-        debug!("suffixes extracted after optimization: {:?}", suffixes);
+        debug!(
+            "prefixes (len={:?}) extracted after optimization: {:?}",
+            prefixes.len(),
+            prefixes
+        );
+        debug!(
+            "suffixes (len={:?}) extracted after optimization: {:?}",
+            suffixes.len(),
+            suffixes
+        );
         Literals { prefixes, suffixes }
     }
 

@@ -440,12 +440,19 @@ impl Accel {
     }
 
     /// Attempts to add the given byte to this accelerator. If the accelerator
-    /// is already full then this returns false. Otherwise, returns true.
+    /// is already full or thinks the byte is a poor accelerator, then this
+    /// returns false. Otherwise, returns true.
     ///
     /// If the given byte is already in this accelerator, then it panics.
     #[cfg(feature = "dfa-build")]
     pub fn add(&mut self, byte: u8) -> bool {
         if self.len() >= 3 {
+            return false;
+        }
+        // As a special case, we totally reject trying to accelerate a state
+        // with an ASCII space. In most cases, it occurs very frequently, and
+        // tends to result in worse overall performance.
+        if byte == b' ' {
             return false;
         }
         assert!(

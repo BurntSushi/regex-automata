@@ -71,11 +71,6 @@ macro_rules! new {
             let b3 = needles[2].as_ref()[0];
             return Some(Arc::new(Memchr3(b1, b2, b3)));
         }
-        #[cfg(feature = "perf-literal-multisubstring")]
-        if let Some(byteset) = ByteSet::new(needles) {
-            debug!("prefilter built: byteset");
-            return Some(Arc::new(byteset));
-        }
         // Packed substring search only supports leftmost-first matching.
         #[cfg(feature = "perf-literal-multisubstring")]
         if kind == MatchKind::LeftmostFirst {
@@ -83,6 +78,11 @@ macro_rules! new {
                 debug!("prefilter built: packed (Teddy)");
                 return Some(Arc::new(packed));
             }
+        }
+        #[cfg(feature = "perf-literal-multisubstring")]
+        if let Some(byteset) = ByteSet::new(needles) {
+            debug!("prefilter built: byteset");
+            return Some(Arc::new(byteset));
         }
         #[cfg(feature = "perf-literal-multisubstring")]
         if let Some(ac) = AhoCorasick::new(kind, needles) {
@@ -431,12 +431,18 @@ impl AhoCorasick {
         kind: MatchKind,
         needles: &[B],
     ) -> Option<AhoCorasick> {
-        let ackind = match kind {
+        let ac_match_kind = match kind {
             MatchKind::LeftmostFirst => aho_corasick::MatchKind::LeftmostFirst,
             MatchKind::All => aho_corasick::MatchKind::Standard,
         };
-        let ac = aho_corasick::AhoCorasick::builder()
-            .match_kind(ackind)
+        let ac_kind = if needles.len() <= 500 {
+            aho_corasick::AhoCorasickKind::DFA
+        } else {
+            aho_corasick::AhoCorasickKind::ContiguousNFA
+        };
+        let result = aho_corasick::AhoCorasick::builder()
+            .kind(ac_kind)
+            .match_kind(ac_match_kind)
             .start_kind(aho_corasick::StartKind::Both)
             // We try to handle all of the prefilter cases here, and only
             // use Aho-Corasick for the actual automaton. The aho-corasick
@@ -452,8 +458,14 @@ impl AhoCorasick {
             // into a situation where we have prefilters layered on top of
             // prefilter, and that might have unintended consequences.
             .prefilter(false)
-            .build(needles)
-            .ok()?;
+            .build(needles);
+        let ac = match result {
+            Ok(ac) => ac,
+            Err(err) => {
+                debug!("aho-corasick prefilter failed to build: {}", err);
+                return None;
+            }
+        };
         Some(AhoCorasick { ac })
     }
 }
