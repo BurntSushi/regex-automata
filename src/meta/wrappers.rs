@@ -388,7 +388,7 @@ impl HybridEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_find_earliest(
+    pub(crate) fn try_search_half(
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
@@ -605,7 +605,7 @@ impl DFAEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_find_earliest(
+    pub(crate) fn try_search_half(
         &self,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {

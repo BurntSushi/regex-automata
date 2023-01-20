@@ -88,32 +88,22 @@ impl Regex {
 
 impl Regex {
     #[inline]
-    pub fn is_match<H: AsRef<[u8]>>(
+    pub fn is_match<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
+        input: I,
     ) -> bool {
-        self.find_earliest(cache, haystack).is_some()
+        let input = input.into().earliest(true);
+        self.try_search_half(cache, &input).unwrap().is_some()
     }
 
     #[inline]
-    pub fn find_earliest<H: AsRef<[u8]>>(
+    pub fn find<'h, I: Into<Input<'h>>>(
         &self,
         cache: &mut Cache,
-        haystack: H,
-    ) -> Option<HalfMatch> {
-        let input = Input::new(haystack.as_ref()).earliest(true);
-        self.try_search_earliest(cache, &input).unwrap()
-    }
-
-    #[inline]
-    pub fn find<H: AsRef<[u8]>>(
-        &self,
-        cache: &mut Cache,
-        haystack: H,
+        input: I,
     ) -> Option<Match> {
-        let input = Input::new(haystack.as_ref());
-        self.try_search(cache, &input).unwrap()
+        self.try_search(cache, &input.into()).unwrap()
     }
 
     #[inline]
@@ -127,25 +117,23 @@ impl Regex {
     }
 
     #[inline]
-    pub fn find_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn find_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h H,
+        input: I,
     ) -> FindMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         FindMatches { re: self, cache, it }
     }
 
     #[inline]
-    pub fn captures_iter<'r, 'c, 'h, H: AsRef<[u8]> + ?Sized>(
+    pub fn captures_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
         cache: &'c mut Cache,
-        haystack: &'h H,
+        input: I,
     ) -> CapturesMatches<'r, 'c, 'h> {
-        let input = Input::new(haystack);
         let caps = self.create_captures();
-        let it = iter::Searcher::new(input);
+        let it = iter::Searcher::new(input.into());
         CapturesMatches { re: self, cache, caps, it }
     }
 }
@@ -161,12 +149,12 @@ impl Regex {
     }
 
     #[inline]
-    pub fn try_search_earliest(
+    pub fn try_search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.strat.try_search_earliest(cache, input)
+        self.strat.try_search_half(cache, input)
     }
 
     #[inline]

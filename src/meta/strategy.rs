@@ -49,15 +49,11 @@ pub(crate) trait Strategy:
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError>;
 
-    fn try_search_earliest(
+    fn try_search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        Ok(self
-            .try_search(cache, input)?
-            .map(|m| HalfMatch::new(m.pattern(), m.end())))
-    }
+    ) -> Result<Option<HalfMatch>, MatchError>;
 
     fn try_search_slots(
         &self,
@@ -143,6 +139,16 @@ impl<T: PrefilterI> Strategy for T {
         Ok(self
             .find(input.haystack(), input.get_span())
             .map(|sp| Match::new(PatternID::ZERO, sp)))
+    }
+
+    fn try_search_half(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        Ok(self
+            .try_search(cache, input)?
+            .map(|m| HalfMatch::new(m.pattern(), m.end())))
     }
 
     fn try_search_slots(
@@ -470,7 +476,7 @@ impl Strategy for Core {
     }
 
     #[inline(always)]
-    fn try_search_earliest(
+    fn try_search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -479,38 +485,26 @@ impl Strategy for Core {
         // we can use a single forward scan without needing to run the reverse
         // DFA.
         if let Some(e) = self.dfa.get(input) {
-            trace!(
-                "using full DFA for earliest search at {:?}",
-                input.get_span()
-            );
-            let err = match e.try_find_earliest(input) {
+            trace!("using full DFA for half search at {:?}", input.get_span());
+            let err = match e.try_search_half(input) {
                 Ok(matched) => return Ok(matched),
                 Err(err) => err,
             };
             if !is_err_quit_or_gaveup(&err) {
                 return Err(err);
             }
-            trace!(
-                "full DFA failed for earliest search, using fallback: {}",
-                err
-            );
+            trace!("full DFA failed for half search, using fallback: {}", err);
             // Fallthrough to the fallback.
         } else if let Some(e) = self.hybrid.get(input) {
-            trace!(
-                "using lazy DFA for earliest search at {:?}",
-                input.get_span()
-            );
-            let err = match e.try_find_earliest(&mut cache.hybrid, input) {
+            trace!("using lazy DFA for half search at {:?}", input.get_span());
+            let err = match e.try_search_half(&mut cache.hybrid, input) {
                 Ok(matched) => return Ok(matched),
                 Err(err) => err,
             };
             if !is_err_quit_or_gaveup(&err) {
                 return Err(err);
             }
-            trace!(
-                "lazy DFA failed for earliest search, using fallback: {}",
-                err
-            );
+            trace!("lazy DFA failed for half search, using fallback: {}", err);
             // Fallthrough to the fallback.
         }
         // Only the lazy/full DFA returns half-matches, since the DFA requires
