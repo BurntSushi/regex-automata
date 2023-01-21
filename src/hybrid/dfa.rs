@@ -3511,7 +3511,7 @@ impl Config {
         nfa: &thompson::NFA,
     ) -> Result<ByteSet, BuildError> {
         let mut quit = self.quitset.unwrap_or(ByteSet::empty());
-        if nfa.look_set_union().contains_word_unicode() {
+        if nfa.look_set_any().contains_word_unicode() {
             if self.get_unicode_word_boundary() {
                 for b in 0x80..=0xFF {
                     quit.add(b);

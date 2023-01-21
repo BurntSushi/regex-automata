@@ -180,6 +180,7 @@ fn run_hir(args: &Args) -> anyhow::Result<()> {
         table.print(stdout())?;
         if !args.is_present("quiet") {
             writeln!(stdout(), "\n{:#?}", hir)?;
+            writeln!(stdout(), "{:#?}", hir.properties())?;
         }
     }
     Ok(())

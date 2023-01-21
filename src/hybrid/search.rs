@@ -55,7 +55,7 @@ fn find_fwd_imp(
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     // See 'prefilter_restart' docs for explanation.
-    let universal_start = dfa.get_nfa().look_set_prefix_union().is_empty();
+    let universal_start = dfa.get_nfa().look_set_prefix_any().is_empty();
     let mut mat = None;
     let mut sid = init_fwd(dfa, cache, input)?;
     let mut at = input.start();
@@ -460,7 +460,7 @@ fn find_overlapping_fwd_imp(
     state: &mut OverlappingState,
 ) -> Result<(), MatchError> {
     // See 'prefilter_restart' docs for explanation.
-    let universal_start = dfa.get_nfa().look_set_prefix_union().is_empty();
+    let universal_start = dfa.get_nfa().look_set_prefix_any().is_empty();
     let mut sid = match state.id {
         None => {
             state.at = input.start();

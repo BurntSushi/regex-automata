@@ -26,7 +26,6 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct Regex {
     info: RegexInfo,
-    pre: Option<Prefilter>,
     strat: Arc<dyn Strategy>,
 }
 
@@ -75,10 +74,6 @@ impl Regex {
 
     pub fn get_config(&self) -> &Config {
         &self.info.config
-    }
-
-    pub fn get_prefilter(&self) -> Option<&Prefilter> {
-        self.pre.as_ref()
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -145,6 +140,9 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
+        if self.info.is_impossible(input) {
+            return Ok(None);
+        }
         self.strat.try_search(cache, input)
     }
 
@@ -154,6 +152,9 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
+        if self.info.is_impossible(input) {
+            return Ok(None);
+        }
         self.strat.try_search_half(cache, input)
     }
 
@@ -177,6 +178,9 @@ impl Regex {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
+        if self.info.is_impossible(input) {
+            return Ok(None);
+        }
         self.strat.try_search_slots(cache, input, slots)
     }
 
@@ -187,6 +191,9 @@ impl Regex {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
+        if self.info.is_impossible(input) {
+            return Ok(());
+        }
         self.strat.try_which_overlapping_matches(cache, input, patset)
     }
 }
@@ -196,6 +203,86 @@ pub(crate) struct RegexInfo {
     pub(crate) config: Config,
     pub(crate) props: Vec<hir::Properties>,
     pub(crate) props_union: hir::Properties,
+}
+
+impl RegexInfo {
+    /// Returns true if and only if it is known that a match is impossible
+    /// for the given input. This is useful for short-circuiting and avoiding
+    /// running the regex engine if it's known no match can be reported.
+    #[inline(always)]
+    fn is_impossible(&self, input: &Input<'_>) -> bool {
+        // Input has been exhausted, nothing left to do.
+        if input.is_done() {
+            return true;
+        }
+        // The underlying regex is anchored, so if we don't start the search
+        // at position 0, a match is impossible, because the anchor can only
+        // match at position 0.
+        if input.start() > 0 && self.is_always_anchored_start() {
+            return true;
+        }
+        // Same idea, but for the end anchor.
+        if input.end() < input.haystack().len()
+            && self.is_always_anchored_end()
+        {
+            return true;
+        }
+        // If the haystack is smaller than the minimum length required, then
+        // we know there can be no match.
+        let minlen = match self.props_union.minimum_len() {
+            None => return false,
+            Some(minlen) => minlen,
+        };
+        if input.get_span().len() < minlen {
+            return true;
+        }
+        // Same idea at minimum, but for maximum. This is trickier. We can
+        // only apply the maximum when we know the entire span that we're
+        // searching *has* to match according to the regex (and possibly the
+        // input configuration). If we know there is too much for the regex
+        // to match, we can bail early.
+        //
+        // I don't think we can apply the maximum otherwise unfortunately.
+        if self.is_anchored_start(input) && self.is_always_anchored_end() {
+            let maxlen = match self.props_union.maximum_len() {
+                None => return false,
+                Some(maxlen) => maxlen,
+            };
+            if input.get_span().len() > maxlen {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Returns true when the search is guaranteed to be anchored. That is,
+    /// when a match is reported, its offset is guaranteed to correspond to
+    /// the start of the search.
+    ///
+    /// This includes returning true when `input` _isn't_ anchored but the
+    /// underlying regex is.
+    #[inline(always)]
+    pub(crate) fn is_anchored_start(&self, input: &Input<'_>) -> bool {
+        input.get_anchored().is_anchored() || self.is_always_anchored_start()
+    }
+
+    /// Returns true when this regex is always anchored to the start of a
+    /// search. And in particular, that regardless of an `Input` configuration,
+    /// if any match is reported it must start at `0`.
+    #[inline(always)]
+    pub(crate) fn is_always_anchored_start(&self) -> bool {
+        use regex_syntax::hir::Look;
+        self.props_union.look_set_prefix().contains(Look::Start)
+    }
+
+    /// Returns true when this regex is always anchored to the end of a
+    /// search. And in particular, that regardless of an `Input` configuration,
+    /// if any match is reported it must end at the end of the haystack.
+    #[inline(always)]
+    pub(crate) fn is_always_anchored_end(&self) -> bool {
+        use regex_syntax::hir::Look;
+        self.props_union.look_set_suffix().contains(Look::End)
+    }
 }
 
 #[derive(Debug)]
@@ -574,8 +661,8 @@ impl Builder {
         let props_union = hir::Properties::union(&props);
 
         let mut info = RegexInfo { config, props, props_union };
-        let (strat, pre) = strategy::new(&info, &hirs)?;
-        Ok(Regex { info, pre, strat })
+        let strat = strategy::new(&info, &hirs)?;
+        Ok(Regex { info, strat })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {

@@ -176,7 +176,7 @@ pub(crate) fn next(
     // Set whether the StartLF look-behind assertion is true for this
     // transition or not. The look-behind assertion for ASCII word boundaries
     // is handled below.
-    if nfa.look_set_union().contains_anchor_line() {
+    if nfa.look_set_any().contains_anchor_line() {
         if unit.as_u8().map_or(false, |b| b == b'\n') {
             // Why only handle StartLF here and not Start? That's because Start
             // can only impact the starting state, which is speical cased in
@@ -277,7 +277,7 @@ pub(crate) fn next(
     // if one was detected once it enters a quit state (and indeed, the search
     // routines in this crate do just that), but it seems better to prevent
     // these things by construction if possible.)
-    if nfa.look_set_union().contains_word()
+    if nfa.look_set_any().contains_word()
         && unit.is_word_byte()
         && !sparses.set2.is_empty()
     {

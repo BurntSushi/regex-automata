@@ -998,25 +998,25 @@ impl NFA {
     ///
     /// // No look-around at all.
     /// let nfa = NFA::new("a")?;
-    /// assert!(nfa.look_set_union().is_empty());
+    /// assert!(nfa.look_set_any().is_empty());
     ///
     /// // When multiple patterns are present, since this returns the union,
     /// // it will include look-around assertions that only appear in one
     /// // pattern.
     /// let nfa = NFA::new_many(&["a", "b", "a^b", "c"])?;
-    /// assert!(nfa.look_set_union().contains(Look::Start));
+    /// assert!(nfa.look_set_any().contains(Look::Start));
     ///
     /// // Some groups of assertions have various shortcuts. For example:
     /// let nfa = NFA::new(r"(?-u:\b)")?;
-    /// assert!(nfa.look_set_union().contains_word());
-    /// assert!(!nfa.look_set_union().contains_word_unicode());
-    /// assert!(nfa.look_set_union().contains_word_ascii());
+    /// assert!(nfa.look_set_any().contains_word());
+    /// assert!(!nfa.look_set_any().contains_word_unicode());
+    /// assert!(nfa.look_set_any().contains_word_ascii());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn look_set_union(&self) -> LookSet {
-        self.0.look_set_union
+    pub fn look_set_any(&self) -> LookSet {
+        self.0.look_set_any
     }
 
     /// Returns the union of all prefix look-around assertions for every
@@ -1041,7 +1041,7 @@ impl NFA {
     ///
     /// // No look-around at all.
     /// let nfa = NFA::new("a")?;
-    /// assert!(nfa.look_set_prefix_union().is_empty());
+    /// assert!(nfa.look_set_prefix_any().is_empty());
     ///
     /// // When multiple patterns are present, since this returns the union,
     /// // it will include look-around assertions that only appear in one
@@ -1049,14 +1049,14 @@ impl NFA {
     /// // of a pattern. For example, this includes '^' but not '$' even though
     /// // '$' does appear.
     /// let nfa = NFA::new_many(&["a", "b", "^ab$", "c"])?;
-    /// assert!(nfa.look_set_prefix_union().contains(Look::Start));
-    /// assert!(!nfa.look_set_prefix_union().contains(Look::End));
+    /// assert!(nfa.look_set_prefix_any().contains(Look::Start));
+    /// assert!(!nfa.look_set_prefix_any().contains(Look::End));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn look_set_prefix_union(&self) -> LookSet {
-        self.0.look_set_prefix_union
+    pub fn look_set_prefix_any(&self) -> LookSet {
+        self.0.look_set_prefix_any
     }
 
     /// Returns the intersection of all prefix look-around assertions for every
@@ -1081,20 +1081,20 @@ impl NFA {
     ///
     /// // No look-around at all.
     /// let nfa = NFA::new("a")?;
-    /// assert!(nfa.look_set_prefix_intersection().is_empty());
+    /// assert!(nfa.look_set_prefix_all().is_empty());
     ///
     /// // When multiple patterns are present, since this returns the
     /// // intersection, it will only include assertions present in every
     /// // prefix, and only the prefix.
     /// let nfa = NFA::new_many(&["^a$", "^b$", "^ab$", "^c$"])?;
-    /// assert!(nfa.look_set_prefix_intersection().contains(Look::Start));
-    /// assert!(!nfa.look_set_prefix_intersection().contains(Look::End));
+    /// assert!(nfa.look_set_prefix_all().contains(Look::Start));
+    /// assert!(!nfa.look_set_prefix_all().contains(Look::End));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn look_set_prefix_intersection(&self) -> LookSet {
-        self.0.look_set_prefix_intersection
+    pub fn look_set_prefix_all(&self) -> LookSet {
+        self.0.look_set_prefix_all
     }
 
     /// Returns the memory usage, in bytes, of this NFA.
@@ -1190,13 +1190,13 @@ pub(super) struct Inner {
     /// The union of all look-around assertions that occur anywhere within
     /// this NFA. If this set is empty, then it means there are precisely zero
     /// conditional epsilon transitions in the NFA.
-    look_set_union: LookSet,
+    look_set_any: LookSet,
     /// The union of all look-around assertions that occur as a zero-length
     /// prefix for any of the patterns in this NFA.
-    look_set_prefix_union: LookSet,
+    look_set_prefix_any: LookSet,
     /// The intersection of all look-around assertions that occur as a
     /// zero-length prefix for any of the patterns in this NFA.
-    look_set_prefix_intersection: LookSet,
+    look_set_prefix_all: LookSet,
     /// Heap memory used indirectly by NFA states and other things (like the
     /// various capturing group representations above). Since each state
     /// might use a different amount of heap, we need to keep track of this
@@ -1270,10 +1270,8 @@ impl Inner {
                     }
                 }
             }
-            self.look_set_prefix_union =
-                self.look_set_prefix_union.union(prefix);
-            self.look_set_prefix_intersection =
-                self.look_set_prefix_intersection.union(prefix);
+            self.look_set_prefix_any = self.look_set_prefix_any.union(prefix);
+            self.look_set_prefix_all = self.look_set_prefix_all.union(prefix);
         }
         NFA(Arc::new(self))
     }
@@ -1302,7 +1300,7 @@ impl Inner {
             State::Dense { .. } => unreachable!(),
             State::Look { ref look, .. } => {
                 look.add_to_byteset(&mut self.byte_class_set);
-                self.look_set_union = self.look_set_union.insert(*look);
+                self.look_set_any = self.look_set_any.insert(*look);
             }
             State::Capture { .. } => {
                 self.has_capture = true;

@@ -421,7 +421,7 @@ impl PrefilterI for Packed {
 
 #[cfg(feature = "perf-literal-multisubstring")]
 #[derive(Clone, Debug)]
-struct AhoCorasick {
+pub(crate) struct AhoCorasick {
     ac: aho_corasick::AhoCorasick,
 }
 
@@ -467,6 +467,15 @@ impl AhoCorasick {
             }
         };
         Some(AhoCorasick { ac })
+    }
+
+    #[cfg(feature = "meta")]
+    pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
+        kind: MatchKind,
+        needles: &[B],
+    ) -> Option<Arc<dyn crate::meta::Strategy>> {
+        let ac = AhoCorasick::new(kind, needles)?;
+        Some(Arc::new(ac))
     }
 }
 

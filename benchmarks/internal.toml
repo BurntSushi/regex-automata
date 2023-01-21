@@ -400,3 +400,88 @@ engines = [
   'pcre2/api/nojit',
 ]
 analysis = 'TODO'
+
+# This benchmark tests that the regex engine fails very quickly when it knows
+# that a match is impossible because the haystack is too small. In this case,
+# the regex needs to match at least 10 word ASCII bytes, but the haystack is
+# shorter than that.
+[[benches]]
+type = "count"
+name = "haystack-too-small-ascii"
+regex = '\w{10,}'
+haystack = 'abcdef'
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+	'regex/api',
+	'regexold/api',
+	'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+# Same idea as haystack-too-small-ascii, but for Unicode.
+#
+# We specifically use a codepoint that uses 4 bytes per encoding to ensure that
+# the maximum length computation for a Unicode-aware class is correct. And in
+# particular, we construct the class such that it only matches codepoints that
+# are encoded with 4 bytes. So the 9 instances of 𝛃 make up 36 bytes, which is
+# 4 fewer than the minimum of 40 computed by the regex.
+#
+# Sadly, the class intersection syntax isn't well supported, so we only measure
+# the regex crate.
+[[benches]]
+type = "count"
+name = "haystack-too-small-unicode"
+regex = '[\p{math}&&\u{10000}-\u{10FFFF}]{10,}'
+haystack = '𝛃𝛃𝛃𝛃𝛃𝛃𝛃𝛃𝛃'
+case-insensitive = false
+unicode = true
+match-count = 0
+engines = [
+	'regex/api',
+	'regexold/api',
+	'regex/automata/meta',
+]
+analysis = 'TODO'
+
+# Check that we bail early when we know the haystack is too big to match.
+[[benches]]
+type = "count"
+name = "haystack-too-big-ascii"
+regex = '^\w{30}$'
+haystack = 'abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz'
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+	'regex/api',
+	'regexold/api',
+	'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+# Same idea as haystack-too-big-ascii, but for Unicode.
+[[benches]]
+type = "count"
+name = "haystack-too-big-unicode"
+regex = '^\w{10}$'
+haystack = '𝛃𝛃𝛃𝛃𝛃𝛃𝛃𝛃𝛃𝛃𝛃'
+case-insensitive = false
+unicode = true
+match-count = 0
+engines = [
+	'regex/api',
+	'regexold/api',
+	'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'

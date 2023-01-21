@@ -1117,7 +1117,7 @@ impl Builder {
     ) -> Result<OwnedDFA, BuildError> {
         let mut quitset = self.config.quitset.unwrap_or(ByteSet::empty());
         if self.config.get_unicode_word_boundary()
-            && nfa.look_set_union().contains_word_unicode()
+            && nfa.look_set_any().contains_word_unicode()
         {
             for b in 0x80..=0xFF {
                 quitset.add(b);

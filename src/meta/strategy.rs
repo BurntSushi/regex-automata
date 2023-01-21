@@ -4,7 +4,7 @@ use core::{
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
-use alloc::{sync::Arc, vec};
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use regex_syntax::hir::{self, literal, Hir};
 
@@ -186,7 +186,7 @@ impl<T: PrefilterI> Strategy for T {
 pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
-) -> Result<(Arc<dyn Strategy>, Option<Prefilter>), BuildError> {
+) -> Result<Arc<dyn Strategy>, BuildError> {
     let kind = info.config.get_match_kind();
     let lits = Literals::new(kind, hirs);
     // Check to see if our prefixes are exact, which means we might be able to
@@ -246,15 +246,25 @@ pub(super) fn new(
             prefixes,
         );
         if let Some(pre) = prefilter::new_as_strategy(kind, prefixes) {
-            return Ok((pre, None));
+            return Ok(pre);
         }
         debug!("regex bypass failed because no prefilter could be built");
     }
+    // This now attempts another short-circuit of the regex engine: if we
+    // have a huge alternation of just plain literals, then we can just use
+    // Aho-Corasick for that and avoid the regex engine entirely.
+    #[cfg(feature = "perf-literal-multisubstring")]
+    if let Some(ac) = alternation_literals_to_aho_corasick(info, hirs) {
+        return Ok(ac);
+    }
 
-    let pre = if let Some(pre) = info.config.get_prefilter() {
-        Some(pre.clone())
-    } else if info.props_union.look_set_prefix().contains(hir::Look::Start) {
+    // At this point, we're committed to a regex engine of some kind. So pull
+    // out a prefilter if we can, which will feed to each of the constituent
+    // regex engines.
+    let pre = if info.is_always_anchored_start() {
         None
+    } else if let Some(pre) = info.config.get_prefilter() {
+        Some(pre.clone())
     } else if info.config.get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
             debug!(
@@ -268,7 +278,7 @@ pub(super) fn new(
         None
     };
     let strat = Core::new(info, pre.clone(), hirs)?;
-    Ok((strat, pre))
+    Ok(strat)
 }
 
 #[derive(Debug)]
@@ -321,6 +331,16 @@ impl Core {
             if !info.config.get_hybrid() && !info.config.get_dfa() {
                 (None, wrappers::Hybrid::none(), wrappers::DFA::none())
             } else {
+                // FIXME: Technically, we don't quite yet KNOW that we need
+                // a reverse NFA. It's possible for the DFAs below to both
+                // fail to build just based on the forward NFA. In which case,
+                // building the reverse NFA was totally wasted work. But...
+                // fixing this requires breaking DFA construction apart into
+                // two pieces: one for the forward part and another for the
+                // reverse part. Quite annoying. Making it worse, when building
+                // both DFAs fails, it's quite likely that the NFA is large and
+                // that it will take quite some time to build the reverse NFA
+                // too. So... it's really probably worth it to do this!
                 let nfarev = thompson::Compiler::new()
                     // Currently, reverse NFAs don't support capturing groups,
                     // so we MUST disable them. But even if we didn't have to,
@@ -673,6 +693,84 @@ impl Strategy for Core {
         let e = self.pikevm.get().expect("PikeVM is always available");
         e.which_overlapping_matches(&mut cache.pikevm, input, patset)
     }
+}
+
+#[cfg(feature = "perf-literal-multisubstring")]
+fn alternation_literals_to_aho_corasick(
+    info: &RegexInfo,
+    hirs: &[&Hir],
+) -> Option<Arc<dyn Strategy>> {
+    use crate::util::prefilter::AhoCorasick;
+
+    let lits = alternation_literals(info, hirs)?;
+    AhoCorasick::new_as_strategy(MatchKind::LeftmostFirst, &lits)
+}
+
+#[cfg(feature = "perf-literal-multisubstring")]
+fn alternation_literals(
+    info: &RegexInfo,
+    hirs: &[&Hir],
+) -> Option<Vec<Vec<u8>>> {
+    use regex_syntax::hir::{HirKind, Literal};
+
+    // This is pretty hacky, but basically, if `is_alternation_literal` is
+    // true, then we can make several assumptions about the structure of our
+    // HIR. This is what justifies the `unreachable!` statements below.
+    //
+    // This code should be refactored once we overhaul this crate's
+    // optimization pipeline, because this is a terribly inflexible way to go
+    // about things.
+    if hirs.len() != 1
+        || !info.props[0].look_set().is_empty()
+        || info.props[0].captures_len() > 0
+        || !info.props[0].is_alternation_literal()
+        || info.config.get_match_kind() != MatchKind::LeftmostFirst
+    {
+        return None;
+    }
+    let hir = &hirs[0];
+    let alts = match *hir.kind() {
+        HirKind::Alternation(ref alts) => alts,
+        _ => return None, // one literal isn't worth it
+    };
+
+    let mut lits = vec![];
+    for alt in alts {
+        let mut lit = vec![];
+        match *alt.kind() {
+            HirKind::Literal(Literal(ref bytes)) => {
+                lit.extend_from_slice(bytes)
+            }
+            HirKind::Concat(ref exprs) => {
+                for e in exprs {
+                    match *e.kind() {
+                        HirKind::Literal(Literal(ref bytes)) => {
+                            lit.extend_from_slice(bytes);
+                        }
+                        _ => unreachable!("expected literal, got {:?}", e),
+                    }
+                }
+            }
+            _ => unreachable!("expected literal or concat, got {:?}", alt),
+        }
+        lits.push(lit);
+    }
+    // Why do this? Well, when the number of literals is small, it's likely
+    // that we'll use the lazy DFA which is in turn likely to be faster than
+    // Aho-Corasick in such cases. Primarily because Aho-Corasick doesn't have
+    // a "lazy DFA" but either a contiguous NFA or a full DFA. We rarely use
+    // the latter because it is so hungry (in time and space), and the former
+    // is decently fast, but not as fast as a well oiled lazy DFA.
+    //
+    // However, once the number starts getting large, the lazy DFA is likely
+    // to start thrashing. When exactly does this happen? Dunno. But at that
+    // point, we'll want to cut over to Aho-Corasick, where even the contiguous
+    // NFA is likely to do much better.
+    if lits.len() < 3000 {
+        debug!("skipping Aho-Corasick because there are too few literals");
+        return None;
+    }
+    Some(lits)
 }
 
 /// Returns true only when the given error corresponds to a search that failed

@@ -213,7 +213,7 @@ impl<'a> Runner<'a> {
     /// the chosen state identifier representation is too small), then an error
     /// is returned.
     fn run(mut self) -> Result<(), BuildError> {
-        if self.nfa.look_set_union().contains_word_unicode()
+        if self.nfa.look_set_any().contains_word_unicode()
             && !self.config.quit.contains_range(0x80, 0xFF)
         {
             return Err(BuildError::unsupported_dfa_word_boundary_unicode());
@@ -398,7 +398,7 @@ impl<'a> Runner<'a> {
             dfa_state_ids.push(id);
         }
 
-        if !self.nfa.look_set_prefix_union().contains_word() {
+        if !self.nfa.look_set_prefix_any().contains_word() {
             self.dfa.set_start_state(anchored, Start::WordByte, id);
         } else {
             let (id, is_new) =
@@ -408,7 +408,7 @@ impl<'a> Runner<'a> {
                 dfa_state_ids.push(id);
             }
         }
-        if !self.nfa.look_set_prefix_union().contains_anchor() {
+        if !self.nfa.look_set_prefix_any().contains_anchor() {
             self.dfa.set_start_state(anchored, Start::Text, id);
             self.dfa.set_start_state(anchored, Start::Line, id);
         } else {
