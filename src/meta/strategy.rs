@@ -187,7 +187,7 @@ pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
 ) -> Result<Arc<dyn Strategy>, BuildError> {
-    let kind = info.config.get_match_kind();
+    let kind = info.config().get_match_kind();
     let lits = Literals::new(kind, hirs);
     // Check to see if our prefixes are exact, which means we might be able to
     // bypass the regex engine entirely and just rely on literal searches. We
@@ -225,8 +225,8 @@ pub(super) fn new(
     // latency of a match.
     if lits.prefixes().is_exact()
         && hirs.len() == 1
-        && info.props[0].look_set().is_empty()
-        && info.props[0].captures_len() == 0
+        && info.props()[0].look_set().is_empty()
+        && info.props()[0].captures_len() == 0
         // We require this because our prefilters can't currently handle
         // assuming the responsibility of being the regex engine in all
         // cases. For example, when running a leftmost search with 'All'
@@ -235,7 +235,7 @@ pub(super) fn new(
         // correct candidate, but it is not the correct leftmost match in this
         // circumstance, since the 'all' semantic demands that the search
         // continue until a dead state is reached.
-        && info.config.get_match_kind() == MatchKind::LeftmostFirst
+        && info.config().get_match_kind() == MatchKind::LeftmostFirst
     {
         // OK because we know the set is exact and thus finite.
         let prefixes = lits.prefixes().literals().unwrap();
@@ -267,9 +267,9 @@ pub(super) fn new(
         // having a notion of whether a prefilter is "fast"? Or maybe it just
         // depends on haystack length? Or both?
         None
-    } else if let Some(pre) = info.config.get_prefilter() {
+    } else if let Some(pre) = info.config().get_prefilter() {
         Some(pre.clone())
-    } else if info.config.get_auto_prefilter() {
+    } else if info.config().get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
             debug!(
                 "creating prefilter from {} literals: {:?}",
@@ -281,12 +281,26 @@ pub(super) fn new(
     } else {
         None
     };
-    let strat = Core::new(info, pre.clone(), hirs)?;
-    Ok(strat)
+    let core = Core::new(info.clone(), pre.clone(), hirs)?;
+    // Now that we have our core regex engines built, there are a few cases
+    // where we can do a little bit better than just a normal "search forward
+    // and maybe use a prefilter when in a start state." However, these cases
+    // may not always work or otherwise build on top of the Core searcher.
+    // For example, the anchored reverse optimization seems like it might
+    // always work, but only the DFAs support reverse searching and the DFAs
+    // might give up or quit for reasons. If we had, e.g., a PikeVM that
+    // supported reverse searching, then we could avoid building a full Core
+    // engine for this case.
+    let core = match AnchoredReverse::new(core) {
+        Err(core) => core,
+        Ok(ar) => return Ok(Arc::new(ar)),
+    };
+    Ok(Arc::new(core))
 }
 
 #[derive(Debug)]
 struct Core {
+    info: RegexInfo,
     nfa: NFA,
     nfarev: Option<NFA>,
     pikevm: wrappers::PikeVM,
@@ -298,13 +312,13 @@ struct Core {
 
 impl Core {
     fn new(
-        info: &RegexInfo,
+        info: RegexInfo,
         pre: Option<Prefilter>,
         hirs: &[&Hir],
-    ) -> Result<Arc<dyn Strategy>, BuildError> {
+    ) -> Result<Core, BuildError> {
         let thompson_config = thompson::Config::new()
-            .utf8(info.config.get_utf8())
-            .nfa_size_limit(info.config.get_nfa_size_limit())
+            .utf8(info.config().get_utf8())
+            .nfa_size_limit(info.config().get_nfa_size_limit())
             .shrink(false)
             .captures(true);
         let nfa = thompson::Compiler::new()
@@ -317,14 +331,14 @@ impl Core {
         // support is disabled at compile time, thus making it impossible to
         // match. (Construction can also fail if the NFA was compiled without
         // captures, but we always enable that above.)
-        let pikevm = wrappers::PikeVM::new(info, pre.clone(), &nfa)?;
+        let pikevm = wrappers::PikeVM::new(&info, pre.clone(), &nfa)?;
         let backtrack =
-            wrappers::BoundedBacktracker::new(info, pre.clone(), &nfa)?;
+            wrappers::BoundedBacktracker::new(&info, pre.clone(), &nfa)?;
         // The onepass engine can of course fail to build, but we expect it to
         // fail in many cases because it is an optimization that doesn't apply
         // to all regexes. The 'OnePass' wrapper encapsulates this failure (and
         // logs a message if it occurs).
-        let onepass = wrappers::OnePass::new(info, &nfa);
+        let onepass = wrappers::OnePass::new(&info, &nfa);
         // We try to encapsulate whether a particular regex engine should be
         // used within each respective wrapper, but the DFAs need a reverse NFA
         // to build itself, and we really do not want to build a reverse NFA if
@@ -332,7 +346,7 @@ impl Core {
         // up front, which is in practice the only way we won't try to use the
         // DFA.
         let (nfarev, hybrid, dfa) =
-            if !info.config.get_hybrid() && !info.config.get_dfa() {
+            if !info.config().get_hybrid() && !info.config().get_dfa() {
                 (None, wrappers::Hybrid::none(), wrappers::DFA::none())
             } else {
                 // FIXME: Technically, we don't quite yet KNOW that we need
@@ -356,30 +370,22 @@ impl Core {
                     )
                     .build_many_from_hir(hirs)
                     .map_err(BuildError::nfa)?;
-                let dfa = if !info.config.get_dfa() {
+                let dfa = if !info.config().get_dfa() {
                     wrappers::DFA::none()
                 } else {
-                    wrappers::DFA::new(info, pre.clone(), &nfa, &nfarev)
+                    wrappers::DFA::new(&info, pre.clone(), &nfa, &nfarev)
                 };
-                let hybrid = if !info.config.get_hybrid() {
+                let hybrid = if !info.config().get_hybrid() {
                     wrappers::Hybrid::none()
                 } else if dfa.is_some() {
                     debug!("skipping lazy DFA because we have a full DFA");
                     wrappers::Hybrid::none()
                 } else {
-                    wrappers::Hybrid::new(info, pre.clone(), &nfa, &nfarev)
+                    wrappers::Hybrid::new(&info, pre.clone(), &nfa, &nfarev)
                 };
                 (Some(nfarev), hybrid, dfa)
             };
-        Ok(Arc::new(Core {
-            nfa,
-            nfarev,
-            pikevm,
-            backtrack,
-            onepass,
-            hybrid,
-            dfa,
-        }))
+        Ok(Core { info, nfa, nfarev, pikevm, backtrack, onepass, hybrid, dfa })
     }
 
     fn try_find_fallback(
@@ -699,6 +705,132 @@ impl Strategy for Core {
     }
 }
 
+#[derive(Debug)]
+struct AnchoredReverse {
+    core: Core,
+}
+
+impl AnchoredReverse {
+    fn new(core: Core) -> Result<AnchoredReverse, Core> {
+        if !core.info.is_always_anchored_end() {
+            return Err(core);
+        }
+        // Only DFAs can do reverse searches (currently), so we need one of
+        // them in order to do this optimization. It's possible (although
+        // pretty unlikely) that we have neither and need to give up.
+        if !core.hybrid.is_some() && !core.dfa.is_some() {
+            debug!(
+                "skipping anchored reverse optimization because \
+				 we don't have a lazy DFA or a full DFA"
+            );
+            return Err(core);
+        }
+        Ok(AnchoredReverse { core })
+    }
+}
+
+// Note that in this impl, we don't check that 'input.end() ==
+// input.haystack().len()'. In particular, when that condition is false, a
+// match is always impossible because we know that the regex is always anchored
+// at the end (or else 'AnchoredReverse' won't be built). We don't check that
+// here because the 'Regex' wrapper actually does that for us in all cases.
+// Thus, in this impl, we can actually assume that the end position in 'input'
+// is equivalent to the length of the haystack.
+impl Strategy for AnchoredReverse {
+    #[inline(always)]
+    fn create_captures(&self) -> Captures {
+        self.core.create_captures()
+    }
+
+    #[inline(always)]
+    fn create_cache(&self) -> Cache {
+        self.core.create_cache()
+    }
+
+    #[inline(always)]
+    fn reset_cache(&self, cache: &mut Cache) {
+        self.core.reset_cache(cache);
+    }
+
+    #[inline(always)]
+    fn try_search(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<Match>, MatchError> {
+        if let Some(e) = self.core.dfa.get(input) {
+            trace!(
+                "using full DFA for anchored reverse search at {:?}",
+                input.get_span()
+            );
+            let err = match e.try_find(input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!("full DFA failed in basic search, using fallback: {}", err);
+            // Fallthrough to the fallback.
+        } else if let Some(e) = self.core.hybrid.get(input) {
+            trace!(
+                "using lazy DFA for basic search at {:?}",
+                input.get_span()
+            );
+            let err = match e.try_find(&mut cache.hybrid, input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            };
+            if !is_err_quit_or_gaveup(&err) {
+                return Err(err);
+            }
+            trace!("lazy DFA failed in basic search, using fallback: {}", err);
+            // Fallthrough to the fallback.
+        }
+        self.core.try_search(cache, input)
+    }
+
+    #[inline(always)]
+    fn try_search_half(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.core.try_search_half(cache, input)
+    }
+
+    #[inline(always)]
+    fn try_search_slots(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
+        self.core.try_search_slots(cache, input, slots)
+    }
+
+    #[inline(always)]
+    fn try_which_overlapping_matches(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        patset: &mut PatternSet,
+    ) -> Result<(), MatchError> {
+        // It seems like this could probably benefit from an anchored reverse
+        // optimization, perhaps by doing an overlapping reverse search (which
+        // the DFAs do support). I haven't given it much thought though, and
+        // I'm currently focus more on the single pattern case.
+        self.core.try_which_overlapping_matches(cache, input, patset)
+    }
+}
+
+/// Attempts to extract an alternation of literals, and if it's deemed worth
+/// doing, returns an Aho-Corasick prefilter as a strategy.
+///
+/// And currently, this only returns something when 'hirs.len() == 1'. This
+/// could in theory do something if there are multiple HIRs where all of them
+/// are alternation of literals, but I haven't had the time to go down that
+/// path yet.
 #[cfg(feature = "perf-literal-multisubstring")]
 fn alternation_literals_to_aho_corasick(
     info: &RegexInfo,
@@ -710,6 +842,14 @@ fn alternation_literals_to_aho_corasick(
     AhoCorasick::new_as_strategy(MatchKind::LeftmostFirst, &lits)
 }
 
+/// Pull out an alternation of literals from the given sequence of HIR
+/// expressions.
+///
+/// There are numerous ways for this to fail. Generally, this only applies
+/// to regexes of the form 'foo|bar|baz|...|quux'. It can also fail if there
+/// are "too few" alternates, in which case, the regex engine is likely faster.
+///
+/// And currently, this only returns something when 'hirs.len() == 1'.
 #[cfg(feature = "perf-literal-multisubstring")]
 fn alternation_literals(
     info: &RegexInfo,
@@ -725,10 +865,10 @@ fn alternation_literals(
     // optimization pipeline, because this is a terribly inflexible way to go
     // about things.
     if hirs.len() != 1
-        || !info.props[0].look_set().is_empty()
-        || info.props[0].captures_len() > 0
-        || !info.props[0].is_alternation_literal()
-        || info.config.get_match_kind() != MatchKind::LeftmostFirst
+        || !info.props()[0].look_set().is_empty()
+        || info.props()[0].captures_len() > 0
+        || !info.props()[0].is_alternation_literal()
+        || info.config().get_match_kind() != MatchKind::LeftmostFirst
     {
         return None;
     }

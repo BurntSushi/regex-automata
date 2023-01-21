@@ -53,7 +53,7 @@ impl PikeVMEngine {
         nfa: &NFA,
     ) -> Result<Option<PikeVMEngine>, BuildError> {
         let pikevm_config = pikevm::Config::new()
-            .match_kind(info.config.get_match_kind())
+            .match_kind(info.config().get_match_kind())
             .prefilter(pre);
         let engine = pikevm::Builder::new()
             .configure(pikevm_config)
@@ -175,8 +175,8 @@ impl BoundedBacktrackerEngine {
     ) -> Result<Option<BoundedBacktrackerEngine>, BuildError> {
         #[cfg(feature = "nfa-backtrack")]
         {
-            if !info.config.get_backtrack()
-                || info.config.get_match_kind() != MatchKind::LeftmostFirst
+            if !info.config().get_backtrack()
+                || info.config().get_match_kind() != MatchKind::LeftmostFirst
             {
                 return Ok(None);
             }
@@ -299,6 +299,10 @@ impl Hybrid {
         let engine = self.0.as_ref()?;
         Some(engine)
     }
+
+    pub(crate) fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
 }
 
 #[derive(Debug)]
@@ -316,11 +320,11 @@ impl HybridEngine {
     ) -> Option<HybridEngine> {
         #[cfg(feature = "hybrid")]
         {
-            if !info.config.get_hybrid() {
+            if !info.config().get_hybrid() {
                 return None;
             }
             let dfa_config = hybrid::dfa::Config::new()
-                .match_kind(info.config.get_match_kind())
+                .match_kind(info.config().get_match_kind())
                 .prefilter(pre.clone())
                 // Unconditionally enabling this seems fine for a meta regex
                 // engine. It isn't too costly. At worst, it just uses a bit
@@ -329,11 +333,10 @@ impl HybridEngine {
                 // always supporting anchored searches for any of the patterns
                 // in the regex.
                 .starts_for_each_pattern(true)
-                .byte_classes(info.config.get_byte_classes())
+                .byte_classes(info.config().get_byte_classes())
                 .unicode_word_boundary(true)
                 .specialize_start_states(pre.is_some())
-                // .cache_capacity(info.config.get_hybrid_cache_capacity())
-                .cache_capacity(info.config.get_hybrid_cache_capacity())
+                .cache_capacity(info.config().get_hybrid_cache_capacity())
                 // This makes it possible for building a lazy DFA to
                 // fail even though the NFA has already been built. Namely,
                 // if the cache capacity is too small to fit some minimum
@@ -531,11 +534,11 @@ impl DFAEngine {
     ) -> Option<DFAEngine> {
         #[cfg(feature = "dfa-build")]
         {
-            if !info.config.get_dfa() {
+            if !info.config().get_dfa() {
                 return None;
             }
             // If our NFA is anything but small, don't even bother with a DFA.
-            if let Some(state_limit) = info.config.get_dfa_state_limit() {
+            if let Some(state_limit) = info.config().get_dfa_state_limit() {
                 if nfa.states().len() > state_limit {
                     debug!(
                         "skipping full DFA because NFA has {} states, \
@@ -551,9 +554,9 @@ impl DFAEngine {
             // itself, and those things are configured independently in the
             // lower level DFA builder API. And then split that in two because
             // of forward and reverse DFAs.
-            let size_limit = info.config.get_dfa_size_limit().map(|n| n / 4);
+            let size_limit = info.config().get_dfa_size_limit().map(|n| n / 4);
             let dfa_config = dfa::dense::Config::new()
-                .match_kind(info.config.get_match_kind())
+                .match_kind(info.config().get_match_kind())
                 .prefilter(pre.clone())
                 // Unconditionally enabling this seems fine for a meta regex
                 // engine. It can be most costly for DFAs than lazy DFAs,
@@ -564,7 +567,7 @@ impl DFAEngine {
                 // otherwise if we only had to build anchored or unanchored
                 // support instead of both.
                 .starts_for_each_pattern(true)
-                .byte_classes(info.config.get_byte_classes())
+                .byte_classes(info.config().get_byte_classes())
                 .unicode_word_boundary(true)
                 .specialize_start_states(pre.is_some())
                 .determinize_size_limit(size_limit)
@@ -697,7 +700,7 @@ impl OnePassEngine {
         {
             use regex_syntax::hir::Look;
 
-            if !info.config.get_onepass() {
+            if !info.config().get_onepass() {
                 return None;
             }
             // In order to even attempt building a one-pass DFA, we require
@@ -709,21 +712,21 @@ impl OnePassEngine {
             // but in those cases, the underlying regex is almost certainly
             // not one-pass or is too big to fit within the current one-pass
             // implementation limits.
-            if info.props_union.captures_len() == 0
-                && !info.props_union.look_set().contains_word_unicode()
+            if info.props_union().captures_len() == 0
+                && !info.props_union().look_set().contains_word_unicode()
             {
                 debug!("not building OnePass because it isn't worth it");
                 return None;
             }
             let onepass_config = onepass::Config::new()
-                .match_kind(info.config.get_match_kind())
-                .utf8(info.config.get_utf8())
+                .match_kind(info.config().get_match_kind())
+                .utf8(info.config().get_utf8())
                 // Like for the lazy DFA, we unconditionally enable this
                 // because it doesn't cost much and makes the API more
                 // flexible.
                 .starts_for_each_pattern(true)
-                .byte_classes(info.config.get_byte_classes())
-                .size_limit(info.config.get_onepass_size_limit());
+                .byte_classes(info.config().get_byte_classes())
+                .size_limit(info.config().get_onepass_size_limit());
             let result = onepass::Builder::new()
                 .configure(onepass_config)
                 .build_from_nfa(nfa.clone());

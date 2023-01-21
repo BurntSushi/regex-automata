@@ -25,8 +25,18 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct Regex {
-    info: RegexInfo,
+    /// The core matching engine.
     strat: Arc<dyn Strategy>,
+    /// Metadata about the regexes driving the strategy. The metadata is also
+    /// usually stored inside the strategy too, but we put it here as well
+    /// so that we can get quick access to it (without virtual calls) before
+    /// executing the regex engine. For example, we use this metadata to
+    /// detect a subset of cases where we know a match is impossible, and can
+    /// thus avoid calling into the strategy at all.
+    ///
+    /// This is also why a RegexInfo itself is internally ref-counted so clones
+    /// are cheap.
+    info: RegexInfo,
 }
 
 impl Regex {
@@ -69,11 +79,11 @@ impl Regex {
     }
 
     pub fn pattern_len(&self) -> usize {
-        self.info.props.len()
+        self.info.props().len()
     }
 
     pub fn get_config(&self) -> &Config {
-        &self.info.config
+        self.info.config()
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -82,6 +92,13 @@ impl Regex {
 }
 
 impl Regex {
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r"\w+$").unwrap();
+    /// let mut cache = re.create_cache();
+    /// assert!(re.is_match(&mut cache, "foo"));
+    /// ```
     #[inline]
     pub fn is_match<'h, I: Into<Input<'h>>>(
         &self,
@@ -199,13 +216,70 @@ impl Regex {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct RegexInfo {
-    pub(crate) config: Config,
-    pub(crate) props: Vec<hir::Properties>,
-    pub(crate) props_union: hir::Properties,
+pub(crate) struct RegexInfo(Arc<RegexInfoI>);
+
+#[derive(Clone, Debug)]
+struct RegexInfoI {
+    config: Config,
+    props: Vec<hir::Properties>,
+    props_union: hir::Properties,
 }
 
 impl RegexInfo {
+    fn new(config: Config, hirs: &[&Hir]) -> RegexInfo {
+        // Collect all of the properties from each of the HIRs, and also
+        // union them into one big set of properties representing all HIRs
+        // as if they were in one big alternation.
+        let mut props = vec![];
+        for hir in hirs.iter() {
+            props.push(hir.properties().clone());
+        }
+        let props_union = hir::Properties::union(&props);
+
+        RegexInfo(Arc::new(RegexInfoI { config, props, props_union }))
+    }
+
+    pub(crate) fn config(&self) -> &Config {
+        &self.0.config
+    }
+
+    pub(crate) fn props(&self) -> &[hir::Properties] {
+        &self.0.props
+    }
+
+    pub(crate) fn props_union(&self) -> &hir::Properties {
+        &self.0.props_union
+    }
+
+    /// Returns true when the search is guaranteed to be anchored. That is,
+    /// when a match is reported, its offset is guaranteed to correspond to
+    /// the start of the search.
+    ///
+    /// This includes returning true when `input` _isn't_ anchored but the
+    /// underlying regex is.
+    #[inline(always)]
+    pub(crate) fn is_anchored_start(&self, input: &Input<'_>) -> bool {
+        input.get_anchored().is_anchored() || self.is_always_anchored_start()
+    }
+
+    /// Returns true when this regex is always anchored to the start of a
+    /// search. And in particular, that regardless of an `Input` configuration,
+    /// if any match is reported it must start at `0`.
+    #[inline(always)]
+    pub(crate) fn is_always_anchored_start(&self) -> bool {
+        use regex_syntax::hir::Look;
+        self.props_union().look_set_prefix().contains(Look::Start)
+    }
+
+    /// Returns true when this regex is always anchored to the end of a
+    /// search. And in particular, that regardless of an `Input` configuration,
+    /// if any match is reported it must end at the end of the haystack.
+    #[inline(always)]
+    pub(crate) fn is_always_anchored_end(&self) -> bool {
+        use regex_syntax::hir::Look;
+        self.props_union().look_set_suffix().contains(Look::End)
+    }
+
     /// Returns true if and only if it is known that a match is impossible
     /// for the given input. This is useful for short-circuiting and avoiding
     /// running the regex engine if it's known no match can be reported.
@@ -229,7 +303,7 @@ impl RegexInfo {
         }
         // If the haystack is smaller than the minimum length required, then
         // we know there can be no match.
-        let minlen = match self.props_union.minimum_len() {
+        let minlen = match self.props_union().minimum_len() {
             None => return false,
             Some(minlen) => minlen,
         };
@@ -244,7 +318,7 @@ impl RegexInfo {
         //
         // I don't think we can apply the maximum otherwise unfortunately.
         if self.is_anchored_start(input) && self.is_always_anchored_end() {
-            let maxlen = match self.props_union.maximum_len() {
+            let maxlen = match self.props_union().maximum_len() {
                 None => return false,
                 Some(maxlen) => maxlen,
             };
@@ -253,35 +327,6 @@ impl RegexInfo {
             }
         }
         false
-    }
-
-    /// Returns true when the search is guaranteed to be anchored. That is,
-    /// when a match is reported, its offset is guaranteed to correspond to
-    /// the start of the search.
-    ///
-    /// This includes returning true when `input` _isn't_ anchored but the
-    /// underlying regex is.
-    #[inline(always)]
-    pub(crate) fn is_anchored_start(&self, input: &Input<'_>) -> bool {
-        input.get_anchored().is_anchored() || self.is_always_anchored_start()
-    }
-
-    /// Returns true when this regex is always anchored to the start of a
-    /// search. And in particular, that regardless of an `Input` configuration,
-    /// if any match is reported it must start at `0`.
-    #[inline(always)]
-    pub(crate) fn is_always_anchored_start(&self) -> bool {
-        use regex_syntax::hir::Look;
-        self.props_union.look_set_prefix().contains(Look::Start)
-    }
-
-    /// Returns true when this regex is always anchored to the end of a
-    /// search. And in particular, that regardless of an `Input` configuration,
-    /// if any match is reported it must end at the end of the haystack.
-    #[inline(always)]
-    pub(crate) fn is_always_anchored_end(&self) -> bool {
-        use regex_syntax::hir::Look;
-        self.props_union.look_set_suffix().contains(Look::End)
     }
 }
 
@@ -650,19 +695,9 @@ impl Builder {
         // with '&[&Hir]'. i.e., Don't use generics everywhere to keep code
         // bloat down..
         let hirs: Vec<&Hir> = hirs.iter().map(|hir| hir.borrow()).collect();
-
-        // Collect all of the properties from each of the HIRs, and also
-        // union them into one big set of properties representing all HIRs
-        // as if they were in one big alternation.
-        let mut props = vec![];
-        for hir in hirs.iter() {
-            props.push(hir.properties().clone());
-        }
-        let props_union = hir::Properties::union(&props);
-
-        let mut info = RegexInfo { config, props, props_union };
+        let info = RegexInfo::new(config, &hirs);
         let strat = strategy::new(&info, &hirs)?;
-        Ok(Regex { info, strat })
+        Ok(Regex { strat, info })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {
