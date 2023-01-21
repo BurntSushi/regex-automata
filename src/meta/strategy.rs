@@ -262,6 +262,10 @@ pub(super) fn new(
     // out a prefilter if we can, which will feed to each of the constituent
     // regex engines.
     let pre = if info.is_always_anchored_start() {
+        // TODO: I'm not sure we necessarily want to do this... We may want to
+        // run a prefilter for quick rejecting in some cases. This might mean
+        // having a notion of whether a prefilter is "fast"? Or maybe it just
+        // depends on haystack length? Or both?
         None
     } else if let Some(pre) = info.config.get_prefilter() {
         Some(pre.clone())
