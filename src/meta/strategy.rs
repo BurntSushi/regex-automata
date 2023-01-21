@@ -763,9 +763,10 @@ fn alternation_literals(
     // is decently fast, but not as fast as a well oiled lazy DFA.
     //
     // However, once the number starts getting large, the lazy DFA is likely
-    // to start thrashing. When exactly does this happen? Dunno. But at that
-    // point, we'll want to cut over to Aho-Corasick, where even the contiguous
-    // NFA is likely to do much better.
+    // to start thrashing because of the modest default cache size. When
+    // exactly does this happen? Dunno. But at whatever point that is (we make
+    // a guess below based on ad hoc benchmarking), we'll want to cut over to
+    // Aho-Corasick, where even the contiguous NFA is likely to do much better.
     if lits.len() < 3000 {
         debug!("skipping Aho-Corasick because there are too few literals");
         return None;
