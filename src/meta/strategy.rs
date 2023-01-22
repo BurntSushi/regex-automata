@@ -281,19 +281,35 @@ pub(super) fn new(
     } else {
         None
     };
+    let presuf = if !info.config().get_auto_prefilter() {
+        None
+    } else {
+        lits.suffixes().literals().and_then(|strings| {
+            debug!(
+                "creating suffix prefilter from {} literals: {:?}",
+                strings.len(),
+                strings,
+            );
+            Prefilter::new(kind, strings)
+        })
+    };
     let core = Core::new(info.clone(), pre.clone(), hirs)?;
     // Now that we have our core regex engines built, there are a few cases
     // where we can do a little bit better than just a normal "search forward
     // and maybe use a prefilter when in a start state." However, these cases
     // may not always work or otherwise build on top of the Core searcher.
-    // For example, the anchored reverse optimization seems like it might
+    // For example, the reverse anchored optimization seems like it might
     // always work, but only the DFAs support reverse searching and the DFAs
     // might give up or quit for reasons. If we had, e.g., a PikeVM that
     // supported reverse searching, then we could avoid building a full Core
     // engine for this case.
-    let core = match AnchoredReverse::new(core) {
+    let core = match ReverseAnchored::new(core) {
         Err(core) => core,
-        Ok(ar) => return Ok(Arc::new(ar)),
+        Ok(ra) => return Ok(Arc::new(ra)),
+    };
+    let core = match ReverseSuffix::new(core, presuf.clone()) {
+        Err(core) => core,
+        Ok(rs) => return Ok(Arc::new(rs)),
     };
     Ok(Arc::new(core))
 }
@@ -663,12 +679,12 @@ impl Strategy for Core {
 }
 
 #[derive(Debug)]
-struct AnchoredReverse {
+struct ReverseAnchored {
     core: Core,
 }
 
-impl AnchoredReverse {
-    fn new(core: Core) -> Result<AnchoredReverse, Core> {
+impl ReverseAnchored {
+    fn new(core: Core) -> Result<ReverseAnchored, Core> {
         if !core.info.is_always_anchored_end() {
             return Err(core);
         }
@@ -677,12 +693,12 @@ impl AnchoredReverse {
         // pretty unlikely) that we have neither and need to give up.
         if !core.hybrid.is_some() && !core.dfa.is_some() {
             debug!(
-                "skipping anchored reverse optimization because \
+                "skipping reverse anchored optimization because \
 				 we don't have a lazy DFA or a full DFA"
             );
             return Err(core);
         }
-        Ok(AnchoredReverse { core })
+        Ok(ReverseAnchored { core })
     }
 
     #[inline(always)]
@@ -691,25 +707,30 @@ impl AnchoredReverse {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, Option<MatchError>> {
-        let result = if let Some(e) = self.core.dfa.get(input) {
+        // We of course always want an anchored search. In theory, the
+        // underlying regex engines should automatically enable anchored
+        // searches since the regex is itself anchored, but this more clearly
+        // expresses intent and is always correct.
+        let input = input.clone().anchored(Anchored::Yes);
+        let result = if let Some(e) = self.core.dfa.get(&input) {
             trace!(
-                "using full DFA for anchored reverse search at {:?}",
+                "using full DFA for reverse anchored search at {:?}",
                 input.get_span()
             );
-            e.try_search_half_anchored_rev(input)
-        } else if let Some(e) = self.core.hybrid.get(input) {
+            e.try_search_half_rev(&input)
+        } else if let Some(e) = self.core.hybrid.get(&input) {
             trace!(
-                "using lazy DFA for anchored reverse search at {:?}",
+                "using lazy DFA for reverse anchored search at {:?}",
                 input.get_span()
             );
-            e.try_search_half_anchored_rev(&mut cache.hybrid, input)
+            e.try_search_half_rev(&mut cache.hybrid, &input)
         } else {
             unreachable!("AnchoredReverse always has a DFA")
         };
         match result {
             Ok(x) => Ok(x),
             Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("anchored reverse scan failed: {}", err);
+                trace!("reverse anchored scan failed: {}", err);
                 Err(None)
             }
             Err(err) => Err(Some(err)),
@@ -724,7 +745,7 @@ impl AnchoredReverse {
 // here because the 'Regex' wrapper actually does that for us in all cases.
 // Thus, in this impl, we can actually assume that the end position in 'input'
 // is equivalent to the length of the haystack.
-impl Strategy for AnchoredReverse {
+impl Strategy for ReverseAnchored {
     #[inline(always)]
     fn create_captures(&self) -> Captures {
         self.core.create_captures()
@@ -827,10 +848,143 @@ impl Strategy for AnchoredReverse {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        // It seems like this could probably benefit from an anchored reverse
+        // It seems like this could probably benefit from a reverse anchored
         // optimization, perhaps by doing an overlapping reverse search (which
         // the DFAs do support). I haven't given it much thought though, and
         // I'm currently focus more on the single pattern case.
+        self.core.try_which_overlapping_matches(cache, input, patset)
+    }
+}
+
+#[derive(Debug)]
+struct ReverseSuffix {
+    core: Core,
+    presuf: Prefilter,
+}
+
+impl ReverseSuffix {
+    fn new(
+        core: Core,
+        presuf: Option<Prefilter>,
+    ) -> Result<ReverseSuffix, Core> {
+        // Only DFAs can do reverse searches (currently), so we need one of
+        // them in order to do this optimization. It's possible (although
+        // pretty unlikely) that we have neither and need to give up.
+        if !core.hybrid.is_some() && !core.dfa.is_some() {
+            debug!(
+                "skipping reverse suffix optimization because \
+				 we don't have a lazy DFA or a full DFA"
+            );
+            return Err(core);
+        }
+        let presuf = match presuf {
+            Some(presuf) => presuf,
+            None => {
+                debug!(
+                    "skipping reverse suffix optimization because \
+					 we don't have a suffix prefilter"
+                );
+                return Err(core);
+            }
+        };
+        if !presuf.is_fast() {
+            debug!(
+                "skipping reverse suffix optimization because \
+				 while we have a suffix prefilter, it is not \
+				 believed to be 'fast'"
+            );
+        }
+        Ok(ReverseSuffix { core, presuf })
+    }
+
+    #[inline(always)]
+    fn try_search_half_anchored_rev(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
+        // Even though our regex might not be anchored, the way the reverse
+        // suffix optimization works, we always want an anchored search.
+        // Namely, once we find a suffix match, we need to run a reverse
+        // search anchored at the position of the match.
+        let input = input.clone().anchored(Anchored::Yes);
+        let result = if let Some(e) = self.core.dfa.get(&input) {
+            trace!(
+                "using full DFA for reverse anchored search at {:?}",
+                input.get_span()
+            );
+            e.try_search_half_rev(&input)
+        } else if let Some(e) = self.core.hybrid.get(&input) {
+            trace!(
+                "using lazy DFA for reverse anchored search at {:?}",
+                input.get_span()
+            );
+            e.try_search_half_rev(&mut cache.hybrid, &input)
+        } else {
+            unreachable!("AnchoredReverse always has a DFA")
+        };
+        match result {
+            Ok(x) => Ok(x),
+            Err(err) if is_err_quit_or_gaveup(&err) => {
+                trace!("reverse anchored scan failed: {}", err);
+                Err(None)
+            }
+            Err(err) => Err(Some(err)),
+        }
+    }
+}
+
+impl Strategy for ReverseSuffix {
+    #[inline(always)]
+    fn create_captures(&self) -> Captures {
+        self.core.create_captures()
+    }
+
+    #[inline(always)]
+    fn create_cache(&self) -> Cache {
+        self.core.create_cache()
+    }
+
+    #[inline(always)]
+    fn reset_cache(&self, cache: &mut Cache) {
+        self.core.reset_cache(cache);
+    }
+
+    #[inline(always)]
+    fn try_search(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<Match>, MatchError> {
+        self.core.try_search(cache, input)
+    }
+
+    #[inline(always)]
+    fn try_search_half(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        self.core.try_search_half(cache, input)
+    }
+
+    #[inline(always)]
+    fn try_search_slots(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
+        self.core.try_search_slots(cache, input, slots)
+    }
+
+    #[inline(always)]
+    fn try_which_overlapping_matches(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        patset: &mut PatternSet,
+    ) -> Result<(), MatchError> {
         self.core.try_which_overlapping_matches(cache, input, patset)
     }
 }

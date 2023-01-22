@@ -430,7 +430,7 @@ impl HybridEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_half_anchored_rev(
+    pub(crate) fn try_search_half_rev(
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
@@ -439,9 +439,7 @@ impl HybridEngine {
         {
             let rev = self.0.reverse();
             let mut revcache = cache.0.as_mut().unwrap().as_parts_mut().1;
-            // We of course always force an anchored search.
-            let input = input.clone().anchored(Anchored::Yes);
-            rev.try_search_rev(&mut revcache, &input)
+            rev.try_search_rev(&mut revcache, input)
         }
         #[cfg(not(feature = "hybrid"))]
         {
@@ -674,15 +672,13 @@ impl DFAEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_half_anchored_rev(
+    pub(crate) fn try_search_half_rev(
         &self,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
             use crate::dfa::Automaton;
-            // We of course always force an anchored search.
-            let input = input.clone().anchored(Anchored::Yes);
             self.0.reverse().try_search_rev(&input)
         }
         #[cfg(not(feature = "dfa-build"))]

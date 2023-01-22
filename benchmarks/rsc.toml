@@ -300,24 +300,6 @@ analysis = 'TODO'
 
 [[benches]]
 type = "count"
-name = "reverse-suffix-no-quadratic"
-regex = '[r-z].*bcdefghijklmnopq'
-haystack-path = "rsc/reverse-suffix-no-quadratic.txt"
-case-insensitive = false
-unicode = false
-match-count = 0
-engines = [
-  'regex/api',
-  'regexold/api',
-  'regex/automata/meta',
-  're2/api',
-  'pcre2/api/jit',
-  'pcre2/api/nojit',
-]
-analysis = 'TODO'
-
-[[benches]]
-type = "count"
 name = "easy0-32"
 regex = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 haystack-path = "rsc/easy0/32.txt"

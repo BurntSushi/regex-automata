@@ -122,14 +122,19 @@ pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
 }
 
 #[derive(Clone, Debug)]
-pub struct Prefilter(Arc<dyn PrefilterI>);
+pub struct Prefilter {
+    pre: Arc<dyn PrefilterI>,
+    is_fast: bool,
+}
 
 impl Prefilter {
     pub fn new<B: AsRef<[u8]>>(
         kind: MatchKind,
         needles: &[B],
     ) -> Option<Prefilter> {
-        new(kind, needles).map(Prefilter)
+        let pre = new(kind, needles)?;
+        let is_fast = pre.is_fast();
+        Some(Prefilter { pre, is_fast })
     }
 
     #[cfg(feature = "syntax")]
@@ -162,15 +167,19 @@ impl Prefilter {
     }
 
     pub fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.0.find(haystack, span)
+        self.pre.find(haystack, span)
     }
 
     pub fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.0.prefix(haystack, span)
+        self.pre.prefix(haystack, span)
     }
 
     pub fn memory_usage(&self) -> usize {
-        self.0.memory_usage()
+        self.pre.memory_usage()
+    }
+
+    pub(crate) fn is_fast(&self) -> bool {
+        self.is_fast
     }
 }
 
@@ -180,6 +189,24 @@ pub(crate) trait PrefilterI:
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span>;
     fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span>;
     fn memory_usage(&self) -> usize;
+
+    /// Implementations might return true here if they believe themselves to
+    /// be "fast." The concept of "fast" is deliberately left vague, but in
+    /// practice this usually corresponds to whether it's believed that SIMD
+    /// will be used.
+    ///
+    /// Why do we care about this? Well, some prefilter tricks tend to come
+    /// with their own bits of overhead, and so might only make sense if we
+    /// know that a scan will be *much* faster than the regex engine itself.
+    /// Otherwise, the trick may not be worth doing. Whether something is
+    /// "much" faster than the regex engine generally boils down to whether
+    /// SIMD is used.
+    ///
+    /// Even if this returns true, it is still possible for the prefilter to
+    /// be "slow." Remember, prefilters are just heuristics. We can't really
+    /// *know* a prefilter will be fast without actually trying the prefilter.
+    /// (Which of course we cannot afford to do.)
+    fn is_fast(&self) -> bool;
 }
 
 #[cfg(feature = "alloc")]
@@ -197,6 +224,11 @@ impl<P: PrefilterI + ?Sized> PrefilterI for Arc<P> {
     #[inline(always)]
     fn memory_usage(&self) -> usize {
         (&**self).memory_usage()
+    }
+
+    #[inline(always)]
+    fn is_fast(&self) -> bool {
+        (&**self).is_fast()
     }
 }
 
@@ -226,6 +258,10 @@ impl PrefilterI for Memchr {
     fn memory_usage(&self) -> usize {
         0
     }
+
+    fn is_fast(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(feature = "perf-literal-substring")]
@@ -254,6 +290,10 @@ impl PrefilterI for Memchr2 {
     fn memory_usage(&self) -> usize {
         0
     }
+
+    fn is_fast(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(feature = "perf-literal-substring")]
@@ -281,6 +321,10 @@ impl PrefilterI for Memchr3 {
 
     fn memory_usage(&self) -> usize {
         0
+    }
+
+    fn is_fast(&self) -> bool {
+        true
     }
 }
 
@@ -322,6 +366,10 @@ impl PrefilterI for ByteSet {
     fn memory_usage(&self) -> usize {
         0
     }
+
+    fn is_fast(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(feature = "perf-literal-substring")]
@@ -356,6 +404,10 @@ impl PrefilterI for Memmem {
 
     fn memory_usage(&self) -> usize {
         self.0.needle().len()
+    }
+
+    fn is_fast(&self) -> bool {
+        true
     }
 }
 
@@ -416,6 +468,15 @@ impl PrefilterI for Packed {
     fn memory_usage(&self) -> usize {
         use aho_corasick::automaton::Automaton;
         self.packed.memory_usage() + self.anchored_ac.memory_usage()
+    }
+
+    fn is_fast(&self) -> bool {
+        use aho_corasick::automaton::Automaton;
+        // Teddy is usually quite fast, but I have seen some cases where a
+        // large number of literals can overwhelm it and make it not so fast.
+        // We make an educated but conservative guess at a limit, at which
+        // point, we're not so comfortable thinking Teddy is "fast."
+        self.anchored_ac.patterns_len() <= 16
     }
 }
 
@@ -487,5 +548,22 @@ impl PrefilterI for AhoCorasick {
 
     fn memory_usage(&self) -> usize {
         self.ac.memory_usage()
+    }
+
+    fn is_fast(&self) -> bool {
+        // Aho-Corasick is never considered "fast" because it's never going to
+        // be even close to an order of magnitude faster than the regex engine
+        // itself (assuming a DFA is used). In fact, it is usually slower. The
+        // magic of Aho-Corasick is that it can search a *large* number of
+        // literals with a relatively small amount of memory. The regex engines
+        // are far more wasteful.
+        //
+        // Aho-Corasick may be "fast" when the regex engine corresponds to,
+        // say, the PikeVM. That happens when the lazy DFA couldn't be built or
+        // used for some reason. But in these cases, the regex itself is likely
+        // quite big and we're probably hosed no matter what we do. (In this
+        // case, the best bet is for the caller to increase some of the memory
+        // limits on the hybrid cache capacity and hope that's enough.)
+        false
     }
 }
