@@ -5,7 +5,8 @@ use crate::{
     },
     nfa::thompson::{pikevm, NFA},
     util::{prefilter::Prefilter, primitives::NonMaxUsize},
-    HalfMatch, Input, Match, MatchError, MatchKind, PatternID, PatternSet,
+    Anchored, HalfMatch, Input, Match, MatchError, MatchKind, PatternID,
+    PatternSet,
 };
 
 #[cfg(feature = "dfa-build")]
@@ -64,7 +65,7 @@ impl PikeVMEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_slots(
+    pub(crate) fn try_search_slots(
         &self,
         cache: &mut PikeVMCache,
         input: &Input<'_>,
@@ -74,7 +75,7 @@ impl PikeVMEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn which_overlapping_matches(
+    pub(crate) fn try_which_overlapping_matches(
         &self,
         cache: &mut PikeVMCache,
         input: &Input<'_>,
@@ -195,7 +196,7 @@ impl BoundedBacktrackerEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_slots(
+    pub(crate) fn try_search_slots(
         &self,
         cache: &mut BoundedBacktrackerCache,
         input: &Input<'_>,
@@ -391,6 +392,24 @@ impl HybridEngine {
     }
 
     #[inline(always)]
+    pub(crate) fn try_search(
+        &self,
+        cache: &mut HybridCache,
+        input: &Input<'_>,
+    ) -> Result<Option<Match>, MatchError> {
+        #[cfg(feature = "hybrid")]
+        {
+            self.0.try_search(cache.0.as_mut().unwrap(), input)
+        }
+        #[cfg(not(feature = "hybrid"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn try_search_half(
         &self,
         cache: &mut HybridCache,
@@ -411,14 +430,18 @@ impl HybridEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_find(
+    pub(crate) fn try_search_half_anchored_rev(
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "hybrid")]
         {
-            self.0.try_search(cache.0.as_mut().unwrap(), input)
+            let rev = self.0.reverse();
+            let mut revcache = cache.0.as_mut().unwrap().as_parts_mut().1;
+            // We of course always force an anchored search.
+            let input = input.clone().anchored(Anchored::Yes);
+            rev.try_search_rev(&mut revcache, &input)
         }
         #[cfg(not(feature = "hybrid"))]
         {
@@ -586,6 +609,14 @@ impl DFAEngine {
                 .configure(
                     dfa_config
                         .clone()
+                        // We never need unanchored reverse searches, so
+                        // there's no point in building it into the DFA, which
+                        // WILL take more space. (This isn't done for the lazy
+                        // DFA because the DFA is, well, lazy. It doesn't pay
+                        // the cost for supporting unanchored searches unless
+                        // you actually do an unanchored search, which we
+                        // don't.)
+                        .start_kind(dfa::StartKind::Anchored)
                         .match_kind(MatchKind::All)
                         .prefilter(None),
                 )
@@ -608,6 +639,23 @@ impl DFAEngine {
     }
 
     #[inline(always)]
+    pub(crate) fn try_search(
+        &self,
+        input: &Input<'_>,
+    ) -> Result<Option<Match>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            self.0.try_search(input)
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn try_search_half(
         &self,
         input: &Input<'_>,
@@ -626,13 +674,16 @@ impl DFAEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_find(
+    pub(crate) fn try_search_half_anchored_rev(
         &self,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
-            self.0.try_search(input)
+            use crate::dfa::Automaton;
+            // We of course always force an anchored search.
+            let input = input.clone().anchored(Anchored::Yes);
+            self.0.reverse().try_search_rev(&input)
         }
         #[cfg(not(feature = "dfa-build"))]
         {
@@ -747,7 +798,7 @@ impl OnePassEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_slots(
+    pub(crate) fn try_search_slots(
         &self,
         cache: &mut OnePassCache,
         input: &Input<'_>,

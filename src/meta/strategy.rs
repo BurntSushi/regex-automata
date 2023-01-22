@@ -388,14 +388,70 @@ impl Core {
         Ok(Core { info, nfa, nfarev, pikevm, backtrack, onepass, hybrid, dfa })
     }
 
-    fn try_find_fallback(
+    #[inline(always)]
+    fn try_search_mayfail(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<Match>, Option<MatchError>> {
+        let err = if let Some(e) = self.dfa.get(input) {
+            trace!("using full DFA for search at {:?}", input.get_span());
+            match e.try_search(input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            }
+        } else if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for search at {:?}", input.get_span());
+            match e.try_search(&mut cache.hybrid, input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            }
+        } else {
+            return Err(None);
+        };
+        if !is_err_quit_or_gaveup(&err) {
+            return Err(Some(err));
+        }
+        trace!("DFA failed in search: {}", err);
+        Err(None)
+    }
+
+    #[inline(always)]
+    fn try_search_half_mayfail(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
+        let err = if let Some(e) = self.dfa.get(input) {
+            trace!("using full DFA for half search at {:?}", input.get_span());
+            match e.try_search_half(input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            }
+        } else if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for half search at {:?}", input.get_span());
+            match e.try_search_half(&mut cache.hybrid, input) {
+                Ok(m) => return Ok(m),
+                Err(err) => err,
+            }
+        } else {
+            return Err(None);
+        };
+        if !is_err_quit_or_gaveup(&err) {
+            return Err(Some(err));
+        }
+        trace!("DFA failed in half search: {}", err);
+        Err(None)
+    }
+
+    fn try_search_nofail(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         let caps = &mut cache.capmatches;
         caps.set_pattern(None);
-        // We manually inline 'try_slots_no_hybrid' here because we need to
+        // We manually inline 'try_search_slots_nofail' here because we need to
         // borrow from 'cache.capmatches' in this method, but if we do, then
         // we can't pass 'cache' wholesale to to 'try_slots_no_hybrid'. It's a
         // classic example of how the borrow checker inhibits decomposition.
@@ -403,23 +459,23 @@ impl Core {
         // mutability), but that's more annoying than this IMO.
         let pid = if let Some(ref e) = self.onepass.get(input) {
             trace!("using OnePass for basic search at {:?}", input.get_span());
-            e.try_slots(&mut cache.onepass, input, caps.slots_mut())
+            e.try_search_slots(&mut cache.onepass, input, caps.slots_mut())
         } else if let Some(ref e) = self.backtrack.get(input) {
             trace!(
                 "using BoundedBacktracker for basic search at {:?}",
                 input.get_span()
             );
-            e.try_slots(&mut cache.backtrack, input, caps.slots_mut())
+            e.try_search_slots(&mut cache.backtrack, input, caps.slots_mut())
         } else {
             trace!("using PikeVM for basic search at {:?}", input.get_span());
             let e = self.pikevm.get().expect("PikeVM is always available");
-            e.try_slots(&mut cache.pikevm, input, caps.slots_mut())
+            e.try_search_slots(&mut cache.pikevm, input, caps.slots_mut())
         }?;
         caps.set_pattern(pid);
         Ok(caps.get_match())
     }
 
-    fn try_slots_fallback(
+    fn try_search_slots_nofail(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -430,21 +486,25 @@ impl Core {
                 "using OnePass for capture search at {:?}",
                 input.get_span()
             );
-            e.try_slots(&mut cache.onepass, input, slots)
+            e.try_search_slots(&mut cache.onepass, input, slots)
         } else if let Some(ref e) = self.backtrack.get(input) {
             trace!(
                 "using BoundedBacktracker for capture search at {:?}",
                 input.get_span()
             );
-            e.try_slots(&mut cache.backtrack, input, slots)
+            e.try_search_slots(&mut cache.backtrack, input, slots)
         } else {
             trace!(
                 "using PikeVM for capture search at {:?}",
                 input.get_span()
             );
             let e = self.pikevm.get().expect("PikeVM is always available");
-            e.try_slots(&mut cache.pikevm, input, slots)
+            e.try_search_slots(&mut cache.pikevm, input, slots)
         }
+    }
+
+    fn is_capture_search_needed(&self, slots_len: usize) -> bool {
+        slots_len > self.nfa.group_info().implicit_slot_len()
     }
 }
 
@@ -479,36 +539,11 @@ impl Strategy for Core {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        if let Some(e) = self.dfa.get(input) {
-            trace!(
-                "using full DFA for basic search at {:?}",
-                input.get_span()
-            );
-            let err = match e.try_find(input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
-            }
-            trace!("full DFA failed in basic search, using fallback: {}", err);
-            // Fallthrough to the fallback.
-        } else if let Some(e) = self.hybrid.get(input) {
-            trace!(
-                "using lazy DFA for basic search at {:?}",
-                input.get_span()
-            );
-            let err = match e.try_find(&mut cache.hybrid, input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
-            }
-            trace!("lazy DFA failed in basic search, using fallback: {}", err);
-            // Fallthrough to the fallback.
+        match self.try_search_mayfail(cache, input) {
+            Ok(x) => Ok(x),
+            Err(Some(err)) => Err(err),
+            Err(None) => self.try_search_nofail(cache, input),
         }
-        self.try_find_fallback(cache, input)
     }
 
     #[inline(always)]
@@ -520,36 +555,19 @@ impl Strategy for Core {
         // The main difference with 'try_find' is that if we're using a DFA,
         // we can use a single forward scan without needing to run the reverse
         // DFA.
-        if let Some(e) = self.dfa.get(input) {
-            trace!("using full DFA for half search at {:?}", input.get_span());
-            let err = match e.try_search_half(input) {
-                Ok(matched) => return Ok(matched),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
+        match self.try_search_half_mayfail(cache, input) {
+            Ok(x) => Ok(x),
+            Err(Some(err)) => Err(err),
+            Err(None) => {
+                // Only the lazy/full DFA returns half-matches, since the DFA
+                // requires a reverse scan to find the start position. These
+                // fallback regex engines can find the start and end in a
+                // single pass, so we just do that and throw away the start
+                // offset.
+                let matched = self.try_search_nofail(cache, input)?;
+                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
             }
-            trace!("full DFA failed for half search, using fallback: {}", err);
-            // Fallthrough to the fallback.
-        } else if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for half search at {:?}", input.get_span());
-            let err = match e.try_search_half(&mut cache.hybrid, input) {
-                Ok(matched) => return Ok(matched),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
-            }
-            trace!("lazy DFA failed for half search, using fallback: {}", err);
-            // Fallthrough to the fallback.
         }
-        // Only the lazy/full DFA returns half-matches, since the DFA requires
-        // a reverse scan to find the start position. These fallback regex
-        // engines can find the start and end in a single pass, so we just do
-        // that and throw away the start offset.
-        Ok(self
-            .try_find_fallback(cache, input)?
-            .map(|m| HalfMatch::new(m.pattern(), m.end())))
     }
 
     #[inline(always)]
@@ -564,94 +582,38 @@ impl Strategy for Core {
         // extra work to get offsets for those slots. Ideally the caller should
         // realize this and not call this routine in the first place, but alas,
         // we try to save the caller from themselves if they do.
-        if slots.len() <= self.nfa.group_info().implicit_slot_len() {
-            trace!("asked for slots unnecessarily, diverting to 'find'");
+        if !self.is_capture_search_needed(slots.len()) {
+            trace!("asked for slots unnecessarily, trying fast path");
             let m = match self.try_search(cache, input)? {
                 None => return Ok(None),
                 Some(m) => m,
             };
-            let slot_start = m.pattern().as_usize() * 2;
-            let slot_end = slot_start + 1;
-            if let Some(slot) = slots.get_mut(slot_start) {
-                *slot = NonMaxUsize::new(m.start());
-            }
-            if let Some(slot) = slots.get_mut(slot_end) {
-                *slot = NonMaxUsize::new(m.end());
-            }
+            copy_match_to_slots(m, slots);
             return Ok(Some(m.pattern()));
         }
-        if let Some(e) = self.dfa.get(input) {
-            trace!(
-                "using full DFA for initial capture search at {:?}",
-                input.get_span()
-            );
-            match e.try_find(input) {
-                Ok(None) => return Ok(None),
-                Ok(Some(m)) => {
-                    // At this point, now that we've found the bounds of the
-                    // match, we need to re-run something that can resolve
-                    // capturing groups. But we only need to run on it on the
-                    // match bounds and not the entire haystack.
-                    trace!(
-                        "match found at {}..{}, \
-                         using another engine to find captures",
-                        m.start(),
-                        m.end(),
-                    );
-                    let input = input
-                        .clone()
-                        .span(m.start()..m.end())
-                        .anchored(Anchored::Yes);
-                    return self.try_slots_fallback(cache, &input, slots);
-                }
-                Err(err) => {
-                    if !is_err_quit_or_gaveup(&err) {
-                        return Err(err);
-                    }
-                    trace!(
-                        "full DFA failed in capture search, using fallback: {}",
-                        err,
-                    );
-                    // Otherwise fallthrough to the fallback below.
-                }
-            };
-        } else if let Some(e) = self.hybrid.get(input) {
-            trace!(
-                "using lazy DFA for initial capture search at {:?}",
-                input.get_span()
-            );
-            match e.try_find(&mut cache.hybrid, input) {
-                Ok(None) => return Ok(None),
-                Ok(Some(m)) => {
-                    // At this point, now that we've found the bounds of the
-                    // match, we need to re-run something that can resolve
-                    // capturing groups. But we only need to run on it on the
-                    // match bounds and not the entire haystack.
-                    trace!(
-                        "match found at {}..{}, \
-                         using another engine to find captures",
-                        m.start(),
-                        m.end(),
-                    );
-                    let input = input
-                        .clone()
-                        .span(m.start()..m.end())
-                        .anchored(Anchored::Yes);
-                    return self.try_slots_fallback(cache, &input, slots);
-                }
-                Err(err) => {
-                    if !is_err_quit_or_gaveup(&err) {
-                        return Err(err);
-                    }
-                    trace!(
-                        "lazy DFA failed in capture search, using fallback: {}",
-                        err,
-                    );
-                    // Otherwise fallthrough to the fallback below.
-                }
-            };
-        }
-        self.try_slots_fallback(cache, input, slots)
+        let m = match self.try_search_mayfail(cache, input) {
+            Ok(Some(m)) => m,
+            Ok(None) => return Ok(None),
+            Err(Some(err)) => return Err(err),
+            Err(None) => {
+                return self.try_search_slots_nofail(cache, input, slots)
+            }
+        };
+        // At this point, now that we've found the bounds of the
+        // match, we need to re-run something that can resolve
+        // capturing groups. But we only need to run on it on the
+        // match bounds and not the entire haystack.
+        trace!(
+            "match found at {}..{} in capture search, \
+		  	 using another engine to find captures",
+            m.start(),
+            m.end(),
+        );
+        let input = input
+            .clone()
+            .span(m.start()..m.end())
+            .anchored(Anchored::Pattern(m.pattern()));
+        self.try_search_slots_nofail(cache, &input, slots)
     }
 
     #[inline(always)]
@@ -701,7 +663,7 @@ impl Strategy for Core {
             // Fallthrough to the fallback.
         }
         let e = self.pikevm.get().expect("PikeVM is always available");
-        e.which_overlapping_matches(&mut cache.pikevm, input, patset)
+        e.try_which_overlapping_matches(&mut cache.pikevm, input, patset)
     }
 }
 
@@ -726,6 +688,37 @@ impl AnchoredReverse {
             return Err(core);
         }
         Ok(AnchoredReverse { core })
+    }
+
+    #[inline(always)]
+    fn try_search_half_anchored_rev(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
+        let result = if let Some(e) = self.core.dfa.get(input) {
+            trace!(
+                "using full DFA for anchored reverse search at {:?}",
+                input.get_span()
+            );
+            e.try_search_half_anchored_rev(input)
+        } else if let Some(e) = self.core.hybrid.get(input) {
+            trace!(
+                "using lazy DFA for anchored reverse search at {:?}",
+                input.get_span()
+            );
+            e.try_search_half_anchored_rev(&mut cache.hybrid, input)
+        } else {
+            unreachable!("AnchoredReverse always has a DFA")
+        };
+        match result {
+            Ok(x) => Ok(x),
+            Err(err) if is_err_quit_or_gaveup(&err) => {
+                trace!("anchored reverse scan failed: {}", err);
+                Err(None)
+            }
+            Err(err) => Err(Some(err)),
+        }
     }
 }
 
@@ -758,36 +751,20 @@ impl Strategy for AnchoredReverse {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        if let Some(e) = self.core.dfa.get(input) {
-            trace!(
-                "using full DFA for anchored reverse search at {:?}",
-                input.get_span()
-            );
-            let err = match e.try_find(input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
+        match self.try_search_half_anchored_rev(cache, input) {
+            Ok(None) => return Ok(None),
+            Ok(Some(hm)) => {
+                return Ok(Some(Match::new(
+                    hm.pattern(),
+                    hm.offset()..input.end(),
+                )))
             }
-            trace!("full DFA failed in basic search, using fallback: {}", err);
-            // Fallthrough to the fallback.
-        } else if let Some(e) = self.core.hybrid.get(input) {
-            trace!(
-                "using lazy DFA for basic search at {:?}",
-                input.get_span()
-            );
-            let err = match e.try_find(&mut cache.hybrid, input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
+            Err(Some(err)) => return Err(err),
+            Err(None) => {
+                trace!("using fallback in basic search");
+                self.core.try_search(cache, input)
             }
-            trace!("lazy DFA failed in basic search, using fallback: {}", err);
-            // Fallthrough to the fallback.
         }
-        self.core.try_search(cache, input)
     }
 
     #[inline(always)]
@@ -796,7 +773,23 @@ impl Strategy for AnchoredReverse {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
-        self.core.try_search_half(cache, input)
+        match self.try_search_half_anchored_rev(cache, input) {
+            Ok(None) => return Ok(None),
+            Ok(Some(hm)) => {
+                // Careful here! 'try_search_half' is a *forward* search that
+                // only cares about the *end* position of a match. But
+                // 'hm.offset()' is actually the start of the match. So we
+                // actually just throw that away here and, since we know we
+                // have a match, return the only possible position at which a
+                // match can occur: input.end().
+                return Ok(Some(HalfMatch::new(hm.pattern(), input.end())));
+            }
+            Err(Some(err)) => return Err(err),
+            Err(None) => {
+                trace!("using fallback in half search");
+                self.core.try_search_half(cache, input)
+            }
+        }
     }
 
     #[inline(always)]
@@ -806,7 +799,30 @@ impl Strategy for AnchoredReverse {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
-        self.core.try_search_slots(cache, input, slots)
+        match self.try_search_half_anchored_rev(cache, input) {
+            Ok(None) => return Ok(None),
+            Ok(Some(hm)) => {
+                if !self.core.is_capture_search_needed(slots.len()) {
+                    trace!("asked for slots unnecessarily, skipping captures");
+                    let m = Match::new(hm.pattern(), hm.offset()..input.end());
+                    copy_match_to_slots(m, slots);
+                    return Ok(Some(m.pattern()));
+                }
+                let start = hm.offset();
+                let input = input
+                    .clone()
+                    .span(start..input.end())
+                    .anchored(Anchored::Pattern(hm.pattern()));
+                return self
+                    .core
+                    .try_search_slots_nofail(cache, &input, slots);
+            }
+            Err(Some(err)) => return Err(err),
+            Err(None) => {
+                trace!("using fallback in capture search");
+                self.core.try_search_slots(cache, input, slots)
+            }
+        }
     }
 
     #[inline(always)]
@@ -916,6 +932,18 @@ fn alternation_literals(
         return None;
     }
     Some(lits)
+}
+
+#[inline(always)]
+fn copy_match_to_slots(m: Match, slots: &mut [Option<NonMaxUsize>]) {
+    let slot_start = m.pattern().as_usize() * 2;
+    let slot_end = slot_start + 1;
+    if let Some(slot) = slots.get_mut(slot_start) {
+        *slot = NonMaxUsize::new(m.start());
+    }
+    if let Some(slot) = slots.get_mut(slot_end) {
+        *slot = NonMaxUsize::new(m.end());
+    }
 }
 
 /// Returns true only when the given error corresponds to a search that failed
