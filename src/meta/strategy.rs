@@ -458,16 +458,16 @@ impl Core {
         // There are of course work-arounds (more types and/or interior
         // mutability), but that's more annoying than this IMO.
         let pid = if let Some(ref e) = self.onepass.get(input) {
-            trace!("using OnePass for basic search at {:?}", input.get_span());
+            trace!("using OnePass for search at {:?}", input.get_span());
             e.try_search_slots(&mut cache.onepass, input, caps.slots_mut())
         } else if let Some(ref e) = self.backtrack.get(input) {
             trace!(
-                "using BoundedBacktracker for basic search at {:?}",
+                "using BoundedBacktracker for search at {:?}",
                 input.get_span()
             );
             e.try_search_slots(&mut cache.backtrack, input, caps.slots_mut())
         } else {
-            trace!("using PikeVM for basic search at {:?}", input.get_span());
+            trace!("using PikeVM for search at {:?}", input.get_span());
             let e = self.pikevm.get().expect("PikeVM is always available");
             e.try_search_slots(&mut cache.pikevm, input, caps.slots_mut())
         }?;
@@ -623,45 +623,40 @@ impl Strategy for Core {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        if let Some(e) = self.dfa.get(input) {
+        let err = if let Some(e) = self.dfa.get(input) {
             trace!(
                 "using full DFA for overlapping search at {:?}",
                 input.get_span()
             );
-            let err = match e.try_which_overlapping_matches(input, patset) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            };
-            if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
+            match e.try_which_overlapping_matches(input, patset) {
+                Ok(()) => return Ok(()),
+                Err(err) => Some(err),
             }
-            trace!(
-                "full DFA failed in overlapping search, using fallback: {}",
-                err
-            );
-            // Fallthrough to the fallback.
         } else if let Some(e) = self.hybrid.get(input) {
             trace!(
                 "using lazy DFA for overlapping search at {:?}",
                 input.get_span()
             );
-            let err = match e.try_which_overlapping_matches(
+            match e.try_which_overlapping_matches(
                 &mut cache.hybrid,
                 input,
                 patset,
             ) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            };
+                Ok(()) => return Ok(()),
+                Err(err) => Some(err),
+            }
+        } else {
+            None
+        };
+        if let Some(err) = err {
             if !is_err_quit_or_gaveup(&err) {
                 return Err(err);
             }
-            trace!(
-                "lazy DFA failed in overlapping search, using fallback: {}",
-                err
-            );
-            // Fallthrough to the fallback.
         }
+        trace!(
+            "using PikeVM for overlapping search at {:?}",
+            input.get_span()
+        );
         let e = self.pikevm.get().expect("PikeVM is always available");
         e.try_which_overlapping_matches(&mut cache.pikevm, input, patset)
     }
@@ -761,7 +756,7 @@ impl Strategy for AnchoredReverse {
             }
             Err(Some(err)) => return Err(err),
             Err(None) => {
-                trace!("using fallback in basic search");
+                trace!("using fallback in search");
                 self.core.try_search(cache, input)
             }
         }
