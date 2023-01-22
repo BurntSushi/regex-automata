@@ -850,7 +850,8 @@ fn alternation_literals_to_aho_corasick(
     use crate::util::prefilter::AhoCorasick;
 
     let lits = alternation_literals(info, hirs)?;
-    AhoCorasick::new_as_strategy(MatchKind::LeftmostFirst, &lits)
+    let ac = AhoCorasick::new(MatchKind::LeftmostFirst, &lits)?;
+    Some(Arc::new(ac))
 }
 
 /// Pull out an alternation of literals from the given sequence of HIR

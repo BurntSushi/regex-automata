@@ -427,7 +427,7 @@ pub(crate) struct AhoCorasick {
 
 #[cfg(feature = "perf-literal-multisubstring")]
 impl AhoCorasick {
-    fn new<B: AsRef<[u8]>>(
+    pub(crate) fn new<B: AsRef<[u8]>>(
         kind: MatchKind,
         needles: &[B],
     ) -> Option<AhoCorasick> {
@@ -467,15 +467,6 @@ impl AhoCorasick {
             }
         };
         Some(AhoCorasick { ac })
-    }
-
-    #[cfg(feature = "meta")]
-    pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
-        kind: MatchKind,
-        needles: &[B],
-    ) -> Option<Arc<dyn crate::meta::Strategy>> {
-        let ac = AhoCorasick::new(kind, needles)?;
-        Some(Arc::new(ac))
     }
 }
 
