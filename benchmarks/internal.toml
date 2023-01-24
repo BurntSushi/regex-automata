@@ -270,6 +270,26 @@ analysis = 'TODO'
 
 [[benches]]
 type = "count"
+name = "allcodepoints"
+regex = '(?s:.)+'
+haystack-path = "allcodepoints.txt"
+case-insensitive = false
+unicode = true
+match-count = 1
+engines = [
+  'regex/api',
+  'regex/automata/meta',
+  'regex/automata/hybrid',
+  'regex/automata/pikevm',
+  'regexold/api',
+  're2/api',
+  'pcre2/api/jit',
+  # 'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
 name = "graphemes"
 regex = '''
 (?x)

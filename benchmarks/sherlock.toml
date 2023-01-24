@@ -381,6 +381,7 @@ engines = [
 ]
 analysis = 'TODO'
 
+# See everything-greedy-nl.
 [[benches]]
 type = "count"
 name = "everything-greedy"
@@ -398,6 +399,20 @@ engines = [
 ]
 analysis = 'TODO'
 
+# This benchmark demonstrates the impact of not having a fast path when a DFA
+# enters a match state. Namely, in this regex, the DFA is always in a match
+# state, and thus its inner loop constantly gets dropped into handling the
+# "special state" for every byte of input. This quite drastically impacts perf.
+#
+# In the old lazy DFA, we had a special optimization to handle this: once the
+# DFA enters a match state, we enter a special loop that keeps going so long as
+# the DFA is in a match state.
+#
+# It *might* be worth adding that optimization back in, but I don't think it's
+# worth doing for a benchmark like this. This particular benchmark is pretty
+# pathological as it just matches everything it can.
+#
+# (This also applies to 'everything-greedy', but to a lesser extent.)
 [[benches]]
 type = "count"
 name = "everything-greedy-nl"

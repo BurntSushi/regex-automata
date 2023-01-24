@@ -3005,44 +3005,44 @@ impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
 }
 
 unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
-    #[inline]
+    #[inline(always)]
     fn is_special_state(&self, id: StateID) -> bool {
         self.special.is_special_state(id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_dead_state(&self, id: StateID) -> bool {
         self.special.is_dead_state(id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_quit_state(&self, id: StateID) -> bool {
         self.special.is_quit_state(id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_match_state(&self, id: StateID) -> bool {
         self.special.is_match_state(id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_start_state(&self, id: StateID) -> bool {
         self.special.is_start_state(id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_accel_state(&self, id: StateID) -> bool {
         self.special.is_accel_state(id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn next_state(&self, current: StateID, input: u8) -> StateID {
         let input = self.byte_classes().get(input);
         let o = current.as_usize() + usize::from(input);
         self.trans()[o]
     }
 
-    #[inline]
+    #[inline(always)]
     unsafe fn next_state_unchecked(
         &self,
         current: StateID,
@@ -3057,24 +3057,24 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         *self.trans().get_unchecked(o)
     }
 
-    #[inline]
+    #[inline(always)]
     fn next_eoi_state(&self, current: StateID) -> StateID {
         let eoi = self.byte_classes().eoi().as_usize();
         let o = current.as_usize() + eoi;
         self.trans()[o]
     }
 
-    #[inline]
+    #[inline(always)]
     fn pattern_len(&self) -> usize {
         self.ms.pattern_len
     }
 
-    #[inline]
+    #[inline(always)]
     fn match_len(&self, id: StateID) -> usize {
         self.match_pattern_len(id)
     }
 
-    #[inline]
+    #[inline(always)]
     fn match_pattern(&self, id: StateID, match_index: usize) -> PatternID {
         // This is an optimization for the very common case of a DFA with a
         // single pattern. This conditional avoids a somewhat more costly path
@@ -3088,22 +3088,22 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         self.ms.pattern_id(state_index, match_index)
     }
 
-    #[inline]
+    #[inline(always)]
     fn has_empty(&self) -> bool {
         self.flags.has_empty
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_utf8(&self) -> bool {
         self.flags.is_utf8
     }
 
-    #[inline]
+    #[inline(always)]
     fn is_always_start_anchored(&self) -> bool {
         self.flags.is_always_start_anchored
     }
 
-    #[inline]
+    #[inline(always)]
     fn start_state_forward(
         &self,
         input: &Input<'_>,
@@ -3119,7 +3119,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         self.st.start(input, start)
     }
 
-    #[inline]
+    #[inline(always)]
     fn start_state_reverse(
         &self,
         input: &Input<'_>,
@@ -3135,7 +3135,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         self.st.start(input, start)
     }
 
-    #[inline]
+    #[inline(always)]
     fn universal_start_state(&self, mode: Anchored) -> Option<StateID> {
         match mode {
             Anchored::No => self.st.universal_start_unanchored,
@@ -3152,7 +3152,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
         self.accels.needles(self.accelerator_index(id))
     }
 
-    #[inline]
+    #[inline(always)]
     fn get_prefilter(&self) -> Option<&Prefilter> {
         self.pre.as_ref()
     }
@@ -4045,6 +4045,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     /// not built with unanchored starting states. Or asking for an anchored
     /// pattern search with an invalid pattern ID or on a DFA that was not
     /// built with start states for each pattern.
+    #[inline(always)]
     fn start(
         &self,
         input: &Input<'_>,

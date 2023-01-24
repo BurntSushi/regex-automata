@@ -56,7 +56,19 @@ pub(crate) fn extract(hirs: &[&Hir]) -> Option<(Hir, Prefilter)> {
         }
         let concat_prefix =
             Hir::concat(concat.iter().take(i).map(|h| h.clone()).collect());
-        return Some((concat_prefix, pre));
+        let concat_suffix =
+            Hir::concat(concat.iter().skip(i).map(|h| h.clone()).collect());
+        let pre2 = match prefilter(hir) {
+            None => pre,
+            Some(pre2) => {
+                if pre2.is_fast() {
+                    pre2
+                } else {
+                    pre
+                }
+            }
+        };
+        return Some((concat_prefix, pre2));
     }
     debug!(
         "skipping reverse inner optimization because a top-level \
