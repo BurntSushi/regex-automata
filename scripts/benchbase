@@ -1,0 +1,11 @@
+#!/bin/sh
+
+d="$(date +'%Y-%m-%d')"
+dir=tmp/bench/base
+
+regex-cli bench measure -e meta | tee "$dir/meta-$d.csv"
+regex-cli bench measure -e pcre2/api/jit | tee "$dir/pcre2-jit-$d.csv"
+regex-cli bench measure -e pcre2/api/nojit | tee "$dir/pcre2-nojit-$d.csv"
+regex-cli bench measure -e '^re2/api$' | tee "$dir/re2-$d.csv"
+regex-cli bench measure -e regexold | tee "$dir/regexold-$d.csv"
+regex-cli bench measure -e regex/api | tee "$dir/regex-$d.csv"
