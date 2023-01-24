@@ -382,6 +382,7 @@ pub struct Cache {
     pub(crate) backtrack: wrappers::BoundedBacktrackerCache,
     pub(crate) onepass: wrappers::OnePassCache,
     pub(crate) hybrid: wrappers::HybridCache,
+    pub(crate) revhybrid: wrappers::ReverseHybridCache,
 }
 
 impl Cache {
@@ -399,6 +400,7 @@ impl Cache {
         bytes += self.backtrack.memory_usage();
         bytes += self.onepass.memory_usage();
         bytes += self.hybrid.memory_usage();
+        bytes += self.revhybrid.memory_usage();
         bytes
     }
 }

@@ -1,10 +1,15 @@
+use alloc::vec::Vec;
+
 use crate::{
     meta::{
         error::BuildError,
         regex::{Config, RegexInfo},
     },
     nfa::thompson::{pikevm, NFA},
-    util::{prefilter::Prefilter, primitives::NonMaxUsize},
+    util::{
+        prefilter::Prefilter,
+        primitives::{NonMaxUsize, StateID},
+    },
     Anchored, HalfMatch, Input, Match, MatchError, MatchKind, PatternID,
     PatternSet,
 };
@@ -275,6 +280,151 @@ impl BoundedBacktrackerCache {
 }
 
 #[derive(Debug)]
+pub(crate) struct OnePass(Option<OnePassEngine>);
+
+impl OnePass {
+    pub(crate) fn none() -> OnePass {
+        OnePass(None)
+    }
+
+    pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> OnePass {
+        OnePass(OnePassEngine::new(info, nfa))
+    }
+
+    pub(crate) fn create_cache(&self) -> OnePassCache {
+        OnePassCache::new(self)
+    }
+
+    #[inline(always)]
+    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&OnePassEngine> {
+        let engine = self.0.as_ref()?;
+        if !input.get_anchored().is_anchored() {
+            return None;
+        }
+        Some(engine)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct OnePassEngine(
+    #[cfg(feature = "dfa-onepass")] onepass::DFA,
+    #[cfg(not(feature = "dfa-onepass"))] (),
+);
+
+impl OnePassEngine {
+    pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> Option<OnePassEngine> {
+        #[cfg(feature = "dfa-onepass")]
+        {
+            use regex_syntax::hir::Look;
+
+            if !info.config().get_onepass() {
+                return None;
+            }
+            // In order to even attempt building a one-pass DFA, we require
+            // that we either have at least one explicit capturing group or
+            // there's a Unicode word boundary somewhere. If we don't have
+            // either of these things, then the lazy DFA will almost certainly
+            // be useable and be much faster. The only case where it might
+            // not is if the lazy DFA isn't utilizing its cache effectively,
+            // but in those cases, the underlying regex is almost certainly
+            // not one-pass or is too big to fit within the current one-pass
+            // implementation limits.
+            if info.props_union().captures_len() == 0
+                && !info.props_union().look_set().contains_word_unicode()
+            {
+                debug!("not building OnePass because it isn't worth it");
+                return None;
+            }
+            let onepass_config = onepass::Config::new()
+                .match_kind(info.config().get_match_kind())
+                .utf8(info.config().get_utf8())
+                // Like for the lazy DFA, we unconditionally enable this
+                // because it doesn't cost much and makes the API more
+                // flexible.
+                .starts_for_each_pattern(true)
+                .byte_classes(info.config().get_byte_classes())
+                .size_limit(info.config().get_onepass_size_limit());
+            let result = onepass::Builder::new()
+                .configure(onepass_config)
+                .build_from_nfa(nfa.clone());
+            let engine = match result {
+                Ok(engine) => engine,
+                Err(err) => {
+                    debug!("OnePass failed to build: {}", err);
+                    return None;
+                }
+            };
+            debug!("OnePass built");
+            Some(OnePassEngine(engine))
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_search_slots(
+        &self,
+        cache: &mut OnePassCache,
+        input: &Input<'_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Result<Option<PatternID>, MatchError> {
+        #[cfg(feature = "dfa-onepass")]
+        {
+            self.0.try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct OnePassCache(
+    #[cfg(feature = "dfa-onepass")] Option<onepass::Cache>,
+    #[cfg(not(feature = "dfa-onepass"))] (),
+);
+
+impl OnePassCache {
+    pub(crate) fn none() -> OnePassCache {
+        OnePassCache(None)
+    }
+
+    pub(crate) fn new(builder: &OnePass) -> OnePassCache {
+        #[cfg(feature = "dfa-onepass")]
+        {
+            OnePassCache(builder.0.as_ref().map(|e| e.0.create_cache()))
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            OnePassCache(())
+        }
+    }
+
+    pub(crate) fn reset(&mut self, builder: &OnePass) {
+        #[cfg(feature = "dfa-onepass")]
+        if let Some(ref e) = builder.0 {
+            self.0.as_mut().unwrap().reset(&e.0);
+        }
+    }
+
+    pub(crate) fn memory_usage(&self) -> usize {
+        #[cfg(feature = "dfa-onepass")]
+        {
+            self.0.as_ref().map_or(0, |c| c.memory_usage())
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            0
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct Hybrid(Option<HybridEngine>);
 
 impl Hybrid {
@@ -410,7 +560,7 @@ impl HybridEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_half(
+    pub(crate) fn try_search_half_fwd(
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
@@ -422,6 +572,28 @@ impl HybridEngine {
             fwd.try_search_fwd(&mut fwdcache, input)
         }
         #[cfg(not(feature = "hybrid"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_search_half_fwd_stopat(
+        &self,
+        cache: &mut HybridCache,
+        input: &Input<'_>,
+    ) -> Result<Result<HalfMatch, usize>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            let dfa = self.0.forward();
+            let mut cache = cache.0.as_mut().unwrap().as_parts_mut().0;
+            crate::meta::stopat::hybrid_try_search_half_fwd(
+                dfa, &mut cache, input,
+            )
+        }
+        #[cfg(not(feature = "dfa-build"))]
         {
             // Impossible to reach because this engine is never constructed
             // if the requisite features aren't enabled.
@@ -442,6 +614,29 @@ impl HybridEngine {
             rev.try_search_rev(&mut revcache, input)
         }
         #[cfg(not(feature = "hybrid"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_search_half_rev_limited(
+        &self,
+        cache: &mut HybridCache,
+        input: &Input<'_>,
+        min_start: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            let dfa = self.0.reverse();
+            let mut cache = cache.0.as_mut().unwrap().as_parts_mut().1;
+            crate::meta::limited::hybrid_try_search_half_rev(
+                dfa, &mut cache, input, min_start,
+            )
+        }
+        #[cfg(not(feature = "dfa-build"))]
         {
             // Impossible to reach because this engine is never constructed
             // if the requisite features aren't enabled.
@@ -654,7 +849,7 @@ impl DFAEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_half(
+    pub(crate) fn try_search_half_fwd(
         &self,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
@@ -662,6 +857,24 @@ impl DFAEngine {
         {
             use crate::dfa::Automaton;
             self.0.forward().try_search_fwd(input)
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_search_half_fwd_stopat(
+        &self,
+        input: &Input<'_>,
+    ) -> Result<Result<HalfMatch, usize>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            let dfa = self.0.forward();
+            crate::meta::stopat::dfa_try_search_half_fwd(dfa, input)
         }
         #[cfg(not(feature = "dfa-build"))]
         {
@@ -689,13 +902,34 @@ impl DFAEngine {
         }
     }
 
+    #[inline(always)]
+    pub(crate) fn try_search_half_rev_limited(
+        &self,
+        input: &Input<'_>,
+        min_start: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            let dfa = self.0.reverse();
+            crate::meta::limited::dfa_try_search_half_rev(
+                dfa, input, min_start,
+            )
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
     #[inline]
     pub(crate) fn try_which_overlapping_matches(
         &self,
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        #[cfg(feature = "hybrid")]
+        #[cfg(feature = "dfa-build")]
         {
             use crate::dfa::Automaton;
             self.0.forward().try_which_overlapping_matches(input, patset)
@@ -710,101 +944,99 @@ impl DFAEngine {
 }
 
 #[derive(Debug)]
-pub(crate) struct OnePass(Option<OnePassEngine>);
+pub(crate) struct ReverseHybrid(Option<ReverseHybridEngine>);
 
-impl OnePass {
-    pub(crate) fn none() -> OnePass {
-        OnePass(None)
+impl ReverseHybrid {
+    pub(crate) fn none() -> ReverseHybrid {
+        ReverseHybrid(None)
     }
 
-    pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> OnePass {
-        OnePass(OnePassEngine::new(info, nfa))
+    pub(crate) fn new(info: &RegexInfo, nfarev: &NFA) -> ReverseHybrid {
+        ReverseHybrid(ReverseHybridEngine::new(info, nfarev))
     }
 
-    pub(crate) fn create_cache(&self) -> OnePassCache {
-        OnePassCache::new(self)
+    pub(crate) fn create_cache(&self) -> ReverseHybridCache {
+        ReverseHybridCache::new(self)
     }
 
     #[inline(always)]
-    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&OnePassEngine> {
+    pub(crate) fn get(
+        &self,
+        input: &Input<'_>,
+    ) -> Option<&ReverseHybridEngine> {
         let engine = self.0.as_ref()?;
-        if !input.get_anchored().is_anchored() {
-            return None;
-        }
         Some(engine)
+    }
+
+    pub(crate) fn is_some(&self) -> bool {
+        self.0.is_some()
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct OnePassEngine(
-    #[cfg(feature = "dfa-onepass")] onepass::DFA,
-    #[cfg(not(feature = "dfa-onepass"))] (),
+pub(crate) struct ReverseHybridEngine(
+    #[cfg(feature = "hybrid")] hybrid::dfa::DFA,
+    #[cfg(not(feature = "hybrid"))] (),
 );
 
-impl OnePassEngine {
-    pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> Option<OnePassEngine> {
-        #[cfg(feature = "dfa-onepass")]
+impl ReverseHybridEngine {
+    pub(crate) fn new(
+        info: &RegexInfo,
+        nfarev: &NFA,
+    ) -> Option<ReverseHybridEngine> {
+        #[cfg(feature = "hybrid")]
         {
-            use regex_syntax::hir::Look;
-
-            if !info.config().get_onepass() {
+            if !info.config().get_hybrid() {
                 return None;
             }
-            // In order to even attempt building a one-pass DFA, we require
-            // that we either have at least one explicit capturing group or
-            // there's a Unicode word boundary somewhere. If we don't have
-            // either of these things, then the lazy DFA will almost certainly
-            // be useable and be much faster. The only case where it might
-            // not is if the lazy DFA isn't utilizing its cache effectively,
-            // but in those cases, the underlying regex is almost certainly
-            // not one-pass or is too big to fit within the current one-pass
-            // implementation limits.
-            if info.props_union().captures_len() == 0
-                && !info.props_union().look_set().contains_word_unicode()
-            {
-                debug!("not building OnePass because it isn't worth it");
-                return None;
-            }
-            let onepass_config = onepass::Config::new()
-                .match_kind(info.config().get_match_kind())
-                .utf8(info.config().get_utf8())
-                // Like for the lazy DFA, we unconditionally enable this
-                // because it doesn't cost much and makes the API more
-                // flexible.
-                .starts_for_each_pattern(true)
+            // Since we only use this for reverse searches, we can hard-code
+            // a number of things like match semantics, prefilters, starts
+            // for each pattern and so on.
+            let dfa_config = hybrid::dfa::Config::new()
+                .match_kind(MatchKind::All)
+                .prefilter(None)
+                .starts_for_each_pattern(false)
                 .byte_classes(info.config().get_byte_classes())
-                .size_limit(info.config().get_onepass_size_limit());
-            let result = onepass::Builder::new()
-                .configure(onepass_config)
-                .build_from_nfa(nfa.clone());
-            let engine = match result {
-                Ok(engine) => engine,
+                .unicode_word_boundary(true)
+                .specialize_start_states(false)
+                .cache_capacity(info.config().get_hybrid_cache_capacity())
+                .skip_cache_capacity_check(false)
+                .minimum_cache_clear_count(Some(10));
+            let result = hybrid::dfa::Builder::new()
+                .configure(dfa_config)
+                .build_from_nfa(nfarev.clone());
+            let rev = match result {
+                Ok(rev) => rev,
                 Err(err) => {
-                    debug!("OnePass failed to build: {}", err);
+                    debug!("lazy reverse DFA failed to build: {}", err);
                     return None;
                 }
             };
-            debug!("OnePass built");
-            Some(OnePassEngine(engine))
+            debug!("lazy reverse DFA built");
+            Some(ReverseHybridEngine(rev))
         }
-        #[cfg(not(feature = "dfa-onepass"))]
+        #[cfg(not(feature = "hybrid"))]
         {
             None
         }
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_slots(
+    pub(crate) fn try_search_half_rev_limited(
         &self,
-        cache: &mut OnePassCache,
+        cache: &mut ReverseHybridCache,
         input: &Input<'_>,
-        slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
-        #[cfg(feature = "dfa-onepass")]
+        min_start: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        #[cfg(feature = "dfa-build")]
         {
-            self.0.try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+            let dfa = &self.0;
+            let mut cache = cache.0.as_mut().unwrap();
+            crate::meta::limited::hybrid_try_search_half_rev(
+                dfa, &mut cache, input, min_start,
+            )
         }
-        #[cfg(not(feature = "dfa-onepass"))]
+        #[cfg(not(feature = "dfa-build"))]
         {
             // Impossible to reach because this engine is never constructed
             // if the requisite features aren't enabled.
@@ -814,42 +1046,155 @@ impl OnePassEngine {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct OnePassCache(
-    #[cfg(feature = "dfa-onepass")] Option<onepass::Cache>,
-    #[cfg(not(feature = "dfa-onepass"))] (),
+pub(crate) struct ReverseHybridCache(
+    #[cfg(feature = "hybrid")] Option<hybrid::dfa::Cache>,
+    #[cfg(not(feature = "hybrid"))] (),
 );
 
-impl OnePassCache {
-    pub(crate) fn none() -> OnePassCache {
-        OnePassCache(None)
+impl ReverseHybridCache {
+    pub(crate) fn none() -> ReverseHybridCache {
+        ReverseHybridCache(None)
     }
 
-    pub(crate) fn new(builder: &OnePass) -> OnePassCache {
-        #[cfg(feature = "dfa-onepass")]
+    pub(crate) fn new(builder: &ReverseHybrid) -> ReverseHybridCache {
+        #[cfg(feature = "hybrid")]
         {
-            OnePassCache(builder.0.as_ref().map(|e| e.0.create_cache()))
+            ReverseHybridCache(builder.0.as_ref().map(|e| e.0.create_cache()))
         }
-        #[cfg(not(feature = "dfa-onepass"))]
+        #[cfg(not(feature = "hybrid"))]
         {
-            OnePassCache(())
+            ReverseHybridCache(())
         }
     }
 
-    pub(crate) fn reset(&mut self, builder: &OnePass) {
-        #[cfg(feature = "dfa-onepass")]
+    pub(crate) fn reset(&mut self, builder: &ReverseHybrid) {
+        #[cfg(feature = "hybrid")]
         if let Some(ref e) = builder.0 {
             self.0.as_mut().unwrap().reset(&e.0);
         }
     }
 
     pub(crate) fn memory_usage(&self) -> usize {
-        #[cfg(feature = "dfa-onepass")]
+        #[cfg(feature = "hybrid")]
         {
             self.0.as_ref().map_or(0, |c| c.memory_usage())
         }
-        #[cfg(not(feature = "dfa-onepass"))]
+        #[cfg(not(feature = "hybrid"))]
         {
             0
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ReverseDFA(Option<ReverseDFAEngine>);
+
+impl ReverseDFA {
+    pub(crate) fn none() -> ReverseDFA {
+        ReverseDFA(None)
+    }
+
+    pub(crate) fn new(info: &RegexInfo, nfarev: &NFA) -> ReverseDFA {
+        ReverseDFA(ReverseDFAEngine::new(info, nfarev))
+    }
+
+    #[inline(always)]
+    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&ReverseDFAEngine> {
+        let engine = self.0.as_ref()?;
+        Some(engine)
+    }
+
+    pub(crate) fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ReverseDFAEngine(
+    #[cfg(feature = "dfa-build")] dfa::dense::DFA<Vec<u32>>,
+    #[cfg(not(feature = "dfa-build"))] (),
+);
+
+impl ReverseDFAEngine {
+    pub(crate) fn new(
+        info: &RegexInfo,
+        nfarev: &NFA,
+    ) -> Option<ReverseDFAEngine> {
+        #[cfg(feature = "dfa-build")]
+        {
+            if !info.config().get_dfa() {
+                return None;
+            }
+            // If our NFA is anything but small, don't even bother with a DFA.
+            if let Some(state_limit) = info.config().get_dfa_state_limit() {
+                if nfarev.states().len() > state_limit {
+                    debug!(
+                        "skipping full reverse DFA because NFA has {} states, \
+                         which exceeds the heuristic limit of {}",
+                        nfarev.states().len(),
+                        state_limit,
+					);
+                    return None;
+                }
+            }
+            // We cut the size limit in two because the total heap used by DFA
+            // construction is determinization aux memory and the DFA itself,
+            // and those things are configured independently in the lower level
+            // DFA builder API.
+            let size_limit = info.config().get_dfa_size_limit().map(|n| n / 2);
+            // Since we only use this for reverse searches, we can hard-code
+            // a number of things like match semantics, prefilters, starts
+            // for each pattern and so on. We also disable acceleration since
+            // it's incompatible with limited searches (which is the only
+            // operation we support for this kind of engine at the moment).
+            let dfa_config = dfa::dense::Config::new()
+                .match_kind(MatchKind::All)
+                .prefilter(None)
+                .accelerate(false)
+                .start_kind(dfa::StartKind::Anchored)
+                .starts_for_each_pattern(false)
+                .byte_classes(info.config().get_byte_classes())
+                .unicode_word_boundary(true)
+                .specialize_start_states(false)
+                .determinize_size_limit(size_limit)
+                .dfa_size_limit(size_limit);
+            let result = dfa::dense::Builder::new()
+                .configure(dfa_config)
+                .build_from_nfa(&nfarev);
+            let rev = match result {
+                Ok(rev) => rev,
+                Err(err) => {
+                    debug!("full reverse DFA failed to build: {}", err);
+                    return None;
+                }
+            };
+            debug!("fully compiled reverse DFA built");
+            Some(ReverseDFAEngine(rev))
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn try_search_half_rev_limited(
+        &self,
+        input: &Input<'_>,
+        min_start: usize,
+    ) -> Result<Option<HalfMatch>, MatchError> {
+        #[cfg(feature = "dfa-build")]
+        {
+            let dfa = &self.0;
+            crate::meta::limited::dfa_try_search_half_rev(
+                dfa, input, min_start,
+            )
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
         }
     }
 }

@@ -409,8 +409,6 @@ impl Literals {
     }
 
     /// Returns the suffixes extracted.
-    // TODO: Implement suffix literal optimization.
-    #[allow(dead_code)]
     pub(crate) fn suffixes(&self) -> &literal::Seq {
         &self.suffixes
     }

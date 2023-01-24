@@ -488,8 +488,44 @@ analysis = 'TODO'
 
 [[benches]]
 type = "count"
-name = "reverse-suffix-no-quadratic"
-regex = '[r-z].*bcdefghijklmnopq'
+name = "reverse-suffix-no-quadratic-backward"
+regex = '[A-Z].*bcdefghijklmnopq'
+haystack-path = "internal/reverse-suffix-no-quadratic.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reverse-inner-no-quadratic-backward"
+regex = '[A-Z].*bcdefghijklmnopq[a-z]+'
+haystack-path = "internal/reverse-suffix-no-quadratic.txt"
+case-insensitive = false
+unicode = false
+match-count = 0
+engines = [
+  'regex/api',
+  'regexold/api',
+  'regex/automata/meta',
+  're2/api',
+  'pcre2/api/jit',
+  'pcre2/api/nojit',
+]
+analysis = 'TODO'
+
+[[benches]]
+type = "count"
+name = "reverse-inner-no-quadratic-forward"
+regex = '.efghijklmnopq[a-z]+[A-Z]'
 haystack-path = "internal/reverse-suffix-no-quadratic.txt"
 case-insensitive = false
 unicode = false

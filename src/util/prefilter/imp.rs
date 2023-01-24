@@ -154,6 +154,11 @@ impl Prefilter {
         for hir in hirs.iter() {
             prefixes.union(&mut extractor.extract(hir.borrow()));
         }
+        debug!(
+            "prefixes (len={:?}) extracted before optimization: {:?}",
+            prefixes.len(),
+            prefixes
+        );
         match kind {
             MatchKind::All => {
                 prefixes.sort();
@@ -163,6 +168,11 @@ impl Prefilter {
                 prefixes.optimize_for_prefix_by_preference();
             }
         }
+        debug!(
+            "prefixes (len={:?}) extracted after optimization: {:?}",
+            prefixes.len(),
+            prefixes
+        );
         prefixes.literals().and_then(|lits| Prefilter::new(kind, lits))
     }
 
