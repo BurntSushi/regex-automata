@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use crate::{
     meta::{
-        error::{BuildError, MetaMatchError},
+        error::BuildError,
         regex::{Config, RegexInfo},
     },
     nfa::thompson::{pikevm, NFA},
@@ -631,7 +631,7 @@ impl HybridEngine {
         cache: &mut HybridCache,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MetaMatchError> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = self.0.reverse();
@@ -776,7 +776,6 @@ impl DFAEngine {
             // of forward and reverse DFAs.
             let size_limit = info.config().get_dfa_size_limit().map(|n| n / 4);
             let dfa_config = dfa::dense::Config::new()
-                .start_kind(dfa::StartKind::Both)
                 .match_kind(info.config().get_match_kind())
                 .prefilter(pre.clone())
                 // Unconditionally enabling this seems fine for a meta regex
@@ -912,7 +911,7 @@ impl DFAEngine {
         &self,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MetaMatchError> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = self.0.reverse();
@@ -1032,7 +1031,7 @@ impl ReverseHybridEngine {
         cache: &mut ReverseHybridCache,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MetaMatchError> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = &self.0;
@@ -1187,7 +1186,7 @@ impl ReverseDFAEngine {
         &self,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MetaMatchError> {
+    ) -> Result<Option<HalfMatch>, MatchError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = &self.0;
