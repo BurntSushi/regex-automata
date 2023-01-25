@@ -391,6 +391,24 @@ regex = '[0-9][0-9][0-9]000'
 input = "153.230000\n"
 matches = [[4, 10]]
 
+# This is a tricky case for the reverse suffix optimization, because it
+# finds the 'foobar' match but the reverse scan must fail to find a match by
+# correctly dealing with the word boundary following the 'foobar' literal when
+# computing the start state.
+#
+# This test exists because I tried to break the following assumption that
+# is currently in the code: that if a suffix is found and the reverse scan
+# succeeds, then it's guaranteed that there is an overall match. Namely, the
+# 'is_match' routine does *not* do another forward scan in this case because of
+# this assumption.
+[[tests]]
+name = "reverse-suffix-300"
+regex = '\w+foobar\b'
+input = "xyzfoobarZ"
+matches = []
+unicode = false
+utf8 = false
+
 # See: https://github.com/BurntSushi/ripgrep/issues/1247
 [[tests]]
 name = "stops"

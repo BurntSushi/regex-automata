@@ -803,7 +803,7 @@ impl Strategy for ReverseAnchored {
     ) -> Result<Option<Match>, MatchError> {
         match self.try_search_half_anchored_rev(cache, input) {
             Err(Some(err)) => return Err(err),
-            Err(None) => self.core.try_search(cache, input),
+            Err(None) => self.core.try_search_nofail(cache, input),
             Ok(None) => return Ok(None),
             Ok(Some(hm)) => {
                 return Ok(Some(Match::new(
@@ -822,7 +822,10 @@ impl Strategy for ReverseAnchored {
     ) -> Result<Option<HalfMatch>, MatchError> {
         match self.try_search_half_anchored_rev(cache, input) {
             Err(Some(err)) => return Err(err),
-            Err(None) => self.core.try_search_half(cache, input),
+            Err(None) => {
+                let matched = self.core.try_search_nofail(cache, input)?;
+                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+            }
             Ok(None) => return Ok(None),
             Ok(Some(hm)) => {
                 // Careful here! 'try_search_half' is a *forward* search that
@@ -845,7 +848,9 @@ impl Strategy for ReverseAnchored {
     ) -> Result<Option<PatternID>, MatchError> {
         match self.try_search_half_anchored_rev(cache, input) {
             Err(Some(err)) => return Err(err),
-            Err(None) => self.core.try_search_slots(cache, input, slots),
+            Err(None) => {
+                self.core.try_search_slots_nofail(cache, input, slots)
+            }
             Ok(None) => return Ok(None),
             Ok(Some(hm)) => {
                 if !self.core.is_capture_search_needed(slots.len()) {
@@ -892,6 +897,21 @@ impl ReverseSuffix {
         core: Core,
         presuf: Option<Prefilter>,
     ) -> Result<ReverseSuffix, Core> {
+        // Like the reverse inner optimization, we don't do this for regexes
+        // that are always anchored. It could lead to scanning too much, but
+        // could say "no match" much more quickly than running the regex
+        // engine if the initial literal scan doesn't match. With that said,
+        // the reverse suffix optimization has lower overhead, since it only
+        // requires a reverse scan after a literal match to confirm or reject
+        // the match. (Although, in the case of confirmation, it then needs to
+        // do another forward scan to find the end position.)
+        if core.info.is_always_anchored_start() {
+            debug!(
+                "skipping reverse suffix optimization because \
+				 the regex is always anchored at the start",
+            );
+            return Err(core);
+        }
         // Only DFAs can do reverse searches (currently), so we need one of
         // them in order to do this optimization. It's possible (although
         // pretty unlikely) that we have neither and need to give up.
@@ -1051,7 +1071,7 @@ impl Strategy for ReverseSuffix {
     ) -> Result<Option<Match>, MatchError> {
         match self.try_search_half_start(cache, input) {
             Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search(cache, input),
+            Err(None) => self.core.try_search_nofail(cache, input),
             Ok(None) => Ok(None),
             Ok(Some((hm_start, _))) => {
                 let fwdinput = input
@@ -1060,7 +1080,7 @@ impl Strategy for ReverseSuffix {
                     .span(hm_start.offset()..input.end());
                 match self.try_search_half_fwd(cache, &fwdinput) {
                     Err(Some(err)) => Err(err),
-                    Err(None) => self.core.try_search(cache, input),
+                    Err(None) => self.core.try_search_nofail(cache, input),
                     Ok(None) => {
                         unreachable!(
                             "suffix match plus reverse match implies \
@@ -1084,7 +1104,10 @@ impl Strategy for ReverseSuffix {
     ) -> Result<Option<HalfMatch>, MatchError> {
         match self.try_search_half_start(cache, input) {
             Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search_half(cache, input),
+            Err(None) => {
+                let matched = self.core.try_search_nofail(cache, input)?;
+                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+            }
             Ok(None) => Ok(None),
             Ok(Some((hm_start, pre_span))) => {
                 Ok(Some(HalfMatch::new(hm_start.pattern(), pre_span.end)))
@@ -1101,7 +1124,9 @@ impl Strategy for ReverseSuffix {
     ) -> Result<Option<PatternID>, MatchError> {
         match self.try_search_half_start(cache, input) {
             Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search_slots(cache, input, slots),
+            Err(None) => {
+                self.core.try_search_slots_nofail(cache, input, slots)
+            }
             Ok(None) => Ok(None),
             Ok(Some((hm_start, _))) => {
                 if !self.core.is_capture_search_needed(slots.len()) {
@@ -1111,9 +1136,9 @@ impl Strategy for ReverseSuffix {
                         .span(hm_start.offset()..input.end());
                     match self.try_search_half_fwd(cache, &fwdinput) {
                         Err(Some(err)) => Err(err),
-                        Err(None) => {
-                            self.core.try_search_slots(cache, input, slots)
-                        }
+                        Err(None) => self
+                            .core
+                            .try_search_slots_nofail(cache, input, slots),
                         Ok(None) => {
                             unreachable!(
                                 "suffix match plus reverse match implies \
@@ -1172,6 +1197,21 @@ impl ReverseInner {
                 "skipping reverse inner optimization because \
 				 match kind is {:?} but this only supports leftmost-first",
                 core.info.config().get_match_kind(),
+            );
+            return Err(core);
+        }
+        // It's likely that a reverse inner scan has too much overhead for it
+        // to be worth it when the regex is anchored at the start. It is
+        // possible for it to be quite a bit faster if the initial literal
+        // scan fails to detect a match, in which case, we can say "no match"
+        // very quickly. But this could be undesirable, e.g., scanning too far
+        // or when the literal scan matches. If it matches, then confirming the
+        // match requires a reverse scan followed by a forward scan to confirm
+        // or reject, which is a fair bit of work.
+        if core.info.is_always_anchored_start() {
+            debug!(
+                "skipping reverse inner optimization because \
+				 the regex is always anchored at the start",
             );
             return Err(core);
         }
@@ -1400,7 +1440,7 @@ impl Strategy for ReverseInner {
     ) -> Result<Option<Match>, MatchError> {
         match self.try_search_full(cache, input) {
             Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search(cache, input),
+            Err(None) => self.core.try_search_nofail(cache, input),
             Ok(m) => Ok(m),
         }
     }
@@ -1413,7 +1453,10 @@ impl Strategy for ReverseInner {
     ) -> Result<Option<HalfMatch>, MatchError> {
         match self.try_search_full(cache, input) {
             Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search_half(cache, input),
+            Err(None) => {
+                let matched = self.core.try_search_nofail(cache, input)?;
+                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+            }
             Ok(None) => Ok(None),
             Ok(Some(m)) => Ok(Some(HalfMatch::new(m.pattern(), m.end()))),
         }
