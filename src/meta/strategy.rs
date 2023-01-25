@@ -637,6 +637,18 @@ impl Strategy for Core {
             copy_match_to_slots(m, slots);
             return Ok(Some(m.pattern()));
         }
+        // If the onepass DFA is available for this search (which only happens
+        // when it's anchored), then skip running a fallible DFA. The onepass
+        // DFA isn't as fast as a full or lazy DFA, but it is typically quite
+        // a bit faster than the backtracker or the PikeVM. So it isn't as
+        // advantageous to try and do a full/lazy DFA scan first.
+        //
+        // We still theorize that it's better to do a full/lazy DFA scan, even
+        // when it's anchored, because it's usually much faster and permits us
+        // to say "no match" much more quickly.
+        if self.onepass.get(input).is_some() {
+            return self.try_search_slots_nofail(cache, input, slots);
+        }
         let m = match self.try_search_mayfail(cache, input) {
             Ok(Some(m)) => m,
             Ok(None) => return Ok(None),
