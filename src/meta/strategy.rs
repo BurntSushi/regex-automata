@@ -10,7 +10,7 @@ use regex_syntax::hir::{self, literal, Hir};
 
 use crate::{
     meta::{
-        error::BuildError,
+        error::{BuildError, MetaMatchError},
         regex::{Cache, RegexInfo},
         reverse_inner, wrappers,
     },
@@ -966,7 +966,7 @@ impl ReverseSuffix {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<(HalfMatch, Span)>, Option<MatchError>> {
+    ) -> Result<Option<(HalfMatch, Span)>, MetaMatchError> {
         let mut span = input.get_span();
         let mut min_start = 0;
         loop {
@@ -979,16 +979,16 @@ impl ReverseSuffix {
                 .clone()
                 .anchored(Anchored::Yes)
                 .span(input.start()..litmatch.end);
-            match self.try_search_half_rev_limited(cache, &revinput, min_start)
+            match self
+                .try_search_half_rev_limited(cache, &revinput, min_start)?
             {
-                Err(err) => return Err(err),
-                Ok(None) => {
+                None => {
                     if span.start >= span.end {
                         break;
                     }
                     span.start = litmatch.start.checked_add(1).unwrap();
                 }
-                Ok(Some(hm)) => return Ok(Some((hm, litmatch))),
+                Some(hm) => return Ok(Some((hm, litmatch))),
             }
             min_start = litmatch.end;
         }
@@ -1000,29 +1000,22 @@ impl ReverseSuffix {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
-        let result = if let Some(e) = self.core.dfa.get(&input) {
+    ) -> Result<Option<HalfMatch>, MetaMatchError> {
+        if let Some(e) = self.core.dfa.get(&input) {
             trace!(
                 "using full DFA for forward reverse suffix search at {:?}",
                 input.get_span()
             );
-            e.try_search_half_fwd(&input)
+            e.try_search_half_fwd(&input).map_err(|e| e.into())
         } else if let Some(e) = self.core.hybrid.get(&input) {
             trace!(
                 "using lazy DFA for forward reverse suffix search at {:?}",
                 input.get_span()
             );
             e.try_search_half_fwd(&mut cache.hybrid, &input)
+                .map_err(|e| e.into())
         } else {
             unreachable!("ReverseSuffix always has a DFA")
-        };
-        match result {
-            Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("forward reverse suffix scan failed: {}", err);
-                Err(None)
-            }
-            Err(err) => Err(Some(err)),
         }
     }
 
@@ -1032,8 +1025,8 @@ impl ReverseSuffix {
         cache: &mut Cache,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
-        let result = if let Some(e) = self.core.dfa.get(&input) {
+    ) -> Result<Option<HalfMatch>, MetaMatchError> {
+        if let Some(e) = self.core.dfa.get(&input) {
             trace!(
                 "using full DFA for reverse suffix search at {:?}",
                 input.get_span()
@@ -1047,14 +1040,6 @@ impl ReverseSuffix {
             e.try_search_half_rev_limited(&mut cache.hybrid, &input, min_start)
         } else {
             unreachable!("ReverseSuffix always has a DFA")
-        };
-        match result {
-            Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("reverse suffix scan failed: {}", err);
-                Err(None)
-            }
-            Err(err) => Err(Some(err)),
         }
     }
 }
@@ -1082,8 +1067,15 @@ impl Strategy for ReverseSuffix {
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search_nofail(cache, input),
+            Err(MetaMatchError::CallerProvoked(err)) => return Err(err),
+            Err(MetaMatchError::FailedDFA(err)) => {
+                trace!("reverse suffix DFA reverse scan failed: {}", err);
+                return self.core.try_search_nofail(cache, input);
+            }
+            Err(MetaMatchError::FailedReverseOpt) => {
+                trace!("reverse suffix optimization failed");
+                return self.core.try_search(cache, input);
+            }
             Ok(None) => Ok(None),
             Ok(Some((hm_start, _))) => {
                 let fwdinput = input
@@ -1091,8 +1083,17 @@ impl Strategy for ReverseSuffix {
                     .anchored(Anchored::Pattern(hm_start.pattern()))
                     .span(hm_start.offset()..input.end());
                 match self.try_search_half_fwd(cache, &fwdinput) {
-                    Err(Some(err)) => Err(err),
-                    Err(None) => self.core.try_search_nofail(cache, input),
+                    Err(MetaMatchError::CallerProvoked(err)) => {
+                        return Err(err)
+                    }
+                    Err(MetaMatchError::FailedDFA(err)) => {
+                        trace!(
+                            "reverse suffix DFA forward scan failed: {}",
+                            err
+                        );
+                        return self.core.try_search_nofail(cache, input);
+                    }
+                    Err(MetaMatchError::FailedReverseOpt) => unreachable!(),
                     Ok(None) => {
                         unreachable!(
                             "suffix match plus reverse match implies \
@@ -1115,10 +1116,14 @@ impl Strategy for ReverseSuffix {
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => Err(err),
-            Err(None) => {
+            Err(MetaMatchError::CallerProvoked(err)) => return Err(err),
+            Err(MetaMatchError::FailedDFA(err)) => {
+                trace!("reverse suffix DFA reverse scan failed: {}", err);
                 let matched = self.core.try_search_nofail(cache, input)?;
                 Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+            }
+            Err(MetaMatchError::FailedReverseOpt) => {
+                self.core.try_search_half(cache, input)
             }
             Ok(None) => Ok(None),
             Ok(Some((hm_start, pre_span))) => {
@@ -1135,9 +1140,14 @@ impl Strategy for ReverseSuffix {
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => Err(err),
-            Err(None) => {
-                self.core.try_search_slots_nofail(cache, input, slots)
+            Err(MetaMatchError::CallerProvoked(err)) => return Err(err),
+            Err(MetaMatchError::FailedDFA(err)) => {
+                trace!("reverse suffix DFA reverse scan failed: {}", err);
+                return self.core.try_search_slots_nofail(cache, input, slots);
+            }
+            Err(MetaMatchError::FailedReverseOpt) => {
+                trace!("reverse suffix optimization failed");
+                return self.core.try_search_slots(cache, input, slots);
             }
             Ok(None) => Ok(None),
             Ok(Some((hm_start, _))) => {
@@ -1147,10 +1157,21 @@ impl Strategy for ReverseSuffix {
                         .anchored(Anchored::Pattern(hm_start.pattern()))
                         .span(hm_start.offset()..input.end());
                     match self.try_search_half_fwd(cache, &fwdinput) {
-                        Err(Some(err)) => Err(err),
-                        Err(None) => self
-                            .core
-                            .try_search_slots_nofail(cache, input, slots),
+                        Err(MetaMatchError::CallerProvoked(err)) => {
+                            return Err(err)
+                        }
+                        Err(MetaMatchError::FailedDFA(err)) => {
+                            trace!(
+                                "reverse suffix DFA reverse scan failed: {}",
+                                err
+                            );
+                            return self
+                                .core
+                                .try_search_slots_nofail(cache, input, slots);
+                        }
+                        Err(MetaMatchError::FailedReverseOpt) => {
+                            unreachable!()
+                        }
                         Ok(None) => {
                             unreachable!(
                                 "suffix match plus reverse match implies \
@@ -1417,11 +1438,12 @@ impl ReverseInner {
         };
         match result {
             Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
+            Err(MetaMatchError::FailedDFA(err)) => {
                 trace!("reverse inner scan failed: {}", err);
                 Err(None)
             }
-            Err(err) => Err(Some(err)),
+            Err(MetaMatchError::CallerProvoked(err)) => Err(Some(err)),
+            Err(MetaMatchError::FailedReverseOpt) => unreachable!(),
         }
     }
 }
