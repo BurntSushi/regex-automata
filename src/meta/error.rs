@@ -57,3 +57,54 @@ impl core::fmt::Display for BuildError {
         }
     }
 }
+
+#[derive(Debug)]
+pub(crate) enum RetryError {
+    Quadratic(RetryQuadraticError),
+    Fail(RetryFailError),
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RetryError {}
+
+impl core::fmt::Display for RetryError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        unreachable!("retry error should never be displayed")
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct RetryQuadraticError(());
+
+impl RetryQuadraticError {
+    pub(crate) fn new() -> RetryQuadraticError {
+        RetryQuadraticError(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RetryQuadraticError {}
+
+impl core::fmt::Display for RetryQuadraticError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        unreachable!("retry quadratic error should never be displayed")
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct RetryFailError(());
+
+impl RetryFailError {
+    pub(crate) fn new() -> RetryFailError {
+        RetryFailError(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for RetryFailError {}
+
+impl core::fmt::Display for RetryFailError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        unreachable!("retry fail error should never be displayed")
+    }
+}

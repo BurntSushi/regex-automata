@@ -1416,6 +1416,27 @@ impl Anchored {
     pub fn is_anchored(&self) -> bool {
         matches!(*self, Anchored::Yes | Anchored::Pattern(_))
     }
+
+    /// Returns the pattern ID associated with this configuration if it is an
+    /// anchored search for a specific pattern. Otherwise `None` is returned.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{Anchored, PatternID};
+    ///
+    /// assert_eq!(None, Anchored::No.pattern());
+    /// assert_eq!(None, Anchored::Yes.pattern());
+    ///
+    /// let pid = PatternID::must(5);
+    /// assert_eq!(Some(pid), Anchored::Pattern(pid).pattern());
+    /// ```
+    pub fn pattern(&self) -> Option<PatternID> {
+        match *self {
+            Anchored::Pattern(pid) => Some(pid),
+            _ => None,
+        }
+    }
 }
 
 /// The kind of match semantics to use for a regex pattern.
@@ -1622,19 +1643,6 @@ impl MatchError {
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MatchErrorKind {
-    // A previous iteration of this error type specifically encoded "did not
-    // match" as a None variant. Instead of fallible regex searches returning
-    // Result<Option<Match>, MatchError>, they would return the simpler
-    // Result<Match, MatchError>. The appeal of this is the simpler return
-    // type. The inherent problem, though, is that "did not match" is not
-    // actually an error case. It's an expected behavior of a regex search
-    // and is therefore typically handled differently than a real error that
-    // prevents one from knowing whether a match occurs at all. Thus, the
-    // simpler return type often requires explicit case analysis to deal with
-    // the None variant. More to the point, the iteration protocol for the
-    // simpler return type was quite awkward, because the iteration protocol
-    // really wants an Option<Match> and cannot deal with the None variant
-    // inside of the error type.
     /// The search saw a "quit" byte at which it was instructed to stop
     /// searching.
     Quit {

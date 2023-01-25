@@ -157,6 +157,7 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
+        self.check_pattern(input)?;
         if self.info.is_impossible(input) {
             return Ok(None);
         }
@@ -169,6 +170,7 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
+        self.check_pattern(input)?;
         if self.info.is_impossible(input) {
             return Ok(None);
         }
@@ -195,6 +197,7 @@ impl Regex {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Result<Option<PatternID>, MatchError> {
+        self.check_pattern(input)?;
         if self.info.is_impossible(input) {
             return Ok(None);
         }
@@ -208,10 +211,23 @@ impl Regex {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
+        patset.check_capacity(self.pattern_len())?;
         if self.info.is_impossible(input) {
             return Ok(());
         }
         self.strat.try_which_overlapping_matches(cache, input, patset)
+    }
+
+    #[inline]
+    fn check_pattern(&self, input: &Input<'_>) -> Result<(), MatchError> {
+        let pid = match input.get_anchored().pattern() {
+            None => return Ok(()),
+            Some(pid) => pid,
+        };
+        if pid.as_usize() < self.pattern_len() {
+            return Ok(());
+        }
+        Err(MatchError::invalid_input_pattern(pid, self.pattern_len()))
     }
 }
 
