@@ -494,12 +494,10 @@ impl HybridEngine {
             let dfa_config = hybrid::dfa::Config::new()
                 .match_kind(info.config().get_match_kind())
                 .prefilter(pre.clone())
-                // Unconditionally enabling this seems fine for a meta regex
-                // engine. It isn't too costly. At worst, it just uses a bit
-                // more memory for lazy DFAs (and DFAs, but we don't use those
-                // yet in the meta engine), and makes the API more flexible by
-                // always supporting anchored searches for any of the patterns
-                // in the regex.
+                // Enabling this is necessary for ensuring we can service any
+                // kind of 'Input' search without error. For the lazy DFA,
+                // this is not particularly costly, since the start states are
+                // generated lazily.
                 .starts_for_each_pattern(true)
                 .byte_classes(info.config().get_byte_classes())
                 .unicode_word_boundary(true)
@@ -791,14 +789,11 @@ impl DFAEngine {
             let dfa_config = dfa::dense::Config::new()
                 .match_kind(info.config().get_match_kind())
                 .prefilter(pre.clone())
-                // Unconditionally enabling this seems fine for a meta regex
-                // engine. It can be most costly for DFAs than lazy DFAs,
-                // because it means computing the transition table for both
-                // unanchored and anchored starting states. But since we keep
-                // a VERY TIGHT bound on the total size of the DFA, this just
-                // in practice means we don't use the DFA as much as we might
-                // otherwise if we only had to build anchored or unanchored
-                // support instead of both.
+                // Enabling this is necessary for ensuring we can service any
+                // kind of 'Input' search without error. For the full DFA, this
+                // can be quite costly. But since we have such a small bound
+                // on the size of the DFA, in practice, any multl-regexes are
+                // probably going to blow the limit anyway.
                 .starts_for_each_pattern(true)
                 .byte_classes(info.config().get_byte_classes())
                 .unicode_word_boundary(true)
