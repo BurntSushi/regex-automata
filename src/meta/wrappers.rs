@@ -70,27 +70,31 @@ impl PikeVMEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_slots(
+    pub(crate) fn search_slots(
         &self,
         cache: &mut PikeVMCache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
-        self.0.try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+    ) -> Option<PatternID> {
+        self.0
+            .try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+            .unwrap()
     }
 
     #[inline(always)]
-    pub(crate) fn try_which_overlapping_matches(
+    pub(crate) fn which_overlapping_matches(
         &self,
         cache: &mut PikeVMCache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
-        self.0.try_which_overlapping_matches(
-            cache.0.as_mut().unwrap(),
-            input,
-            patset,
-        )
+    ) {
+        self.0
+            .try_which_overlapping_matches(
+                cache.0.as_mut().unwrap(),
+                input,
+                patset,
+            )
+            .unwrap()
     }
 }
 
@@ -201,15 +205,20 @@ impl BoundedBacktrackerEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_slots(
+    pub(crate) fn search_slots(
         &self,
         cache: &mut BoundedBacktrackerCache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         #[cfg(feature = "nfa-backtrack")]
         {
-            self.0.try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+            // OK because we only permit access to this engine when we know
+            // the haystack is short enough for the backtracker to run without
+            // reporting an error.
+            self.0
+                .try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+                .unwrap()
         }
         #[cfg(not(feature = "nfa-backtrack"))]
         {
@@ -368,15 +377,19 @@ impl OnePassEngine {
     }
 
     #[inline(always)]
-    pub(crate) fn try_search_slots(
+    pub(crate) fn search_slots(
         &self,
         cache: &mut OnePassCache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         #[cfg(feature = "dfa-onepass")]
         {
-            self.0.try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+            // OK because we only permit getting a OnePassEngine when we know
+            // the search is anchored and thus an error cannot occur.
+            self.0
+                .try_search_slots(cache.0.as_mut().unwrap(), input, slots)
+                .unwrap()
         }
         #[cfg(not(feature = "dfa-onepass"))]
         {

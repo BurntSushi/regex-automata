@@ -90,8 +90,9 @@ use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 ///
 /// Supporting other aspects of an `Input` are optional, but regex engines
 /// should return an error when something is requested that it cannot fulfill.
-/// Regex engines may provide infallible routines that panic in such cases, but
-/// they should always expose a fallible API as well.
+/// Regex engines may provide infallible routines that panic in such cases,
+/// but they should always expose a fallible API as well whenever an error is
+/// possible.
 ///
 /// # Errors
 ///
@@ -99,7 +100,7 @@ use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 /// to a search for any regex engine in this crate, it is possible to enable
 /// or disable some options that might not have the intended effect. For this
 /// reason, regex engines accepting an `Input` should return an error when
-/// specific options are set but cannot be provided.
+/// specific options are set but cannot be supported.
 ///
 /// What follows is a complete set of rules of when a regex engine should
 /// return an error based on the given `Input` configuration. Every regex
@@ -113,7 +114,10 @@ use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 /// long as the regex engine can provide a way to search that is unanchored, it
 /// should be permitted. That is, reporting an error should be a property of
 /// the regex engine itself and not a property of the regex pattern.) Another
-/// example of this is using [`Anchored::Pattern`] with an invalid pattern ID.
+/// example of this is using [`Anchored::Pattern`] when the regex engine
+/// does not support anchored searches for individual patterns. Note though
+/// that if `Anchored::Pattern` is given with a pattern ID that is not in the
+/// regex, then the regex engine should report a non-match and not an error.
 /// * If [`Input::earliest`] is enabled and the regex engine doesn't support
 /// returning the "earliest" match, then the regex engine is safe to simply
 /// ignore the option and _not_ return an error. This is because "earliest" is
@@ -1632,46 +1636,6 @@ impl MatchError {
     pub fn unsupported_anchored(mode: Anchored) -> MatchError {
         MatchError::new(MatchErrorKind::UnsupportedAnchored { mode })
     }
-
-    /*
-    /// Create a new "invalid anchored search" error. This occurs when the
-    /// caller requests an anchored search but where anchored searches aren't
-    /// supported.
-    ///
-    /// This is the same as calling `MatchError::new` with a
-    /// [`MatchErrorKind::InvalidInputAnchored`] kind.
-    pub fn invalid_input_anchored() -> MatchError {
-        MatchError::new(MatchErrorKind::InvalidInputAnchored)
-    }
-
-    /// Create a new "invalid unanchored search" error. This occurs when the
-    /// caller requests an unanchored search but where unanchored searches
-    /// aren't supported.
-    ///
-    /// This is the same as calling `MatchError::new` with a
-    /// [`MatchErrorKind::InvalidInputUnanchored`] kind.
-    pub fn invalid_input_unanchored() -> MatchError {
-        MatchError::new(MatchErrorKind::InvalidInputUnanchored)
-    }
-
-    /// Create a new "invalid search pattern" error. The given `pattern`
-    /// corresponds to the pattern ID given in the input configuration, and the
-    /// given `pattern_len` corresponds to total number of patterns that may be
-    /// explicitly searched for. (This may be zero even for multi-regexes if
-    /// starting states for each pattern weren't enabled.)
-    ///
-    /// This is the same as calling `MatchError::new` with a
-    /// [`MatchErrorKind::InvalidInputPattern`] kind.
-    pub fn invalid_input_pattern(
-        pattern: PatternID,
-        pattern_len: usize,
-    ) -> MatchError {
-        MatchError::new(MatchErrorKind::InvalidInputPattern {
-            pattern,
-            pattern_len,
-        })
-    }
-    */
 }
 
 /// The underlying kind of a [`MatchError`].
@@ -1721,39 +1685,6 @@ pub enum MatchErrorKind {
         /// The anchored mode given that is unsupported.
         mode: Anchored,
     },
-    /// An error indicating that an anchored search was requested, but from a
-    /// regex engine that was built without anchored support.
-    ///
-    /// Most regex engines unconditionally enable both anchored and unanchored
-    /// search support. Some regex engines, like the one-pass DFA, only
-    /// support anchored searches. Other regex engines, like fully compiled
-    /// DFAs, permit configuring whether anchored or unanchored or both are
-    /// supported.
-    InvalidInputAnchored,
-    /// An error indicating that an unanchored search was requested, but from a
-    /// regex engine that was built without unanchored support.
-    ///
-    /// Most regex engines unconditionally enable both anchored and unanchored
-    /// search support. Some regex engines, like the one-pass DFA, only
-    /// support anchored searches. Other regex engines, like fully compiled
-    /// DFAs, permit configuring whether anchored or unanchored or both are
-    /// supported.
-    InvalidInputUnanchored,
-    /// This error occurs if the caller attempts to execute an anchored search
-    /// for a specific pattern, but the regex engine doesn't support it. Either
-    /// because the pattern ID is invalid or because the underlying regex engine
-    /// wasn't built with anchored starting states for each pattern.
-    ///
-    /// This error kind is a special case of `InvalidInput`, which permits
-    /// specifying more information about the parameters given.
-    InvalidInputPattern {
-        /// The pattern ID given.
-        pattern: PatternID,
-        /// The number of patterns supported, which might be zero if the
-        /// regex engine doesn't support searching for specific patterns even
-        /// if the regex was compiled with multiple patterns.
-        pattern_len: usize,
-    },
 }
 
 #[cfg(feature = "std")]
@@ -1788,32 +1719,6 @@ impl core::fmt::Display for MatchError {
                     "anchored searches for a specific pattern ({}) are \
                      not supported or enabled",
                     pid.as_usize(),
-                )
-            }
-            MatchErrorKind::InvalidInputAnchored => {
-                write!(f, "anchored searches are not supported or enabled")
-            }
-            MatchErrorKind::InvalidInputUnanchored => {
-                write!(f, "unanchored searches are not supported or enabled")
-            }
-            MatchErrorKind::InvalidInputPattern { pattern_len: 0, .. } => {
-                // When no patterns are supported, we special case the error
-                // message to make it a little clearer, since it's very likely
-                // the case that some config knob needed to be enabled
-                // but wasn't.
-                write!(
-                    f,
-                    "anchored searches for specific patterns are not \
-                     permitted unless start states for each pattern \
-                     are enabled",
-                )
-            }
-            MatchErrorKind::InvalidInputPattern { pattern, pattern_len } => {
-                write!(
-                    f,
-                    "invalid pattern {}, up to {} patterns are supported",
-                    pattern.as_usize(),
-                    pattern_len
                 )
             }
         }

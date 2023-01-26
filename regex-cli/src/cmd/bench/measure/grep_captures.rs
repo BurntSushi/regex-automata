@@ -80,7 +80,7 @@ fn regex_automata_meta(b: &Benchmark) -> anyhow::Result<Results> {
             let mut count = 0;
             let mut input = Input::new(line);
             while let Some(m) = {
-                re.try_search_captures(&mut cache, &input, &mut caps)?;
+                re.search_captures(&mut cache, &input, &mut caps);
                 caps.get_match()
             } {
                 for i in 0..caps.group_len() {

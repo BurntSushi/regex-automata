@@ -376,10 +376,10 @@ fn search_meta(
     // per match.
     let mut it = iter::Searcher::new(input.clone());
     loop {
-        it.try_advance(|input| {
-            re.try_search_captures(cache, input, &mut caps)?;
+        it.advance(|input| {
+            re.search_captures(cache, input, &mut caps);
             Ok(caps.get_match())
-        })?;
+        });
         let m = match caps.get_match() {
             None => break,
             Some(m) => m,

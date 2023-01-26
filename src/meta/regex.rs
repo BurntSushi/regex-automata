@@ -106,7 +106,7 @@ impl Regex {
         input: I,
     ) -> bool {
         let input = input.into().earliest(true);
-        self.try_search_half(cache, &input).unwrap().is_some()
+        self.search_half(cache, &input).is_some()
     }
 
     #[inline]
@@ -115,7 +115,7 @@ impl Regex {
         cache: &mut Cache,
         input: I,
     ) -> Option<Match> {
-        self.try_search(cache, &input.into()).unwrap()
+        self.search(cache, &input.into())
     }
 
     #[inline]
@@ -125,7 +125,7 @@ impl Regex {
         input: I,
         caps: &mut Captures,
     ) {
-        self.try_search_captures(cache, &input.into(), caps).unwrap()
+        self.search_captures(cache, &input.into(), caps)
     }
 
     #[inline]
@@ -152,66 +152,65 @@ impl Regex {
 
 impl Regex {
     #[inline]
-    pub fn try_search(
+    pub fn search(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    ) -> Option<Match> {
         if self.info.is_impossible(input) {
-            return Ok(None);
+            return None;
         }
-        self.strat.try_search(cache, input)
+        self.strat.search(cache, input)
     }
 
     #[inline]
-    pub fn try_search_half(
+    pub fn search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Option<HalfMatch> {
         if self.info.is_impossible(input) {
-            return Ok(None);
+            return None;
         }
-        self.strat.try_search_half(cache, input)
+        self.strat.search_half(cache, input)
     }
 
     #[inline]
-    pub fn try_search_captures(
+    pub fn search_captures(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         caps: &mut Captures,
-    ) -> Result<(), MatchError> {
+    ) {
         caps.set_pattern(None);
-        let pid = self.try_search_slots(cache, input, caps.slots_mut())?;
+        let pid = self.search_slots(cache, input, caps.slots_mut());
         caps.set_pattern(pid);
-        Ok(())
     }
 
     #[inline]
-    pub fn try_search_slots(
+    pub fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         if self.info.is_impossible(input) {
-            return Ok(None);
+            return None;
         }
-        self.strat.try_search_slots(cache, input, slots)
+        self.strat.search_slots(cache, input, slots)
     }
 
     #[inline]
-    pub fn try_which_overlapping_matches(
+    pub fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
+    ) {
         if self.info.is_impossible(input) {
-            return Ok(());
+            return;
         }
-        self.strat.try_which_overlapping_matches(cache, input, patset)
+        self.strat.which_overlapping_matches(cache, input, patset)
     }
 }
 
@@ -343,7 +342,7 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
     #[inline]
     fn next(&mut self) -> Option<Match> {
         let FindMatches { re, ref mut cache, ref mut it } = *self;
-        it.advance(|input| re.try_search(cache, input))
+        it.advance(|input| Ok(re.search(cache, input)))
     }
 }
 
@@ -364,7 +363,7 @@ impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
         let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
         let _ = it.advance(|input| {
-            re.try_search_captures(cache, input, caps)?;
+            re.search_captures(cache, input, caps);
             Ok(caps.get_match())
         });
         if caps.is_match() {

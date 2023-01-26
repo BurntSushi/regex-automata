@@ -43,31 +43,27 @@ pub(crate) trait Strategy:
 
     fn reset_cache(&self, cache: &mut Cache);
 
-    fn try_search(
+    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match>;
+
+    fn search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError>;
+    ) -> Option<HalfMatch>;
 
-    fn try_search_half(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError>;
-
-    fn try_search_slots(
+    fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError>;
+    ) -> Option<PatternID>;
 
-    fn try_which_overlapping_matches(
+    fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError>;
+    );
 }
 
 // Implement strategy for anything that implements prefilter.
@@ -124,63 +120,52 @@ impl<T: PrefilterI> Strategy for T {
 
     fn reset_cache(&self, cache: &mut Cache) {}
 
-    fn try_search(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         if input.is_done() {
-            return Ok(None);
+            return None;
         }
         if input.get_anchored().is_anchored() {
-            return Ok(self
+            return self
                 .prefix(input.haystack(), input.get_span())
-                .map(|sp| Match::new(PatternID::ZERO, sp)));
+                .map(|sp| Match::new(PatternID::ZERO, sp));
         }
-        Ok(self
-            .find(input.haystack(), input.get_span())
-            .map(|sp| Match::new(PatternID::ZERO, sp)))
+        self.find(input.haystack(), input.get_span())
+            .map(|sp| Match::new(PatternID::ZERO, sp))
     }
 
-    fn try_search_half(
+    fn search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        Ok(self
-            .try_search(cache, input)?
-            .map(|m| HalfMatch::new(m.pattern(), m.end())))
+    ) -> Option<HalfMatch> {
+        self.search(cache, input).map(|m| HalfMatch::new(m.pattern(), m.end()))
     }
 
-    fn try_search_slots(
+    fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
-        let m = match self.try_search(cache, input)? {
-            None => return Ok(None),
-            Some(m) => m,
-        };
+    ) -> Option<PatternID> {
+        let m = self.search(cache, input)?;
         if let Some(slot) = slots.get_mut(0) {
             *slot = NonMaxUsize::new(m.start());
         }
         if let Some(slot) = slots.get_mut(1) {
             *slot = NonMaxUsize::new(m.end());
         }
-        Ok(Some(m.pattern()))
+        Some(m.pattern())
     }
 
-    fn try_which_overlapping_matches(
+    fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
-        if self.try_search(cache, input)?.is_some() {
+    ) {
+        if self.search(cache, input).is_some() {
             patset.insert(PatternID::ZERO);
         }
-        Ok(())
     }
 }
 
@@ -489,11 +474,11 @@ impl Core {
         Err(None)
     }
 
-    fn try_search_nofail(
+    fn search_nofail(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    ) -> Option<Match> {
         let caps = &mut cache.capmatches;
         caps.set_pattern(None);
         // We manually inline 'try_search_slots_nofail' here because we need to
@@ -504,20 +489,20 @@ impl Core {
         // mutability), but that's more annoying than this IMO.
         let pid = if let Some(ref e) = self.onepass.get(input) {
             trace!("using OnePass for search at {:?}", input.get_span());
-            e.try_search_slots(&mut cache.onepass, input, caps.slots_mut())
+            e.search_slots(&mut cache.onepass, input, caps.slots_mut())
         } else if let Some(ref e) = self.backtrack.get(input) {
             trace!(
                 "using BoundedBacktracker for search at {:?}",
                 input.get_span()
             );
-            e.try_search_slots(&mut cache.backtrack, input, caps.slots_mut())
+            e.search_slots(&mut cache.backtrack, input, caps.slots_mut())
         } else {
             trace!("using PikeVM for search at {:?}", input.get_span());
             let e = self.pikevm.get().expect("PikeVM is always available");
-            e.try_search_slots(&mut cache.pikevm, input, caps.slots_mut())
-        }?;
+            e.search_slots(&mut cache.pikevm, input, caps.slots_mut())
+        };
         caps.set_pattern(pid);
-        Ok(caps.get_match())
+        caps.get_match()
     }
 
     fn try_search_slots_nofail(
@@ -525,26 +510,26 @@ impl Core {
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         if let Some(ref e) = self.onepass.get(input) {
             trace!(
                 "using OnePass for capture search at {:?}",
                 input.get_span()
             );
-            e.try_search_slots(&mut cache.onepass, input, slots)
+            e.search_slots(&mut cache.onepass, input, slots)
         } else if let Some(ref e) = self.backtrack.get(input) {
             trace!(
                 "using BoundedBacktracker for capture search at {:?}",
                 input.get_span()
             );
-            e.try_search_slots(&mut cache.backtrack, input, slots)
+            e.search_slots(&mut cache.backtrack, input, slots)
         } else {
             trace!(
                 "using PikeVM for capture search at {:?}",
                 input.get_span()
             );
             let e = self.pikevm.get().expect("PikeVM is always available");
-            e.try_search_slots(&mut cache.pikevm, input, slots)
+            e.search_slots(&mut cache.pikevm, input, slots)
         }
     }
 
@@ -580,49 +565,45 @@ impl Strategy for Core {
     }
 
     #[inline(always)]
-    fn try_search(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_mayfail(cache, input) {
-            Ok(x) => Ok(x),
-            Err(Some(err)) => Err(err),
-            Err(None) => self.try_search_nofail(cache, input),
+            Ok(x) => x,
+            Err(Some(err)) => todo!(),
+            Err(None) => self.search_nofail(cache, input),
         }
     }
 
     #[inline(always)]
-    fn try_search_half(
+    fn search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
-        // The main difference with 'try_find' is that if we're using a DFA,
-        // we can use a single forward scan without needing to run the reverse
+    ) -> Option<HalfMatch> {
+        // The main difference with 'search' is that if we're using a DFA, we
+        // can use a single forward scan without needing to run the reverse
         // DFA.
         match self.try_search_half_mayfail(cache, input) {
-            Ok(x) => Ok(x),
-            Err(Some(err)) => Err(err),
+            Ok(x) => x,
+            Err(Some(err)) => todo!(),
             Err(None) => {
                 // Only the lazy/full DFA returns half-matches, since the DFA
                 // requires a reverse scan to find the start position. These
                 // fallback regex engines can find the start and end in a
                 // single pass, so we just do that and throw away the start
                 // offset.
-                let matched = self.try_search_nofail(cache, input)?;
-                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+                let m = self.search_nofail(cache, input)?;
+                Some(HalfMatch::new(m.pattern(), m.end()))
             }
         }
     }
 
     #[inline(always)]
-    fn try_search_slots(
+    fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         // Even if the regex has explicit capture groups, if the caller didn't
         // provide any explicit slots, then it doesn't make sense to try and do
         // extra work to get offsets for those slots. Ideally the caller should
@@ -630,12 +611,9 @@ impl Strategy for Core {
         // we try to save the caller from themselves if they do.
         if !self.is_capture_search_needed(slots.len()) {
             trace!("asked for slots unnecessarily, trying fast path");
-            let m = match self.try_search(cache, input)? {
-                None => return Ok(None),
-                Some(m) => m,
-            };
+            let m = self.search(cache, input)?;
             copy_match_to_slots(m, slots);
-            return Ok(Some(m.pattern()));
+            return Some(m.pattern());
         }
         // If the onepass DFA is available for this search (which only happens
         // when it's anchored), then skip running a fallible DFA. The onepass
@@ -651,8 +629,8 @@ impl Strategy for Core {
         }
         let m = match self.try_search_mayfail(cache, input) {
             Ok(Some(m)) => m,
-            Ok(None) => return Ok(None),
-            Err(Some(err)) => return Err(err),
+            Ok(None) => return None,
+            Err(Some(err)) => todo!(),
             Err(None) => {
                 return self.try_search_slots_nofail(cache, input, slots)
             }
@@ -675,19 +653,19 @@ impl Strategy for Core {
     }
 
     #[inline(always)]
-    fn try_which_overlapping_matches(
+    fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
+    ) {
         let err = if let Some(e) = self.dfa.get(input) {
             trace!(
                 "using full DFA for overlapping search at {:?}",
                 input.get_span()
             );
             match e.try_which_overlapping_matches(input, patset) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return,
                 Err(err) => Some(err),
             }
         } else if let Some(e) = self.hybrid.get(input) {
@@ -700,7 +678,7 @@ impl Strategy for Core {
                 input,
                 patset,
             ) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return,
                 Err(err) => Some(err),
             }
         } else {
@@ -708,7 +686,7 @@ impl Strategy for Core {
         };
         if let Some(err) = err {
             if !is_err_quit_or_gaveup(&err) {
-                return Err(err);
+                todo!()
             }
         }
         trace!(
@@ -716,7 +694,7 @@ impl Strategy for Core {
             input.get_span()
         );
         let e = self.pikevm.get().expect("PikeVM is always available");
-        e.try_which_overlapping_matches(&mut cache.pikevm, input, patset)
+        e.which_overlapping_matches(&mut cache.pikevm, input, patset)
     }
 }
 
@@ -779,7 +757,7 @@ impl ReverseAnchored {
                 trace!("reverse anchored scan failed: {}", err);
                 Err(None)
             }
-            Err(err) => Err(Some(err)),
+            Err(err) => todo!(),
         }
     }
 }
@@ -808,37 +786,33 @@ impl Strategy for ReverseAnchored {
     }
 
     #[inline(always)]
-    fn try_search(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(Some(err)) => return Err(err),
-            Err(None) => self.core.try_search_nofail(cache, input),
-            Ok(None) => return Ok(None),
+            Err(Some(err)) => todo!(),
+            Err(None) => self.core.search_nofail(cache, input),
+            Ok(None) => return None,
             Ok(Some(hm)) => {
-                return Ok(Some(Match::new(
+                return Some(Match::new(
                     hm.pattern(),
                     hm.offset()..input.end(),
-                )))
+                ))
             }
         }
     }
 
     #[inline(always)]
-    fn try_search_half(
+    fn search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Option<HalfMatch> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(Some(err)) => return Err(err),
+            Err(Some(err)) => todo!(),
             Err(None) => {
-                let matched = self.core.try_search_nofail(cache, input)?;
-                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+                let m = self.core.search_nofail(cache, input)?;
+                Some(HalfMatch::new(m.pattern(), m.end()))
             }
-            Ok(None) => return Ok(None),
+            Ok(None) => return None,
             Ok(Some(hm)) => {
                 // Careful here! 'try_search_half' is a *forward* search that
                 // only cares about the *end* position of a match. But
@@ -846,30 +820,30 @@ impl Strategy for ReverseAnchored {
                 // actually just throw that away here and, since we know we
                 // have a match, return the only possible position at which a
                 // match can occur: input.end().
-                return Ok(Some(HalfMatch::new(hm.pattern(), input.end())));
+                return Some(HalfMatch::new(hm.pattern(), input.end()));
             }
         }
     }
 
     #[inline(always)]
-    fn try_search_slots(
+    fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(Some(err)) => return Err(err),
+            Err(Some(err)) => todo!(),
             Err(None) => {
                 self.core.try_search_slots_nofail(cache, input, slots)
             }
-            Ok(None) => return Ok(None),
+            Ok(None) => return None,
             Ok(Some(hm)) => {
                 if !self.core.is_capture_search_needed(slots.len()) {
                     trace!("asked for slots unnecessarily, skipping captures");
                     let m = Match::new(hm.pattern(), hm.offset()..input.end());
                     copy_match_to_slots(m, slots);
-                    return Ok(Some(m.pattern()));
+                    return Some(m.pattern());
                 }
                 let start = hm.offset();
                 let input = input
@@ -884,17 +858,17 @@ impl Strategy for ReverseAnchored {
     }
 
     #[inline(always)]
-    fn try_which_overlapping_matches(
+    fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
+    ) {
         // It seems like this could probably benefit from a reverse anchored
         // optimization, perhaps by doing an overlapping reverse search (which
         // the DFAs do support). I haven't given it much thought though, and
         // I'm currently focus more on the single pattern case.
-        self.core.try_which_overlapping_matches(cache, input, patset)
+        self.core.which_overlapping_matches(cache, input, patset)
     }
 }
 
@@ -1076,70 +1050,66 @@ impl Strategy for ReverseSuffix {
     }
 
     #[inline(always)]
-    fn try_search(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search_nofail(cache, input),
-            Ok(None) => Ok(None),
+            Err(Some(err)) => todo!(),
+            Err(None) => self.core.search_nofail(cache, input),
+            Ok(None) => None,
             Ok(Some((hm_start, _))) => {
                 let fwdinput = input
                     .clone()
                     .anchored(Anchored::Pattern(hm_start.pattern()))
                     .span(hm_start.offset()..input.end());
                 match self.try_search_half_fwd(cache, &fwdinput) {
-                    Err(Some(err)) => Err(err),
-                    Err(None) => self.core.try_search_nofail(cache, input),
+                    Err(Some(err)) => todo!(),
+                    Err(None) => self.core.search_nofail(cache, input),
                     Ok(None) => {
                         unreachable!(
                             "suffix match plus reverse match implies \
 						     there must be a match",
                         )
                     }
-                    Ok(Some(hm_end)) => Ok(Some(Match::new(
+                    Ok(Some(hm_end)) => Some(Match::new(
                         hm_start.pattern(),
                         hm_start.offset()..hm_end.offset(),
-                    ))),
+                    )),
                 }
             }
         }
     }
 
     #[inline(always)]
-    fn try_search_half(
+    fn search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Option<HalfMatch> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => Err(err),
+            Err(Some(err)) => todo!(),
             Err(None) => {
-                let matched = self.core.try_search_nofail(cache, input)?;
-                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+                let m = self.core.search_nofail(cache, input)?;
+                Some(HalfMatch::new(m.pattern(), m.end()))
             }
-            Ok(None) => Ok(None),
+            Ok(None) => None,
             Ok(Some((hm_start, pre_span))) => {
-                Ok(Some(HalfMatch::new(hm_start.pattern(), pre_span.end)))
+                Some(HalfMatch::new(hm_start.pattern(), pre_span.end))
             }
         }
     }
 
     #[inline(always)]
-    fn try_search_slots(
+    fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => Err(err),
+            Err(Some(err)) => todo!(),
             Err(None) => {
                 self.core.try_search_slots_nofail(cache, input, slots)
             }
-            Ok(None) => Ok(None),
+            Ok(None) => None,
             Ok(Some((hm_start, _))) => {
                 if !self.core.is_capture_search_needed(slots.len()) {
                     let fwdinput = input
@@ -1147,7 +1117,7 @@ impl Strategy for ReverseSuffix {
                         .anchored(Anchored::Pattern(hm_start.pattern()))
                         .span(hm_start.offset()..input.end());
                     match self.try_search_half_fwd(cache, &fwdinput) {
-                        Err(Some(err)) => Err(err),
+                        Err(Some(err)) => todo!(),
                         Err(None) => self
                             .core
                             .try_search_slots_nofail(cache, input, slots),
@@ -1163,7 +1133,7 @@ impl Strategy for ReverseSuffix {
                                 hm_start.offset()..hm_end.offset(),
                             );
                             copy_match_to_slots(m, slots);
-                            return Ok(Some(m.pattern()));
+                            return Some(m.pattern());
                         }
                     }
                 } else {
@@ -1179,13 +1149,13 @@ impl Strategy for ReverseSuffix {
     }
 
     #[inline(always)]
-    fn try_which_overlapping_matches(
+    fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
-        self.core.try_which_overlapping_matches(cache, input, patset)
+    ) {
+        self.core.which_overlapping_matches(cache, input, patset)
     }
 }
 
@@ -1445,55 +1415,48 @@ impl Strategy for ReverseInner {
     }
 
     #[inline(always)]
-    fn try_search(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_full(cache, input) {
-            Err(Some(err)) => Err(err),
-            Err(None) => self.core.try_search_nofail(cache, input),
-            Ok(m) => Ok(m),
+            Err(Some(err)) => todo!(),
+            Err(None) => self.core.search_nofail(cache, input),
+            Ok(m) => m,
         }
     }
 
     #[inline(always)]
-    fn try_search_half(
+    fn search_half(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Option<HalfMatch> {
         match self.try_search_full(cache, input) {
-            Err(Some(err)) => Err(err),
+            Err(Some(err)) => todo!(),
             Err(None) => {
-                let matched = self.core.try_search_nofail(cache, input)?;
-                Ok(matched.map(|m| HalfMatch::new(m.pattern(), m.end())))
+                let m = self.core.search_nofail(cache, input)?;
+                Some(HalfMatch::new(m.pattern(), m.end()))
             }
-            Ok(None) => Ok(None),
-            Ok(Some(m)) => Ok(Some(HalfMatch::new(m.pattern(), m.end()))),
+            Ok(None) => None,
+            Ok(Some(m)) => Some(HalfMatch::new(m.pattern(), m.end())),
         }
     }
 
     #[inline(always)]
-    fn try_search_slots(
+    fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         if !self.core.is_capture_search_needed(slots.len()) {
             trace!("asked for slots unnecessarily, trying fast path");
-            let m = match self.try_search(cache, input)? {
-                None => return Ok(None),
-                Some(m) => m,
-            };
+            let m = self.search(cache, input)?;
             copy_match_to_slots(m, slots);
-            return Ok(Some(m.pattern()));
+            return Some(m.pattern());
         }
         let m = match self.try_search_full(cache, input) {
             Ok(Some(m)) => m,
-            Ok(None) => return Ok(None),
-            Err(Some(err)) => return Err(err),
+            Ok(None) => return None,
+            Err(Some(err)) => todo!(),
             Err(None) => {
                 return self.core.try_search_slots_nofail(cache, input, slots)
             }
@@ -1512,13 +1475,13 @@ impl Strategy for ReverseInner {
     }
 
     #[inline(always)]
-    fn try_which_overlapping_matches(
+    fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
-        self.core.try_which_overlapping_matches(cache, input, patset)
+    ) {
+        self.core.which_overlapping_matches(cache, input, patset)
     }
 }
 
