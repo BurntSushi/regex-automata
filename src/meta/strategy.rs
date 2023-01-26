@@ -10,7 +10,7 @@ use regex_syntax::hir::{self, literal, Hir};
 
 use crate::{
     meta::{
-        error::BuildError,
+        error::{BuildError, RetryError, RetryFailError, RetryQuadraticError},
         regex::{Cache, RegexInfo},
         reverse_inner, wrappers,
     },
@@ -423,27 +423,16 @@ impl Core {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, Option<MatchError>> {
-        let err = if let Some(e) = self.dfa.get(input) {
+    ) -> Option<Result<Option<Match>, RetryFailError>> {
+        if let Some(e) = self.dfa.get(input) {
             trace!("using full DFA for search at {:?}", input.get_span());
-            match e.try_search(input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            }
+            Some(e.try_search(input))
         } else if let Some(e) = self.hybrid.get(input) {
             trace!("using lazy DFA for search at {:?}", input.get_span());
-            match e.try_search(&mut cache.hybrid, input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            }
+            Some(e.try_search(&mut cache.hybrid, input))
         } else {
-            return Err(None);
-        };
-        if !is_err_quit_or_gaveup(&err) {
-            return Err(Some(err));
+            None
         }
-        trace!("DFA failed in search: {}", err);
-        Err(None)
     }
 
     #[inline(always)]
@@ -451,27 +440,16 @@ impl Core {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
-        let err = if let Some(e) = self.dfa.get(input) {
+    ) -> Option<Result<Option<HalfMatch>, RetryFailError>> {
+        if let Some(e) = self.dfa.get(input) {
             trace!("using full DFA for half search at {:?}", input.get_span());
-            match e.try_search_half_fwd(input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            }
+            Some(e.try_search_half_fwd(input))
         } else if let Some(e) = self.hybrid.get(input) {
             trace!("using lazy DFA for half search at {:?}", input.get_span());
-            match e.try_search_half_fwd(&mut cache.hybrid, input) {
-                Ok(m) => return Ok(m),
-                Err(err) => err,
-            }
+            Some(e.try_search_half_fwd(&mut cache.hybrid, input))
         } else {
-            return Err(None);
-        };
-        if !is_err_quit_or_gaveup(&err) {
-            return Err(Some(err));
+            None
         }
-        trace!("DFA failed in half search: {}", err);
-        Err(None)
     }
 
     fn search_nofail(
@@ -505,7 +483,20 @@ impl Core {
         caps.get_match()
     }
 
-    fn try_search_slots_nofail(
+    fn search_half_nofail(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Option<HalfMatch> {
+        // Only the lazy/full DFA returns half-matches, since the DFA requires
+        // a reverse scan to find the start position. These fallback regex
+        // engines can find the start and end in a single pass, so we just do
+        // that and throw away the start offset to conform to the API.
+        let m = self.search_nofail(cache, input)?;
+        Some(HalfMatch::new(m.pattern(), m.end()))
+    }
+
+    fn search_slots_nofail(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -567,9 +558,12 @@ impl Strategy for Core {
     #[inline(always)]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_mayfail(cache, input) {
-            Ok(x) => x,
-            Err(Some(err)) => todo!(),
-            Err(None) => self.search_nofail(cache, input),
+            Some(Ok(matornot)) => matornot,
+            Some(Err(err)) => {
+                trace!("fast search failed: {}", err);
+                self.search_nofail(cache, input)
+            }
+            None => self.search_nofail(cache, input),
         }
     }
 
@@ -583,14 +577,13 @@ impl Strategy for Core {
         // can use a single forward scan without needing to run the reverse
         // DFA.
         match self.try_search_half_mayfail(cache, input) {
-            Ok(x) => x,
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                // Only the lazy/full DFA returns half-matches, since the DFA
-                // requires a reverse scan to find the start position. These
-                // fallback regex engines can find the start and end in a
-                // single pass, so we just do that and throw away the start
-                // offset.
+            Some(Ok(matornot)) => matornot,
+            Some(Err(err)) => {
+                trace!("fast half search failed: {}", err);
+                self.search_half_nofail(cache, input)
+            }
+            None => {
+                // Same as above, throw away the start offset.
                 let m = self.search_nofail(cache, input)?;
                 Some(HalfMatch::new(m.pattern(), m.end()))
             }
@@ -625,14 +618,17 @@ impl Strategy for Core {
         // when it's anchored, because it's usually much faster and permits us
         // to say "no match" much more quickly.
         if self.onepass.get(input).is_some() {
-            return self.try_search_slots_nofail(cache, input, slots);
+            return self.search_slots_nofail(cache, input, slots);
         }
         let m = match self.try_search_mayfail(cache, input) {
-            Ok(Some(m)) => m,
-            Ok(None) => return None,
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                return self.try_search_slots_nofail(cache, input, slots)
+            Some(Ok(Some(m))) => m,
+            Some(Ok(None)) => return None,
+            Some(Err(err)) => {
+                trace!("fast capture search failed: {}", err);
+                return self.search_slots_nofail(cache, input, slots);
+            }
+            None => {
+                return self.search_slots_nofail(cache, input, slots);
             }
         };
         // At this point, now that we've found the bounds of the
@@ -649,7 +645,7 @@ impl Strategy for Core {
             .clone()
             .span(m.start()..m.end())
             .anchored(Anchored::Pattern(m.pattern()));
-        self.try_search_slots_nofail(cache, &input, slots)
+        self.search_slots_nofail(cache, &input, slots)
     }
 
     #[inline(always)]
@@ -659,35 +655,30 @@ impl Strategy for Core {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) {
-        let err = if let Some(e) = self.dfa.get(input) {
+        if let Some(e) = self.dfa.get(input) {
             trace!(
                 "using full DFA for overlapping search at {:?}",
                 input.get_span()
             );
-            match e.try_which_overlapping_matches(input, patset) {
+            let err = match e.try_which_overlapping_matches(input, patset) {
                 Ok(()) => return,
-                Err(err) => Some(err),
-            }
+                Err(err) => err,
+            };
+            trace!("fast overlapping search failed: {}", err);
         } else if let Some(e) = self.hybrid.get(input) {
             trace!(
                 "using lazy DFA for overlapping search at {:?}",
                 input.get_span()
             );
-            match e.try_which_overlapping_matches(
+            let err = match e.try_which_overlapping_matches(
                 &mut cache.hybrid,
                 input,
                 patset,
             ) {
                 Ok(()) => return,
-                Err(err) => Some(err),
-            }
-        } else {
-            None
-        };
-        if let Some(err) = err {
-            if !is_err_quit_or_gaveup(&err) {
-                todo!()
-            }
+                Err(err) => err,
+            };
+            trace!("fast overlapping search failed: {}", err);
         }
         trace!(
             "using PikeVM for overlapping search at {:?}",
@@ -730,13 +721,13 @@ impl ReverseAnchored {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
+    ) -> Result<Option<HalfMatch>, RetryFailError> {
         // We of course always want an anchored search. In theory, the
         // underlying regex engines should automatically enable anchored
         // searches since the regex is itself anchored, but this more clearly
         // expresses intent and is always correct.
         let input = input.clone().anchored(Anchored::Yes);
-        let result = if let Some(e) = self.core.dfa.get(&input) {
+        if let Some(e) = self.core.dfa.get(&input) {
             trace!(
                 "using full DFA for reverse anchored search at {:?}",
                 input.get_span()
@@ -750,14 +741,6 @@ impl ReverseAnchored {
             e.try_search_half_rev(&mut cache.hybrid, &input)
         } else {
             unreachable!("ReverseAnchored always has a DFA")
-        };
-        match result {
-            Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("reverse anchored scan failed: {}", err);
-                Err(None)
-            }
-            Err(err) => todo!(),
         }
     }
 }
@@ -788,14 +771,13 @@ impl Strategy for ReverseAnchored {
     #[inline(always)]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => self.core.search_nofail(cache, input),
-            Ok(None) => return None,
+            Err(err) => {
+                trace!("fast reverse anchored search failed: {}", err);
+                self.core.search_nofail(cache, input)
+            }
+            Ok(None) => None,
             Ok(Some(hm)) => {
-                return Some(Match::new(
-                    hm.pattern(),
-                    hm.offset()..input.end(),
-                ))
+                Some(Match::new(hm.pattern(), hm.offset()..input.end()))
             }
         }
     }
@@ -807,12 +789,11 @@ impl Strategy for ReverseAnchored {
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                let m = self.core.search_nofail(cache, input)?;
-                Some(HalfMatch::new(m.pattern(), m.end()))
+            Err(err) => {
+                trace!("fast reverse anchored search failed: {}", err);
+                self.core.search_half_nofail(cache, input)
             }
-            Ok(None) => return None,
+            Ok(None) => None,
             Ok(Some(hm)) => {
                 // Careful here! 'try_search_half' is a *forward* search that
                 // only cares about the *end* position of a match. But
@@ -820,7 +801,7 @@ impl Strategy for ReverseAnchored {
                 // actually just throw that away here and, since we know we
                 // have a match, return the only possible position at which a
                 // match can occur: input.end().
-                return Some(HalfMatch::new(hm.pattern(), input.end()));
+                Some(HalfMatch::new(hm.pattern(), input.end()))
             }
         }
     }
@@ -833,11 +814,11 @@ impl Strategy for ReverseAnchored {
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                self.core.try_search_slots_nofail(cache, input, slots)
+            Err(err) => {
+                trace!("fast reverse anchored search failed: {}", err);
+                self.core.search_slots_nofail(cache, input, slots)
             }
-            Ok(None) => return None,
+            Ok(None) => None,
             Ok(Some(hm)) => {
                 if !self.core.is_capture_search_needed(slots.len()) {
                     trace!("asked for slots unnecessarily, skipping captures");
@@ -850,9 +831,7 @@ impl Strategy for ReverseAnchored {
                     .clone()
                     .span(start..input.end())
                     .anchored(Anchored::Pattern(hm.pattern()));
-                return self
-                    .core
-                    .try_search_slots_nofail(cache, &input, slots);
+                self.core.search_slots_nofail(cache, &input, slots)
             }
         }
     }
@@ -940,7 +919,7 @@ impl ReverseSuffix {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<(HalfMatch, Span)>, Option<MatchError>> {
+    ) -> Result<Option<(HalfMatch, Span)>, RetryError> {
         let mut span = input.get_span();
         let mut min_start = 0;
         loop {
@@ -953,16 +932,16 @@ impl ReverseSuffix {
                 .clone()
                 .anchored(Anchored::Yes)
                 .span(input.start()..litmatch.end);
-            match self.try_search_half_rev_limited(cache, &revinput, min_start)
+            match self
+                .try_search_half_rev_limited(cache, &revinput, min_start)?
             {
-                Err(err) => return Err(err),
-                Ok(None) => {
+                None => {
                     if span.start >= span.end {
                         break;
                     }
                     span.start = litmatch.start.checked_add(1).unwrap();
                 }
-                Ok(Some(hm)) => return Ok(Some((hm, litmatch))),
+                Some(hm) => return Ok(Some((hm, litmatch))),
             }
             min_start = litmatch.end;
         }
@@ -974,8 +953,8 @@ impl ReverseSuffix {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
-        let result = if let Some(e) = self.core.dfa.get(&input) {
+    ) -> Result<Option<HalfMatch>, RetryFailError> {
+        if let Some(e) = self.core.dfa.get(&input) {
             trace!(
                 "using full DFA for forward reverse suffix search at {:?}",
                 input.get_span()
@@ -989,14 +968,6 @@ impl ReverseSuffix {
             e.try_search_half_fwd(&mut cache.hybrid, &input)
         } else {
             unreachable!("ReverseSuffix always has a DFA")
-        };
-        match result {
-            Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("forward reverse suffix scan failed: {}", err);
-                Err(None)
-            }
-            Err(err) => Err(Some(err)),
         }
     }
 
@@ -1006,8 +977,8 @@ impl ReverseSuffix {
         cache: &mut Cache,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
-        let result = if let Some(e) = self.core.dfa.get(&input) {
+    ) -> Result<Option<HalfMatch>, RetryError> {
+        if let Some(e) = self.core.dfa.get(&input) {
             trace!(
                 "using full DFA for reverse suffix search at {:?}",
                 input.get_span()
@@ -1021,14 +992,6 @@ impl ReverseSuffix {
             e.try_search_half_rev_limited(&mut cache.hybrid, &input, min_start)
         } else {
             unreachable!("ReverseSuffix always has a DFA")
-        };
-        match result {
-            Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("reverse suffix scan failed: {}", err);
-                Err(None)
-            }
-            Err(err) => Err(Some(err)),
         }
     }
 }
@@ -1052,8 +1015,14 @@ impl Strategy for ReverseSuffix {
     #[inline(always)]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => self.core.search_nofail(cache, input),
+            Err(RetryError::Quadratic(err)) => {
+                trace!("reverse suffix optimization failed: {}", err);
+                self.core.search(cache, input)
+            }
+            Err(RetryError::Fail(err)) => {
+                trace!("reverse suffix reverse fast search failed: {}", err);
+                self.core.search_nofail(cache, input)
+            }
             Ok(None) => None,
             Ok(Some((hm_start, _))) => {
                 let fwdinput = input
@@ -1061,8 +1030,13 @@ impl Strategy for ReverseSuffix {
                     .anchored(Anchored::Pattern(hm_start.pattern()))
                     .span(hm_start.offset()..input.end());
                 match self.try_search_half_fwd(cache, &fwdinput) {
-                    Err(Some(err)) => todo!(),
-                    Err(None) => self.core.search_nofail(cache, input),
+                    Err(err) => {
+                        trace!(
+                            "reverse suffix forward fast search failed: {}",
+                            err
+                        );
+                        self.core.search_nofail(cache, input)
+                    }
                     Ok(None) => {
                         unreachable!(
                             "suffix match plus reverse match implies \
@@ -1085,10 +1059,16 @@ impl Strategy for ReverseSuffix {
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
         match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                let m = self.core.search_nofail(cache, input)?;
-                Some(HalfMatch::new(m.pattern(), m.end()))
+            Err(RetryError::Quadratic(err)) => {
+                trace!("reverse suffix half optimization failed: {}", err);
+                self.core.search_half(cache, input)
+            }
+            Err(RetryError::Fail(err)) => {
+                trace!(
+                    "reverse suffix reverse fast half search failed: {}",
+                    err
+                );
+                self.core.search_half_nofail(cache, input)
             }
             Ok(None) => None,
             Ok(Some((hm_start, pre_span))) => {
@@ -1104,48 +1084,39 @@ impl Strategy for ReverseSuffix {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
-        match self.try_search_half_start(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                self.core.try_search_slots_nofail(cache, input, slots)
-            }
-            Ok(None) => None,
-            Ok(Some((hm_start, _))) => {
-                if !self.core.is_capture_search_needed(slots.len()) {
-                    let fwdinput = input
-                        .clone()
-                        .anchored(Anchored::Pattern(hm_start.pattern()))
-                        .span(hm_start.offset()..input.end());
-                    match self.try_search_half_fwd(cache, &fwdinput) {
-                        Err(Some(err)) => todo!(),
-                        Err(None) => self
-                            .core
-                            .try_search_slots_nofail(cache, input, slots),
-                        Ok(None) => {
-                            unreachable!(
-                                "suffix match plus reverse match implies \
-						         there must be a match",
-                            )
-                        }
-                        Ok(Some(hm_end)) => {
-                            let m = Match::new(
-                                hm_start.pattern(),
-                                hm_start.offset()..hm_end.offset(),
-                            );
-                            copy_match_to_slots(m, slots);
-                            return Some(m.pattern());
-                        }
-                    }
-                } else {
-                    let start = hm_start.offset();
-                    let input = input
-                        .clone()
-                        .span(start..input.end())
-                        .anchored(Anchored::Pattern(hm_start.pattern()));
-                    self.core.try_search_slots_nofail(cache, &input, slots)
-                }
-            }
+        if !self.core.is_capture_search_needed(slots.len()) {
+            trace!("asked for slots unnecessarily, trying fast path");
+            let m = self.search(cache, input)?;
+            copy_match_to_slots(m, slots);
+            return Some(m.pattern());
         }
+        let hm_start = match self.try_search_half_start(cache, input) {
+            Err(RetryError::Quadratic(err)) => {
+                trace!("reverse suffix captures optimization failed: {}", err);
+                return self.core.search_slots(cache, input, slots);
+            }
+            Err(RetryError::Fail(err)) => {
+                trace!(
+                    "reverse suffix reverse fast captures search failed: {}",
+                    err
+                );
+                return self.core.search_slots_nofail(cache, input, slots);
+            }
+            Ok(None) => return None,
+            Ok(Some((hm_start, _))) => hm_start,
+        };
+        trace!(
+            "match found at {}..{} in capture search, \
+		  	 using another engine to find captures",
+            hm_start.offset(),
+            input.end(),
+        );
+        let start = hm_start.offset();
+        let input = input
+            .clone()
+            .span(start..input.end())
+            .anchored(Anchored::Pattern(hm_start.pattern()));
+        self.core.search_slots_nofail(cache, &input, slots)
     }
 
     #[inline(always)]
@@ -1266,7 +1237,7 @@ impl ReverseInner {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, Option<MatchError>> {
+    ) -> Result<Option<Match>, RetryError> {
         let mut span = input.get_span();
         let mut min_match_start = 0;
         let mut min_pre_start = 0;
@@ -1283,7 +1254,7 @@ impl ReverseInner {
                     litmatch,
                     min_pre_start,
                 );
-                return Err(None);
+                return Err(RetryError::Quadratic(RetryQuadraticError::new()));
             }
             trace!("reverse inner scan found inner match at {:?}", litmatch);
             let revinput = input
@@ -1294,27 +1265,25 @@ impl ReverseInner {
                 cache,
                 &revinput,
                 min_match_start,
-            ) {
-                Err(err) => return Err(err),
-                Ok(None) => {
+            )? {
+                None => {
                     if span.start >= span.end {
                         break;
                     }
                     span.start = litmatch.start.checked_add(1).unwrap();
                 }
-                Ok(Some(hm_start)) => {
+                Some(hm_start) => {
                     let fwdinput = input
                         .clone()
                         .anchored(Anchored::Pattern(hm_start.pattern()))
                         .span(hm_start.offset()..input.end());
-                    match self.try_search_half_fwd_stopat(cache, &fwdinput) {
-                        Err(err) => return Err(err),
-                        Ok(Err(stopat)) => {
+                    match self.try_search_half_fwd_stopat(cache, &fwdinput)? {
+                        Err(stopat) => {
                             min_pre_start = stopat;
                             span.start =
                                 litmatch.start.checked_add(1).unwrap();
                         }
-                        Ok(Ok(hm_end)) => {
+                        Ok(hm_end) => {
                             return Ok(Some(Match::new(
                                 hm_start.pattern(),
                                 hm_start.offset()..hm_end.offset(),
@@ -1333,8 +1302,8 @@ impl ReverseInner {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Result<HalfMatch, usize>, Option<MatchError>> {
-        let result = if let Some(e) = self.core.dfa.get(&input) {
+    ) -> Result<Result<HalfMatch, usize>, RetryFailError> {
+        if let Some(e) = self.core.dfa.get(&input) {
             trace!(
                 "using full DFA for forward reverse inner search at {:?}",
                 input.get_span()
@@ -1348,14 +1317,6 @@ impl ReverseInner {
             e.try_search_half_fwd_stopat(&mut cache.hybrid, &input)
         } else {
             unreachable!("ReverseInner always has a DFA")
-        };
-        match result {
-            Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("forward reverse inner scan failed: {}", err);
-                Err(None)
-            }
-            Err(err) => Err(Some(err)),
         }
     }
 
@@ -1365,8 +1326,8 @@ impl ReverseInner {
         cache: &mut Cache,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, Option<MatchError>> {
-        let result = if let Some(e) = self.dfa.get(&input) {
+    ) -> Result<Option<HalfMatch>, RetryError> {
+        if let Some(e) = self.dfa.get(&input) {
             trace!(
                 "using full DFA for reverse inner search at {:?}",
                 input.get_span()
@@ -1384,14 +1345,6 @@ impl ReverseInner {
             )
         } else {
             unreachable!("ReverseInner always has a DFA")
-        };
-        match result {
-            Ok(x) => Ok(x),
-            Err(err) if is_err_quit_or_gaveup(&err) => {
-                trace!("reverse inner scan failed: {}", err);
-                Err(None)
-            }
-            Err(err) => Err(Some(err)),
         }
     }
 }
@@ -1417,9 +1370,15 @@ impl Strategy for ReverseInner {
     #[inline(always)]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_full(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => self.core.search_nofail(cache, input),
-            Ok(m) => m,
+            Err(RetryError::Quadratic(err)) => {
+                trace!("reverse inner optimization failed: {}", err);
+                self.core.search(cache, input)
+            }
+            Err(RetryError::Fail(err)) => {
+                trace!("reverse inner fast search failed: {}", err);
+                self.core.search_nofail(cache, input)
+            }
+            Ok(matornot) => matornot,
         }
     }
 
@@ -1430,10 +1389,13 @@ impl Strategy for ReverseInner {
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
         match self.try_search_full(cache, input) {
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                let m = self.core.search_nofail(cache, input)?;
-                Some(HalfMatch::new(m.pattern(), m.end()))
+            Err(RetryError::Quadratic(err)) => {
+                trace!("reverse inner half optimization failed: {}", err);
+                self.core.search_half(cache, input)
+            }
+            Err(RetryError::Fail(err)) => {
+                trace!("reverse inner fast half search failed: {}", err);
+                self.core.search_half_nofail(cache, input)
             }
             Ok(None) => None,
             Ok(Some(m)) => Some(HalfMatch::new(m.pattern(), m.end())),
@@ -1454,12 +1416,16 @@ impl Strategy for ReverseInner {
             return Some(m.pattern());
         }
         let m = match self.try_search_full(cache, input) {
-            Ok(Some(m)) => m,
-            Ok(None) => return None,
-            Err(Some(err)) => todo!(),
-            Err(None) => {
-                return self.core.try_search_slots_nofail(cache, input, slots)
+            Err(RetryError::Quadratic(err)) => {
+                trace!("reverse inner captures optimization failed: {}", err);
+                return self.core.search_slots(cache, input, slots);
             }
+            Err(RetryError::Fail(err)) => {
+                trace!("reverse inner fast captures search failed: {}", err);
+                return self.core.search_slots_nofail(cache, input, slots);
+            }
+            Ok(None) => return None,
+            Ok(Some(m)) => m,
         };
         trace!(
             "match found at {}..{} in capture search, \
@@ -1471,7 +1437,7 @@ impl Strategy for ReverseInner {
             .clone()
             .span(m.start()..m.end())
             .anchored(Anchored::Pattern(m.pattern()));
-        self.core.try_search_slots_nofail(cache, &input, slots)
+        self.core.search_slots_nofail(cache, &input, slots)
     }
 
     #[inline(always)]

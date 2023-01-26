@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use crate::{
     meta::{
-        error::BuildError,
+        error::{BuildError, RetryError, RetryFailError},
         regex::{Config, RegexInfo},
     },
     nfa::thompson::{pikevm, NFA},
@@ -561,10 +561,11 @@ impl HybridEngine {
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    ) -> Result<Option<Match>, RetryFailError> {
         #[cfg(feature = "hybrid")]
         {
-            self.0.try_search(cache.0.as_mut().unwrap(), input)
+            let mut cache = cache.0.as_mut().unwrap();
+            self.0.try_search(cache, input).map_err(|e| e.into())
         }
         #[cfg(not(feature = "hybrid"))]
         {
@@ -579,12 +580,12 @@ impl HybridEngine {
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryFailError> {
         #[cfg(feature = "hybrid")]
         {
             let fwd = self.0.forward();
             let mut fwdcache = cache.0.as_mut().unwrap().as_parts_mut().0;
-            fwd.try_search_fwd(&mut fwdcache, input)
+            fwd.try_search_fwd(&mut fwdcache, input).map_err(|e| e.into())
         }
         #[cfg(not(feature = "hybrid"))]
         {
@@ -599,7 +600,7 @@ impl HybridEngine {
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
-    ) -> Result<Result<HalfMatch, usize>, MatchError> {
+    ) -> Result<Result<HalfMatch, usize>, RetryFailError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = self.0.forward();
@@ -621,12 +622,12 @@ impl HybridEngine {
         &self,
         cache: &mut HybridCache,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryFailError> {
         #[cfg(feature = "hybrid")]
         {
             let rev = self.0.reverse();
             let mut revcache = cache.0.as_mut().unwrap().as_parts_mut().1;
-            rev.try_search_rev(&mut revcache, input)
+            rev.try_search_rev(&mut revcache, input).map_err(|e| e.into())
         }
         #[cfg(not(feature = "hybrid"))]
         {
@@ -642,7 +643,7 @@ impl HybridEngine {
         cache: &mut HybridCache,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = self.0.reverse();
@@ -665,12 +666,13 @@ impl HybridEngine {
         cache: &mut HybridCache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
+    ) -> Result<(), RetryFailError> {
         #[cfg(feature = "hybrid")]
         {
             let fwd = self.0.forward();
             let mut fwdcache = cache.0.as_mut().unwrap().as_parts_mut().0;
             fwd.try_which_overlapping_matches(&mut fwdcache, input, patset)
+                .map_err(|e| e.into())
         }
         #[cfg(not(feature = "hybrid"))]
         {
@@ -847,10 +849,10 @@ impl DFAEngine {
     pub(crate) fn try_search(
         &self,
         input: &Input<'_>,
-    ) -> Result<Option<Match>, MatchError> {
+    ) -> Result<Option<Match>, RetryFailError> {
         #[cfg(feature = "dfa-build")]
         {
-            self.0.try_search(input)
+            self.0.try_search(input).map_err(|e| e.into())
         }
         #[cfg(not(feature = "dfa-build"))]
         {
@@ -864,11 +866,11 @@ impl DFAEngine {
     pub(crate) fn try_search_half_fwd(
         &self,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryFailError> {
         #[cfg(feature = "dfa-build")]
         {
             use crate::dfa::Automaton;
-            self.0.forward().try_search_fwd(input)
+            self.0.forward().try_search_fwd(input).map_err(|e| e.into())
         }
         #[cfg(not(feature = "dfa-build"))]
         {
@@ -882,7 +884,7 @@ impl DFAEngine {
     pub(crate) fn try_search_half_fwd_stopat(
         &self,
         input: &Input<'_>,
-    ) -> Result<Result<HalfMatch, usize>, MatchError> {
+    ) -> Result<Result<HalfMatch, usize>, RetryFailError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = self.0.forward();
@@ -900,11 +902,11 @@ impl DFAEngine {
     pub(crate) fn try_search_half_rev(
         &self,
         input: &Input<'_>,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryFailError> {
         #[cfg(feature = "dfa-build")]
         {
             use crate::dfa::Automaton;
-            self.0.reverse().try_search_rev(&input)
+            self.0.reverse().try_search_rev(&input).map_err(|e| e.into())
         }
         #[cfg(not(feature = "dfa-build"))]
         {
@@ -919,7 +921,7 @@ impl DFAEngine {
         &self,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = self.0.reverse();
@@ -940,11 +942,14 @@ impl DFAEngine {
         &self,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
+    ) -> Result<(), RetryFailError> {
         #[cfg(feature = "dfa-build")]
         {
             use crate::dfa::Automaton;
-            self.0.forward().try_which_overlapping_matches(input, patset)
+            self.0
+                .forward()
+                .try_which_overlapping_matches(input, patset)
+                .map_err(|e| e.into())
         }
         #[cfg(not(feature = "dfa-build"))]
         {
@@ -1039,7 +1044,7 @@ impl ReverseHybridEngine {
         cache: &mut ReverseHybridCache,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = &self.0;
@@ -1194,7 +1199,7 @@ impl ReverseDFAEngine {
         &self,
         input: &Input<'_>,
         min_start: usize,
-    ) -> Result<Option<HalfMatch>, MatchError> {
+    ) -> Result<Option<HalfMatch>, RetryError> {
         #[cfg(feature = "dfa-build")]
         {
             let dfa = &self.0;

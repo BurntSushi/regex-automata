@@ -547,9 +547,9 @@ impl<'r, 'h, 'm> TryFindMatches<'r, 'h, 'm> {
     /// iterator function keeps it smaller and more amenable to inlining
     /// itself.
     ///
-    /// (This is copied from src/util/iter.rs since PCRE2. We would use the
-    /// iterator helper directly, but PCRE2 has a different error type and I'd
-    /// prefer not to add more generics to the iterator helper.)
+    /// (This is copied from src/util/iter.rs. We would use the iterator helper
+    /// directly, but PCRE2 has a different error type and I'd prefer not to
+    /// add more generics to the iterator helper.)
     #[cold]
     #[inline(never)]
     fn handle_overlapping_empty_match(

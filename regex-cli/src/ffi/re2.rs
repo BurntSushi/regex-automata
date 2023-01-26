@@ -8,8 +8,6 @@ use {
 };
 
 /// Regex wraps an RE2 regular expression.
-///
-/// It cannot be used safely from multiple threads simultaneously.
 pub struct Regex {
     re: NonNull<re2_regexp>,
     pattern: String,
@@ -67,7 +65,7 @@ impl Regex {
     /// does not include the implicit unnamed capturing group corresponding to
     /// the overall match span of the regex.
     fn explicit_capture_len(&self) -> usize {
-        // SAFETY: We know our regex point is valid by construction.
+        // SAFETY: We know our regex pointer is valid by construction.
         unsafe { re2_regexp_capture_len(self.re.as_ptr()) as usize }
     }
 
@@ -307,14 +305,15 @@ impl<'r, 'h> Iterator for FindMatches<'r, 'h> {
     }
 }
 
-// RE2 FFI is below. Since RE2 is written in C++, we hand-rolled our own
-// C API shim that is defined in re2.cpp. CRE2 does exist, but I want to
-// eliminate any layers between the benchmark harness and the thing being
-// measured. Indeed, in CRE2, its 'cre2_match' routine allocates a new
-// std::vector on every call to store submatches. We avoid that here by
-// defining our own opaque 're2_captures' type. The downside is that accessing
-// a submatch requires calling 're2_captures_get'. (If we can make that
-// function inlineable, then that downside would be fully mitigated.)
+// RE2 FFI is below. Since RE2 is written in C++, we hand-rolled our own C API
+// shim that is defined in re2.cpp. CRE2 does exist, but I want to eliminate
+// any layers between the benchmark harness and the thing being measured.
+// Indeed, in CRE2, its 'cre2_match' routine allocates a new std::vector on
+// every call to store submatches. We avoid that here by defining our own
+// opaque 're2_captures' type which the caller controls the lifetime of,
+// and passes into 're2_regexp_captures'. The downside is that accessing a
+// submatch requires calling 're2_captures_get'. (If we can make that function
+// inlineable, then that downside would be fully mitigated.)
 //
 // For docs, see the re2.cpp file.
 

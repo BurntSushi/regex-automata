@@ -1,11 +1,14 @@
-use crate::{HalfMatch, Input, MatchError};
+use crate::{
+    meta::error::{RetryError, RetryQuadraticError},
+    HalfMatch, Input, MatchError,
+};
 
 #[cfg(feature = "dfa-build")]
 pub(crate) fn dfa_try_search_half_rev(
     dfa: &crate::dfa::dense::DFA<alloc::vec::Vec<u32>>,
     input: &Input<'_>,
     min_start: usize,
-) -> Result<Option<HalfMatch>, MatchError> {
+) -> Result<Option<HalfMatch>, RetryError> {
     use crate::dfa::Automaton;
 
     let mut mat = None;
@@ -34,7 +37,7 @@ pub(crate) fn dfa_try_search_half_rev(
                 if mat.is_some() {
                     return Ok(mat);
                 }
-                return Err(MatchError::quit(input.haystack()[at], at));
+                return Err(MatchError::quit(input.haystack()[at], at).into());
             }
         }
         if at == input.start() {
@@ -47,7 +50,7 @@ pub(crate) fn dfa_try_search_half_rev(
 				 match, quitting to avoid quadratic behavior",
                 at,
             );
-            return Err(MatchError::quit(input.haystack()[at], at));
+            return Err(RetryError::Quadratic(RetryQuadraticError::new()));
         }
     }
     dfa_eoi_rev(dfa, input, &mut sid, &mut mat)?;
@@ -60,7 +63,7 @@ pub(crate) fn hybrid_try_search_half_rev(
     cache: &mut crate::hybrid::dfa::Cache,
     input: &Input<'_>,
     min_start: usize,
-) -> Result<Option<HalfMatch>, MatchError> {
+) -> Result<Option<HalfMatch>, RetryError> {
     use crate::dfa::Automaton;
 
     let mut mat = None;
@@ -91,7 +94,7 @@ pub(crate) fn hybrid_try_search_half_rev(
                 if mat.is_some() {
                     return Ok(mat);
                 }
-                return Err(MatchError::quit(input.haystack()[at], at));
+                return Err(MatchError::quit(input.haystack()[at], at).into());
             }
         }
         if at == input.start() {
@@ -104,7 +107,7 @@ pub(crate) fn hybrid_try_search_half_rev(
 				 match, quitting to avoid quadratic behavior",
                 at,
             );
-            return Err(MatchError::quit(input.haystack()[at], at));
+            return Err(RetryError::Quadratic(RetryQuadraticError::new()));
         }
     }
     hybrid_eoi_rev(dfa, cache, input, &mut sid, &mut mat)?;

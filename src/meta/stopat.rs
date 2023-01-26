@@ -1,10 +1,10 @@
-use crate::{HalfMatch, Input, MatchError};
+use crate::{meta::error::RetryFailError, HalfMatch, Input, MatchError};
 
 #[cfg(feature = "dfa-build")]
 pub(crate) fn dfa_try_search_half_fwd(
     dfa: &crate::dfa::dense::DFA<alloc::vec::Vec<u32>>,
     input: &Input<'_>,
-) -> Result<Result<HalfMatch, usize>, MatchError> {
+) -> Result<Result<HalfMatch, usize>, RetryFailError> {
     use crate::dfa::Automaton;
 
     let mut mat = None;
@@ -28,7 +28,7 @@ pub(crate) fn dfa_try_search_half_fwd(
                 if mat.is_some() {
                     return Ok(mat.ok_or(at));
                 }
-                return Err(MatchError::quit(input.haystack()[at], at));
+                return Err(MatchError::quit(input.haystack()[at], at).into());
             }
         }
         at += 1;
@@ -42,7 +42,7 @@ pub(crate) fn hybrid_try_search_half_fwd(
     dfa: &crate::hybrid::dfa::DFA,
     cache: &mut crate::hybrid::dfa::Cache,
     input: &Input<'_>,
-) -> Result<Result<HalfMatch, usize>, MatchError> {
+) -> Result<Result<HalfMatch, usize>, RetryFailError> {
     let mut mat = None;
     let mut sid = match dfa.start_state_forward(cache, input)? {
         None => return Ok(Err(input.start())),
@@ -66,7 +66,7 @@ pub(crate) fn hybrid_try_search_half_fwd(
                 if mat.is_some() {
                     return Ok(mat.ok_or(at));
                 }
-                return Err(MatchError::quit(input.haystack()[at], at));
+                return Err(MatchError::quit(input.haystack()[at], at).into());
             } else {
                 debug_assert!(sid.is_unknown());
                 unreachable!("sid being unknown is a bug");

@@ -141,6 +141,9 @@ debug = true
 
 [profile.release]
 debug = true
+lto = "thin"
+codegen-units = 16
+incremental = false
 
 [profile.bench]
 debug = true

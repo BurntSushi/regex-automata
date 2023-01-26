@@ -1632,7 +1632,7 @@ impl MatchError {
     /// regex engine.
     ///
     /// This is the same as calling `MatchError::new` with a
-    /// [`MatchErrorKind::UnsupportAnchored`] kind.
+    /// [`MatchErrorKind::UnsupportedAnchored`] kind.
     pub fn unsupported_anchored(mode: Anchored) -> MatchError {
         MatchError::new(MatchErrorKind::UnsupportedAnchored { mode })
     }
