@@ -9,7 +9,10 @@ pub(crate) fn dfa_try_search_half_rev(
     use crate::dfa::Automaton;
 
     let mut mat = None;
-    let mut sid = dfa.start_state_reverse(input)?;
+    let mut sid = match dfa.start_state_reverse(input)? {
+        None => return Ok(None),
+        Some(sid) => sid,
+    };
     if input.start() == input.end() {
         dfa_eoi_rev(dfa, input, &mut sid, &mut mat)?;
         return Ok(mat);
@@ -61,7 +64,10 @@ pub(crate) fn hybrid_try_search_half_rev(
     use crate::dfa::Automaton;
 
     let mut mat = None;
-    let mut sid = dfa.start_state_reverse(cache, input)?;
+    let mut sid = match dfa.start_state_reverse(cache, input)? {
+        None => return Ok(None),
+        Some(sid) => sid,
+    };
     if input.start() == input.end() {
         hybrid_eoi_rev(dfa, cache, input, &mut sid, &mut mat)?;
         return Ok(mat);

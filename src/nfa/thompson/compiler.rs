@@ -1924,8 +1924,8 @@ mod tests {
         assert_eq!(nfa.start_anchored().as_usize(), 4);
         assert_eq!(nfa.start_unanchored().as_usize(), 4);
         // Test that the start states for each individual pattern are correct.
-        assert_eq!(nfa.start_pattern(pid(0)), sid(0));
-        assert_eq!(nfa.start_pattern(pid(1)), sid(2));
+        assert_eq!(nfa.start_pattern(pid(0)).unwrap(), sid(0));
+        assert_eq!(nfa.start_pattern(pid(1)).unwrap(), sid(2));
     }
 
     // This tests that our compiler can handle an empty character class. At the

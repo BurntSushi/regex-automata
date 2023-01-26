@@ -1219,7 +1219,10 @@ impl BoundedBacktracker {
                 self.nfa.start_anchored(),
             ),
             Anchored::Yes => (true, self.nfa.start_anchored()),
-            Anchored::Pattern(pid) => (true, self.nfa.try_start_pattern(pid)?),
+            Anchored::Pattern(pid) => match self.nfa.start_pattern(pid) {
+                None => return Ok(None),
+                Some(sid) => (true, sid),
+            },
         };
         if anchored {
             let at = input.start();

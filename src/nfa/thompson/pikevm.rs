@@ -296,6 +296,9 @@ impl Builder {
 /// functionality in an [`NFA`] and is never limited by the contents or length
 /// of the haystack.
 ///
+/// (The [`PikeVM::try_which_overlapping_matches`] API will also return an
+/// error if the given [`PatternSet`] has insufficient capacity.)
+///
 /// # Advice
 ///
 /// The `PikeVM` is generally the most "powerful" regex engine in this crate.
@@ -1166,16 +1169,15 @@ impl PikeVM {
     /// the same pattern set for multiple searches but intended them to be
     /// independent.
     ///
+    /// If a pattern ID matched but the given `PatternSet` does not have
+    /// sufficient capacity to store it, then it is not inserted and silently
+    /// dropped.
+    ///
     /// # Errors
     ///
     /// An error is returned if the [`Input`] configuration is invalid. This
     /// only occurs if the `Input` specifies an anchored search for an invalid
     /// [`PatternID`].
-    ///
-    /// # Panics
-    ///
-    /// This routine may panic if the given [`PatternSet`] has insufficient
-    /// capacity to hold all matching pattern IDs.
     ///
     /// # Example
     ///
@@ -1251,7 +1253,10 @@ impl PikeVM {
         // 'leftmost' semantics of typical backtracking regex engines.
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        let (anchored, start_id) = self.start_config(input)?;
+        let (anchored, start_id) = match self.start_config(input) {
+            None => return Ok(None),
+            Some(config) => config,
+        };
 
         let pre =
             if anchored { None } else { self.get_config().get_prefilter() };
@@ -1412,7 +1417,10 @@ impl PikeVM {
 
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
-        let (anchored, start_id) = self.start_config(input)?;
+        let (anchored, start_id) = match self.start_config(input) {
+            None => return Ok(()),
+            Some(config) => config,
+        };
 
         let Cache { ref mut stack, ref mut curr, ref mut next } = cache;
         for at in input.start()..=input.end() {
@@ -1510,7 +1518,7 @@ impl PikeVM {
             if utf8empty && !input.is_char_boundary(at) {
                 continue;
             }
-            patset.insert(pid);
+            let _ = patset.try_insert(pid);
             if !self.config.get_match_kind().continue_past_first_match() {
                 break;
             }
@@ -1751,20 +1759,20 @@ impl PikeVM {
     ///
     /// Similarly, if the caller requests an anchored search for a particular
     /// pattern, then the starting state ID returned will reflect that.
-    fn start_config(
-        &self,
-        input: &Input<'_>,
-    ) -> Result<(bool, StateID), MatchError> {
+    ///
+    /// If a pattern ID is given in the input configuration that is not in
+    /// this regex, then `None` is returned.
+    fn start_config(&self, input: &Input<'_>) -> Option<(bool, StateID)> {
         match input.get_anchored() {
             // Only way we're unanchored is if both the caller asked for an
             // unanchored search *and* the pattern is itself not anchored.
-            Anchored::No => Ok((
+            Anchored::No => Some((
                 self.nfa.is_always_start_anchored(),
                 self.nfa.start_anchored(),
             )),
-            Anchored::Yes => Ok((true, self.nfa.start_anchored())),
+            Anchored::Yes => Some((true, self.nfa.start_anchored())),
             Anchored::Pattern(pid) => {
-                Ok((true, self.nfa.try_start_pattern(pid)?))
+                Some((true, self.nfa.start_pattern(pid)?))
             }
         }
     }

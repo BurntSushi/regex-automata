@@ -27,7 +27,7 @@ still need to use `as` because const functions on traits aren't stable yet.
 If we wind up significantly expanding our const footprint in this crate, it
 might be worth defining free functions to handle those cases. But at the time
 of writing, that just seemed like too much ceremony. Instead, I comment each
-such use of `as` in a const context with a FIXME notice.
+such use of `as` in a const context with a "fixme" notice.
 
 NOTE: for simplicity, we don't take target pointer width into account here for
 `usize` conversions. Since we currently only panic in debug mode, skipping the

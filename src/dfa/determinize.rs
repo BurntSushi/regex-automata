@@ -325,10 +325,6 @@ impl<'a> Runner<'a> {
         // We only want to add (un)anchored starting states that is consistent
         // with our DFA's configuration. Unconditionally adding both (although
         // it is the default) can make DFAs quite a bit bigger.
-        //
-        // FIXME: I think we can skip this if the NFA is always anchored. But
-        // if we do, should we also change the start kind? Or should the start
-        // kind always correspond to what was configured?
         if self.dfa.start_kind().has_unanchored() {
             self.add_start_group(Anchored::No, dfa_state_ids)?;
         }
@@ -372,7 +368,9 @@ impl<'a> Runner<'a> {
         let nfa_start = match anchored {
             Anchored::No => self.nfa.start_unanchored(),
             Anchored::Yes => self.nfa.start_anchored(),
-            Anchored::Pattern(pid) => self.nfa.start_pattern(pid),
+            Anchored::Pattern(pid) => {
+                self.nfa.start_pattern(pid).expect("valid pattern ID")
+            }
         };
 
         // When compiling start states, we're careful not to build additional

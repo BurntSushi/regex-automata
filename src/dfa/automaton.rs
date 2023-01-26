@@ -128,7 +128,11 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Input::new(haystack))?;
+    /// //
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
+    /// let mut state =
+    ///     dfa.start_state_forward(&Input::new(haystack))?.unwrap();
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -203,7 +207,11 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Input::new(haystack))?;
+    /// //
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
+    /// let mut state =
+    ///     dfa.start_state_forward(&Input::new(haystack))?.unwrap();
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -251,7 +259,7 @@ pub unsafe trait Automaton {
     fn start_state_forward(
         &self,
         input: &Input<'_>,
-    ) -> Result<StateID, MatchError>;
+    ) -> Result<Option<StateID>, MatchError>;
 
     /// Return the ID of the start state for this DFA when executing a reverse
     /// search.
@@ -284,7 +292,7 @@ pub unsafe trait Automaton {
     fn start_state_reverse(
         &self,
         input: &Input<'_>,
-    ) -> Result<StateID, MatchError>;
+    ) -> Result<Option<StateID>, MatchError>;
 
     /// If this DFA has a universal starting state for the given anchor mode
     /// and the DFA supports universal starting states, then this returns that
@@ -385,7 +393,12 @@ pub unsafe trait Automaton {
     ///     // initial bytes of the haystack. Note that start states can never
     ///     // be match states (since DFAs in this crate delay matches by 1
     ///     // byte), so we don't need to check if the start state is a match.
-    ///     let mut state = dfa.start_state_forward(&Input::new(haystack))?;
+    ///     //
+    ///     // Also, we unwrap this because the only way to get a None start
+    ///     // state ID is if we asked to search for a pattern that isn't in
+    ///     // this DFA, but we don't use that functionality here.
+    ///     let mut state =
+    ///         dfa.start_state_forward(&Input::new(haystack))?.unwrap();
     ///     let mut last_match = None;
     ///     // Walk all the bytes in the haystack. We can quit early if we see
     ///     // a dead or a quit state. The former means the automaton will
@@ -630,7 +643,8 @@ pub unsafe trait Automaton {
     ///     // See the Automaton::is_special_state example for similar code
     ///     // with more comments.
     ///
-    ///     let mut state = dfa.start_state_forward(&Input::new(haystack))?;
+    ///     let mut state =
+    ///         dfa.start_state_forward(&Input::new(haystack))?.unwrap();
     ///     let mut last_match = None;
     ///     let mut pos = 0;
     ///     while pos < haystack.len() {
@@ -844,7 +858,11 @@ pub unsafe trait Automaton {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
-    /// let mut state = dfa.start_state_forward(&Input::new(haystack))?;
+    /// //
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
+    /// let mut state =
+    ///     dfa.start_state_forward(&Input::new(haystack))?.unwrap();
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     state = dfa.next_state(state, b);
@@ -1617,6 +1635,10 @@ pub unsafe trait Automaton {
     /// the same pattern set for multiple searches but intended them to be
     /// independent.
     ///
+    /// If a pattern ID matched but the given `PatternSet` does not have
+    /// sufficient capacity to store it, then it is not inserted and silently
+    /// dropped.
+    ///
     /// # Errors
     ///
     /// This routine errors if the search could not complete. This can occur
@@ -1629,8 +1651,6 @@ pub unsafe trait Automaton {
     /// * When the provided `Input` configuration is not supported. For
     /// example, by providing an unsupported anchor mode or an invalid pattern
     /// ID.
-    /// * When the given `PatternSet` has insufficient capacity. Its capacity
-    /// must be at least as big as the number of patterns in this DFA.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1676,13 +1696,12 @@ pub unsafe trait Automaton {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        patset.check_capacity(self.pattern_len())?;
         let mut state = OverlappingState::start();
         while let Some(m) = {
             self.try_search_overlapping_fwd(input, &mut state)?;
             state.get_match()
         } {
-            patset.insert(m.pattern());
+            let _ = patset.insert(m.pattern());
             // There's nothing left to find, so we can stop. Or the caller
             // asked us to.
             if patset.is_full() || input.get_earliest() {
@@ -1717,7 +1736,7 @@ unsafe impl<'a, A: Automaton + ?Sized> Automaton for &'a A {
     fn start_state_forward(
         &self,
         input: &Input<'_>,
-    ) -> Result<StateID, MatchError> {
+    ) -> Result<Option<StateID>, MatchError> {
         (**self).start_state_forward(input)
     }
 
@@ -1725,7 +1744,7 @@ unsafe impl<'a, A: Automaton + ?Sized> Automaton for &'a A {
     fn start_state_reverse(
         &self,
         input: &Input<'_>,
-    ) -> Result<StateID, MatchError> {
+    ) -> Result<Option<StateID>, MatchError> {
         (**self).start_state_reverse(input)
     }
 

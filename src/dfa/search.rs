@@ -51,7 +51,10 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
     // See 'prefilter_restart' docs for explanation.
     let universal_start = dfa.universal_start_state(Anchored::No).is_some();
     let mut mat = None;
-    let mut sid = init_fwd(dfa, input)?;
+    let mut sid = match init_fwd(dfa, input)? {
+        None => return Ok(None),
+        Some(sid) => sid,
+    };
     let mut at = input.start();
     // This could just be a closure, but then I think it would be unsound
     // because it would need to be safe to invoke. This way, the lack of safety
@@ -208,7 +211,10 @@ fn find_rev_imp<A: Automaton + ?Sized>(
     earliest: bool,
 ) -> Result<Option<HalfMatch>, MatchError> {
     let mut mat = None;
-    let mut sid = init_rev(dfa, input)?;
+    let mut sid = match init_rev(dfa, input)? {
+        None => return Ok(None),
+        Some(sid) => sid,
+    };
     // In reverse search, the loop below can't handle the case of searching an
     // empty slice. Ideally we could write something congruent to the forward
     // search, i.e., 'while at >= start', but 'start' might be 0. Since we use
@@ -347,7 +353,10 @@ fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     let mut sid = match state.id {
         None => {
             state.at = input.start();
-            init_fwd(dfa, input)?
+            match init_fwd(dfa, input)? {
+                None => return Ok(()),
+                Some(sid) => sid,
+            }
         }
         Some(sid) => {
             if let Some(match_index) = state.next_match_index {
@@ -455,13 +464,17 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
     }
     let mut sid = match state.id {
         None => {
-            state.id = Some(init_rev(dfa, input)?);
+            let sid = match init_rev(dfa, input)? {
+                None => return Ok(()),
+                Some(sid) => sid,
+            };
+            state.id = Some(sid);
             if input.start() == input.end() {
                 state.rev_eoi = true;
             } else {
                 state.at = input.end() - 1;
             }
-            state.id.unwrap()
+            sid
         }
         Some(sid) => {
             if let Some(match_index) = state.next_match_index {
@@ -554,24 +567,30 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
 fn init_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
-) -> Result<StateID, MatchError> {
-    let state = dfa.start_state_forward(input)?;
+) -> Result<Option<StateID>, MatchError> {
+    let sid = match dfa.start_state_forward(input)? {
+        None => return Ok(None),
+        Some(sid) => sid,
+    };
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
-    assert!(!dfa.is_match_state(state));
-    Ok(state)
+    debug_assert!(!dfa.is_match_state(sid));
+    Ok(Some(sid))
 }
 
 #[inline(always)]
 fn init_rev<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
-) -> Result<StateID, MatchError> {
-    let state = dfa.start_state_reverse(input)?;
+) -> Result<Option<StateID>, MatchError> {
+    let sid = match dfa.start_state_reverse(input)? {
+        None => return Ok(None),
+        Some(sid) => sid,
+    };
     // Start states can never be match states, since all matches are delayed
     // by 1 byte.
-    assert!(!dfa.is_match_state(state));
-    Ok(state)
+    debug_assert!(!dfa.is_match_state(sid));
+    Ok(Some(sid))
 }
 
 #[inline(always)]
@@ -654,5 +673,5 @@ fn prefilter_restart<A: Automaton + ?Sized>(
 ) -> Result<StateID, MatchError> {
     let mut input = input.clone();
     input.set_start(at);
-    init_fwd(dfa, &input)
+    init_fwd(dfa, &input).map(|start| start.unwrap())
 }

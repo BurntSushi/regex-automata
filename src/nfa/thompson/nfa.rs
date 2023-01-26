@@ -16,7 +16,6 @@ use crate::{
         primitives::{
             IteratorIndexExt, PatternID, PatternIDIter, SmallIndex, StateID,
         },
-        search::MatchError,
         sparse_set::SparseSet,
     },
 };
@@ -502,54 +501,8 @@ impl NFA {
     }
 
     /// Return the state identifier of the initial anchored state for the given
-    /// pattern.
-    ///
-    /// If one uses the starting state for a particular pattern, then the only
-    /// match that can be returned is for the corresponding pattern.
-    ///
-    /// The returned identifier is guaranteed to be a valid index into the
-    /// slice returned by [`NFA::states`], and is also a valid argument to
-    /// [`NFA::state`].
-    ///
-    /// # Panics
-    ///
-    /// If the pattern doesn't exist in this NFA, then this panics. This
-    /// occurs when `pid.as_usize() >= nfa.pattern_len()`.
-    ///
-    /// See [`NFA::try_start_pattern`] for a fallible version of this routine.
-    /// The fallible version is particularly useful when used to implement
-    /// search routines for handling the pattern ID that may be inside of
-    /// [`Input::get_anchored`](crate::Input::get_anchored).
-    ///
-    /// # Example
-    ///
-    /// This example shows that the anchored and unanchored starting states
-    /// are equivalent when an anchored NFA is built.
-    ///
-    /// ```
-    /// use regex_automata::{nfa::thompson::NFA, PatternID};
-    ///
-    /// let nfa = NFA::new_many(&["^a", "^b"])?;
-    /// // The anchored and unanchored states for the entire NFA are the same,
-    /// // since all of the patterns are anchored.
-    /// assert_eq!(nfa.start_anchored(), nfa.start_unanchored());
-    /// // But the anchored starting states for each pattern are distinct,
-    /// // because these starting states can only lead to matches for the
-    /// // corresponding pattern.
-    /// let anchored = nfa.start_anchored();
-    /// assert_ne!(anchored, nfa.start_pattern(PatternID::must(0)));
-    /// assert_ne!(anchored, nfa.start_pattern(PatternID::must(1)));
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    #[inline]
-    pub fn start_pattern(&self, pid: PatternID) -> StateID {
-        assert!(pid.as_usize() < self.pattern_len(), "invalid pattern ID");
-        self.0.start_pattern[pid]
-    }
-
-    /// Return the state identifier of the initial anchored state for the given
-    /// pattern, or an error if the given pattern ID is invalid.
+    /// pattern, or `None` if there is no pattern corresponding to the given
+    /// identifier.
     ///
     /// If one uses the starting state for a particular pattern, then the only
     /// match that can be returned is for the corresponding pattern.
@@ -578,23 +531,17 @@ impl NFA {
     /// // But the anchored starting states for each pattern are distinct,
     /// // because these starting states can only lead to matches for the
     /// // corresponding pattern.
-    /// let anchored = nfa.start_anchored();
-    /// assert_ne!(anchored, nfa.try_start_pattern(PatternID::must(0))?);
-    /// assert_ne!(anchored, nfa.try_start_pattern(PatternID::must(1))?);
+    /// let anchored = Some(nfa.start_anchored());
+    /// assert_ne!(anchored, nfa.start_pattern(PatternID::must(0)));
+    /// assert_ne!(anchored, nfa.start_pattern(PatternID::must(1)));
+    /// // Requesting a pattern not in the NFA will result in None:
+    /// assert_eq!(None, nfa.start_pattern(PatternID::must(2)));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn try_start_pattern(
-        &self,
-        pid: PatternID,
-    ) -> Result<StateID, MatchError> {
-        match self.0.start_pattern.get(pid.as_usize()) {
-            Some(&sid) => Ok(sid),
-            None => {
-                Err(MatchError::invalid_input_pattern(pid, self.pattern_len()))
-            }
-        }
+    pub fn start_pattern(&self, pid: PatternID) -> Option<StateID> {
+        self.0.start_pattern.get(pid.as_usize()).copied()
     }
 
     /// Get the byte class set for this NFA.
@@ -652,7 +599,7 @@ impl NFA {
     /// use regex_automata::{nfa::thompson::{NFA, State}, PatternID};
     ///
     /// let nfa = NFA::new("a")?;
-    /// let state = nfa.state(nfa.start_pattern(PatternID::ZERO));
+    /// let state = nfa.state(nfa.start_pattern(PatternID::ZERO).unwrap());
     /// match *state {
     ///     State::Capture { slot, .. } => {
     ///         assert_eq!(0, slot.as_usize());

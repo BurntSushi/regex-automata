@@ -732,7 +732,10 @@ impl<'a> InternalBuilder<'a> {
         self.add_start_state(None, self.nfa.start_anchored())?;
         if self.config.get_starts_for_each_pattern() {
             for pid in self.nfa.patterns() {
-                self.add_start_state(Some(pid), self.nfa.start_pattern(pid))?;
+                self.add_start_state(
+                    Some(pid),
+                    self.nfa.start_pattern(pid).unwrap(),
+                )?;
             }
         }
         // NOTE: One wonders what the effects of treating 'uncompiled_nfa_ids'
@@ -2134,9 +2137,12 @@ impl DFA {
         let mut pid = None;
         let mut sid = match input.get_anchored() {
             Anchored::Yes => self.start(),
-            Anchored::Pattern(pid) => self.start_pattern(pid)?,
+            Anchored::Pattern(pid) => match self.start_pattern(pid)? {
+                None => return Ok(None),
+                Some(sid) => sid,
+            },
             Anchored::No => {
-                return Err(MatchError::invalid_input_unanchored());
+                return Err(MatchError::unsupported_anchored(Anchored::No));
             }
         };
         for at in input.start()..input.end() {
@@ -2219,9 +2225,18 @@ impl DFA {
     }
 
     /// Returns the anchored start state for matching the given pattern. If
-    /// the given pattern is not in this DFA or if 'starts_for_each_pattern'
-    /// was not enabled, then this panics.
-    fn start_pattern(&self, pid: PatternID) -> Result<StateID, MatchError> {
+    /// 'starts_for_each_pattern'
+    /// was not enabled, then this returns an error. If the given pattern is
+    /// not in this DFA, then `Ok(None)` is returned.
+    fn start_pattern(
+        &self,
+        pid: PatternID,
+    ) -> Result<Option<StateID>, MatchError> {
+        if !self.config.get_starts_for_each_pattern() {
+            return Err(MatchError::unsupported_anchored(Anchored::Pattern(
+                pid,
+            )));
+        }
         match self.starts.get(pid.one_more()) {
             None => {
                 // 'starts' always has non-zero length. The first entry is
@@ -2230,10 +2245,9 @@ impl DFA {
                 // anchored starting states for patterns at pid+1. Thus,
                 // starts.len()-1 corresponds to the total number of patterns
                 // that one can explicitly search for. (And it may be zero.)
-                let len = self.starts.len().checked_sub(1).unwrap();
-                Err(MatchError::invalid_input_pattern(pid, len))
+                Ok(None)
             }
-            Some(&sid) => Ok(sid),
+            Some(&sid) => Ok(Some(sid)),
         }
     }
 

@@ -300,13 +300,12 @@ pub(crate) fn skip_initial_padding(slice: &[u8]) -> usize {
 /// does some sanity asserts under the assumption of a max alignment of `8`.
 #[cfg(feature = "alloc")]
 pub(crate) fn alloc_aligned_buffer<T>(size: usize) -> (Vec<u8>, usize) {
-    // FIXME: This is a kludge because there's no easy way to allocate a
-    // Vec<u8> with an alignment guaranteed to be greater than 1. We could
-    // create a Vec<u32>, but this cannot be safely transmuted to a Vec<u8>
-    // without concern, since reallocing or dropping the Vec<u8> is UB
-    // (different alignment than the initial allocation). We could define a
-    // wrapper type to manage this for us, but it seems like more machinery
-    // than it's worth.
+    // NOTE: This is a kludge because there's no easy way to allocate a Vec<u8>
+    // with an alignment guaranteed to be greater than 1. We could create a
+    // Vec<u32>, but this cannot be safely transmuted to a Vec<u8> without
+    // concern, since reallocing or dropping the Vec<u8> is UB (different
+    // alignment than the initial allocation). We could define a wrapper type
+    // to manage this for us, but it seems like more machinery than it's worth.
     let buf = vec![0; size];
     let align = core::mem::align_of::<T>();
     let address = buf.as_ptr().as_usize();

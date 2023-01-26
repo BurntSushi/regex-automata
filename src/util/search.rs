@@ -1192,7 +1192,12 @@ impl PatternSet {
     ///
     /// # Panics
     ///
-    /// This panics if the given capacity exceeds [`PatternID::LIMIT`].
+    /// This panics if the given capacity exceeds [`PatternID::LIMIT`]. This is
+    /// impossible if you use the `pattern_len()` method as defined on any of
+    /// the regex engines in this crate. Namely, a regex will fail to build by
+    /// returning an error if the number of patterns given to it exceeds the
+    /// limit. Therefore, the number of patterns in a valid regex is alwasys
+    /// a correct capacity to provide here.
     pub fn new(capacity: usize) -> PatternSet {
         assert!(
             capacity <= PatternID::LIMIT,
@@ -1214,27 +1219,51 @@ impl PatternSet {
     }
 
     /// Return true if and only if the given pattern identifier is in this set.
-    ///
-    /// # Panics
-    ///
-    /// This panics if `pid` exceeds the capacity of this set.
     pub fn contains(&self, pid: PatternID) -> bool {
-        self.which[pid]
+        pid.as_usize() < self.capacity() && self.which[pid]
     }
 
-    /// Insert the given pattern identifier into this set.
+    /// Insert the given pattern identifier into this set and return `true` if
+    /// the given pattern ID was not previously in this set.
     ///
     /// If the pattern identifier is already in this set, then this is a no-op.
     ///
+    /// Use [`PatternSet::try_insert`] for a fallible version of this routine.
+    ///
     /// # Panics
     ///
-    /// This panics if `pid` exceeds the capacity of this set.
-    pub fn insert(&mut self, pid: PatternID) {
+    /// This panics if this pattern set has insufficient capacity to
+    /// store the given pattern ID.
+    pub fn insert(&mut self, pid: PatternID) -> bool {
+        self.try_insert(pid)
+            .expect("PatternSet should have sufficient capacity")
+    }
+
+    /// Insert the given pattern identifier into this set and return `true` if
+    /// the given pattern ID was not previously in this set.
+    ///
+    /// If the pattern identifier is already in this set, then this is a no-op.
+    ///
+    /// # Errors
+    ///
+    /// This returns an error if this pattern set has insufficient capacity to
+    /// store the given pattern ID.
+    pub fn try_insert(
+        &mut self,
+        pid: PatternID,
+    ) -> Result<bool, PatternSetInsertError> {
+        if pid.as_usize() >= self.capacity() {
+            return Err(PatternSetInsertError {
+                attempted: pid,
+                capacity: self.capacity(),
+            });
+        }
         if self.which[pid] {
-            return;
+            return Ok(false);
         }
         self.len += 1;
         self.which[pid] = true;
+        Ok(true)
     }
 
     /*
@@ -1297,35 +1326,42 @@ impl PatternSet {
         self.which.len()
     }
 
-    /// Checks whether this pattern set has sufficient capacity to store all
-    /// possible pattern IDs for a regex with the given number of patterns.
-    ///
-    /// This is a convenience routine for checking whether a caller provided
-    /// `PatternSet` has sufficient capacity, and if not, returning an
-    /// appropriate error.
-    ///
-    /// # Panics
-    ///
-    /// This panics if the given `pattern_len` exceeds `PatternID::LIMIT`. This
-    /// never occurs for any of the regex engines in this crate.
-    pub fn check_capacity(
-        &self,
-        pattern_len: usize,
-    ) -> Result<(), MatchError> {
-        if self.capacity() >= pattern_len {
-            return Ok(());
-        }
-        let given = u32::try_from(self.capacity()).unwrap();
-        let minimum = u32::try_from(pattern_len).unwrap();
-        Err(MatchError::invalid_set_capacity(given, minimum))
-    }
-
     /// Returns an iterator over all pattern identifiers in this set.
     ///
     /// The iterator yields pattern identifiers in ascending order, starting
     /// at zero.
     pub fn iter(&self) -> PatternSetIter<'_> {
         PatternSetIter { it: self.which.iter().enumerate() }
+    }
+}
+
+/// An error that occurs when a `PatternID` failed to insert into a
+/// `PatternSet`.
+///
+/// An insert fails when the given `PatternID` exceeds the configured capacity
+/// of the `PatternSet`.
+///
+/// This error is created by the [`PatternSet::try_insert`] routine.
+#[cfg(feature = "alloc")]
+#[derive(Clone, Debug)]
+pub struct PatternSetInsertError {
+    attempted: PatternID,
+    capacity: usize,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for PatternSetInsertError {}
+
+#[cfg(feature = "alloc")]
+impl core::fmt::Display for PatternSetInsertError {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        write!(
+            f,
+            "failed to insert pattern ID {} into pattern set \
+             with insufficiet capacity of {}",
+            self.attempted.as_usize(),
+            self.capacity,
+        )
     }
 }
 
@@ -1532,7 +1568,7 @@ impl Default for MatchKind {
 /// [enabling Unicode word boundaries](crate::dfa::dense::Config::unicode_word_boundary)
 /// or by
 /// [explicitly specifying one or more quit bytes](crate::dfa::dense::Config::quit).
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MatchError(
     #[cfg(feature = "alloc")] alloc::boxed::Box<MatchErrorKind>,
     #[cfg(not(feature = "alloc"))] MatchErrorKind,
@@ -1587,6 +1623,17 @@ impl MatchError {
         MatchError::new(MatchErrorKind::HaystackTooLong { len })
     }
 
+    /// Create a new "unsupported anchored" error. This occurs when the caller
+    /// requests a search with an anchor mode that is not supported by the
+    /// regex engine.
+    ///
+    /// This is the same as calling `MatchError::new` with a
+    /// [`MatchErrorKind::UnsupportAnchored`] kind.
+    pub fn unsupported_anchored(mode: Anchored) -> MatchError {
+        MatchError::new(MatchErrorKind::UnsupportedAnchored { mode })
+    }
+
+    /*
     /// Create a new "invalid anchored search" error. This occurs when the
     /// caller requests an anchored search but where anchored searches aren't
     /// supported.
@@ -1624,16 +1671,7 @@ impl MatchError {
             pattern_len,
         })
     }
-
-    /// Create a new invalid pattern set capacity error. This occurs when a
-    /// caller provided `PatternSet` has insufficient capacity for the number
-    /// of patterns in the regex.
-    ///
-    /// This is the same as calling `MatchError::new` with a
-    /// [`MatchErrorKind::InvalidSetCapacity`] kind.
-    pub fn invalid_set_capacity(given: u32, minimum: u32) -> MatchError {
-        MatchError::new(MatchErrorKind::InvalidSetCapacity { given, minimum })
-    }
+    */
 }
 
 /// The underlying kind of a [`MatchError`].
@@ -1641,7 +1679,7 @@ impl MatchError {
 /// This is a **non-exhaustive** enum. That means new variants may be added in
 /// a semver-compatible release.
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MatchErrorKind {
     /// The search saw a "quit" byte at which it was instructed to stop
     /// searching.
@@ -1671,6 +1709,17 @@ pub enum MatchErrorKind {
     HaystackTooLong {
         /// The length of the haystack that exceeded the limit.
         len: usize,
+    },
+    /// An error indicating that a particular type of anchored search was
+    /// requested, but that the regex engine does not support it.
+    ///
+    /// Note that this error should not be returned by a regex engine simply
+    /// because the pattern ID is invalid (i.e., equal to or exceeds the number
+    /// of patterns in the regex). In that case, the regex engine should report
+    /// a non-match.
+    UnsupportedAnchored {
+        /// The anchored mode given that is unsupported.
+        mode: Anchored,
     },
     /// An error indicating that an anchored search was requested, but from a
     /// regex engine that was built without anchored support.
@@ -1705,15 +1754,6 @@ pub enum MatchErrorKind {
         /// if the regex was compiled with multiple patterns.
         pattern_len: usize,
     },
-    /// An error that occurs when a caller provides an insufficiently sized
-    /// [`PatternSet`] to APIs that use it. This happens when the capacity of
-    /// the `PatternSet` is smaller than the number of patterns in the regex.
-    InvalidSetCapacity {
-        /// The capacity of the `PatternSet` provided.
-        given: u32,
-        /// The minimum capacity required.
-        minimum: u32,
-    },
 }
 
 #[cfg(feature = "std")]
@@ -1733,6 +1773,22 @@ impl core::fmt::Display for MatchError {
             }
             MatchErrorKind::HaystackTooLong { len } => {
                 write!(f, "haystack of length {} is too long", len)
+            }
+            MatchErrorKind::UnsupportedAnchored { mode: Anchored::Yes } => {
+                write!(f, "anchored searches are not supported or enabled")
+            }
+            MatchErrorKind::UnsupportedAnchored { mode: Anchored::No } => {
+                write!(f, "unanchored searches are not supported or enabled")
+            }
+            MatchErrorKind::UnsupportedAnchored {
+                mode: Anchored::Pattern(pid),
+            } => {
+                write!(
+                    f,
+                    "anchored searches for a specific pattern ({}) are \
+                     not supported or enabled",
+                    pid.as_usize(),
+                )
             }
             MatchErrorKind::InvalidInputAnchored => {
                 write!(f, "anchored searches are not supported or enabled")
@@ -1758,14 +1814,6 @@ impl core::fmt::Display for MatchError {
                     "invalid pattern {}, up to {} patterns are supported",
                     pattern.as_usize(),
                     pattern_len
-                )
-            }
-            MatchErrorKind::InvalidSetCapacity { given, minimum } => {
-                write!(
-                    f,
-                    "insufficient pattern set capacity of {}, \
-                     a capacity of at least {} is required",
-                    given, minimum,
                 )
             }
         }

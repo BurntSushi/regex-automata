@@ -60,7 +60,7 @@ use crate::{
     util::{
         alphabet::{ByteClasses, ByteSet},
         escape::DebugByte,
-        int::{Pointer, U16, U32},
+        int::{Pointer, Usize, U16, U32},
         prefilter::Prefilter,
         primitives::{PatternID, StateID},
         search::{Anchored, Input, MatchError},
@@ -454,7 +454,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     ///
     /// Note that if the DFA is empty, this always returns false.
     pub fn starts_for_each_pattern(&self) -> bool {
-        self.starts.pattern_len > 0
+        self.starts.pattern_len.is_some()
     }
 
     /// Returns the memory usage, in bytes, of this DFA.
@@ -1179,7 +1179,7 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     fn start_state_forward(
         &self,
         input: &Input<'_>,
-    ) -> Result<StateID, MatchError> {
+    ) -> Result<Option<StateID>, MatchError> {
         if !self.quitset.is_empty() && input.start() > 0 {
             let offset = input.start() - 1;
             let byte = input.haystack()[offset];
@@ -1195,7 +1195,7 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     fn start_state_reverse(
         &self,
         input: &Input<'_>,
-    ) -> Result<StateID, MatchError> {
+    ) -> Result<Option<StateID>, MatchError> {
         if !self.quitset.is_empty() && input.end() < input.haystack().len() {
             let offset = input.end();
             let byte = input.haystack()[offset];
@@ -1725,9 +1725,11 @@ struct StartTable<T> {
     /// The number of starting state IDs per pattern.
     stride: usize,
     /// The total number of patterns for which starting states are encoded.
-    /// This may be zero for non-empty DFAs when the DFA was built without
-    /// start states for each pattern.
-    pattern_len: usize,
+    /// This is `None` for DFAs that were built without start states for each
+    /// pattern. Thus, one cannot use this field to say how many patterns
+    /// are in the DFA in all cases. It is specific to how many patterns are
+    /// represented in this start table.
+    pattern_len: Option<usize>,
     /// The universal starting state for unanchored searches. This is only
     /// present when the DFA supports unanchored searches and when all starting
     /// state IDs for an unanchored search are equivalent.
@@ -1742,13 +1744,13 @@ struct StartTable<T> {
 impl StartTable<Vec<u8>> {
     fn new<T: AsRef<[u32]>>(
         dfa: &dense::DFA<T>,
-        pattern_len: usize,
+        pattern_len: Option<usize>,
     ) -> StartTable<Vec<u8>> {
         let stride = Start::len();
         // This is OK since the only way we're here is if a dense DFA could be
         // constructed successfully, which uses the same space.
         let len = stride
-            .checked_mul(pattern_len)
+            .checked_mul(pattern_len.unwrap_or(0))
             .unwrap()
             .checked_add(stride.checked_mul(2).unwrap())
             .unwrap()
@@ -1773,8 +1775,11 @@ impl StartTable<Vec<u8>> {
         // as far as the starting state table is concerned, there are zero
         // patterns to account for. It will instead only store starting states
         // for the entire DFA.
-        let start_pattern_len =
-            if dfa.starts_for_each_pattern() { dfa.pattern_len() } else { 0 };
+        let start_pattern_len = if dfa.starts_for_each_pattern() {
+            Some(dfa.pattern_len())
+        } else {
+            None
+        };
         let mut sl = StartTable::new(dfa, start_pattern_len);
         for (old_start_id, anchored, sty) in dfa.starts() {
             let new_start_id = remap[dfa.to_index(old_start_id)];
@@ -1796,10 +1801,25 @@ impl<'a> StartTable<&'a [u8]> {
         let (stride, nr) =
             wire::try_read_u32_as_usize(slice, "sparse start table stride")?;
         slice = &slice[nr..];
+        if stride != Start::len() {
+            return Err(DeserializeError::generic(
+                "invalid sparse starting table stride",
+            ));
+        }
 
-        let (pattern_len, nr) =
+        let (maybe_pattern_len, nr) =
             wire::try_read_u32_as_usize(slice, "sparse start table patterns")?;
         slice = &slice[nr..];
+        let pattern_len = if maybe_pattern_len.as_u32() == u32::MAX {
+            None
+        } else {
+            Some(maybe_pattern_len)
+        };
+        if pattern_len.map_or(false, |len| len > PatternID::LIMIT) {
+            return Err(DeserializeError::generic(
+                "sparse invalid number of patterns",
+            ));
+        }
 
         let (universal_unanchored, nr) =
             wire::try_read_u32(slice, "universal unanchored start")?;
@@ -1826,18 +1846,11 @@ impl<'a> StartTable<&'a [u8]> {
             })?)
         };
 
-        if stride != Start::len() {
-            return Err(DeserializeError::generic(
-                "invalid sparse starting table stride",
-            ));
-        }
-        if pattern_len > PatternID::LIMIT {
-            return Err(DeserializeError::generic(
-                "sparse invalid number of patterns",
-            ));
-        }
-        let pattern_table_size =
-            wire::mul(stride, pattern_len, "sparse invalid pattern length")?;
+        let pattern_table_size = wire::mul(
+            stride,
+            pattern_len.unwrap_or(0),
+            "sparse invalid pattern length",
+        )?;
         // Our start states always start with a single stride of start states
         // for the entire automaton which permit it to match any pattern. What
         // follows it are an optional set of start states for each pattern.
@@ -1891,7 +1904,10 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         E::write_u32(u32::try_from(self.stride).unwrap(), dst);
         dst = &mut dst[size_of::<u32>()..];
         // write pattern length
-        E::write_u32(u32::try_from(self.pattern_len).unwrap(), dst);
+        E::write_u32(
+            u32::try_from(self.pattern_len.unwrap_or(0xFFFF_FFFF)).unwrap(),
+            dst,
+        );
         dst = &mut dst[size_of::<u32>()..];
         // write universal start unanchored state id, u32::MAX if absent
         E::write_u32(
@@ -1971,27 +1987,31 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         &self,
         input: &Input<'_>,
         start: Start,
-    ) -> Result<StateID, MatchError> {
+    ) -> Result<Option<StateID>, MatchError> {
         let start_index = start.as_usize();
-        let index = match input.get_anchored() {
+        let mode = input.get_anchored();
+        let index = match mode {
             Anchored::No => {
                 if !self.kind.has_unanchored() {
-                    return Err(MatchError::invalid_input_unanchored());
+                    return Err(MatchError::unsupported_anchored(mode));
                 }
                 start_index
             }
             Anchored::Yes => {
                 if !self.kind.has_anchored() {
-                    return Err(MatchError::invalid_input_anchored());
+                    return Err(MatchError::unsupported_anchored(mode));
                 }
                 self.stride + start_index
             }
             Anchored::Pattern(pid) => {
-                if pid.as_usize() >= self.pattern_len {
-                    return Err(MatchError::invalid_input_pattern(
-                        pid,
-                        self.pattern_len,
-                    ));
+                let len = match self.pattern_len {
+                    None => {
+                        return Err(MatchError::unsupported_anchored(mode))
+                    }
+                    Some(len) => len,
+                };
+                if pid.as_usize() >= len {
+                    return Ok(None);
                 }
                 (2 * self.stride)
                     + (self.stride * pid.as_usize())
@@ -2001,7 +2021,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         let start = index * StateID::SIZE;
         // This OK since we're allowed to assume that the start table contains
         // valid StateIDs.
-        Ok(wire::read_state_id_unchecked(&self.table()[start..]).0)
+        Ok(Some(wire::read_state_id_unchecked(&self.table()[start..]).0))
     }
 
     /// Return an iterator over all start IDs in this table.
@@ -2039,11 +2059,10 @@ impl<T: AsMut<[u8]>> StartTable<T> {
             Anchored::Yes => self.stride + start_index,
             Anchored::Pattern(pid) => {
                 let pid = pid.as_usize();
-                assert!(
-                    pid < self.pattern_len,
-                    "invalid pattern ID {:?}",
-                    pid
-                );
+                let len = self
+                    .pattern_len
+                    .expect("start states for each pattern enabled");
+                assert!(pid < len, "invalid pattern ID {:?}", pid);
                 self.stride
                     .checked_mul(pid)
                     .unwrap()

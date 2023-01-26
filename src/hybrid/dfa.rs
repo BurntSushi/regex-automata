@@ -1066,6 +1066,10 @@ impl DFA {
     /// the same pattern set for multiple searches but intended them to be
     /// independent.
     ///
+    /// If a pattern ID matched but the given `PatternSet` does not have
+    /// sufficient capacity to store it, then it is not inserted and silently
+    /// dropped.
+    ///
     /// # Errors
     ///
     /// This routine errors if the search could not complete. This can occur
@@ -1082,8 +1086,6 @@ impl DFA {
     /// * When the provided `Input` configuration is not supported. For
     /// example, by providing an unsupported anchor mode or an invalid pattern
     /// ID.
-    /// * When the given `PatternSet` has insufficient capacity. Its capacity
-    /// must be at least as big as the number of patterns in this DFA.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1124,13 +1126,12 @@ impl DFA {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) -> Result<(), MatchError> {
-        patset.check_capacity(self.pattern_len())?;
         let mut state = OverlappingState::start();
         while let Some(m) = {
             self.try_search_overlapping_fwd(cache, input, &mut state)?;
             state.get_match()
         } {
-            patset.insert(m.pattern());
+            let _ = patset.try_insert(m.pattern());
             // There's nothing left to find, so we can stop. Or the caller
             // asked us to.
             if patset.is_full() || input.get_earliest() {
@@ -1191,9 +1192,12 @@ impl DFA {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
+    /// //
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
     /// let mut sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// )?;
+    /// )?.unwrap();
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     sid = dfa.next_state(&mut cache, sid, b)?;
@@ -1291,9 +1295,12 @@ impl DFA {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
+    /// //
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
     /// let mut sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// )?;
+    /// )?.unwrap();
     /// // Walk all the bytes in the haystack.
     /// let mut at = 0;
     /// while at < haystack.len() {
@@ -1480,9 +1487,12 @@ impl DFA {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
+    /// //
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
     /// let mut sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// )?;
+    /// )?.unwrap();
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     sid = dfa.next_state(&mut cache, sid, b)?;
@@ -1545,7 +1555,7 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<LazyStateID, MatchError> {
+    ) -> Result<Option<LazyStateID>, MatchError> {
         if !self.quitset.is_empty() && input.start() > 0 {
             let offset = input.start() - 1;
             let byte = input.haystack()[offset];
@@ -1554,10 +1564,14 @@ impl DFA {
             }
         }
         let start_type = Start::from_position_fwd(input);
-        let sid = LazyRef::new(self, cache)
+        let start = LazyRef::new(self, cache)
             .get_cached_start_id(input, start_type)?;
+        let sid = match start {
+            None => return Ok(None),
+            Some(sid) => sid,
+        };
         if !sid.is_unknown() {
-            return Ok(sid);
+            return Ok(Some(sid));
         }
         Lazy::new(self, cache).cache_start_group(input, start_type)
     }
@@ -1595,7 +1609,7 @@ impl DFA {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<LazyStateID, MatchError> {
+    ) -> Result<Option<LazyStateID>, MatchError> {
         if !self.quitset.is_empty() && input.end() < input.haystack().len() {
             let offset = input.end();
             let byte = input.haystack()[offset];
@@ -1604,10 +1618,14 @@ impl DFA {
             }
         }
         let start_type = Start::from_position_rev(input);
-        let sid = LazyRef::new(self, cache)
+        let start = LazyRef::new(self, cache)
             .get_cached_start_id(input, start_type)?;
+        let sid = match start {
+            None => return Ok(None),
+            Some(sid) => sid,
+        };
         if !sid.is_unknown() {
-            return Ok(sid);
+            return Ok(Some(sid));
         }
         Lazy::new(self, cache).cache_start_group(input, start_type)
     }
@@ -1658,9 +1676,12 @@ impl DFA {
     ///
     /// // The start state is determined by inspecting the position and the
     /// // initial bytes of the haystack.
+    /// //
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
     /// let mut sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// )?;
+    /// )?.unwrap();
     /// // Walk all the bytes in the haystack.
     /// for &b in haystack {
     ///     sid = dfa.next_state(&mut cache, sid, b)?;
@@ -2016,15 +2037,19 @@ impl<'i, 'c> Lazy<'i, 'c> {
         &mut self,
         input: &Input<'_>,
         start: Start,
-    ) -> Result<LazyStateID, MatchError> {
-        let nfa_start_id = match input.get_anchored() {
+    ) -> Result<Option<LazyStateID>, MatchError> {
+        let mode = input.get_anchored();
+        let nfa_start_id = match mode {
             Anchored::No => self.dfa.get_nfa().start_unanchored(),
             Anchored::Yes => self.dfa.get_nfa().start_anchored(),
             Anchored::Pattern(pid) => {
                 if !self.dfa.get_config().get_starts_for_each_pattern() {
-                    return Err(MatchError::invalid_input_pattern(pid, 0));
+                    return Err(MatchError::unsupported_anchored(mode));
                 }
-                self.dfa.get_nfa().try_start_pattern(pid)?
+                match self.dfa.get_nfa().start_pattern(pid) {
+                    None => return Ok(None),
+                    Some(sid) => sid,
+                }
             }
         };
 
@@ -2032,7 +2057,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
             .cache_start_one(nfa_start_id, start)
             .map_err(|_| MatchError::gave_up(input.start()))?;
         self.set_start_state(input, start, id);
-        Ok(id)
+        Ok(Some(id))
     }
 
     /// Compute and cache the starting state for the given NFA state ID and the
@@ -2478,27 +2503,25 @@ impl<'i, 'c> LazyRef<'i, 'c> {
         &self,
         input: &Input<'_>,
         start: Start,
-    ) -> Result<LazyStateID, MatchError> {
+    ) -> Result<Option<LazyStateID>, MatchError> {
         let start_index = start.as_usize();
-        let index = match input.get_anchored() {
+        let mode = input.get_anchored();
+        let index = match mode {
             Anchored::No => start_index,
             Anchored::Yes => Start::len() + start_index,
             Anchored::Pattern(pid) => {
                 if !self.dfa.get_config().get_starts_for_each_pattern() {
-                    return Err(MatchError::invalid_input_pattern(pid, 0));
+                    return Err(MatchError::unsupported_anchored(mode));
                 }
                 if pid.as_usize() >= self.dfa.pattern_len() {
-                    return Err(MatchError::invalid_input_pattern(
-                        pid,
-                        self.dfa.pattern_len(),
-                    ));
+                    return Ok(None);
                 }
                 (2 * Start::len())
                     + (Start::len() * pid.as_usize())
                     + start_index
             }
         };
-        Ok(self.cache.starts[index])
+        Ok(Some(self.cache.starts[index]))
     }
 
     /// Return the cached NFA/DFA powerset state for the given ID.
@@ -3132,9 +3155,11 @@ impl Config {
     /// let mut cache = dfa.create_cache();
     ///
     /// let haystack = "123 foobar 4567".as_bytes();
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
     /// let sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// ).map_err(|_| MatchError::gave_up(0))?;
+    /// ).map_err(|_| MatchError::gave_up(0))?.unwrap();
     /// // The ID returned by 'start_state_forward' will always be tagged as
     /// // a start state when start state specialization is enabled.
     /// assert!(sid.is_tagged());
@@ -3154,9 +3179,11 @@ impl Config {
     /// let mut cache = dfa.create_cache();
     ///
     /// let haystack = "123 foobar 4567".as_bytes();
+    /// // The unwrap is OK because we aren't requesting a start state for a
+    /// // specific pattern.
     /// let sid = dfa.start_state_forward(
     ///     &mut cache, &Input::new(haystack),
-    /// ).map_err(|_| MatchError::gave_up(0))?;
+    /// ).map_err(|_| MatchError::gave_up(0))?.unwrap();
     /// // Start states are not tagged in the default configuration!
     /// assert!(!sid.is_tagged());
     /// assert!(!sid.is_start());
