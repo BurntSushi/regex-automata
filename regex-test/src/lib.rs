@@ -1338,8 +1338,8 @@ matches = [[0, 2], [5, 10]]
         assert_eq!(
             t0.matches(),
             Some(vec![
-                Match { start: 0, end: 2 },
-                Match { start: 5, end: 10 },
+                Match { start: 0, end: 2, id: 0 },
+                Match { start: 5, end: 10, id: 0 },
             ])
         );
         assert_eq!(t0.captures(), None);
@@ -1368,23 +1368,23 @@ captures = [
         assert_eq!(
             t0.matches(),
             Some(vec![
-                Match { start: 0, end: 15 },
-                Match { start: 20, end: 30 },
+                Match { start: 0, end: 15, id: 0 },
+                Match { start: 20, end: 30, id: 0 },
             ])
         );
         assert_eq!(
             t0.captures(),
             Some(vec![
                 Captures::new(vec![
-                    Some(Match { start: 0, end: 15 }),
-                    Some(Match { start: 5, end: 10 }),
+                    Some(Match { start: 0, end: 15, id: 0 }),
+                    Some(Match { start: 5, end: 10, id: 0 }),
                     None,
-                    Some(Match { start: 13, end: 14 }),
+                    Some(Match { start: 13, end: 14, id: 0 }),
                 ]),
                 Captures::new(vec![
-                    Some(Match { start: 20, end: 30 }),
-                    Some(Match { start: 22, end: 24 }),
-                    Some(Match { start: 25, end: 27 }),
+                    Some(Match { start: 20, end: 30, id: 0 }),
+                    Some(Match { start: 22, end: 24, id: 0 }),
+                    Some(Match { start: 25, end: 27, id: 0 }),
                     None,
                 ]),
             ])
