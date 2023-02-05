@@ -20,9 +20,9 @@ name = "regex-cli"
 
 [dependencies]
 anyhow = "1.0.28"
-bstr = { version = "0.2.16", default-features = false, features = ["std"] }
+bstr = { version = "1.0.1", default-features = false, features = ["std"] }
 clap = { version = "2.33.0", default-features = false }
-memmap2 = "0.3.0"
+memmap2 = "0.5.8"
 regex = "1.5.4"
 syntax = { package = "regex-syntax", version = "0.6.17" }
 tabwriter = "1.2.1"
@@ -34,6 +34,6 @@ path = ".."
 features = ["logging"]
 
 [dependencies.env_logger]
-version = "0.8.4"
+version = "0.10.0"
 default-features = false
-features = ["atty", "humantime", "termcolor"]
+features = ["auto-color", "humantime", "color"]
