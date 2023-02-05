@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fs, path::PathBuf, sync::Arc};
+use std::{borrow::Borrow, ffi::OsString, fs, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use automata::{
@@ -25,16 +25,23 @@ impl Patterns {
     pub fn define(mut app: App) -> App {
         {
             const SHORT: &str = "A regex pattern (must be valid UTF-8).";
-            app = app.arg(app::arg("pattern").multiple(true).help(SHORT));
+            app = app.arg(
+                app::arg("pattern")
+                    .action(clap::ArgAction::Append)
+                    .value_parser(clap::value_parser!(OsString))
+                    .help(SHORT)
+                    .conflicts_with("pattern-file"),
+            );
         }
         {
             const SHORT: &str = "Read patterns from a file.";
             app = app.arg(
                 app::flag("pattern-file")
-                    .short("f")
-                    .multiple(true)
-                    .number_of_values(1)
-                    .help(SHORT),
+                    .short('f')
+                    .value_parser(clap::value_parser!(PathBuf))
+                    .action(clap::ArgAction::Append)
+                    .help(SHORT)
+                    .conflicts_with("pattern"),
             );
         }
         app
@@ -44,22 +51,19 @@ impl Patterns {
     /// or from pattern files. If no patterns could be found, then an error
     /// is returned.
     pub fn get(args: &Args) -> anyhow::Result<Patterns> {
-        if let Some(pfile) = args.value_of_os("pattern-file") {
-            let path = std::path::Path::new(pfile);
-            let contents =
-                std::fs::read_to_string(path).with_context(|| {
-                    anyhow::anyhow!("failed to read {}", path.display())
-                })?;
-            Ok(Patterns(contents.lines().map(|x| x.to_string()).collect()))
-        } else {
-            if args.value_of_os("pattern-file").is_some() {
-                anyhow::bail!(
-                    "cannot provide both positional patterns and \
-                     --pattern-file"
-                );
-            }
+        if let Some(paths) = args.get_many::<PathBuf>("pattern-file") {
             let mut patterns = vec![];
-            if let Some(os_patterns) = args.values_of_os("pattern") {
+            for path in paths {
+                let contents =
+                    std::fs::read_to_string(path).with_context(|| {
+                        anyhow::anyhow!("failed to read {}", path.display())
+                    })?;
+                patterns.extend(contents.lines().map(|x| x.to_string()));
+            }
+            Ok(Patterns(patterns))
+        } else {
+            let mut patterns = vec![];
+            if let Some(os_patterns) = args.get_many::<OsString>("pattern") {
                 for (i, p) in os_patterns.enumerate() {
                     let p = match p.to_str() {
                         Some(p) => p,
@@ -142,13 +146,18 @@ impl Input {
     /// a literal '@' in the leading position, use '\x40'.
     pub fn define(app: App) -> App {
         const SHORT: &str = "An inline string or a @-prefixed file path.";
-        app.arg(app::arg("input").help(SHORT).required(true))
+        app.arg(
+            app::flag("input")
+                .help(SHORT)
+                .value_parser(clap::value_parser!(PathBuf))
+                .required(true),
+        )
     }
 
     /// Reads the input given on the command line from the given arguments.
     pub fn get(args: &Args) -> anyhow::Result<Input> {
         let input = args
-            .value_of_os("input")
+            .get_one::<PathBuf>("input")
             .expect("expected non-None value for required 'input' argument")
             // Converting this to a string technically makes it impossible
             // to provide a file path that contains invalid UTF-8, but
@@ -222,7 +231,7 @@ impl Find {
 Set the type of search to perform.
 ";
             app = app
-                .arg(flag("find-kind").short("K").help(SHORT).long_help(LONG));
+                .arg(flag("find-kind").short('K').help(SHORT).long_help(LONG));
         }
         {
             const SHORT: &str = "Show the offsets of each match found.";
@@ -239,16 +248,16 @@ offset.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Find> {
-        let kind = match args.value_of_lossy("find-kind") {
+        let kind = match args.get_one::<String>("find-kind") {
             None => FindKind::Leftmost,
-            Some(value) => match &*value {
+            Some(value) => match value.as_str() {
                 "earliest" => FindKind::Earliest,
                 "leftmost" => FindKind::Leftmost,
                 "overlapping" => FindKind::Overlapping,
                 unk => anyhow::bail!("unrecognized find kind: {:?}", unk),
             },
         };
-        Ok(Find { kind, matches: args.is_present("matches") })
+        Ok(Find { kind, matches: args.get_flag("matches") })
     }
 
     pub fn kind(&self) -> FindKind {
@@ -281,7 +290,7 @@ This mode can be toggled inside the regex with the 'i' flag.
 ";
             app = app.arg(
                 switch("case-insensitive")
-                    .short("i")
+                    .short('i')
                     .help(SHORT)
                     .long_help(LONG),
             );
@@ -357,7 +366,7 @@ longer be \"Unicode aware\".
 This mode can be toggled inside the regex with the 'u' flag.
 ";
             app = app.arg(
-                switch("no-unicode").short("U").help(SHORT).long_help(LONG),
+                switch("no-unicode").short('U').help(SHORT).long_help(LONG),
             );
         }
 
@@ -379,7 +388,7 @@ This mode cannot be toggled inside the regex.
 ";
             app = app.arg(
                 switch("no-utf8-syntax")
-                    .short("b")
+                    .short('b')
                     .help(SHORT)
                     .long_help(LONG),
             );
@@ -392,7 +401,12 @@ Set a nesting limit on the regex pattern.
 
 Patterns with a nesting level greater than this limit will fail to compile.
 ";
-            app = app.arg(flag("nest-limit").help(SHORT).long_help(LONG));
+            app = app.arg(
+                flag("nest-limit")
+                    .value_parser(clap::value_parser!(u32))
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
         }
 
         {
@@ -417,17 +431,16 @@ This mode cannot be toggled inside the regex.
 
     pub fn get(args: &Args) -> anyhow::Result<Syntax> {
         let mut c = automata::SyntaxConfig::new()
-            .case_insensitive(args.is_present("case-insensitive"))
-            .multi_line(args.is_present("multi-line"))
-            .dot_matches_new_line(args.is_present("dot-matches-new-line"))
-            .swap_greed(args.is_present("swap-greed"))
-            .ignore_whitespace(args.is_present("ignore-whitespace"))
-            .unicode(!args.is_present("no-unicode"))
-            .utf8(!args.is_present("no-utf8-syntax"))
-            .octal(args.is_present("octal"));
-        if let Some(n) = args.value_of_lossy("nest-limit") {
-            let limit = n.parse().context("failed to parse --nest-limit")?;
-            c = c.nest_limit(limit);
+            .case_insensitive(args.get_flag("case-insensitive"))
+            .multi_line(args.get_flag("multi-line"))
+            .dot_matches_new_line(args.get_flag("dot-matches-new-line"))
+            .swap_greed(args.get_flag("swap-greed"))
+            .ignore_whitespace(args.get_flag("ignore-whitespace"))
+            .unicode(!args.get_flag("no-unicode"))
+            .utf8(!args.get_flag("no-utf8-syntax"))
+            .octal(args.get_flag("octal"));
+        if let Some(limit) = args.get_one::<u32>("nest-limit") {
+            c = c.nest_limit(*limit);
         }
         Ok(Syntax(c))
     }
@@ -516,7 +529,7 @@ a single pass. Instead, a reverse NFA is used to build a DFA or a lazy DFA to
 perform a reverse search that is used to find the starting location of a match.
 ";
             app = app
-                .arg(switch("reverse").short("r").help(SHORT).long_help(LONG));
+                .arg(switch("reverse").short('r').help(SHORT).long_help(LONG));
         }
         {
             const SHORT: &str =
@@ -542,7 +555,7 @@ together instead of one or the other.
 This mode cannot be toggled inside the regex.
 ";
             app = app.arg(
-                switch("no-utf8-nfa").short("B").help(SHORT).long_help(LONG),
+                switch("no-utf8-nfa").short('B').help(SHORT).long_help(LONG),
             );
         }
         {
@@ -589,10 +602,10 @@ compile a DFA.
 
     pub fn get(args: &Args) -> anyhow::Result<Thompson> {
         let mut c = thompson::Config::new()
-            .reverse(args.is_present("reverse"))
-            .utf8(!args.is_present("no-utf8-nfa"))
-            .shrink(!args.is_present("no-shrink"));
-        if let Some(x) = args.value_of_lossy("nfa-size-limit") {
+            .reverse(args.get_flag("reverse"))
+            .utf8(!args.get_flag("no-utf8-nfa"))
+            .shrink(!args.get_flag("no-shrink"));
+        if let Some(x) = args.get_one::<String>("nfa-size-limit") {
             if x.to_lowercase() == "none" {
                 c = c.nfa_size_limit(None);
             } else {
@@ -634,7 +647,7 @@ default), the Pike VM will have an \"unanchored\" prefix that permits it to
 match anywhere.
 ";
             app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
+                switch("anchored").short('a').help(SHORT).long_help(LONG),
             );
         }
         {
@@ -662,8 +675,8 @@ This mode cannot be toggled inside the regex.
 
     pub fn get(args: &Args) -> anyhow::Result<PikeVM> {
         let config = pikevm::Config::new()
-            .anchored(args.is_present("anchored"))
-            .utf8(!args.is_present("no-utf8-iter"));
+            .anchored(args.get_flag("anchored"))
+            .utf8(!args.get_flag("no-utf8-iter"));
         Ok(PikeVM { config })
     }
 
@@ -709,7 +722,7 @@ matches that begin where the search starts. When disabled (the default), the
 DFA will have an \"unanchored\" prefix that permits it to match anywhere.
 ";
             app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
+                switch("anchored").short('a').help(SHORT).long_help(LONG),
             );
         }
         {
@@ -727,7 +740,7 @@ When disabled, no acceleration is performed. Generally speaking, acceleration
 is more common when Unicode mode is disabled, as states tend to be simpler.
 ";
             app = app.arg(
-                switch("no-accelerate").short("A").help(SHORT).long_help(LONG),
+                switch("no-accelerate").short('A').help(SHORT).long_help(LONG),
             );
         }
         {
@@ -743,7 +756,7 @@ minimization is that it is typically very costly to do in both space and time.
 Minimization is disabled by default.
 ";
             app = app.arg(
-                switch("minimize").short("m").help(SHORT).long_help(LONG),
+                switch("minimize").short('m').help(SHORT).long_help(LONG),
             );
         }
         {
@@ -765,7 +778,7 @@ identifiers will be used for the transitions instead of the actual bytes.
 ";
             app = app.arg(
                 switch("no-byte-classes")
-                    .short("C")
+                    .short('C')
                     .help(SHORT)
                     .long_help(LONG),
             );
@@ -788,7 +801,7 @@ is no distinction between greedy and non-greedy regexes. Everything is greedy
 all the time.
 ";
             app = app.arg(
-                flag("match-kind").short("k").help(SHORT).long_help(LONG),
+                flag("match-kind").short('k').help(SHORT).long_help(LONG),
             );
         }
         {
@@ -845,7 +858,7 @@ This is disabled by default.
 ";
             app = app.arg(
                 switch("unicode-word-boundary")
-                    .short("w")
+                    .short('w')
                     .help(SHORT)
                     .long_help(LONG),
             );
@@ -870,7 +883,7 @@ lifted in the future. Bytes can be specified using a single value. e.g.,
 
 Will cause the DFA to quit whenever it sees one of 'a', 'b' or 'c'.
 ";
-            app = app.arg(switch("quit").help(SHORT).long_help(LONG));
+            app = app.arg(flag("quit").help(SHORT).long_help(LONG));
         }
         {
             const SHORT: &str =
@@ -893,7 +906,12 @@ determinization size limits.
 
 The default for this flag is 'none', which sets no size limit.
 ";
-            app = app.arg(flag("dfa-size-limit").help(SHORT).long_help(LONG));
+            app = app.arg(
+                flag("dfa-size-limit")
+                    .value_parser(clap::value_parser!(usize))
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
         }
         {
             const SHORT: &str =
@@ -922,25 +940,25 @@ The default for this flag is 'none', which sets no size limit.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Dense> {
-        let kind = match args.value_of_lossy("match-kind") {
+        let kind = match args.get_one::<String>("match-kind") {
             None => MatchKind::LeftmostFirst,
-            Some(value) => match &*value {
+            Some(value) => match value.as_str() {
                 "all" => MatchKind::All,
                 "leftmost-first" => MatchKind::LeftmostFirst,
                 unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
             },
         };
         let mut c = dense::Config::new()
-            .anchored(args.is_present("anchored"))
-            .accelerate(!args.is_present("no-accelerate"))
-            .minimize(args.is_present("minimize"))
-            .byte_classes(!args.is_present("no-byte-classes"))
+            .anchored(args.contains_id("anchored"))
+            .accelerate(!args.contains_id("no-accelerate"))
+            .minimize(args.contains_id("minimize"))
+            .byte_classes(!args.contains_id("no-byte-classes"))
             .match_kind(kind)
             .starts_for_each_pattern(
-                args.is_present("starts-for-each-pattern"),
+                args.contains_id("starts-for-each-pattern"),
             )
-            .unicode_word_boundary(args.is_present("unicode-word-boundary"));
-        if let Some(quits) = args.value_of_lossy("quit") {
+            .unicode_word_boundary(args.contains_id("unicode-word-boundary"));
+        if let Some(quits) = args.get_one::<String>("quit") {
             for ch in quits.chars() {
                 if !ch.is_ascii() {
                     anyhow::bail!("quit bytes must be ASCII");
@@ -948,7 +966,7 @@ The default for this flag is 'none', which sets no size limit.
                 c = c.quit(ch as u8, true);
             }
         }
-        if let Some(x) = args.value_of_lossy("dfa-size-limit") {
+        if let Some(x) = args.get_one::<String>("dfa-size-limit") {
             if x.to_lowercase() == "none" {
                 c = c.dfa_size_limit(None);
             } else {
@@ -957,7 +975,7 @@ The default for this flag is 'none', which sets no size limit.
                 c = c.dfa_size_limit(Some(limit));
             }
         }
-        if let Some(x) = args.value_of_lossy("determinize-size-limit") {
+        if let Some(x) = args.get_one::<String>("determinize-size-limit") {
             if x.to_lowercase() == "none" {
                 c = c.determinize_size_limit(None);
             } else {
@@ -1056,7 +1074,7 @@ This mode cannot be toggled inside the regex.
 
     pub fn get(args: &Args) -> anyhow::Result<RegexDFA> {
         let config =
-            dfa::regex::Config::new().utf8(!args.is_present("no-utf8-iter"));
+            dfa::regex::Config::new().utf8(!args.get_flag("no-utf8-iter"));
         Ok(RegexDFA { config })
     }
 
@@ -1141,7 +1159,7 @@ matches that begin where the search starts. When disabled (the default), the
 DFA will have an \"unanchored\" prefix that permits it to match anywhere.
 ";
             app = app.arg(
-                switch("anchored").short("a").help(SHORT).long_help(LONG),
+                switch("anchored").short('a').help(SHORT).long_help(LONG),
             );
         }
         {
@@ -1163,7 +1181,7 @@ identifiers will be used for the transitions instead of the actual bytes.
 ";
             app = app.arg(
                 switch("no-byte-classes")
-                    .short("C")
+                    .short('C')
                     .help(SHORT)
                     .long_help(LONG),
             );
@@ -1186,7 +1204,11 @@ there is no distinction between greedy and non-greedy regexes. Everything is
 greedy all the time.
 ";
             app = app.arg(
-                flag("match-kind").short("k").help(SHORT).long_help(LONG),
+                flag("match-kind")
+                    .short('k')
+                    .help(SHORT)
+                    .long_help(LONG)
+                    .default_value("leftmost-first"),
             );
         }
         {
@@ -1243,7 +1265,7 @@ This is disabled by default.
 ";
             app = app.arg(
                 switch("unicode-word-boundary")
-                    .short("w")
+                    .short('w')
                     .help(SHORT)
                     .long_help(LONG),
             );
@@ -1268,7 +1290,7 @@ lifted in the future. Bytes can be specified using a single value. e.g.,
 
 Will cause the lazy DFA to quit whenever it sees one of 'a', 'b' or 'c'.
 ";
-            app = app.arg(switch("quit").help(SHORT).long_help(LONG));
+            app = app.arg(flag("quit").help(SHORT).long_help(LONG));
         }
         {
             const SHORT: &str = "Set the DFA cache capacity, in bytes.";
@@ -1282,7 +1304,12 @@ transitions (for example) will need to be re-computed if they are visited
 again. Depending on other settings (minimum cache clear count and minimum bytes
 seen per generated state), the search may eventually quit.
 ";
-            app = app.arg(flag("cache-capacity").help(SHORT).long_help(LONG));
+            app = app.arg(
+                flag("cache-capacity")
+                    .value_parser(clap::value_parser!(usize))
+                    .help(SHORT)
+                    .long_help(LONG),
+            );
         }
         {
             const SHORT: &str = "Skip DFA cache capacity check.";
@@ -1335,26 +1362,24 @@ technique would likely be superior.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<Hybrid> {
-        let kind = match args.value_of_lossy("match-kind") {
+        let kind = match args.get_one::<String>("match-kind") {
             None => MatchKind::LeftmostFirst,
-            Some(value) => match &*value {
+            Some(value) => match value.as_str() {
                 "all" => MatchKind::All,
                 "leftmost-first" => MatchKind::LeftmostFirst,
                 unk => anyhow::bail!("unrecognized match kind: {:?}", unk),
             },
         };
         let mut c = hybrid::dfa::Config::new()
-            .anchored(args.is_present("anchored"))
-            .byte_classes(!args.is_present("no-byte-classes"))
+            .anchored(args.get_flag("anchored"))
+            .byte_classes(!args.get_flag("no-byte-classes"))
             .match_kind(kind)
-            .starts_for_each_pattern(
-                args.is_present("starts-for-each-pattern"),
-            )
-            .unicode_word_boundary(args.is_present("unicode-word-boundary"))
+            .starts_for_each_pattern(args.get_flag("starts-for-each-pattern"))
+            .unicode_word_boundary(args.get_flag("unicode-word-boundary"))
             .skip_cache_capacity_check(
-                args.is_present("skip-cache-capacity-check"),
+                args.get_flag("skip-cache-capacity-check"),
             );
-        if let Some(quits) = args.value_of_lossy("quit") {
+        if let Some(quits) = args.get_one::<String>("quit") {
             for ch in quits.chars() {
                 if !ch.is_ascii() {
                     anyhow::bail!("quit bytes must be ASCII");
@@ -1362,12 +1387,10 @@ technique would likely be superior.
                 c = c.quit(ch as u8, true);
             }
         }
-        if let Some(n) = args.value_of_lossy("cache-capacity") {
-            let limit =
-                n.parse().context("failed to parse --cache-capacity")?;
-            c = c.cache_capacity(limit);
+        if let Some(limit) = args.get_one::<usize>("cache-capacity") {
+            c = c.cache_capacity(*limit);
         }
-        if let Some(n) = args.value_of_lossy("min-cache-clear-count") {
+        if let Some(n) = args.get_one::<String>("min-cache-clear-count") {
             if n.to_lowercase() == "none" {
                 c = c.minimum_cache_clear_count(None);
             } else {
@@ -1446,8 +1469,8 @@ This mode cannot be toggled inside the regex.
     }
 
     pub fn get(args: &Args) -> anyhow::Result<RegexHybrid> {
-        let config = hybrid::regex::Config::new()
-            .utf8(!args.is_present("no-utf8-iter"));
+        let config =
+            hybrid::regex::Config::new().utf8(!args.get_flag("no-utf8-iter"));
         Ok(RegexHybrid { config })
     }
 
@@ -1501,7 +1524,12 @@ impl RegexAPI {
             const LONG: &str = "\
 Set the approximate size limit for a compiled regex.
 ";
-            app = app.arg(flag("size-limit").help(SHORT).long_help(LONG));
+            app = app.arg(
+                flag("size-limit")
+                    .help(SHORT)
+                    .long_help(LONG)
+                    .value_parser(clap::value_parser!(usize)),
+            );
         }
         {
             const SHORT: &str =
@@ -1509,21 +1537,23 @@ Set the approximate size limit for a compiled regex.
             const LONG: &str = "\
 Set the approximate size of the cache used by the DFA.
 ";
-            app = app.arg(flag("dfa-size-limit").help(SHORT).long_help(LONG));
+            app = app.arg(
+                flag("dfa-size-limit")
+                    .help(SHORT)
+                    .long_help(LONG)
+                    .value_parser(clap::value_parser!(usize)),
+            );
         }
         app
     }
 
     pub fn get(args: &Args) -> anyhow::Result<RegexAPI> {
         let mut config = RegexAPI { size_limit: None, dfa_size_limit: None };
-        if let Some(x) = args.value_of_lossy("size-limit") {
-            let limit = x.parse().context("failed to parse --size-limit")?;
-            config.size_limit = Some(limit);
+        if let Some(limit) = args.get_one::<usize>("size-limit") {
+            config.size_limit = Some(*limit);
         }
-        if let Some(x) = args.value_of_lossy("dfa-size-limit") {
-            let limit =
-                x.parse().context("failed to parse --dfa-size-limit")?;
-            config.dfa_size_limit = Some(limit);
+        if let Some(limit) = args.get_one::<usize>("dfa-size-limit") {
+            config.dfa_size_limit = Some(*limit);
         }
         Ok(config)
     }

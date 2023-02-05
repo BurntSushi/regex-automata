@@ -15,3 +15,11 @@ fn main() -> anyhow::Result<()> {
         _ => Err(util::UnrecognizedCommandError.into()),
     })
 }
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn verify_app() {
+        super::app::root().debug_assert();
+    }
+}

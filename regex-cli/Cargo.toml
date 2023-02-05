@@ -21,7 +21,7 @@ name = "regex-cli"
 [dependencies]
 anyhow = "1.0.28"
 bstr = { version = "1.0.1", default-features = false, features = ["std"] }
-clap = { version = "2.33.0", default-features = false }
+clap = { version = "4.0.29", default-features = false, features = ["std", "cargo", "help", "error-context", "usage"] }
 memmap2 = "0.5.8"
 regex = "1.5.4"
 syntax = { package = "regex-syntax", version = "0.6.17" }

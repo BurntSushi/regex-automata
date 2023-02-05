@@ -28,13 +28,15 @@ pub fn run_subcommand(
     app: impl FnOnce() -> App,
     run: impl FnOnce(&str, &Args) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let (name, args) = args.subcommand();
-    if name.is_empty() || args.is_none() {
-        app().print_help()?;
-        writeln!(std::io::stdout(), "")?;
-        return Ok(());
-    }
-    let err = match run(name, args.unwrap()) {
+    let (name, args) = match args.subcommand() {
+        Some((name, args)) if !name.is_empty() => (name, args),
+        _ => {
+            app().print_help()?;
+            writeln!(std::io::stdout())?;
+            return Ok(());
+        }
+    };
+    let err = match run(name, args) {
         Ok(()) => return Ok(()),
         Err(err) => err,
     };

@@ -14,7 +14,7 @@ SUBCOMMANDS:
 {subcommands}
 
 OPTIONS:
-{unified}";
+{options}";
 
 const TEMPLATE_SUBCOMMAND: &'static str = "\
 USAGE:
@@ -27,7 +27,7 @@ SUBCOMMANDS:
 {subcommands}
 
 OPTIONS:
-{unified}";
+{options}";
 
 const TEMPLATE_LEAF: &'static str = "\
 USAGE:
@@ -40,7 +40,7 @@ ARGS:
 {positionals}
 
 OPTIONS:
-{unified}";
+{options}";
 
 const ABOUT: &'static str = "
 regex-cli is a tool for interacting with regular expressions on the command
@@ -50,20 +50,19 @@ code.
 ";
 
 /// Convenience type alias for the Clap app type that we use.
-pub type App = clap::App<'static, 'static>;
+pub type App = clap::Command;
 
 /// Convenience type alias for the Clap argument result type that we use.
-pub type Args = clap::ArgMatches<'static>;
+pub type Args = clap::ArgMatches;
 
 /// Convenience function for creating a new Clap sub-command.
 ///
 /// This should be used for sub-commands that contain other sub-commands.
 pub fn command(name: &'static str) -> App {
-    clap::SubCommand::with_name(name)
+    clap::Command::new(name)
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
-        .template(TEMPLATE_SUBCOMMAND)
-        .setting(clap::AppSettings::UnifiedHelpMessage)
+        .help_template(TEMPLATE_SUBCOMMAND)
 }
 
 /// Convenience function for creating a new Clap sub-command.
@@ -71,41 +70,39 @@ pub fn command(name: &'static str) -> App {
 /// This should be used for sub-commands that do NOT contain other
 /// sub-commands.
 pub fn leaf(name: &'static str) -> App {
-    clap::SubCommand::with_name(name)
+    clap::Command::new(name)
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
-        .template(TEMPLATE_LEAF)
-        .setting(clap::AppSettings::UnifiedHelpMessage)
+        .help_template(TEMPLATE_LEAF)
 }
 
 /// Convenience function for defining a Clap positional argument with the
 /// given name.
 pub fn arg(name: &'static str) -> clap::Arg {
-    clap::Arg::with_name(name)
+    clap::Arg::new(name)
 }
 
 /// Convenience function for defining a Clap argument with a long flag name
 /// that accepts a single value.
 pub fn flag(name: &'static str) -> clap::Arg {
-    clap::Arg::with_name(name).long(name).takes_value(true)
+    clap::Arg::new(name).long(name)
 }
 
 /// Convenience function for defining a Clap argument with a long flag name
 /// that accepts no values. i.e., It is a boolean switch.
 pub fn switch(name: &'static str) -> clap::Arg {
-    clap::Arg::with_name(name).long(name)
+    clap::Arg::new(name).long(name).action(clap::ArgAction::SetTrue)
 }
 
 /// Build the main Clap application.
 pub fn root() -> App {
-    clap::App::new("regex-cli")
+    clap::Command::new("regex-cli")
         .author(clap::crate_authors!())
         .version(clap::crate_version!())
         .about(ABOUT)
-        .template(TEMPLATE_ROOT)
+        .help_template(TEMPLATE_ROOT)
         .max_term_width(100)
-        .setting(clap::AppSettings::UnifiedHelpMessage)
-        .arg(switch("quiet").short("q").global(true).help("Show less output."))
+        .arg(switch("quiet").short('q').global(true).help("Show less output."))
         .subcommand(cmd::debug::define())
         .subcommand(cmd::find::define())
 }

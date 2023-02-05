@@ -139,7 +139,7 @@ fn run_ast(args: &Args) -> anyhow::Result<()> {
         let (ast, time_ast) = util::timeitr(|| csyntax.ast(&p))?;
         table.add("parse time", time_ast);
         table.print(stdout())?;
-        if !args.is_present("quiet") {
+        if !args.get_flag("quiet") {
             writeln!(stdout(), "\n{:#?}", ast)?;
         }
     }
@@ -162,7 +162,7 @@ fn run_hir(args: &Args) -> anyhow::Result<()> {
         let (hir, time_hir) = util::timeitr(|| csyntax.hir(&p, &ast))?;
         table.add("translate time", time_hir);
         table.print(stdout())?;
-        if !args.is_present("quiet") {
+        if !args.get_flag("quiet") {
             writeln!(stdout(), "\n{:#?}", hir)?;
         }
     }
@@ -193,7 +193,7 @@ fn run_nfa_thompson(args: &Args) -> anyhow::Result<()> {
     table.add("pattern count", nfa.pattern_len());
     table.add("capture count", nfa.capture_len());
     table.print(stdout())?;
-    if !args.is_present("quiet") {
+    if !args.get_flag("quiet") {
         writeln!(stdout(), "\n{:?}", nfa)?;
     }
     Ok(())
@@ -220,7 +220,7 @@ fn run_dfa_dense(args: &Args) -> anyhow::Result<()> {
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;
-    if !args.is_present("quiet") {
+    if !args.get_flag("quiet") {
         writeln!(stdout(), "\n{:?}", dfa)?;
     }
     Ok(())
@@ -238,7 +238,7 @@ fn run_dfa_sparse(args: &Args) -> anyhow::Result<()> {
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;
-    if !args.is_present("quiet") {
+    if !args.get_flag("quiet") {
         writeln!(stdout(), "\n{:?}", dfa)?;
     }
     Ok(())
@@ -265,7 +265,7 @@ fn run_dfa_regex_dense(args: &Args) -> anyhow::Result<()> {
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;
-    if !args.is_present("quiet") {
+    if !args.get_flag("quiet") {
         writeln!(stdout(), "\n{:?}", re)?;
     }
     Ok(())
@@ -284,7 +284,7 @@ fn run_dfa_regex_sparse(args: &Args) -> anyhow::Result<()> {
         &mut table, &csyntax, &cthompson, &cdense, &patterns,
     )?;
     table.print(stdout())?;
-    if !args.is_present("quiet") {
+    if !args.get_flag("quiet") {
         writeln!(stdout(), "\n{:?}", sre)?;
     }
     Ok(())
@@ -312,7 +312,7 @@ fn run_hybrid_dense(args: &Args) -> anyhow::Result<()> {
     // TODO: This whole thing seems like a mess. What happens if someone wants
     // to customize how this works? Maybe "viewing the state of the cache"
     // should be an option for the 'find' sub-command? Ick.
-    if !args.is_present("quiet") {
+    if !args.get_flag("quiet") {
         writeln!(stdout(), "\n{:?}", idfa)?;
     }
     Ok(())
@@ -330,7 +330,7 @@ fn run_hybrid_regex(args: &Args) -> anyhow::Result<()> {
     let re = cregex
         .from_patterns(&mut table, &csyntax, &cthompson, &cdfa, &patterns)?;
     table.print(stdout())?;
-    if !args.is_present("quiet") {
+    if !args.get_flag("quiet") {
         writeln!(stdout(), "\n{:?}", re)?;
     }
     Ok(())

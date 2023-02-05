@@ -161,7 +161,7 @@ fn run_api_regex(args: &Args) -> anyhow::Result<()> {
     let mut table = Table::empty();
 
     let csyntax = config::Syntax::get(args)?;
-    let cthompson = config::Thompson::get(args)?;
+    // let cthompson = config::Thompson::get(args)?;
     let cregex = config::RegexAPI::get(args)?;
     let input = config::Input::get(args)?;
     let patterns = config::Patterns::get(args)?;
