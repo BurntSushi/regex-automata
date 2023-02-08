@@ -307,7 +307,9 @@ impl OnePass {
     #[inline(always)]
     pub(crate) fn get(&self, input: &Input<'_>) -> Option<&OnePassEngine> {
         let engine = self.0.as_ref()?;
-        if !input.get_anchored().is_anchored() {
+        if !input.get_anchored().is_anchored()
+            && !engine.get_nfa().is_always_start_anchored()
+        {
             return None;
         }
         Some(engine)
@@ -367,7 +369,7 @@ impl OnePassEngine {
                     return None;
                 }
             };
-            debug!("OnePass built");
+            debug!("OnePass built, {} bytes", engine.memory_usage());
             Some(OnePassEngine(engine))
         }
         #[cfg(not(feature = "dfa-onepass"))]
@@ -390,6 +392,20 @@ impl OnePassEngine {
             self.0
                 .try_search_slots(cache.0.as_mut().unwrap(), input, slots)
                 .unwrap()
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    #[inline(always)]
+    fn get_nfa(&self) -> &NFA {
+        #[cfg(feature = "dfa-onepass")]
+        {
+            self.0.get_nfa()
         }
         #[cfg(not(feature = "dfa-onepass"))]
         {
@@ -836,7 +852,11 @@ impl DFAEngine {
                 }
             };
             let engine = dfa::regex::Builder::new().build_from_dfas(fwd, rev);
-            debug!("fully compiled DFA built");
+            debug!(
+                "fully compiled DFA built, {} bytes",
+                engine.forward().memory_usage()
+                    + engine.reverse().memory_usage(),
+            );
             Some(DFAEngine(engine))
         }
         #[cfg(not(feature = "dfa-build"))]
@@ -1185,7 +1205,10 @@ impl ReverseDFAEngine {
                     return None;
                 }
             };
-            debug!("fully compiled reverse DFA built");
+            debug!(
+                "fully compiled reverse DFA built, {} bytes",
+                rev.memory_usage()
+            );
             Some(ReverseDFAEngine(rev))
         }
         #[cfg(not(feature = "dfa-build"))]

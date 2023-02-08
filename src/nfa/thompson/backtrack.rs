@@ -1320,28 +1320,25 @@ impl BoundedBacktracker {
                     if at >= input.end() {
                         return None;
                     }
-                    if trans.matches(input.haystack(), at) {
-                        sid = trans.next;
-                        at += 1;
+                    if !trans.matches(input.haystack(), at) {
+                        return None;
                     }
+                    sid = trans.next;
+                    at += 1;
                 }
                 State::Sparse(ref sparse) => {
                     if at >= input.end() {
                         return None;
                     }
-                    if let Some(next) = sparse.matches(input.haystack(), at) {
-                        sid = next;
-                        at += 1;
-                    }
+                    sid = sparse.matches(input.haystack(), at)?;
+                    at += 1;
                 }
                 State::Dense(ref dense) => {
                     if at >= input.end() {
                         return None;
                     }
-                    if let Some(next) = dense.matches(input.haystack(), at) {
-                        sid = next;
-                        at += 1;
-                    }
+                    sid = dense.matches(input.haystack(), at)?;
+                    at += 1;
                 }
                 State::Look { look, next } => {
                     // Unwrap is OK because we don't permit building a searcher

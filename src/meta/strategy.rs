@@ -249,11 +249,16 @@ pub(super) fn new(
     // regex engines.
     let pre = if info.is_always_anchored_start() {
         // TODO: I'm not sure we necessarily want to do this... We may want to
-        // run a prefilter for quick rejecting in some cases. This might mean
+        // run a prefilter for quickly rejecting in some cases. This might mean
         // having a notion of whether a prefilter is "fast"? Or maybe it just
         // depends on haystack length? Or both?
+        debug!("discarding prefixes (if any) since regex is anchored");
         None
     } else if let Some(pre) = info.config().get_prefilter() {
+        debug!(
+            "discarding extracted prefixes (if any) \
+             since the caller provided a prefilter"
+        );
         Some(pre.clone())
     } else if info.config().get_auto_prefilter() {
         lits.prefixes().literals().and_then(|strings| {
@@ -265,6 +270,7 @@ pub(super) fn new(
             Prefilter::new(kind, strings)
         })
     } else {
+        debug!("discarding prefixes (if any) since prefilters were disabled");
         None
     };
     let presuf = if !info.config().get_auto_prefilter() {
@@ -617,8 +623,8 @@ impl Strategy for Core {
         // We still theorize that it's better to do a full/lazy DFA scan, even
         // when it's anchored, because it's usually much faster and permits us
         // to say "no match" much more quickly.
-        if self.onepass.get(input).is_some() {
-            return self.search_slots_nofail(cache, input, slots);
+        if self.onepass.get(&input).is_some() {
+            return self.search_slots_nofail(cache, &input, slots);
         }
         let m = match self.try_search_mayfail(cache, input) {
             Some(Ok(Some(m))) => m,
@@ -700,6 +706,13 @@ impl ReverseAnchored {
             debug!(
                 "skipping reverse anchored optimization because \
 				 the regex is not always anchored at the end"
+            );
+            return Err(core);
+        }
+        if core.info.is_always_anchored_start() {
+            debug!(
+                "skipping reverse anchored optimization because \
+				 the regex is also anchored at the start"
             );
             return Err(core);
         }

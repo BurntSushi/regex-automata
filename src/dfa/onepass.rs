@@ -2142,7 +2142,14 @@ impl DFA {
                 Some(sid) => sid,
             },
             Anchored::No => {
-                return Err(MatchError::unsupported_anchored(Anchored::No));
+                // If the regex is itself always anchored, then we're fine,
+                // even if the search is configured to be unanchored.
+                if !self.nfa.is_always_start_anchored() {
+                    return Err(MatchError::unsupported_anchored(
+                        Anchored::No,
+                    ));
+                }
+                self.start()
             }
         };
         for at in input.start()..input.end() {
