@@ -149,7 +149,17 @@ impl Look {
     ///
     /// This panics if `at > haystack.len()`.
     #[inline]
-    pub fn matches(
+    pub fn try_matches(
+        self,
+        haystack: &[u8],
+        at: usize,
+    ) -> Result<bool, UnicodeWordBoundaryError> {
+        self.try_matches_inline(haystack, at)
+    }
+
+    /// Like 'try_matches', but forcefully inlined.
+    #[inline(always)]
+    pub(crate) fn try_matches_inline(
         self,
         haystack: &[u8],
         at: usize,
@@ -358,18 +368,53 @@ impl LookSet {
         LookSetIter { set: self }
     }
 
-    #[inline]
-    pub fn matches(
-        self,
-        haystack: &[u8],
-        at: usize,
-    ) -> Result<bool, UnicodeWordBoundaryError> {
-        for look in self.iter() {
-            if !look.matches(haystack, at)? {
-                return Ok(false);
+    #[inline(always)]
+    pub(crate) fn matches(self, haystack: &[u8], at: usize) -> bool {
+        // This used to luse LookSet::iter with Look::matches on each element,
+        // but that proved to be quite diastrous for perf. The manual "if
+        // the set has this assertion, check it" turns out to be quite a bit
+        // faster.
+        if self.contains(Look::Start) {
+            if !is_start(haystack, at) {
+                return false;
             }
         }
-        Ok(true)
+        if self.contains(Look::End) {
+            if !is_end(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::StartLF) {
+            if !is_start_lf(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::EndLF) {
+            if !is_end_lf(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::WordAscii) {
+            if !is_word_ascii(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::WordAsciiNegate) {
+            if !is_word_ascii_negate(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::WordUnicode) {
+            if !is_word_unicode(haystack, at).unwrap() {
+                return false;
+            }
+        }
+        if self.contains(Look::WordUnicodeNegate) {
+            if !is_word_unicode_negate(haystack, at).unwrap() {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -603,7 +648,7 @@ impl core::fmt::Display for UnicodeWordBoundaryError {
 // the grand scheme things, but that is a significant latency cost. So I'm not
 // sure that's a good idea. I then tried using a lazy DFA instead, and that
 // eliminated the overhead, but since the lazy DFA requires mutable working
-// memory, that requires introducing a 'Cache' for every simultaneously call.
+// memory, that requires introducing a 'Cache' for every simultaneous call.
 //
 // I ended up deciding for now to just keep the "UTF-8 decode and check the
 // table." The DFA and lazy DFA approaches are still below, but commented out.
@@ -943,7 +988,7 @@ mod tests {
 
     macro_rules! testlook {
         ($look:expr, $haystack:expr, $at:expr) => {
-            $look.matches(B($haystack), $at).unwrap()
+            $look.try_matches(B($haystack), $at).unwrap()
         };
     }
 

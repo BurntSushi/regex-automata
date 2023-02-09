@@ -1344,7 +1344,8 @@ impl BoundedBacktracker {
                     // Unwrap is OK because we don't permit building a searcher
                     // with a Unicode word boundary if the requisite Unicode
                     // data is unavailable.
-                    if !look.matches(input.haystack(), at).unwrap() {
+                    if !look.try_matches_inline(input.haystack(), at).unwrap()
+                    {
                         return None;
                     }
                     sid = next;

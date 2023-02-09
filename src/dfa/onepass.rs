@@ -2090,14 +2090,15 @@ impl DFA {
         // there is probably a lot left on the table for improvement. The
         // key tension is that the 'find_match' routine is a giant mess, but
         // splitting it out into a non-inlineable function is a non-starter
-        // because the match state might consume input. In theory, we could
-        // detect whether a match state consumes input and then specialize our
-        // search routine based on that. In that case, maybe an extra function
-        // call is OK, but even then, it might be too much of a latency hit.
-        // Another idea is to just try and figure out how to reduce the code
-        // size of 'find_match'. RE2 has a trick here where the match handling
-        // isn't done if we know the next byte of input yields a match too.
-        // Maybe we adopt that?
+        // because the match state might consume input, so 'find_match' COULD
+        // be called quite a lot, and a function call at that point would trash
+        // perf. In theory, we could detect whether a match state consumes
+        // input and then specialize our search routine based on that. In that
+        // case, maybe an extra function call is OK, but even then, it might be
+        // too much of a latency hit. Another idea is to just try and figure
+        // out how to reduce the code size of 'find_match'. RE2 has a trick
+        // here where the match handling isn't done if we know the next byte of
+        // input yields a match too. Maybe we adopt that?
         //
         // This just might be a tricky DFA to optimize.
 
@@ -2164,7 +2165,10 @@ impl DFA {
             let trans = self.transition(sid, input.haystack()[at]);
             sid = trans.state_id();
             let epsilons = trans.epsilons();
-            if sid == DEAD || !epsilons.look_matches(input.haystack(), at) {
+            if sid == DEAD
+                || (!epsilons.looks().is_empty()
+                    && !epsilons.look_matches(input.haystack(), at))
+            {
                 return Ok(pid);
             }
             epsilons.slots().apply(at, cache.explicit_slots());
@@ -2196,7 +2200,9 @@ impl DFA {
         debug_assert!(sid >= self.min_match_id);
         let pateps = self.pattern_epsilons(sid);
         let epsilons = pateps.epsilons();
-        if !epsilons.look_matches(input.haystack(), at) {
+        if !epsilons.looks().is_empty()
+            && !epsilons.look_matches(input.haystack(), at)
+        {
             return false;
         }
         let pid = pateps.pattern_id_unchecked();
@@ -2843,13 +2849,10 @@ impl Epsilons {
     /// with 'inline(always)'. So we write this little hack instead.
     #[inline(always)]
     fn look_matches(self, haystack: &[u8], at: usize) -> bool {
-        if self.looks().is_empty() {
-            return true;
-        }
         // Unwrap is OK because we don't permit building a searcher
         // with a Unicode word boundary if the requisite Unicode
         // data is unavailable.
-        self.looks().matches(haystack, at).unwrap()
+        self.looks().matches(haystack, at)
     }
 }
 
