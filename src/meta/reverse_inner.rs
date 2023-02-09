@@ -1,4 +1,4 @@
-use alloc::vec;
+use alloc::{boxed::Box, vec, vec::Vec};
 
 use regex_syntax::hir::{self, literal, Hir, HirKind};
 
@@ -25,7 +25,7 @@ pub(crate) fn extract(hirs: &[&Hir]) -> Option<(Hir, Prefilter)> {
         );
         return None;
     }
-    let concat = match top_concat(hirs[0]) {
+    let mut concat = match top_concat(hirs[0]) {
         Some(concat) => concat,
         None => {
             debug!(
@@ -37,7 +37,8 @@ pub(crate) fn extract(hirs: &[&Hir]) -> Option<(Hir, Prefilter)> {
     };
     // We skip the first HIR because if it did have a prefix prefilter in it,
     // we probably wouldn't be here looking for an inner prefilter.
-    for (i, hir) in concat.iter().enumerate().skip(1) {
+    for i in 1..concat.len() {
+        let hir = &concat[i];
         let pre = match prefilter(hir) {
             None => continue,
             Some(pre) => pre,
@@ -54,11 +55,14 @@ pub(crate) fn extract(hirs: &[&Hir]) -> Option<(Hir, Prefilter)> {
             );
             continue;
         }
-        let concat_prefix =
-            Hir::concat(concat.iter().take(i).map(|h| h.clone()).collect());
-        let concat_suffix =
-            Hir::concat(concat.iter().skip(i).map(|h| h.clone()).collect());
-        let pre2 = match prefilter(hir) {
+        let concat_suffix = Hir::concat(concat.split_off(i));
+        let concat_prefix = Hir::concat(concat);
+        // Look for a prefilter again. Why? Because above we only looked for
+        // a prefilter on the individual 'hir', but we might be able to find
+        // something better and more discriminatory by looking at the entire
+        // suffix. We don't do this above to avoid making this loop worst case
+        // quadratic in the length of 'concat'.
+        let pre2 = match prefilter(&concat_suffix) {
             None => pre,
             Some(pre2) => {
                 if pre2.is_fast() {
@@ -118,7 +122,14 @@ fn prefilter(hir: &Hir) -> Option<Prefilter> {
 /// Looks for a "top level" HirKind::Concat item in the given HIR. This will
 /// try to return one even if it's embedded in a capturing group, but is
 /// otherwise pretty conservative in what is returned.
-fn top_concat(mut hir: &Hir) -> Option<&[Hir]> {
+///
+/// The HIR returned is a complete copy of the concat with all capturing
+/// groups removed. In effect, the concat returned is "flattened" with respect
+/// to capturing groups. This makes the detection logic above for prefixes
+/// a bit simpler, and it works because 1) capturing groups never influence
+/// whether a match occurs or not and 2) capturing groups are not used when
+/// doing the reverse inner search to find the start of the match.
+fn top_concat(mut hir: &Hir) -> Option<Vec<Hir>> {
     loop {
         hir = match hir.kind() {
             HirKind::Empty
@@ -128,7 +139,56 @@ fn top_concat(mut hir: &Hir) -> Option<&[Hir]> {
             | HirKind::Repetition(_)
             | HirKind::Alternation(_) => return None,
             HirKind::Group(hir::Group { ref hir, .. }) => hir,
-            HirKind::Concat(ref hirs) => return Some(hirs),
+            HirKind::Concat(ref hirs) => {
+                // We are careful to only do the flattening/copy when we know
+                // we have a "top level" concat we can inspect. This avoids
+                // doing extra work in cases where we definitely won't use it.
+                // (This might still be wasted work if we can't go on to find
+                // some literals to extract.)
+                let concat =
+                    Hir::concat(hirs.iter().map(|h| flatten(h)).collect());
+                return match concat.into_kind() {
+                    HirKind::Concat(xs) => Some(xs),
+                    // It is actually possible for this case to occur, because
+                    // 'Hir::concat' might simplify the expression to the point
+                    // that concatenations are actually removed. One wonders
+                    // whether this leads to other cases where we should be
+                    // extracting literals, but in theory, I believe if we do
+                    // get here, then it means that a "real" prefilter failed
+                    // to be extracted and we should probably leave well enough
+                    // alone. (A "real" prefilter is unbothered by "top-level
+                    // concats" and "capturing groups.")
+                    _ => return None,
+                };
+            }
         };
+    }
+}
+
+/// Returns a copy of the given HIR but with all capturing groups removed.
+fn flatten(hir: &Hir) -> Hir {
+    match hir.kind() {
+        HirKind::Empty => Hir::empty(),
+        HirKind::Literal(hir::Literal(ref x)) => Hir::literal(x.clone()),
+        HirKind::Class(ref x) => Hir::class(x.clone()),
+        HirKind::Look(ref x) => Hir::look(x.clone()),
+        HirKind::Repetition(ref x) => {
+            let rep = hir::Repetition {
+                min: x.min,
+                max: x.max,
+                greedy: x.greedy,
+                hir: Box::new(flatten(&x.hir)),
+            };
+            Hir::repetition(rep)
+        }
+        // This is the interesting case. We just drop the group information
+        // entirely and use the child HIR itself.
+        HirKind::Group(hir::Group { ref hir, .. }) => flatten(hir),
+        HirKind::Alternation(ref xs) => {
+            Hir::alternation(xs.iter().map(|x| flatten(x)).collect())
+        }
+        HirKind::Concat(ref xs) => {
+            Hir::concat(xs.iter().map(|x| flatten(x)).collect())
+        }
     }
 }
