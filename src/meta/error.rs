@@ -109,16 +109,11 @@ impl From<RetryQuadraticError> for RetryError {
 #[derive(Debug)]
 pub(crate) struct RetryFailError {
     offset: usize,
-    byte: Option<u8>,
 }
 
 impl RetryFailError {
     pub(crate) fn from_offset(offset: usize) -> RetryFailError {
-        RetryFailError { offset, byte: None }
-    }
-
-    pub(crate) fn from_offset_byte(offset: usize, byte: u8) -> RetryFailError {
-        RetryFailError { offset, byte: Some(byte) }
+        RetryFailError { offset }
     }
 }
 
@@ -127,18 +122,7 @@ impl std::error::Error for RetryFailError {}
 
 impl core::fmt::Display for RetryFailError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        use crate::util::escape::DebugByte;
-
-        if let Some(byte) = self.byte {
-            write!(
-                f,
-                "regex engine failed for byte {:?} at offset {:?}",
-                DebugByte(byte),
-                self.offset
-            )
-        } else {
-            write!(f, "regex engine failed at offset {:?}", self.offset)
-        }
+        write!(f, "regex engine failed at offset {:?}", self.offset)
     }
 }
 
@@ -153,9 +137,7 @@ impl From<MatchError> for RetryFailError {
         use crate::util::search::MatchErrorKind::*;
 
         match *merr.kind() {
-            Quit { byte, offset } => {
-                RetryFailError::from_offset_byte(offset, byte)
-            }
+            Quit { offset, .. } => RetryFailError::from_offset(offset),
             GaveUp { offset } => RetryFailError::from_offset(offset),
             HaystackTooLong { .. } | UnsupportedAnchored { .. } => {
                 unreachable!("found impossible error in meta engine: {}", merr)

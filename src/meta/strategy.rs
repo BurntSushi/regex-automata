@@ -441,23 +441,6 @@ impl Core {
         }
     }
 
-    #[inline(always)]
-    fn try_search_half_mayfail(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Option<Result<Option<HalfMatch>, RetryFailError>> {
-        if let Some(e) = self.dfa.get(input) {
-            trace!("using full DFA for half search at {:?}", input.get_span());
-            Some(e.try_search_half_fwd(input))
-        } else if let Some(e) = self.hybrid.get(input) {
-            trace!("using lazy DFA for half search at {:?}", input.get_span());
-            Some(e.try_search_half_fwd(&mut cache.hybrid, input))
-        } else {
-            None
-        }
-    }
-
     fn search_nofail(
         &self,
         cache: &mut Cache,
@@ -563,14 +546,29 @@ impl Strategy for Core {
 
     #[inline(always)]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
-        match self.try_search_mayfail(cache, input) {
-            Some(Ok(matornot)) => matornot,
-            Some(Err(err)) => {
-                trace!("fast search failed: {}", err);
-                self.search_nofail(cache, input)
+        // We manually inline try_search_mayfail here because letting the
+        // compiler do it seems to produce pretty crappy codegen.
+        return if let Some(e) = self.dfa.get(input) {
+            trace!("using full DFA for search at {:?}", input.get_span());
+            match e.try_search(input) {
+                Ok(x) => x,
+                Err(err) => {
+                    trace!("full DFA search failed: {}", err);
+                    self.search_nofail(cache, input)
+                }
             }
-            None => self.search_nofail(cache, input),
-        }
+        } else if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for search at {:?}", input.get_span());
+            match e.try_search(&mut cache.hybrid, input) {
+                Ok(x) => x,
+                Err(err) => {
+                    trace!("lazy DFA search failed: {}", err);
+                    self.search_nofail(cache, input)
+                }
+            }
+        } else {
+            self.search_nofail(cache, input)
+        };
     }
 
     #[inline(always)]
@@ -582,18 +580,27 @@ impl Strategy for Core {
         // The main difference with 'search' is that if we're using a DFA, we
         // can use a single forward scan without needing to run the reverse
         // DFA.
-        match self.try_search_half_mayfail(cache, input) {
-            Some(Ok(matornot)) => matornot,
-            Some(Err(err)) => {
-                trace!("fast half search failed: {}", err);
-                self.search_half_nofail(cache, input)
+        return if let Some(e) = self.dfa.get(input) {
+            trace!("using full DFA for search at {:?}", input.get_span());
+            match e.try_search_half_fwd(input) {
+                Ok(x) => x,
+                Err(err) => {
+                    trace!("full DFA half search failed: {}", err);
+                    self.search_half_nofail(cache, input)
+                }
             }
-            None => {
-                // Same as above, throw away the start offset.
-                let m = self.search_nofail(cache, input)?;
-                Some(HalfMatch::new(m.pattern(), m.end()))
+        } else if let Some(e) = self.hybrid.get(input) {
+            trace!("using lazy DFA for search at {:?}", input.get_span());
+            match e.try_search_half_fwd(&mut cache.hybrid, input) {
+                Ok(x) => x,
+                Err(err) => {
+                    trace!("lazy DFA half search failed: {}", err);
+                    self.search_half_nofail(cache, input)
+                }
             }
-        }
+        } else {
+            self.search_half_nofail(cache, input)
+        };
     }
 
     #[inline(always)]

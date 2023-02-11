@@ -309,7 +309,7 @@ impl RegexInfo {
         if input.get_span().len() < minlen {
             return true;
         }
-        // Same idea at minimum, but for maximum. This is trickier. We can
+        // Same idea as minimum, but for maximum. This is trickier. We can
         // only apply the maximum when we know the entire span that we're
         // searching *has* to match according to the regex (and possibly the
         // input configuration). If we know there is too much for the regex
