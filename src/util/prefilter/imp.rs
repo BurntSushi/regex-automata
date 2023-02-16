@@ -37,7 +37,7 @@ macro_rules! new {
         // by definition match at every position. This is obviously completely
         // ineffective.
         if needles.iter().any(|n| n.as_ref().is_empty()) {
-            debug!("prefilter building failed: prefixes match empty string");
+            debug!("prefilter building failed: literals match empty string");
             return None;
         }
         #[cfg(feature = "perf-literal-substring")]

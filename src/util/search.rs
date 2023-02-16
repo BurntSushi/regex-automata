@@ -1125,6 +1125,14 @@ impl Match {
     pub fn is_empty(&self) -> bool {
         self.span().is_empty()
     }
+
+    /// Returns the length of this match.
+    ///
+    /// This returns `0` in precisely the cases that `is_empty` returns `true`.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.span().len()
+    }
 }
 
 /// A set of `PatternID`s.

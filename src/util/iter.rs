@@ -384,7 +384,7 @@ impl<'h> Searcher<'h> {
             None => return Ok(None),
             Some(m) => m,
         };
-        if m.is_empty() {
+        if m.is_empty() && Some(m.end()) == self.last_match_end {
             m = match self.handle_overlapping_empty_match(m, finder)? {
                 None => return Ok(None),
                 Some(m) => m,
@@ -620,21 +620,15 @@ impl<'h> Searcher<'h> {
     #[inline(never)]
     fn handle_overlapping_empty_match<F>(
         &mut self,
-        mut m: Match,
+        m: Match,
         mut finder: F,
     ) -> Result<Option<Match>, MatchError>
     where
         F: FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
     {
         assert!(m.is_empty());
-        if Some(m.end()) == self.last_match_end {
-            self.input.set_start(self.input.start().checked_add(1).unwrap());
-            m = match finder(&self.input)? {
-                None => return Ok(None),
-                Some(m) => m,
-            };
-        }
-        Ok(Some(m))
+        self.input.set_start(self.input.start().checked_add(1).unwrap());
+        finder(&self.input)
     }
 }
 

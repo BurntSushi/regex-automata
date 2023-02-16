@@ -720,7 +720,7 @@ impl<'a> InternalBuilder<'a> {
         }
         if self.nfa.group_info().explicit_slot_len() > Slots::LIMIT {
             return Err(BuildError::not_one_pass(
-                "too many explicit capturing groups (max is 24)",
+                "too many explicit capturing groups (max is 16)",
             ));
         }
         assert_eq!(DEAD, self.add_empty_state()?);

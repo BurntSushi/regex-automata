@@ -241,6 +241,10 @@ pub(super) fn new(
     // Aho-Corasick for that and avoid the regex engine entirely.
     #[cfg(feature = "perf-literal-multisubstring")]
     if let Some(ac) = alternation_literals_to_aho_corasick(info, hirs) {
+        debug!(
+            "found plain alternation of literals, \
+             avoiding regex engine entirely and using Aho-Corasick"
+        );
         return Ok(ac);
     }
 
