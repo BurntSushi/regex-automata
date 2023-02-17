@@ -892,14 +892,6 @@ impl<'a> InternalBuilder<'a> {
         trans: &thompson::Transition,
         epsilons: Epsilons,
     ) -> Result<(), BuildError> {
-        // If we already have seen a match and we are compiling a leftmost
-        // first DFA, then we shouldn't add any more transitions. This is
-        // effectively how preference order and non-greediness is implemented.
-        if !self.config.get_match_kind().continue_past_first_match()
-            && self.matched
-        {
-            return Ok(());
-        }
         let next_dfa_id = self.add_dfa_state_for_nfa_state(trans.next)?;
         for byte in self
             .classes
@@ -907,7 +899,8 @@ impl<'a> InternalBuilder<'a> {
             .filter_map(|r| r.as_u8())
         {
             let oldtrans = self.dfa.transition(dfa_id, byte);
-            let newtrans = Transition::new(next_dfa_id, epsilons);
+            let newtrans =
+                Transition::new(self.matched, next_dfa_id, epsilons);
             // If the old transition points to the DEAD state, then we know
             // 'byte' has not been mapped to any transition for this DFA state
             // yet. So set it unconditionally. Otherwise, we require that the
@@ -1025,6 +1018,14 @@ impl<'a> InternalBuilder<'a> {
         nfa_id: StateID,
         epsilons: Epsilons,
     ) -> Result<(), BuildError> {
+        // If we already have seen a match and we are compiling a leftmost
+        // first DFA, then we shouldn't add any more states to look at. This is
+        // effectively how preference order and non-greediness is implemented.
+        // if !self.config.get_match_kind().continue_past_first_match()
+        // && self.matched
+        // {
+        // return Ok(());
+        // }
         if !self.seen.insert(nfa_id) {
             return Err(BuildError::not_one_pass(
                 "multiple epsilon transitions to same state",
@@ -2136,7 +2137,7 @@ impl DFA {
             slots[i] = NonMaxUsize::new(input.start());
         }
         let mut pid = None;
-        let mut sid = match input.get_anchored() {
+        let mut next_sid = match input.get_anchored() {
             Anchored::Yes => self.start(),
             Anchored::Pattern(pid) => match self.start_pattern(pid)? {
                 None => return Ok(None),
@@ -2153,28 +2154,39 @@ impl DFA {
                 self.start()
             }
         };
+        let leftmost_first =
+            matches!(self.config.get_match_kind(), MatchKind::LeftmostFirst);
         for at in input.start()..input.end() {
+            let sid = next_sid;
+            let trans = self.transition(sid, input.haystack()[at]);
+            next_sid = trans.state_id();
+            let epsilons = trans.epsilons();
             if sid >= self.min_match_id {
                 if self.find_match(cache, input, at, sid, slots, &mut pid) {
-                    if input.get_earliest() {
+                    if input.get_earliest()
+                        || (leftmost_first && trans.match_wins())
+                    {
                         return Ok(pid);
                     }
                 }
             }
-
-            let trans = self.transition(sid, input.haystack()[at]);
-            sid = trans.state_id();
-            let epsilons = trans.epsilons();
             if sid == DEAD
                 || (!epsilons.looks().is_empty()
-                    && !epsilons.look_matches(input.haystack(), at))
+                    && !epsilons.looks().matches(input.haystack(), at))
             {
                 return Ok(pid);
             }
             epsilons.slots().apply(at, cache.explicit_slots());
         }
-        if sid >= self.min_match_id {
-            self.find_match(cache, input, input.end(), sid, slots, &mut pid);
+        if next_sid >= self.min_match_id {
+            self.find_match(
+                cache,
+                input,
+                input.end(),
+                next_sid,
+                slots,
+                &mut pid,
+            );
         }
         Ok(pid)
     }
@@ -2425,6 +2437,9 @@ impl core::fmt::Debug for DFA {
                         debug_id(f, dfa, next),
                     )?;
                 }
+                if trans.match_wins() {
+                    write!(f, " (MW)")?;
+                }
                 if !trans.epsilons().is_empty() {
                     write!(f, " ({:?})", trans.epsilons())?;
                 }
@@ -2626,19 +2641,35 @@ impl Cache {
 struct Transition(u64);
 
 impl Transition {
-    const STATE_ID_BITS: u64 = 24;
+    const STATE_ID_BITS: u64 = 23;
     const STATE_ID_SHIFT: u64 = 64 - Transition::STATE_ID_BITS;
     const STATE_ID_LIMIT: u64 = 1 << Transition::STATE_ID_BITS;
+    const MATCH_WINS_SHIFT: u64 = 64 - (Transition::STATE_ID_BITS + 1);
     const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
 
     /// Return a new transition to the given state ID with the given epsilons.
-    fn new(sid: StateID, epsilons: Epsilons) -> Transition {
-        Transition((sid.as_u64() << Transition::STATE_ID_SHIFT) | epsilons.0)
+    fn new(match_wins: bool, sid: StateID, epsilons: Epsilons) -> Transition {
+        let match_wins =
+            if match_wins { 1 << Transition::MATCH_WINS_SHIFT } else { 0 };
+        let sid = sid.as_u64() << Transition::STATE_ID_SHIFT;
+        Transition(sid | match_wins | epsilons.0)
     }
 
     /// Returns true if and only if this transition points to the DEAD state.
     fn is_dead(self) -> bool {
         self.state_id() == DEAD
+    }
+
+    /// Return whether this transition has a "match wins" property.
+    ///
+    /// When a transition has this property, it means that if a match has been
+    /// found and the search uses leftmost-first semantics, then that match
+    /// should be returned immediately instead of continuing on.
+    ///
+    /// The "match wins" name comes from RE2, which uses a pretty much
+    /// identical mechanism for implementing leftmost-first semantics.
+    fn match_wins(&self) -> bool {
+        (self.0 >> Transition::MATCH_WINS_SHIFT & 1) == 1
     }
 
     /// Return the "next" state ID that this transition points to.
@@ -2654,7 +2685,7 @@ impl Transition {
 
     /// Set the "next" state ID in this transition.
     fn set_state_id(&mut self, sid: StateID) {
-        *self = Transition::new(sid, self.epsilons());
+        *self = Transition::new(self.match_wins(), sid, self.epsilons());
     }
 
     /// Return the epsilons embedded in this transition.
@@ -2669,6 +2700,9 @@ impl core::fmt::Debug for Transition {
             return write!(f, "0");
         }
         write!(f, "{}", self.state_id().as_usize())?;
+        if self.match_wins() {
+            write!(f, "-MW")?;
+        }
         if !self.epsilons().is_empty() {
             write!(f, "-{:?}", self.epsilons())?;
         }

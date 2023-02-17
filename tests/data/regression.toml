@@ -478,3 +478,17 @@ name = "interior-anchor-capture"
 regex = '(a$)b$'
 input = 'ab'
 matches = []
+
+# I found this bug in the course of adding some of the regexes that Ruff uses
+# to rebar. It turns out that the lazy DFA was finding a match that was being
+# rejected by the one-pass DFA. Yikes. I then minimized the regex and haystack.
+#
+# Source: https://github.com/charliermarsh/ruff/blob/a919041ddaa64cdf6f216f90dd0480dab69fd3ba/crates/ruff/src/rules/pycodestyle/rules/whitespace_around_keywords.rs#L52
+[[tests]]
+name = "ruff-whitespace-around-keywords"
+regex = '^(a|ab)$'
+input = "ab"
+anchored = true
+unicode = false
+utf8 = true
+matches = [[[0, 2], [0, 2]]]

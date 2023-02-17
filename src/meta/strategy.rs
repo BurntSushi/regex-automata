@@ -662,7 +662,10 @@ impl Strategy for Core {
             .clone()
             .span(m.start()..m.end())
             .anchored(Anchored::Pattern(m.pattern()));
-        self.search_slots_nofail(cache, &input, slots)
+        Some(
+            self.search_slots_nofail(cache, &input, slots)
+                .expect("should find a match"),
+        )
     }
 
     #[inline(always)]
