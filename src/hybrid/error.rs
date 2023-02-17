@@ -100,6 +100,8 @@ impl core::fmt::Display for BuildError {
 /// set such that a `CacheError` will never occur. Instead,
 /// callers must opt into this behavior with settings like
 /// [`dfa::Config::minimum_cache_clear_count`](crate::hybrid::dfa::Config::minimum_cache_clear_count).
+/// and
+/// [`dfa::Config::minimum_bytes_per_state`](crate::hybrid::dfa::Config::minimum_bytes_per_state).
 ///
 /// When the `std` feature is enabled, this implements the `std::error::Error`
 /// trait.
@@ -108,6 +110,10 @@ pub struct CacheError(());
 
 impl CacheError {
     pub(crate) fn too_many_cache_clears() -> CacheError {
+        CacheError(())
+    }
+
+    pub(crate) fn bad_efficiency() -> CacheError {
         CacheError(())
     }
 }

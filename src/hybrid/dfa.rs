@@ -1831,6 +1831,25 @@ pub struct Cache {
     /// clear count is set, then the cache will return an error instead of
     /// clearing the cache if the count has been exceeded.
     clear_count: usize,
+    /// The total number of bytes searched since the last time this cache was
+    /// cleared, not including the current search.
+    ///
+    /// This can be added to the length of the current search to get the true
+    /// total number of bytes searched.
+    ///
+    /// This is generally only non-zero when the
+    /// `Cache::search_{start,update,finish}` APIs are used to track search
+    /// progress.
+    bytes_searched: usize,
+    /// The progress of the current search.
+    ///
+    /// This is only non-`None` when callers utlize the `Cache::search_start`,
+    /// `Cache::search_update` and `Cache::search_finish` APIs.
+    ///
+    /// The purpose of recording search progress is to be able to make a
+    /// determination about the efficiency of the cache. Namely, by keeping
+    /// track of the
+    progress: Option<SearchProgress>,
 }
 
 impl Cache {
@@ -1851,6 +1870,8 @@ impl Cache {
             state_saver: StateSaver::none(),
             memory_usage_state: 0,
             clear_count: 0,
+            bytes_searched: 0,
+            progress: None,
         };
         debug!("pre-init lazy DFA cache size: {}", cache.memory_usage());
         Lazy { dfa, cache: &mut cache }.init_cache();
@@ -1906,6 +1927,66 @@ impl Cache {
         Lazy::new(dfa, self).reset_cache()
     }
 
+    /// Initializes a new search starting at the given position.
+    ///
+    /// If a previous search was unfinished, then it is finished automatically
+    /// and a new search is begun.
+    ///
+    /// Note that keeping track of search progress is _not necessary_
+    /// for correct implementations of search using a lazy DFA. Keeping
+    /// track of search progress is only necessary if you want the
+    /// [`Config::minimum_bytes_per_state`] configuration knob to work.
+    pub fn search_start(&mut self, at: usize) {
+        // If a previous search wasn't marked as finished, then finish it
+        // now automatically.
+        if let Some(p) = self.progress.take() {
+            self.bytes_searched += p.len();
+        }
+        self.progress = Some(SearchProgress { start: at, at });
+    }
+
+    /// Updates the current search to indicate that it has search to the
+    /// current position.
+    ///
+    /// No special care needs to be taken for reverse searches. Namely, the
+    /// position given may be _less than_ the starting position of the search.
+    ///
+    /// # Panics
+    ///
+    /// This panics if no search has been started by [`Cache::search_start`].
+    pub fn search_update(&mut self, at: usize) {
+        let mut p =
+            self.progress.as_mut().expect("no in-progress search to update");
+        p.at = at;
+    }
+
+    /// Indicates that a search has finished at the given position.
+    ///
+    /// # Panics
+    ///
+    /// This panics if no search has been started by [`Cache::search_start`].
+    pub fn search_finish(&mut self, at: usize) {
+        let mut p =
+            self.progress.take().expect("no in-progress search to finish");
+        p.at = at;
+        self.bytes_searched += p.len();
+    }
+
+    /// Returns the total number of bytes that have been searched since this
+    /// cache was last cleared.
+    ///
+    /// This is useful for determining the efficiency of the cache. For
+    /// example, the lazy DFA uses this value in conjunction with the
+    /// [`Config::minimum_bytes_per_state`] knob to help determine whether it
+    /// should quit searching.
+    ///
+    /// This always returns `0` if search progress isn't being tracked. Note
+    /// that the lazy DFA search routines in this crate always track search
+    /// progress.
+    pub fn search_total_len(&self) -> usize {
+        self.bytes_searched + self.progress.as_ref().map_or(0, |p| p.len())
+    }
+
     /// Returns the total number of times this cache has been cleared since it
     /// was either created or last reset.
     ///
@@ -1937,6 +2018,32 @@ impl Cache {
         + self.scratch_state_builder.capacity()
         // Heap memory used by 'State' in both 'states' and 'states_to_id'.
         + self.memory_usage_state
+    }
+}
+
+/// Keeps track of the progress of the current search.
+///
+/// This is updated via the `Cache::search_{start,update,finish}` APIs to
+/// record how many bytes have been searched. This permits computing a
+/// heuristic that represents the efficiency of a cache, and thus helps inform
+/// whether the lazy DFA should give up or not.
+#[derive(Clone, Debug)]
+struct SearchProgress {
+    start: usize,
+    at: usize,
+}
+
+impl SearchProgress {
+    /// Returns the length, in bytes, of this search so far.
+    ///
+    /// This automatically handles the case of a reverse search, where `at`
+    /// is likely to be less than `start`.
+    fn len(&self) -> usize {
+        if self.start <= self.at {
+            self.at - self.start
+        } else {
+            self.start - self.at
+        }
     }
 }
 
@@ -2229,11 +2336,68 @@ impl<'i, 'c> Lazy<'i, 'c> {
         // enough. (The original lazy DFA implementation in the 'regex' crate
         // had this heuristic, since the lazy DFA was coupled with the search
         // routines.)
-        if let Some(min_count) =
-            self.dfa.get_config().get_minimum_cache_clear_count()
-        {
+        let c = self.dfa.get_config();
+        if let Some(min_count) = c.get_minimum_cache_clear_count() {
             if self.cache.clear_count >= min_count {
-                return Err(CacheError::too_many_cache_clears());
+                if let Some(min_bytes_per) = c.get_minimum_bytes_per_state() {
+                    let len = self.cache.search_total_len();
+                    let min_bytes =
+                        min_bytes_per.saturating_mul(self.cache.states.len());
+                    // If we've searched 0 bytes then probably something has
+                    // gone wrong and the lazy DFA search implementation isn't
+                    // correctly updating the search progress state.
+                    if len == 0 {
+                        trace!(
+                            "number of bytes searched is 0, but \
+                             a minimum bytes per state searched ({}) is \
+                             enabled, maybe Cache::search_update \
+                             is not being used?",
+                            min_bytes_per,
+                        );
+                    }
+                    if len < min_bytes {
+                        trace!(
+                            "lazy DFA cache has been cleared {} times, \
+                             which exceeds the limit of {}, \
+                             AND its bytes searched per state is less \
+                             than the configured mininum of {}, \
+                             therefore lazy DFA is giving up \
+                             (bytes searched since cache clear = {}, \
+                              number of states = {})",
+                            self.cache.clear_count,
+                            min_count,
+                            min_bytes_per,
+                            len,
+                            self.cache.states.len(),
+                        );
+                        return Err(CacheError::bad_efficiency());
+                    } else {
+                        trace!(
+                            "lazy DFA cache has been cleared {} times, \
+                             which exceeds the limit of {}, \
+                             AND its bytes searched per state is greater \
+                             than the configured mininum of {}, \
+                             therefore lazy DFA is continuing! \
+                             (bytes searched since cache clear = {}, \
+                              number of states = {})",
+                            self.cache.clear_count,
+                            min_count,
+                            min_bytes_per,
+                            len,
+                            self.cache.states.len(),
+                        );
+                    }
+                } else {
+                    trace!(
+                        "lazy DFA cache has been cleared {} times, \
+                         which exceeds the limit of {}, \
+                         since there is no configured bytes per state \
+                         minimum, lazy DFA is giving up",
+                        self.cache.clear_count,
+                        min_count,
+                    );
+                    return Err(CacheError::too_many_cache_clears());
+                }
             }
         }
         self.clear_cache();
@@ -2255,6 +2419,7 @@ impl<'i, 'c> Lazy<'i, 'c> {
         // size.
         self.cache.sparses.resize(self.dfa.get_nfa().states().len());
         self.cache.clear_count = 0;
+        self.cache.progress = None;
     }
 
     /// Clear the cache used by this lazy DFA.
@@ -2274,6 +2439,10 @@ impl<'i, 'c> Lazy<'i, 'c> {
         self.cache.states_to_id.clear();
         self.cache.memory_usage_state = 0;
         self.cache.clear_count += 1;
+        self.cache.bytes_searched = 0;
+        if let Some(ref mut progress) = self.cache.progress {
+            progress.start = progress.at;
+        }
         trace!(
             "lazy DFA cache has been cleared (count: {})",
             self.cache.clear_count
@@ -2703,6 +2872,7 @@ pub struct Config {
     cache_capacity: Option<usize>,
     skip_cache_capacity_check: Option<bool>,
     minimum_cache_clear_count: Option<Option<usize>>,
+    minimum_bytes_per_state: Option<Option<usize>>,
 }
 
 impl Config {
@@ -3311,12 +3481,12 @@ impl Config {
     /// Configure a lazy DFA search to quit after a certain number of cache
     /// clearings.
     ///
-    /// When a minimum is set, then a lazy DFA search will "give up" after
-    /// the minimum number of cache clearings has occurred. This is typically
-    /// useful in scenarios where callers want to detect whether the lazy DFA
-    /// search is "efficient" or not. If the cache is cleared too many times,
-    /// this is a good indicator that it is not efficient, and thus, the caller
-    /// may wish to use some other regex engine.
+    /// When a minimum is set, then a lazy DFA search will *possibly* "give
+    /// up" after the minimum number of cache clearings has occurred. This is
+    /// typically useful in scenarios where callers want to detect whether the
+    /// lazy DFA search is "efficient" or not. If the cache is cleared too many
+    /// times, this is a good indicator that it is not efficient, and thus, the
+    /// caller may wish to use some other regex engine.
     ///
     /// Note that the number of times a cache is cleared is a property of
     /// the cache itself. Thus, if a cache is used in a subsequent search
@@ -3328,7 +3498,10 @@ impl Config {
     /// you're using the `Regex` API).
     ///
     /// By default, no minimum is configured. Thus, a lazy DFA search will
-    /// never give up due to cache clearings.
+    /// never give up due to cache clearings. If you do set this option, you
+    /// might consider also setting [`Config::minimum_bytes_per_state`] in
+    /// order for the lazy DFA to take efficiency into account before giving
+    /// up.
     ///
     /// # Example
     ///
@@ -3407,6 +3580,50 @@ impl Config {
         self
     }
 
+    /// Configure a lazy DFA search to quit only when its efficiency drops
+    /// below the given minimum.
+    ///
+    /// The efficiency of the cache is determined by the number of DFA states
+    /// compiled per byte of haystack searched. For example, if the efficiency
+    /// is 2, then it means the lazy DFA is creating a new DFA state after
+    /// searching approximately 2 bytes in a haystack. Generally speaking, 2
+    /// is quite bad and it's likely that even a slower regex engine like the
+    /// [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM) would be faster.
+    ///
+    /// This has no effect if [`Config::minimum_cache_clear_count`] is not set.
+    /// Namely, this option only kicks in when the cache has been cleared more
+    /// than the minimum number. If no minimum is set, then the cache is simply
+    /// cleared whenever it fills up and it is impossible for the lazy DFA to
+    /// quit due to ineffective use of the cache.
+    ///
+    /// In general, if one is setting [`Config::minimum_cache_clear_count`],
+    /// then one should probably also set this knob as well. The reason is
+    /// that the absolute number of times the cache is cleared is generally
+    /// not a great predictor of efficiency. For example, if a new DFA state
+    /// is created for every 1,000 bytes searched, then it wouldn't be hard
+    /// for the cache to get cleared more than `N` times and then cause the
+    /// lazy DFA to quit. But a new DFA state every 1,000 bytes is likely quite
+    /// good from a performance perspective, and it's likely that the lazy
+    /// DFA should continue searching, even if it requires clearing the cache
+    /// occasionally.
+    ///
+    /// Finally, note that if you're implementing your own lazy DFA search
+    /// routine and also want this efficiency check to work correctly, then
+    /// you'll need to use the following routines to record search progress:
+    ///
+    /// * Call [`Cache::search_start`] at the beginning of every search.
+    /// * Call [`Cache::search_update`] whenever [`DFA::next_state`] is
+    /// called.
+    /// * Call [`Cache::search_finish`] before completing a search. (It is
+    /// not strictly necessary to call this when an error is returned, as
+    /// `Cache::search_start` will automatically finish the previous search
+    /// for you. But calling it where possible before returning helps improve
+    /// the accuracy of how many bytes have actually been searched.)
+    pub fn minimum_bytes_per_state(mut self, min: Option<usize>) -> Config {
+        self.minimum_bytes_per_state = Some(min);
+        self
+    }
+
     /// Returns the match semantics set in this configuration.
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
@@ -3470,6 +3687,10 @@ impl Config {
     /// fills up.
     pub fn get_minimum_cache_clear_count(&self) -> Option<usize> {
         self.minimum_cache_clear_count.unwrap_or(None)
+    }
+
+    pub fn get_minimum_bytes_per_state(&self) -> Option<usize> {
+        self.minimum_bytes_per_state.unwrap_or(None)
     }
 
     /// Returns the minimum lazy DFA cache capacity required for the given NFA.
@@ -3586,6 +3807,9 @@ impl Config {
             minimum_cache_clear_count: o
                 .minimum_cache_clear_count
                 .or(self.minimum_cache_clear_count),
+            minimum_bytes_per_state: o
+                .minimum_bytes_per_state
+                .or(self.minimum_bytes_per_state),
         }
     }
 }

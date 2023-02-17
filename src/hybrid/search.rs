@@ -84,8 +84,10 @@ fn find_fwd_imp(
             }
         }
     }
+    cache.search_start(at);
     while at < input.end() {
         if sid.is_tagged() {
+            cache.search_update(at);
             sid = dfa
                 .next_state(cache, sid, input.haystack()[at])
                 .map_err(|_| gave_up(at))?;
@@ -224,6 +226,7 @@ fn find_fwd_imp(
             // any point, then we need to re-compute that transition using
             // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
+                cache.search_update(at);
                 sid = dfa
                     .next_state(cache, prev_sid, input.haystack()[at])
                     .map_err(|_| gave_up(at))?;
@@ -234,7 +237,10 @@ fn find_fwd_imp(
                 if let Some(ref pre) = pre {
                     let span = Span::from(at..input.end());
                     match pre.find(input.haystack(), span) {
-                        None => return Ok(mat),
+                        None => {
+                            cache.search_finish(span.end);
+                            return Ok(mat);
+                        }
                         Some(ref span) => {
                             // We want to skip any update to 'at' below
                             // at the end of this iteration and just
@@ -268,11 +274,14 @@ fn find_fwd_imp(
                 // bound of the match.
                 mat = Some(HalfMatch::new(pattern, at));
                 if earliest {
+                    cache.search_finish(at);
                     return Ok(mat);
                 }
             } else if sid.is_dead() {
+                cache.search_finish(at);
                 return Ok(mat);
             } else if sid.is_quit() {
+                cache.search_finish(at);
                 if mat.is_some() {
                     return Ok(mat);
                 }
@@ -285,6 +294,7 @@ fn find_fwd_imp(
         at += 1;
     }
     eoi_fwd(dfa, cache, input, &mut sid, &mut mat)?;
+    cache.search_finish(input.end());
     Ok(mat)
 }
 
@@ -334,8 +344,10 @@ fn find_rev_imp(
             dfa.next_state_untagged_unchecked(cache, $sid, byte)
         }};
     }
+    cache.search_start(at);
     loop {
         if sid.is_tagged() {
+            cache.search_update(at);
             sid = dfa
                 .next_state(cache, sid, input.haystack()[at])
                 .map_err(|_| gave_up(at))?;
@@ -396,6 +408,7 @@ fn find_rev_imp(
             // any point, then we need to re-compute that transition using
             // 'next_state', which will do NFA powerset construction for us.
             if sid.is_unknown() {
+                cache.search_update(at);
                 sid = dfa
                     .next_state(cache, prev_sid, input.haystack()[at])
                     .map_err(|_| gave_up(at))?;
@@ -411,11 +424,14 @@ fn find_rev_imp(
                 // end of a match), we add 1 to make it inclusive.
                 mat = Some(HalfMatch::new(pattern, at + 1));
                 if earliest {
+                    cache.search_finish(at);
                     return Ok(mat);
                 }
             } else if sid.is_dead() {
+                cache.search_finish(at);
                 return Ok(mat);
             } else if sid.is_quit() {
+                cache.search_finish(at);
                 if mat.is_some() {
                     return Ok(mat);
                 }
@@ -430,6 +446,7 @@ fn find_rev_imp(
         }
         at -= 1;
     }
+    cache.search_finish(input.start());
     eoi_rev(dfa, cache, input, &mut sid, &mut mat)?;
     Ok(mat)
 }
@@ -499,6 +516,7 @@ fn find_overlapping_fwd_imp(
     // it seems like most overlapping searches will have higher match counts,
     // and thus, throughput is perhaps not as important. But if you have a use
     // case for something faster, feel free to file an issue.
+    cache.search_start(state.at);
     while state.at < input.end() {
         sid = dfa
             .next_state(cache, sid, input.haystack()[state.at])
@@ -527,10 +545,13 @@ fn find_overlapping_fwd_imp(
                 state.next_match_index = Some(1);
                 let pattern = dfa.match_pattern(cache, sid, 0);
                 state.mat = Some(HalfMatch::new(pattern, state.at));
+                cache.search_finish(state.at);
                 return Ok(());
             } else if sid.is_dead() {
+                cache.search_finish(state.at);
                 return Ok(());
             } else if sid.is_quit() {
+                cache.search_finish(state.at);
                 return Err(MatchError::quit(
                     input.haystack()[state.at],
                     state.at,
@@ -541,6 +562,7 @@ fn find_overlapping_fwd_imp(
             }
         }
         state.at += 1;
+        cache.search_update(state.at);
     }
 
     let result = eoi_fwd(dfa, cache, input, &mut sid, &mut state.mat);
@@ -552,6 +574,7 @@ fn find_overlapping_fwd_imp(
         // it exists) is at index '1'.
         state.next_match_index = Some(1);
     }
+    cache.search_finish(input.end());
     result
 }
 
@@ -608,6 +631,7 @@ pub(crate) fn find_overlapping_rev(
             sid
         }
     };
+    cache.search_start(state.at);
     while !state.rev_eoi {
         sid = dfa
             .next_state(cache, sid, input.haystack()[state.at])
@@ -620,10 +644,13 @@ pub(crate) fn find_overlapping_rev(
                 state.next_match_index = Some(1);
                 let pattern = dfa.match_pattern(cache, sid, 0);
                 state.mat = Some(HalfMatch::new(pattern, state.at + 1));
+                cache.search_finish(state.at);
                 return Ok(());
             } else if sid.is_dead() {
+                cache.search_finish(state.at);
                 return Ok(());
             } else if sid.is_quit() {
+                cache.search_finish(state.at);
                 return Err(MatchError::quit(
                     input.haystack()[state.at],
                     state.at,
@@ -637,6 +664,7 @@ pub(crate) fn find_overlapping_rev(
             break;
         }
         state.at -= 1;
+        cache.search_update(state.at);
     }
 
     let result = eoi_rev(dfa, cache, input, &mut sid, &mut state.mat);
@@ -649,6 +677,7 @@ pub(crate) fn find_overlapping_rev(
         // it exists) is at index '1'.
         state.next_match_index = Some(1);
     }
+    cache.search_finish(input.start());
     result
 }
 

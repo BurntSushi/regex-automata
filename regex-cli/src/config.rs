@@ -15,6 +15,7 @@ use crate::{
     util::{self, Table},
 };
 
+/*
 /// This defines a flag for controlling the use of color in the output.
 #[derive(Debug)]
 pub enum Color {
@@ -109,6 +110,7 @@ impl std::str::FromStr for Color {
         Ok(color)
     }
 }
+*/
 
 #[derive(Debug)]
 pub struct Patterns(Vec<String>);
@@ -1882,6 +1884,28 @@ technique would likely be superior.
                 flag("min-cache-clear-count").help(SHORT).long_help(LONG),
             );
         }
+        {
+            const SHORT: &str = "Set the minimum bytes per state.";
+            const LONG: &str = "\
+Set the minimum bytes per state required by the lazy DFA, or else the DFA
+will give up.
+
+A hybrid NFA/DFA uses a fixed size cache that contains, among other things,
+the DFA transition table. When the cache fills up, it is cleared, such that
+more transitions may be generated at the cost of potentially re-generating
+transitions that were previously in the cache. If the cache is cleared more
+than the number of times set by --min-cache-clear-count *AND* it is creating
+DFA states more frequently than the value specified by this flag, then the
+search will stop with an error.
+
+The default for this flag is 'none', which sets no minimum. When
+--min-cache-clear-count is set, this implies that the search will automatically
+give up once the clear count has gotten too high, regardless of actual
+efficiency.
+";
+            app = app
+                .arg(flag("min-bytes-per-state").help(SHORT).long_help(LONG));
+        }
         app
     }
 
@@ -1929,6 +1953,16 @@ technique would likely be superior.
                     .parse()
                     .context("failed to parse --min-cache-clear-count")?;
                 c = c.minimum_cache_clear_count(Some(limit));
+            }
+        }
+        if let Some(n) = args.value_of_lossy("min-bytes-per-state") {
+            if n.to_lowercase() == "none" {
+                c = c.minimum_bytes_per_state(None);
+            } else {
+                let limit = n
+                    .parse()
+                    .context("failed to parse --min-bytes-per-state")?;
+                c = c.minimum_bytes_per_state(Some(limit));
             }
         }
         Ok(Hybrid { config: c })

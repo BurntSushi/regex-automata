@@ -535,7 +535,8 @@ impl HybridEngine {
                 .skip_cache_capacity_check(false)
                 // This and enabling heuristic Unicode word boundary support
                 // above make it so the lazy DFA can quit at match time.
-                .minimum_cache_clear_count(Some(10));
+                .minimum_cache_clear_count(Some(3))
+                .minimum_bytes_per_state(Some(10));
             let result = hybrid::dfa::Builder::new()
                 .configure(dfa_config.clone())
                 .build_from_nfa(nfa.clone());
@@ -1038,7 +1039,8 @@ impl ReverseHybridEngine {
                 .specialize_start_states(false)
                 .cache_capacity(info.config().get_hybrid_cache_capacity())
                 .skip_cache_capacity_check(false)
-                .minimum_cache_clear_count(Some(10));
+                .minimum_cache_clear_count(Some(3))
+                .minimum_bytes_per_state(Some(10));
             let result = hybrid::dfa::Builder::new()
                 .configure(dfa_config)
                 .build_from_nfa(nfarev.clone());

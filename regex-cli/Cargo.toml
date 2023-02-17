@@ -24,69 +24,27 @@ default = []
 instrument = ["automata/instrument"]
 instrument-pikevm = ["automata/instrument-pikevm"]
 
-# These features enable/disable support for external regex engines. By default,
-# they are all disabled, since they typically require you to have the regex
-# engine installed in some other way. To enable all external regex engines,
-# enable the extre-all feature.
-extre-all = ["extre-pcre2", "extre-re2"]
-extre-pcre2 = ["libc", "pkg-config"]
-extre-re2 = ["cc", "libc", "pkg-config"]
-
-# This enables code for benchmarking the old regex crate. Specifically right
-# around the time of the 1.6.0 release. In order to make use of this, a crate
-# with the name of 'regex_old' needs to be made available and have a public API
-# matching the regex crate at the 1.6.0 release. One way to do that is to clone
-# the 'old-regex-crate' branch (the branch is the same as the 1.6.0 release,
-# but with the crate renamed to 'regex-old' and 'regex-syntax-old' so that they
-# can coexist with the extant 'regex' and 'regex-syntax' crates):
-#
-#   git clone -b old-regex-crate https://github.com/rust-lang/regex regexold
-#
-# Once cloned, add this to the dependencies list below:
-#
-#   regex-old = { version = "*", path = "regexold" }
-#
-# Finally, uncomment and then enable the 'old-regex-crate' feature. Once
-# enabled, the 'regexold/api' regex engine will be available for benchmarking.
-#
-# This is not enabled in 'extre-all' because it's a somewhat weird case and
-# it might be removed in the future. The main purpose behind being able to
-# benchmark the "old" regex crate is to be able to easily compare and contrast
-# performance when necessary (e.g., in the case of a perf regression).
-old-regex-crate = []
-
 [dependencies]
-aho-corasick = "0.7.19"
 anyhow = "1.0.28"
 atty = "0.2.14"
-bstr = { version = "0.2.16", default-features = false, features = ["std"] }
+bstr = { version = "1.2", default-features = false, features = ["std"] }
 clap = { version = "2.34.0", default-features = false }
-csv = "1.1.6"
-libc = { version = "0.2.126", optional = true }
+# Using an older version here because I am really not a fan of the dependency
+# tree explosion that has happened in 0.10.
+env_logger = "0.9.3"
 log = "0.4.14"
 memchr = "2.5.0"
 memmap2 = "0.3.0"
 once_cell = "1.12.0"
 regex = { version = "1.5.4" }
-regex-old = { version = "*", path = "/home/andrew/rust/regexold" }
 serde = { version = "1.0.137", features = ["derive"] }
 syntax = { package = "regex-syntax", version = "0.6.17" }
 tabwriter = { version = "1.2.1", features = ["ansi_formatting"] }
 termcolor = "1.1.3"
 toml = "0.5.9"
 unicode-width = "0.1.7"
-walkdir = "2.3.2"
 
 [dependencies.automata]
 package = "regex-automata"
 path = ".."
 features = ["logging"]
-
-[dependencies.env_logger]
-version = "0.8.4"
-default-features = false
-features = ["atty", "humantime", "termcolor"]
-
-[build-dependencies]
-cc = { version = "1.0.73", optional = true }
-pkg-config = { version = "0.3.25", optional = true }
