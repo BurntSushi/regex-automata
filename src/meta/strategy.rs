@@ -1172,6 +1172,13 @@ struct ReverseInner {
 
 impl ReverseInner {
     fn new(hirs: &[&Hir], core: Core) -> Result<ReverseInner, Core> {
+        if !core.info.config().get_auto_prefilter() {
+            debug!(
+                "skipping reverse inner optimization because \
+                 automatic prefilters are disabled"
+            );
+            return Err(core);
+        }
         // Currently we hard-code the assumption of leftmost-first match
         // semantics. This isn't a huge deal because 'all' semantics tend to
         // only be used for forward overlapping searches with multiple regexes,
@@ -1222,6 +1229,7 @@ impl ReverseInner {
             // why we bailed out here.
             None => return Err(core),
         };
+        debug!("building reverse NFA for prefix before inner literal");
         let thompson_config = thompson::Config::new()
             .reverse(true)
             .utf8(core.info.config().get_utf8())
@@ -1242,6 +1250,7 @@ impl ReverseInner {
                 return Err(core);
             }
         };
+        debug!("building reverse DFA for prefix before inner literal");
         let hybrid = wrappers::ReverseHybrid::none();
         let dfa = wrappers::ReverseDFA::none();
         let dfa = if !core.info.config().get_dfa() {

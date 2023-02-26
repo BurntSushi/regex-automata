@@ -1936,6 +1936,7 @@ impl Cache {
     /// for correct implementations of search using a lazy DFA. Keeping
     /// track of search progress is only necessary if you want the
     /// [`Config::minimum_bytes_per_state`] configuration knob to work.
+    #[inline]
     pub fn search_start(&mut self, at: usize) {
         // If a previous search wasn't marked as finished, then finish it
         // now automatically.
@@ -1954,6 +1955,7 @@ impl Cache {
     /// # Panics
     ///
     /// This panics if no search has been started by [`Cache::search_start`].
+    #[inline]
     pub fn search_update(&mut self, at: usize) {
         let mut p =
             self.progress.as_mut().expect("no in-progress search to update");
@@ -1965,6 +1967,7 @@ impl Cache {
     /// # Panics
     ///
     /// This panics if no search has been started by [`Cache::search_start`].
+    #[inline]
     pub fn search_finish(&mut self, at: usize) {
         let mut p =
             self.progress.take().expect("no in-progress search to finish");

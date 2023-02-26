@@ -343,7 +343,7 @@ pub mod regex;
 pub mod sparse;
 
 #[cfg(feature = "dfa-search")]
-mod accel;
+pub(crate) mod accel;
 #[cfg(feature = "dfa-search")]
 mod automaton;
 #[cfg(feature = "dfa-build")]

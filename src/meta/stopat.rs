@@ -5,7 +5,7 @@ pub(crate) fn dfa_try_search_half_fwd(
     dfa: &crate::dfa::dense::DFA<alloc::vec::Vec<u32>>,
     input: &Input<'_>,
 ) -> Result<Result<HalfMatch, usize>, RetryFailError> {
-    use crate::dfa::Automaton;
+    use crate::dfa::{accel, Automaton};
 
     let mut mat = None;
     let mut sid = match dfa.start_state_forward(input)? {
@@ -22,6 +22,17 @@ pub(crate) fn dfa_try_search_half_fwd(
                 if input.get_earliest() {
                     return Ok(mat.ok_or(at));
                 }
+                if dfa.is_accel_state(sid) {
+                    let needs = dfa.accelerator(sid);
+                    at = accel::find_fwd(needs, input.haystack(), at)
+                        .unwrap_or(input.end());
+                    continue;
+                }
+            } else if dfa.is_accel_state(sid) {
+                let needs = dfa.accelerator(sid);
+                at = accel::find_fwd(needs, input.haystack(), at)
+                    .unwrap_or(input.end());
+                continue;
             } else if dfa.is_dead_state(sid) {
                 return Ok(mat.ok_or(at));
             } else if dfa.is_quit_state(sid) {
