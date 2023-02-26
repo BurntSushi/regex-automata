@@ -117,7 +117,7 @@ struct TomlTest {
     group_name: String,
     line_number: u64,
     regex: String,
-    input: String,
+    haystack: String,
     captures: Vec<Option<(u64, u64)>>,
     unescape: bool,
     case_insensitive: bool,
@@ -168,7 +168,7 @@ impl TomlTest {
             group_name: group_name.to_string(),
             line_number: dat.line_number,
             regex: dat.regex.clone(),
-            input: dat.input.clone(),
+            haystack: dat.haystack.clone(),
             captures,
             unescape: dat.flags.contains(&'$'),
             case_insensitive: dat.flags.contains(&'i'),
@@ -185,7 +185,7 @@ impl core::fmt::Display for TomlTest {
         writeln!(f, "[[tests]]")?;
         writeln!(f, "name = \"{}{}\"", self.group_name, self.line_number)?;
         writeln!(f, "regex = '''{}'''", self.regex)?;
-        writeln!(f, "input = '''{}'''", self.input)?;
+        writeln!(f, "haystack = '''{}'''", self.haystack)?;
         if self.captures.is_empty() {
             writeln!(f, "matches = []")?;
         } else {
@@ -228,7 +228,7 @@ struct DatTest {
     line_number: u64,
     flags: HashSet<char>,
     regex: String,
-    input: String,
+    haystack: String,
     captures: Vec<Option<(u64, u64)>>,
     re2go: bool,
     rust: bool,
@@ -275,9 +275,9 @@ impl DatTest {
         }
 
         // Third field contains the text to search or 'NULL'.
-        let mut input = fields[2].clone();
-        if input == "NULL" {
-            input = "".to_string();
+        let mut haystack = fields[2].clone();
+        if haystack == "NULL" {
+            haystack = "".to_string();
         }
 
         // Some tests have literal control characters in the regex/input
@@ -285,11 +285,11 @@ impl DatTest {
         // case, escape them and add '$' to our flags. (Which will ultimately
         // instruct the test harness to unescape the input.)
         if regex.chars().any(|c| c.is_control())
-            || input.chars().any(|c| c.is_control())
+            || haystack.chars().any(|c| c.is_control())
         {
             flags.insert('$');
             regex = escape::escape(regex.as_bytes());
-            input = escape::escape(input.as_bytes());
+            haystack = escape::escape(haystack.as_bytes());
         }
 
         // Fourth field contains the capturing groups, or 'NOMATCH' or an
@@ -339,7 +339,7 @@ impl DatTest {
             line_number,
             flags,
             regex,
-            input,
+            haystack,
             captures,
             re2go,
             rust,
