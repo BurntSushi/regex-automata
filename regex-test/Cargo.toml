@@ -1,7 +1,6 @@
 [package]
-publish = false
 name = "regex-test"
-version = "0.0.0"  #:version
+version = "0.0.1"  #:version
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 description = """
 Infrastructure for testing regexes.
@@ -22,6 +21,6 @@ bench = false
 
 [dependencies]
 anyhow = "1.0.27"
-bstr = { version = "0.2.16", default-features = false, features = ["std", "serde1"] }
+bstr = { version = "1.3.0", default-features = false, features = ["std", "serde"] }
 serde = { version = "1.0.105", features = ["derive"] }
-toml = "0.5.6"
+toml = "0.7.2"

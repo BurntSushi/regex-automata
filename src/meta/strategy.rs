@@ -633,7 +633,11 @@ impl Strategy for Core {
         //
         // We still theorize that it's better to do a full/lazy DFA scan, even
         // when it's anchored, because it's usually much faster and permits us
-        // to say "no match" much more quickly.
+        // to say "no match" much more quickly. This does hurt the case of,
+        // say, parsing each line in a log file into capture groups, because
+        // in that case, the line always matches. So the lazy DFA scan is
+        // usually just wasted work. But, the lazy DFA is usually quite fast
+        // and doesn't cost too much here.
         if self.onepass.get(&input).is_some() {
             return self.search_slots_nofail(cache, &input, slots);
         }

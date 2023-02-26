@@ -252,13 +252,13 @@ enum HaystackKind {
 
 impl Haystack {
     /// Defines a single required positional parameter that accepts input from
-    /// an escaped string or a file. An escaped string is the
-    /// default, where hex escape sequences like '\x7F' are recognized as their
-    /// corresponding byte value.
+    /// an escaped string or a file. An escaped string is the default, where
+    /// hex escape sequences like `\x7F` are recognized as their corresponding
+    /// byte value.
     ///
     /// If the parameter starts with a '@', then the rest of the value is
     /// interpreted as a file path. The leading '@' cannot be escaped. To match
-    /// a literal '@' in the leading position, use '\x40' or '[@]'.
+    /// a literal `@` in the leading position, use `\x40` or `[@]`.
     pub fn define(mut app: App) -> App {
         {
             const SHORT: &str = "An inline string or a @-prefixed file path.";

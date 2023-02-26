@@ -64,7 +64,7 @@ pub fn timeitr<T, E>(
 
 /// Print the given text with an ASCII art underline beneath it.
 ///
-/// If the given text is empty, then '<empty>' is printed.
+/// If the given text is empty, then `<empty>` is printed.
 pub fn print_with_underline<W: io::Write>(
     mut wtr: W,
     text: &str,

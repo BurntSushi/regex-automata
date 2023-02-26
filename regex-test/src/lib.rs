@@ -4,9 +4,11 @@ use std::{
     borrow::Borrow, collections::HashSet, convert::TryFrom, fs, path::Path,
 };
 
-use anyhow::{bail, Context, Result};
-use bstr::{BStr, BString, ByteSlice, ByteVec};
-use serde::Deserialize;
+use {
+    anyhow::{bail, Context, Result},
+    bstr::{BStr, BString, ByteSlice, ByteVec},
+    serde::Deserialize,
+};
 
 mod escape;
 
@@ -166,9 +168,12 @@ impl RegexTests {
     /// Load all of the TOML encoded tests in `data` into this collection.
     /// The given group name is assigned to all loaded tests.
     pub fn load_slice(&mut self, group_name: &str, data: &[u8]) -> Result<()> {
+        let data = std::str::from_utf8(&data).with_context(|| {
+            format!("data in {} is not valid UTF-8", group_name)
+        })?;
         let mut index = 1;
         let mut tests: RegexTests =
-            toml::from_slice(&data).with_context(|| {
+            toml::from_str(&data).with_context(|| {
                 format!("error decoding TOML for '{}'", group_name)
             })?;
         for t in &mut tests.tests {
