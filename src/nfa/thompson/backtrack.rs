@@ -1128,14 +1128,14 @@ impl BoundedBacktracker {
         }
         if self.get_nfa().pattern_len() == 1 {
             let mut enough = [None, None];
-            let got = self.try_search_slots(cache, input, &mut enough)?;
+            let got = self.try_search_slots_imp(cache, input, &mut enough)?;
             // This is OK because we know `enough_slots` is strictly bigger
             // than `slots`, otherwise this special case isn't reached.
             slots.copy_from_slice(&enough[..slots.len()]);
             return Ok(got);
         }
         let mut enough = vec![None; min];
-        let got = self.try_search_slots(cache, input, &mut enough)?;
+        let got = self.try_search_slots_imp(cache, input, &mut enough)?;
         // This is OK because we know `enough_slots` is strictly bigger than
         // `slots`, otherwise this special case isn't reached.
         slots.copy_from_slice(&enough[..slots.len()]);
