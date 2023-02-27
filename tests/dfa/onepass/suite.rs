@@ -1,4 +1,5 @@
 use {
+    anyhow::Result,
     regex_automata::{
         dfa::onepass::{self, DFA},
         nfa::thompson,
@@ -10,7 +11,7 @@ use {
     },
 };
 
-use crate::{create_input, suite, testify_captures, untestify_kind, Result};
+use crate::{create_input, suite, testify_captures, untestify_kind};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "captures"];
 

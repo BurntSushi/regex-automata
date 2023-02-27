@@ -1,4 +1,5 @@
 use {
+    anyhow::Result,
     regex_automata::{
         hybrid::{
             dfa::{OverlappingState, DFA},
@@ -14,7 +15,7 @@ use {
     },
 };
 
-use crate::{create_input, suite, untestify_kind, Result};
+use crate::{create_input, suite, untestify_kind};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
 

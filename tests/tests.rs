@@ -4,10 +4,7 @@ mod meta;
 mod nfa;
 
 #[cfg(not(miri))]
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-#[cfg(not(miri))]
-fn suite() -> Result<regex_test::RegexTests> {
+fn suite() -> anyhow::Result<regex_test::RegexTests> {
     let _ = env_logger::try_init();
 
     let mut tests = regex_test::RegexTests::new();

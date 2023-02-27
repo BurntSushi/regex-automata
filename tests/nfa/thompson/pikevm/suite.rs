@@ -1,4 +1,5 @@
 use {
+    anyhow::Result,
     regex_automata::{
         nfa::thompson::{
             self,
@@ -13,7 +14,7 @@ use {
     },
 };
 
-use crate::{create_input, suite, testify_captures, untestify_kind, Result};
+use crate::{create_input, suite, testify_captures, untestify_kind};
 
 /// Tests the default configuration of the hybrid NFA/DFA.
 #[test]

@@ -1,4 +1,5 @@
 use {
+    anyhow::Result,
     regex_automata::{
         nfa::thompson::{
             self,
@@ -14,7 +15,7 @@ use {
     },
 };
 
-use crate::{create_input, suite, testify_captures, Result};
+use crate::{create_input, suite, testify_captures};
 
 /// Tests the default configuration of the bounded backtracker.
 #[test]

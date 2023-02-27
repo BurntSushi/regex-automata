@@ -1,3 +1,7 @@
+/// For convenience, `anyhow::Error` is used to represents errors in this
+/// crate.
+///
+/// For this reason, `anyhow` is a public dependency and is re-exported here.
 pub extern crate anyhow;
 
 use std::{
@@ -107,8 +111,7 @@ pub struct RegexTest {
     additional_name: String,
     #[serde(skip)]
     full_name: String,
-    regex: Option<String>,
-    regexes: Option<Vec<String>>,
+    regex: RegexesFormat,
     haystack: BString,
     #[serde(default)]
     bounds: Option<Span>,
@@ -141,11 +144,6 @@ impl RegexTest {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.regex.is_none() && self.regexes.is_none() {
-            bail!("one of 'regex' or 'regexes' must be present");
-        } else if self.regex.is_some() && self.regexes.is_some() {
-            bail!("only one of 'regex' or 'regexes' can be present");
-        }
         Ok(())
     }
 
@@ -181,11 +179,7 @@ impl RegexTest {
     /// Return all of the regexes that should be matched for this test. This
     /// slice is guaranteed to be non-empty.
     pub fn regexes(&self) -> &[String] {
-        if let Some(ref regex) = self.regex {
-            std::slice::from_ref(regex)
-        } else {
-            self.regexes.as_ref().unwrap()
-        }
+        self.regex.patterns()
     }
 
     /// Return the text on which the regex should be matched.
@@ -635,13 +629,7 @@ impl TestRunner {
     pub fn test_iter<I, T>(
         &mut self,
         it: I,
-        mut compile: impl FnMut(
-            &RegexTest,
-            &[String],
-        ) -> Result<
-            CompiledRegex,
-            Box<dyn std::error::Error>,
-        >,
+        mut compile: impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex>,
     ) -> &mut TestRunner
     where
         I: IntoIterator<Item = T>,
@@ -684,12 +672,7 @@ impl TestRunner {
     pub fn test(
         &mut self,
         test: &RegexTest,
-        mut compile: impl FnMut(
-            &[String],
-        ) -> Result<
-            CompiledRegex,
-            Box<dyn std::error::Error>,
-        >,
+        mut compile: impl FnMut(&[String]) -> Result<CompiledRegex>,
     ) -> &mut TestRunner {
         let mut compiled = match safe(|| compile(test.regexes())) {
             Err(msg) => {
@@ -867,7 +850,7 @@ enum RegexTestFailureKind {
     NoCompileError,
     /// This occurs when the test expected the regex to compile successfully,
     /// but it failed to compile.
-    CompileError { err: Box<dyn std::error::Error> },
+    CompileError { err: anyhow::Error },
     /// While compiling, a panic occurred. If possible, the panic message
     /// is captured.
     UnexpectedPanicCompile(String),
@@ -1037,6 +1020,23 @@ impl<'a> Iterator for RegexTestsIter<'a> {
 
     fn next(&mut self) -> Option<&'a RegexTest> {
         self.0.next()
+    }
+}
+
+/// Represents either a single regex or a list of regexes in a TOML.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+enum RegexesFormat {
+    Single(String),
+    Many(Vec<String>),
+}
+
+impl RegexesFormat {
+    fn patterns(&self) -> &[String] {
+        match *self {
+            RegexesFormat::Single(ref pat) => std::slice::from_ref(pat),
+            RegexesFormat::Many(ref pats) => pats,
+        }
     }
 }
 

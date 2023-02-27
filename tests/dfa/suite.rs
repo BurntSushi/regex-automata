@@ -1,4 +1,5 @@
 use {
+    anyhow::Result,
     regex_automata::{
         dfa::{
             self, dense, regex::Regex, sparse, Automaton, OverlappingState,
@@ -15,7 +16,7 @@ use {
     },
 };
 
-use crate::{create_input, suite, untestify_kind, Result};
+use crate::{create_input, suite, untestify_kind};
 
 const EXPANSIONS: &[&str] = &["is_match", "find", "which"];
 

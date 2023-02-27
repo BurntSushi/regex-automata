@@ -1,4 +1,5 @@
 use {
+    anyhow::Result,
     regex_automata::{
         meta::{self, Regex},
         util::syntax,
@@ -10,7 +11,7 @@ use {
     },
 };
 
-use crate::{create_input, suite, testify_captures, Result};
+use crate::{create_input, suite, testify_captures};
 
 const BLACKLIST: &[&str] = &[
     // These 'earliest' tests are blacklisted because the meta searcher doesn't
