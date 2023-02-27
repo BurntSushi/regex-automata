@@ -113,7 +113,6 @@ pub struct RegexTest {
     full_name: String,
     regex: RegexesFormat,
     haystack: BString,
-    #[serde(default)]
     bounds: Option<Span>,
     matches: Vec<Captures>,
     match_limit: Option<usize>,
