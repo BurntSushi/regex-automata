@@ -1,5 +1,3 @@
-#![deny(missing_docs)]
-
 use std::{
     collections::HashSet,
     fs::File,
@@ -7,12 +5,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anyhow::Context;
+
 use crate::{
     app::{self, App, Args},
     escape,
 };
-
-use anyhow::Context;
 
 const ABOUT: &'static str = "\
 Generate TOML tests from Glenn Fowler's regex test suite.
