@@ -1,3 +1,92 @@
+/*!
+A crate for defining tests in a TOML format and applying them to regex engine
+implementations.
+
+Generally speaking, if you aren't writing your own regex engine and looking to
+test it, then this crate is probably not for you. Moreover, this crate does not
+come with any actual tests. It merely defines the test format and provides some
+convenient routines for executing tests within the context of Rust unit tests.
+
+# Format
+
+The entire test corpus is derived from zero or more TOML files. Each TOML
+file contains zero or more tests, where each test is defined as a table via
+`[[test]]`.
+
+Each test has the following fields:
+
+* `name` - A name for the test. It must be unique within its file. A test's
+[`RegexTest::full_name`] is derived either via `{group_name}/{name}` or
+`{group_name}/{name}/{additional_name}`, with the latter being used only when
+[`TestRunner::expand`] is used. The `group_name` is derived from the file stem
+(the file name without the `.toml suffix).
+* `regex` - The regex to test. This is either a string or a (possibly empty)
+list of regex patterns. When using a list, the underlying regex engine is
+expected to support multiple patterns where each are identified starting from
+`0` and incrementing by 1 for each subsequent pattern.
+* `haystack` - The text to search.
+* `bounds` - An optional field whose value is a table with `start` and `end`
+fields, whose values must be valid for the given `haystack`. When set,
+the search will only execute within these bounds. When absent, the bounds
+correspond to `start = 0` and `end = haystack.len()`.
+* `matches` - Zero or more match values. Each match value can be in one of four
+formats:
+    * A simple span, i.e., `[5, 12]`, corresponding to the start and end of the
+    match, in byte offsets. The start is inclusive and the end is exclusive.
+    The pattern ID for the match is assumed to be `0`.
+    * A table corresponding to the matching pattern ID and the span of the
+    match. For example, `{ id = 5, span = [20, 21] }`.
+    * A list of capture group spans, with the first corresponding to the
+    overall match and the pattern ID assumed to be `0`. For example,
+    `[[5, 10], [6, 8], [], [9, 10]]`, where `[]` corresponds to a group
+    present in the regex but one that did not participate in a match.
+    * A table corresponding to the matching pattern ID and a list of spans
+    corresponding to the capture groups. For example,
+    `{ id = 5, spans = [[5, 10], [6, 8], [], [9, 10]] }`. This is the most
+    general, but also most verbose, syntax.
+* `match-limit` - An optional field that specifies a limit on the number of
+matches. When absent, no limit is enforced and all matches should be reported
+by the regex engine. This can be useful, for example, when one only cares about
+the first match.
+* `compiles` - An optional field indicating whether the regex is expected to
+compile. It defaults to `true` when absent. When `true`, if the regex does not
+compile, then the test fails. Conversely, when `false`, if the regex _does_
+compile, then the test fails.
+* `anchored` - Whether to execute an anchored search or not. Note that this is
+not the same as adding a `^` to the beginning of your regex pattern. `^` always
+requires the regex to match at position `0`, but an anchored search simply
+requires that the regex match at the starting position of the search. (The
+starting position of the search can be configured via the optional `bounds`
+field.)
+* `case-insensitive` - Whether to match the regex case insensitively. This is
+disabled by default. There is no real difference between using this field and
+adding a `(?i)` to the beginning of your regex. (Some regex engines may not
+support `(?i)`.)
+* `unescape` - When enabled, the haystack is unescaped. Sequences like `\x00`
+are turned into their corresponding byte values. This permits one to write
+haystacks that contain invalid UTF-8 without embedding actual invalid UTF-8
+into a TOML file (which is not allowed). There is generally no other reason to
+enable `unescape`.
+* `unicode` - When enabled, the regex pattern should be compiled with its
+corresponding Unicode mode enabled. For example, `[^a]` matches any UTF-8
+encoding of any codepoint other than `a`. Case insensitivty should be Unicode
+aware. Unicode classes like `\pL` are available. The Perl classes `\w`, `\s`
+and `\d` should be Unicode aware. And so on. This is an optional field and is
+enabled by default.
+* `utf8` - When this is enabled, all regex match substrings should be entirely
+valid UTF-8. While parts of the haystack the regex searches through may not be
+valid UTF-8, only the portions that are valid UTF-8 may be reported in match
+spans. Importantly, this includes zero-width matches. Zero-width matches must
+never split the UTF-8 encoding of a single codepoint when this is enabled. This
+is an optional field and is enabled by default.
+* `match-kind` - May be one of `all`, `leftmost-first` or `leftmost-longest`.
+See [`MatchKind`] for more details. This is an optional field and defaults to
+`leftmost-first`.
+* `search-kind` - May be one of `earliest`, `leftmost` or `overlapping`. See
+[`SearchKind`] for more details. This is an optional field and defaults to
+`leftmost`.
+*/
+
 /// For convenience, `anyhow::Error` is used to represents errors in this
 /// crate.
 ///
@@ -22,7 +111,8 @@ const ENV_REGEX_TEST_VERBOSE: &str = "REGEX_TEST_VERBOSE";
 /// A collection of regex tests.
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegexTests {
-    #[serde(rename = "test")]
+    /// 'default' permits an empty TOML file.
+    #[serde(default, rename = "test")]
     tests: Vec<RegexTest>,
     #[serde(skip)]
     seen: HashSet<String>,
@@ -77,10 +167,6 @@ impl RegexTests {
                 t.haystack =
                     BString::from(crate::escape::unescape(&t.haystack));
             }
-
-            t.validate().with_context(|| {
-                format!("error loading test '{}'", t.full_name())
-            })?;
             if self.seen.contains(t.full_name()) {
                 bail!("found duplicate tests for name '{}'", t.full_name());
             }
@@ -101,6 +187,8 @@ impl RegexTests {
 }
 
 /// A regex test describes the inputs and expected outputs of a regex match.
+///
+/// Each `RegexTest` represents a single `[[test]]` table in a TOML test file.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegexTest {
@@ -136,36 +224,30 @@ pub struct RegexTest {
 }
 
 impl RegexTest {
-    fn test(&self, regex: &mut CompiledRegex) -> TestResult {
-        match regex.matcher {
-            None => TestResult::skip(),
-            Some(ref mut match_regex) => match_regex(self),
-        }
-    }
-
-    fn validate(&self) -> Result<()> {
-        Ok(())
-    }
-
-    fn with_additional_name(&self, name: &str) -> RegexTest {
-        let additional_name = name.to_string();
-        let full_name = format!("{}/{}", self.full_name, additional_name);
-        RegexTest { additional_name, full_name, ..self.clone() }
-    }
-
     /// Return the group name of this test.
     ///
-    /// Usually the group name corresponds to a collection of related tests.
+    /// Usually the group name corresponds to a collection of related
+    /// tests. More specifically, when using [`RegexTests::load`], the
+    /// group name corresponds to the file stem (the file name without the
+    /// `.toml` suffix). Otherwise, the group name is whatever is given to
+    /// [`RegexTests::load_slice`].
     pub fn group(&self) -> &str {
         &self.group
     }
 
     /// The name of this test.
+    ///
+    /// Note that this is only the name as given in the `[[test]]` block. The
+    /// actual full name used for filtering and reporting can be retrieved with
+    /// [`RegexTest::full_name`].
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// The additional name for this test.
+    ///
+    /// This is only non-empty when the test runner was expanded with
+    /// [`TestRunner::expand`].
     pub fn additional_name(&self) -> &str {
         &self.additional_name
     }
@@ -177,12 +259,12 @@ impl RegexTest {
     }
 
     /// Return all of the regexes that should be matched for this test. This
-    /// slice is guaranteed to be non-empty.
+    /// slice may be empty!
     pub fn regexes(&self) -> &[String] {
         self.regex.patterns()
     }
 
-    /// Return the text on which the regex should be matched.
+    /// Return the bytes on which the regex should be matched.
     pub fn haystack(&self) -> &[u8] {
         &self.haystack
     }
@@ -195,60 +277,14 @@ impl RegexTest {
         self.bounds.unwrap_or(Span { start: 0, end: self.haystack().len() })
     }
 
-    /// Return the match semantics required by this test.
-    pub fn match_kind(&self) -> MatchKind {
-        self.match_kind
-    }
-
-    /// Return the search semantics required by this test.
-    pub fn search_kind(&self) -> SearchKind {
-        self.search_kind
-    }
-
-    /// Returns true if and only if this test expects at least one of the
-    /// regexes to match the haystack.
-    fn is_match(&self) -> bool {
-        !self.matches.is_empty()
-    }
-
-    /// Returns a slice of regexes that are expected to match the haystack. The
-    /// slice is empty if no match is expected to occur. The indices returned
-    /// here correspond to the indices of the slice returned by the `regexes`
-    /// method.
-    fn which_matches(&self) -> Vec<usize> {
-        let mut seen = HashSet::new();
-        let mut ids = vec![];
-        for cap in &self.matches {
-            if !seen.contains(&cap.id) {
-                seen.insert(cap.id);
-                ids.push(cap.id);
-            }
-        }
-        ids.sort();
-        ids
-    }
-
-    /// If this test expects all non-overlapping matches (whether capturing
-    /// or not), then they are returned. Otherwise, `None` is returned.
-    fn matches(&self) -> Vec<Match> {
-        let mut matches = vec![];
-        for cap in &self.matches {
-            matches.push(cap.to_match());
-        }
-        matches
-    }
-
-    /// If this test expects all non-overlapping matches as capturing groups,
-    /// then they are returned. Otherwise, `None` is returned.
-    fn captures(&self) -> Vec<Captures> {
-        self.matches.clone()
-    }
-
     /// Returns the limit on the number of matches that should be reported,
     /// if specified in the test.
     ///
     /// This is useful for tests that only want to check for the first
     /// match. In which case, the match limit is set to 1.
+    ///
+    /// If there is no match limit, then regex engines are expected to report
+    /// all matches.
     pub fn match_limit(&self) -> Option<usize> {
         self.match_limit
     }
@@ -258,7 +294,12 @@ impl RegexTest {
         self.compiles
     }
 
-    /// Whether the regex should only match at the beginning of text or not.
+    /// Whether the regex should perform an anchored search.
+    ///
+    /// This is distinct from putting a `^` in the regex in that `bounds` may
+    /// be specified that permit the regex search to start at a position
+    /// `i > 0`. In which case, enabling anchored mode here requires that any
+    /// matches produced must have a start offset at `i`.
     pub fn anchored(&self) -> bool {
         self.anchored
     }
@@ -270,6 +311,11 @@ impl RegexTest {
     }
 
     /// Returns true if regex matching should have Unicode mode enabled.
+    ///
+    /// For example, `[^a]` matches any UTF-8 encoding of any codepoint other
+    /// than `a`. Case insensitivty should be Unicode aware. Unicode classes
+    /// like `\pL` are available. The Perl classes `\w`, `\s` and `\d` should
+    /// be Unicode aware. And so on.
     ///
     /// This is enabled by default.
     pub fn unicode(&self) -> bool {
@@ -284,9 +330,79 @@ impl RegexTest {
     /// may not be valid UTF-8, only the portions that are valid UTF-8 may be
     /// reported in match spans.
     ///
+    /// Importantly, this includes zero-width matches. Zero-width matches must
+    /// never split the UTF-8 encoding of a single codepoint when this is
+    /// enabled.
+    ///
     /// This is enabled by default.
     pub fn utf8(&self) -> bool {
         self.utf8
+    }
+
+    /// Return the match semantics required by this test.
+    pub fn match_kind(&self) -> MatchKind {
+        self.match_kind
+    }
+
+    /// Return the search semantics required by this test.
+    pub fn search_kind(&self) -> SearchKind {
+        self.search_kind
+    }
+
+    /// Run the test and return the result produced by the given compiled
+    /// regex.
+    fn test(&self, regex: &mut CompiledRegex) -> TestResult {
+        match regex.matcher {
+            None => TestResult::skip(),
+            Some(ref mut match_regex) => match_regex(self),
+        }
+    }
+
+    /// Append `/name` to the `full_name` of this test.
+    ///
+    /// This is used to support [`TestRunner::expand`].
+    fn with_additional_name(&self, name: &str) -> RegexTest {
+        let additional_name = name.to_string();
+        let full_name = format!("{}/{}", self.full_name, additional_name);
+        RegexTest { additional_name, full_name, ..self.clone() }
+    }
+
+    /// Returns true if and only if this test expects at least one of the
+    /// regexes to match the haystack.
+    fn is_match(&self) -> bool {
+        !self.matches.is_empty()
+    }
+
+    /// Returns a slice of pattern IDs that are expected to match the haystack.
+    /// The slice is empty if no match is expected to occur. The IDs returned
+    /// are deduplicated and sorted in ascending order.
+    fn which_matches(&self) -> Vec<usize> {
+        let mut seen = HashSet::new();
+        let mut ids = vec![];
+        for cap in self.matches.iter() {
+            if !seen.contains(&cap.id) {
+                seen.insert(cap.id);
+                ids.push(cap.id);
+            }
+        }
+        ids.sort();
+        ids
+    }
+
+    /// Extracts the overall match from each `Captures` match in this test
+    /// and returns it.
+    fn matches(&self) -> Vec<Match> {
+        let mut matches = vec![];
+        for cap in self.matches.iter() {
+            matches.push(cap.to_match());
+        }
+        matches
+    }
+
+    /// Returns the matches expected by this test, includng the spans of any
+    /// matching capture groups.
+    fn captures(&self) -> Vec<Captures> {
+        self.matches.clone()
     }
 }
 

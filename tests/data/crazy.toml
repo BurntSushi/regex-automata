@@ -1,6 +1,18 @@
 # TODO: There are still a couple of manually written tests in crazy.rs.
 
 [[test]]
+name = "nothing-empty"
+regex = []
+haystack = ""
+matches = []
+
+[[test]]
+name = "nothing-something"
+regex = []
+haystack = "wat"
+matches = []
+
+[[test]]
 name = "ranges"
 regex = '(?-u)\b(?:[0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\b'
 haystack = "num: 255"
