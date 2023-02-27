@@ -7,10 +7,7 @@ use regex_automata::{
     PatternSet,
 };
 
-use ret::{
-    bstr::{BString, ByteSlice},
-    CompiledRegex, RegexTest, TestResult, TestRunner,
-};
+use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, untestify_kind, Result};
 
@@ -27,11 +24,10 @@ fn default() -> Result<()> {
 /// Tests the PikeVM with prefilters enabled.
 #[test]
 fn prefilter() -> Result<()> {
-    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+    let my_compiler = |test: &RegexTest, regexes: &[String]| {
         // Parse regexes as HIRs so we can get literals to build a prefilter.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
         let kind = match untestify_kind(test.match_kind()) {
@@ -51,12 +47,8 @@ fn prefilter() -> Result<()> {
 
 fn compiler(
     mut builder: pikevm::Builder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
+) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
     move |test, regexes| {
-        let regexes = regexes
-            .iter()
-            .map(|r| r.to_str().map(|s| s.to_string()))
-            .collect::<std::result::Result<Vec<String>, _>>()?;
         if !configure_pikevm_builder(test, &mut builder) {
             return Ok(CompiledRegex::skip());
         }

@@ -8,21 +8,21 @@
 [[tests]]
 name = "unicode-word-start"
 regex = '\b[0-9]+\b'
-input = "β123"
+haystack = "β123"
 bounds = { start = 2, end = 5 }
 matches = []
 
 [[tests]]
 name = "unicode-word-end"
 regex = '\b[0-9]+\b'
-input = "123β"
+haystack = "123β"
 bounds = { start = 0, end = 3 }
 matches = []
 
 [[tests]]
 name = "ascii-word-start"
 regex = '\b[0-9]+\b'
-input = "β123"
+haystack = "β123"
 bounds = { start = 2, end = 5 }
 matches = [[2, 5]]
 unicode = false
@@ -30,7 +30,7 @@ unicode = false
 [[tests]]
 name = "ascii-word-end"
 regex = '\b[0-9]+\b'
-input = "123β"
+haystack = "123β"
 bounds = { start = 0, end = 3 }
 matches = [[0, 3]]
 unicode = false

@@ -1,4 +1,4 @@
-pub extern crate bstr;
+pub extern crate anyhow;
 
 use std::{
     borrow::Borrow, collections::HashSet, convert::TryFrom, fs, path::Path,
@@ -6,7 +6,7 @@ use std::{
 
 use {
     anyhow::{bail, Context, Result},
-    bstr::{BStr, BString, ByteSlice, ByteVec},
+    bstr::{BString, ByteSlice, ByteVec},
     serde::Deserialize,
 };
 
@@ -21,121 +21,6 @@ pub struct RegexTests {
     tests: Vec<RegexTest>,
     #[serde(skip)]
     seen: HashSet<String>,
-}
-
-/// A regex test describes the inputs and expected outputs of a regex match.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RegexTest {
-    #[serde(skip)]
-    group: String,
-    #[serde(default)]
-    name: String,
-    #[serde(skip)]
-    additional_name: String,
-    #[serde(skip)]
-    full_name: String,
-    regex: Option<BString>,
-    regexes: Option<Vec<BString>>,
-    input: BString,
-    #[serde(default)]
-    bounds: Option<Span>,
-    matches: Vec<Captures>,
-    match_limit: Option<usize>,
-    #[serde(default = "default_true")]
-    compiles: bool,
-    #[serde(default)]
-    anchored: bool,
-    #[serde(default)]
-    case_insensitive: bool,
-    #[serde(default)]
-    unescape: bool,
-    #[serde(default = "default_true")]
-    unicode: bool,
-    #[serde(default = "default_true")]
-    utf8: bool,
-    #[serde(default)]
-    match_kind: MatchKind,
-    #[serde(default)]
-    search_kind: SearchKind,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum MatchKind {
-    All,
-    LeftmostFirst,
-    LeftmostLongest,
-}
-
-impl Default for MatchKind {
-    fn default() -> MatchKind {
-        MatchKind::LeftmostFirst
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum SearchKind {
-    Earliest,
-    Leftmost,
-    Overlapping,
-}
-
-impl Default for SearchKind {
-    fn default() -> SearchKind {
-        SearchKind::Leftmost
-    }
-}
-
-/// Span represents a single match span, from start to end, represented via
-/// byte offsets.
-#[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
-pub struct Span {
-    /// The starting byte offset of the match.
-    pub start: usize,
-    /// The ending byte offset of the match.
-    pub end: usize,
-}
-
-impl std::fmt::Debug for Span {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({:?}, {:?})", self.start, self.end)
-    }
-}
-
-/// Match represents a single match span, from start to end, represented via
-/// byte offsets.
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub struct Match {
-    pub id: usize,
-    pub span: Span,
-}
-
-impl std::fmt::Debug for Match {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "({:?}: {:?})", self.id, self.span)
-    }
-}
-
-/// Captures represents a single group of captured matches from a regex search.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(try_from = "CapturesFormat")]
-pub struct Captures {
-    /// The ID of the regex that matched.
-    ///
-    /// The ID is the index of the regex provided to the regex compiler,
-    /// starting from `0`. In the case of a single regex search, the only
-    /// possible ID is `0`.
-    id: usize,
-    /// The capturing groups that matched, along with the match offsets for
-    /// each. The first group should always be non-None, as it corresponds to
-    /// the overall match.
-    ///
-    /// This should either have length 1 (when not capturing group offsets are
-    /// included in the tes tresult) or it should have length equal to the
-    /// number of capturing groups in the regex pattern.
-    groups: Vec<Option<Span>>,
 }
 
 impl RegexTests {
@@ -184,7 +69,8 @@ impl RegexTests {
             }
             t.full_name = format!("{}/{}", t.group, t.name);
             if t.unescape {
-                t.input = BString::from(crate::escape::unescape(&t.input));
+                t.haystack =
+                    BString::from(crate::escape::unescape(&t.haystack));
             }
 
             t.validate().with_context(|| {
@@ -202,58 +88,53 @@ impl RegexTests {
     /// Return an iterator over all regex tests that have been loaded. The
     /// order of the iterator corresponds to the order in which the tests were
     /// loaded.
+    ///
+    /// This is useful to pass to [`TestRunner::test_iter`].
     pub fn iter(&self) -> RegexTestsIter {
-        RegexTestsIter { it: self.tests.iter() }
+        RegexTestsIter(self.tests.iter())
     }
 }
 
-impl Captures {
-    /// Create a new set of captures for a single match of a regex.
-    ///
-    /// The iterator should provide items for every capturing group in the
-    /// regex, including the 0th capturing group corresponding to the entire
-    /// match. If a capturing group did not participate in the match, then a
-    /// `None` value should be used. (Consequently, the 0th capturing group
-    /// should never be `None`.)
-    pub fn new<I: IntoIterator<Item = Option<Span>>>(
-        id: usize,
-        it: I,
-    ) -> Result<Captures> {
-        let groups: Vec<Option<Span>> = it.into_iter().collect();
-        if groups.is_empty() {
-            bail!("captures must contain at least one group");
-        } else if groups[0].is_none() {
-            bail!("first group (index 0) of captures must be non-None");
-        }
-        Ok(Captures { id, groups })
-    }
-
-    pub fn id(&self) -> usize {
-        self.id
-    }
-
-    pub fn groups(&self) -> &[Option<Span>] {
-        &self.groups
-    }
-
-    pub fn len(&self) -> usize {
-        self.groups.len()
-    }
-
-    pub fn to_match(&self) -> Match {
-        Match { id: self.id(), span: self.to_span() }
-    }
-
-    pub fn to_span(&self) -> Span {
-        // This is OK because a Captures value must always have at least one
-        // group where the first group always corresponds to match offsets.
-        self.groups[0].unwrap()
-    }
+/// A regex test describes the inputs and expected outputs of a regex match.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegexTest {
+    #[serde(skip)]
+    group: String,
+    #[serde(default)]
+    name: String,
+    #[serde(skip)]
+    additional_name: String,
+    #[serde(skip)]
+    full_name: String,
+    regex: Option<String>,
+    regexes: Option<Vec<String>>,
+    haystack: BString,
+    #[serde(default)]
+    bounds: Option<Span>,
+    matches: Vec<Captures>,
+    match_limit: Option<usize>,
+    #[serde(default = "default_true")]
+    compiles: bool,
+    #[serde(default)]
+    anchored: bool,
+    #[serde(default)]
+    case_insensitive: bool,
+    #[serde(default)]
+    unescape: bool,
+    #[serde(default = "default_true")]
+    unicode: bool,
+    #[serde(default = "default_true")]
+    utf8: bool,
+    #[serde(default)]
+    match_kind: MatchKind,
+    #[serde(default)]
+    search_kind: SearchKind,
 }
 
 impl RegexTest {
     fn test(&self, regex: &mut CompiledRegex) -> TestResult {
-        match regex.match_regex {
+        match regex.matcher {
             None => TestResult::skip(),
             Some(ref mut match_regex) => match_regex(self),
         }
@@ -299,7 +180,7 @@ impl RegexTest {
 
     /// Return all of the regexes that should be matched for this test. This
     /// slice is guaranteed to be non-empty.
-    pub fn regexes(&self) -> &[BString] {
+    pub fn regexes(&self) -> &[String] {
         if let Some(ref regex) = self.regex {
             std::slice::from_ref(regex)
         } else {
@@ -308,8 +189,8 @@ impl RegexTest {
     }
 
     /// Return the text on which the regex should be matched.
-    pub fn input(&self) -> &BStr {
-        self.input.as_bstr()
+    pub fn haystack(&self) -> &[u8] {
+        &self.haystack
     }
 
     /// Returns the bounds of a search.
@@ -317,7 +198,7 @@ impl RegexTest {
     /// If the test didn't specify any bounds, then the bounds returned are
     /// equivalent to the entire haystack.
     pub fn bounds(&self) -> Span {
-        self.bounds.unwrap_or(Span { start: 0, end: self.input().len() })
+        self.bounds.unwrap_or(Span { start: 0, end: self.haystack().len() })
     }
 
     /// Return the match semantics required by this test.
@@ -331,12 +212,12 @@ impl RegexTest {
     }
 
     /// Returns true if and only if this test expects at least one of the
-    /// regexes to match the input.
+    /// regexes to match the haystack.
     fn is_match(&self) -> bool {
         !self.matches.is_empty()
     }
 
-    /// Returns a slice of regexes that are expected to match the input. The
+    /// Returns a slice of regexes that are expected to match the haystack. The
     /// slice is empty if no match is expected to occur. The indices returned
     /// here correspond to the indices of the slice returned by the `regexes`
     /// method.
@@ -420,8 +301,11 @@ impl RegexTest {
 /// In many implementations, the act of matching a regex can be separated from
 /// the act of compiling a regex. A `CompiledRegex` represents a regex that has
 /// been compiled and is ready to be used for matching.
+///
+/// The matching implementation is represented by a closure that accepts a
+/// [`&RegexTest`](RegexTest) and returns a [`TestResult`].
 pub struct CompiledRegex {
-    match_regex: Option<Box<dyn FnMut(&RegexTest) -> TestResult>>,
+    matcher: Option<Box<dyn FnMut(&RegexTest) -> TestResult + 'static>>,
 }
 
 impl CompiledRegex {
@@ -430,41 +314,48 @@ impl CompiledRegex {
     /// provided is the exact same `RegexTest` that is used to compile this
     /// regex.
     pub fn compiled(
-        match_regex: impl FnMut(&RegexTest) -> TestResult + 'static,
+        matcher: impl FnMut(&RegexTest) -> TestResult + 'static,
     ) -> CompiledRegex {
-        CompiledRegex { match_regex: Some(Box::new(match_regex)) }
+        CompiledRegex { matcher: Some(Box::new(matcher)) }
     }
 
     /// Indicate that tests on this regex should be skipped. This typically
     /// occurs if the `RegexTest` requires something that an implementation
     /// does not support.
     pub fn skip() -> CompiledRegex {
-        CompiledRegex { match_regex: None }
+        CompiledRegex { matcher: None }
     }
 
     /// Returns true if the test runner decided to skip the test when
     /// attempting to compile the regex.
     pub fn is_skip(&self) -> bool {
-        self.match_regex.is_none()
+        self.matcher.is_none()
     }
 }
 
 impl std::fmt::Debug for CompiledRegex {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let status = match self.match_regex {
+        let status = match self.matcher {
             None => "Skip",
             Some(_) => "Run(...)",
         };
-        f.debug_struct("CompiledRegex").field("match_regex", &status).finish()
+        f.debug_struct("CompiledRegex").field("matcher", &status).finish()
     }
 }
 
-/// The result of executing a single regex match.
+/// The result of executing a regex search.
 ///
 /// When using the test runner, callers must provide a closure that takes
 /// a `RegexTest` and returns a `TestResult`. The `TestResult` is meant to
-/// capture the results of matching the input against the regex specified by
+/// capture the results of matching the haystack against the regex specified by
 /// the `RegexTest`.
+///
+/// Usually this consists of one or more matches, which can be constructed via
+/// `TestResult::matches` (for just overall matches) or `TestResult::captures`
+/// (for matches with capture group spans). But the regex engine may also
+/// report whether a match exists, or just whether a pattern matched or not.
+/// That can be done via `TestResult::matched` and `TestResult::which`,
+/// respectively.
 #[derive(Debug, Clone)]
 pub struct TestResult {
     kind: TestResultKind,
@@ -477,35 +368,46 @@ enum TestResultKind {
     StartEnd(Vec<Match>),
     Captures(Vec<Captures>),
     Skip,
-    /// Occurs when the test has been explicitly failed by the implementor.
-    Fail {
-        why: String,
-    },
+    Fail { why: String },
 }
 
 impl TestResult {
-    /// Create a test result that indicates a match.
+    /// Create a test result that indicates just whether any match was found
+    /// or not.
     pub fn matched(yes: bool) -> TestResult {
         TestResult { kind: TestResultKind::Match(yes) }
     }
 
     /// Create a test result that indicates which out of possibly many regexes
-    /// matched the input. If `which` is empty, then this is equivalent to
-    /// `TestResult::no_match()`.
+    /// matched the haystack. If `which` is empty, then this is equivalent to
+    /// `TestResult::matched(false)`.
+    ///
+    /// Note that the iterator should consist of pattern IDs, where each
+    /// ID corresponds to a pattern that matches anywhere in the haystack.
+    /// Multiple patterns may match the same region of the haystack. That is,
+    /// this supports overlapping matches.
     pub fn which<I: IntoIterator<Item = usize>>(it: I) -> TestResult {
         let mut which: Vec<usize> = it.into_iter().collect();
         which.sort();
         TestResult { kind: TestResultKind::Which(which) }
     }
 
-    /// Create a test result containing a sequence of all matches in the
-    /// test's input string.
+    /// Create a test result containing a sequence of all matches in the test's
+    /// haystack. This is useful when the regex engine only reports overall
+    /// matches and not the spans of each matching capture group.
+    ///
+    /// If the sequence is empty, then this is equivalent to
+    /// `TestResult::matched(false)`.
     pub fn matches<I: IntoIterator<Item = Match>>(it: I) -> TestResult {
         TestResult { kind: TestResultKind::StartEnd(it.into_iter().collect()) }
     }
 
-    /// Create a test result containing a sequence of all capturing matches
-    /// in the test's input string.
+    /// Create a test result containing a sequence of all capturing matches in
+    /// the test's haystack. Each match is a `Captures`, and each `Captures`
+    /// should include the spans of all matching capturing groups.
+    ///
+    /// If the sequence is empty, then this is equivalent to
+    /// `TestResult::matched(false)`.
     pub fn captures<I: IntoIterator<Item = Captures>>(it: I) -> TestResult {
         TestResult { kind: TestResultKind::Captures(it.into_iter().collect()) }
     }
@@ -518,8 +420,9 @@ impl TestResult {
 
     /// Indicate that this test should be failed for the reason given.
     ///
-    /// This is useful when a test needs to be failed for reasons that the test
-    /// runner itself cannot check.
+    /// This is useful when a test needs to be failed for reasons that the
+    /// test runner itself cannot check. That is, the test is failed by the
+    /// implementation being tested.
     pub fn fail(why: &str) -> TestResult {
         TestResult { kind: TestResultKind::Fail { why: why.to_string() } }
     }
@@ -532,46 +435,43 @@ impl TestResult {
 ///
 /// A test runner is responsible for running tests against a regex
 /// implementation. It contains logic for skipping tests and collects test
-/// results. Typical usage corresponds to calling `test_all` on an iterator
-/// of `RegexTest`s, and then calling `assert` once done. If any tests failed,
-/// then `assert` will panic with an error message containing all test
-/// failures. `assert` must be called before the test completes.
+/// results. Typical usage corresponds to calling [`TestRunner::test_iter`] on
+/// an iterator of `RegexTest`s, and then calling `assert` once done. If any
+/// tests failed, then `assert` will panic with an error message containing all
+/// test failures. `assert` must be called before the test completes.
 ///
-/// ### Skipping tests
+/// # Skipping tests
 ///
 /// If the `REGEX_TEST` environment variable is set, then it may contain
 /// a comma separated list of substrings. Each substring corresponds to a
 /// whitelisted item, unless it starts with a `-`, in which case it corresponds
 /// to a blacklisted item.
 ///
-/// If there are any whitelist substring, then a test's full name must contain
-/// at least one of the whitelist substrings in order to be run. If there are
-/// no whitelist substrings, then a test is run only when it does not match any
-/// blacklist substrings.
+/// If there are any whitelist items, then a test's full name must contain at
+/// least one of the whitelist substrings in order to be run, and does not
+/// contain and blacklist substrings. If there are no whitelist substrings,
+/// then a test is run only when it does not match any blacklist substrings.
 ///
 /// The last substring that a test name matches takes precedent.
 ///
 /// Callers may also specify explicit whitelist or blacklist substrings using
-/// the corresponding methods on this type.
+/// the corresponding methods on this type, which has the effect of always
+/// having those rules in place for that specific test. For example, if you're
+/// testing a search by building a DFA and then minimizing it, you may want to
+/// skip tests with bigger regexes, since they could take quite some time to
+/// run.
 ///
 /// Whitelist and blacklist substrings are matched on the full name of each
-/// test, which typically looks like `base_file_stem/test_name`.
+/// test, which typically looks like `group_name/test_name`.
+///
+/// Currently there is no way to escape either a `-` or a `,` in `REGEX_TEST`.
+/// This usually isn't required because test names usually don't include either
+/// character.
 #[derive(Debug)]
 pub struct TestRunner {
     include: Vec<IncludePattern>,
     results: RegexTestResults,
     expanders: Vec<Expander>,
-}
-
-#[derive(Debug)]
-struct IncludePattern {
-    blacklist: bool,
-    substring: BString,
-}
-
-struct Expander {
-    predicate: Box<dyn FnMut(&RegexTest) -> bool>,
-    additional_names: Vec<String>,
 }
 
 impl TestRunner {
@@ -581,20 +481,9 @@ impl TestRunner {
     /// failed or been skipped. Moreover, the test runner may control which
     /// tests get run via its whitelist and blacklist.
     ///
-    /// If the `REGEX_TEST` environment variable is set, then it may contain
-    /// a comma separated list of substrings. Each substring corresponds to
-    /// a whitelisted item, unless it starts with a `-`, in which case it
-    /// corresponds to a blacklisted item.
-    ///
-    /// If there are any whitelisted substrings, then a test's full name must
-    /// contain at least one of the whitelist substrings in order to be run. If
-    /// there are no whitelisted substrings, then a test is run only when it
-    /// does not match any blacklisted substrings.
-    ///
-    /// The last substring that a test name matches takes precedent.
-    ///
-    /// If there was a problem reading the environment variable, then an error
-    /// is returned.
+    /// This returns an error if there was a problem reading the `REGEX_TEST`
+    /// environment variable, which may be set to include or exclude tests.
+    /// See the docs on `TestRunner` for its format.
     pub fn new() -> Result<TestRunner> {
         let mut runner = TestRunner {
             include: vec![],
@@ -627,6 +516,9 @@ impl TestRunner {
     }
 
     /// Whitelist the given substring.
+    ///
+    /// Whitelist and blacklist rules are only applied when
+    /// [`TestRunner::test_iter`] is called.
     pub fn whitelist(&mut self, substring: &str) -> &mut TestRunner {
         self.include.push(IncludePattern {
             blacklist: false,
@@ -639,6 +531,9 @@ impl TestRunner {
     ///
     /// This is a convenience routine for calling `whitelist` on each of the
     /// substrings in the iterator provided.
+    ///
+    /// Whitelist and blacklist rules are only applied when
+    /// [`TestRunner::test_iter`] is called.
     pub fn whitelist_iter<I, S>(&mut self, substrings: I) -> &mut TestRunner
     where
         I: IntoIterator<Item = S>,
@@ -654,6 +549,9 @@ impl TestRunner {
     ///
     /// A blacklisted test is never run, unless a whitelisted substring added
     /// after the blacklisted substring matches it.
+    ///
+    /// Whitelist and blacklist rules are only applied when
+    /// [`TestRunner::test_iter`] is called.
     pub fn blacklist(&mut self, substring: &str) -> &mut TestRunner {
         self.include.push(IncludePattern {
             blacklist: true,
@@ -669,6 +567,9 @@ impl TestRunner {
     ///
     /// This is a convenience routine for calling `blacklist` on each of the
     /// substrings in the iterator provided.
+    ///
+    /// Whitelist and blacklist rules are only applied when
+    /// [`TestRunner::test_iter`] is called.
     pub fn blacklist_iter<I, S>(&mut self, substrings: I) -> &mut TestRunner
     where
         I: IntoIterator<Item = S>,
@@ -680,6 +581,30 @@ impl TestRunner {
         self
     }
 
+    /// Set an expansion predicate that appends each entry in
+    /// `additional_names` to the end the name for every test that `predicate`
+    /// returns true. Moreover, the corresponding additional name is made
+    /// available via [`RegexTest::additional_name`].
+    ///
+    /// This permits implementors to create multiple copies of each test, and
+    /// then do specifically different tasks with each, while making it so each
+    /// test is distinct.
+    ///
+    /// For example, you might write something like this:
+    ///
+    /// ```ignore
+    /// TestRunner::new()?
+    ///     .expand(&["is_match", "find"], |t| t.compiles())
+    ///     .test_iter(tests, compiler)
+    ///     .assert()
+    /// ```
+    ///
+    /// where each test that is expected to have a regex compile gets copied
+    /// with `/is_match` and `/find` appends to the end of its name. Then, in
+    /// your own test runner, you can inspect [`RegexTest::additional_name`] to
+    /// decide what to do. In the case of `is_match`, you might test your regex
+    /// engines "has a match" API, which might exercise different logic than
+    /// your "find where the matches are" API.
     pub fn expand<S: AsRef<str>>(
         &mut self,
         additional_names: &[S],
@@ -695,13 +620,24 @@ impl TestRunner {
         self
     }
 
-    /// Run all of the given tests.
+    /// Run all of the given tests using the given regex compiler.
+    ///
+    /// The compiler given is a closure that accepts a
+    /// [`&RegexTest`](RegexTest) and a sequence of patterns, and returns (if
+    /// successful) a [`CompiledRegex`] which can execute a search.
+    ///
+    /// Note that if there are test failures, this merely _collects_ them. Use
+    /// [`TestRunner::assert`] to fail the current test by panicking if there
+    /// any failures.
+    ///
+    /// Typically, one provides [`RegexTests::iter`] as the iterator of
+    /// `RegexTest` values.
     pub fn test_iter<I, T>(
         &mut self,
         it: I,
         mut compile: impl FnMut(
             &RegexTest,
-            &[BString],
+            &[String],
         ) -> Result<
             CompiledRegex,
             Box<dyn std::error::Error>,
@@ -716,7 +652,7 @@ impl TestRunner {
             let mut additional = vec![];
             for expander in &mut self.expanders {
                 if (expander.predicate)(test) {
-                    for name in &expander.additional_names {
+                    for name in expander.additional_names.iter() {
                         additional.push(test.with_additional_name(name));
                     }
                     break;
@@ -742,14 +678,14 @@ impl TestRunner {
     /// not fail the test immediately if the given regex test fails. Instead,
     /// this is only done when the `assert` method is called.
     ///
-    /// Note that using this method bypasses any whitelisted substring applied
+    /// Note that using this method bypasses any whitelist or blacklist applied
     /// to this runner. Whitelisted (and blacklisted) substrings are only
     /// applied when using `test_iter`.
     pub fn test(
         &mut self,
         test: &RegexTest,
         mut compile: impl FnMut(
-            &[BString],
+            &[String],
         ) -> Result<
             CompiledRegex,
             Box<dyn std::error::Error>,
@@ -797,13 +733,6 @@ impl TestRunner {
             }
         };
         match result.kind {
-            TestResultKind::Fail { why } => {
-                self.results
-                    .fail(test, RegexTestFailureKind::UserFailure { why });
-            }
-            TestResultKind::Skip => {
-                self.results.skip(test);
-            }
             TestResultKind::Match(yes) => {
                 if yes == test.is_match() {
                     self.results.pass(test);
@@ -841,6 +770,13 @@ impl TestRunner {
                     self.results.pass(test);
                 }
             }
+            TestResultKind::Skip => {
+                self.results.skip(test);
+            }
+            TestResultKind::Fail { why } => {
+                self.results
+                    .fail(test, RegexTestFailureKind::UserFailure { why });
+            }
         }
         self
     }
@@ -862,6 +798,17 @@ impl TestRunner {
         }
         skip
     }
+}
+
+#[derive(Debug)]
+struct IncludePattern {
+    blacklist: bool,
+    substring: BString,
+}
+
+struct Expander {
+    predicate: Box<dyn FnMut(&RegexTest) -> bool>,
+    additional_names: Vec<String>,
 }
 
 impl std::fmt::Debug for Expander {
@@ -909,7 +856,7 @@ enum RegexTestFailureKind {
     /// regexes. This error contains the indices of the regexes that matched.
     Many { got: Vec<usize> },
     /// This occurs when a single regex is used to find all non-overlapping
-    /// matches in an input string, where the result did not match what was
+    /// matches in a haystack, where the result did not match what was
     /// expected. This reports the incorrect matches returned by the regex
     /// implementation under test.
     StartEnd { got: Vec<Match> },
@@ -1010,11 +957,11 @@ impl std::fmt::Display for RegexTestFailure {
             f,
             "{}: {}\n\
              pattern:     {:?}\n\
-             input:       {:?}",
+             haystack:    {:?}",
             self.full_name(),
             self.kind.fmt(&self.test)?,
             self.test.regexes(),
-            self.test.input(),
+            self.test.haystack(),
         )?;
         Ok(())
     }
@@ -1080,23 +1027,134 @@ impl RegexTestFailureKind {
 }
 
 /// An iterator over regex tests.
+///
+/// This iterator is created by the [`RegexTests::iter`] method.
 #[derive(Debug)]
-pub struct RegexTestsIter<'a> {
-    it: std::slice::Iter<'a, RegexTest>,
-}
+pub struct RegexTestsIter<'a>(std::slice::Iter<'a, RegexTest>);
 
 impl<'a> Iterator for RegexTestsIter<'a> {
     type Item = &'a RegexTest;
 
     fn next(&mut self) -> Option<&'a RegexTest> {
-        self.it.next()
+        self.0.next()
+    }
+}
+
+/// Captures represents a single group of captured matches from a regex search.
+///
+/// There is always at least 1 group, and the first group is always present and
+/// corresponds to the overall match.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(try_from = "CapturesFormat")]
+pub struct Captures {
+    /// The ID of the regex that matched.
+    ///
+    /// The ID is the index of the regex provided to the regex compiler,
+    /// starting from `0`. In the case of a single regex search, the only
+    /// possible ID is `0`.
+    id: usize,
+    /// The capturing groups that matched, along with the match offsets for
+    /// each. The first group should always be non-None, as it corresponds to
+    /// the overall match.
+    ///
+    /// This should either have length 1 (when not capturing group offsets are
+    /// included in the tes tresult) or it should have length equal to the
+    /// number of capturing groups in the regex pattern.
+    groups: Vec<Option<Span>>,
+}
+
+impl Captures {
+    /// Create a new set of captures for a single match of a regex.
+    ///
+    /// If available, iterator should provide items for every capturing group
+    /// in the regex, including the 0th capturing group corresponding to the
+    /// entire match. At minimum, the 0th capturing group should be provided.
+    ///
+    /// If a capturing group did not participate in the match, then a `None`
+    /// value should be used. (The 0th capturing group should never be `None`.)
+    ///
+    /// If the iterator yields no elements or the first group is `None`, then
+    /// this returns an error.
+    ///
+    /// The `id` should be the ID of the pattern that matched. This is always
+    /// `0` for single-pattern regexes. Otherwise, the ID of a pattern starts
+    /// at `0` and is incremented by 1 for each subsequent pattern.
+    ///
+    /// Note that there are possibly more convenient and infallible `From`
+    /// impls for converting a `Match` or a `Span` into a `Captures`.
+    pub fn new<I: IntoIterator<Item = Option<Span>>>(
+        id: usize,
+        it: I,
+    ) -> Result<Captures> {
+        let groups: Vec<Option<Span>> = it.into_iter().collect();
+        if groups.is_empty() {
+            bail!("captures must contain at least one group");
+        } else if groups[0].is_none() {
+            bail!("first group (index 0) of captures must be non-None");
+        }
+        Ok(Captures { id, groups })
+    }
+
+    /// Returns the ID of the pattern that matched.
+    ///
+    /// For any single pattern regexes, this should always be zero.
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
+    /// Returns a slice of the underlying spans, each group corresponding to
+    /// the (possibly) matched span. The first group in the slice returned
+    /// is guaranteed to correspond to the overall match span and is thus
+    /// non-`None`. All other groups may be `None`. Similarly, the slice is
+    /// guaranteed to have length at least 1.
+    pub fn groups(&self) -> &[Option<Span>] {
+        &self.groups
+    }
+
+    /// Returns the number of groups (including the first) in these captures.
+    ///
+    /// The length returned is guaranteed to be greater than zero.
+    pub fn len(&self) -> usize {
+        self.groups.len()
+    }
+
+    /// Returns the overall match, including the pattern ID, for this group
+    /// of captures.
+    pub fn to_match(&self) -> Match {
+        Match { id: self.id(), span: self.to_span() }
+    }
+
+    /// Returns the overall match span for this group of captures.
+    pub fn to_span(&self) -> Span {
+        // This is OK because a Captures value must always have at least one
+        // group where the first group always corresponds to match offsets.
+        self.groups[0].unwrap()
+    }
+}
+
+/// Converts a plain `Match` to a `Captures` value, where the match corresponds
+/// to the first and only group in `Captures`.
+impl From<Match> for Captures {
+    fn from(m: Match) -> Captures {
+        Captures { id: m.id, groups: vec![Some(m.span)] }
+    }
+}
+
+/// Converts a plain `Span` to a `Captures` value, where the span corresponds to
+/// the first and only group in `Captures`. Since a `Span` does not contain a
+/// pattern ID, the pattern ID used in this conversion is always `0`.
+impl From<Span> for Captures {
+    fn from(sp: Span) -> Captures {
+        Captures { id: 0, groups: vec![Some(sp)] }
     }
 }
 
 /// Represents the actual 'captures' key format more faithfully such that
-/// Serde can deserialize it. Namely, we need a way to represent a 'None' value
-/// inside a TOML array, and TOML has no 'null' value. So we make '[]' be
-/// 'None', and we use 'MaybeSpan' to recognize it.
+/// Serde can deserialize it.
+///
+/// Namely, we need a way to represent a 'None' value inside a TOML array, and
+/// TOML has no 'null' value. So we make '[]' be 'None', and we use 'MaybeSpan'
+/// to recognize it.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum CapturesFormat {
@@ -1104,13 +1162,6 @@ enum CapturesFormat {
     Match { id: usize, span: [usize; 2] },
     Spans(Vec<MaybeSpan>),
     Captures { id: usize, spans: Vec<MaybeSpan> },
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(untagged)]
-enum MaybeSpan {
-    None([usize; 0]),
-    Some([usize; 2]),
 }
 
 impl TryFrom<CapturesFormat> for Captures {
@@ -1134,12 +1185,123 @@ impl TryFrom<CapturesFormat> for Captures {
     }
 }
 
+/// A single match, consisting of the pattern that matched and its span.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Match {
+    /// The ID of the pattern that matched.
+    ///
+    /// This is always `0` for single-pattern regexes. Otherwise, patterns
+    /// start at `0` and count upwards in increments of `1`.
+    pub id: usize,
+    /// The span of the overall match.
+    pub span: Span,
+}
+
+impl std::fmt::Debug for Match {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Match({:?}: {:?})", self.id, self.span)
+    }
+}
+
+/// A span of contiguous bytes, from start to end, represented via byte
+/// offsets.
+///
+/// The range is inclusive at the beginning and exclusive at the end.
+#[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
+pub struct Span {
+    /// The starting byte offset of the match.
+    pub start: usize,
+    /// The ending byte offset of the match.
+    pub end: usize,
+}
+
+impl std::fmt::Debug for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}..{:?}", self.start, self.end)
+    }
+}
+
+/// Represents a single span, either present or empty.
+///
+/// An empty span is spelled `[]` in TOML, and a present span is spelled `[m,
+/// n]`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+enum MaybeSpan {
+    None([usize; 0]),
+    Some([usize; 2]),
+}
+
 impl MaybeSpan {
+    /// Converts this TOML representation of a possibly absent span to a proper
+    /// `Option<Span>`.
     fn into_option(self) -> Option<Span> {
         match self {
             MaybeSpan::None(_) => None,
             MaybeSpan::Some([start, end]) => Some(Span { start, end }),
         }
+    }
+}
+
+/// The match semantics to use for a search.
+///
+/// When not specified in a test, the default is `MatchKind::LeftmostFirst`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MatchKind {
+    /// All possible matches should be reported.
+    ///
+    /// Usually this makes it impossible for non-greedy repetition operators
+    /// to exist. That is, they behave as greedy repetition operators.
+    All,
+    /// Report only the leftmost match. When there are multiple leftmost
+    /// matches that start at the same position, prefer the one that comes
+    /// "first" in the pattern. For example, `sam|samwise` matches `sam` in
+    /// `samwise`.
+    ///
+    /// This typically corresponds to the semantics implemented by backtracking
+    /// engines.
+    LeftmostFirst,
+    /// Report only the leftmost match. When there are multiple leftmost
+    /// matches that start at the same position, prefer the one the longest
+    /// match. For example, `sam|samwise` matches `samwise` in `samwise`.
+    ///
+    /// This typically corresponds to the semantics implemented by POSIX
+    /// engines.
+    LeftmostLongest,
+}
+
+impl Default for MatchKind {
+    fn default() -> MatchKind {
+        MatchKind::LeftmostFirst
+    }
+}
+
+/// Represents the type of search to perform.
+///
+/// When not specified in a test, the default is `SearchKind::Leftmost`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SearchKind {
+    /// Report matches as soon as they are found.
+    ///
+    /// This is somewhat tricky to test, as this semantic is specified in terms
+    /// of whatever the regex engine can do. For exmaple, an automata oriented
+    /// engine might be able to report a match earlier than a backtracking
+    /// engine.
+    Earliest,
+    /// A standard leftmost search, returning either the leftmost-first or
+    /// leftmost-longest match. Generally speaking, it doesn't make sense to
+    /// use this type of search in combination with [`MatchKind::All`].
+    Leftmost,
+    /// Return all possible matches, including ones that overlap. Typically
+    /// this search kind is used in combination with [`MatchKind::All`].
+    Overlapping,
+}
+
+impl Default for SearchKind {
+    fn default() -> SearchKind {
+        SearchKind::Leftmost
     }
 }
 
@@ -1201,7 +1363,7 @@ mod tests {
         let data = r#"
 [[tests]]
 name = "foo"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = true
 case_insensitive = true
 "#;
@@ -1216,7 +1378,7 @@ case_insensitive = true
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = true
 something = 0
 "#;
@@ -1231,7 +1393,7 @@ something = 0
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 "#;
 
         let mut tests = RegexTests::new();
@@ -1244,7 +1406,7 @@ input = "lib.rs"
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [[0, 6]]
 compiles = false
 anchored = true
@@ -1277,11 +1439,11 @@ utf8 = false
 [[tests]]
 name = "foo"
 regexes = [".*.rs", ".*.toml"]
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
-    { id = 0, spans = [0, 0] },
-    { id = 2, spans = [0, 0] },
-    { id = 5, spans = [0, 0] },
+    { id = 0, spans = [[0, 0]] },
+    { id = 2, spans = [[0, 0]] },
+    { id = 5, spans = [[0, 0]] },
 ]
 "#;
 
@@ -1306,7 +1468,7 @@ matches = [
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [[0, 2], [5, 10]]
 "#;
 
@@ -1341,7 +1503,7 @@ matches = [[0, 2], [5, 10]]
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
   [[0, 15], [5, 10], [], [13, 14]],
   [[20, 30], [22, 24], [25, 27], []],
@@ -1395,7 +1557,7 @@ matches = [
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
   [],
 ]
@@ -1411,7 +1573,7 @@ matches = [
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
   [[]],
 ]
@@ -1427,7 +1589,7 @@ matches = [
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
   [[], [0, 2]],
 ]
@@ -1443,7 +1605,7 @@ matches = [
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
   { id = 0, spans = [] },
 ]
@@ -1459,7 +1621,7 @@ matches = [
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
   { id = 0, spans = [[]] },
 ]
@@ -1475,7 +1637,7 @@ matches = [
 [[tests]]
 name = "foo"
 regex = ".*.rs"
-input = "lib.rs"
+haystack = "lib.rs"
 matches = [
   { id = 0, spans = [[], [0, 2]] },
 ]

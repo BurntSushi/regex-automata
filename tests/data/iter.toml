@@ -1,97 +1,97 @@
 [[tests]]
 name = "1"
 regex = "a"
-input = "aaa"
+haystack = "aaa"
 matches = [[0, 1], [1, 2], [2, 3]]
 
 [[tests]]
 name = "2"
 regex = "a"
-input = "aba"
+haystack = "aba"
 matches = [[0, 1], [2, 3]]
 
 [[tests]]
 name = "empty1"
 regex = ''
-input = ''
+haystack = ''
 matches = [[0, 0]]
 
 [[tests]]
 name = "empty2"
 regex = ''
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty3"
 regex = '(?:)'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty4"
 regex = '(?:)*'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty5"
 regex = '(?:)+'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty6"
 regex = '(?:)?'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty7"
 regex = '(?:)(?:)'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty8"
 regex = '(?:)+|z'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty9"
 regex = 'z|(?:)+'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty10"
 regex = '(?:)+|b'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
 [[tests]]
 name = "empty11"
 regex = 'b|(?:)+'
-input = 'abc'
+haystack = 'abc'
 matches = [[0, 0], [1, 2], [3, 3]]
 
 [[tests]]
 name = "start1"
 regex = "^a"
-input = "a"
+haystack = "a"
 matches = [[0, 1]]
 
 [[tests]]
 name = "start2"
 regex = "^a"
-input = "aa"
+haystack = "aa"
 matches = [[0, 1]]
 
 [[tests]]
 name = "anchored1"
 regex = "a"
-input = "a"
+haystack = "a"
 matches = [[0, 1]]
 anchored = true
 
@@ -104,7 +104,7 @@ anchored = true
 [[tests]]
 name = "anchored2"
 regex = "a"
-input = "aa"
+haystack = "aa"
 matches = [[0, 1], [1, 2]]
 anchored = true
 
@@ -114,30 +114,30 @@ anchored = true
 [[tests]]
 name = "anchored3"
 regex = "a"
-input = "aaba"
+haystack = "aaba"
 matches = [[0, 1], [1, 2]]
 anchored = true
 
 [[tests]]
 name = "nonempty-followedby-empty"
 regex = 'abc|.*?'
-input = "abczzz"
+haystack = "abczzz"
 matches = [[0, 3], [4, 4], [5, 5], [6, 6]]
 
 [[tests]]
 name = "nonempty-followedby-oneempty"
 regex = 'abc|.*?'
-input = "abcz"
+haystack = "abcz"
 matches = [[0, 3], [4, 4]]
 
 [[tests]]
 name = "nonempty-followedby-onemixed"
 regex = 'abc|.*?'
-input = "abczabc"
+haystack = "abczabc"
 matches = [[0, 3], [4, 7]]
 
 [[tests]]
 name = "nonempty-followedby-twomixed"
 regex = 'abc|.*?'
-input = "abczzabc"
+haystack = "abczzabc"
 matches = [[0, 3], [4, 4], [5, 8]]

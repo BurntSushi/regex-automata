@@ -4,10 +4,7 @@ use regex_automata::{
     MatchKind, PatternSet,
 };
 
-use ret::{
-    bstr::{BString, ByteSlice},
-    CompiledRegex, RegexTest, TestResult, TestRunner,
-};
+use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, Result};
 
@@ -42,12 +39,8 @@ fn default() -> Result<()> {
 
 fn compiler(
     mut builder: meta::Builder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
+) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
     move |test, regexes| {
-        let regexes = regexes
-            .iter()
-            .map(|r| r.to_str().map(|s| s.to_string()))
-            .collect::<std::result::Result<Vec<String>, _>>()?;
         if !configure_meta_builder(test, &mut builder) {
             return Ok(CompiledRegex::skip());
         }

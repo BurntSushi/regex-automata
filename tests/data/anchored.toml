@@ -12,7 +12,7 @@
 [[tests]]
 name = "greedy"
 regex = '(abc)+'
-input = "abcabcabc"
+haystack = "abcabcabc"
 matches = [
   [[0, 9], [6, 9]],
 ]
@@ -23,7 +23,7 @@ anchored = true
 [[tests]]
 name = "greedy-earliest"
 regex = '(abc)+'
-input = "abcabcabc"
+haystack = "abcabcabc"
 matches = [
   [[0, 3], [0, 3]],
   [[3, 6], [3, 6]],
@@ -35,7 +35,7 @@ search_kind = "earliest"
 [[tests]]
 name = "nongreedy"
 regex = '(abc)+?'
-input = "abcabcabc"
+haystack = "abcabcabc"
 matches = [
   [[0, 3], [0, 3]],
   [[3, 6], [3, 6]],
@@ -48,7 +48,7 @@ anchored = true
 [[tests]]
 name = "nongreedy-all"
 regex = '(abc)+?'
-input = "abcabcabc"
+haystack = "abcabcabc"
 matches = [
   [[0, 9], [6, 9]],
 ]
@@ -58,14 +58,14 @@ match_kind = "all"
 [[tests]]
 name = "word-boundary-unicode-01"
 regex = '\b\w+\b'
-input = 'βββ☃'
+haystack = 'βββ☃'
 matches = [[0, 6]]
 anchored = true
 
 [[tests]]
 name = "word-boundary-nounicode-01"
 regex = '\b\w+\b'
-input = 'abcβ'
+haystack = 'abcβ'
 matches = [[0, 3]]
 anchored = true
 unicode = false

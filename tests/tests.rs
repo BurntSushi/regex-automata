@@ -52,7 +52,7 @@ fn create_input<'h>(test: &'h ret::RegexTest) -> regex_automata::Input<'h> {
 
     let bounds = test.bounds();
     let anchored = if test.anchored() { Anchored::Yes } else { Anchored::No };
-    regex_automata::Input::new(test.input())
+    regex_automata::Input::new(test.haystack())
         .range(bounds.start..bounds.end)
         .anchored(anchored)
 }

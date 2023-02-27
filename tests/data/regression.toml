@@ -2,7 +2,7 @@
 [[tests]]
 name = "invalid-regex-no-crash-100"
 regex = '(*)'
-input = ""
+haystack = ""
 matches = []
 compiles = false
 
@@ -10,7 +10,7 @@ compiles = false
 [[tests]]
 name = "invalid-regex-no-crash-200"
 regex = '(?:?)'
-input = ""
+haystack = ""
 matches = []
 compiles = false
 
@@ -18,7 +18,7 @@ compiles = false
 [[tests]]
 name = "invalid-regex-no-crash-300"
 regex = '(?)'
-input = ""
+haystack = ""
 matches = []
 compiles = false
 
@@ -26,7 +26,7 @@ compiles = false
 [[tests]]
 name = "invalid-regex-no-crash-400"
 regex = '*'
-input = ""
+haystack = ""
 matches = []
 compiles = false
 
@@ -34,49 +34,49 @@ compiles = false
 [[tests]]
 name = "unsorted-binary-search-100"
 regex = '(?i-u)[a_]+'
-input = "A_"
+haystack = "A_"
 matches = [[0, 2]]
 
 # See: https://github.com/rust-lang/regex/issues/75
 [[tests]]
 name = "unsorted-binary-search-200"
 regex = '(?i-u)[A_]+'
-input = "a_"
+haystack = "a_"
 matches = [[0, 2]]
 
 # See: https://github.com/rust-lang/regex/issues/76
 [[tests]]
 name = "unicode-case-lower-nocase-flag"
 regex = '(?i)\p{Ll}+'
-input = "ΛΘΓΔα"
+haystack = "ΛΘΓΔα"
 matches = [[0, 10]]
 
 # See: https://github.com/rust-lang/regex/issues/99
 [[tests]]
 name = "negated-char-class-100"
 regex = '(?i)[^x]'
-input = "x"
+haystack = "x"
 matches = []
 
 # See: https://github.com/rust-lang/regex/issues/99
 [[tests]]
 name = "negated-char-class-200"
 regex = '(?i)[^x]'
-input = "X"
+haystack = "X"
 matches = []
 
 # See: https://github.com/rust-lang/regex/issues/101
 [[tests]]
 name = "ascii-word-underscore"
 regex = '[[:word:]]'
-input = "_"
+haystack = "_"
 matches = [[0, 1]]
 
 # See: https://github.com/rust-lang/regex/issues/129
 [[tests]]
 name = "captures-repeat"
 regex = '([a-f]){2}(?P<foo>[x-z])'
-input = "abx"
+haystack = "abx"
 matches = [
   [[0, 3], [1, 2], [2, 3]],
 ]
@@ -85,49 +85,49 @@ matches = [
 [[tests]]
 name = "alt-in-alt-100"
 regex = 'ab?|$'
-input = "az"
+haystack = "az"
 matches = [[0, 1], [2, 2]]
 
 # See: https://github.com/rust-lang/regex/issues/153
 [[tests]]
 name = "alt-in-alt-200"
 regex = '^(?:.*?)(?:\n|\r\n?|$)'
-input = "ab\rcd"
+haystack = "ab\rcd"
 matches = [[0, 3]]
 
 # See: https://github.com/rust-lang/regex/issues/169
 [[tests]]
 name = "leftmost-first-prefix"
 regex = 'z*azb'
-input = "azb"
+haystack = "azb"
 matches = [[0, 3]]
 
 # See: https://github.com/rust-lang/regex/issues/191
 [[tests]]
 name = "many-alternates"
 regex = '1|2|3|4|5|6|7|8|9|10|int'
-input = "int"
+haystack = "int"
 matches = [[0, 3]]
 
 # See: https://github.com/rust-lang/regex/issues/204
 [[tests]]
 name = "word-boundary-alone-100"
 regex = '\b'
-input = "Should this (work?)"
+haystack = "Should this (work?)"
 matches = [[0, 0], [6, 6], [7, 7], [11, 11], [13, 13], [17, 17]]
 
 # See: https://github.com/rust-lang/regex/issues/204
 [[tests]]
 name = "word-boundary-alone-200"
 regex = '\b'
-input = "a b c"
+haystack = "a b c"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]
 
 # See: https://github.com/rust-lang/regex/issues/264
 [[tests]]
 name = "word-boundary-ascii-no-capture"
 regex = '\B'
-input = "\U00028F3E"
+haystack = "\U00028F3E"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
 unicode = false
 utf8 = false
@@ -136,7 +136,7 @@ utf8 = false
 [[tests]]
 name = "word-boundary-ascii-capture"
 regex = '(?:\B)'
-input = "\U00028F3E"
+haystack = "\U00028F3E"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
 unicode = false
 utf8 = false
@@ -145,49 +145,49 @@ utf8 = false
 [[tests]]
 name = "partial-anchor"
 regex = '^a|b'
-input = "ba"
+haystack = "ba"
 matches = [[0, 1]]
 
 # See: https://github.com/rust-lang/regex/issues/271
 [[tests]]
 name = "endl-or-word-boundary"
 regex = '(?m:$)|(?-u:\b)'
-input = "\U0006084E"
+haystack = "\U0006084E"
 matches = [[4, 4]]
 
 # See: https://github.com/rust-lang/regex/issues/271
 [[tests]]
 name = "zero-or-end"
 regex = '(?i-u:\x00)|$'
-input = "\U000E682F"
+haystack = "\U000E682F"
 matches = [[4, 4]]
 
 # See: https://github.com/rust-lang/regex/issues/271
 [[tests]]
 name = "y-or-endl"
 regex = '(?i-u:y)|(?m:$)'
-input = "\U000B4331"
+haystack = "\U000B4331"
 matches = [[4, 4]]
 
 # See: https://github.com/rust-lang/regex/issues/271
 [[tests]]
 name = "word-boundary-start-x"
 regex = '(?u:\b)^(?-u:X)'
-input = "X"
+haystack = "X"
 matches = [[0, 1]]
 
 # See: https://github.com/rust-lang/regex/issues/271
 [[tests]]
 name = "word-boundary-ascii-start-x"
 regex = '(?-u:\b)^(?-u:X)'
-input = "X"
+haystack = "X"
 matches = [[0, 1]]
 
 # See: https://github.com/rust-lang/regex/issues/271
 [[tests]]
 name = "end-not-word-boundary"
 regex = '$\B'
-input = "\U0005C124\U000B576C"
+haystack = "\U0005C124\U000B576C"
 matches = [[8, 8]]
 unicode = false
 utf8 = false
@@ -196,28 +196,28 @@ utf8 = false
 [[tests]]
 name = "partial-anchor-alternate-begin"
 regex = '^a|z'
-input = "yyyyya"
+haystack = "yyyyya"
 matches = []
 
 # See: https://github.com/rust-lang/regex/issues/280
 [[tests]]
 name = "partial-anchor-alternate-end"
 regex = 'a$|z'
-input = "ayyyyy"
+haystack = "ayyyyy"
 matches = []
 
 # See: https://github.com/rust-lang/regex/issues/289
 [[tests]]
 name = "lits-unambiguous-100"
 regex = '(?:ABC|CDA|BC)X'
-input = "CDAX"
+haystack = "CDAX"
 matches = [[0, 4]]
 
 # See: https://github.com/rust-lang/regex/issues/291
 [[tests]]
 name = "lits-unambiguous-200"
 regex = '((IMG|CAM|MG|MB2)_|(DSCN|CIMG))(?P<n>[0-9]+)$'
-input = "CIMG2341"
+haystack = "CIMG2341"
 matches = [
   [[0, 8], [0, 4], [], [0, 4], [4, 8]],
 ]
@@ -230,7 +230,7 @@ matches = [
 [[tests]]
 name = "negated-full-byte-range"
 regex = '[^\x00-\xFF]'
-input = ""
+haystack = ""
 matches = []
 compiles = true
 unicode = false
@@ -240,14 +240,14 @@ utf8 = false
 [[tests]]
 name = "strange-anchor-non-complete-prefix"
 regex = 'a^{2}'
-input = ""
+haystack = ""
 matches = []
 
 # See: https://github.com/rust-lang/regex/issues/321
 [[tests]]
 name = "strange-anchor-non-complete-suffix"
 regex = '${2}a'
-input = ""
+haystack = ""
 matches = []
 
 # See: https://github.com/rust-lang/regex/issues/334
@@ -255,7 +255,7 @@ matches = []
 [[tests]]
 name = "captures-after-dfa-premature-end-100"
 regex = 'a(b*(X|$))?'
-input = "abcbX"
+haystack = "abcbX"
 matches = [
   [[0, 1], [], []],
 ]
@@ -265,7 +265,7 @@ matches = [
 [[tests]]
 name = "captures-after-dfa-premature-end-200"
 regex = 'a(bc*(X|$))?'
-input = "abcbX"
+haystack = "abcbX"
 matches = [
   [[0, 1], [], []],
 ]
@@ -275,7 +275,7 @@ matches = [
 [[tests]]
 name = "captures-after-dfa-premature-end-300"
 regex = '(aa$)?'
-input = "aaz"
+haystack = "aaz"
 matches = [
   [[0, 0], []],
   [[1, 1], []],
@@ -292,7 +292,7 @@ matches = [
 [[tests]]
 name = "captures-after-dfa-premature-end-400"
 regex = '(a)\d*\.?\d+\b'
-input = "a0.0c"
+haystack = "a0.0c"
 matches = [
   [[0, 2], [0, 1]],
 ]
@@ -301,14 +301,14 @@ matches = [
 [[tests]]
 name = "literal-panic"
 regex = 'typename type\-parameter\-[0-9]+\-[0-9]+::.+'
-input = "test"
+haystack = "test"
 matches = []
 
 # See: https://github.com/rust-lang/regex/issues/527
 [[tests]]
 name = "empty-flag-expr"
 regex = '(?:(?:(?x)))'
-input = ""
+haystack = ""
 matches = [[0, 0]]
 
 # See: https://github.com/rust-lang/regex/issues/533
@@ -331,7 +331,7 @@ matches = [[0, 0]]
 [[tests]]
 name = "invalid-repetition"
 regex = '(?m){1,1}'
-input = ""
+haystack = ""
 matches = []
 compiles = false
 
@@ -339,7 +339,7 @@ compiles = false
 [[tests]]
 name = "flags-are-unset"
 regex = '(?:(?i)foo)|Bar'
-input = "foo Foo bar Bar"
+haystack = "foo Foo bar Bar"
 matches = [[0, 3], [4, 7], [12, 15]]
 
 # Note that 'Ј' is not 'j', but cyrillic Je
@@ -349,21 +349,21 @@ matches = [[0, 3], [4, 7], [12, 15]]
 [[tests]]
 name = "empty-group-with-unicode"
 regex = '(?:)Ј01'
-input = 'zЈ01'
+haystack = 'zЈ01'
 matches = [[1, 5]]
 
 # See: https://github.com/rust-lang/regex/issues/579
 [[tests]]
 name = "word-boundary-weird"
 regex = '\b..\b'
-input = "I have 12, he has 2!"
+haystack = "I have 12, he has 2!"
 matches = [[0, 2], [7, 9], [9, 11], [11, 13], [17, 19]]
 
 # See: https://github.com/rust-lang/regex/issues/579
 [[tests]]
 name = "word-boundary-weird-ascii"
 regex = '\b..\b'
-input = "I have 12, he has 2!"
+haystack = "I have 12, he has 2!"
 matches = [[0, 2], [7, 9], [9, 11], [11, 13], [17, 19]]
 unicode = false
 utf8 = false
@@ -372,7 +372,7 @@ utf8 = false
 [[tests]]
 name = "word-boundary-weird-minimal-ascii"
 regex = '\b..\b'
-input = "az,,b"
+haystack = "az,,b"
 matches = [[0, 2], [2, 4]]
 unicode = false
 utf8 = false
@@ -381,14 +381,14 @@ utf8 = false
 [[tests]]
 name = "reverse-suffix-100"
 regex = '[0-4][0-4][0-4]000'
-input = "153.230000"
+haystack = "153.230000"
 matches = [[4, 10]]
 
 # See: https://github.com/BurntSushi/ripgrep/issues/1203
 [[tests]]
 name = "reverse-suffix-200"
 regex = '[0-9][0-9][0-9]000'
-input = "153.230000\n"
+haystack = "153.230000\n"
 matches = [[4, 10]]
 
 # This is a tricky case for the reverse suffix optimization, because it
@@ -404,7 +404,7 @@ matches = [[4, 10]]
 [[tests]]
 name = "reverse-suffix-300"
 regex = '\w+foobar\b'
-input = "xyzfoobarZ"
+haystack = "xyzfoobarZ"
 matches = []
 unicode = false
 utf8 = false
@@ -413,7 +413,7 @@ utf8 = false
 [[tests]]
 name = "stops"
 regex = '\bs(?:[ab])'
-input = 's\xE4'
+haystack = 's\xE4'
 matches = []
 unescape = true
 
@@ -421,7 +421,7 @@ unescape = true
 [[tests]]
 name = "stops-ascii"
 regex = '(?-u:\b)s(?:[ab])'
-input = 's\xE4'
+haystack = 's\xE4'
 matches = []
 unescape = true
 
@@ -429,35 +429,35 @@ unescape = true
 [[tests]]
 name = "adjacent-line-boundary-100"
 regex = '(?m)^(?:[^ ]+?)$'
-input = "line1\nline2"
+haystack = "line1\nline2"
 matches = [[0, 5], [6, 11]]
 
 # Continued.
 [[tests]]
 name = "adjacent-line-boundary-200"
 regex = '(?m)^(?:[^ ]+?)$'
-input = "A\nB"
+haystack = "A\nB"
 matches = [[0, 1], [2, 3]]
 
 # There is no issue for this bug.
 [[tests]]
 name = "anchored-prefix-100"
 regex = '^a[[:^space:]]'
-input = "a "
+haystack = "a "
 matches = []
 
 # There is no issue for this bug.
 [[tests]]
 name = "anchored-prefix-200"
 regex = '^a[[:^space:]]'
-input = "foo boo a"
+haystack = "foo boo a"
 matches = []
 
 # There is no issue for this bug.
 [[tests]]
 name = "anchored-prefix-300"
 regex = '^-[a-z]'
-input = "r-f"
+haystack = "r-f"
 matches = []
 
 # Tests that a possible Aho-Corasick optimization works correctly. It only
@@ -469,14 +469,14 @@ matches = []
 [[tests]]
 name = "aho-corasick-100"
 regex = 'samwise|sam|a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z'
-input = "samwise"
+haystack = "samwise"
 matches = [[0, 7]]
 
 # See: https://github.com/rust-lang/regex/issues/921
 [[tests]]
 name = "interior-anchor-capture"
 regex = '(a$)b$'
-input = 'ab'
+haystack = 'ab'
 matches = []
 
 # I found this bug in the course of adding some of the regexes that Ruff uses
@@ -487,7 +487,7 @@ matches = []
 [[tests]]
 name = "ruff-whitespace-around-keywords"
 regex = '^(a|ab)$'
-input = "ab"
+haystack = "ab"
 anchored = true
 unicode = false
 utf8 = true

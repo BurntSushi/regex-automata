@@ -8,10 +8,7 @@ use regex_automata::{
     Input, MatchKind,
 };
 
-use ret::{
-    bstr::{BString, ByteSlice},
-    CompiledRegex, RegexTest, TestResult, TestRunner,
-};
+use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, Result};
 
@@ -37,11 +34,10 @@ fn default() -> Result<()> {
 /// Tests the backtracker with prefilters enabled.
 #[test]
 fn prefilter() -> Result<()> {
-    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+    let my_compiler = |test: &RegexTest, regexes: &[String]| {
         // Parse regexes as HIRs so we can get literals to build a prefilter.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
         // We can always select leftmost-first here because the backtracker
@@ -66,10 +62,6 @@ fn min_visited_capacity() -> Result<()> {
     runner.expand(&["is_match", "find", "captures"], |test| test.compiles());
     runner
         .test_iter(suite()?.iter(), move |test, regexes| {
-            let regexes = regexes
-                .iter()
-                .map(|r| r.to_str().map(|s| s.to_string()))
-                .collect::<std::result::Result<Vec<String>, _>>()?;
             let nfa = NFA::compiler()
                 .configure(config_thompson(test))
                 .syntax(config_syntax(test))
@@ -83,7 +75,7 @@ fn min_visited_capacity() -> Result<()> {
             builder.configure(BoundedBacktracker::config().visited_capacity(
                 backtrack::min_visited_capacity(
                     &nfa,
-                    &Input::new(test.input()),
+                    &Input::new(test.haystack()),
                 ),
             ));
 
@@ -99,12 +91,8 @@ fn min_visited_capacity() -> Result<()> {
 
 fn compiler(
     mut builder: backtrack::Builder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
+) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
     move |test, regexes| {
-        let regexes = regexes
-            .iter()
-            .map(|r| r.to_str().map(|s| s.to_string()))
-            .collect::<std::result::Result<Vec<String>, _>>()?;
         if !configure_backtrack_builder(test, &mut builder) {
             return Ok(CompiledRegex::skip());
         }

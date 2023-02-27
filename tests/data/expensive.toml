@@ -8,7 +8,7 @@
 [[tests]]
 name = "regression-many-repeat-no-stack-overflow"
 regex = '^.{1,2500}'
-input = "a"
+haystack = "a"
 matches = [[0, 1]]
 
 # This test is meant to blow the bounded backtracker's visited capacity. In
@@ -19,5 +19,5 @@ matches = [[0, 1]]
 [[tests]]
 name = "backtrack-blow-visited-capacity"
 regex = '\pL{50}'
-input = "abcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyZZ"
+haystack = "abcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyZZ"
 matches = [[0, 50], [50, 100], [100, 150]]

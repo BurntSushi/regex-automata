@@ -1,7 +1,7 @@
 [[tests]]
 name = "alt"
 regex = 'foo|foobar'
-input = "foobar"
+haystack = "foobar"
 matches = [[0, 6]]
 match_kind = "all"
 search_kind = "leftmost"
@@ -9,7 +9,7 @@ search_kind = "leftmost"
 [[tests]]
 name = "multi"
 regexes = ['foo', 'foobar']
-input = "foobar"
+haystack = "foobar"
 matches = [
   { id = 1, span = [0, 6] },
 ]
@@ -19,7 +19,7 @@ search_kind = "leftmost"
 [[tests]]
 name = "dotall"
 regex = '(?s:.)'
-input = "foobar"
+haystack = "foobar"
 matches = [[5, 6]]
 match_kind = "all"
 search_kind = "leftmost"

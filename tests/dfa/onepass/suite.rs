@@ -4,10 +4,7 @@ use regex_automata::{
     util::{iter, syntax},
 };
 
-use ret::{
-    bstr::{BString, ByteSlice},
-    CompiledRegex, RegexTest, TestResult, TestRunner,
-};
+use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, untestify_kind, Result};
 
@@ -55,13 +52,8 @@ fn no_byte_classes() -> Result<()> {
 
 fn compiler(
     mut builder: onepass::Builder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
+) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
     move |test, regexes| {
-        let regexes = regexes
-            .iter()
-            .map(|r| r.to_str().map(|s| s.to_string()))
-            .collect::<std::result::Result<Vec<String>, _>>()?;
-
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
         if !configure_onepass_builder(test, &mut builder) {

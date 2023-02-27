@@ -9,10 +9,7 @@ use regex_automata::{
 };
 use regex_syntax::hir;
 
-use ret::{
-    bstr::{BString, ByteSlice},
-    CompiledRegex, RegexTest, TestResult, TestRunner,
-};
+use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, untestify_kind, Result};
 
@@ -34,11 +31,10 @@ fn unminimized_default() -> Result<()> {
 /// if one can be built.
 #[test]
 fn unminimized_prefilter() -> Result<()> {
-    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+    let my_compiler = |test: &RegexTest, regexes: &[String]| {
         // Parse regexes as HIRs so we can get literals to build a prefilter.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
         let kind = match untestify_kind(test.match_kind()) {
@@ -147,11 +143,10 @@ fn sparse_unminimized_default() -> Result<()> {
 /// Runs the test suite on a sparse unminimized DFA with prefilters enabled.
 #[test]
 fn sparse_unminimized_prefilter() -> Result<()> {
-    let my_compiler = |test: &RegexTest, regexes: &[BString]| {
+    let my_compiler = |test: &RegexTest, regexes: &[String]| {
         // Parse regexes as HIRs so we can get literals to build a prefilter.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            let pattern = pattern.to_str()?;
             hirs.push(syntax::parse(&config_syntax(test), pattern)?);
         }
         let kind = match untestify_kind(test.match_kind()) {
@@ -238,7 +233,7 @@ fn sparse_serialization_unminimized_default() -> Result<()> {
 
 fn dense_compiler(
     builder: dfa::regex::Builder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
+) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
     compiler(builder, |_, _, re| {
         Ok(CompiledRegex::compiled(move |test| -> TestResult {
             run_test(&re, test)
@@ -248,7 +243,7 @@ fn dense_compiler(
 
 fn sparse_compiler(
     builder: dfa::regex::Builder,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
+) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
     compiler(builder, |builder, _, re| {
         let fwd = re.forward().to_sparse()?;
         let rev = re.reverse().to_sparse()?;
@@ -266,13 +261,8 @@ fn compiler(
         Option<Prefilter>,
         Regex,
     ) -> Result<CompiledRegex>,
-) -> impl FnMut(&RegexTest, &[BString]) -> Result<CompiledRegex> {
+) -> impl FnMut(&RegexTest, &[String]) -> Result<CompiledRegex> {
     move |test, regexes| {
-        let regexes = regexes
-            .iter()
-            .map(|r| r.to_str().map(|s| s.to_string()))
-            .collect::<std::result::Result<Vec<String>, _>>()?;
-
         // Parse regexes as HIRs for some analysis below.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
@@ -288,7 +278,7 @@ fn compiler(
 
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.
-        if !test.input().is_ascii() {
+        if !test.haystack().is_ascii() {
             for hir in hirs.iter() {
                 let looks = hir.properties().look_set();
                 if looks.contains(hir::Look::WordUnicode)

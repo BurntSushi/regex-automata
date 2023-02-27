@@ -1,7 +1,7 @@
 [[tests]]
 name = "invalid-utf8-literal1"
 regex = '\xFF'
-input = '\xFF'
+haystack = '\xFF'
 matches = [[0, 1]]
 unicode = false
 utf8 = false
@@ -11,7 +11,7 @@ unescape = true
 [[tests]]
 name = "mixed"
 regex = '(?:.+)(?-u)(?:.+)'
-input = '\xCE\x93\xCE\x94\xFF'
+haystack = '\xCE\x93\xCE\x94\xFF'
 matches = [[0, 5]]
 utf8 = false
 unescape = true
@@ -20,7 +20,7 @@ unescape = true
 [[tests]]
 name = "case1"
 regex = "a"
-input = "A"
+haystack = "A"
 matches = [[0, 1]]
 case_insensitive = true
 unicode = false
@@ -28,7 +28,7 @@ unicode = false
 [[tests]]
 name = "case2"
 regex = "[a-z]+"
-input = "AaAaA"
+haystack = "AaAaA"
 matches = [[0, 5]]
 case_insensitive = true
 unicode = false
@@ -36,14 +36,14 @@ unicode = false
 [[tests]]
 name = "case3"
 regex = "[a-z]+"
-input = "aA\u212AaA"
+haystack = "aA\u212AaA"
 matches = [[0, 7]]
 case_insensitive = true
 
 [[tests]]
 name = "case4"
 regex = "[a-z]+"
-input = "aA\u212AaA"
+haystack = "aA\u212AaA"
 matches = [[0, 2], [5, 7]]
 case_insensitive = true
 unicode = false
@@ -52,13 +52,13 @@ unicode = false
 [[tests]]
 name = "negate1"
 regex = "[^a]"
-input = "δ"
+haystack = "δ"
 matches = [[0, 2]]
 
 [[tests]]
 name = "negate2"
 regex = "[^a]"
-input = "δ"
+haystack = "δ"
 matches = [[0, 1], [1, 2]]
 unicode = false
 utf8 = false
@@ -67,7 +67,7 @@ utf8 = false
 [[tests]]
 name = "dotstar-prefix1"
 regex = "a"
-input = '\xFFa'
+haystack = '\xFFa'
 matches = [[1, 2]]
 unicode = false
 utf8 = false
@@ -76,7 +76,7 @@ unescape = true
 [[tests]]
 name = "dotstar-prefix2"
 regex = "a"
-input = '\xFFa'
+haystack = '\xFFa'
 matches = [[1, 2]]
 utf8 = false
 unescape = true
@@ -85,7 +85,7 @@ unescape = true
 [[tests]]
 name = "null-bytes1"
 regex = '[^\x00]+\x00'
-input = 'foo\x00'
+haystack = 'foo\x00'
 matches = [[0, 4]]
 unicode = false
 utf8 = false
@@ -95,40 +95,40 @@ unescape = true
 [[tests]]
 name = "word-ascii"
 regex = '\w+'
-input = "aδ"
+haystack = "aδ"
 matches = [[0, 1]]
 unicode = false
 
 [[tests]]
 name = "word-unicode"
 regex = '\w+'
-input = "aδ"
+haystack = "aδ"
 matches = [[0, 3]]
 
 [[tests]]
 name = "decimal-ascii"
 regex = '\d+'
-input = "1२३9"
+haystack = "1२३9"
 matches = [[0, 1], [7, 8]]
 unicode = false
 
 [[tests]]
 name = "decimal-unicode"
 regex = '\d+'
-input = "1२३9"
+haystack = "1२३9"
 matches = [[0, 8]]
 
 [[tests]]
 name = "space-ascii"
 regex = '\s+'
-input = " \u1680"
+haystack = " \u1680"
 matches = [[0, 1]]
 unicode = false
 
 [[tests]]
 name = "space-unicode"
 regex = '\s+'
-input = " \u1680"
+haystack = " \u1680"
 matches = [[0, 4]]
 
 
@@ -136,7 +136,7 @@ matches = [[0, 4]]
 # See: https://github.com/rust-lang/regex/issues/484
 name = "iter1-bytes"
 regex = ''
-input = "☃"
+haystack = "☃"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 utf8 = false
 
@@ -144,7 +144,7 @@ utf8 = false
 # See: https://github.com/rust-lang/regex/issues/484
 name = "iter1-utf8"
 regex = ''
-input = "☃"
+haystack = "☃"
 matches = [[0, 0], [3, 3]]
 
 [[tests]]
@@ -152,7 +152,7 @@ matches = [[0, 0], [3, 3]]
 # Note that iter2-utf8 doesn't make sense here, since the input isn't UTF-8.
 name = "iter2-bytes"
 regex = ''
-input = 'b\xFFr'
+haystack = 'b\xFFr'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 unescape = true
 utf8 = false
@@ -183,7 +183,7 @@ utf8 = false
 [[tests]]
 name = "unanchored-invalid-utf8-match-100"
 regex = '[a-z]'
-input = '\xFFa\xFF'
+haystack = '\xFFa\xFF'
 matches = [[1, 2]]
 unescape = true
 utf8 = false
@@ -191,7 +191,7 @@ utf8 = false
 [[tests]]
 name = "unanchored-invalid-utf8-match-101"
 regex = '[a-z]'
-input = '\xFFa\xFF'
+haystack = '\xFFa\xFF'
 matches = [[1, 2]]
 unescape = true
 utf8 = true
@@ -203,7 +203,7 @@ utf8 = true
 [[tests]]
 name = "unanchored-invalid-utf8-nomatch"
 regex = '^(?s:.)*?[a-z]'
-input = '\xFFa\xFF'
+haystack = '\xFFa\xFF'
 matches = []
 unescape = true
 utf8 = true
@@ -223,7 +223,7 @@ utf8 = true
 [[tests]]
 name = "anchored-iter-empty-utf8"
 regex = ''
-input = 'a☃z'
+haystack = 'a☃z'
 matches = [[0, 0], [1, 1]]
 unescape = false
 utf8 = true
