@@ -8,7 +8,7 @@ name = "nullsubexpr3"
 regex = '''(a*)*'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -16,7 +16,7 @@ name = "nullsubexpr4"
 regex = '''(a*)*'''
 haystack = '''x'''
 matches = [[[0, 0], [0, 0]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -24,7 +24,7 @@ name = "nullsubexpr5"
 regex = '''(a*)*'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -32,7 +32,7 @@ name = "nullsubexpr6"
 regex = '''(a*)*'''
 haystack = '''aaaaaax'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -40,7 +40,7 @@ name = "nullsubexpr7"
 regex = '''(a*)+'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -48,7 +48,7 @@ name = "nullsubexpr8"
 regex = '''(a*)+'''
 haystack = '''x'''
 matches = [[[0, 0], [0, 0]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -56,7 +56,7 @@ name = "nullsubexpr9"
 regex = '''(a*)+'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -64,7 +64,7 @@ name = "nullsubexpr10"
 regex = '''(a*)+'''
 haystack = '''aaaaaax'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -72,7 +72,7 @@ name = "nullsubexpr11"
 regex = '''(a+)*'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -80,7 +80,7 @@ name = "nullsubexpr12"
 regex = '''(a+)*'''
 haystack = '''x'''
 matches = [[[0, 0], []]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -88,7 +88,7 @@ name = "nullsubexpr13"
 regex = '''(a+)*'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -96,7 +96,7 @@ name = "nullsubexpr14"
 regex = '''(a+)*'''
 haystack = '''aaaaaax'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -104,7 +104,7 @@ name = "nullsubexpr15"
 regex = '''(a+)+'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -112,14 +112,14 @@ name = "nullsubexpr16"
 regex = '''(a+)+'''
 haystack = '''x'''
 matches = []
-match_limit = 1
+match-limit = 1
 
 [[test]]
 name = "nullsubexpr17"
 regex = '''(a+)+'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -127,7 +127,7 @@ name = "nullsubexpr18"
 regex = '''(a+)+'''
 haystack = '''aaaaaax'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -135,7 +135,7 @@ name = "nullsubexpr20"
 regex = '''([a]*)*'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -143,7 +143,7 @@ name = "nullsubexpr21"
 regex = '''([a]*)*'''
 haystack = '''x'''
 matches = [[[0, 0], [0, 0]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -151,7 +151,7 @@ name = "nullsubexpr22"
 regex = '''([a]*)*'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -159,7 +159,7 @@ name = "nullsubexpr23"
 regex = '''([a]*)*'''
 haystack = '''aaaaaax'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -167,7 +167,7 @@ name = "nullsubexpr24"
 regex = '''([a]*)+'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -175,7 +175,7 @@ name = "nullsubexpr25"
 regex = '''([a]*)+'''
 haystack = '''x'''
 matches = [[[0, 0], [0, 0]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -183,7 +183,7 @@ name = "nullsubexpr26"
 regex = '''([a]*)+'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -191,7 +191,7 @@ name = "nullsubexpr27"
 regex = '''([a]*)+'''
 haystack = '''aaaaaax'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -199,7 +199,7 @@ name = "nullsubexpr28"
 regex = '''([^b]*)*'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -207,7 +207,7 @@ name = "nullsubexpr29"
 regex = '''([^b]*)*'''
 haystack = '''b'''
 matches = [[[0, 0], [0, 0]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -215,7 +215,7 @@ name = "nullsubexpr30"
 regex = '''([^b]*)*'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -223,7 +223,7 @@ name = "nullsubexpr31"
 regex = '''([^b]*)*'''
 haystack = '''aaaaaab'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -231,7 +231,7 @@ name = "nullsubexpr32"
 regex = '''([ab]*)*'''
 haystack = '''a'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -239,7 +239,7 @@ name = "nullsubexpr33"
 regex = '''([ab]*)*'''
 haystack = '''aaaaaa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -247,7 +247,7 @@ name = "nullsubexpr34"
 regex = '''([ab]*)*'''
 haystack = '''ababab'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -255,7 +255,7 @@ name = "nullsubexpr35"
 regex = '''([ab]*)*'''
 haystack = '''bababa'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -263,7 +263,7 @@ name = "nullsubexpr36"
 regex = '''([ab]*)*'''
 haystack = '''b'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -271,7 +271,7 @@ name = "nullsubexpr37"
 regex = '''([ab]*)*'''
 haystack = '''bbbbbb'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -279,7 +279,7 @@ name = "nullsubexpr38"
 regex = '''([ab]*)*'''
 haystack = '''aaaabcde'''
 matches = [[[0, 5], [0, 5]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -287,7 +287,7 @@ name = "nullsubexpr39"
 regex = '''([^a]*)*'''
 haystack = '''b'''
 matches = [[[0, 1], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -295,7 +295,7 @@ name = "nullsubexpr40"
 regex = '''([^a]*)*'''
 haystack = '''bbbbbb'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -303,7 +303,7 @@ name = "nullsubexpr41"
 regex = '''([^a]*)*'''
 haystack = '''aaaaaa'''
 matches = [[[0, 0], [0, 0]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -311,7 +311,7 @@ name = "nullsubexpr42"
 regex = '''([^ab]*)*'''
 haystack = '''ccccxx'''
 matches = [[[0, 6], [0, 6]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -319,7 +319,7 @@ name = "nullsubexpr43"
 regex = '''([^ab]*)*'''
 haystack = '''ababab'''
 matches = [[[0, 0], [0, 0]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 # Test added by Rust regex project.
@@ -328,7 +328,7 @@ name = "nullsubexpr46"
 regex = '''((z)+|a)*'''
 haystack = '''zabcde'''
 matches = [[[0, 2], [1, 2], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -336,7 +336,7 @@ name = "nullsubexpr64"
 regex = '''(a*)*(x)'''
 haystack = '''x'''
 matches = [[[0, 1], [0, 0], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -344,7 +344,7 @@ name = "nullsubexpr65"
 regex = '''(a*)*(x)'''
 haystack = '''ax'''
 matches = [[[0, 2], [0, 1], [1, 2]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -352,7 +352,7 @@ name = "nullsubexpr66"
 regex = '''(a*)*(x)'''
 haystack = '''axa'''
 matches = [[[0, 2], [0, 1], [1, 2]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -360,7 +360,7 @@ name = "nullsubexpr68"
 regex = '''(a*)+(x)'''
 haystack = '''x'''
 matches = [[[0, 1], [0, 0], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -368,7 +368,7 @@ name = "nullsubexpr69"
 regex = '''(a*)+(x)'''
 haystack = '''ax'''
 matches = [[[0, 2], [0, 1], [1, 2]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -376,7 +376,7 @@ name = "nullsubexpr70"
 regex = '''(a*)+(x)'''
 haystack = '''axa'''
 matches = [[[0, 2], [0, 1], [1, 2]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -384,7 +384,7 @@ name = "nullsubexpr72"
 regex = '''(a*){2}(x)'''
 haystack = '''x'''
 matches = [[[0, 1], [0, 0], [0, 1]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -392,7 +392,7 @@ name = "nullsubexpr73"
 regex = '''(a*){2}(x)'''
 haystack = '''ax'''
 matches = [[[0, 2], [1, 1], [1, 2]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 
 [[test]]
@@ -400,6 +400,6 @@ name = "nullsubexpr74"
 regex = '''(a*){2}(x)'''
 haystack = '''axa'''
 matches = [[[0, 2], [1, 1], [1, 2]]]
-match_limit = 1
+match-limit = 1
 anchored = true
 

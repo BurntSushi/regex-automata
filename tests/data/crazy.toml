@@ -35,7 +35,7 @@ name = "float2"
 regex = '[-+]?[0-9]*\.?[0-9]+'
 haystack = "0.1.2"
 matches = [[0, 3]]
-match_limit = 1
+match-limit = 1
 
 [[test]]
 name = "float3"

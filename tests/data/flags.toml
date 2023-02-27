@@ -39,14 +39,14 @@ name = "7"
 regex = "(?is)a.(?-is:a.)?"
 haystack = "A\na\n"
 matches = [[0, 2]]
-match_limit = 1
+match-limit = 1
 
 [[test]]
 name = "8"
 regex = "(?U)a+"
 haystack = "aa"
 matches = [[0, 1]]
-match_limit = 1
+match-limit = 1
 
 [[test]]
 name = "9"

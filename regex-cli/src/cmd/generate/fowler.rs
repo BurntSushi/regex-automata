@@ -201,7 +201,7 @@ impl core::fmt::Display for TomlTest {
             }
             writeln!(f, "]]")?;
         }
-        writeln!(f, "match_limit = 1")?;
+        writeln!(f, "match-limit = 1")?;
         // If the match starts at 0, then set anchored=true. This gives us more
         // coverage on the anchored option and lets regex engines like the
         // one-pass DFA participate a bit more in the test suite.
@@ -217,7 +217,7 @@ impl core::fmt::Display for TomlTest {
             writeln!(f, "unescape = true")?;
         }
         if self.case_insensitive {
-            writeln!(f, "case_insensitive = true")?;
+            writeln!(f, "case-insensitive = true")?;
         }
         Ok(())
     }

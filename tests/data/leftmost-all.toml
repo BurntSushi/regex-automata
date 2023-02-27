@@ -3,8 +3,8 @@ name = "alt"
 regex = 'foo|foobar'
 haystack = "foobar"
 matches = [[0, 6]]
-match_kind = "all"
-search_kind = "leftmost"
+match-kind = "all"
+search-kind = "leftmost"
 
 [[test]]
 name = "multi"
@@ -13,13 +13,13 @@ haystack = "foobar"
 matches = [
   { id = 1, span = [0, 6] },
 ]
-match_kind = "all"
-search_kind = "leftmost"
+match-kind = "all"
+search-kind = "leftmost"
 
 [[test]]
 name = "dotall"
 regex = '(?s:.)'
 haystack = "foobar"
 matches = [[5, 6]]
-match_kind = "all"
-search_kind = "leftmost"
+match-kind = "all"
+search-kind = "leftmost"

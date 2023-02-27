@@ -3,21 +3,21 @@ name = "no-greedy-100"
 regex = 'a+'
 haystack = "aaa"
 matches = [[0, 1], [1, 2], [2, 3]]
-search_kind = "earliest"
+search-kind = "earliest"
 
 [[test]]
 name = "no-greedy-200"
 regex = 'abc+'
 haystack = "zzzabccc"
 matches = [[3, 6]]
-search_kind = "earliest"
+search-kind = "earliest"
 
 [[test]]
 name = "is-ungreedy"
 regex = 'a+?'
 haystack = "aaa"
 matches = [[0, 1], [1, 2], [2, 3]]
-search_kind = "earliest"
+search-kind = "earliest"
 
 [[test]]
 name = "look-start-test"
@@ -26,7 +26,7 @@ haystack = "abc"
 matches = [
   [[0, 1], [0, 1]],
 ]
-search_kind = "earliest"
+search-kind = "earliest"
 
 [[test]]
 name = "look-end-test"
@@ -35,18 +35,18 @@ haystack = "abc"
 matches = [
   [[0, 3], [0, 3]],
 ]
-search_kind = "earliest"
+search-kind = "earliest"
 
 [[test]]
 name = "no-leftmost-first-100"
 regex = 'abc|a'
 haystack = "abc"
 matches = [[0, 1]]
-search_kind = "earliest"
+search-kind = "earliest"
 
 [[test]]
 name = "no-leftmost-first-200"
 regex = 'aba|a'
 haystack = "aba"
 matches = [[0, 1], [2, 3]]
-search_kind = "earliest"
+search-kind = "earliest"

@@ -204,12 +204,13 @@ pub struct RegexTest {
     haystack: BString,
     bounds: Option<Span>,
     matches: Vec<Captures>,
+    #[serde(rename = "match-limit")]
     match_limit: Option<usize>,
     #[serde(default = "default_true")]
     compiles: bool,
     #[serde(default)]
     anchored: bool,
-    #[serde(default)]
+    #[serde(default, rename = "case-insensitive")]
     case_insensitive: bool,
     #[serde(default)]
     unescape: bool,
@@ -217,9 +218,9 @@ pub struct RegexTest {
     unicode: bool,
     #[serde(default = "default_true")]
     utf8: bool,
-    #[serde(default)]
+    #[serde(default, rename = "match-kind")]
     match_kind: MatchKind,
-    #[serde(default)]
+    #[serde(default, rename = "search-kind")]
     search_kind: SearchKind,
 }
 

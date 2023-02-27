@@ -104,7 +104,7 @@ name = "case-one-ascii"
 regex = 'a'
 haystack = "A"
 matches = [[0, 1]]
-case_insensitive = true
+case-insensitive = true
 unicode = false
 utf8 = false
 
@@ -113,7 +113,7 @@ name = "case-one-unicode"
 regex = 'a'
 haystack = "A"
 matches = [[0, 1]]
-case_insensitive = true
+case-insensitive = true
 unicode = true
 utf8 = false
 
@@ -122,7 +122,7 @@ name = "case-class-simple-ascii"
 regex = '[a-z]+'
 haystack = "AaAaA"
 matches = [[0, 5]]
-case_insensitive = true
+case-insensitive = true
 unicode = false
 utf8 = false
 
@@ -131,7 +131,7 @@ name = "case-class-ascii"
 regex = '[a-z]+'
 haystack = "aA\u212AaA"
 matches = [[0, 2], [5, 7]]
-case_insensitive = true
+case-insensitive = true
 unicode = false
 utf8 = false
 
@@ -140,7 +140,7 @@ name = "case-class-unicode"
 regex = '[a-z]+'
 haystack = "aA\u212AaA"
 matches = [[0, 7]]
-case_insensitive = true
+case-insensitive = true
 unicode = true
 utf8 = false
 

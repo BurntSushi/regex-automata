@@ -30,7 +30,7 @@ matches = [
   [[6, 9], [6, 9]],
 ]
 anchored = true
-search_kind = "earliest"
+search-kind = "earliest"
 
 [[test]]
 name = "nongreedy"
@@ -53,7 +53,7 @@ matches = [
   [[0, 9], [6, 9]],
 ]
 anchored = true
-match_kind = "all"
+match-kind = "all"
 
 [[test]]
 name = "word-boundary-unicode-01"

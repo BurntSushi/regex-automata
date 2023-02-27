@@ -22,7 +22,7 @@ name = "case1"
 regex = "a"
 haystack = "A"
 matches = [[0, 1]]
-case_insensitive = true
+case-insensitive = true
 unicode = false
 
 [[test]]
@@ -30,7 +30,7 @@ name = "case2"
 regex = "[a-z]+"
 haystack = "AaAaA"
 matches = [[0, 5]]
-case_insensitive = true
+case-insensitive = true
 unicode = false
 
 [[test]]
@@ -38,14 +38,14 @@ name = "case3"
 regex = "[a-z]+"
 haystack = "aA\u212AaA"
 matches = [[0, 7]]
-case_insensitive = true
+case-insensitive = true
 
 [[test]]
 name = "case4"
 regex = "[a-z]+"
 haystack = "aA\u212AaA"
 matches = [[0, 2], [5, 7]]
-case_insensitive = true
+case-insensitive = true
 unicode = false
 
 
