@@ -1,94 +1,94 @@
-[[tests]]
+[[test]]
 name = "1"
 regex = "a"
 haystack = "aaa"
 matches = [[0, 1], [1, 2], [2, 3]]
 
-[[tests]]
+[[test]]
 name = "2"
 regex = "a"
 haystack = "aba"
 matches = [[0, 1], [2, 3]]
 
-[[tests]]
+[[test]]
 name = "empty1"
 regex = ''
 haystack = ''
 matches = [[0, 0]]
 
-[[tests]]
+[[test]]
 name = "empty2"
 regex = ''
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty3"
 regex = '(?:)'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty4"
 regex = '(?:)*'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty5"
 regex = '(?:)+'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty6"
 regex = '(?:)?'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty7"
 regex = '(?:)(?:)'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty8"
 regex = '(?:)+|z'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty9"
 regex = 'z|(?:)+'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty10"
 regex = '(?:)+|b'
 haystack = 'abc'
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "empty11"
 regex = 'b|(?:)+'
 haystack = 'abc'
 matches = [[0, 0], [1, 2], [3, 3]]
 
-[[tests]]
+[[test]]
 name = "start1"
 regex = "^a"
 haystack = "a"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "start2"
 regex = "^a"
 haystack = "aa"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "anchored1"
 regex = "a"
 haystack = "a"
@@ -101,7 +101,7 @@ anchored = true
 # no such restriction, but its automaton is constructed such that it lacks a
 # `.*?` prefix. So it can actually produce matches at multiple locations.
 # The anchored3 test drives this point home.
-[[tests]]
+[[test]]
 name = "anchored2"
 regex = "a"
 haystack = "aa"
@@ -111,32 +111,32 @@ anchored = true
 # Unlikely anchored2, this test stops matching anything after it sees `b`
 # since it lacks a `.*?` prefix. Since it is looking for 'a' but sees 'b', it
 # determines that there are no remaining matches.
-[[tests]]
+[[test]]
 name = "anchored3"
 regex = "a"
 haystack = "aaba"
 matches = [[0, 1], [1, 2]]
 anchored = true
 
-[[tests]]
+[[test]]
 name = "nonempty-followedby-empty"
 regex = 'abc|.*?'
 haystack = "abczzz"
 matches = [[0, 3], [4, 4], [5, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "nonempty-followedby-oneempty"
 regex = 'abc|.*?'
 haystack = "abcz"
 matches = [[0, 3], [4, 4]]
 
-[[tests]]
+[[test]]
 name = "nonempty-followedby-onemixed"
 regex = 'abc|.*?'
 haystack = "abczabc"
 matches = [[0, 3], [4, 7]]
 
-[[tests]]
+[[test]]
 name = "nonempty-followedby-twomixed"
 regex = 'abc|.*?'
 haystack = "abczzabc"

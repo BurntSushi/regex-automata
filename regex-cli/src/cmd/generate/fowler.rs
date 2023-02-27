@@ -182,7 +182,7 @@ impl core::fmt::Display for TomlTest {
         if let Some(ref comment) = self.comment {
             writeln!(f, "# {}", comment)?;
         }
-        writeln!(f, "[[tests]]")?;
+        writeln!(f, "[[test]]")?;
         writeln!(f, "name = \"{}{}\"", self.group_name, self.line_number)?;
         writeln!(f, "regex = '''{}'''", self.regex)?;
         writeln!(f, "haystack = '''{}'''", self.haystack)?;

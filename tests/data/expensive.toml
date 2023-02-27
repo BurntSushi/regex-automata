@@ -5,7 +5,7 @@
 # such engines can simply skip these tests.
 
 # See: https://github.com/rust-lang/regex/issues/98
-[[tests]]
+[[test]]
 name = "regression-many-repeat-no-stack-overflow"
 regex = '^.{1,2500}'
 haystack = "a"
@@ -16,7 +16,7 @@ matches = [[0, 1]]
 # is to make sure there's at least one test that exercises this path in the
 # backtracker. All other tests (at time of writing) are small enough that the
 # backtracker can handle them fine.
-[[tests]]
+[[test]]
 name = "backtrack-blow-visited-capacity"
 regex = '\pL{50}'
 haystack = "abcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyabcdefghijklmnopqrstuvwxyZZ"

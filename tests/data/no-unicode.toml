@@ -1,4 +1,4 @@
-[[tests]]
+[[test]]
 name = "invalid-utf8-literal1"
 regex = '\xFF'
 haystack = '\xFF'
@@ -8,7 +8,7 @@ utf8 = false
 unescape = true
 
 
-[[tests]]
+[[test]]
 name = "mixed"
 regex = '(?:.+)(?-u)(?:.+)'
 haystack = '\xCE\x93\xCE\x94\xFF'
@@ -17,7 +17,7 @@ utf8 = false
 unescape = true
 
 
-[[tests]]
+[[test]]
 name = "case1"
 regex = "a"
 haystack = "A"
@@ -25,7 +25,7 @@ matches = [[0, 1]]
 case_insensitive = true
 unicode = false
 
-[[tests]]
+[[test]]
 name = "case2"
 regex = "[a-z]+"
 haystack = "AaAaA"
@@ -33,14 +33,14 @@ matches = [[0, 5]]
 case_insensitive = true
 unicode = false
 
-[[tests]]
+[[test]]
 name = "case3"
 regex = "[a-z]+"
 haystack = "aA\u212AaA"
 matches = [[0, 7]]
 case_insensitive = true
 
-[[tests]]
+[[test]]
 name = "case4"
 regex = "[a-z]+"
 haystack = "aA\u212AaA"
@@ -49,13 +49,13 @@ case_insensitive = true
 unicode = false
 
 
-[[tests]]
+[[test]]
 name = "negate1"
 regex = "[^a]"
 haystack = "δ"
 matches = [[0, 2]]
 
-[[tests]]
+[[test]]
 name = "negate2"
 regex = "[^a]"
 haystack = "δ"
@@ -64,7 +64,7 @@ unicode = false
 utf8 = false
 
 
-[[tests]]
+[[test]]
 name = "dotstar-prefix1"
 regex = "a"
 haystack = '\xFFa'
@@ -73,7 +73,7 @@ unicode = false
 utf8 = false
 unescape = true
 
-[[tests]]
+[[test]]
 name = "dotstar-prefix2"
 regex = "a"
 haystack = '\xFFa'
@@ -82,7 +82,7 @@ utf8 = false
 unescape = true
 
 
-[[tests]]
+[[test]]
 name = "null-bytes1"
 regex = '[^\x00]+\x00'
 haystack = 'foo\x00'
@@ -92,47 +92,47 @@ utf8 = false
 unescape = true
 
 
-[[tests]]
+[[test]]
 name = "word-ascii"
 regex = '\w+'
 haystack = "aδ"
 matches = [[0, 1]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "word-unicode"
 regex = '\w+'
 haystack = "aδ"
 matches = [[0, 3]]
 
-[[tests]]
+[[test]]
 name = "decimal-ascii"
 regex = '\d+'
 haystack = "1२३9"
 matches = [[0, 1], [7, 8]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "decimal-unicode"
 regex = '\d+'
 haystack = "1२३9"
 matches = [[0, 8]]
 
-[[tests]]
+[[test]]
 name = "space-ascii"
 regex = '\s+'
 haystack = " \u1680"
 matches = [[0, 1]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "space-unicode"
 regex = '\s+'
 haystack = " \u1680"
 matches = [[0, 4]]
 
 
-[[tests]]
+[[test]]
 # See: https://github.com/rust-lang/regex/issues/484
 name = "iter1-bytes"
 regex = ''
@@ -140,14 +140,14 @@ haystack = "☃"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 utf8 = false
 
-[[tests]]
+[[test]]
 # See: https://github.com/rust-lang/regex/issues/484
 name = "iter1-utf8"
 regex = ''
 haystack = "☃"
 matches = [[0, 0], [3, 3]]
 
-[[tests]]
+[[test]]
 # See: https://github.com/rust-lang/regex/issues/484
 # Note that iter2-utf8 doesn't make sense here, since the input isn't UTF-8.
 name = "iter2-bytes"
@@ -180,7 +180,7 @@ utf8 = false
 #
 # 2) Will a regex match arbitrary bytes that aren't valid UTF-8? Again, no,
 # assuming all of the UTF-8 modes are enabled.
-[[tests]]
+[[test]]
 name = "unanchored-invalid-utf8-match-100"
 regex = '[a-z]'
 haystack = '\xFFa\xFF'
@@ -188,7 +188,7 @@ matches = [[1, 2]]
 unescape = true
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "unanchored-invalid-utf8-match-101"
 regex = '[a-z]'
 haystack = '\xFFa\xFF'
@@ -200,7 +200,7 @@ utf8 = true
 # that valid UTF-8 match by inserting our own unanchored prefix. Thus, if the
 # behavior of not munching through invalid UTF-8 anywhere is needed, then it
 # can be achieved thusly.
-[[tests]]
+[[test]]
 name = "unanchored-invalid-utf8-nomatch"
 regex = '^(?s:.)*?[a-z]'
 haystack = '\xFFa\xFF'
@@ -220,7 +220,7 @@ utf8 = true
 # generally smoothed out everything else.
 #
 # Great example of a test whose failure motivated a sweeping API refactoring.
-[[tests]]
+[[test]]
 name = "anchored-iter-empty-utf8"
 regex = ''
 haystack = 'a☃z'

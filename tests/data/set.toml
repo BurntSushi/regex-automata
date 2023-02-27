@@ -1,6 +1,6 @@
 # Basic multi-regex tests.
 
-[[tests]]
+[[test]]
 name = "basic10"
 regex = ["a", "a"]
 haystack = "a"
@@ -11,7 +11,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic10-leftmost-first"
 regex = ["a", "a"]
 haystack = "a"
@@ -21,7 +21,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "basic20"
 regex = ["a", "a"]
 haystack = "ba"
@@ -32,7 +32,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic30"
 regex = ["a", "b"]
 haystack = "a"
@@ -42,7 +42,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic40"
 regex = ["a", "b"]
 haystack = "b"
@@ -52,7 +52,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic50"
 regex = ["a|b", "b|a"]
 haystack = "b"
@@ -63,7 +63,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic60"
 regex = ["foo", "oo"]
 haystack = "foo"
@@ -74,7 +74,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic60-leftmost-first"
 regex = ["foo", "oo"]
 haystack = "foo"
@@ -84,7 +84,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "basic61"
 regex = ["oo", "foo"]
 haystack = "foo"
@@ -95,7 +95,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic61-leftmost-first"
 regex = ["oo", "foo"]
 haystack = "foo"
@@ -105,7 +105,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "basic70"
 regex = ["abcd", "bcd", "cd", "d"]
 haystack = "abcd"
@@ -118,7 +118,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic71"
 regex = ["bcd", "cd", "d", "abcd"]
 haystack = "abcd"
@@ -128,7 +128,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "basic80"
 regex = ["^foo", "bar$"]
 haystack = "foo"
@@ -138,7 +138,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic81"
 regex = ["^foo", "bar$"]
 haystack = "foo bar"
@@ -149,7 +149,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic82"
 regex = ["^foo", "bar$"]
 haystack = "bar"
@@ -159,7 +159,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic90"
 regex = ["[a-z]+$", "foo"]
 haystack = "01234 foo"
@@ -172,7 +172,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic91"
 regex = ["[a-z]+$", "foo"]
 haystack = "foo 01234"
@@ -182,7 +182,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic100"
 regex = [".*?", "a"]
 haystack = "zzza"
@@ -207,7 +207,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic101"
 regex = [".*", "a"]
 haystack = "zzza"
@@ -232,7 +232,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic102"
 regex = [".*", "a"]
 haystack = "zzz"
@@ -251,7 +251,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic110"
 regex = ['\ba\b']
 haystack = "hello a bye"
@@ -261,7 +261,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic111"
 regex = ['\ba\b', '\be\b']
 haystack = "hello a bye e"
@@ -272,7 +272,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic120"
 regex = ["a"]
 haystack = "a"
@@ -282,7 +282,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic121"
 regex = [".*a"]
 haystack = "a"
@@ -292,7 +292,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic122"
 regex = [".*a", "β"]
 haystack = "β"
@@ -302,7 +302,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "basic130"
 regex = ["ab", "b"]
 haystack = "ba"
@@ -314,7 +314,7 @@ search_kind = "overlapping"
 
 # These test cases where one of the regexes matches the empty string.
 
-[[tests]]
+[[test]]
 name = "empty10"
 regex = ["", "a"]
 haystack = "abc"
@@ -328,7 +328,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty10-leftmost-first"
 regex = ["", "a"]
 haystack = "abc"
@@ -341,7 +341,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "empty11"
 regex = ["a", ""]
 haystack = "abc"
@@ -355,7 +355,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty11-leftmost-first"
 regex = ["a", ""]
 haystack = "abc"
@@ -367,7 +367,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "empty20"
 regex = ["", "b"]
 haystack = "abc"
@@ -381,7 +381,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty20-leftmost-first"
 regex = ["", "b"]
 haystack = "abc"
@@ -394,7 +394,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "empty21"
 regex = ["b", ""]
 haystack = "abc"
@@ -408,7 +408,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty21-leftmost-first"
 regex = ["b", ""]
 haystack = "abc"
@@ -420,7 +420,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "empty22"
 regex = ["(?:)", "b"]
 haystack = "abc"
@@ -434,7 +434,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty23"
 regex = ["b", "(?:)"]
 haystack = "abc"
@@ -448,7 +448,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty30"
 regex = ["", "z"]
 haystack = "abc"
@@ -461,7 +461,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty30-leftmost-first"
 regex = ["", "z"]
 haystack = "abc"
@@ -474,7 +474,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "empty31"
 regex = ["z", ""]
 haystack = "abc"
@@ -487,7 +487,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty31-leftmost-first"
 regex = ["z", ""]
 haystack = "abc"
@@ -500,7 +500,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "empty40"
 regex = ["c(?:)", "b"]
 haystack = "abc"
@@ -511,7 +511,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty40-leftmost-first"
 regex = ["c(?:)", "b"]
 haystack = "abc"
@@ -524,7 +524,7 @@ search_kind = "leftmost"
 
 # These test cases where there are no matches.
 
-[[tests]]
+[[test]]
 name = "nomatch10"
 regex = ["a", "a"]
 haystack = "b"
@@ -532,7 +532,7 @@ matches = []
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "nomatch20"
 regex = ["^foo", "bar$"]
 haystack = "bar foo"
@@ -540,7 +540,7 @@ matches = []
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "nomatch30"
 regex = []
 haystack = "a"
@@ -548,7 +548,7 @@ matches = []
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "nomatch40"
 regex = ["^rooted$", '\.log$']
 haystack = "notrooted"
@@ -564,7 +564,7 @@ search_kind = "overlapping"
 # left the tests because I believe the semantics for these patterns are clear
 # and because we can still test our "which patterns matched" APIs with them.
 
-[[tests]]
+[[test]]
 name = "caps-010"
 regex = ['^(\w+) (\w+)$', '^(\S+) (\S+)$']
 haystack = "Bruce Springsteen"
@@ -577,7 +577,7 @@ search_kind = "overlapping"
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "caps-020"
 regex = ['^(\w+) (\w+)$', '^[A-Z](\S+) [A-Z](\S+)$']
 haystack = "Bruce Springsteen"
@@ -590,7 +590,7 @@ search_kind = "overlapping"
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "caps-030"
 regex = ['^(\w+) (\w+)$', '^([A-Z])(\S+) ([A-Z])(\S+)$']
 haystack = "Bruce Springsteen"
@@ -603,7 +603,7 @@ search_kind = "overlapping"
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "caps-110"
 regex = ['(\w+) (\w+)', '(\S+) (\S+)']
 haystack = "Bruce Springsteen"
@@ -615,7 +615,7 @@ search_kind = "leftmost"
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "caps-120"
 regex = ['(\w+) (\w+)', '(\S+) (\S+)']
 haystack = "&ruce $pringsteen"
@@ -627,7 +627,7 @@ search_kind = "leftmost"
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "caps-121"
 regex = ['(\w+) (\w+)', '(\S+) (\S+)']
 haystack = "&ruce $pringsteen Foo Bar"

@@ -5,21 +5,21 @@
 # for example, make use of the "search just a substring" APIs by changing the
 # starting position of a search to the end position of the previous match.)
 
-[[tests]]
+[[test]]
 name = "unicode-word-start"
 regex = '\b[0-9]+\b'
 haystack = "β123"
 bounds = { start = 2, end = 5 }
 matches = []
 
-[[tests]]
+[[test]]
 name = "unicode-word-end"
 regex = '\b[0-9]+\b'
 haystack = "123β"
 bounds = { start = 0, end = 3 }
 matches = []
 
-[[tests]]
+[[test]]
 name = "ascii-word-start"
 regex = '\b[0-9]+\b'
 haystack = "β123"
@@ -27,7 +27,7 @@ bounds = { start = 2, end = 5 }
 matches = [[2, 5]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "ascii-word-end"
 regex = '\b[0-9]+\b'
 haystack = "123β"

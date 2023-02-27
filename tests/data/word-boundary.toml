@@ -1,302 +1,302 @@
 # Some of these are cribbed from RE2's test suite.
 
 # These test \b. Below are tests for \B.
-[[tests]]
+[[test]]
 name = "wb1"
 regex = '\b'
 haystack = ""
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb2"
 regex = '\b'
 haystack = "a"
 matches = [[0, 0], [1, 1]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb3"
 regex = '\b'
 haystack = "ab"
 matches = [[0, 0], [2, 2]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb4"
 regex = '^\b'
 haystack = "ab"
 matches = [[0, 0]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb5"
 regex = '\b$'
 haystack = "ab"
 matches = [[2, 2]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb6"
 regex = '^\b$'
 haystack = "ab"
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb7"
 regex = '\bbar\b'
 haystack = "nobar bar foo bar"
 matches = [[6, 9], [14, 17]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb8"
 regex = 'a\b'
 haystack = "faoa x"
 matches = [[3, 4]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb9"
 regex = '\bbar'
 haystack = "bar x"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb10"
 regex = '\bbar'
 haystack = "foo\nbar x"
 matches = [[4, 7]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb11"
 regex = 'bar\b'
 haystack = "foobar"
 matches = [[3, 6]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb12"
 regex = 'bar\b'
 haystack = "foobar\nxxx"
 matches = [[3, 6]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb13"
 regex = '(?:foo|bar|[A-Z])\b'
 haystack = "foo"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb14"
 regex = '(?:foo|bar|[A-Z])\b'
 haystack = "foo\n"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb15"
 regex = '\b(?:foo|bar|[A-Z])'
 haystack = "foo"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb16"
 regex = '\b(?:foo|bar|[A-Z])\b'
 haystack = "X"
 matches = [[0, 1]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb17"
 regex = '\b(?:foo|bar|[A-Z])\b'
 haystack = "XY"
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb18"
 regex = '\b(?:foo|bar|[A-Z])\b'
 haystack = "bar"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb19"
 regex = '\b(?:foo|bar|[A-Z])\b'
 haystack = "foo"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb20"
 regex = '\b(?:foo|bar|[A-Z])\b'
 haystack = "foo\n"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb21"
 regex = '\b(?:foo|bar|[A-Z])\b'
 haystack = "ffoo bbar N x"
 matches = [[10, 11]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb22"
 regex = '\b(?:fo|foo)\b'
 haystack = "fo"
 matches = [[0, 2]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb23"
 regex = '\b(?:fo|foo)\b'
 haystack = "foo"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb24"
 regex = '\b\b'
 haystack = ""
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb25"
 regex = '\b\b'
 haystack = "a"
 matches = [[0, 0], [1, 1]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb26"
 regex = '\b$'
 haystack = ""
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb27"
 regex = '\b$'
 haystack = "x"
 matches = [[1, 1]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb28"
 regex = '\b$'
 haystack = "y x"
 matches = [[3, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb29"
 regex = '(?-u:\b).$'
 haystack = "x"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "wb30"
 regex = '^\b(?:fo|foo)\b'
 haystack = "fo"
 matches = [[0, 2]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb31"
 regex = '^\b(?:fo|foo)\b'
 haystack = "foo"
 matches = [[0, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb32"
 regex = '^\b$'
 haystack = ""
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb33"
 regex = '^\b$'
 haystack = "x"
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb34"
 regex = '^(?-u:\b).$'
 haystack = "x"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "wb35"
 regex = '^(?-u:\b).(?-u:\b)$'
 haystack = "x"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "wb36"
 regex = '^^^^^\b$$$$$'
 haystack = ""
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb37"
 regex = '^^^^^(?-u:\b).$$$$$'
 haystack = "x"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "wb38"
 regex = '^^^^^\b$$$$$'
 haystack = "x"
 matches = []
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb39"
 regex = '^^^^^(?-u:\b\b\b).(?-u:\b\b\b)$$$$$'
 haystack = "x"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "wb40"
 regex = '(?-u:\b).+(?-u:\b)'
 haystack = "$$abc$$"
 matches = [[2, 5]]
 
-[[tests]]
+[[test]]
 name = "wb41"
 regex = '\b'
 haystack = "a b c"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb42"
 regex = '\bfoo\b'
 haystack = "zzz foo zzz"
 matches = [[4, 7]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb43"
 regex = '\b^'
 haystack = "ab"
 matches = [[0, 0]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "wb44"
 regex = '$\b'
 haystack = "ab"
@@ -307,7 +307,7 @@ unicode = false
 # Tests for \B. Note that \B is not allowed if UTF-8 mode is enabled, so we
 # have to disable it for most of these tests. This is because \B can match at
 # non-UTF-8 boundaries.
-[[tests]]
+[[test]]
 name = "nb1"
 regex = '\Bfoo\B'
 haystack = "n foo xfoox that"
@@ -315,7 +315,7 @@ matches = [[7, 10]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb2"
 regex = 'a\B'
 haystack = "faoa x"
@@ -323,7 +323,7 @@ matches = [[1, 2]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb3"
 regex = '\Bbar'
 haystack = "bar x"
@@ -331,7 +331,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb4"
 regex = '\Bbar'
 haystack = "foo\nbar x"
@@ -339,7 +339,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb5"
 regex = 'bar\B'
 haystack = "foobar"
@@ -347,7 +347,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb6"
 regex = 'bar\B'
 haystack = "foobar\nxxx"
@@ -355,7 +355,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb7"
 regex = '(?:foo|bar|[A-Z])\B'
 haystack = "foox"
@@ -363,7 +363,7 @@ matches = [[0, 3]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb8"
 regex = '(?:foo|bar|[A-Z])\B'
 haystack = "foo\n"
@@ -371,7 +371,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb9"
 regex = '\B'
 haystack = ""
@@ -379,7 +379,7 @@ matches = [[0, 0]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb10"
 regex = '\B'
 haystack = "x"
@@ -387,7 +387,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb11"
 regex = '\B(?:foo|bar|[A-Z])'
 haystack = "foo"
@@ -395,7 +395,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb12"
 regex = '\B(?:foo|bar|[A-Z])\B'
 haystack = "xXy"
@@ -403,7 +403,7 @@ matches = [[1, 2]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb13"
 regex = '\B(?:foo|bar|[A-Z])\B'
 haystack = "XY"
@@ -411,7 +411,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb14"
 regex = '\B(?:foo|bar|[A-Z])\B'
 haystack = "XYZ"
@@ -419,7 +419,7 @@ matches = [[1, 2]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb15"
 regex = '\B(?:foo|bar|[A-Z])\B'
 haystack = "abara"
@@ -427,7 +427,7 @@ matches = [[1, 4]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb16"
 regex = '\B(?:foo|bar|[A-Z])\B'
 haystack = "xfoo_"
@@ -435,7 +435,7 @@ matches = [[1, 4]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb17"
 regex = '\B(?:foo|bar|[A-Z])\B'
 haystack = "xfoo\n"
@@ -443,7 +443,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb18"
 regex = '\B(?:foo|bar|[A-Z])\B'
 haystack = "foo bar vNX"
@@ -451,7 +451,7 @@ matches = [[9, 10]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb19"
 regex = '\B(?:fo|foo)\B'
 haystack = "xfoo"
@@ -459,7 +459,7 @@ matches = [[1, 3]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb20"
 regex = '\B(?:foo|fo)\B'
 haystack = "xfooo"
@@ -467,7 +467,7 @@ matches = [[1, 4]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb21"
 regex = '\B\B'
 haystack = ""
@@ -475,7 +475,7 @@ matches = [[0, 0]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb22"
 regex = '\B\B'
 haystack = "x"
@@ -483,7 +483,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb23"
 regex = '\B$'
 haystack = ""
@@ -491,7 +491,7 @@ matches = [[0, 0]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb24"
 regex = '\B$'
 haystack = "x"
@@ -499,7 +499,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb25"
 regex = '\B$'
 haystack = "y x"
@@ -507,7 +507,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb26"
 regex = '\B.$'
 haystack = "x"
@@ -515,7 +515,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb27"
 regex = '^\B(?:fo|foo)\B'
 haystack = "fo"
@@ -523,7 +523,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb28"
 regex = '^\B(?:fo|foo)\B'
 haystack = "fo"
@@ -531,7 +531,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb29"
 regex = '^\B'
 haystack = ""
@@ -539,7 +539,7 @@ matches = [[0, 0]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb30"
 regex = '^\B'
 haystack = "x"
@@ -547,7 +547,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb31"
 regex = '^\B\B'
 haystack = ""
@@ -555,7 +555,7 @@ matches = [[0, 0]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb32"
 regex = '^\B\B'
 haystack = "x"
@@ -563,7 +563,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb33"
 regex = '^\B$'
 haystack = ""
@@ -571,7 +571,7 @@ matches = [[0, 0]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb34"
 regex = '^\B$'
 haystack = "x"
@@ -579,7 +579,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb35"
 regex = '^\B.$'
 haystack = "x"
@@ -587,7 +587,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb36"
 regex = '^\B.\B$'
 haystack = "x"
@@ -595,7 +595,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb37"
 regex = '^^^^^\B$$$$$'
 haystack = ""
@@ -603,7 +603,7 @@ matches = [[0, 0]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb38"
 regex = '^^^^^\B.$$$$$'
 haystack = "x"
@@ -611,7 +611,7 @@ matches = []
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "nb39"
 regex = '^^^^^\B$$$$$'
 haystack = "x"
@@ -623,26 +623,26 @@ utf8 = false
 # unicode1* and unicode2* work for both Unicode and ASCII because all matches
 # are reported as byte offsets, and « and » do not correspond to word
 # boundaries at either the character or byte level.
-[[tests]]
+[[test]]
 name = "unicode1"
 regex = '\bx\b'
 haystack = "«x"
 matches = [[2, 3]]
 
-[[tests]]
+[[test]]
 name = "unicode1-only-ascii"
 regex = '\bx\b'
 haystack = "«x"
 matches = [[2, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "unicode2"
 regex = '\bx\b'
 haystack = "x»"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "unicode2-only-ascii"
 regex = '\bx\b'
 haystack = "x»"
@@ -653,26 +653,26 @@ unicode = false
 # even though β is a character, an ASCII \b treats it as a word boundary
 # when it is adjacent to another ASCII character. (The ASCII \b only looks
 # at the leading byte of β.) For Unicode \b, the tests are precisely inverted.
-[[tests]]
+[[test]]
 name = "unicode3"
 regex = '\bx\b'
 haystack = 'áxβ'
 matches = []
 
-[[tests]]
+[[test]]
 name = "unicode3-only-ascii"
 regex = '\bx\b'
 haystack = 'áxβ'
 matches = [[2, 3]]
 unicode = false
 
-[[tests]]
+[[test]]
 name = "unicode4"
 regex = '\Bx\B'
 haystack = 'áxβ'
 matches = [[2, 3]]
 
-[[tests]]
+[[test]]
 name = "unicode4-only-ascii"
 regex = '\Bx\B'
 haystack = 'áxβ'
@@ -681,13 +681,13 @@ unicode = false
 utf8 = false
 
 # The same as above, but with \b instead of \B as a sanity check.
-[[tests]]
+[[test]]
 name = "unicode5"
 regex = '\b'
 haystack = "0\U0007EF5E"
 matches = [[0, 0], [1, 1]]
 
-[[tests]]
+[[test]]
 name = "unicode5-only-ascii"
 regex = '\b'
 haystack = "0\U0007EF5E"
@@ -695,7 +695,7 @@ matches = [[0, 0], [1, 1]]
 unicode = false
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "unicode5-noutf8"
 regex = '\b'
 haystack = '0\xFF\xFF\xFF\xFF'
@@ -703,7 +703,7 @@ matches = [[0, 0], [1, 1]]
 unescape = true
 utf8 = false
 
-[[tests]]
+[[test]]
 name = "unicode5-noutf8-only-ascii"
 regex = '\b'
 haystack = '0\xFF\xFF\xFF\xFF'
@@ -716,13 +716,13 @@ utf8 = false
 # as a non-word byte. (The specific codepoint is irrelevant. It's an arbitrary
 # codepoint that uses 4 bytes in its UTF-8 encoding and is not a member of the
 # \w character class.)
-[[tests]]
+[[test]]
 name = "unicode5-not"
 regex = '\B'
 haystack = "0\U0007EF5E"
 matches = [[5, 5]]
 
-[[tests]]
+[[test]]
 name = "unicode5-not-only-ascii"
 regex = '\B'
 haystack = "0\U0007EF5E"
@@ -732,7 +732,7 @@ utf8 = false
 
 # This gets no matches since \B only matches in the presence of valid UTF-8
 # when Unicode is enabled, even when UTF-8 mode is disabled.
-[[tests]]
+[[test]]
 name = "unicode5-not-noutf8"
 regex = '\B'
 haystack = '0\xFF\xFF\xFF\xFF'
@@ -742,7 +742,7 @@ utf8 = false
 
 # But this DOES get matches since \B in ASCII mode only looks at individual
 # bytes.
-[[tests]]
+[[test]]
 name = "unicode5-not-noutf8-only-ascii"
 regex = '\B'
 haystack = '0\xFF\xFF\xFF\xFF'
@@ -752,19 +752,19 @@ unicode = false
 utf8 = false
 
 # Some tests of no particular significance.
-[[tests]]
+[[test]]
 name = "unicode6"
 regex = '\b[0-9]+\b'
 haystack = "foo 123 bar 456 quux 789"
 matches = [[4, 7], [12, 15], [21, 24]]
 
-[[tests]]
+[[test]]
 name = "unicode7"
 regex = '\b[0-9]+\b'
 haystack = "foo 123 bar a456 quux 789"
 matches = [[4, 7], [22, 25]]
 
-[[tests]]
+[[test]]
 name = "unicode8"
 regex = '\b[0-9]+\b'
 haystack = "foo 123 bar 456a quux 789"

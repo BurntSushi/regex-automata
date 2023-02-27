@@ -9,7 +9,7 @@
 # some examples below---can still report multiple matches. This occurs when the
 # matches are adjacent to one another.
 
-[[tests]]
+[[test]]
 name = "greedy"
 regex = '(abc)+'
 haystack = "abcabcabc"
@@ -20,7 +20,7 @@ anchored = true
 
 # When a "earliest" search is used, greediness doesn't really exist because
 # matches are reported as soon as they are known.
-[[tests]]
+[[test]]
 name = "greedy-earliest"
 regex = '(abc)+'
 haystack = "abcabcabc"
@@ -32,7 +32,7 @@ matches = [
 anchored = true
 search_kind = "earliest"
 
-[[tests]]
+[[test]]
 name = "nongreedy"
 regex = '(abc)+?'
 haystack = "abcabcabc"
@@ -45,7 +45,7 @@ anchored = true
 
 # When "all" semantics are used, non-greediness doesn't exist since the longest
 # possible match is always taken.
-[[tests]]
+[[test]]
 name = "nongreedy-all"
 regex = '(abc)+?'
 haystack = "abcabcabc"
@@ -55,14 +55,14 @@ matches = [
 anchored = true
 match_kind = "all"
 
-[[tests]]
+[[test]]
 name = "word-boundary-unicode-01"
 regex = '\b\w+\b'
 haystack = 'βββ☃'
 matches = [[0, 6]]
 anchored = true
 
-[[tests]]
+[[test]]
 name = "word-boundary-nounicode-01"
 regex = '\b\w+\b'
 haystack = 'abcβ'

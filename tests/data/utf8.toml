@@ -23,7 +23,7 @@
 # because it cannot guarantee that its haystack is valid UTF-8.
 
 # This tests that an empty regex doesn't split a codepoint.
-[[tests]]
+[[test]]
 name = "empty-utf8yes"
 regex = ''
 haystack = '☃'
@@ -32,7 +32,7 @@ unicode = true
 utf8 = true
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-overlapping"
 regex = ''
 haystack = '☃'
@@ -43,7 +43,7 @@ match_kind = "all"
 search_kind = "overlapping"
 
 # This tests that an empty regex DOES split a codepoint when utf=false.
-[[tests]]
+[[test]]
 name = "empty-utf8no"
 regex = ''
 haystack = '☃'
@@ -52,7 +52,7 @@ unicode = true
 utf8 = false
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8no-overlapping"
 regex = ''
 haystack = '☃'
@@ -85,7 +85,7 @@ search_kind = "overlapping"
 # But I couldn't do it, and I'm tempted to conclude it is impossible. The
 # fundamental problem is that you need to simultaneously produce an empty match
 # that splits a codepoint while *not* matching before or after the codepoint.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-bounds"
 regex = ''
 haystack = '𝛃'
@@ -95,7 +95,7 @@ unicode = true
 utf8 = true
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-bounds-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -108,7 +108,7 @@ search_kind = "overlapping"
 
 # This tests that an empty regex splits a codepoint when the bounds are
 # entirely within the codepoint.
-[[tests]]
+[[test]]
 name = "empty-utf8no-bounds"
 regex = ''
 haystack = '𝛃'
@@ -118,7 +118,7 @@ unicode = true
 utf8 = false
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8no-bounds-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -131,7 +131,7 @@ search_kind = "overlapping"
 
 # In this test, we anchor the search. Since the start position is also a UTF-8
 # boundary, we get a match.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored"
 regex = ''
 haystack = '𝛃'
@@ -141,7 +141,7 @@ unicode = true
 utf8 = true
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -159,7 +159,7 @@ search_kind = "overlapping"
 # they are directly adjacent. Since with UTF-8 mode the next anchored search
 # after the match at [0, 0] fails, iteration stops (and doesn't find the last
 # match at [4, 4]).
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored"
 regex = ''
 haystack = '𝛃'
@@ -175,7 +175,7 @@ utf8 = false
 # current behavior of our test shim that implements overlapping search. (This
 # is one of the reasons why we don't really expose regex-level overlapping
 # searches.)
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -188,7 +188,7 @@ search_kind = "overlapping"
 
 # In this test, we anchor the search, but also set bounds. The bounds start the
 # search in the middle of a codepoint, so there should never be a match.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored-bounds"
 regex = ''
 haystack = '𝛃'
@@ -199,7 +199,7 @@ unicode = true
 utf8 = true
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored-bounds-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -216,7 +216,7 @@ search_kind = "overlapping"
 # above with UTF-8 mode disabled, iteration will report all adjacent matches.
 # The matches at [0, 0] and [4, 4] are not included because of the bounds of
 # the search.
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored-bounds"
 regex = ''
 haystack = '𝛃'
@@ -233,7 +233,7 @@ utf8 = false
 # current behavior of our test shim that implements overlapping search. (This
 # is one of the reasons why we don't really expose regex-level overlapping
 # searches.)
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored-bounds-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -247,7 +247,7 @@ search_kind = "overlapping"
 
 # This tests that we find the match at the end of the string when the bounds
 # exclude the first match.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-startbound"
 regex = ''
 haystack = '𝛃'
@@ -257,7 +257,7 @@ unicode = true
 utf8 = true
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-startbound-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -270,7 +270,7 @@ search_kind = "overlapping"
 
 # Same as above, except since UTF-8 mode is disabled, we also find the matches
 # inbetween that split the codepoint.
-[[tests]]
+[[test]]
 name = "empty-utf8no-startbound"
 regex = ''
 haystack = '𝛃'
@@ -280,7 +280,7 @@ unicode = true
 utf8 = false
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8no-startbound-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -293,7 +293,7 @@ search_kind = "overlapping"
 
 # This tests that we don't find any matches in an anchored search, even when
 # the bounds include a match (at the end).
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored-startbound"
 regex = ''
 haystack = '𝛃'
@@ -304,7 +304,7 @@ unicode = true
 utf8 = true
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored-startbound-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -319,7 +319,7 @@ search_kind = "overlapping"
 # Same as above, except since UTF-8 mode is disabled, we also find the matches
 # inbetween that split the codepoint. Even though this is an anchored search,
 # since the matches are adjacent, we find all of them.
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored-startbound"
 regex = ''
 haystack = '𝛃'
@@ -336,7 +336,7 @@ utf8 = false
 # current behavior of our test shim that implements overlapping search. (This
 # is one of the reasons why we don't really expose regex-level overlapping
 # searches.)
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored-startbound-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -350,7 +350,7 @@ search_kind = "overlapping"
 
 # This tests that we find the match at the end of the haystack in UTF-8 mode
 # when our bounds only include the empty string at the end of the haystack.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored-endbound"
 regex = ''
 haystack = '𝛃'
@@ -361,7 +361,7 @@ unicode = true
 utf8 = true
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8yes-anchored-endbound-overlapping"
 regex = ''
 haystack = '𝛃'
@@ -375,7 +375,7 @@ search_kind = "overlapping"
 
 # Same as above, but with UTF-8 mode disabled. Results remain the same since
 # the only possible match does not split a codepoint.
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored-endbound"
 regex = ''
 haystack = '𝛃'
@@ -386,7 +386,7 @@ unicode = true
 utf8 = false
 
 # Tests the overlapping case of the above.
-[[tests]]
+[[test]]
 name = "empty-utf8no-anchored-endbound-overlapping"
 regex = ''
 haystack = '𝛃'

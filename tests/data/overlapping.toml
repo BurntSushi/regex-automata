@@ -7,7 +7,7 @@
 
 # This demonstrates how a full overlapping search is obvious quadratic. This
 # regex reports a match for every substring in the haystack.
-[[tests]]
+[[test]]
 name = "ungreedy-dotstar-matches-everything-100"
 regex = [".*?"]
 haystack = "zzz"
@@ -26,7 +26,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "greedy-dotstar-matches-everything-100"
 regex = [".*"]
 haystack = "zzz"
@@ -45,7 +45,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-plus-leftmost-first-100"
 regex = 'a+'
 haystack = "aaa"
@@ -53,7 +53,7 @@ matches = [[0, 1], [1, 2], [0, 2], [2, 3], [1, 3], [0, 3]]
 match_kind = "leftmost-first"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-plus-leftmost-first-110"
 regex = '☃+'
 haystack = "☃☃☃"
@@ -61,7 +61,7 @@ matches = [[0, 3], [3, 6], [0, 6], [6, 9], [3, 9], [0, 9]]
 match_kind = "leftmost-first"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-plus-all-100"
 regex = 'a+'
 haystack = "aaa"
@@ -69,7 +69,7 @@ matches = [[0, 1], [1, 2], [0, 2], [2, 3], [1, 3], [0, 3]]
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-plus-all-110"
 regex = '☃+'
 haystack = "☃☃☃"
@@ -77,7 +77,7 @@ matches = [[0, 3], [3, 6], [0, 6], [6, 9], [3, 9], [0, 9]]
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-plus-leftmost-first-200"
 regex = '(abc)+'
 haystack = "zzabcabczzabc"
@@ -89,7 +89,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-plus-all-200"
 regex = '(abc)+'
 haystack = "zzabcabczzabc"
@@ -102,7 +102,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-star-leftmost-first-100"
 regex = 'a*'
 haystack = "aaa"
@@ -121,7 +121,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-star-all-100"
 regex = 'a*'
 haystack = "aaa"
@@ -140,7 +140,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-star-leftmost-first-200"
 regex = '(abc)*'
 haystack = "zzabcabczzabc"
@@ -150,7 +150,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "repetition-star-all-200"
 regex = '(abc)*'
 haystack = "zzabcabczzabc"
@@ -177,7 +177,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "start-end-rep-leftmost-first"
 regex = '(^$)*'
 haystack = "abc"
@@ -187,7 +187,7 @@ matches = [
 match_kind = "leftmost-first"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "start-end-rep-all"
 regex = '(^$)*'
 haystack = "abc"
@@ -200,7 +200,7 @@ matches = [
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "alt-leftmost-first-100"
 regex = 'abc|a'
 haystack = "zzabcazzaabc"
@@ -208,7 +208,7 @@ matches = [[2, 3], [2, 5]]
 match_kind = "leftmost-first"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "alt-all-100"
 regex = 'abc|a'
 haystack = "zzabcazzaabc"
@@ -216,7 +216,7 @@ matches = [[2, 3], [2, 5], [5, 6], [8, 9], [9, 10], [9, 12]]
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty-000"
 regex = ""
 haystack = "abc"
@@ -224,7 +224,7 @@ matches = [[0, 0], [1, 1], [2, 2], [3, 3]]
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty-alt-000"
 regex = "|b"
 haystack = "abc"
@@ -232,7 +232,7 @@ matches = [[0, 0], [1, 1], [2, 2], [1, 2], [3, 3]]
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "empty-alt-010"
 regex = "b|"
 haystack = "abc"
@@ -240,7 +240,7 @@ matches = [[0, 0], [1, 1], [2, 2], [1, 2], [3, 3]]
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 # See: https://github.com/rust-lang/regex/issues/484
 name = "iter1-bytes"
 regex = ''
@@ -250,7 +250,7 @@ utf8 = false
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 # See: https://github.com/rust-lang/regex/issues/484
 name = "iter1-utf8"
 regex = ''
@@ -259,7 +259,7 @@ matches = [[0, 0], [3, 3]]
 match_kind = "all"
 search_kind = "overlapping"
 
-[[tests]]
+[[test]]
 name = "iter1-incomplete-utf8"
 regex = ''
 haystack = '\xE2\x98'  # incomplete snowman
@@ -268,7 +268,7 @@ match_kind = "all"
 search_kind = "overlapping"
 unescape = true
 
-[[tests]]
+[[test]]
 name = "scratch"
 regex = ['sam', 'samwise']
 haystack = "samwise"

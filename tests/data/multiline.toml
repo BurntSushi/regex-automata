@@ -1,286 +1,286 @@
-[[tests]]
+[[test]]
 name = "basic1"
 regex = '(?m)^[a-z]+$'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 3], [4, 7], [8, 11]]
 
-[[tests]]
+[[test]]
 name = "basic2"
 regex = '(?m)^$'
 haystack = "abc\ndef\nxyz"
 matches = []
 
-[[tests]]
+[[test]]
 name = "basic3"
 regex = '(?m)^'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 0], [4, 4], [8, 8]]
 
-[[tests]]
+[[test]]
 name = "basic4"
 regex = '(?m)$'
 haystack = "abc\ndef\nxyz"
 matches = [[3, 3], [7, 7], [11, 11]]
 
-[[tests]]
+[[test]]
 name = "basic5"
 regex = '(?m)^[a-z]'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 1], [4, 5], [8, 9]]
 
-[[tests]]
+[[test]]
 name = "basic6"
 regex = '(?m)[a-z]^'
 haystack = "abc\ndef\nxyz"
 matches = []
 
-[[tests]]
+[[test]]
 name = "basic7"
 regex = '(?m)[a-z]$'
 haystack = "abc\ndef\nxyz"
 matches = [[2, 3], [6, 7], [10, 11]]
 
-[[tests]]
+[[test]]
 name = "basic8"
 regex = '(?m)$[a-z]'
 haystack = "abc\ndef\nxyz"
 matches = []
 
-[[tests]]
+[[test]]
 name = "basic9"
 regex = '(?m)^$'
 haystack = ""
 matches = [[0, 0]]
 
-[[tests]]
+[[test]]
 name = "repeat1"
 regex = '(?m)(?:^$)*'
 haystack = "a\nb\nc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]
 
-[[tests]]
+[[test]]
 name = "repeat1-no-multi"
 regex = '(?:^$)*'
 haystack = "a\nb\nc"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5]]
 
-[[tests]]
+[[test]]
 name = "repeat2"
 regex = '(?m)(?:^|a)+'
 haystack = "a\naaa\n"
 matches = [[0, 0], [2, 2], [3, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "repeat100"
 regex = '(?m)(?:^|a)+'
 haystack = "a\naaa\n"
 matches = [[0, 0], [2, 2], [3, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "repeat2-no-multi"
 regex = '(?:^|a)+'
 haystack = "a\naaa\n"
 matches = [[0, 0], [2, 5]]
 
-[[tests]]
+[[test]]
 name = "repeat3"
 regex = '(?m)(?:^|a)*'
 haystack = "a\naaa\n"
 matches = [[0, 0], [1, 1], [2, 2], [3, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "repeat3-no-multi"
 regex = '(?:^|a)*'
 haystack = "a\naaa\n"
 matches = [[0, 0], [1, 1], [2, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "repeat4"
 regex = '(?m)(?:^|a+)'
 haystack = "a\naaa\n"
 matches = [[0, 0], [2, 2], [3, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "repeat4-no-multi"
 regex = '(?:^|a+)'
 haystack = "a\naaa\n"
 matches = [[0, 0], [2, 5]]
 
-[[tests]]
+[[test]]
 name = "repeat5"
 regex = '(?m)(?:^|a*)'
 haystack = "a\naaa\n"
 matches = [[0, 0], [1, 1], [2, 2], [3, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "repeat5-no-multi"
 regex = '(?:^|a*)'
 haystack = "a\naaa\n"
 matches = [[0, 0], [1, 1], [2, 5], [6, 6]]
 
-[[tests]]
+[[test]]
 name = "repeat6"
 regex = '(?m)(?:^[a-z])+'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 1], [4, 5], [8, 9]]
 
-[[tests]]
+[[test]]
 name = "repeat6-no-multi"
 regex = '(?:^[a-z])+'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 1]]
 
-[[tests]]
+[[test]]
 name = "repeat7"
 regex = '(?m)(?:^[a-z]{3}\n?)+'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 11]]
 
-[[tests]]
+[[test]]
 name = "repeat7-no-multi"
 regex = '(?:^[a-z]{3}\n?)+'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat8"
 regex = '(?m)(?:^[a-z]{3}\n?)*'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 11]]
 
-[[tests]]
+[[test]]
 name = "repeat8-no-multi"
 regex = '(?:^[a-z]{3}\n?)*'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 4], [5, 5], [6, 6], [7, 7], [8, 8], [9, 9], [10, 10], [11, 11]]
 
-[[tests]]
+[[test]]
 name = "repeat9"
 regex = '(?m)(?:\n?[a-z]{3}$)+'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 11]]
 
-[[tests]]
+[[test]]
 name = "repeat9-no-multi"
 regex = '(?:\n?[a-z]{3}$)+'
 haystack = "abc\ndef\nxyz"
 matches = [[7, 11]]
 
-[[tests]]
+[[test]]
 name = "repeat10"
 regex = '(?m)(?:\n?[a-z]{3}$)*'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 11]]
 
-[[tests]]
+[[test]]
 name = "repeat10-no-multi"
 regex = '(?:\n?[a-z]{3}$)*'
 haystack = "abc\ndef\nxyz"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6], [7, 11]]
 
-[[tests]]
+[[test]]
 name = "repeat11"
 regex = '(?m)^*'
 haystack = "\naa\n"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat11-no-multi"
 regex = '^*'
 haystack = "\naa\n"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat12"
 regex = '(?m)^+'
 haystack = "\naa\n"
 matches = [[0, 0], [1, 1], [4, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat12-no-multi"
 regex = '^+'
 haystack = "\naa\n"
 matches = [[0, 0]]
 
-[[tests]]
+[[test]]
 name = "repeat13"
 regex = '(?m)$*'
 haystack = "\naa\n"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat13-no-multi"
 regex = '$*'
 haystack = "\naa\n"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat14"
 regex = '(?m)$+'
 haystack = "\naa\n"
 matches = [[0, 0], [3, 3], [4, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat14-no-multi"
 regex = '$+'
 haystack = "\naa\n"
 matches = [[4, 4]]
 
-[[tests]]
+[[test]]
 name = "repeat15"
 regex = '(?m)(?:$\n)+'
 haystack = "\n\naaa\n\n"
 matches = [[0, 2], [5, 7]]
 
-[[tests]]
+[[test]]
 name = "repeat15-no-multi"
 regex = '(?:$\n)+'
 haystack = "\n\naaa\n\n"
 matches = []
 
-[[tests]]
+[[test]]
 name = "repeat16"
 regex = '(?m)(?:$\n)*'
 haystack = "\n\naaa\n\n"
 matches = [[0, 2], [3, 3], [4, 4], [5, 7]]
 
-[[tests]]
+[[test]]
 name = "repeat16-no-multi"
 regex = '(?:$\n)*'
 haystack = "\n\naaa\n\n"
 matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6], [7, 7]]
 
-[[tests]]
+[[test]]
 name = "repeat17"
 regex = '(?m)(?:$\n^)+'
 haystack = "\n\naaa\n\n"
 matches = [[0, 2], [5, 7]]
 
-[[tests]]
+[[test]]
 name = "repeat17-no-multi"
 regex = '(?:$\n^)+'
 haystack = "\n\naaa\n\n"
 matches = []
 
-[[tests]]
+[[test]]
 name = "repeat18"
 regex = '(?m)(?:^|$)+'
 haystack = "\n\naaa\n\n"
 matches = [[0, 0], [1, 1], [2, 2], [5, 5], [6, 6], [7, 7]]
 
-[[tests]]
+[[test]]
 name = "repeat18-no-multi"
 regex = '(?:^|$)+'
 haystack = "\n\naaa\n\n"
 matches = [[0, 0], [7, 7]]
 
-[[tests]]
+[[test]]
 name = "match-line-100"
 regex = '(?m)^.+$'
 haystack = "aa\naaaaaaaaaaaaaaaaaaa\n"
 matches = [[0, 2], [3, 22]]
 
-[[tests]]
+[[test]]
 name = "match-line-200"
 regex = '(?m)^.+$'
 haystack = "aa\naaaaaaaaaaaaaaaaaaa\n"

@@ -3,49 +3,49 @@
 # Numbers in the test names correspond to the line number of the test from
 # the original dat file.
 
-[[tests]]
+[[test]]
 name = "repetition10"
 regex = '''((..)|(.))'''
 haystack = ''''''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition11"
 regex = '''((..)|(.))((..)|(.))'''
 haystack = ''''''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition12"
 regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 haystack = ''''''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition14"
 regex = '''((..)|(.)){1}'''
 haystack = ''''''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition15"
 regex = '''((..)|(.)){2}'''
 haystack = ''''''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition16"
 regex = '''((..)|(.)){3}'''
 haystack = ''''''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition18"
 regex = '''((..)|(.))*'''
 haystack = ''''''
@@ -53,7 +53,7 @@ matches = [[[0, 0], [], [], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition20"
 regex = '''((..)|(.))'''
 haystack = '''a'''
@@ -61,21 +61,21 @@ matches = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition21"
 regex = '''((..)|(.))((..)|(.))'''
 haystack = '''a'''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition22"
 regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 haystack = '''a'''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition24"
 regex = '''((..)|(.)){1}'''
 haystack = '''a'''
@@ -83,21 +83,21 @@ matches = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition25"
 regex = '''((..)|(.)){2}'''
 haystack = '''a'''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition26"
 regex = '''((..)|(.)){3}'''
 haystack = '''a'''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition28"
 regex = '''((..)|(.))*'''
 haystack = '''a'''
@@ -105,7 +105,7 @@ matches = [[[0, 1], [0, 1], [], [0, 1]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition30"
 regex = '''((..)|(.))'''
 haystack = '''aa'''
@@ -113,7 +113,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition31"
 regex = '''((..)|(.))((..)|(.))'''
 haystack = '''aa'''
@@ -121,14 +121,14 @@ matches = [[[0, 2], [0, 1], [], [0, 1], [1, 2], [], [1, 2]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition32"
 regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 haystack = '''aa'''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition34"
 regex = '''((..)|(.)){1}'''
 haystack = '''aa'''
@@ -136,7 +136,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition35"
 regex = '''((..)|(.)){2}'''
 haystack = '''aa'''
@@ -144,14 +144,14 @@ matches = [[[0, 2], [1, 2], [], [1, 2]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition36"
 regex = '''((..)|(.)){3}'''
 haystack = '''aa'''
 matches = []
 match_limit = 1
 
-[[tests]]
+[[test]]
 name = "repetition38"
 regex = '''((..)|(.))*'''
 haystack = '''aa'''
@@ -159,7 +159,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition40"
 regex = '''((..)|(.))'''
 haystack = '''aaa'''
@@ -167,7 +167,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition41"
 regex = '''((..)|(.))((..)|(.))'''
 haystack = '''aaa'''
@@ -175,7 +175,7 @@ matches = [[[0, 3], [0, 2], [0, 2], [], [2, 3], [], [2, 3]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition42"
 regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 haystack = '''aaa'''
@@ -183,7 +183,7 @@ matches = [[[0, 3], [0, 1], [], [0, 1], [1, 2], [], [1, 2], [2, 3], [], [2, 3]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition44"
 regex = '''((..)|(.)){1}'''
 haystack = '''aaa'''
@@ -192,7 +192,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition46"
 regex = '''((..)|(.)){2}'''
 haystack = '''aaa'''
@@ -200,7 +200,7 @@ matches = [[[0, 3], [2, 3], [0, 2], [2, 3]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition47"
 regex = '''((..)|(.)){3}'''
 haystack = '''aaa'''
@@ -209,7 +209,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition50"
 regex = '''((..)|(.))*'''
 haystack = '''aaa'''
@@ -217,7 +217,7 @@ matches = [[[0, 3], [2, 3], [0, 2], [2, 3]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition52"
 regex = '''((..)|(.))'''
 haystack = '''aaaa'''
@@ -225,7 +225,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition53"
 regex = '''((..)|(.))((..)|(.))'''
 haystack = '''aaaa'''
@@ -233,7 +233,7 @@ matches = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition54"
 regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 haystack = '''aaaa'''
@@ -241,7 +241,7 @@ matches = [[[0, 4], [0, 2], [0, 2], [], [2, 3], [], [2, 3], [3, 4], [], [3, 4]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition56"
 regex = '''((..)|(.)){1}'''
 haystack = '''aaaa'''
@@ -249,7 +249,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition57"
 regex = '''((..)|(.)){2}'''
 haystack = '''aaaa'''
@@ -258,7 +258,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition59"
 regex = '''((..)|(.)){3}'''
 haystack = '''aaaa'''
@@ -266,7 +266,7 @@ matches = [[[0, 4], [3, 4], [0, 2], [3, 4]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition61"
 regex = '''((..)|(.))*'''
 haystack = '''aaaa'''
@@ -274,7 +274,7 @@ matches = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition63"
 regex = '''((..)|(.))'''
 haystack = '''aaaaa'''
@@ -282,7 +282,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition64"
 regex = '''((..)|(.))((..)|(.))'''
 haystack = '''aaaaa'''
@@ -290,7 +290,7 @@ matches = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition65"
 regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 haystack = '''aaaaa'''
@@ -298,7 +298,7 @@ matches = [[[0, 5], [0, 2], [0, 2], [], [2, 4], [2, 4], [], [4, 5], [], [4, 5]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition67"
 regex = '''((..)|(.)){1}'''
 haystack = '''aaaaa'''
@@ -306,7 +306,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition68"
 regex = '''((..)|(.)){2}'''
 haystack = '''aaaaa'''
@@ -315,7 +315,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition70"
 regex = '''((..)|(.)){3}'''
 haystack = '''aaaaa'''
@@ -324,7 +324,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition73"
 regex = '''((..)|(.))*'''
 haystack = '''aaaaa'''
@@ -332,7 +332,7 @@ matches = [[[0, 5], [4, 5], [2, 4], [4, 5]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition75"
 regex = '''((..)|(.))'''
 haystack = '''aaaaaa'''
@@ -340,7 +340,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition76"
 regex = '''((..)|(.))((..)|(.))'''
 haystack = '''aaaaaa'''
@@ -348,7 +348,7 @@ matches = [[[0, 4], [0, 2], [0, 2], [], [2, 4], [2, 4], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition77"
 regex = '''((..)|(.))((..)|(.))((..)|(.))'''
 haystack = '''aaaaaa'''
@@ -356,7 +356,7 @@ matches = [[[0, 6], [0, 2], [0, 2], [], [2, 4], [2, 4], [], [4, 6], [4, 6], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition79"
 regex = '''((..)|(.)){1}'''
 haystack = '''aaaaaa'''
@@ -364,7 +364,7 @@ matches = [[[0, 2], [0, 2], [0, 2], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition80"
 regex = '''((..)|(.)){2}'''
 haystack = '''aaaaaa'''
@@ -372,7 +372,7 @@ matches = [[[0, 4], [2, 4], [2, 4], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition81"
 regex = '''((..)|(.)){3}'''
 haystack = '''aaaaaa'''
@@ -380,7 +380,7 @@ matches = [[[0, 6], [4, 6], [4, 6], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition83"
 regex = '''((..)|(.))*'''
 haystack = '''aaaaaa'''
@@ -388,7 +388,7 @@ matches = [[[0, 6], [4, 6], [4, 6], []]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive90"
 regex = '''X(.?){0,}Y'''
 haystack = '''X1234567Y'''
@@ -396,7 +396,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive91"
 regex = '''X(.?){1,}Y'''
 haystack = '''X1234567Y'''
@@ -404,7 +404,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive92"
 regex = '''X(.?){2,}Y'''
 haystack = '''X1234567Y'''
@@ -412,7 +412,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive93"
 regex = '''X(.?){3,}Y'''
 haystack = '''X1234567Y'''
@@ -420,7 +420,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive94"
 regex = '''X(.?){4,}Y'''
 haystack = '''X1234567Y'''
@@ -428,7 +428,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive95"
 regex = '''X(.?){5,}Y'''
 haystack = '''X1234567Y'''
@@ -436,7 +436,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive96"
 regex = '''X(.?){6,}Y'''
 haystack = '''X1234567Y'''
@@ -444,7 +444,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive97"
 regex = '''X(.?){7,}Y'''
 haystack = '''X1234567Y'''
@@ -452,7 +452,7 @@ matches = [[[0, 9], [7, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive98"
 regex = '''X(.?){8,}Y'''
 haystack = '''X1234567Y'''
@@ -461,7 +461,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive100"
 regex = '''X(.?){0,8}Y'''
 haystack = '''X1234567Y'''
@@ -470,7 +470,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive102"
 regex = '''X(.?){1,8}Y'''
 haystack = '''X1234567Y'''
@@ -479,7 +479,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive104"
 regex = '''X(.?){2,8}Y'''
 haystack = '''X1234567Y'''
@@ -488,7 +488,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive106"
 regex = '''X(.?){3,8}Y'''
 haystack = '''X1234567Y'''
@@ -497,7 +497,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive108"
 regex = '''X(.?){4,8}Y'''
 haystack = '''X1234567Y'''
@@ -506,7 +506,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive110"
 regex = '''X(.?){5,8}Y'''
 haystack = '''X1234567Y'''
@@ -515,7 +515,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive112"
 regex = '''X(.?){6,8}Y'''
 haystack = '''X1234567Y'''
@@ -524,7 +524,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive114"
 regex = '''X(.?){7,8}Y'''
 haystack = '''X1234567Y'''
@@ -532,7 +532,7 @@ matches = [[[0, 9], [8, 8]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive115"
 regex = '''X(.?){8,8}Y'''
 haystack = '''X1234567Y'''
@@ -541,7 +541,7 @@ match_limit = 1
 anchored = true
 
 # Test added by Rust regex project.
-[[tests]]
+[[test]]
 name = "repetition-expensive127"
 regex = '''(a|ab|c|bcd){0,}(d*)'''
 haystack = '''ababcd'''
@@ -550,7 +550,7 @@ match_limit = 1
 anchored = true
 
 # Test added by Rust regex project.
-[[tests]]
+[[test]]
 name = "repetition-expensive129"
 regex = '''(a|ab|c|bcd){1,}(d*)'''
 haystack = '''ababcd'''
@@ -558,7 +558,7 @@ matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive130"
 regex = '''(a|ab|c|bcd){2,}(d*)'''
 haystack = '''ababcd'''
@@ -566,7 +566,7 @@ matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive131"
 regex = '''(a|ab|c|bcd){3,}(d*)'''
 haystack = '''ababcd'''
@@ -574,7 +574,7 @@ matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive132"
 regex = '''(a|ab|c|bcd){4,}(d*)'''
 haystack = '''ababcd'''
@@ -582,7 +582,7 @@ matches = []
 match_limit = 1
 
 # Test added by Rust regex project.
-[[tests]]
+[[test]]
 name = "repetition-expensive134"
 regex = '''(a|ab|c|bcd){0,10}(d*)'''
 haystack = '''ababcd'''
@@ -591,7 +591,7 @@ match_limit = 1
 anchored = true
 
 # Test added by Rust regex project.
-[[tests]]
+[[test]]
 name = "repetition-expensive136"
 regex = '''(a|ab|c|bcd){1,10}(d*)'''
 haystack = '''ababcd'''
@@ -599,7 +599,7 @@ matches = [[[0, 1], [0, 1], [1, 1]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive137"
 regex = '''(a|ab|c|bcd){2,10}(d*)'''
 haystack = '''ababcd'''
@@ -607,7 +607,7 @@ matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive138"
 regex = '''(a|ab|c|bcd){3,10}(d*)'''
 haystack = '''ababcd'''
@@ -615,7 +615,7 @@ matches = [[[0, 6], [3, 6], [6, 6]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive139"
 regex = '''(a|ab|c|bcd){4,10}(d*)'''
 haystack = '''ababcd'''
@@ -623,7 +623,7 @@ matches = []
 match_limit = 1
 
 # Test added by Rust regex project.
-[[tests]]
+[[test]]
 name = "repetition-expensive141"
 regex = '''(a|ab|c|bcd)*(d*)'''
 haystack = '''ababcd'''
@@ -632,7 +632,7 @@ match_limit = 1
 anchored = true
 
 # Test added by Rust regex project.
-[[tests]]
+[[test]]
 name = "repetition-expensive143"
 regex = '''(a|ab|c|bcd)+(d*)'''
 haystack = '''ababcd'''
@@ -641,7 +641,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive149"
 regex = '''(ab|a|c|bcd){0,}(d*)'''
 haystack = '''ababcd'''
@@ -650,7 +650,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive151"
 regex = '''(ab|a|c|bcd){1,}(d*)'''
 haystack = '''ababcd'''
@@ -659,7 +659,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive153"
 regex = '''(ab|a|c|bcd){2,}(d*)'''
 haystack = '''ababcd'''
@@ -668,7 +668,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive155"
 regex = '''(ab|a|c|bcd){3,}(d*)'''
 haystack = '''ababcd'''
@@ -676,7 +676,7 @@ matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive156"
 regex = '''(ab|a|c|bcd){4,}(d*)'''
 haystack = '''ababcd'''
@@ -684,7 +684,7 @@ matches = []
 match_limit = 1
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive158"
 regex = '''(ab|a|c|bcd){0,10}(d*)'''
 haystack = '''ababcd'''
@@ -693,7 +693,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive160"
 regex = '''(ab|a|c|bcd){1,10}(d*)'''
 haystack = '''ababcd'''
@@ -702,7 +702,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive162"
 regex = '''(ab|a|c|bcd){2,10}(d*)'''
 haystack = '''ababcd'''
@@ -711,7 +711,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive164"
 regex = '''(ab|a|c|bcd){3,10}(d*)'''
 haystack = '''ababcd'''
@@ -719,7 +719,7 @@ matches = [[[0, 6], [4, 5], [5, 6]]]
 match_limit = 1
 anchored = true
 
-[[tests]]
+[[test]]
 name = "repetition-expensive165"
 regex = '''(ab|a|c|bcd){4,10}(d*)'''
 haystack = '''ababcd'''
@@ -727,7 +727,7 @@ matches = []
 match_limit = 1
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive167"
 regex = '''(ab|a|c|bcd)*(d*)'''
 haystack = '''ababcd'''
@@ -736,7 +736,7 @@ match_limit = 1
 anchored = true
 
 # Test added by RE2/Go project.
-[[tests]]
+[[test]]
 name = "repetition-expensive169"
 regex = '''(ab|a|c|bcd)+(d*)'''
 haystack = '''ababcd'''

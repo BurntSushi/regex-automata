@@ -1,4 +1,4 @@
-[[tests]]
+[[test]]
 name = "alt"
 regex = 'foo|foobar'
 haystack = "foobar"
@@ -6,7 +6,7 @@ matches = [[0, 6]]
 match_kind = "all"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "multi"
 regex = ['foo', 'foobar']
 haystack = "foobar"
@@ -16,7 +16,7 @@ matches = [
 match_kind = "all"
 search_kind = "leftmost"
 
-[[tests]]
+[[test]]
 name = "dotall"
 regex = '(?s:.)'
 haystack = "foobar"

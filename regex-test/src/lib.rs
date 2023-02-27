@@ -22,6 +22,7 @@ const ENV_REGEX_TEST_VERBOSE: &str = "REGEX_TEST_VERBOSE";
 /// A collection of regex tests.
 #[derive(Clone, Debug, Deserialize)]
 pub struct RegexTests {
+    #[serde(rename = "test")]
     tests: Vec<RegexTest>,
     #[serde(skip)]
     seen: HashSet<String>,
