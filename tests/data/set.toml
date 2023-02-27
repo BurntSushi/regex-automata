@@ -2,7 +2,7 @@
 
 [[tests]]
 name = "basic10"
-regexes = ["a", "a"]
+regex = ["a", "a"]
 haystack = "a"
 matches = [
   { id = 0, span = [0, 1] },
@@ -13,7 +13,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic10-leftmost-first"
-regexes = ["a", "a"]
+regex = ["a", "a"]
 haystack = "a"
 matches = [
   { id = 0, span = [0, 1] },
@@ -23,7 +23,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "basic20"
-regexes = ["a", "a"]
+regex = ["a", "a"]
 haystack = "ba"
 matches = [
   { id = 0, span = [1, 2] },
@@ -34,7 +34,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic30"
-regexes = ["a", "b"]
+regex = ["a", "b"]
 haystack = "a"
 matches = [
   { id = 0, span = [0, 1] },
@@ -44,7 +44,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic40"
-regexes = ["a", "b"]
+regex = ["a", "b"]
 haystack = "b"
 matches = [
   { id = 1, span = [0, 1] },
@@ -54,7 +54,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic50"
-regexes = ["a|b", "b|a"]
+regex = ["a|b", "b|a"]
 haystack = "b"
 matches = [
   { id = 0, span = [0, 1] },
@@ -65,7 +65,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic60"
-regexes = ["foo", "oo"]
+regex = ["foo", "oo"]
 haystack = "foo"
 matches = [
   { id = 0, span = [0, 3] },
@@ -76,7 +76,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic60-leftmost-first"
-regexes = ["foo", "oo"]
+regex = ["foo", "oo"]
 haystack = "foo"
 matches = [
   { id = 0, span = [0, 3] },
@@ -86,7 +86,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "basic61"
-regexes = ["oo", "foo"]
+regex = ["oo", "foo"]
 haystack = "foo"
 matches = [
   { id = 1, span = [0, 3] },
@@ -97,7 +97,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic61-leftmost-first"
-regexes = ["oo", "foo"]
+regex = ["oo", "foo"]
 haystack = "foo"
 matches = [
   { id = 1, span = [0, 3] },
@@ -107,7 +107,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "basic70"
-regexes = ["abcd", "bcd", "cd", "d"]
+regex = ["abcd", "bcd", "cd", "d"]
 haystack = "abcd"
 matches = [
   { id = 0, span = [0, 4] },
@@ -120,7 +120,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic71"
-regexes = ["bcd", "cd", "d", "abcd"]
+regex = ["bcd", "cd", "d", "abcd"]
 haystack = "abcd"
 matches = [
   { id = 3, span = [0, 4] },
@@ -130,7 +130,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "basic80"
-regexes = ["^foo", "bar$"]
+regex = ["^foo", "bar$"]
 haystack = "foo"
 matches = [
   { id = 0, span = [0, 3] },
@@ -140,7 +140,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic81"
-regexes = ["^foo", "bar$"]
+regex = ["^foo", "bar$"]
 haystack = "foo bar"
 matches = [
   { id = 0, span = [0, 3] },
@@ -151,7 +151,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic82"
-regexes = ["^foo", "bar$"]
+regex = ["^foo", "bar$"]
 haystack = "bar"
 matches = [
   { id = 1, span = [0, 3] },
@@ -161,7 +161,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic90"
-regexes = ["[a-z]+$", "foo"]
+regex = ["[a-z]+$", "foo"]
 haystack = "01234 foo"
 matches = [
   { id = 0, span = [8, 9] },
@@ -174,7 +174,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic91"
-regexes = ["[a-z]+$", "foo"]
+regex = ["[a-z]+$", "foo"]
 haystack = "foo 01234"
 matches = [
   { id = 1, span = [0, 3] },
@@ -184,7 +184,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic100"
-regexes = [".*?", "a"]
+regex = [".*?", "a"]
 haystack = "zzza"
 matches = [
   { id = 0, span = [0, 0] },
@@ -209,7 +209,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic101"
-regexes = [".*", "a"]
+regex = [".*", "a"]
 haystack = "zzza"
 matches = [
   { id = 0, span = [0, 0] },
@@ -234,7 +234,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic102"
-regexes = [".*", "a"]
+regex = [".*", "a"]
 haystack = "zzz"
 matches = [
   { id = 0, span = [0, 0] },
@@ -253,7 +253,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic110"
-regexes = ['\ba\b']
+regex = ['\ba\b']
 haystack = "hello a bye"
 matches = [
   { id = 0, span = [6, 7] },
@@ -263,7 +263,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic111"
-regexes = ['\ba\b', '\be\b']
+regex = ['\ba\b', '\be\b']
 haystack = "hello a bye e"
 matches = [
   { id = 0, span = [6, 7] },
@@ -274,7 +274,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic120"
-regexes = ["a"]
+regex = ["a"]
 haystack = "a"
 matches = [
   { id = 0, span = [0, 1] },
@@ -284,7 +284,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic121"
-regexes = [".*a"]
+regex = [".*a"]
 haystack = "a"
 matches = [
   { id = 0, span = [0, 1] },
@@ -294,7 +294,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic122"
-regexes = [".*a", "β"]
+regex = [".*a", "β"]
 haystack = "β"
 matches = [
   { id = 1, span = [0, 2] },
@@ -304,7 +304,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "basic130"
-regexes = ["ab", "b"]
+regex = ["ab", "b"]
 haystack = "ba"
 matches = [
   { id = 1, span = [0, 1] },
@@ -316,7 +316,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty10"
-regexes = ["", "a"]
+regex = ["", "a"]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 0] },
@@ -330,7 +330,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty10-leftmost-first"
-regexes = ["", "a"]
+regex = ["", "a"]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 0] },
@@ -343,7 +343,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "empty11"
-regexes = ["a", ""]
+regex = ["a", ""]
 haystack = "abc"
 matches = [
   { id = 1, span = [0, 0] },
@@ -357,7 +357,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty11-leftmost-first"
-regexes = ["a", ""]
+regex = ["a", ""]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 1] },
@@ -369,7 +369,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "empty20"
-regexes = ["", "b"]
+regex = ["", "b"]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 0] },
@@ -383,7 +383,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty20-leftmost-first"
-regexes = ["", "b"]
+regex = ["", "b"]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 0] },
@@ -396,7 +396,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "empty21"
-regexes = ["b", ""]
+regex = ["b", ""]
 haystack = "abc"
 matches = [
   { id = 1, span = [0, 0] },
@@ -410,7 +410,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty21-leftmost-first"
-regexes = ["b", ""]
+regex = ["b", ""]
 haystack = "abc"
 matches = [
   { id = 1, span = [0, 0] },
@@ -422,7 +422,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "empty22"
-regexes = ["(?:)", "b"]
+regex = ["(?:)", "b"]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 0] },
@@ -436,7 +436,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty23"
-regexes = ["b", "(?:)"]
+regex = ["b", "(?:)"]
 haystack = "abc"
 matches = [
   { id = 1, span = [0, 0] },
@@ -450,7 +450,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty30"
-regexes = ["", "z"]
+regex = ["", "z"]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 0] },
@@ -463,7 +463,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty30-leftmost-first"
-regexes = ["", "z"]
+regex = ["", "z"]
 haystack = "abc"
 matches = [
   { id = 0, span = [0, 0] },
@@ -476,7 +476,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "empty31"
-regexes = ["z", ""]
+regex = ["z", ""]
 haystack = "abc"
 matches = [
   { id = 1, span = [0, 0] },
@@ -489,7 +489,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty31-leftmost-first"
-regexes = ["z", ""]
+regex = ["z", ""]
 haystack = "abc"
 matches = [
   { id = 1, span = [0, 0] },
@@ -502,7 +502,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "empty40"
-regexes = ["c(?:)", "b"]
+regex = ["c(?:)", "b"]
 haystack = "abc"
 matches = [
   { id = 1, span = [1, 2] },
@@ -513,7 +513,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "empty40-leftmost-first"
-regexes = ["c(?:)", "b"]
+regex = ["c(?:)", "b"]
 haystack = "abc"
 matches = [
   { id = 1, span = [1, 2] },
@@ -526,7 +526,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "nomatch10"
-regexes = ["a", "a"]
+regex = ["a", "a"]
 haystack = "b"
 matches = []
 match_kind = "all"
@@ -534,7 +534,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "nomatch20"
-regexes = ["^foo", "bar$"]
+regex = ["^foo", "bar$"]
 haystack = "bar foo"
 matches = []
 match_kind = "all"
@@ -542,7 +542,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "nomatch30"
-regexes = []
+regex = []
 haystack = "a"
 matches = []
 match_kind = "all"
@@ -550,7 +550,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "nomatch40"
-regexes = ["^rooted$", '\.log$']
+regex = ["^rooted$", '\.log$']
 haystack = "notrooted"
 matches = []
 match_kind = "all"
@@ -566,7 +566,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "caps-010"
-regexes = ['^(\w+) (\w+)$', '^(\S+) (\S+)$']
+regex = ['^(\w+) (\w+)$', '^(\S+) (\S+)$']
 haystack = "Bruce Springsteen"
 matches = [
   { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
@@ -579,7 +579,7 @@ utf8 = false
 
 [[tests]]
 name = "caps-020"
-regexes = ['^(\w+) (\w+)$', '^[A-Z](\S+) [A-Z](\S+)$']
+regex = ['^(\w+) (\w+)$', '^[A-Z](\S+) [A-Z](\S+)$']
 haystack = "Bruce Springsteen"
 matches = [
   { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
@@ -592,7 +592,7 @@ utf8 = false
 
 [[tests]]
 name = "caps-030"
-regexes = ['^(\w+) (\w+)$', '^([A-Z])(\S+) ([A-Z])(\S+)$']
+regex = ['^(\w+) (\w+)$', '^([A-Z])(\S+) ([A-Z])(\S+)$']
 haystack = "Bruce Springsteen"
 matches = [
   { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
@@ -605,7 +605,7 @@ utf8 = false
 
 [[tests]]
 name = "caps-110"
-regexes = ['(\w+) (\w+)', '(\S+) (\S+)']
+regex = ['(\w+) (\w+)', '(\S+) (\S+)']
 haystack = "Bruce Springsteen"
 matches = [
   { id = 0, spans = [[0, 17], [0, 5], [6, 17]] },
@@ -617,7 +617,7 @@ utf8 = false
 
 [[tests]]
 name = "caps-120"
-regexes = ['(\w+) (\w+)', '(\S+) (\S+)']
+regex = ['(\w+) (\w+)', '(\S+) (\S+)']
 haystack = "&ruce $pringsteen"
 matches = [
   { id = 1, spans = [[0, 17], [0, 5], [6, 17]] },
@@ -629,7 +629,7 @@ utf8 = false
 
 [[tests]]
 name = "caps-121"
-regexes = ['(\w+) (\w+)', '(\S+) (\S+)']
+regex = ['(\w+) (\w+)', '(\S+) (\S+)']
 haystack = "&ruce $pringsteen Foo Bar"
 matches = [
   { id = 1, spans = [[0, 17], [0, 5], [6, 17]] },

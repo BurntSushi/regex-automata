@@ -8,7 +8,7 @@ search_kind = "leftmost"
 
 [[tests]]
 name = "multi"
-regexes = ['foo', 'foobar']
+regex = ['foo', 'foobar']
 haystack = "foobar"
 matches = [
   { id = 1, span = [0, 6] },

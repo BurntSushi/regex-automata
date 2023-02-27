@@ -9,7 +9,7 @@
 # regex reports a match for every substring in the haystack.
 [[tests]]
 name = "ungreedy-dotstar-matches-everything-100"
-regexes = [".*?"]
+regex = [".*?"]
 haystack = "zzz"
 matches = [
   { id = 0, span = [0, 0] },
@@ -28,7 +28,7 @@ search_kind = "overlapping"
 
 [[tests]]
 name = "greedy-dotstar-matches-everything-100"
-regexes = [".*"]
+regex = [".*"]
 haystack = "zzz"
 matches = [
   { id = 0, span = [0, 0] },
@@ -270,7 +270,7 @@ unescape = true
 
 [[tests]]
 name = "scratch"
-regexes = ['sam', 'samwise']
+regex = ['sam', 'samwise']
 haystack = "samwise"
 matches = [
   { id = 0, span = [0, 3] },
