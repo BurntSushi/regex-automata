@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::{
     collections::HashSet,
     fs::File,

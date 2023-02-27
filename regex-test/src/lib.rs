@@ -87,6 +87,8 @@ See [`MatchKind`] for more details. This is an optional field and defaults to
 `leftmost`.
 */
 
+#![deny(missing_docs)]
+
 /// For convenience, `anyhow::Error` is used to represents errors in this
 /// crate.
 ///
@@ -1478,11 +1480,11 @@ mod tests {
     #[test]
     fn err_no_regexes() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 haystack = "lib.rs"
 matches = true
-case_insensitive = true
+case-insensitive = true
 "#;
 
         let mut tests = RegexTests::new();
@@ -1492,7 +1494,7 @@ case_insensitive = true
     #[test]
     fn err_unknown_field() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1507,7 +1509,7 @@ something = 0
     #[test]
     fn err_no_matches() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1520,14 +1522,14 @@ haystack = "lib.rs"
     #[test]
     fn load_match() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
 matches = [[0, 6]]
 compiles = false
 anchored = true
-case_insensitive = true
+case-insensitive = true
 unicode = false
 utf8 = false
 "#;
@@ -1553,9 +1555,9 @@ utf8 = false
     #[test]
     fn load_which_matches() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
-regexes = [".*.rs", ".*.toml"]
+regex = [".*.rs", ".*.toml"]
 haystack = "lib.rs"
 matches = [
     { id = 0, spans = [[0, 0]] },
@@ -1582,7 +1584,7 @@ matches = [
     #[test]
     fn load_spans() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1617,7 +1619,7 @@ matches = [[0, 2], [5, 10]]
     #[test]
     fn load_capture_spans() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1671,7 +1673,7 @@ matches = [
     #[test]
     fn fail_spans_empty1() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1687,7 +1689,7 @@ matches = [
     #[test]
     fn fail_spans_empty2() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1703,7 +1705,7 @@ matches = [
     #[test]
     fn fail_spans_empty3() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1719,7 +1721,7 @@ matches = [
     #[test]
     fn fail_captures_empty1() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1735,7 +1737,7 @@ matches = [
     #[test]
     fn fail_captures_empty2() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
@@ -1751,7 +1753,7 @@ matches = [
     #[test]
     fn fail_captures_empty3() {
         let data = r#"
-[[tests]]
+[[test]]
 name = "foo"
 regex = ".*.rs"
 haystack = "lib.rs"
