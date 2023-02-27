@@ -1,14 +1,18 @@
-use regex_automata::{
-    nfa::thompson::{
-        self,
-        backtrack::{self, BoundedBacktracker},
-        NFA,
+use {
+    regex_automata::{
+        nfa::thompson::{
+            self,
+            backtrack::{self, BoundedBacktracker},
+            NFA,
+        },
+        util::{prefilter::Prefilter, syntax},
+        Input,
     },
-    util::{prefilter::Prefilter, syntax},
-    Input, MatchKind,
+    regex_test::{
+        CompiledRegex, Match, MatchKind, RegexTest, SearchKind, Span,
+        TestResult, TestRunner,
+    },
 };
-
-use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, Result};
 
@@ -42,7 +46,10 @@ fn prefilter() -> Result<()> {
         }
         // We can always select leftmost-first here because the backtracker
         // only supports leftmost-first matching.
-        let pre = Prefilter::from_hirs(MatchKind::LeftmostFirst, &hirs);
+        let pre = Prefilter::from_hirs(
+            regex_automata::MatchKind::LeftmostFirst,
+            &hirs,
+        );
         let mut builder = BoundedBacktracker::builder();
         builder.configure(BoundedBacktracker::config().prefilter(pre));
         compiler(builder)(test, regexes)
@@ -112,33 +119,33 @@ fn run_test(
     let input = create_input(test);
     match test.additional_name() {
         "is_match" => match test.search_kind() {
-            ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {
+            SearchKind::Earliest | SearchKind::Overlapping => {
                 TestResult::skip()
             }
-            ret::SearchKind::Leftmost => {
+            SearchKind::Leftmost => {
                 let input = input.earliest(true);
                 TestResult::matched(re.try_is_match(cache, input).unwrap())
             }
         },
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {
+            SearchKind::Earliest | SearchKind::Overlapping => {
                 TestResult::skip()
             }
-            ret::SearchKind::Leftmost => TestResult::matches(
+            SearchKind::Leftmost => TestResult::matches(
                 re.try_find_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|result| result.unwrap())
-                    .map(|m| ret::Match {
+                    .map(|m| Match {
                         id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
+                        span: Span { start: m.start(), end: m.end() },
                     }),
             ),
         },
         "captures" => match test.search_kind() {
-            ret::SearchKind::Earliest | ret::SearchKind::Overlapping => {
+            SearchKind::Earliest | SearchKind::Overlapping => {
                 TestResult::skip()
             }
-            ret::SearchKind::Leftmost => TestResult::captures(
+            SearchKind::Leftmost => TestResult::captures(
                 re.try_captures_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|result| result.unwrap())
@@ -161,9 +168,9 @@ fn configure_backtrack_builder(
     match (test.search_kind(), test.match_kind()) {
         // For testing the standard search APIs. This is the only supported
         // configuration for the backtracker.
-        (ret::SearchKind::Leftmost, ret::MatchKind::LeftmostFirst) => {}
+        (SearchKind::Leftmost, MatchKind::LeftmostFirst) => {}
         // Overlapping APIs not supported at all for backtracker.
-        (ret::SearchKind::Overlapping, _) => return false,
+        (SearchKind::Overlapping, _) => return false,
         // Backtracking doesn't really support the notion of 'earliest'.
         // Namely, backtracking already works by returning as soon as it knows
         // it has found a match. It just so happens that this corresponds to
@@ -174,11 +181,11 @@ fn configure_backtrack_builder(
         // for the earliest position at which a match is known, which our
         // finite automata based regex engines have no problem providing. So
         // for backtracking, we just skip these tests.
-        (ret::SearchKind::Earliest, _) => return false,
+        (SearchKind::Earliest, _) => return false,
         // For backtracking, 'all' semantics don't really make sense.
-        (_, ret::MatchKind::All) => return false,
+        (_, MatchKind::All) => return false,
         // Not supported at all in regex-automata.
-        (_, ret::MatchKind::LeftmostLongest) => return false,
+        (_, MatchKind::LeftmostLongest) => return false,
     };
     let backtrack_config = BoundedBacktracker::config();
     builder

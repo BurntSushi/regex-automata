@@ -1,10 +1,14 @@
-use regex_automata::{
-    dfa::onepass::{self, DFA},
-    nfa::thompson,
-    util::{iter, syntax},
+use {
+    regex_automata::{
+        dfa::onepass::{self, DFA},
+        nfa::thompson,
+        util::{iter, syntax},
+    },
+    regex_test::{
+        CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+        TestRunner,
+    },
 };
-
-use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, untestify_kind, Result};
 
@@ -98,9 +102,9 @@ fn run_test(
             TestResult::matched(re.is_match(cache, input.earliest(true)))
         }
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
-                let input = input
-                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
+            SearchKind::Earliest | SearchKind::Leftmost => {
+                let input =
+                    input.earliest(test.search_kind() == SearchKind::Earliest);
                 let mut caps = re.create_captures();
                 let it = iter::Searcher::new(input)
                     .into_matches_iter(|input| {
@@ -109,13 +113,13 @@ fn run_test(
                     })
                     .infallible()
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
+                    .map(|m| Match {
                         id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
+                        span: Span { start: m.start(), end: m.end() },
                     });
                 TestResult::matches(it)
             }
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 // The one-pass DFA does not support any kind of overlapping
                 // search. This is not just a matter of not having the API.
                 // It's fundamentally incompatible with the one-pass concept.
@@ -125,9 +129,9 @@ fn run_test(
             }
         },
         "captures" => match test.search_kind() {
-            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
-                let input = input
-                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
+            SearchKind::Earliest | SearchKind::Leftmost => {
+                let input =
+                    input.earliest(test.search_kind() == SearchKind::Earliest);
                 let it = iter::Searcher::new(input)
                     .into_captures_iter(re.create_captures(), |input, caps| {
                         re.try_search(cache, input, caps)
@@ -137,7 +141,7 @@ fn run_test(
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 // The one-pass DFA does not support any kind of overlapping
                 // search. This is not just a matter of not having the API.
                 // It's fundamentally incompatible with the one-pass concept.

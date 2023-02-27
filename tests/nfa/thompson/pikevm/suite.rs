@@ -1,13 +1,17 @@
-use regex_automata::{
-    nfa::thompson::{
-        self,
-        pikevm::{self, PikeVM},
+use {
+    regex_automata::{
+        nfa::thompson::{
+            self,
+            pikevm::{self, PikeVM},
+        },
+        util::{prefilter::Prefilter, syntax},
+        PatternSet,
     },
-    util::{prefilter::Prefilter, syntax},
-    PatternSet,
+    regex_test::{
+        CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+        TestRunner,
+    },
 };
-
-use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, untestify_kind, Result};
 
@@ -69,27 +73,27 @@ fn run_test(
     match test.additional_name() {
         "is_match" => TestResult::matched(re.is_match(cache, input)),
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest => {
+            SearchKind::Earliest => {
                 let it = re
                     .find_iter(cache, input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
+                    .map(|m| Match {
                         id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
+                        span: Span { start: m.start(), end: m.end() },
                     });
                 TestResult::matches(it)
             }
-            ret::SearchKind::Leftmost => {
+            SearchKind::Leftmost => {
                 let it = re
                     .find_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
+                    .map(|m| Match {
                         id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
+                        span: Span { start: m.start(), end: m.end() },
                     });
                 TestResult::matches(it)
             }
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.get_nfa().pattern_len());
                 re.try_which_overlapping_matches(cache, &input, &mut patset)
                     .unwrap();
@@ -97,21 +101,21 @@ fn run_test(
             }
         },
         "captures" => match test.search_kind() {
-            ret::SearchKind::Earliest => {
+            SearchKind::Earliest => {
                 let it = re
                     .captures_iter(cache, input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
-            ret::SearchKind::Leftmost => {
+            SearchKind::Leftmost => {
                 let it = re
                     .captures_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 // There is no overlapping PikeVM API that supports captures.
                 TestResult::skip()
             }

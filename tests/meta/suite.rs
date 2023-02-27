@@ -1,10 +1,14 @@
-use regex_automata::{
-    meta::{self, Regex},
-    util::syntax,
-    MatchKind, PatternSet,
+use {
+    regex_automata::{
+        meta::{self, Regex},
+        util::syntax,
+        MatchKind, PatternSet,
+    },
+    regex_test::{
+        CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+        TestRunner,
+    },
 };
-
-use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, testify_captures, Result};
 
@@ -61,44 +65,44 @@ fn run_test(
     match test.additional_name() {
         "is_match" => TestResult::matched(re.is_match(cache, input)),
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest => TestResult::matches(
+            SearchKind::Earliest => TestResult::matches(
                 re.find_iter(cache, input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
+                    .map(|m| Match {
                         id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
+                        span: Span { start: m.start(), end: m.end() },
                     }),
             ),
-            ret::SearchKind::Leftmost => TestResult::matches(
+            SearchKind::Leftmost => TestResult::matches(
                 re.find_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
-                    .map(|m| ret::Match {
+                    .map(|m| Match {
                         id: m.pattern().as_usize(),
-                        span: ret::Span { start: m.start(), end: m.end() },
+                        span: Span { start: m.start(), end: m.end() },
                     }),
             ),
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.pattern_len());
                 re.which_overlapping_matches(cache, &input, &mut patset);
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
         "captures" => match test.search_kind() {
-            ret::SearchKind::Earliest => {
+            SearchKind::Earliest => {
                 let it = re
                     .captures_iter(cache, input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
-            ret::SearchKind::Leftmost => {
+            SearchKind::Leftmost => {
                 let it = re
                     .captures_iter(cache, input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 // There is no overlapping regex API that supports captures.
                 TestResult::skip()
             }
@@ -117,9 +121,9 @@ fn configure_meta_builder(
     builder: &mut meta::Builder,
 ) -> bool {
     let match_kind = match test.match_kind() {
-        ret::MatchKind::All => MatchKind::All,
-        ret::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
-        ret::MatchKind::LeftmostLongest => return false,
+        regex_test::MatchKind::All => MatchKind::All,
+        regex_test::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
+        regex_test::MatchKind::LeftmostLongest => return false,
     };
     let meta_config = Regex::config().match_kind(match_kind).utf8(test.utf8());
     builder.configure(meta_config).syntax(config_syntax(test));

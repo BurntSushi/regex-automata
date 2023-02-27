@@ -1,14 +1,18 @@
-use regex_automata::{
-    hybrid::{
-        dfa::{OverlappingState, DFA},
-        regex::{self, Regex},
+use {
+    regex_automata::{
+        hybrid::{
+            dfa::{OverlappingState, DFA},
+            regex::{self, Regex},
+        },
+        nfa::thompson,
+        util::{prefilter::Prefilter, syntax},
+        Anchored, Input, PatternSet,
     },
-    nfa::thompson,
-    util::{prefilter::Prefilter, syntax},
-    Anchored, Input, PatternSet,
+    regex_test::{
+        CompiledRegex, Match, RegexTest, SearchKind, Span, TestResult,
+        TestRunner,
+    },
 };
-
-use ret::{CompiledRegex, RegexTest, TestResult, TestRunner};
 
 use crate::{create_input, suite, untestify_kind, Result};
 
@@ -183,28 +187,28 @@ fn run_test(
             TestResult::matched(re.is_match(cache, input.earliest(true)))
         }
         "find" => match test.search_kind() {
-            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
-                let input = input
-                    .earliest(test.search_kind() == ret::SearchKind::Earliest);
+            SearchKind::Earliest | SearchKind::Leftmost => {
+                let input =
+                    input.earliest(test.search_kind() == SearchKind::Earliest);
                 TestResult::matches(
                     re.find_iter(cache, input)
                         .take(test.match_limit().unwrap_or(std::usize::MAX))
-                        .map(|m| ret::Match {
+                        .map(|m| Match {
                             id: m.pattern().as_usize(),
-                            span: ret::Span { start: m.start(), end: m.end() },
+                            span: Span { start: m.start(), end: m.end() },
                         }),
                 )
             }
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 try_search_overlapping(re, cache, &input).unwrap()
             }
         },
         "which" => match test.search_kind() {
-            ret::SearchKind::Earliest | ret::SearchKind::Leftmost => {
+            SearchKind::Earliest | SearchKind::Leftmost => {
                 // There are no "which" APIs for standard searches.
                 TestResult::skip()
             }
-            ret::SearchKind::Overlapping => {
+            SearchKind::Overlapping => {
                 let dfa = re.forward();
                 let cache = cache.as_parts_mut().0;
                 let mut patset = PatternSet::new(dfa.pattern_len());
@@ -239,7 +243,7 @@ fn configure_regex_builder(
     // only way that API works is when anchored starting states are compiled
     // for each pattern. This does technically also enable it for the forward
     // DFA, but we're okay with that.
-    if test.search_kind() == ret::SearchKind::Overlapping {
+    if test.search_kind() == SearchKind::Overlapping {
         dfa_config = dfa_config.starts_for_each_pattern(true);
     }
     let thompson_config = thompson::Config::new().utf8(test.utf8());
@@ -312,8 +316,8 @@ fn try_search_overlapping(
             )?;
             rev_state.get_match()
         } {
-            let span = ret::Span { start: start.offset(), end: end.offset() };
-            let mat = ret::Match { id: end.pattern().as_usize(), span };
+            let span = Span { start: start.offset(), end: end.offset() };
+            let mat = Match { id: end.pattern().as_usize(), span };
             matches.push(mat);
         }
     }

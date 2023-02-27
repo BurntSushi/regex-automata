@@ -7,10 +7,10 @@ mod nfa;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[cfg(not(miri))]
-fn suite() -> Result<ret::RegexTests> {
+fn suite() -> Result<regex_test::RegexTests> {
     let _ = env_logger::try_init();
 
-    let mut tests = ret::RegexTests::new();
+    let mut tests = regex_test::RegexTests::new();
     macro_rules! load {
         ($name:expr) => {{
             const DATA: &[u8] =
@@ -47,7 +47,9 @@ fn suite() -> Result<ret::RegexTests> {
 
 /// Configure a regex_automata::Input with the given test configuration.
 #[cfg(not(miri))]
-fn create_input<'h>(test: &'h ret::RegexTest) -> regex_automata::Input<'h> {
+fn create_input<'h>(
+    test: &'h regex_test::RegexTest,
+) -> regex_automata::Input<'h> {
     use regex_automata::Anchored;
 
     let bounds = test.bounds();
@@ -64,25 +66,28 @@ fn create_input<'h>(test: &'h ret::RegexTest) -> regex_automata::Input<'h> {
 #[cfg(not(miri))]
 fn testify_captures(
     caps: &regex_automata::util::captures::Captures,
-) -> ret::Captures {
+) -> regex_test::Captures {
     assert!(caps.is_match(), "expected captures to represent a match");
-    let spans = caps
-        .iter()
-        .map(|group| group.map(|m| ret::Span { start: m.start, end: m.end }));
+    let spans = caps.iter().map(|group| {
+        group.map(|m| regex_test::Span { start: m.start, end: m.end })
+    });
     // These unwraps are OK because we assume our 'caps' represents a match,
     // and a match always gives a non-zero number of groups with the first
     // group being non-None.
-    ret::Captures::new(caps.pattern().unwrap().as_usize(), spans).unwrap()
+    regex_test::Captures::new(caps.pattern().unwrap().as_usize(), spans)
+        .unwrap()
 }
 
 /// Convert a test harness match kind to a regex-automata match kind. If
 /// regex-automata doesn't support the harness kind, then `None` is returned.
-fn untestify_kind(kind: ret::MatchKind) -> Option<regex_automata::MatchKind> {
+fn untestify_kind(
+    kind: regex_test::MatchKind,
+) -> Option<regex_automata::MatchKind> {
     match kind {
-        ret::MatchKind::All => Some(regex_automata::MatchKind::All),
-        ret::MatchKind::LeftmostFirst => {
+        regex_test::MatchKind::All => Some(regex_automata::MatchKind::All),
+        regex_test::MatchKind::LeftmostFirst => {
             Some(regex_automata::MatchKind::LeftmostFirst)
         }
-        ret::MatchKind::LeftmostLongest => None,
+        regex_test::MatchKind::LeftmostLongest => None,
     }
 }
