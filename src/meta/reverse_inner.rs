@@ -138,15 +138,15 @@ fn top_concat(mut hir: &Hir) -> Option<Vec<Hir>> {
             | HirKind::Look(_)
             | HirKind::Repetition(_)
             | HirKind::Alternation(_) => return None,
-            HirKind::Group(hir::Group { ref hir, .. }) => hir,
-            HirKind::Concat(ref hirs) => {
+            HirKind::Capture(hir::Capture { ref sub, .. }) => sub,
+            HirKind::Concat(ref subs) => {
                 // We are careful to only do the flattening/copy when we know
                 // we have a "top level" concat we can inspect. This avoids
                 // doing extra work in cases where we definitely won't use it.
                 // (This might still be wasted work if we can't go on to find
                 // some literals to extract.)
                 let concat =
-                    Hir::concat(hirs.iter().map(|h| flatten(h)).collect());
+                    Hir::concat(subs.iter().map(|h| flatten(h)).collect());
                 return match concat.into_kind() {
                     HirKind::Concat(xs) => Some(xs),
                     // It is actually possible for this case to occur, because
@@ -177,13 +177,13 @@ fn flatten(hir: &Hir) -> Hir {
                 min: x.min,
                 max: x.max,
                 greedy: x.greedy,
-                hir: Box::new(flatten(&x.hir)),
+                sub: Box::new(flatten(&x.sub)),
             };
             Hir::repetition(rep)
         }
         // This is the interesting case. We just drop the group information
         // entirely and use the child HIR itself.
-        HirKind::Group(hir::Group { ref hir, .. }) => flatten(hir),
+        HirKind::Capture(hir::Capture { ref sub, .. }) => flatten(sub),
         HirKind::Alternation(ref xs) => {
             Hir::alternation(xs.iter().map(|x| flatten(x)).collect())
         }

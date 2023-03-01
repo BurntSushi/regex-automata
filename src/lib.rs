@@ -78,14 +78,3 @@ pub mod meta;
 #[cfg(feature = "nfa-thompson")]
 pub mod nfa;
 pub mod util;
-
-/// The version of this crate.
-///
-/// The four elements correspond to the major, minor, patch and "pre"
-/// components of a semantic version.
-pub const VERSION: [&str; 4] = [
-    env!("CARGO_PKG_VERSION_MAJOR"),
-    env!("CARGO_PKG_VERSION_MINOR"),
-    env!("CARGO_PKG_VERSION_PATCH"),
-    env!("CARGO_PKG_VERSION_PRE"),
-];

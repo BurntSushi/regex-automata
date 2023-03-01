@@ -778,7 +778,7 @@ impl Compiler {
 
         let compiled = self.c_alt_iter(exprs.iter().map(|e| {
             let _ = self.start_pattern()?;
-            let one = self.c_group(0, None, e.borrow())?;
+            let one = self.c_cap(0, None, e.borrow())?;
             let match_state_id = self.add_match()?;
             self.patch(one.end, match_state_id)?;
             let _ = self.finish_pattern(one.start)?;
@@ -805,7 +805,7 @@ impl Compiler {
             Class(Class::Unicode(ref c)) => self.c_unicode_class(c),
             Look(ref look) => self.c_look(look),
             Repetition(ref rep) => self.c_repetition(rep),
-            Group(ref g) => self.c_group(g.index, g.name.as_deref(), &g.hir),
+            Capture(ref c) => self.c_cap(c.index, c.name.as_deref(), &c.sub),
             Concat(ref es) => self.c_concat(es.iter().map(|e| self.c(e))),
             Alternation(ref es) => self.c_alt_slice(es),
         }
@@ -909,15 +909,15 @@ impl Compiler {
         Ok(ThompsonRef { start: union, end })
     }
 
-    /// Compile the given group expression. `kind` should be the kind of group,
-    /// while `expr` should be the sub-expression contained inside the group.
-    /// If "capture" states are enabled, then they are added as appropriate.
+    /// Compile the given capture sub-expression. `expr` should be the
+    /// sub-expression contained inside the capture. If "capture" states are
+    /// enabled, then they are added as appropriate.
     ///
-    /// This accepts the pieces of a group instead of a `hir::Group` so that
-    /// it's easy to manufacture a "fake" group when necessary, e.g., for
+    /// This accepts the pieces of a capture instead of a `hir::Capture` so
+    /// that it's easy to manufacture a "fake" group when necessary, e.g., for
     /// adding the entire pattern as if it were a group in order to create
     /// appropriate "capture" states in the NFA.
-    fn c_group(
+    fn c_cap(
         &self,
         index: u32,
         name: Option<&str>,
@@ -942,10 +942,10 @@ impl Compiler {
         rep: &hir::Repetition,
     ) -> Result<ThompsonRef, BuildError> {
         match (rep.min, rep.max) {
-            (0, Some(1)) => self.c_zero_or_one(&rep.hir, rep.greedy),
-            (min, None) => self.c_at_least(&rep.hir, rep.greedy, min),
-            (min, Some(max)) if min == max => self.c_exactly(&rep.hir, min),
-            (min, Some(max)) => self.c_bounded(&rep.hir, rep.greedy, min, max),
+            (0, Some(1)) => self.c_zero_or_one(&rep.sub, rep.greedy),
+            (min, None) => self.c_at_least(&rep.sub, rep.greedy, min),
+            (min, Some(max)) if min == max => self.c_exactly(&rep.sub, min),
+            (min, Some(max)) => self.c_bounded(&rep.sub, rep.greedy, min, max),
         }
     }
 

@@ -168,6 +168,11 @@ impl<'h> Input<'h> {
     ///
     /// Note that [`Input::range`] overrides this method and vice versa.
     ///
+    /// # Panics
+    ///
+    /// This panics if the given span does not correspond to valid bounds in
+    /// the haystack or the termination of a search.
+    ///
     /// # Example
     ///
     /// This example shows how the span of the search can impact whether a
