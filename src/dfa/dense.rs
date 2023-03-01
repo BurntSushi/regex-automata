@@ -2777,7 +2777,7 @@ impl OwnedDFA {
     /// Universal start states occur precisely when the all patterns in the
     /// DFA have no look-around assertions in their prefix.
     fn set_universal_starts(&mut self) {
-        assert_eq!(4, Start::len(), "expected 4 start configurations");
+        assert_eq!(5, Start::len(), "expected 5 start configurations");
 
         let start_id = |dfa: &mut OwnedDFA, inp: &Input<'_>, start: Start| {
             // This OK because we only call 'start' under conditions
@@ -2792,7 +2792,8 @@ impl OwnedDFA {
             let sid = start_id(self, &inp, Start::NonWordByte);
             if sid == start_id(self, &inp, Start::WordByte)
                 && sid == start_id(self, &inp, Start::Text)
-                && sid == start_id(self, &inp, Start::Line)
+                && sid == start_id(self, &inp, Start::LineLF)
+                && sid == start_id(self, &inp, Start::LineCR)
             {
                 self.st.universal_start_unanchored = Some(sid);
             }
@@ -2802,7 +2803,8 @@ impl OwnedDFA {
             let sid = start_id(self, &inp, Start::NonWordByte);
             if sid == start_id(self, &inp, Start::WordByte)
                 && sid == start_id(self, &inp, Start::Text)
-                && sid == start_id(self, &inp, Start::Line)
+                && sid == start_id(self, &inp, Start::LineLF)
+                && sid == start_id(self, &inp, Start::LineCR)
             {
                 self.st.universal_start_anchored = Some(sid);
             }

@@ -2622,11 +2622,11 @@ impl Cache {
 struct Transition(u64);
 
 impl Transition {
-    const STATE_ID_BITS: u64 = 23;
+    const STATE_ID_BITS: u64 = 21;
     const STATE_ID_SHIFT: u64 = 64 - Transition::STATE_ID_BITS;
     const STATE_ID_LIMIT: u64 = 1 << Transition::STATE_ID_BITS;
     const MATCH_WINS_SHIFT: u64 = 64 - (Transition::STATE_ID_BITS + 1);
-    const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
+    const INFO_MASK: u64 = 0x000003FF_FFFFFFFF;
 
     /// Return a new transition to the given state ID with the given epsilons.
     fn new(match_wins: bool, sid: StateID, epsilons: Epsilons) -> Transition {
@@ -2709,14 +2709,14 @@ impl core::fmt::Debug for Transition {
 struct PatternEpsilons(u64);
 
 impl PatternEpsilons {
-    const PATTERN_ID_BITS: u64 = 24;
+    const PATTERN_ID_BITS: u64 = 22;
     const PATTERN_ID_SHIFT: u64 = 64 - PatternEpsilons::PATTERN_ID_BITS;
     // A sentinel value indicating that this is not a match state. We don't
     // use 0 since 0 is a valid pattern ID.
-    const PATTERN_ID_NONE: u64 = 0x00000000_00FFFFFF;
+    const PATTERN_ID_NONE: u64 = 0x00000000_003FFFFF;
     const PATTERN_ID_LIMIT: u64 = PatternEpsilons::PATTERN_ID_NONE;
-    const PATTERN_ID_MASK: u64 = 0xFFFFFF00_00000000;
-    const INFO_MASK: u64 = 0x000000FF_FFFFFFFF;
+    const PATTERN_ID_MASK: u64 = 0xFFFFFC00_00000000;
+    const EPSILONS_MASK: u64 = 0x000003FF_FFFFFFFF;
 
     /// Return a new empty pattern epsilons that has no pattern ID and has no
     /// epsilons. This is suitable for non-match states.
@@ -2760,13 +2760,13 @@ impl PatternEpsilons {
     fn set_pattern_id(self, pid: PatternID) -> PatternEpsilons {
         PatternEpsilons(
             (pid.as_u64() << PatternEpsilons::PATTERN_ID_SHIFT)
-                | (self.0 & PatternEpsilons::INFO_MASK),
+                | (self.0 & PatternEpsilons::EPSILONS_MASK),
         )
     }
 
     /// Return the epsilons part of this pattern epsilons.
     fn epsilons(self) -> Epsilons {
-        Epsilons(self.0 & PatternEpsilons::INFO_MASK)
+        Epsilons(self.0 & PatternEpsilons::EPSILONS_MASK)
     }
 
     /// Return a new pattern epsilons with the given epsilons, but the same
@@ -2799,7 +2799,7 @@ impl core::fmt::Debug for PatternEpsilons {
 
 /// Epsilons represents all of the NFA epsilons transitions that went into a
 /// single transition in a single DFA state. In this case, it only represents
-/// the epsilon transitions that have some kind of non-consumin side effect:
+/// the epsilon transitions that have some kind of non-consuming side effect:
 /// either the transition requires storing the current position of the search
 /// into a slot, or the transition is conditional and requires the current
 /// position in the input to satisfy an assertion before the transition may be
@@ -2810,16 +2810,16 @@ impl core::fmt::Debug for PatternEpsilons {
 /// can represent all possible conditional epsilon transitions, it only permits
 /// storing up to a somewhat small number of slots.
 ///
-/// Epsilons is represented as a 48-bit integer. For example, it is packed into
-/// the lower 48 bits of a `Transition`. (Where the high 24 bits contains a
-/// `StateID`.)
+/// Epsilons is represented as a 42-bit integer. For example, it is packed into
+/// the lower 42 bits of a `Transition`. (Where the high 22 bits contains a
+/// `StateID` and a special "match wins" property.)
 #[derive(Clone, Copy)]
 struct Epsilons(u64);
 
 impl Epsilons {
-    const SLOT_MASK: u64 = 0x000000FF_FFFFFF00;
-    const SLOT_SHIFT: u64 = 8;
-    const LOOK_MASK: u64 = 0x00000000_000000FF;
+    const SLOT_MASK: u64 = 0x000003FF_FFFFFC00;
+    const SLOT_SHIFT: u64 = 10;
+    const LOOK_MASK: u64 = 0x00000000_000003FF;
 
     /// Create a new empty epsilons. It has no slots and no assertions that
     /// need to be satisfied.
@@ -2847,7 +2847,7 @@ impl Epsilons {
 
     /// Return the set of look-around assertions in these epsilon transitions.
     fn looks(self) -> LookSet {
-        LookSet::from_repr(self.0.low_u8())
+        LookSet::from_repr((self.0 & Epsilons::LOOK_MASK).low_u16())
     }
 
     /// Set the look-around assertions on these epsilon transitions.

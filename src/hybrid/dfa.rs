@@ -3501,14 +3501,11 @@ impl Config {
     /// in a search that returns an error.
     ///
     /// It is important to note that the precise mechanics of how and when
-    /// a cache gets cleared is an implementation detail. Thus, the asserts
-    /// in the tests below with respect to the particular offsets at which a
-    /// search gave up should be viewed strictly as a demonstration. They are
-    /// not part of any API guarantees offered by this crate.
+    /// a cache gets cleared is an implementation detail.
     ///
     /// ```
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-    /// use regex_automata::{hybrid::dfa::DFA, Input, MatchError};
+    /// use regex_automata::{hybrid::dfa::DFA, Input, MatchError, MatchErrorKind};
     ///
     /// // This is a carefully chosen regex. The idea is to pick one
     /// // that requires some decent number of states (hence the bounded
@@ -3532,37 +3529,42 @@ impl Config {
     ///     .build(pattern)?;
     /// let mut cache = dfa.create_cache();
     ///
+    /// // Our search will give up before reaching the end!
     /// let haystack = "a".repeat(101).into_bytes();
-    /// assert_eq!(
-    ///     Err(MatchError::gave_up(26)),
-    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
-    /// );
+    /// let result = dfa.try_search_fwd(&mut cache, &Input::new(&haystack));
+    /// assert!(matches!(
+    ///     *result.unwrap_err().kind(),
+    ///     MatchErrorKind::GaveUp { .. },
+    /// ));
     ///
     /// // Now that we know the cache is full, if we search a haystack that we
     /// // know will require creating at least one new state, it should not
     /// // be able to make much progress.
     /// let haystack = "β".repeat(101).into_bytes();
-    /// assert_eq!(
-    ///     Err(MatchError::gave_up(2)),
-    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
-    /// );
+    /// let result = dfa.try_search_fwd(&mut cache, &Input::new(&haystack));
+    /// assert!(matches!(
+    ///     *result.unwrap_err().kind(),
+    ///     MatchErrorKind::GaveUp { .. },
+    /// ));
     ///
     /// // If we reset the cache, then we should be able to create more states
     /// // and make more progress with searching for betas.
     /// cache.reset(&dfa);
     /// let haystack = "β".repeat(101).into_bytes();
-    /// assert_eq!(
-    ///     Err(MatchError::gave_up(28)),
-    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
-    /// );
+    /// let result = dfa.try_search_fwd(&mut cache, &Input::new(&haystack));
+    /// assert!(matches!(
+    ///     *result.unwrap_err().kind(),
+    ///     MatchErrorKind::GaveUp { .. },
+    /// ));
     ///
     /// // ... switching back to ASCII still makes progress since it just needs
     /// // to set transitions on existing states!
     /// let haystack = "a".repeat(101).into_bytes();
-    /// assert_eq!(
-    ///     Err(MatchError::gave_up(14)),
-    ///     dfa.try_search_fwd(&mut cache, &Input::new(&haystack)),
-    /// );
+    /// let result = dfa.try_search_fwd(&mut cache, &Input::new(&haystack));
+    /// assert!(matches!(
+    ///     *result.unwrap_err().kind(),
+    ///     MatchErrorKind::GaveUp { .. },
+    /// ));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -4236,8 +4238,8 @@ fn minimum_cache_capacity(
     // precise with the number of states we need.
     let non_sentinel = MIN_STATES.checked_sub(SENTINEL_STATES).unwrap();
 
-    // Every `State` has three bytes for flags, 4 bytes (max) for the number
-    // of patterns, followed by 32-bit encodings of patterns and then delta
+    // Every `State` has 5 bytes for flags, 4 bytes (max) for the number of
+    // patterns, followed by 32-bit encodings of patterns and then delta
     // varint encodings of NFA state IDs. We use the worst case (which isn't
     // technically possible) of 5 bytes for each NFA state ID.
     //
@@ -4245,7 +4247,7 @@ fn minimum_cache_capacity(
     // unknown, dead and quit states. Those states have a known size and it is
     // small.
     let dead_state_size = State::dead().memory_usage();
-    let max_state_size = 3 + 4 + (nfa.pattern_len() * 4) + (states_len * 5);
+    let max_state_size = 5 + 4 + (nfa.pattern_len() * 4) + (states_len * 5);
     let states = (SENTINEL_STATES * (STATE_SIZE + dead_state_size))
         + (non_sentinel * (STATE_SIZE + max_state_size));
     // NOTE: We don't double count heap memory used by State for this map since

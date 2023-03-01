@@ -21,31 +21,46 @@ pub enum Look {
     /// The next position is either `\n` or the current position is the end of
     /// the haystack (at position `haystack.len()`).
     EndLF = 1 << 3,
+    /// The previous position is `\n`, or the current position is the
+    /// beginning of the haystack (at position `0`), or the previous position
+    /// is a `\r` and the next position is *not* a `\n`.
+    ///
+    /// In other words, it matches just after `\r` or `\n`, but never between
+    /// them.
+    StartCRLF = 1 << 4,
+    /// The next position is `\r`, or the current position is the end of the
+    /// haystack (at position `haystack.len()`), or the next position is `\n`
+    /// and the previous position is *not* a `\r`.
+    ///
+    /// In other words, it matches just before `\r` or `\n`, but never between
+    /// them.
+    EndCRLF = 1 << 5,
     /// When tested at position `i`, where `p=haystack[i-1]` and
     /// `n=haystack[i]`, this assertion passes if and only if `is_word(p)
     /// != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
     /// `i=haystack.len()`, then `is_word(n)=false`.
-    WordAscii = 1 << 4,
+    WordAscii = 1 << 6,
     /// Same as for `WordBoundaryAscii`, but requires that
     /// `is_word(p) == is_word(n)`.
     ///
     /// Note that it is possible for this assertion to match at positions that
     /// split the UTF-8 encoding of a codepoint. For this reason, this may only
     /// be used when UTF-8 mode is disabled in the regex syntax.
-    WordAsciiNegate = 1 << 5,
+    WordAsciiNegate = 1 << 7,
     /// When tested at position `i`, where `p=decode_utf8_rev(&haystack[..i])`
     /// and `n=decode_utf8(&haystack[i..])`, this assertion passes if and only
     /// if `is_word(p) != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
     /// `i=haystack.len()`, then `is_word(n)=false`.
-    WordUnicode = 1 << 6,
+    WordUnicode = 1 << 8,
     /// Same as for `WordBoundaryUnicode`, but requires that
     /// `is_word(p) == is_word(n)`.
-    WordUnicodeNegate = 1 << 7,
+    WordUnicodeNegate = 1 << 9,
 }
 
 impl Look {
-    const COUNT: usize = 8;
+    const COUNT: usize = 10;
 
+    /*
     /// Create a look-around assertion from its corresponding integer (as
     /// defined in `Look`). If the given integer does not correspond to any
     /// assertion, then `None` is returned.
@@ -68,9 +83,10 @@ impl Look {
         // FIXME: Use as_usize() once const functions in traits are stable.
         MAP[n as usize]
     }
+    */
 
     #[inline]
-    pub const fn from_index(index: usize) -> Option<Look> {
+    const fn from_index(index: usize) -> Option<Look> {
         if index < Look::COUNT {
             Some(Look::from_index_unchecked(index))
         } else {
@@ -79,12 +95,14 @@ impl Look {
     }
 
     #[inline]
-    pub const fn from_index_unchecked(index: usize) -> Look {
+    const fn from_index_unchecked(index: usize) -> Look {
         const BY_INDEX: [Look; Look::COUNT] = [
             Look::Start,
             Look::End,
             Look::StartLF,
             Look::EndLF,
+            Look::StartCRLF,
+            Look::EndCRLF,
             Look::WordAscii,
             Look::WordAsciiNegate,
             Look::WordUnicode,
@@ -98,12 +116,13 @@ impl Look {
     /// constructor is guaranteed to return the same look-around variant that
     /// one started with.
     #[inline]
-    pub const fn as_repr(self) -> u8 {
+    const fn as_repr(self) -> u16 {
         // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
         // actual int.
-        self as u8
+        self as u16
     }
 
+    /*
     #[inline]
     pub const fn as_index(self) -> usize {
         // OK since trailing zeroes will always be <= u8::MAX. (The only
@@ -113,6 +132,7 @@ impl Look {
         // FIXME: Use as_usize() once const functions in traits are stable.
         self.as_repr().trailing_zeros() as usize
     }
+    */
 
     #[inline]
     pub const fn as_char(self) -> char {
@@ -121,6 +141,8 @@ impl Look {
             Look::End => 'z',
             Look::StartLF => '^',
             Look::EndLF => '$',
+            Look::StartCRLF => '^',
+            Look::EndCRLF => '$',
             Look::WordAscii => 'b',
             Look::WordAsciiNegate => 'B',
             Look::WordUnicode => '𝛃',
@@ -137,6 +159,8 @@ impl Look {
             Look::End => Look::Start,
             Look::StartLF => Look::EndLF,
             Look::EndLF => Look::StartLF,
+            Look::StartCRLF => Look::EndCRLF,
+            Look::EndCRLF => Look::StartCRLF,
             Look::WordAscii => Look::WordAscii,
             Look::WordAsciiNegate => Look::WordAsciiNegate,
             Look::WordUnicode => Look::WordUnicode,
@@ -169,6 +193,8 @@ impl Look {
             Look::End => is_end(haystack, at),
             Look::StartLF => is_start_lf(haystack, at),
             Look::EndLF => is_end_lf(haystack, at),
+            Look::StartCRLF => is_start_crlf(haystack, at),
+            Look::EndCRLF => is_end_crlf(haystack, at),
             Look::WordAscii => is_word_ascii(haystack, at),
             Look::WordAsciiNegate => is_word_ascii_negate(haystack, at),
             Look::WordUnicode => is_word_unicode(haystack, at)?,
@@ -186,6 +212,10 @@ impl Look {
         match self {
             Look::Start | Look::End => {}
             Look::StartLF | Look::EndLF => {
+                set.set_range(b'\n', b'\n');
+            }
+            Look::StartCRLF | Look::EndCRLF => {
+                set.set_range(b'\r', b'\r');
                 set.set_range(b'\n', b'\n');
             }
             Look::WordAscii
@@ -235,11 +265,11 @@ impl Look {
 /// set.
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub struct LookSet {
-    bits: u8,
+    bits: u16,
 }
 
 impl LookSet {
-    pub const CAPACITY: usize = 8;
+    pub const CAPACITY: usize = 16;
 
     #[inline]
     pub const fn empty() -> LookSet {
@@ -253,14 +283,30 @@ impl LookSet {
 
     /// Return a LookSet from its representation.
     #[inline]
-    pub const fn from_repr(repr: u8) -> LookSet {
+    pub const fn from_repr(repr: u16) -> LookSet {
         LookSet { bits: repr }
     }
 
     /// Return the internal byte representation of this set.
     #[inline]
-    pub const fn to_repr(self) -> u8 {
+    pub const fn to_repr(self) -> u16 {
         self.bits
+    }
+
+    /// Return a LookSet from the slice given as a native endian 16-bit
+    /// integer. Panics if `slice.len() < 2`.
+    #[inline]
+    pub(crate) fn read_repr(slice: &[u8]) -> LookSet {
+        LookSet::from_repr(u16::from_ne_bytes(slice[..2].try_into().unwrap()))
+    }
+
+    /// Write a LookSet as a native endian 16-bit integer to the beginning
+    /// of the slice given. Panics if `slice.len() < 2`.
+    #[inline]
+    pub(crate) fn write_repr(self, slice: &mut [u8]) {
+        let raw = self.to_repr().to_ne_bytes();
+        slice[0] = raw[0];
+        slice[1] = raw[1];
     }
 
     /// Return true if and only if this set is empty.
@@ -316,7 +362,18 @@ impl LookSet {
     /// line" anchors. This doesn't include "start/end of haystack" anchors.
     #[inline]
     pub const fn contains_anchor_line(&self) -> bool {
-        self.contains(Look::StartLF) || self.contains(Look::EndLF)
+        self.contains(Look::StartLF)
+            || self.contains(Look::EndLF)
+            || self.contains(Look::StartCRLF)
+            || self.contains(Look::EndCRLF)
+    }
+
+    /// Returns true if and only if this set contains any "start/end of line"
+    /// anchors that are CRLF-aware. This doesn't include "start/end of
+    /// haystack" anchors.
+    #[inline]
+    pub const fn contains_anchor_crlf(&self) -> bool {
+        self.contains(Look::StartCRLF) || self.contains(Look::EndCRLF)
     }
 
     /// Returns true if and only if this set contains any word boundary or
@@ -394,6 +451,16 @@ impl LookSet {
                 return false;
             }
         }
+        if self.contains(Look::StartCRLF) {
+            if !is_start_lf(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::EndCRLF) {
+            if !is_end_lf(haystack, at) {
+                return false;
+            }
+        }
         if self.contains(Look::WordAscii) {
             if !is_word_ascii(haystack, at) {
                 return false;
@@ -467,6 +534,21 @@ pub fn is_start_lf(haystack: &[u8], at: usize) -> bool {
 #[inline]
 pub fn is_end_lf(haystack: &[u8], at: usize) -> bool {
     at == haystack.len() || haystack[at] == b'\n'
+}
+
+#[inline]
+pub fn is_start_crlf(haystack: &[u8], at: usize) -> bool {
+    at == 0
+        || haystack[at - 1] == b'\n'
+        || (haystack[at - 1] == b'\r'
+            && (at >= haystack.len() || haystack[at] != b'\n'))
+}
+
+#[inline]
+pub fn is_end_crlf(haystack: &[u8], at: usize) -> bool {
+    at == haystack.len()
+        || haystack[at] == b'\r'
+        || (haystack[at] == b'\n' && (at == 0 || haystack[at - 1] != b'\r'))
 }
 
 #[inline]
@@ -1301,6 +1383,16 @@ mod tests {
         f = f.remove(Look::EndLF);
         assert!(!f.contains(Look::EndLF));
 
+        f = f.insert(Look::StartCRLF);
+        assert!(f.contains(Look::StartCRLF));
+        f = f.remove(Look::StartCRLF);
+        assert!(!f.contains(Look::StartCRLF));
+
+        f = f.insert(Look::EndCRLF);
+        assert!(f.contains(Look::EndCRLF));
+        f = f.remove(Look::EndCRLF);
+        assert!(!f.contains(Look::EndCRLF));
+
         f = f.insert(Look::WordUnicode);
         assert!(f.contains(Look::WordUnicode));
         f = f.remove(Look::WordUnicode);
@@ -1328,7 +1420,7 @@ mod tests {
         assert_eq!(0, set.iter().count());
 
         let set = LookSet::full();
-        assert_eq!(8, set.iter().count());
+        assert_eq!(10, set.iter().count());
 
         let set =
             LookSet::empty().insert(Look::StartLF).insert(Look::WordUnicode);

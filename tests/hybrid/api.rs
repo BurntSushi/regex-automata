@@ -12,6 +12,15 @@ use regex_automata::{
 // implementation details of cache sizes. It's not a great test because of
 // that, but it does check some interesting properties around how positions are
 // reported when a search "gives up."
+//
+// NOTE: If you change something in lazy DFA implementation that causes this
+// test to fail by reporting different "gave up" positions, then it's generally
+// okay to update the positions in the test below as long as you're sure your
+// changes are correct. Namely, it is expected that if there are changes in the
+// cache size (or changes in how big things are inside the cache), then its
+// utilization may change slightly and thus impact where a search gives up.
+// Precisely where a search gives up is not an API guarantee, so changing the
+// offsets here is OK.
 #[test]
 #[cfg(target_pointer_width = "64")]
 #[cfg(not(miri))]
@@ -31,7 +40,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     //
     // Since there's now no more room to create states, we search a haystack
     // of 'β' and confirm that it gives up immediately.
-    let pattern = r"[aβ]{100}";
+    let pattern = r"[aβ]{98}";
     let dfa = DFA::builder()
         .configure(
             // Configure it so that we have the minimum cache capacity
@@ -46,10 +55,10 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     let mut cache = dfa.create_cache();
 
     let haystack = "a".repeat(101).into_bytes();
-    let err = MatchError::gave_up(26);
+    let err = MatchError::gave_up(25);
     // Notice that we make the same amount of progress in each search! That's
     // because the cache is reused and already has states to handle the first
-    // 46 bytes.
+    // N bytes.
     assert_eq!(
         Err(err.clone()),
         dfa.try_search_fwd(&mut cache, &Input::new(&haystack))
@@ -74,7 +83,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // OK, if we reset the cache, then we should be able to create more states
     // and make more progress with searching for betas.
     cache.reset(&dfa);
-    let err = MatchError::gave_up(28);
+    let err = MatchError::gave_up(27);
     assert_eq!(
         Err(err),
         dfa.try_search_fwd(&mut cache, &Input::new(&haystack))
@@ -83,7 +92,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     // ... switching back to ASCII still makes progress since it just needs to
     // set transitions on existing states!
     let haystack = "a".repeat(101).into_bytes();
-    let err = MatchError::gave_up(14);
+    let err = MatchError::gave_up(13);
     assert_eq!(
         Err(err),
         dfa.try_search_fwd(&mut cache, &Input::new(&haystack))

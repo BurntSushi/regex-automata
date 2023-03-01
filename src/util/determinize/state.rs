@@ -139,6 +139,10 @@ impl State {
         self.repr().is_from_word()
     }
 
+    pub(crate) fn is_from_cr(&self) -> bool {
+        self.repr().is_from_cr()
+    }
+
     pub(crate) fn look_have(&self) -> LookSet {
         self.repr().look_have()
     }
@@ -193,7 +197,7 @@ impl StateBuilderEmpty {
     }
 
     pub(crate) fn into_matches(mut self) -> StateBuilderMatches {
-        self.0.extend_from_slice(&[0, 0, 0]);
+        self.0.extend_from_slice(&[0, 0, 0, 0, 0]);
         StateBuilderMatches(self.0)
     }
 
@@ -230,8 +234,12 @@ impl StateBuilderMatches {
         self.repr_vec().set_is_from_word()
     }
 
+    pub(crate) fn set_is_from_cr(&mut self) {
+        self.repr_vec().set_is_from_cr()
+    }
+
     pub(crate) fn look_have(&self) -> LookSet {
-        LookSet::from_repr(self.0[1])
+        LookSet::read_repr(&self.0[1..])
     }
 
     pub(crate) fn set_look_have(
@@ -287,7 +295,7 @@ impl StateBuilderNFA {
     }
 
     pub(crate) fn look_need(&self) -> LookSet {
-        LookSet::from_repr(self.repr[2])
+        self.repr().look_need()
     }
 
     pub(crate) fn set_look_have(
@@ -414,6 +422,10 @@ impl<'a> Repr<'a> {
         self.0[0] & (1 << 2) > 0
     }
 
+    fn is_from_cr(&self) -> bool {
+        self.0[0] & (1 << 3) > 0
+    }
+
     /// The set of look-behind assertions that were true in the transition that
     /// created this state.
     ///
@@ -425,7 +437,7 @@ impl<'a> Repr<'a> {
     /// these are re-computed on demand via epsilon closure when computing the
     /// transition function.
     fn look_have(&self) -> LookSet {
-        LookSet::from_repr(self.0[1])
+        LookSet::read_repr(&self.0[1..])
     }
 
     /// The set of look-around (both behind and ahead) assertions that appear
@@ -436,7 +448,7 @@ impl<'a> Repr<'a> {
     /// state has no conditional epsilon transitions, then there is no need
     /// to re-compute the epsilon closure.
     fn look_need(&self) -> LookSet {
-        LookSet::from_repr(self.0[2])
+        LookSet::read_repr(&self.0[3..])
     }
 
     /// Returns the total number of match pattern IDs in this state.
@@ -460,7 +472,7 @@ impl<'a> Repr<'a> {
         if !self.has_pattern_ids() {
             PatternID::ZERO
         } else {
-            let offset = 7 + index * PatternID::SIZE;
+            let offset = 9 + index * PatternID::SIZE;
             // This is OK since we only ever serialize valid PatternIDs to
             // states.
             wire::read_pattern_id_unchecked(&self.0[offset..]).0
@@ -491,7 +503,7 @@ impl<'a> Repr<'a> {
             f(PatternID::ZERO);
             return;
         }
-        let mut pids = &self.0[7..self.pattern_offset_end()];
+        let mut pids = &self.0[9..self.pattern_offset_end()];
         while !pids.is_empty() {
             let pid = wire::read_u32(pids);
             pids = &pids[PatternID::SIZE..];
@@ -523,11 +535,11 @@ impl<'a> Repr<'a> {
     fn pattern_offset_end(&self) -> usize {
         let encoded = self.encoded_pattern_len();
         if encoded == 0 {
-            return 3;
+            return 5;
         }
         // This arithmetic is OK since we were able to address this many bytes
         // when writing to the state, thus, it must fit into a usize.
-        encoded.checked_mul(4).unwrap().checked_add(7).unwrap()
+        encoded.checked_mul(4).unwrap().checked_add(9).unwrap()
     }
 
     /// Returns the total number of *encoded* pattern IDs in this state.
@@ -541,7 +553,7 @@ impl<'a> Repr<'a> {
         }
         // This unwrap is OK since the total number of patterns is always
         // guaranteed to fit into a usize.
-        usize::try_from(wire::read_u32(&self.0[3..7])).unwrap()
+        usize::try_from(wire::read_u32(&self.0[5..9])).unwrap()
     }
 }
 
@@ -552,6 +564,7 @@ impl<'a> core::fmt::Debug for Repr<'a> {
         f.debug_struct("Repr")
             .field("is_match", &self.is_match())
             .field("is_from_word", &self.is_from_word())
+            .field("is_from_cr", &self.is_from_cr())
             .field("look_have", &self.look_have())
             .field("look_need", &self.look_need())
             .field("match_pattern_ids", &self.match_pattern_ids())
@@ -597,28 +610,32 @@ impl<'a> ReprVec<'a> {
         self.0[0] |= 1 << 2;
     }
 
+    fn set_is_from_cr(&mut self) {
+        self.0[0] |= 1 << 3;
+    }
+
     /// The set of look-behind assertions that were true in the transition that
     /// created this state.
     fn look_have(&self) -> LookSet {
-        LookSet::from_repr(self.0[1])
+        self.repr().look_have()
     }
 
     /// The set of look-around (both behind and ahead) assertions that appear
     /// at least once in this state's set of NFA states.
     fn look_need(&self) -> LookSet {
-        LookSet::from_repr(self.0[2])
+        self.repr().look_need()
     }
 
     /// Mutate the set of look-behind assertions that were true in the
     /// transition that created this state.
     fn set_look_have(&mut self, mut set: impl FnMut(LookSet) -> LookSet) {
-        self.0[1] = set(self.look_have()).to_repr();
+        set(self.look_have()).write_repr(&mut self.0[1..]);
     }
 
     /// Mutate the set of look-around (both behind and ahead) assertions that
     /// appear at least once in this state's set of NFA states.
     fn set_look_need(&mut self, mut set: impl FnMut(LookSet) -> LookSet) {
-        self.0[2] = set(self.look_need()).to_repr();
+        set(self.look_need()).write_repr(&mut self.0[3..]);
     }
 
     /// Add a pattern ID to this state. All match states must have at least
@@ -678,14 +695,14 @@ impl<'a> ReprVec<'a> {
             return;
         }
         let patsize = PatternID::SIZE;
-        let pattern_bytes = self.0.len() - 7;
+        let pattern_bytes = self.0.len() - 9;
         // Every pattern ID uses 4 bytes, so number of bytes should be
         // divisible by 4.
         assert_eq!(pattern_bytes % patsize, 0);
         // This unwrap is OK since we are guaranteed that the maximum number
         // of possible patterns fits into a u32.
         let count32 = u32::try_from(pattern_bytes / patsize).unwrap();
-        wire::NE::write_u32(count32, &mut self.0[3..7]);
+        wire::NE::write_u32(count32, &mut self.0[5..9]);
     }
 
     /// Add an NFA state ID to this state. The order in which NFA states are

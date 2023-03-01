@@ -408,7 +408,8 @@ impl<'a> Runner<'a> {
         }
         if !self.nfa.look_set_prefix_any().contains_anchor() {
             self.dfa.set_start_state(anchored, Start::Text, id);
-            self.dfa.set_start_state(anchored, Start::Line, id);
+            self.dfa.set_start_state(anchored, Start::LineLF, id);
+            self.dfa.set_start_state(anchored, Start::LineCR, id);
         } else {
             let (id, is_new) = self.add_one_start(nfa_start, Start::Text)?;
             self.dfa.set_start_state(anchored, Start::Text, id);
@@ -416,8 +417,14 @@ impl<'a> Runner<'a> {
                 dfa_state_ids.push(id);
             }
 
-            let (id, is_new) = self.add_one_start(nfa_start, Start::Line)?;
-            self.dfa.set_start_state(anchored, Start::Line, id);
+            let (id, is_new) = self.add_one_start(nfa_start, Start::LineLF)?;
+            self.dfa.set_start_state(anchored, Start::LineLF, id);
+            if is_new {
+                dfa_state_ids.push(id);
+            }
+
+            let (id, is_new) = self.add_one_start(nfa_start, Start::LineCR)?;
+            self.dfa.set_start_state(anchored, Start::LineCR, id);
             if is_new {
                 dfa_state_ids.push(id);
             }

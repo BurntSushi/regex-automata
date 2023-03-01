@@ -30,7 +30,10 @@ pub(crate) enum Start {
     Text = 2,
     /// This occurs when the byte immediately preceding the start of the search
     /// is a line terminator. Specifically, `\n`.
-    Line = 3,
+    LineLF = 3,
+    /// This occurs when the byte immediately preceding the start of the search
+    /// is a line terminator. Specifically, `\r`.
+    LineCR = 4,
 }
 
 impl Start {
@@ -41,14 +44,15 @@ impl Start {
             0 => Some(Start::NonWordByte),
             1 => Some(Start::WordByte),
             2 => Some(Start::Text),
-            3 => Some(Start::Line),
+            3 => Some(Start::LineLF),
+            4 => Some(Start::LineCR),
             _ => None,
         }
     }
 
     /// Returns the total number of starting state configurations.
     pub(crate) fn len() -> usize {
-        4
+        5
     }
 
     /// Returns the starting state configuration for the given search
@@ -92,7 +96,8 @@ fn byte_to_start(byte: u8) -> Start {
         // FIXME: Use as_usize() once const functions in traits are stable.
 
         let mut map = [Start::NonWordByte; 256];
-        map[b'\n' as usize] = Start::Line;
+        map[b'\n' as usize] = Start::LineLF;
+        map[b'\r' as usize] = Start::LineCR;
         map[b'_' as usize] = Start::WordByte;
 
         let mut byte = b'0';
@@ -148,7 +153,9 @@ mod tests {
         assert_eq!(Start::Text, f("abc", 0, 3));
         assert_eq!(Start::Text, f("\nabc", 0, 3));
 
-        assert_eq!(Start::Line, f("\nabc", 1, 3));
+        assert_eq!(Start::LineLF, f("\nabc", 1, 3));
+
+        assert_eq!(Start::LineCR, f("\rabc", 1, 3));
 
         assert_eq!(Start::WordByte, f("abc", 1, 3));
 
@@ -166,7 +173,9 @@ mod tests {
         assert_eq!(Start::Text, f("abc", 0, 3));
         assert_eq!(Start::Text, f("abc\n", 0, 4));
 
-        assert_eq!(Start::Line, f("abc\nz", 0, 3));
+        assert_eq!(Start::LineLF, f("abc\nz", 0, 3));
+
+        assert_eq!(Start::LineCR, f("abc\rz", 0, 3));
 
         assert_eq!(Start::WordByte, f("abc", 0, 2));
 

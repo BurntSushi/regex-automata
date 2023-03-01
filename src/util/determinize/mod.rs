@@ -125,14 +125,23 @@ pub(crate) fn next(
         // input unit.
         let mut look_have = state.look_have().clone();
         match unit.as_u8() {
+            Some(b'\r') => {
+                look_have = look_have.insert(Look::EndCRLF);
+            }
             Some(b'\n') => {
                 look_have = look_have.insert(Look::EndLF);
+                if !state.is_from_cr() {
+                    look_have = look_have.insert(Look::EndCRLF);
+                }
             }
             Some(_) => {}
             None => {
                 look_have = look_have.insert(Look::End);
                 look_have = look_have.insert(Look::EndLF);
             }
+        }
+        if state.is_from_cr() && unit.as_u8() != Some(b'\n') {
+            look_have = look_have.insert(Look::StartCRLF);
         }
         if state.is_from_word() == unit.is_word_byte() {
             look_have = look_have.insert(Look::WordUnicodeNegate);
@@ -182,6 +191,7 @@ pub(crate) fn next(
             // can only impact the starting state, which is speical cased in
             // start state handling.
             builder.set_look_have(|have| have.insert(Look::StartLF));
+            builder.set_look_have(|have| have.insert(Look::StartCRLF));
         }
     }
     for nfa_id in sparses.set1.iter() {
@@ -277,11 +287,15 @@ pub(crate) fn next(
     // if one was detected once it enters a quit state (and indeed, the search
     // routines in this crate do just that), but it seems better to prevent
     // these things by construction if possible.)
-    if nfa.look_set_any().contains_word()
-        && unit.is_word_byte()
-        && !sparses.set2.is_empty()
-    {
-        builder.set_is_from_word();
+    if !sparses.set2.is_empty() {
+        if nfa.look_set_any().contains_word() && unit.is_word_byte() {
+            builder.set_is_from_word();
+        }
+        if nfa.look_set_any().contains_anchor_crlf()
+            && unit.as_u8() == Some(b'\r')
+        {
+            builder.set_is_from_cr();
+        }
     }
     let mut builder_nfa = builder.into_nfa();
     add_nfa_states(nfa, &sparses.set2, &mut builder_nfa);
@@ -474,11 +488,18 @@ pub(crate) fn set_lookbehind_from_start(
         }
         Start::Text => {
             builder.set_look_have(|have| {
-                have.insert(Look::Start).insert(Look::StartLF)
+                have.insert(Look::Start)
+                    .insert(Look::StartLF)
+                    .insert(Look::StartCRLF)
             });
         }
-        Start::Line => {
-            builder.set_look_have(|have| have.insert(Look::StartLF));
+        Start::LineLF => {
+            builder.set_look_have(|have| {
+                have.insert(Look::StartLF).insert(Look::StartCRLF)
+            });
+        }
+        Start::LineCR => {
+            builder.set_is_from_cr();
         }
     }
 }
