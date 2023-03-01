@@ -81,11 +81,6 @@ pub(super) struct Remapper {
     /// after all swaps have been completed.
     map: Vec<StateID>,
     /// A mapper from state index to state ID (and back).
-    ///
-    /// In theory, this mapping should be abstracted over, but in practice,
-    /// we only use Remappable for dense and one-pass DFAs, and both DFAs use
-    /// the same mapping strategy between state IDs and state indices. So we
-    /// just build it into the abstraction itself.
     idxmap: IndexMapper,
 }
 
@@ -230,7 +225,10 @@ mod onepass {
         }
 
         fn stride2(&self) -> usize {
-            DFA::stride2(self)
+            // We don't do pre-multiplication for the one-pass DFA, so
+            // returning 0 has the effect of making state IDs and state indices
+            // equivalent.
+            0
         }
 
         fn swap_states(&mut self, id1: StateID, id2: StateID) {

@@ -860,7 +860,7 @@ impl<'a> InternalBuilder<'a> {
         let mut remapper = Remapper::new(&self.dfa);
         let mut next_dest = self.dfa.last_state_id();
         for i in (0..self.dfa.state_len()).rev() {
-            let id = self.dfa.to_state_id(i);
+            let id = StateID::must(i);
             let is_match =
                 self.dfa.pattern_epsilons(id).pattern_id().is_some();
             if !is_match {
@@ -982,10 +982,17 @@ impl<'a> InternalBuilder<'a> {
     ///
     /// The added state is *not* a match state.
     fn add_empty_state(&mut self) -> Result<StateID, BuildError> {
-        let state_limit =
-            Transition::STATE_ID_LIMIT / self.dfa.stride().as_u64();
-        let next = self.dfa.table.len();
-        let id = StateID::new(next)
+        let state_limit = Transition::STATE_ID_LIMIT;
+        // Note that unlike dense and lazy DFAs, we specifically do NOT
+        // premultiply our state IDs here. The reason is that we want to pack
+        // our state IDs into 64-bit transitions with other info, so the fewer
+        // the bits we use for state IDs the better. If we premultiply, then
+        // our state ID space shrinks. We justify this by the assumption that
+        // a one-pass DFA is just already doing a fair bit more work than a
+        // normal DFA anyway, so an extra multiplication to compute a state
+        // transition doesn't seem like a huge deal.
+        let next_id = self.dfa.table.len() >> self.dfa.stride2();
+        let id = StateID::new(next_id)
             .map_err(|_| BuildError::too_many_states(state_limit))?;
         if id.as_u64() > Transition::STATE_ID_LIMIT {
             return Err(BuildError::too_many_states(state_limit));
@@ -1597,11 +1604,11 @@ impl DFA {
     /// takes up in the transition table, expressed as a number of transitions.
     /// (Unused transitions map to dead states.)
     ///
-    /// The stride of a DFA is always equivalent to the smallest power of 2
-    /// that is greater than or equal to the DFA's alphabet length. This
-    /// definition uses extra space, but permits faster translation between
-    /// premultiplied state identifiers and contiguous indices (by using shifts
-    /// instead of relying on integer division).
+    /// The stride of a DFA is always equivalent to the smallest power of
+    /// 2 that is greater than or equal to the DFA's alphabet length. This
+    /// definition uses extra space, but possibly permits faster translation
+    /// between state identifiers and their corresponding offsets in this DFA's
+    /// transition table.
     ///
     /// For example, if the DFA's stride is 16 transitions, then its `stride2`
     /// is `4` since `2^4 = 16`.
@@ -2281,15 +2288,17 @@ impl DFA {
     /// and any conditional epsilon transitions that must be satisfied in order
     /// to take this transition.
     fn transition(&self, sid: StateID, byte: u8) -> Transition {
-        let class = self.classes.get(byte);
-        self.table[sid.as_usize() + class.as_usize()]
+        let offset = sid.as_usize() << self.stride2();
+        let class = self.classes.get(byte).as_usize();
+        self.table[offset + class]
     }
 
     /// Set the transition from the given state ID and byte of input to the
     /// transition given.
     fn set_transition(&mut self, sid: StateID, byte: u8, to: Transition) {
-        let class = self.classes.get(byte);
-        self.table[sid.as_usize() + class.as_usize()] = to;
+        let offset = sid.as_usize() << self.stride2();
+        let class = self.classes.get(byte).as_usize();
+        self.table[offset + class] = to;
     }
 
     /// Return an iterator of "sparse" transitions for the given state ID.
@@ -2302,7 +2311,7 @@ impl DFA {
     /// possible byte value. Indeed, in practice, it's very common for runs
     /// of equivalent transitions to appear.
     fn sparse_transitions(&self, sid: StateID) -> SparseTransitionIter<'_> {
-        let start = sid.as_usize();
+        let start = sid.as_usize() << self.stride2();
         let end = start + self.alphabet_len();
         SparseTransitionIter {
             it: self.table[start..end].iter().enumerate(),
@@ -2315,29 +2324,14 @@ impl DFA {
     /// If the given state ID does not correspond to a match state ID, then the
     /// pattern epsilons returned is empty.
     fn pattern_epsilons(&self, sid: StateID) -> PatternEpsilons {
-        PatternEpsilons(self.table[sid.as_usize() + self.pateps_offset].0)
+        let offset = sid.as_usize() << self.stride2();
+        PatternEpsilons(self.table[offset + self.pateps_offset].0)
     }
 
     /// Set the pattern epsilons for the given state ID.
     fn set_pattern_epsilons(&mut self, sid: StateID, pateps: PatternEpsilons) {
-        self.table[sid.as_usize() + self.pateps_offset] = Transition(pateps.0);
-    }
-
-    /// Map the given state ID to its index. The index of a state is an
-    /// incrementing integer starting at 0 determined by the order in which the
-    /// state was added.
-    fn to_index(&self, id: StateID) -> usize {
-        id.as_usize() >> self.stride2()
-    }
-
-    /// Map the given state index to its ID. The ID is a "pre-multiplied"
-    /// index into the DFA transition table. This avoids a multiplication
-    /// at search time.
-    fn to_state_id(&self, index: usize) -> StateID {
-        // CORRECTNESS: If the given index is not valid, then it is not
-        // required for this to panic or return a valid state ID. We'll "just"
-        // wind up with panics or silent logic errors at some other point.
-        StateID::new_unchecked(index << self.stride2())
+        let offset = sid.as_usize() << self.stride2();
+        self.table[offset + self.pateps_offset] = Transition(pateps.0);
     }
 
     /// Returns the state ID prior to the one given. This returns None if the
@@ -2346,12 +2340,9 @@ impl DFA {
         if id == DEAD {
             None
         } else {
-            // CORRECTNESS: Since 'id' is not the first state and since all
-            // states have the same stride, it follows that subtracting the
-            // stride from a valid state ID must yield the previous state ID.
-            Some(StateID::new_unchecked(
-                id.as_usize().checked_sub(self.stride()).unwrap(),
-            ))
+            // CORRECTNESS: Since 'id' is not the first state, subtracting 1
+            // is always valid.
+            Some(StateID::new_unchecked(id.as_usize().checked_sub(1).unwrap()))
         }
     }
 
@@ -2361,10 +2352,10 @@ impl DFA {
     fn last_state_id(&self) -> StateID {
         // CORRECTNESS: A DFA table is always non-empty since it always at
         // least contains a DEAD state. Since every state has the same stride,
-        // it follows that subtracting it from the length of the table will
-        // give us the ID of the last state in the table.
+        // we can just compute what the "next" state ID would have been and
+        // then subtract 1 from it.
         StateID::new_unchecked(
-            self.table.len().checked_sub(self.stride()).unwrap(),
+            (self.table.len() >> self.stride2()).checked_sub(1).unwrap(),
         )
     }
 
@@ -2374,8 +2365,10 @@ impl DFA {
     /// transitions to 'id1' changed to 'id2' and vice versa. This merely moves
     /// the states in memory.
     pub(super) fn swap_states(&mut self, id1: StateID, id2: StateID) {
+        let o1 = id1.as_usize() << self.stride2();
+        let o2 = id2.as_usize() << self.stride2();
         for b in 0..self.stride() {
-            self.table.swap(id1.as_usize() + b, id2.as_usize() + b);
+            self.table.swap(o1 + b, o2 + b);
         }
     }
 
@@ -2383,10 +2376,10 @@ impl DFA {
     /// according to the closure given.
     pub(super) fn remap(&mut self, map: impl Fn(StateID) -> StateID) {
         for i in 0..self.state_len() {
-            let id = StateID::new_unchecked(i << self.stride2());
+            let offset = i << self.stride2();
             for b in 0..self.alphabet_len() {
-                let next = self.table[id.as_usize() + b].state_id();
-                self.table[id.as_usize() + b].set_state_id(map(next));
+                let next = self.table[offset + b].state_id();
+                self.table[offset + b].set_state_id(map(next));
             }
         }
         for i in 0..self.starts.len() {
@@ -2397,18 +2390,6 @@ impl DFA {
 
 impl core::fmt::Debug for DFA {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        fn debug_id(
-            f: &core::fmt::Formatter,
-            dfa: &DFA,
-            sid: StateID,
-        ) -> usize {
-            if f.alternate() {
-                sid.as_usize()
-            } else {
-                dfa.to_index(sid)
-            }
-        }
-
         fn debug_state_transitions(
             f: &mut core::fmt::Formatter,
             dfa: &DFA,
@@ -2426,7 +2407,7 @@ impl core::fmt::Debug for DFA {
                         f,
                         "{:?} => {:?}",
                         DebugByte(start),
-                        debug_id(f, dfa, next)
+                        next.as_usize(),
                     )?;
                 } else {
                     write!(
@@ -2434,7 +2415,7 @@ impl core::fmt::Debug for DFA {
                         "{:?}-{:?} => {:?}",
                         DebugByte(start),
                         DebugByte(end),
-                        debug_id(f, dfa, next),
+                        next.as_usize(),
                     )?;
                 }
                 if trans.match_wins() {
@@ -2449,7 +2430,7 @@ impl core::fmt::Debug for DFA {
 
         writeln!(f, "onepass::DFA(")?;
         for index in 0..self.state_len() {
-            let sid = StateID::must(index << self.stride2());
+            let sid = StateID::must(index);
             let pateps = self.pattern_epsilons(sid);
             if sid == DEAD {
                 write!(f, "D ")?;
@@ -2458,7 +2439,7 @@ impl core::fmt::Debug for DFA {
             } else {
                 write!(f, "  ")?;
             }
-            write!(f, "{:06?}", debug_id(f, self, sid))?;
+            write!(f, "{:06?}", sid.as_usize())?;
             if !pateps.is_empty() {
                 write!(f, " ({:?})", pateps)?;
             }
@@ -2469,13 +2450,13 @@ impl core::fmt::Debug for DFA {
         writeln!(f, "")?;
         for (i, &sid) in self.starts.iter().enumerate() {
             if i == 0 {
-                writeln!(f, "START(ALL): {:?}", debug_id(f, self, sid))?;
+                writeln!(f, "START(ALL): {:?}", sid.as_usize())?;
             } else {
                 writeln!(
                     f,
                     "START(pattern: {:?}): {:?}",
                     i - 1,
-                    debug_id(f, self, sid)
+                    sid.as_usize(),
                 )?;
             }
         }
