@@ -3183,6 +3183,35 @@ mod tests {
         assert!(DFA::new(pat).is_ok());
     }
 
+    // This test ensures that the one-pass DFA works with all look-around
+    // assertions that we expect it to work with.
+    //
+    // The utility of this test is that each one-pass transition has a small
+    // amount of space to store look-around assertions. Currently, there is
+    // logic in the one-pass constructor to ensure there aren't more than ten
+    // possible assertions. And indeed, there are only ten possible assertions
+    // (at time of writing), so this is okay. But conceivably, more assertions
+    // could be added. So we check that things at least work with what we
+    // expect them to work with.
+    #[test]
+    fn assertions() {
+        // haystack anchors
+        assert!(DFA::new(r"^").is_ok());
+        assert!(DFA::new(r"$").is_ok());
+
+        // line anchors
+        assert!(DFA::new(r"(?m)^").is_ok());
+        assert!(DFA::new(r"(?m)$").is_ok());
+        assert!(DFA::new(r"(?Rm)^").is_ok());
+        assert!(DFA::new(r"(?Rm)$").is_ok());
+
+        // word boundaries
+        assert!(DFA::new(r"\b").is_ok());
+        assert!(DFA::new(r"\B").is_ok());
+        assert!(DFA::new(r"(?-u)\b").is_ok());
+        assert!(DFA::new(r"(?-u)\B").is_ok());
+    }
+
     #[cfg(not(miri))] // takes too long on miri
     #[test]
     fn is_one_pass() {
