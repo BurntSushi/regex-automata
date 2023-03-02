@@ -1691,11 +1691,10 @@ impl PikeVM {
                     return;
                 }
                 State::Look { look, next } => {
-                    // Unwrap is OK because we don't permit building a searcher
-                    // with a Unicode word boundary if the requisite Unicode
-                    // data is unavailable.
-                    if !look.try_matches_inline(input.haystack(), at).unwrap()
-                    {
+                    // OK because we don't permit building a searcher with a
+                    // Unicode word boundary if the requisite Unicode data is
+                    // unavailable.
+                    if !look.matches_inline(input.haystack(), at) {
                         return;
                     }
                     sid = next;

@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use crate::util::{int::U32, utf8};
 
 /// A look-around assertion.
@@ -60,31 +62,6 @@ pub enum Look {
 impl Look {
     const COUNT: usize = 10;
 
-    /*
-    /// Create a look-around assertion from its corresponding integer (as
-    /// defined in `Look`). If the given integer does not correspond to any
-    /// assertion, then `None` is returned.
-    #[inline]
-    pub const fn from_repr(n: u8) -> Option<Look> {
-        const CAPACITY: usize = 256;
-        const fn mkmap() -> [Option<Look>; CAPACITY] {
-            let mut map = [None; CAPACITY];
-            let mut i = 0;
-            while i < Look::COUNT {
-                let look = Look::from_index_unchecked(i);
-                // FIXME: Use as_usize() once const functions in traits are
-                // stable.
-                map[look.as_repr() as usize] = Some(look);
-                i += 1;
-            }
-            map
-        }
-        const MAP: [Option<Look>; CAPACITY] = mkmap();
-        // FIXME: Use as_usize() once const functions in traits are stable.
-        MAP[n as usize]
-    }
-    */
-
     #[inline]
     const fn from_index(index: usize) -> Option<Look> {
         if index < Look::COUNT {
@@ -121,18 +98,6 @@ impl Look {
         // actual int.
         self as u16
     }
-
-    /*
-    #[inline]
-    pub const fn as_index(self) -> usize {
-        // OK since trailing zeroes will always be <= u8::MAX. (The only
-        // way this would be false is if we defined more than 255 distinct
-        // look-around assertions, which seems highly improbable.)
-        //
-        // FIXME: Use as_usize() once const functions in traits are stable.
-        self.as_repr().trailing_zeros() as usize
-    }
-    */
 
     #[inline]
     pub const fn as_char(self) -> char {
@@ -173,33 +138,14 @@ impl Look {
     ///
     /// This panics if `at > haystack.len()`.
     #[inline]
-    pub fn try_matches(
-        self,
-        haystack: &[u8],
-        at: usize,
-    ) -> Result<bool, UnicodeWordBoundaryError> {
-        self.try_matches_inline(haystack, at)
+    pub fn matches(self, haystack: &[u8], at: usize) -> bool {
+        matches(self, haystack, at)
     }
 
     /// Like 'try_matches', but forcefully inlined.
     #[inline(always)]
-    pub(crate) fn try_matches_inline(
-        self,
-        haystack: &[u8],
-        at: usize,
-    ) -> Result<bool, UnicodeWordBoundaryError> {
-        Ok(match self {
-            Look::Start => is_start(haystack, at),
-            Look::End => is_end(haystack, at),
-            Look::StartLF => is_start_lf(haystack, at),
-            Look::EndLF => is_end_lf(haystack, at),
-            Look::StartCRLF => is_start_crlf(haystack, at),
-            Look::EndCRLF => is_end_crlf(haystack, at),
-            Look::WordAscii => is_word_ascii(haystack, at),
-            Look::WordAsciiNegate => is_word_ascii_negate(haystack, at),
-            Look::WordUnicode => is_word_unicode(haystack, at)?,
-            Look::WordUnicodeNegate => is_word_unicode_negate(haystack, at)?,
-        })
+    pub(crate) fn matches_inline(self, haystack: &[u8], at: usize) -> bool {
+        matches_inline(self, haystack, at)
     }
 
     /// Split up the given byte classes into equivalence classes in a way that
@@ -209,53 +155,7 @@ impl Look {
         self,
         set: &mut crate::util::alphabet::ByteClassSet,
     ) {
-        match self {
-            Look::Start | Look::End => {}
-            Look::StartLF | Look::EndLF => {
-                set.set_range(b'\n', b'\n');
-            }
-            Look::StartCRLF | Look::EndCRLF => {
-                set.set_range(b'\r', b'\r');
-                set.set_range(b'\n', b'\n');
-            }
-            Look::WordAscii
-            | Look::WordAsciiNegate
-            | Look::WordUnicode
-            | Look::WordUnicodeNegate => {
-                // We need to mark all ranges of bytes whose pairs result in
-                // evaluating \b differently. This isn't technically correct
-                // for Unicode word boundaries, but DFAs can't handle those
-                // anyway, and thus, the byte classes don't need to either
-                // since they are themselves only used in DFAs.
-                //
-                // FIXME: It seems like the calls to 'set_range' here are
-                // completely invariant, which means we could just hard-code
-                // them here without needing to write a loop. And we only need
-                // to do this dance at most once per regex.
-                //
-                // FIXME: Is this correct for \B?
-                let iswb = utf8::is_word_byte;
-                // This unwrap is OK because we guard every use of 'asu8' with
-                // a check that the input is <= 255.
-                let asu8 = |b: u16| u8::try_from(b).unwrap();
-                let mut b1: u16 = 0;
-                let mut b2: u16;
-                while b1 <= 255 {
-                    b2 = b1 + 1;
-                    while b2 <= 255 && iswb(asu8(b1)) == iswb(asu8(b2)) {
-                        b2 += 1;
-                    }
-                    // The guards above guarantee that b2 can never get any
-                    // bigger.
-                    assert!(b2 <= 256);
-                    // Subtracting 1 from b2 is always OK because it is always
-                    // at least 1 greater than b1, and the assert above
-                    // guarantees that the asu8 conversion will succeed.
-                    set.set_range(asu8(b1), asu8(b2.checked_sub(1).unwrap()));
-                    b1 = b2;
-                }
-            }
-        }
+        add_to_byteset(self, set);
     }
 }
 
@@ -434,61 +334,7 @@ impl LookSet {
 
     #[inline(always)]
     pub(crate) fn matches(self, haystack: &[u8], at: usize) -> bool {
-        // This used to luse LookSet::iter with Look::matches on each element,
-        // but that proved to be quite diastrous for perf. The manual "if
-        // the set has this assertion, check it" turns out to be quite a bit
-        // faster.
-        if self.contains(Look::Start) {
-            if !is_start(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::End) {
-            if !is_end(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::StartLF) {
-            if !is_start_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::EndLF) {
-            if !is_end_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::StartCRLF) {
-            if !is_start_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::EndCRLF) {
-            if !is_end_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::WordAscii) {
-            if !is_word_ascii(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::WordAsciiNegate) {
-            if !is_word_ascii_negate(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::WordUnicode) {
-            if !is_word_unicode(haystack, at).unwrap() {
-                return false;
-            }
-        }
-        if self.contains(Look::WordUnicodeNegate) {
-            if !is_word_unicode_negate(haystack, at).unwrap() {
-                return false;
-            }
-        }
-        true
+        set_matches_inline(self, haystack, at)
     }
 }
 
@@ -520,6 +366,158 @@ impl Iterator for LookSetIter {
         let look = Look::from_index(index)?;
         self.set = self.set.remove(look);
         Some(look)
+    }
+}
+
+#[inline]
+pub fn set_matches(set: LookSet, haystack: &[u8], at: usize) -> bool {
+    set_matches_inline(set, haystack, at)
+}
+
+#[inline(always)]
+pub(crate) fn set_matches_inline(
+    set: LookSet,
+    haystack: &[u8],
+    at: usize,
+) -> bool {
+    // This used to luse LookSet::iter with Look::matches on each element,
+    // but that proved to be quite diastrous for perf. The manual "if
+    // the set has this assertion, check it" turns out to be quite a bit
+    // faster.
+    if set.contains(Look::Start) {
+        if !is_start(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::End) {
+        if !is_end(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::StartLF) {
+        if !is_start_lf(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::EndLF) {
+        if !is_end_lf(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::StartCRLF) {
+        if !is_start_lf(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::EndCRLF) {
+        if !is_end_lf(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::WordAscii) {
+        if !is_word_ascii(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::WordAsciiNegate) {
+        if !is_word_ascii_negate(haystack, at) {
+            return false;
+        }
+    }
+    if set.contains(Look::WordUnicode) {
+        if !is_word_unicode(haystack, at).unwrap() {
+            return false;
+        }
+    }
+    if set.contains(Look::WordUnicodeNegate) {
+        if !is_word_unicode_negate(haystack, at).unwrap() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Returns true when the position `at` in `haystack` satisfies this
+/// look-around assertion.
+///
+/// This panics if `at > haystack.len()`.
+#[inline]
+pub fn matches(look: Look, haystack: &[u8], at: usize) -> bool {
+    matches_inline(look, haystack, at)
+}
+
+/// Like 'try_matches', but forcefully inlined.
+#[inline(always)]
+pub(crate) fn matches_inline(look: Look, haystack: &[u8], at: usize) -> bool {
+    match look {
+        Look::Start => is_start(haystack, at),
+        Look::End => is_end(haystack, at),
+        Look::StartLF => is_start_lf(haystack, at),
+        Look::EndLF => is_end_lf(haystack, at),
+        Look::StartCRLF => is_start_crlf(haystack, at),
+        Look::EndCRLF => is_end_crlf(haystack, at),
+        Look::WordAscii => is_word_ascii(haystack, at),
+        Look::WordAsciiNegate => is_word_ascii_negate(haystack, at),
+        Look::WordUnicode => is_word_unicode(haystack, at).unwrap(),
+        Look::WordUnicodeNegate => {
+            is_word_unicode_negate(haystack, at).unwrap()
+        }
+    }
+}
+
+/// Split up the given byte classes into equivalence classes in a way that
+/// is consistent with this look-around assertion.
+#[cfg(feature = "alloc")]
+pub(crate) fn add_to_byteset(
+    look: Look,
+    set: &mut crate::util::alphabet::ByteClassSet,
+) {
+    match look {
+        Look::Start | Look::End => {}
+        Look::StartLF | Look::EndLF => {
+            set.set_range(b'\n', b'\n');
+        }
+        Look::StartCRLF | Look::EndCRLF => {
+            set.set_range(b'\r', b'\r');
+            set.set_range(b'\n', b'\n');
+        }
+        Look::WordAscii
+        | Look::WordAsciiNegate
+        | Look::WordUnicode
+        | Look::WordUnicodeNegate => {
+            // We need to mark all ranges of bytes whose pairs result in
+            // evaluating \b differently. This isn't technically correct
+            // for Unicode word boundaries, but DFAs can't handle those
+            // anyway, and thus, the byte classes don't need to either
+            // since they are themselves only used in DFAs.
+            //
+            // FIXME: It seems like the calls to 'set_range' here are
+            // completely invariant, which means we could just hard-code
+            // them here without needing to write a loop. And we only need
+            // to do this dance at most once per regex.
+            //
+            // FIXME: Is this correct for \B?
+            let iswb = utf8::is_word_byte;
+            // This unwrap is OK because we guard every use of 'asu8' with
+            // a check that the input is <= 255.
+            let asu8 = |b: u16| u8::try_from(b).unwrap();
+            let mut b1: u16 = 0;
+            let mut b2: u16;
+            while b1 <= 255 {
+                b2 = b1 + 1;
+                while b2 <= 255 && iswb(asu8(b1)) == iswb(asu8(b2)) {
+                    b2 += 1;
+                }
+                // The guards above guarantee that b2 can never get any
+                // bigger.
+                assert!(b2 <= 256);
+                // Subtracting 1 from b2 is always OK because it is always
+                // at least 1 greater than b1, and the assert above
+                // guarantees that the asu8 conversion will succeed.
+                set.set_range(asu8(b1), asu8(b2.checked_sub(1).unwrap()));
+                b1 = b2;
+            }
+        }
     }
 }
 
@@ -1077,7 +1075,7 @@ mod tests {
 
     macro_rules! testlook {
         ($look:expr, $haystack:expr, $at:expr) => {
-            $look.try_matches(B($haystack), $at).unwrap()
+            $look.matches(B($haystack), $at)
         };
     }
 
