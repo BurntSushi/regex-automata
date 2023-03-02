@@ -596,11 +596,10 @@ pub fn is_word_unicode_negate(
     //
     // Now, this isn't exactly optimal from a perf perspective. We could try
     // and detect this in is_word_char::{fwd,rev}, but it's not clear if it's
-    // worth it. \B is, after all, rarely used. Even worse, sometimes
-    // is_word_char::{fwd,rev} does its own UTF-8 decoding (depending on which
-    // matching engines are available), and so this will wind up doing UTF-8
-    // decoding twice. Owch. We could fix this with more code complexity, but
-    // it just doesn't feel worth it for \B.
+    // worth it. \B is, after all, rarely used. Even worse,
+    // is_word_char::{fwd,rev} could do its own UTF-8 decoding, and so this
+    // will wind up doing UTF-8 decoding twice. Owch. We could fix this with
+    // more code complexity, but it just doesn't feel worth it for \B.
     //
     // And in particular, we do *not* have to do this with \b, because \b
     // *requires* that at least one side of `at` be a "word" codepoint, which
