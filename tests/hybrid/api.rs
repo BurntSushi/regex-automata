@@ -40,7 +40,7 @@ fn too_many_cache_resets_cause_quit() -> Result<(), Box<dyn Error>> {
     //
     // Since there's now no more room to create states, we search a haystack
     // of 'β' and confirm that it gives up immediately.
-    let pattern = r"[aβ]{98}";
+    let pattern = r"[aβ]{99}";
     let dfa = DFA::builder()
         .configure(
             // Configure it so that we have the minimum cache capacity

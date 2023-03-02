@@ -451,6 +451,7 @@ impl<'a> Runner<'a> {
         // transitions that satisfy the look-behind assertions in 'look_have'.
         let mut builder_matches = self.get_state_builder().into_matches();
         util::determinize::set_lookbehind_from_start(
+            self.nfa,
             &start,
             &mut builder_matches,
         );

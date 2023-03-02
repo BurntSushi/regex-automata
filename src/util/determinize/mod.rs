@@ -101,6 +101,11 @@ pub(crate) fn next(
 ) -> StateBuilderNFA {
     sparses.clear();
 
+    // Whether the NFA is matched in reverse or not. We use this in some
+    // conditional logic for dealing with the exceptionally annoying CRLF-aware
+    // line anchors.
+    let rev = nfa.is_reverse();
+
     // Put the NFA state IDs into a sparse set in case we need to
     // re-compute their epsilon closure.
     //
@@ -126,11 +131,13 @@ pub(crate) fn next(
         let mut look_have = state.look_have().clone();
         match unit.as_u8() {
             Some(b'\r') => {
-                look_have = look_have.insert(Look::EndCRLF);
+                if !rev || !state.is_half_crlf() {
+                    look_have = look_have.insert(Look::EndCRLF);
+                }
             }
             Some(b'\n') => {
                 look_have = look_have.insert(Look::EndLF);
-                if !state.is_from_cr() {
+                if rev || !state.is_half_crlf() {
                     look_have = look_have.insert(Look::EndCRLF);
                 }
             }
@@ -138,9 +145,13 @@ pub(crate) fn next(
             None => {
                 look_have = look_have.insert(Look::End);
                 look_have = look_have.insert(Look::EndLF);
+                look_have = look_have.insert(Look::EndCRLF);
             }
         }
-        if state.is_from_cr() && unit.as_u8() != Some(b'\n') {
+        if state.is_half_crlf()
+            && ((rev && !unit.is_byte(b'\r'))
+                || (!rev && !unit.is_byte(b'\n')))
+        {
             look_have = look_have.insert(Look::StartCRLF);
         }
         if state.is_from_word() == unit.is_word_byte() {
@@ -185,14 +196,22 @@ pub(crate) fn next(
     // Set whether the StartLF look-behind assertion is true for this
     // transition or not. The look-behind assertion for ASCII word boundaries
     // is handled below.
-    if nfa.look_set_any().contains_anchor_line() {
-        if unit.as_u8().map_or(false, |b| b == b'\n') {
-            // Why only handle StartLF here and not Start? That's because Start
-            // can only impact the starting state, which is speical cased in
-            // start state handling.
-            builder.set_look_have(|have| have.insert(Look::StartLF));
-            builder.set_look_have(|have| have.insert(Look::StartCRLF));
-        }
+    if nfa.look_set_any().contains_anchor_line() && unit.is_byte(b'\n') {
+        // Why only handle StartLF here and not Start? That's because Start
+        // can only impact the starting state, which is speical cased in
+        // start state handling.
+        builder.set_look_have(|have| have.insert(Look::StartLF));
+    }
+    // We also need to add StartCRLF to our assertions too, if we can. This
+    // is unfortunately a bit more complicated, because it depends on the
+    // direction of the search. In the forward direction, ^ matches after a
+    // \n, but in the reverse direction, ^ only matches after a \r. (This is
+    // further complicated by the fact that reverse a regex means changing a ^
+    // to a $ and vice versa.)
+    if nfa.look_set_any().contains_anchor_crlf()
+        && ((rev && unit.is_byte(b'\r')) || (!rev && unit.is_byte(b'\n')))
+    {
+        builder.set_look_have(|have| have.insert(Look::StartCRLF));
     }
     for nfa_id in sparses.set1.iter() {
         match *nfa.state(nfa_id) {
@@ -292,9 +311,9 @@ pub(crate) fn next(
             builder.set_is_from_word();
         }
         if nfa.look_set_any().contains_anchor_crlf()
-            && unit.as_u8() == Some(b'\r')
+            && ((rev && unit.is_byte(b'\n')) || (!rev && unit.is_byte(b'\r')))
         {
-            builder.set_is_from_cr();
+            builder.set_is_half_crlf();
         }
     }
     let mut builder_nfa = builder.into_nfa();
@@ -416,8 +435,7 @@ pub(crate) fn add_nfa_states(
                 builder.set_look_need(|need| need.insert(look));
             }
             thompson::State::Union { .. }
-            | thompson::State::BinaryUnion { .. }
-            | thompson::State::Capture { .. } => {
+            | thompson::State::BinaryUnion { .. } => {
                 // Pure epsilon transitions don't need to be tracked as part
                 // of the DFA state. Tracking them is actually superfluous;
                 // they won't cause any harm other than making determinization
@@ -452,7 +470,58 @@ pub(crate) fn add_nfa_states(
                 // through the closure correctly. Otherwise, if we re-do the
                 // epsilon closure needlessly, it could change based on the
                 // fact that we are omitting epsilon states here.
+                //
+                // -----
+                //
+                // Welp, scratch the above. It turns out that recording these
+                // is in fact necessary to seemingly handle one particularly
+                // annoying case: when a conditional epsilon transition is
+                // put inside of a repetition operator. One specific case I
+                // ran into was the regex `(?:\b|%)+` on the haystack `z%`.
+                // The correct leftmost first matches are: [0, 0] and [1, 1].
+                // But the DFA was reporting [0, 0] and [1, 2]. To understand
+                // why this happens, consider the NFA for the aforementioned
+                // regex:
+                //
+                //     >000000: binary-union(4, 1)
+                //      000001: \x00-\xFF => 0
+                //      000002: WordAscii => 5
+                //      000003: % => 5
+                //     ^000004: binary-union(2, 3)
+                //      000005: binary-union(4, 6)
+                //      000006: MATCH(0)
+                //
+                // The problem here is that one of the DFA start states is
+                // going to consist of the NFA states [2, 3] by computing the
+                // epsilon closure of state 4. State 4 isn't included because
+                // we previously were not keeping track of union states. But
+                // only a subset of transitions out of this state will be able
+                // to follow WordAscii, and in those cases, the epsilon closure
+                // is redone. The only problem is that computing the epsilon
+                // closure from [2, 3] is different than computing the epsilon
+                // closure from [4]. In the former case, assuming the WordAscii
+                // assertion is satisfied, you get: [2, 3, 6]. In the latter
+                // case, you get: [2, 6, 3]. Notice that '6' is the match state
+                // and appears AFTER '3' in the former case. This leads to a
+                // preferential but incorrect match of '%' before returning
+                // a match. In the latter case, the match is preferred over
+                // continuing to accept the '%'.
+                //
+                // It almost feels like we might be able to fix the NFA states
+                // to avoid this, or to at least only keep track of union
+                // states where this actually matters, since in the vast
+                // majority of cases, this doesn't matter.
+                //
+                // Another alternative would be to define a new HIR property
+                // called "assertion is repeated anywhere" and compute it
+                // inductively over the entire pattern. If it happens anywhere,
+                // which is probably pretty rare, then we record union states.
+                // Otherwise we don't.
+                builder.add_nfa_state_id(nfa_id);
             }
+            // Capture states we definitely do not need to record, since they
+            // are unconditional epsilon transitions with no branching.
+            thompson::State::Capture { .. } => {}
             thompson::State::Fail => {
                 break;
             }
@@ -478,9 +547,11 @@ pub(crate) fn add_nfa_states(
 /// Sets the appropriate look-behind assertions on the given state based on
 /// this starting configuration.
 pub(crate) fn set_lookbehind_from_start(
+    nfa: &thompson::NFA,
     start: &Start,
     builder: &mut StateBuilderMatches,
 ) {
+    let rev = nfa.is_reverse();
     match *start {
         Start::NonWordByte => {}
         Start::WordByte => {
@@ -494,12 +565,21 @@ pub(crate) fn set_lookbehind_from_start(
             });
         }
         Start::LineLF => {
-            builder.set_look_have(|have| {
-                have.insert(Look::StartLF).insert(Look::StartCRLF)
-            });
+            if rev {
+                builder.set_is_half_crlf();
+                builder.set_look_have(|have| have.insert(Look::StartLF));
+            } else {
+                builder.set_look_have(|have| {
+                    have.insert(Look::StartLF).insert(Look::StartCRLF)
+                });
+            }
         }
         Start::LineCR => {
-            builder.set_is_from_cr();
+            if rev {
+                builder.set_look_have(|have| have.insert(Look::StartCRLF));
+            } else {
+                builder.set_is_half_crlf();
+            }
         }
     }
 }

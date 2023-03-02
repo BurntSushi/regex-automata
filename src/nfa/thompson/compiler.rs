@@ -603,7 +603,7 @@ impl Compiler {
                     .parse(p.as_ref())
                     .map_err(BuildError::syntax)?,
             );
-            log!(log::debug!("parsed: {:?}", p.as_ref()));
+            debug!("parsed: {:?}", p.as_ref());
         }
         self.build_many_from_hir(&hirs)
     }
@@ -755,6 +755,7 @@ impl Compiler {
 
         self.builder.borrow_mut().clear();
         self.builder.borrow_mut().set_utf8(self.config.get_utf8());
+        self.builder.borrow_mut().set_reverse(self.config.get_reverse());
         self.builder
             .borrow_mut()
             .set_size_limit(self.config.get_nfa_size_limit())?;
@@ -1349,6 +1350,8 @@ impl Compiler {
             hir::Look::End => Look::End,
             hir::Look::StartLF => Look::StartLF,
             hir::Look::EndLF => Look::EndLF,
+            hir::Look::StartCRLF => Look::StartCRLF,
+            hir::Look::EndCRLF => Look::EndCRLF,
             hir::Look::WordAscii => Look::WordAscii,
             hir::Look::WordAsciiNegate => Look::WordAsciiNegate,
             hir::Look::WordUnicode => Look::WordUnicode,

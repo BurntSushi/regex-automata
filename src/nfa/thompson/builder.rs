@@ -346,6 +346,8 @@ pub struct Builder {
     /// this NFA for searching should report empty matches that split a
     /// codepoint.
     utf8: bool,
+    /// Whether this NFA should be matched in reverse or not.
+    reverse: bool,
     /// A size limit to respect when building an NFA. If the total heap memory
     /// of the intermediate NFA states exceeds (or would exceed) this amount,
     /// then an error is returned.
@@ -560,6 +562,7 @@ impl Builder {
         // Finally remap all of the state IDs.
         nfa.remap(&remap);
         nfa.set_utf8(self.utf8);
+        nfa.set_reverse(self.reverse);
         let final_nfa = nfa.into_nfa();
         debug!(
             "NFA compilation via builder complete, \
@@ -1199,6 +1202,27 @@ impl Builder {
     /// See [`Builder::set_utf8`] for more details about what "UTF-8 mode" is.
     pub fn get_utf8(&self) -> bool {
         self.utf8
+    }
+
+    /// Sets whether the NFA produced by this builder should be matched in
+    /// reverse or not. Generally speaking, when enabled, the NFA produced
+    /// should be matched by moving backwards through a haystack, from a higher
+    /// memory address to a lower memory address.
+    ///
+    /// See also [`NFA::is_reverse`] for more details.
+    ///
+    /// This is disabled by default, which means NFAs are by default matched
+    /// in the forward direction.
+    pub fn set_reverse(&mut self, yes: bool) {
+        self.reverse = yes;
+    }
+
+    /// Returns whether reverse mode is enabled for this builder.
+    ///
+    /// See [`Builder::set_reverse`] for more details about what "reverse mode"
+    /// is.
+    pub fn get_reverse(&self) -> bool {
+        self.reverse
     }
 
     /// Set the size limit on this builder.

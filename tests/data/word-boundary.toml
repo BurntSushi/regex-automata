@@ -769,3 +769,13 @@ name = "unicode8"
 regex = '\b[0-9]+\b'
 haystack = "foo 123 bar 456a quux 789"
 matches = [[4, 7], [22, 25]]
+
+# A variant of the problem described here:
+# https://github.com/google/re2/blob/89567f5de5b23bb5ad0c26cbafc10bdc7389d1fa/re2/dfa.cc#L658-L667
+[[test]]
+name = "alt-with-assertion-repetition"
+regex = '(?:\b|%)+'
+haystack = "z%"
+bounds = [1, 2]
+anchored = true
+matches = [[1, 1]]

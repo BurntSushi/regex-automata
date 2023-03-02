@@ -152,7 +152,7 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                     }
                 } else if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_fwd(needles, input.haystack(), at)
+                    at = accel::find_fwd(needles, input.haystack(), at + 1)
                         .unwrap_or(input.end());
                     continue;
                 }
@@ -164,13 +164,13 @@ fn find_fwd_imp<A: Automaton + ?Sized>(
                 }
                 if dfa.is_accel_state(sid) {
                     let needles = dfa.accelerator(sid);
-                    at = accel::find_fwd(needles, input.haystack(), at)
+                    at = accel::find_fwd(needles, input.haystack(), at + 1)
                         .unwrap_or(input.end());
                     continue;
                 }
             } else if dfa.is_accel_state(sid) {
                 let needs = dfa.accelerator(sid);
-                at = accel::find_fwd(needs, input.haystack(), at)
+                at = accel::find_fwd(needs, input.haystack(), at + 1)
                     .unwrap_or(input.end());
                 continue;
             } else if dfa.is_dead_state(sid) {

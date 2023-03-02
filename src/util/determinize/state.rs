@@ -139,8 +139,8 @@ impl State {
         self.repr().is_from_word()
     }
 
-    pub(crate) fn is_from_cr(&self) -> bool {
-        self.repr().is_from_cr()
+    pub(crate) fn is_half_crlf(&self) -> bool {
+        self.repr().is_half_crlf()
     }
 
     pub(crate) fn look_have(&self) -> LookSet {
@@ -234,8 +234,8 @@ impl StateBuilderMatches {
         self.repr_vec().set_is_from_word()
     }
 
-    pub(crate) fn set_is_from_cr(&mut self) {
-        self.repr_vec().set_is_from_cr()
+    pub(crate) fn set_is_half_crlf(&mut self) {
+        self.repr_vec().set_is_half_crlf()
     }
 
     pub(crate) fn look_have(&self) -> LookSet {
@@ -422,7 +422,11 @@ impl<'a> Repr<'a> {
         self.0[0] & (1 << 2) > 0
     }
 
-    fn is_from_cr(&self) -> bool {
+    /// Returns true if and only if this state is marked as being inside of a
+    /// CRLF terminator. In the forward direction, this means the state was
+    /// created after seeing a `\r`. In the reverse direction, this means the
+    /// state was created after seeing a `\n`.
+    fn is_half_crlf(&self) -> bool {
         self.0[0] & (1 << 3) > 0
     }
 
@@ -564,7 +568,7 @@ impl<'a> core::fmt::Debug for Repr<'a> {
         f.debug_struct("Repr")
             .field("is_match", &self.is_match())
             .field("is_from_word", &self.is_from_word())
-            .field("is_from_cr", &self.is_from_cr())
+            .field("is_half_crlf", &self.is_half_crlf())
             .field("look_have", &self.look_have())
             .field("look_need", &self.look_need())
             .field("match_pattern_ids", &self.match_pattern_ids())
@@ -610,7 +614,11 @@ impl<'a> ReprVec<'a> {
         self.0[0] |= 1 << 2;
     }
 
-    fn set_is_from_cr(&mut self) {
+    /// Set this state as having seen half of a CRLF terminator.
+    ///
+    /// In the forward direction, this should be set when a `\r` has been seen.
+    /// In the reverse direction, this should be set when a `\n` has been seen.
+    fn set_is_half_crlf(&mut self) {
         self.0[0] |= 1 << 3;
     }
 

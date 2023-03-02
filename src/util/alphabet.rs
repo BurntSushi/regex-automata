@@ -84,6 +84,13 @@ impl Unit {
         }
     }
 
+    pub fn is_byte(&self, byte: u8) -> bool {
+        match *self {
+            Unit::U8(b) if b == byte => true,
+            _ => false,
+        }
+    }
+
     pub fn is_eoi(&self) -> bool {
         match *self {
             Unit::EOI(_) => true,

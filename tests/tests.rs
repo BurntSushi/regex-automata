@@ -19,6 +19,7 @@ fn suite() -> anyhow::Result<regex_test::RegexTests> {
     load!("anchored");
     load!("bytes");
     load!("crazy");
+    load!("crlf");
     load!("earliest");
     load!("empty");
     load!("expensive");

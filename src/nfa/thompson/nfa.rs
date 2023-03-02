@@ -864,6 +864,32 @@ impl NFA {
         self.0.utf8
     }
 
+    /// Returns true when this NFA is meant to be matched in reverse.
+    ///
+    /// Generally speaking, when this is true, it means the NFA is supposed to
+    /// be used in conjunction with moving backwards through the haystack. That
+    /// is, from a higher memory address to a lower memory address.
+    ///
+    /// It is often the case that lower level routines dealing with an NFA
+    /// don't need to care about whether it is "meant" to be matched in reverse
+    /// or not. However, there are some specific cases where it matters. For
+    /// example, the implementation of CRLF-aware `^` and `$` line anchors
+    /// needs to know whether the search is in the forward or reverse
+    /// direction. In the forward direction, neither `^` nor `$` should match
+    /// when a `\r` has been seen previously and a `\n` is next. However, in
+    /// the reverse direction, neither `^` nor `$` should match when a `\n`
+    /// has been seen previously and a `\r` is next. This fundamentally changes
+    /// how the state machine is constructed, and thus needs to be altered
+    /// based on the direction of the search.
+    ///
+    /// This is automatically set when using a [`Compiler`] with a configuration
+    /// where [`Config::reverse`] is enabled. If you're building your own NFA
+    /// by hand via a [`Builder`]
+    #[inline]
+    pub fn is_reverse(&self) -> bool {
+        self.0.reverse
+    }
+
     /// Returns true if and only if all starting states for this NFA correspond
     /// to the beginning of an anchored search.
     ///
@@ -1134,6 +1160,8 @@ pub(super) struct Inner {
     /// encoded codepoint should be filtered out by the corresponding regex
     /// engine.
     utf8: bool,
+    /// Whether this NFA is meant to be matched in reverse or not.
+    reverse: bool,
     /// The union of all look-around assertions that occur anywhere within
     /// this NFA. If this set is empty, then it means there are precisely zero
     /// conditional epsilon transitions in the NFA.
@@ -1284,6 +1312,11 @@ impl Inner {
     /// Sets the UTF-8 mode of this NFA.
     pub(super) fn set_utf8(&mut self, yes: bool) {
         self.utf8 = yes;
+    }
+
+    /// Sets the reverse mode of this NFA.
+    pub(super) fn set_reverse(&mut self, yes: bool) {
+        self.reverse = yes;
     }
 
     /// Set the capturing groups for this NFA.

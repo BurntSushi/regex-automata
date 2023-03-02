@@ -2187,10 +2187,14 @@ impl<'i, 'c> Lazy<'i, 'c> {
         start: Start,
     ) -> Result<LazyStateID, CacheError> {
         let mut builder_matches = self.get_state_builder().into_matches();
-        determinize::set_lookbehind_from_start(&start, &mut builder_matches);
+        determinize::set_lookbehind_from_start(
+            self.dfa.get_nfa(),
+            &start,
+            &mut builder_matches,
+        );
         self.cache.sparses.set1.clear();
         determinize::epsilon_closure(
-            &self.dfa.get_nfa(),
+            self.dfa.get_nfa(),
             nfa_start_id,
             builder_matches.look_have(),
             &mut self.cache.stack,

@@ -1063,7 +1063,7 @@ impl std::fmt::Display for RegexTestFailure {
             self.full_name(),
             self.kind.fmt(&self.test)?,
             self.test.regexes(),
-            self.test.haystack(),
+            self.test.haystack().as_bstr(),
         )?;
         Ok(())
     }
