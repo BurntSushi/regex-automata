@@ -49,7 +49,7 @@ use crate::{
         captures::Captures,
         escape::DebugByte,
         int::{Usize, U32, U64, U8},
-        look::{LookSet, UnicodeWordBoundaryError},
+        look::{Look, LookSet, UnicodeWordBoundaryError},
         primitives::{NonMaxUsize, PatternID, StateID},
         search::{Anchored, Input, MatchError, MatchKind},
         sparse_set::SparseSet,
@@ -711,6 +711,16 @@ impl<'a> InternalBuilder<'a> {
     fn build(mut self) -> Result<DFA, BuildError> {
         if self.nfa.look_set_any().contains_word_unicode() {
             UnicodeWordBoundaryError::check().map_err(BuildError::word)?;
+        }
+        for look in self.nfa.look_set_any().iter() {
+            // This is a future incompatibility check where if we add any
+            // more look-around assertions, then the one-pass DFA either
+            // needs to reject them (what we do here) or it needs to have its
+            // Transition representation modified to be capable of storing the
+            // new assertions.
+            if look.as_repr() > Look::WordUnicodeNegate.as_repr() {
+                return Err(BuildError::unsupported_look(look));
+            }
         }
         if self.nfa.pattern_len().as_u64() > PatternEpsilons::PATTERN_ID_LIMIT
         {
@@ -3037,6 +3047,7 @@ enum BuildErrorKind {
     Word(UnicodeWordBoundaryError),
     TooManyStates { limit: u64 },
     TooManyPatterns { limit: u64 },
+    UnsupportedLook { look: Look },
     ExceededSizeLimit { limit: usize },
     NotOnePass { msg: &'static str },
 }
@@ -3056,6 +3067,10 @@ impl BuildError {
 
     fn too_many_patterns(limit: u64) -> BuildError {
         BuildError { kind: BuildErrorKind::TooManyPatterns { limit } }
+    }
+
+    fn unsupported_look(look: Look) -> BuildError {
+        BuildError { kind: BuildErrorKind::UnsupportedLook { look } }
     }
 
     fn exceeded_size_limit(limit: usize) -> BuildError {
@@ -3096,6 +3111,11 @@ impl core::fmt::Display for BuildError {
                 f,
                 "one-pass DFA exceeded a limit of {:?} for number of patterns",
                 limit,
+            ),
+            UnsupportedLook { look } => write!(
+                f,
+                "one-pass DFA does not support the {:?} assertion",
+                look,
             ),
             ExceededSizeLimit { limit } => write!(
                 f,

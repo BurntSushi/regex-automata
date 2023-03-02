@@ -116,7 +116,7 @@ impl Look {
     /// constructor is guaranteed to return the same look-around variant that
     /// one started with.
     #[inline]
-    const fn as_repr(self) -> u16 {
+    pub(crate) const fn as_repr(self) -> u16 {
         // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
         // actual int.
         self as u16
@@ -269,27 +269,25 @@ pub struct LookSet {
 }
 
 impl LookSet {
-    pub const CAPACITY: usize = 16;
-
     #[inline]
-    pub const fn empty() -> LookSet {
+    pub fn empty() -> LookSet {
         LookSet { bits: 0 }
     }
 
     #[inline]
-    pub const fn full() -> LookSet {
+    pub fn full() -> LookSet {
         LookSet { bits: !0 }
     }
 
     /// Return a LookSet from its representation.
     #[inline]
-    pub const fn from_repr(repr: u16) -> LookSet {
+    pub fn from_repr(repr: u16) -> LookSet {
         LookSet { bits: repr }
     }
 
     /// Return the internal byte representation of this set.
     #[inline]
-    pub const fn to_repr(self) -> u16 {
+    pub fn to_repr(self) -> u16 {
         self.bits
     }
 
@@ -311,13 +309,13 @@ impl LookSet {
 
     /// Return true if and only if this set is empty.
     #[inline]
-    pub const fn is_empty(self) -> bool {
+    pub fn is_empty(self) -> bool {
         self.bits == 0
     }
 
     /// Returns the number of elements in this set.
     #[inline]
-    pub const fn len(self) -> usize {
+    pub fn len(self) -> usize {
         // OK because max length is <= u8::MAX.
         //
         // FIXME: Use as_usize() once const functions in traits are stable.
@@ -327,41 +325,42 @@ impl LookSet {
     /// Insert the given look-around assertion into this set. If the assertion
     /// already exists, then this is a no-op.
     #[inline]
-    pub const fn insert(self, look: Look) -> LookSet {
+    pub fn insert(self, look: Look) -> LookSet {
         LookSet { bits: self.bits | look.as_repr() }
     }
 
     /// Remove the given look-around assertion from this set. If the assertion
     /// is not in this set, then this is a no-op.
     #[inline]
-    pub const fn remove(self, look: Look) -> LookSet {
+    pub fn remove(self, look: Look) -> LookSet {
         LookSet { bits: self.bits & !look.as_repr() }
     }
 
     /// Return true if and only if the given assertion is in this set.
     #[inline]
-    pub const fn contains(self, look: Look) -> bool {
+    pub fn contains(self, look: Look) -> bool {
         look.as_repr() & self.bits != 0
     }
 
     /// Returns true if and only if this set contains any anchor assertions.
     /// This includes both "start/end of haystack" and "start/end of line."
     #[inline]
-    pub const fn contains_anchor(&self) -> bool {
+    pub fn contains_anchor(&self) -> bool {
         self.contains_anchor_haystack() || self.contains_anchor_line()
     }
 
     /// Returns true if and only if this set contains any "start/end of
     /// haystack" anchors. This doesn't include "start/end of line" anchors.
     #[inline]
-    pub const fn contains_anchor_haystack(&self) -> bool {
+    pub fn contains_anchor_haystack(&self) -> bool {
         self.contains(Look::Start) || self.contains(Look::End)
     }
 
-    /// Returns true if and only if this set contains any "start/end of
-    /// line" anchors. This doesn't include "start/end of haystack" anchors.
+    /// Returns true if and only if this set contains any "start/end of line"
+    /// anchors. This doesn't include "start/end of haystack" anchors. This
+    /// includes both `\n` line anchors and CRLF (`\r\n`) aware line anchors.
     #[inline]
-    pub const fn contains_anchor_line(&self) -> bool {
+    pub fn contains_anchor_line(&self) -> bool {
         self.contains(Look::StartLF)
             || self.contains(Look::EndLF)
             || self.contains(Look::StartCRLF)
@@ -369,10 +368,18 @@ impl LookSet {
     }
 
     /// Returns true if and only if this set contains any "start/end of line"
-    /// anchors that are CRLF-aware. This doesn't include "start/end of
-    /// haystack" anchors.
+    /// anchors that only treat `\n` as line terminators. This does not include
+    /// haystack anchors or CRLF aware line anchors.
     #[inline]
-    pub const fn contains_anchor_crlf(&self) -> bool {
+    pub fn contains_anchor_lf(&self) -> bool {
+        self.contains(Look::StartLF) || self.contains(Look::EndLF)
+    }
+
+    /// Returns true if and only if this set contains any "start/end of line"
+    /// anchors that are CRLF-aware. This doesn't include "start/end of
+    /// haystack" or "start/end of line-feed" anchors.
+    #[inline]
+    pub fn contains_anchor_crlf(&self) -> bool {
         self.contains(Look::StartCRLF) || self.contains(Look::EndCRLF)
     }
 
@@ -380,14 +387,14 @@ impl LookSet {
     /// negated word boundary assertions. This include both Unicode and ASCII
     /// word boundaries.
     #[inline]
-    pub const fn contains_word(&self) -> bool {
+    pub fn contains_word(&self) -> bool {
         self.contains_word_unicode() || self.contains_word_ascii()
     }
 
     /// Returns true if and only if this set contains any Unicode word boundary
     /// or negated Unicode word boundary assertions.
     #[inline]
-    pub const fn contains_word_unicode(&self) -> bool {
+    pub fn contains_word_unicode(&self) -> bool {
         self.contains(Look::WordUnicode)
             || self.contains(Look::WordUnicodeNegate)
     }
@@ -395,33 +402,33 @@ impl LookSet {
     /// Returns true if and only if this set contains any ASCII word boundary
     /// or negated ASCII word boundary assertions.
     #[inline]
-    pub const fn contains_word_ascii(&self) -> bool {
+    pub fn contains_word_ascii(&self) -> bool {
         self.contains(Look::WordAscii) || self.contains(Look::WordAsciiNegate)
     }
 
     /// Subtract the given `other` set from the `self` set and return a new
     /// set.
     #[inline]
-    pub const fn subtract(self, other: LookSet) -> LookSet {
+    pub fn subtract(self, other: LookSet) -> LookSet {
         LookSet { bits: self.bits & !other.bits }
     }
 
     /// Modifies this set to be the union of itself and the set given.
     #[inline]
-    pub const fn union(self, other: LookSet) -> LookSet {
+    pub fn union(self, other: LookSet) -> LookSet {
         LookSet { bits: self.bits | other.bits }
     }
 
     /// Return the intersection of the given `other` set with the `self` set
     /// and return the resulting set.
     #[inline]
-    pub const fn intersect(self, other: LookSet) -> LookSet {
+    pub fn intersect(self, other: LookSet) -> LookSet {
         LookSet { bits: self.bits & other.bits }
     }
 
     /// Returns an iterator over all of the look-around assertions in this set.
     #[inline]
-    pub const fn iter(self) -> LookSetIter {
+    pub fn iter(self) -> LookSetIter {
         LookSetIter { set: self }
     }
 
