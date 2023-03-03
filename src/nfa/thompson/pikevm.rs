@@ -15,7 +15,6 @@ use crate::{
     util::{
         captures::Captures,
         empty, iter,
-        look::UnicodeWordBoundaryError,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
         search::{
@@ -233,9 +232,7 @@ impl Builder {
         if !nfa.has_capture() && nfa.pattern_len() > 0 {
             return Err(BuildError::missing_captures());
         }
-        if nfa.look_set_any().contains_word_unicode() {
-            UnicodeWordBoundaryError::check().map_err(BuildError::word)?;
-        }
+        nfa.look_set_any().available().map_err(BuildError::word)?;
         Ok(PikeVM { config: self.config.clone(), nfa })
     }
 

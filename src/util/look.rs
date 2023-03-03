@@ -1,122 +1,114 @@
-#![allow(warnings)]
+/*!
+Types and routines for working with look-around assertions.
 
-use crate::util::{int::U32, utf8};
+This module principally defines two types:
+
+* [`Look`] enumerates all of the assertions supported by this crate.
+* [`LookSet`] provides a way to efficiently store a set of [`Look`] values.
+
+Additionally, this module provides a routines for evaluating whether an
+assertion matches at a particular point in a haystack. [`Look::matches`]
+and [`LookSet::matches`] are both intended for this purpose. The underlying
+implementations of matching each look-around assertion are also provided as
+free functions. For example, [`is_start_lf`] implements the [`Look::StartLF`]
+assertion.
+*/
+
+// LAMENTATION: Sadly, a lot of the API of `Look` and `LookSet` were basically
+// copied verbatim from the regex-syntax crate. I would have no problems using
+// the regex-syntax types and defining the matching routines (only found
+// in this crate) as free functions, except the `Look` and `LookSet` types
+// are used in lots of places. Including in places we expect to work when
+// regex-syntax is *not* enabled, such as in the definition of the NFA itself.
+//
+// Thankfully the code we copy is pretty simple and there isn't much of it.
+// Otherwise, the rest of this module deals with *matching* the assertions,
+// which is not something that regex-syntax handles.
+
+use crate::util::utf8;
 
 /// A look-around assertion.
 ///
-/// A simulation of the NFA can only move through conditional epsilon
-/// transitions if the current position satisfies some look-around property.
-/// Some assertions are look-behind (`StartLF`, `Start`), some assertions are
-/// look-ahead (`EndLF`, `End`) while other assertions are both look-behind and
-/// look-ahead (`WordBoundary*`).
+/// An assertion matches at a position between characters in a haystack.
+/// Namely, it does not actually "consume" any input as most parts of a regular
+/// expression do. Assertions are a way of stating that some property must be
+/// true at a particular point during matching.
+///
+/// For example, `(?m)^[a-z]+$` is a pattern that:
+///
+/// * Scans the haystack for a position at which `(?m:^)` is satisfied. That
+/// occurs at either the beginning of the haystack, or immediately following
+/// a `\n` character.
+/// * Looks for one or more occurrences of `[a-z]`.
+/// * Once `[a-z]+` has matched as much as it can, an overall match is only
+/// reported when `[a-z]+` stops just before a `\n`.
+///
+/// So in this case, `abc` and `\nabc\n` match, but `\nabc1\n` does not.
+///
+/// Assertions are also called "look-around," "look-behind" and "look-ahead."
+/// Specifically, some assertions are look-behind (like `^`), other assertions
+/// are look-ahead (like `$`) and yet other assertions are both look-ahead and
+/// look-behind (like `\b`).
+///
+/// # Assertions in an NFA
+///
+/// An assertion in a [`thompson::NFA`](crate::nfa::thompson::NFA) can be
+/// thought of as a conditional epsilon transition. That is, a matching engine
+/// like the [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM) only permits
+/// moving through conditional epsilon transitions when their condition
+/// is satisfied at whatever position the `PikeVM` is currently at in the
+/// haystack.
+///
+/// How assertions are handled in a `DFA` is trickier, since a DFA does not
+/// have epsilon transitions at all. In this case, they are compiled into the
+/// automaton itself, at the expense of more states than what would be required
+/// without an assertion.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Look {
-    /// The current position is the beginning of the haystack (at position
-    /// `0`).
+    /// Match the beginning of text. Specifically, this matches at the starting
+    /// position of the input.
     Start = 1 << 0,
-    /// The current position is the end of the haystack (at position
-    /// `haystack.len()`).
+    /// Match the end of text. Specifically, this matches at the ending
+    /// position of the input.
     End = 1 << 1,
-    /// The previous position is either `\n` or the current position is the
-    /// beginning of the haystack (at position `0`).
+    /// Match the beginning of a line or the beginning of text. Specifically,
+    /// this matches at the starting position of the input, or at the position
+    /// immediately following a `\n` character.
     StartLF = 1 << 2,
-    /// The next position is either `\n` or the current position is the end of
-    /// the haystack (at position `haystack.len()`).
+    /// Match the end of a line or the end of text. Specifically, this matches
+    /// at the end position of the input, or at the position immediately
+    /// preceding a `\n` character.
     EndLF = 1 << 3,
-    /// The previous position is `\n`, or the current position is the
-    /// beginning of the haystack (at position `0`), or the previous position
-    /// is a `\r` and the next position is *not* a `\n`.
-    ///
-    /// In other words, it matches just after `\r` or `\n`, but never between
-    /// them.
+    /// Match the beginning of a line or the beginning of text. Specifically,
+    /// this matches at the starting position of the input, or at the position
+    /// immediately following either a `\r` or `\n` character, but never after
+    /// a `\r` when a `\n` follows.
     StartCRLF = 1 << 4,
-    /// The next position is `\r`, or the current position is the end of the
-    /// haystack (at position `haystack.len()`), or the next position is `\n`
-    /// and the previous position is *not* a `\r`.
-    ///
-    /// In other words, it matches just before `\r` or `\n`, but never between
-    /// them.
+    /// Match the end of a line or the end of text. Specifically, this matches
+    /// at the end position of the input, or at the position immediately
+    /// preceding a `\r` or `\n` character, but never before a `\n` when a `\r`
+    /// precedes it.
     EndCRLF = 1 << 5,
-    /// When tested at position `i`, where `p=haystack[i-1]` and
-    /// `n=haystack[i]`, this assertion passes if and only if `is_word(p)
-    /// != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
-    /// `i=haystack.len()`, then `is_word(n)=false`.
+    /// Match an ASCII-only word boundary. That is, this matches a position
+    /// where the left adjacent character and right adjacent character
+    /// correspond to a word and non-word or a non-word and word character.
     WordAscii = 1 << 6,
-    /// Same as for `WordBoundaryAscii`, but requires that
-    /// `is_word(p) == is_word(n)`.
-    ///
-    /// Note that it is possible for this assertion to match at positions that
-    /// split the UTF-8 encoding of a codepoint. For this reason, this may only
-    /// be used when UTF-8 mode is disabled in the regex syntax.
+    /// Match an ASCII-only negation of a word boundary.
     WordAsciiNegate = 1 << 7,
-    /// When tested at position `i`, where `p=decode_utf8_rev(&haystack[..i])`
-    /// and `n=decode_utf8(&haystack[i..])`, this assertion passes if and only
-    /// if `is_word(p) != is_word(n)`. If `i=0`, then `is_word(p)=false` and if
-    /// `i=haystack.len()`, then `is_word(n)=false`.
+    /// Match a Unicode-aware word boundary. That is, this matches a position
+    /// where the left adjacent character and right adjacent character
+    /// correspond to a word and non-word or a non-word and word character.
     WordUnicode = 1 << 8,
-    /// Same as for `WordBoundaryUnicode`, but requires that
-    /// `is_word(p) == is_word(n)`.
+    /// Match a Unicode-aware negation of a word boundary.
     WordUnicodeNegate = 1 << 9,
 }
 
 impl Look {
-    const COUNT: usize = 10;
-
-    #[inline]
-    const fn from_index(index: usize) -> Option<Look> {
-        if index < Look::COUNT {
-            Some(Look::from_index_unchecked(index))
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    const fn from_index_unchecked(index: usize) -> Look {
-        const BY_INDEX: [Look; Look::COUNT] = [
-            Look::Start,
-            Look::End,
-            Look::StartLF,
-            Look::EndLF,
-            Look::StartCRLF,
-            Look::EndCRLF,
-            Look::WordAscii,
-            Look::WordAsciiNegate,
-            Look::WordUnicode,
-            Look::WordUnicodeNegate,
-        ];
-        BY_INDEX[index]
-    }
-
-    /// Return the underlying representation of this look-around enumeration
-    /// as an integer. Giving the return value to the [`Look::from_repr`]
-    /// constructor is guaranteed to return the same look-around variant that
-    /// one started with.
-    #[inline]
-    pub(crate) const fn as_repr(self) -> u16 {
-        // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
-        // actual int.
-        self as u16
-    }
-
-    #[inline]
-    pub const fn as_char(self) -> char {
-        match self {
-            Look::Start => 'A',
-            Look::End => 'z',
-            Look::StartLF => '^',
-            Look::EndLF => '$',
-            Look::StartCRLF => 'r',
-            Look::EndCRLF => 'R',
-            Look::WordAscii => 'b',
-            Look::WordAsciiNegate => 'B',
-            Look::WordUnicode => '𝛃',
-            Look::WordUnicodeNegate => '𝚩',
-        }
-    }
-
     /// Flip the look-around assertion to its equivalent for reverse searches.
     /// For example, `StartLF` gets translated to `EndLF`.
+    ///
+    /// Some assertions, such as `WordUnicode`, remain the same since they
+    /// match the same positions regardless of the direction of the search.
     #[inline]
     pub const fn reversed(self) -> Look {
         match self {
@@ -133,19 +125,101 @@ impl Look {
         }
     }
 
+    /// Return the underlying representation of this look-around enumeration
+    /// as an integer. Giving the return value to the [`Look::from_repr`]
+    /// constructor is guaranteed to return the same look-around variant that
+    /// one started with within a semver compatible release of this crate.
+    #[inline]
+    pub const fn as_repr(self) -> u16 {
+        // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
+        // actual int.
+        self as u16
+    }
+
+    /// Given the underlying representation of a `Look` value, return the
+    /// corresponding `Look` value if the representation is valid. Otherwise
+    /// `None` is returned.
+    #[inline]
+    pub const fn from_repr(repr: u16) -> Option<Look> {
+        match repr {
+            0b00_0000_0001 => Some(Look::Start),
+            0b00_0000_0010 => Some(Look::End),
+            0b00_0000_0100 => Some(Look::StartLF),
+            0b00_0000_1000 => Some(Look::EndLF),
+            0b00_0001_0000 => Some(Look::StartCRLF),
+            0b00_0010_0000 => Some(Look::EndCRLF),
+            0b00_0100_0000 => Some(Look::WordAscii),
+            0b00_1000_0000 => Some(Look::WordAsciiNegate),
+            0b01_0000_0000 => Some(Look::WordUnicode),
+            0b10_0000_0000 => Some(Look::WordUnicodeNegate),
+            _ => None,
+        }
+    }
+
+    /// Returns a convenient single codepoint representation of this
+    /// look-around assertion. Each assertion is guaranteed to be represented
+    /// by a distinct character.
+    ///
+    /// This is useful for succinctly representing a look-around assertion in
+    /// human friendly but succinct output intended for a programmer working on
+    /// regex internals.
+    #[inline]
+    pub const fn as_char(self) -> char {
+        match self {
+            Look::Start => 'A',
+            Look::End => 'z',
+            Look::StartLF => '^',
+            Look::EndLF => '$',
+            Look::StartCRLF => 'r',
+            Look::EndCRLF => 'R',
+            Look::WordAscii => 'b',
+            Look::WordAsciiNegate => 'B',
+            Look::WordUnicode => '𝛃',
+            Look::WordUnicodeNegate => '𝚩',
+        }
+    }
+
     /// Returns true when the position `at` in `haystack` satisfies this
     /// look-around assertion.
     ///
-    /// This panics if `at > haystack.len()`.
+    /// # Panics
+    ///
+    /// This panics when testing any Unicode word boundary assertion in this
+    /// set and when the Unicode word data is not available. Specifically, this
+    /// only occurs when the `unicode-word-boundary` feature is not enabled.
+    ///
+    /// Since it's generally expected that this routine is called inside of
+    /// a matching engine, callers should check the error condition when
+    /// building the matching engine. If there is a Unicode word boundary
+    /// in the matcher and the data isn't available, then the matcher should
+    /// fail to build.
+    ///
+    /// Callers can check the error condition with [`LookSet::available`].
+    ///
+    /// This also may panic when `at > haystack.len()`. Note that `at ==
+    /// haystack.len()` is legal and guaranteed not to panic.
     #[inline]
     pub fn matches(self, haystack: &[u8], at: usize) -> bool {
-        matches(self, haystack, at)
+        self.matches_inline(haystack, at)
     }
 
-    /// Like 'try_matches', but forcefully inlined.
+    /// Like `matches`, but forcefully inlined.
     #[inline(always)]
     pub(crate) fn matches_inline(self, haystack: &[u8], at: usize) -> bool {
-        matches_inline(self, haystack, at)
+        match self {
+            Look::Start => is_start(haystack, at),
+            Look::End => is_end(haystack, at),
+            Look::StartLF => is_start_lf(haystack, at),
+            Look::EndLF => is_end_lf(haystack, at),
+            Look::StartCRLF => is_start_crlf(haystack, at),
+            Look::EndCRLF => is_end_crlf(haystack, at),
+            Look::WordAscii => is_word_ascii(haystack, at),
+            Look::WordAsciiNegate => is_word_ascii_negate(haystack, at),
+            Look::WordUnicode => is_word_unicode(haystack, at).unwrap(),
+            Look::WordUnicodeNegate => {
+                is_word_unicode_negate(haystack, at).unwrap()
+            }
+        }
     }
 
     /// Split up the given byte classes into equivalence classes in a way that
@@ -155,91 +229,118 @@ impl Look {
         self,
         set: &mut crate::util::alphabet::ByteClassSet,
     ) {
-        add_to_byteset(self, set);
+        match self {
+            Look::Start | Look::End => {}
+            Look::StartLF | Look::EndLF => {
+                set.set_range(b'\n', b'\n');
+            }
+            Look::StartCRLF | Look::EndCRLF => {
+                set.set_range(b'\r', b'\r');
+                set.set_range(b'\n', b'\n');
+            }
+            Look::WordAscii
+            | Look::WordAsciiNegate
+            | Look::WordUnicode
+            | Look::WordUnicodeNegate => {
+                // We need to mark all ranges of bytes whose pairs result in
+                // evaluating \b differently. This isn't technically correct
+                // for Unicode word boundaries, but DFAs can't handle those
+                // anyway, and thus, the byte classes don't need to either
+                // since they are themselves only used in DFAs.
+                //
+                // FIXME: It seems like the calls to 'set_range' here are
+                // completely invariant, which means we could just hard-code
+                // them here without needing to write a loop. And we only need
+                // to do this dance at most once per regex.
+                //
+                // FIXME: Is this correct for \B?
+                let iswb = utf8::is_word_byte;
+                // This unwrap is OK because we guard every use of 'asu8' with
+                // a check that the input is <= 255.
+                let asu8 = |b: u16| u8::try_from(b).unwrap();
+                let mut b1: u16 = 0;
+                let mut b2: u16;
+                while b1 <= 255 {
+                    b2 = b1 + 1;
+                    while b2 <= 255 && iswb(asu8(b1)) == iswb(asu8(b2)) {
+                        b2 += 1;
+                    }
+                    // The guards above guarantee that b2 can never get any
+                    // bigger.
+                    assert!(b2 <= 256);
+                    // Subtracting 1 from b2 is always OK because it is always
+                    // at least 1 greater than b1, and the assert above
+                    // guarantees that the asu8 conversion will succeed.
+                    set.set_range(asu8(b1), asu8(b2.checked_sub(1).unwrap()));
+                    b1 = b2;
+                }
+            }
+        }
     }
 }
 
 /// LookSet is a memory-efficient set of look-around assertions.
 ///
-/// Callers may idempotently insert or remove any look-around assertion from a
-/// set.
+/// This is useful for efficiently tracking look-around assertions. For
+/// example, a [`thompson::NFA`](crate::nfa::thompson::NFA) provides properties
+/// that return `LookSet`s.
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub struct LookSet {
-    bits: u16,
+    /// The underlying representation this set is exposed to make it possible
+    /// to store it somewhere efficiently. The representation is that
+    /// of a bitset, where each assertion occupies bit `i` where `i =
+    /// Look::as_repr()`.
+    ///
+    /// Note that users of this internal representation must permit the full
+    /// range of `u16` values to be represented. For example, even if the
+    /// current implementation only makes use of the 10 least significant bits,
+    /// it may use more bits in a future semver compatible release.
+    pub bits: u16,
 }
 
 impl LookSet {
+    /// Create an empty set of look-around assertions.
     #[inline]
     pub fn empty() -> LookSet {
         LookSet { bits: 0 }
     }
 
+    /// Create a full set of look-around assertions.
+    ///
+    /// This set contains all possible look-around assertions.
     #[inline]
     pub fn full() -> LookSet {
         LookSet { bits: !0 }
     }
 
-    /// Return a LookSet from its representation.
+    /// Create a look-around set containing the look-around assertion given.
+    ///
+    /// This is a convenience routine for creating an empty set and inserting
+    /// one look-around assertions.
     #[inline]
-    pub fn from_repr(repr: u16) -> LookSet {
-        LookSet { bits: repr }
+    pub fn singleton(look: Look) -> LookSet {
+        LookSet::empty().insert(look)
     }
 
-    /// Return the internal byte representation of this set.
-    #[inline]
-    pub fn to_repr(self) -> u16 {
-        self.bits
-    }
-
-    /// Return a LookSet from the slice given as a native endian 16-bit
-    /// integer. Panics if `slice.len() < 2`.
-    #[inline]
-    pub(crate) fn read_repr(slice: &[u8]) -> LookSet {
-        LookSet::from_repr(u16::from_ne_bytes(slice[..2].try_into().unwrap()))
-    }
-
-    /// Write a LookSet as a native endian 16-bit integer to the beginning
-    /// of the slice given. Panics if `slice.len() < 2`.
-    #[inline]
-    pub(crate) fn write_repr(self, slice: &mut [u8]) {
-        let raw = self.to_repr().to_ne_bytes();
-        slice[0] = raw[0];
-        slice[1] = raw[1];
-    }
-
-    /// Return true if and only if this set is empty.
-    #[inline]
-    pub fn is_empty(self) -> bool {
-        self.bits == 0
-    }
-
-    /// Returns the number of elements in this set.
+    /// Returns the total number of look-around assertions in this set.
     #[inline]
     pub fn len(self) -> usize {
-        // OK because max length is <= u8::MAX.
-        //
-        // FIXME: Use as_usize() once const functions in traits are stable.
-        self.bits.count_ones() as usize
+        // OK because max value always fits in a u8, which in turn always
+        // fits in a usize, regardless of target.
+        usize::try_from(self.bits.count_ones()).unwrap()
     }
 
-    /// Insert the given look-around assertion into this set. If the assertion
-    /// already exists, then this is a no-op.
+    /// Returns true if and only if this set is empty.
     #[inline]
-    pub fn insert(self, look: Look) -> LookSet {
-        LookSet { bits: self.bits | look.as_repr() }
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
     }
 
-    /// Remove the given look-around assertion from this set. If the assertion
-    /// is not in this set, then this is a no-op.
-    #[inline]
-    pub fn remove(self, look: Look) -> LookSet {
-        LookSet { bits: self.bits & !look.as_repr() }
-    }
-
-    /// Return true if and only if the given assertion is in this set.
+    /// Returns true if and only if the given look-around assertion is in this
+    /// set.
     #[inline]
     pub fn contains(self, look: Look) -> bool {
-        look.as_repr() & self.bits != 0
+        self.bits & look.as_repr() != 0
     }
 
     /// Returns true if and only if this set contains any anchor assertions.
@@ -287,14 +388,14 @@ impl LookSet {
     /// negated word boundary assertions. This include both Unicode and ASCII
     /// word boundaries.
     #[inline]
-    pub fn contains_word(&self) -> bool {
+    pub fn contains_word(self) -> bool {
         self.contains_word_unicode() || self.contains_word_ascii()
     }
 
     /// Returns true if and only if this set contains any Unicode word boundary
     /// or negated Unicode word boundary assertions.
     #[inline]
-    pub fn contains_word_unicode(&self) -> bool {
+    pub fn contains_word_unicode(self) -> bool {
         self.contains(Look::WordUnicode)
             || self.contains(Look::WordUnicodeNegate)
     }
@@ -302,28 +403,8 @@ impl LookSet {
     /// Returns true if and only if this set contains any ASCII word boundary
     /// or negated ASCII word boundary assertions.
     #[inline]
-    pub fn contains_word_ascii(&self) -> bool {
+    pub fn contains_word_ascii(self) -> bool {
         self.contains(Look::WordAscii) || self.contains(Look::WordAsciiNegate)
-    }
-
-    /// Subtract the given `other` set from the `self` set and return a new
-    /// set.
-    #[inline]
-    pub fn subtract(self, other: LookSet) -> LookSet {
-        LookSet { bits: self.bits & !other.bits }
-    }
-
-    /// Modifies this set to be the union of itself and the set given.
-    #[inline]
-    pub fn union(self, other: LookSet) -> LookSet {
-        LookSet { bits: self.bits | other.bits }
-    }
-
-    /// Return the intersection of the given `other` set with the `self` set
-    /// and return the resulting set.
-    #[inline]
-    pub fn intersect(self, other: LookSet) -> LookSet {
-        LookSet { bits: self.bits & other.bits }
     }
 
     /// Returns an iterator over all of the look-around assertions in this set.
@@ -332,14 +413,213 @@ impl LookSet {
         LookSetIter { set: self }
     }
 
+    /// Return a new set that is equivalent to the original, but with the given
+    /// assertion added to it. If the assertion is already in the set, then the
+    /// returned set is equivalent to the original.
+    #[inline]
+    pub fn insert(self, look: Look) -> LookSet {
+        LookSet { bits: self.bits | look.as_repr() }
+    }
+
+    /// Updates this set in place with the result of inserting the given
+    /// assertion into this set.
+    #[inline]
+    pub fn set_insert(&mut self, look: Look) {
+        *self = self.insert(look);
+    }
+
+    /// Return a new set that is equivalent to the original, but with the given
+    /// assertion removed from it. If the assertion is not in the set, then the
+    /// returned set is equivalent to the original.
+    #[inline]
+    pub fn remove(self, look: Look) -> LookSet {
+        LookSet { bits: self.bits & !look.as_repr() }
+    }
+
+    /// Updates this set in place with the result of removing the given
+    /// assertion from this set.
+    #[inline]
+    pub fn set_remove(&mut self, look: Look) {
+        *self = self.remove(look);
+    }
+
+    /// Returns a new set that is the result of subtracting the given set from
+    /// this set.
+    #[inline]
+    pub fn subtract(self, other: LookSet) -> LookSet {
+        LookSet { bits: self.bits & !other.bits }
+    }
+
+    /// Updates this set in place with the result of subtracting the given set
+    /// from this set.
+    #[inline]
+    pub fn set_subtract(&mut self, other: LookSet) {
+        *self = self.subtract(other);
+    }
+
+    /// Returns a new set that is the union of this and the one given.
+    #[inline]
+    pub fn union(self, other: LookSet) -> LookSet {
+        LookSet { bits: self.bits | other.bits }
+    }
+
+    /// Updates this set in place with the result of unioning it with the one
+    /// given.
+    #[inline]
+    pub fn set_union(&mut self, other: LookSet) {
+        *self = self.union(other);
+    }
+
+    /// Returns a new set that is the intersection of this and the one given.
+    #[inline]
+    pub fn intersect(self, other: LookSet) -> LookSet {
+        LookSet { bits: self.bits & other.bits }
+    }
+
+    /// Updates this set in place with the result of intersecting it with the
+    /// one given.
+    #[inline]
+    pub fn set_intersect(&mut self, other: LookSet) {
+        *self = self.intersect(other);
+    }
+
+    /// Return a `LookSet` from the slice given as a native endian 16-bit
+    /// integer.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `slice.len() < 2`.
+    #[inline]
+    pub fn read_repr(slice: &[u8]) -> LookSet {
+        let bits = u16::from_ne_bytes(slice[..2].try_into().unwrap());
+        LookSet { bits }
+    }
+
+    /// Write a `LookSet` as a native endian 16-bit integer to the beginning
+    /// of the slice given.
+    ///
+    /// # Panics
+    ///
+    /// This panics if `slice.len() < 2`.
+    #[inline]
+    pub fn write_repr(self, slice: &mut [u8]) {
+        let raw = self.bits.to_ne_bytes();
+        slice[0] = raw[0];
+        slice[1] = raw[1];
+    }
+
+    /// Checks that all assertions in this set can be matched.
+    ///
+    /// Some assertions, such as Unicode word boundaries, require optional (but
+    /// enabled by default) tables that may not be available. If there are
+    /// assertions in this set that require tables that are not available, then
+    /// this will return an error.
+    ///
+    /// Specifically, this returns an error when the the
+    /// `unicode-word-boundary` feature is _not_ enabled _and_ this set
+    /// contains a Unicode word boundary assertion.
+    ///
+    /// It can be useful to use this on the result of
+    /// [`NFA::look_set_any`](crate::nfa::thompson::NFA::look_set_any) when
+    /// building a matcher engine to ensure methods like [`LookSet::matches`]
+    /// do not panic at search time.
+    pub fn available(self) -> Result<(), UnicodeWordBoundaryError> {
+        if self.contains_word_unicode() {
+            UnicodeWordBoundaryError::check()?;
+        }
+        Ok(())
+    }
+
+    /// Returns true when _all_ of the assertions in this set match at the
+    /// given position in the haystack.
+    ///
+    /// # Panics
+    ///
+    /// This panics when testing any Unicode word boundary assertion in this
+    /// set and when the Unicode word data is not available. Specifically, this
+    /// only occurs when the `unicode-word-boundary` feature is not enabled.
+    ///
+    /// Since it's generally expected that this routine is called inside of
+    /// a matching engine, callers should check the error condition when
+    /// building the matching engine. If there is a Unicode word boundary
+    /// in the matcher and the data isn't available, then the matcher should
+    /// fail to build.
+    ///
+    /// Callers can check the error condition with [`LookSet::available`].
+    ///
+    /// This also may panic when `at > haystack.len()`. Note that `at ==
+    /// haystack.len()` is legal and guaranteed not to panic.
+    #[inline]
+    pub fn matches(self, haystack: &[u8], at: usize) -> bool {
+        self.matches_inline(haystack, at)
+    }
+
+    /// Like `LookSet::matches`, but forcefully inlined for perf.
     #[inline(always)]
-    pub(crate) fn matches(self, haystack: &[u8], at: usize) -> bool {
-        set_matches_inline(self, haystack, at)
+    pub(crate) fn matches_inline(self, haystack: &[u8], at: usize) -> bool {
+        // This used to luse LookSet::iter with Look::matches on each element,
+        // but that proved to be quite diastrous for perf. The manual "if
+        // the set has this assertion, check it" turns out to be quite a bit
+        // faster.
+        if self.contains(Look::Start) {
+            if !is_start(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::End) {
+            if !is_end(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::StartLF) {
+            if !is_start_lf(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::EndLF) {
+            if !is_end_lf(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::StartCRLF) {
+            if !is_start_lf(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::EndCRLF) {
+            if !is_end_lf(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::WordAscii) {
+            if !is_word_ascii(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::WordAsciiNegate) {
+            if !is_word_ascii_negate(haystack, at) {
+                return false;
+            }
+        }
+        if self.contains(Look::WordUnicode) {
+            if !is_word_unicode(haystack, at).unwrap() {
+                return false;
+            }
+        }
+        if self.contains(Look::WordUnicodeNegate) {
+            if !is_word_unicode_negate(haystack, at).unwrap() {
+                return false;
+            }
+        }
+        true
     }
 }
 
 impl core::fmt::Debug for LookSet {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if self.is_empty() {
+            return write!(f, "∅");
+        }
         for look in self.iter() {
             write!(f, "{}", look.as_char())?;
         }
@@ -360,195 +640,87 @@ impl Iterator for LookSetIter {
 
     #[inline]
     fn next(&mut self) -> Option<Look> {
+        if self.set.is_empty() {
+            return None;
+        }
         // We'll never have more than u8::MAX distinct look-around assertions,
-        // so 'index' will always fit into a usize.
-        let index = self.set.bits.trailing_zeros().as_usize();
-        let look = Look::from_index(index)?;
+        // so 'repr' will always fit into a u16.
+        let repr = u16::try_from(self.set.bits.trailing_zeros()).unwrap();
+        let look = Look::from_repr(1 << repr)?;
         self.set = self.set.remove(look);
         Some(look)
     }
 }
 
-#[inline]
-pub fn set_matches(set: LookSet, haystack: &[u8], at: usize) -> bool {
-    set_matches_inline(set, haystack, at)
-}
-
-#[inline(always)]
-pub(crate) fn set_matches_inline(
-    set: LookSet,
-    haystack: &[u8],
-    at: usize,
-) -> bool {
-    // This used to luse LookSet::iter with Look::matches on each element,
-    // but that proved to be quite diastrous for perf. The manual "if
-    // the set has this assertion, check it" turns out to be quite a bit
-    // faster.
-    if set.contains(Look::Start) {
-        if !is_start(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::End) {
-        if !is_end(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::StartLF) {
-        if !is_start_lf(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::EndLF) {
-        if !is_end_lf(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::StartCRLF) {
-        if !is_start_lf(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::EndCRLF) {
-        if !is_end_lf(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::WordAscii) {
-        if !is_word_ascii(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::WordAsciiNegate) {
-        if !is_word_ascii_negate(haystack, at) {
-            return false;
-        }
-    }
-    if set.contains(Look::WordUnicode) {
-        if !is_word_unicode(haystack, at).unwrap() {
-            return false;
-        }
-    }
-    if set.contains(Look::WordUnicodeNegate) {
-        if !is_word_unicode_negate(haystack, at).unwrap() {
-            return false;
-        }
-    }
-    true
-}
-
-/// Returns true when the position `at` in `haystack` satisfies this
-/// look-around assertion.
+/// Returns true when [`Look::Start`] is satisfied `at` the given position
+/// in `haystack`.
 ///
-/// This panics if `at > haystack.len()`.
-#[inline]
-pub fn matches(look: Look, haystack: &[u8], at: usize) -> bool {
-    matches_inline(look, haystack, at)
-}
-
-/// Like 'try_matches', but forcefully inlined.
-#[inline(always)]
-pub(crate) fn matches_inline(look: Look, haystack: &[u8], at: usize) -> bool {
-    match look {
-        Look::Start => is_start(haystack, at),
-        Look::End => is_end(haystack, at),
-        Look::StartLF => is_start_lf(haystack, at),
-        Look::EndLF => is_end_lf(haystack, at),
-        Look::StartCRLF => is_start_crlf(haystack, at),
-        Look::EndCRLF => is_end_crlf(haystack, at),
-        Look::WordAscii => is_word_ascii(haystack, at),
-        Look::WordAsciiNegate => is_word_ascii_negate(haystack, at),
-        Look::WordUnicode => is_word_unicode(haystack, at).unwrap(),
-        Look::WordUnicodeNegate => {
-            is_word_unicode_negate(haystack, at).unwrap()
-        }
-    }
-}
-
-/// Split up the given byte classes into equivalence classes in a way that
-/// is consistent with this look-around assertion.
-#[cfg(feature = "alloc")]
-pub(crate) fn add_to_byteset(
-    look: Look,
-    set: &mut crate::util::alphabet::ByteClassSet,
-) {
-    match look {
-        Look::Start | Look::End => {}
-        Look::StartLF | Look::EndLF => {
-            set.set_range(b'\n', b'\n');
-        }
-        Look::StartCRLF | Look::EndCRLF => {
-            set.set_range(b'\r', b'\r');
-            set.set_range(b'\n', b'\n');
-        }
-        Look::WordAscii
-        | Look::WordAsciiNegate
-        | Look::WordUnicode
-        | Look::WordUnicodeNegate => {
-            // We need to mark all ranges of bytes whose pairs result in
-            // evaluating \b differently. This isn't technically correct
-            // for Unicode word boundaries, but DFAs can't handle those
-            // anyway, and thus, the byte classes don't need to either
-            // since they are themselves only used in DFAs.
-            //
-            // FIXME: It seems like the calls to 'set_range' here are
-            // completely invariant, which means we could just hard-code
-            // them here without needing to write a loop. And we only need
-            // to do this dance at most once per regex.
-            //
-            // FIXME: Is this correct for \B?
-            let iswb = utf8::is_word_byte;
-            // This unwrap is OK because we guard every use of 'asu8' with
-            // a check that the input is <= 255.
-            let asu8 = |b: u16| u8::try_from(b).unwrap();
-            let mut b1: u16 = 0;
-            let mut b2: u16;
-            while b1 <= 255 {
-                b2 = b1 + 1;
-                while b2 <= 255 && iswb(asu8(b1)) == iswb(asu8(b2)) {
-                    b2 += 1;
-                }
-                // The guards above guarantee that b2 can never get any
-                // bigger.
-                assert!(b2 <= 256);
-                // Subtracting 1 from b2 is always OK because it is always
-                // at least 1 greater than b1, and the assert above
-                // guarantees that the asu8 conversion will succeed.
-                set.set_range(asu8(b1), asu8(b2.checked_sub(1).unwrap()));
-                b1 = b2;
-            }
-        }
-    }
-}
-
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_start(_haystack: &[u8], at: usize) -> bool {
     at == 0
 }
 
+/// Returns true when [`Look::End`] is satisfied `at` the given position in
+/// `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_end(haystack: &[u8], at: usize) -> bool {
     at == haystack.len()
 }
 
+/// Returns true when [`Look::StartLF`] is satisfied `at` the given position
+/// in `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_start_lf(haystack: &[u8], at: usize) -> bool {
-    at == 0 || haystack[at - 1] == b'\n'
+    is_start(haystack, at) || haystack[at - 1] == b'\n'
 }
 
+/// Returns true when [`Look::EndLF`] is satisfied `at` the given position in
+/// `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_end_lf(haystack: &[u8], at: usize) -> bool {
-    at == haystack.len() || haystack[at] == b'\n'
+    is_end(haystack, at) || haystack[at] == b'\n'
 }
 
+/// Returns true when [`Look::StartCRLF`] is satisfied `at` the given position
+/// in `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_start_crlf(haystack: &[u8], at: usize) -> bool {
-    at == 0
-        || haystack[at - 1] == b'\n'
+    is_start_lf(haystack, at)
         || (haystack[at - 1] == b'\r'
             && (at >= haystack.len() || haystack[at] != b'\n'))
 }
 
+/// Returns true when [`Look::EndCRLF`] is satisfied `at` the given position in
+/// `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_end_crlf(haystack: &[u8], at: usize) -> bool {
     at == haystack.len()
@@ -556,6 +728,13 @@ pub fn is_end_crlf(haystack: &[u8], at: usize) -> bool {
         || (haystack[at] == b'\n' && (at == 0 || haystack[at - 1] != b'\r'))
 }
 
+/// Returns true when [`Look::WordAscii`] is satisfied `at` the given position
+/// in `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_word_ascii(haystack: &[u8], at: usize) -> bool {
     let word_before = at > 0 && utf8::is_word_byte(haystack[at - 1]);
@@ -563,11 +742,31 @@ pub fn is_word_ascii(haystack: &[u8], at: usize) -> bool {
     word_before != word_after
 }
 
+/// Returns true when [`Look::WordAsciiNegate`] is satisfied `at` the given
+/// position in `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
 #[inline]
 pub fn is_word_ascii_negate(haystack: &[u8], at: usize) -> bool {
     !is_word_ascii(haystack, at)
 }
 
+/// Returns true when [`Look::WordUnicode`] is satisfied `at` the given
+/// position in `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
+///
+/// # Errors
+///
+/// This returns an error when Unicode word boundary tables are not available.
+/// Specifically, this only occurs when the `unicode-word-boundary` feature is
+/// not enabled.
 #[inline]
 pub fn is_word_unicode(
     haystack: &[u8],
@@ -578,6 +777,19 @@ pub fn is_word_unicode(
     Ok(word_before != word_after)
 }
 
+/// Returns true when [`Look::WordUnicodeNegate`] is satisfied `at` the given
+/// position in `haystack`.
+///
+/// # Panics
+///
+/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
+/// is legal and guaranteed not to panic.
+///
+/// # Errors
+///
+/// This returns an error when Unicode word boundary tables are not available.
+/// Specifically, this only occurs when the `unicode-word-boundary` feature is
+/// not enabled.
 #[inline]
 pub fn is_word_unicode_negate(
     haystack: &[u8],
@@ -1435,5 +1647,13 @@ mod tests {
 
         let set = LookSet::empty().insert(Look::WordAsciiNegate);
         assert_eq!(1, set.iter().count());
+    }
+
+    #[test]
+    fn look_set_debug() {
+        let res = alloc::format!("{:?}", LookSet::empty());
+        assert_eq!("∅", res);
+        let res = alloc::format!("{:?}", LookSet::full());
+        assert_eq!("Az^$rRbB𝛃𝚩", res);
     }
 }

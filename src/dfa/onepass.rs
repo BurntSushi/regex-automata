@@ -709,9 +709,7 @@ impl<'a> InternalBuilder<'a> {
     /// used, are configurable. Others, like the total patterns or slots, are
     /// hard-coded based on representational limitations.)
     fn build(mut self) -> Result<DFA, BuildError> {
-        if self.nfa.look_set_any().contains_word_unicode() {
-            UnicodeWordBoundaryError::check().map_err(BuildError::word)?;
-        }
+        self.nfa.look_set_any().available().map_err(BuildError::word)?;
         for look in self.nfa.look_set_any().iter() {
             // This is a future incompatibility check where if we add any
             // more look-around assertions, then the one-pass DFA either
@@ -2857,14 +2855,12 @@ impl Epsilons {
 
     /// Return the set of look-around assertions in these epsilon transitions.
     fn looks(self) -> LookSet {
-        LookSet::from_repr((self.0 & Epsilons::LOOK_MASK).low_u16())
+        LookSet { bits: (self.0 & Epsilons::LOOK_MASK).low_u16() }
     }
 
     /// Set the look-around assertions on these epsilon transitions.
     fn set_looks(self, look_set: LookSet) -> Epsilons {
-        Epsilons(
-            (self.0 & Epsilons::SLOT_MASK) | u64::from(look_set.to_repr()),
-        )
+        Epsilons((self.0 & Epsilons::SLOT_MASK) | u64::from(look_set.bits))
     }
 
     /// A light wrapper around 'looks().matches()' that avoids the 'matches()'
