@@ -105,6 +105,10 @@ pub(crate) fn next(
     // conditional logic for dealing with the exceptionally annoying CRLF-aware
     // line anchors.
     let rev = nfa.is_reverse();
+    // The look-around matcher that our NFA is configured with. We don't
+    // actually use it to match look-around assertions, but we do need its
+    // configuration for constructing states consistent with how it matches.
+    let lookm = nfa.look_matcher();
 
     // Put the NFA state IDs into a sparse set in case we need to
     // re-compute their epsilon closure.
@@ -136,7 +140,6 @@ pub(crate) fn next(
                 }
             }
             Some(b'\n') => {
-                look_have = look_have.insert(Look::EndLF);
                 if rev || !state.is_half_crlf() {
                     look_have = look_have.insert(Look::EndCRLF);
                 }
@@ -147,6 +150,9 @@ pub(crate) fn next(
                 look_have = look_have.insert(Look::EndLF);
                 look_have = look_have.insert(Look::EndCRLF);
             }
+        }
+        if unit.is_byte(lookm.get_line_terminator()) {
+            look_have = look_have.insert(Look::EndLF);
         }
         if state.is_half_crlf()
             && ((rev && !unit.is_byte(b'\r'))
@@ -196,7 +202,9 @@ pub(crate) fn next(
     // Set whether the StartLF look-behind assertion is true for this
     // transition or not. The look-behind assertion for ASCII word boundaries
     // is handled below.
-    if nfa.look_set_any().contains_anchor_line() && unit.is_byte(b'\n') {
+    if nfa.look_set_any().contains_anchor_line()
+        && unit.is_byte(lookm.get_line_terminator())
+    {
         // Why only handle StartLF here and not Start? That's because Start
         // can only impact the starting state, which is speical cased in
         // start state handling.

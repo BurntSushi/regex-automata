@@ -8,7 +8,7 @@ use crate::{
         nfa::{self, SparseTransitions, Transition, NFA},
     },
     util::{
-        look::Look,
+        look::{Look, LookMatcher},
         primitives::{IteratorIndexExt, PatternID, SmallIndex, StateID},
     },
 };
@@ -348,6 +348,8 @@ pub struct Builder {
     utf8: bool,
     /// Whether this NFA should be matched in reverse or not.
     reverse: bool,
+    /// The matcher to use for look-around assertions.
+    look_matcher: LookMatcher,
     /// A size limit to respect when building an NFA. If the total heap memory
     /// of the intermediate NFA states exceeds (or would exceed) this amount,
     /// then an error is returned.
@@ -563,6 +565,7 @@ impl Builder {
         nfa.remap(&remap);
         nfa.set_utf8(self.utf8);
         nfa.set_reverse(self.reverse);
+        nfa.set_look_matcher(self.look_matcher.clone());
         let final_nfa = nfa.into_nfa();
         debug!(
             "NFA compilation via builder complete, \
@@ -1223,6 +1226,24 @@ impl Builder {
     /// is.
     pub fn get_reverse(&self) -> bool {
         self.reverse
+    }
+
+    /// Sets the look-around matcher that should be used for the resulting NFA.
+    ///
+    /// A look-around matcher can be used to configure how look-around
+    /// assertions are matched. For example, a matcher might carry
+    /// configuration that changes the line terminator used for `(?m:^)` and
+    /// `(?m:$)` assertions.
+    pub fn set_look_matcher(&mut self, m: LookMatcher) {
+        self.look_matcher = m;
+    }
+
+    /// Returns the look-around matcher used for this builder.
+    ///
+    /// If a matcher was not explicitly set, then `LookMatcher::default()` is
+    /// returned.
+    pub fn get_look_matcher(&self) -> &LookMatcher {
+        &self.look_matcher
     }
 
     /// Set the size limit on this builder.

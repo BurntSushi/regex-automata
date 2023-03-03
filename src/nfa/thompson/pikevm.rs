@@ -1691,7 +1691,11 @@ impl PikeVM {
                     // OK because we don't permit building a searcher with a
                     // Unicode word boundary if the requisite Unicode data is
                     // unavailable.
-                    if !look.matches_inline(input.haystack(), at) {
+                    if !self.nfa.look_matcher().matches_inline(
+                        look,
+                        input.haystack(),
+                        at,
+                    ) {
                         return;
                     }
                     sid = next;

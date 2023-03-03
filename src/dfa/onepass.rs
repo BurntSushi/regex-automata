@@ -2228,7 +2228,11 @@ impl DFA {
         let pateps = self.pattern_epsilons(sid);
         let epsilons = pateps.epsilons();
         if !epsilons.looks().is_empty()
-            && !epsilons.look_matches(input.haystack(), at)
+            && !self.nfa.look_matcher().matches_set_inline(
+                epsilons.looks(),
+                input.haystack(),
+                at,
+            )
         {
             return false;
         }
@@ -2861,19 +2865,6 @@ impl Epsilons {
     /// Set the look-around assertions on these epsilon transitions.
     fn set_looks(self, look_set: LookSet) -> Epsilons {
         Epsilons((self.0 & Epsilons::SLOT_MASK) | u64::from(look_set.bits))
-    }
-
-    /// A light wrapper around 'looks().matches()' that avoids the 'matches()'
-    /// call when the look set is empty. In theory, if 'looks().matches()'
-    /// would always get inlined, then this wouldn't be a problem. But since
-    /// 'looks().matches()' is a public API, it isn't appropriate to tag it
-    /// with 'inline(always)'. So we write this little hack instead.
-    #[inline(always)]
-    fn look_matches(self, haystack: &[u8], at: usize) -> bool {
-        // Unwrap is OK because we don't permit building a searcher
-        // with a Unicode word boundary if the requisite Unicode
-        // data is unavailable.
-        self.looks().matches(haystack, at)
     }
 }
 

@@ -2,6 +2,7 @@ use crate::util::utf8;
 
 /// A type that wraps a single byte with a convenient fmt::Debug impl that
 /// escapes the byte.
+#[derive(Clone, Copy)]
 pub(crate) struct DebugByte(pub(crate) u8);
 
 impl core::fmt::Debug for DebugByte {

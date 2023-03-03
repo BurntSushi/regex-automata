@@ -12,7 +12,7 @@ use crate::{
     util::{
         alphabet::{self, ByteClassSet},
         captures::{GroupInfo, GroupInfoError},
-        look::{Look, LookSet},
+        look::{Look, LookMatcher, LookSet},
         primitives::{
             IteratorIndexExt, PatternID, PatternIDIter, SmallIndex, StateID,
         },
@@ -946,6 +946,12 @@ impl NFA {
         self.start_anchored() == self.start_unanchored()
     }
 
+    /// TODO
+    #[inline]
+    pub fn look_matcher(&self) -> &LookMatcher {
+        &self.0.look_matcher
+    }
+
     /// Returns the union of all look-around assertions used throughout this
     /// NFA. When the returned set is empty, it implies that the NFA has no
     /// look-around assertions and thus zero conditional epsilon transitions.
@@ -1162,6 +1168,8 @@ pub(super) struct Inner {
     utf8: bool,
     /// Whether this NFA is meant to be matched in reverse or not.
     reverse: bool,
+    /// The matcher to be used for look-around assertions.
+    look_matcher: LookMatcher,
     /// The union of all look-around assertions that occur anywhere within
     /// this NFA. If this set is empty, then it means there are precisely zero
     /// conditional epsilon transitions in the NFA.
@@ -1317,6 +1325,11 @@ impl Inner {
     /// Sets the reverse mode of this NFA.
     pub(super) fn set_reverse(&mut self, yes: bool) {
         self.reverse = yes;
+    }
+
+    /// Sets the look-around assertion matcher for this NFA.
+    pub(super) fn set_look_matcher(&mut self, m: LookMatcher) {
+        self.look_matcher = m;
     }
 
     /// Set the capturing groups for this NFA.

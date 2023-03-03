@@ -18,7 +18,7 @@ use crate::{
         range_trie::RangeTrie,
     },
     util::{
-        look::Look,
+        look::{Look, LookMatcher},
         primitives::{PatternID, StateID},
     },
 };
@@ -31,6 +31,7 @@ pub struct Config {
     nfa_size_limit: Option<Option<usize>>,
     shrink: Option<bool>,
     captures: Option<bool>,
+    look_matcher: Option<LookMatcher>,
     #[cfg(test)]
     unanchored_prefix: Option<bool>,
 }
@@ -328,6 +329,12 @@ impl Config {
         self
     }
 
+    /// TODO
+    pub fn look_matcher(mut self, m: LookMatcher) -> Config {
+        self.look_matcher = Some(m);
+        self
+    }
+
     /// Whether to compile an unanchored prefix into this NFA.
     ///
     /// This is enabled by default. It is made available for tests only to make
@@ -364,6 +371,11 @@ impl Config {
         self.captures.unwrap_or(true)
     }
 
+    /// Return the look-around matcher for this NFA.
+    pub fn get_look_matcher(&self) -> LookMatcher {
+        self.look_matcher.clone().unwrap_or(LookMatcher::default())
+    }
+
     /// Return whether NFA compilation is configured to include an unanchored
     /// prefix.
     ///
@@ -390,6 +402,7 @@ impl Config {
             nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
             shrink: o.shrink.or(self.shrink),
             captures: o.captures.or(self.captures),
+            look_matcher: o.look_matcher.or_else(|| self.look_matcher.clone()),
             #[cfg(test)]
             unanchored_prefix: o.unanchored_prefix.or(self.unanchored_prefix),
         }
@@ -756,6 +769,9 @@ impl Compiler {
         self.builder.borrow_mut().clear();
         self.builder.borrow_mut().set_utf8(self.config.get_utf8());
         self.builder.borrow_mut().set_reverse(self.config.get_reverse());
+        self.builder
+            .borrow_mut()
+            .set_look_matcher(self.config.get_look_matcher());
         self.builder
             .borrow_mut()
             .set_size_limit(self.config.get_nfa_size_limit())?;
