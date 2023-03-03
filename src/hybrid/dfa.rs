@@ -28,7 +28,7 @@ use crate::{
             Anchored, HalfMatch, Input, MatchError, MatchKind, PatternSet,
         },
         sparse_set::SparseSets,
-        start::Start,
+        start::{Start, StartByteMap},
     },
 };
 
@@ -119,6 +119,7 @@ pub struct DFA {
     config: Config,
     nfa: thompson::NFA,
     stride2: usize,
+    start_map: StartByteMap,
     classes: ByteClasses,
     quitset: ByteSet,
     cache_capacity: usize,
@@ -1563,7 +1564,7 @@ impl DFA {
                 return Err(MatchError::quit(byte, offset));
             }
         }
-        let start_type = Start::from_position_fwd(input);
+        let start_type = self.start_map.fwd(input);
         let start = LazyRef::new(self, cache)
             .get_cached_start_id(input, start_type)?;
         let sid = match start {
@@ -1617,7 +1618,7 @@ impl DFA {
                 return Err(MatchError::quit(byte, offset));
             }
         }
-        let start_type = Start::from_position_rev(input);
+        let start_type = self.start_map.rev(input);
         let start = LazyRef::new(self, cache)
             .get_cached_start_id(input, start_type)?;
         let sid = match start {
@@ -3998,10 +3999,12 @@ impl Builder {
             return Err(BuildError::insufficient_state_id_capacity(err));
         }
         let stride2 = classes.stride2();
+        let start_map = StartByteMap::new(nfa.look_matcher());
         Ok(DFA {
             config: self.config.clone(),
             nfa,
             stride2,
+            start_map,
             classes,
             quitset,
             cache_capacity,

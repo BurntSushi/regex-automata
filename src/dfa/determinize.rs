@@ -410,6 +410,11 @@ impl<'a> Runner<'a> {
             self.dfa.set_start_state(anchored, Start::Text, id);
             self.dfa.set_start_state(anchored, Start::LineLF, id);
             self.dfa.set_start_state(anchored, Start::LineCR, id);
+            self.dfa.set_start_state(
+                anchored,
+                Start::CustomLineTerminator,
+                id,
+            );
         } else {
             let (id, is_new) = self.add_one_start(nfa_start, Start::Text)?;
             self.dfa.set_start_state(anchored, Start::Text, id);
@@ -425,6 +430,17 @@ impl<'a> Runner<'a> {
 
             let (id, is_new) = self.add_one_start(nfa_start, Start::LineCR)?;
             self.dfa.set_start_state(anchored, Start::LineCR, id);
+            if is_new {
+                dfa_state_ids.push(id);
+            }
+
+            let (id, is_new) =
+                self.add_one_start(nfa_start, Start::CustomLineTerminator)?;
+            self.dfa.set_start_state(
+                anchored,
+                Start::CustomLineTerminator,
+                id,
+            );
             if is_new {
                 dfa_state_ids.push(id);
             }

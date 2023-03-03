@@ -64,7 +64,7 @@ use crate::{
         prefilter::Prefilter,
         primitives::{PatternID, StateID},
         search::{Anchored, Input, MatchError},
-        start::Start,
+        start::{Start, StartByteMap},
         wire::{self, DeserializeError, Endian, SerializeError},
     },
 };
@@ -127,8 +127,8 @@ pub struct DFA<T> {
     //
     // That is, a lot of the complexity is pushed down into how each state
     // itself is represented.
-    trans: Transitions<T>,
-    starts: StartTable<T>,
+    tt: Transitions<T>,
+    st: StartTable<T>,
     special: Special,
     pre: Option<Prefilter>,
     quitset: ByteSet,
@@ -380,13 +380,13 @@ impl DFA<Vec<u8>> {
         }
 
         let mut new = DFA {
-            trans: Transitions {
+            tt: Transitions {
                 sparse,
                 classes: dfa.byte_classes().clone(),
                 state_len: dfa.state_len(),
                 pattern_len: dfa.pattern_len(),
             },
-            starts: StartTable::from_dense_dfa(dfa, &remap)?,
+            st: StartTable::from_dense_dfa(dfa, &remap)?,
             special: dfa.special().remap(|id| remap[dfa.to_index(id)]),
             pre: dfa.get_prefilter().map(|p| p.clone()),
             quitset: dfa.quitset().clone(),
@@ -397,7 +397,7 @@ impl DFA<Vec<u8>> {
         // sparse DFA.
         for old_state in dfa.states() {
             let new_id = remap[dfa.to_index(old_state.id())];
-            let mut new_state = new.trans.state_mut(new_id);
+            let mut new_state = new.tt.state_mut(new_id);
             let sparse = old_state.sparse_transitions();
             for (i, (_, _, next)) in sparse.enumerate() {
                 let next = remap[dfa.to_index(next)];
@@ -418,8 +418,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// DFA returned always uses `&[u8]` for its transitions.
     pub fn as_ref<'a>(&'a self) -> DFA<&'a [u8]> {
         DFA {
-            trans: self.trans.as_ref(),
-            starts: self.starts.as_ref(),
+            tt: self.tt.as_ref(),
+            st: self.st.as_ref(),
             special: self.special,
             pre: self.pre.clone(),
             quitset: self.quitset,
@@ -435,8 +435,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
     #[cfg(feature = "alloc")]
     pub fn to_owned(&self) -> DFA<alloc::vec::Vec<u8>> {
         DFA {
-            trans: self.trans.to_owned(),
-            starts: self.starts.to_owned(),
+            tt: self.tt.to_owned(),
+            st: self.st.to_owned(),
             special: self.special,
             pre: self.pre.clone(),
             quitset: self.quitset,
@@ -454,7 +454,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     ///
     /// Note that if the DFA is empty, this always returns false.
     pub fn starts_for_each_pattern(&self) -> bool {
-        self.starts.pattern_len.is_some()
+        self.st.pattern_len.is_some()
     }
 
     /// Returns the memory usage, in bytes, of this DFA.
@@ -465,7 +465,7 @@ impl<T: AsRef<[u8]>> DFA<T> {
     /// This does **not** include the stack size used up by this DFA. To
     /// compute that, use `std::mem::size_of::<sparse::DFA>()`.
     pub fn memory_usage(&self) -> usize {
-        self.trans.memory_usage() + self.starts.memory_usage()
+        self.tt.memory_usage() + self.st.memory_usage()
     }
 }
 
@@ -781,8 +781,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
             size_of::<u32>()
         };
         nw += self.flags.write_to::<E>(&mut dst[nw..])?;
-        nw += self.trans.write_to::<E>(&mut dst[nw..])?;
-        nw += self.starts.write_to::<E>(&mut dst[nw..])?;
+        nw += self.tt.write_to::<E>(&mut dst[nw..])?;
+        nw += self.st.write_to::<E>(&mut dst[nw..])?;
         nw += self.special.write_to::<E>(&mut dst[nw..])?;
         nw += self.quitset.write_to::<E>(&mut dst[nw..])?;
         Ok(nw)
@@ -825,8 +825,8 @@ impl<T: AsRef<[u8]>> DFA<T> {
         + wire::write_version_len()
         + size_of::<u32>() // unused, intended for future flexibility
         + self.flags.write_to_len()
-        + self.trans.write_to_len()
-        + self.starts.write_to_len()
+        + self.tt.write_to_len()
+        + self.st.write_to_len()
         + self.special.write_to_len()
         + self.quitset.write_to_len()
     }
@@ -973,8 +973,8 @@ impl<'a> DFA<&'a [u8]> {
         // (by trying to decode every state) and start state ID list below. If
         // either validation fails, then we return an error.
         let (dfa, nread) = unsafe { DFA::from_bytes_unchecked(slice)? };
-        dfa.trans.validate()?;
-        dfa.starts.validate(&dfa.trans)?;
+        dfa.tt.validate()?;
+        dfa.st.validate(&dfa.tt)?;
         // N.B. dfa.special doesn't have a way to do unchecked deserialization,
         // so it has already been validated.
         Ok((dfa, nread))
@@ -1052,20 +1052,20 @@ impl<'a> DFA<&'a [u8]> {
 
         // Prefilters don't support serialization, so they're always absent.
         let pre = None;
-        Ok((DFA { trans, starts, special, pre, quitset, flags }, nr))
+        Ok((DFA { tt: trans, st: starts, special, pre, quitset, flags }, nr))
     }
 }
 
 impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "sparse::DFA(")?;
-        for state in self.trans.states() {
+        for state in self.tt.states() {
             fmt_state_indicator(f, self, state.id())?;
             writeln!(f, "{:06?}: {:?}", state.id(), state)?;
         }
         writeln!(f, "")?;
-        for (i, (start_id, anchored, sty)) in self.starts.iter().enumerate() {
-            if i % self.starts.stride == 0 {
+        for (i, (start_id, anchored, sty)) in self.st.iter().enumerate() {
+            if i % self.st.stride == 0 {
                 match anchored {
                     Anchored::No => writeln!(f, "START-GROUP(unanchored)")?,
                     Anchored::Yes => writeln!(f, "START-GROUP(anchored)")?,
@@ -1076,7 +1076,7 @@ impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
             }
             writeln!(f, "  {:?} => {:06?}", sty, start_id.as_usize())?;
         }
-        writeln!(f, "state length: {:?}", self.trans.state_len)?;
+        writeln!(f, "state length: {:?}", self.tt.state_len)?;
         writeln!(f, "pattern length: {:?}", self.pattern_len())?;
         writeln!(f, "flags: {:?}", self.flags)?;
         writeln!(f, ")")?;
@@ -1119,8 +1119,8 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     // which decodes each state it enters to follow the next transition.
     #[inline(always)]
     fn next_state(&self, current: StateID, input: u8) -> StateID {
-        let input = self.trans.classes.get(input);
-        self.trans.state(current).next(input)
+        let input = self.tt.classes.get(input);
+        self.tt.state(current).next(input)
     }
 
     #[inline]
@@ -1134,17 +1134,17 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
 
     #[inline]
     fn next_eoi_state(&self, current: StateID) -> StateID {
-        self.trans.state(current).next_eoi()
+        self.tt.state(current).next_eoi()
     }
 
     #[inline]
     fn pattern_len(&self) -> usize {
-        self.trans.pattern_len
+        self.tt.pattern_len
     }
 
     #[inline]
     fn match_len(&self, id: StateID) -> usize {
-        self.trans.state(id).pattern_len()
+        self.tt.state(id).pattern_len()
     }
 
     #[inline]
@@ -1154,10 +1154,10 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
         // that finds the pattern ID from the state machine, which requires
         // a bit of slicing/pointer-chasing. This optimization tends to only
         // matter when matches are frequent.
-        if self.trans.pattern_len == 1 {
+        if self.tt.pattern_len == 1 {
             return PatternID::ZERO;
         }
-        self.trans.state(id).pattern_id(match_index)
+        self.tt.state(id).pattern_id(match_index)
     }
 
     #[inline]
@@ -1187,8 +1187,8 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
                 return Err(MatchError::quit(byte, offset));
             }
         }
-        let start = Start::from_position_fwd(&input);
-        self.starts.start(input, start)
+        let start = self.st.start_map.fwd(&input);
+        self.st.start(input, start)
     }
 
     #[inline]
@@ -1203,22 +1203,22 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
                 return Err(MatchError::quit(byte, offset));
             }
         }
-        let start = Start::from_position_rev(&input);
-        self.starts.start(input, start)
+        let start = self.st.start_map.rev(&input);
+        self.st.start(input, start)
     }
 
     #[inline]
     fn universal_start_state(&self, mode: Anchored) -> Option<StateID> {
         match mode {
-            Anchored::No => self.starts.universal_start_unanchored,
-            Anchored::Yes => self.starts.universal_start_anchored,
+            Anchored::No => self.st.universal_start_unanchored,
+            Anchored::Yes => self.st.universal_start_anchored,
             Anchored::Pattern(_) => None,
         }
     }
 
     #[inline]
     fn accelerator(&self, id: StateID) -> &[u8] {
-        self.trans.state(id).accelerator()
+        self.tt.state(id).accelerator()
     }
 
     #[inline]
@@ -1722,6 +1722,8 @@ struct StartTable<T> {
     /// unanchored and anchored searches work. When 'unanchored', anchored
     /// searches panic. When 'anchored', unanchored searches panic.
     kind: StartKind,
+    /// The start state configuration for every possible byte.
+    start_map: StartByteMap,
     /// The number of starting state IDs per pattern.
     stride: usize,
     /// The total number of patterns for which starting states are encoded.
@@ -1759,6 +1761,7 @@ impl StartTable<Vec<u8>> {
         StartTable {
             table: vec![0; len],
             kind: dfa.start_kind(),
+            start_map: dfa.start_map().clone(),
             stride,
             pattern_len,
             universal_start_unanchored: dfa
@@ -1796,6 +1799,9 @@ impl<'a> StartTable<&'a [u8]> {
         let slice_start = slice.as_ptr().as_usize();
 
         let (kind, nr) = StartKind::from_bytes(slice)?;
+        slice = &slice[nr..];
+
+        let (start_map, nr) = StartByteMap::from_bytes(slice)?;
         slice = &slice[nr..];
 
         let (stride, nr) =
@@ -1875,6 +1881,7 @@ impl<'a> StartTable<&'a [u8]> {
         let sl = StartTable {
             table,
             kind,
+            start_map,
             stride,
             pattern_len,
             universal_start_unanchored,
@@ -1899,6 +1906,9 @@ impl<T: AsRef<[u8]>> StartTable<T> {
 
         // write start kind
         let nw = self.kind.write_to::<E>(dst)?;
+        dst = &mut dst[nw..];
+        // write start byte map
+        let nw = self.start_map.write_to(dst)?;
         dst = &mut dst[nw..];
         // write stride
         E::write_u32(u32::try_from(self.stride).unwrap(), dst);
@@ -1931,6 +1941,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
     /// table will use.
     fn write_to_len(&self) -> usize {
         self.kind.write_to_len()
+        + self.start_map.write_to_len()
         + size_of::<u32>() // stride
         + size_of::<u32>() // # patterns
         + size_of::<u32>() // universal unanchored start
@@ -1957,6 +1968,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         StartTable {
             table: self.table(),
             kind: self.kind,
+            start_map: self.start_map.clone(),
             stride: self.stride,
             pattern_len: self.pattern_len,
             universal_start_unanchored: self.universal_start_unanchored,
@@ -1970,6 +1982,7 @@ impl<T: AsRef<[u8]>> StartTable<T> {
         StartTable {
             table: self.table().to_vec(),
             kind: self.kind,
+            start_map: self.start_map.clone(),
             stride: self.stride,
             pattern_len: self.pattern_len,
             universal_start_unanchored: self.universal_start_unanchored,

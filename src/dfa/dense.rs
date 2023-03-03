@@ -25,7 +25,7 @@ use crate::{
         sparse,
     },
     nfa::thompson,
-    util::search::MatchKind,
+    util::{look::LookMatcher, search::MatchKind},
 };
 use crate::{
     dfa::{
@@ -41,7 +41,7 @@ use crate::{
         prefilter::Prefilter,
         primitives::{PatternID, StateID},
         search::{Anchored, Input, MatchError},
-        start::Start,
+        start::{Start, StartByteMap},
         wire::{self, DeserializeError, Endian, SerializeError},
     },
 };
@@ -1154,6 +1154,7 @@ impl Builder {
             classes,
             nfa.pattern_len(),
             self.config.get_starts(),
+            nfa.look_matcher(),
             self.config.get_starts_for_each_pattern(),
             self.config.get_prefilter().map(|p| p.clone()),
             quitset,
@@ -1439,6 +1440,7 @@ impl OwnedDFA {
         classes: ByteClasses,
         pattern_len: usize,
         starts: StartKind,
+        lookm: &LookMatcher,
         starts_for_each_pattern: bool,
         pre: Option<Prefilter>,
         quitset: ByteSet,
@@ -1448,7 +1450,7 @@ impl OwnedDFA {
             if starts_for_each_pattern { Some(pattern_len) } else { None };
         Ok(DFA {
             tt: TransitionTable::minimal(classes),
-            st: StartTable::dead(starts, start_pattern_len)?,
+            st: StartTable::dead(starts, lookm, start_pattern_len)?,
             ms: MatchStates::empty(pattern_len),
             special: Special::new(),
             accels: Accels::empty(),
@@ -1522,6 +1524,12 @@ impl<T: AsRef<[u32]>> DFA<T> {
     /// an unsupported configuration will panic.
     pub fn start_kind(&self) -> StartKind {
         self.st.kind
+    }
+
+    /// Returns the start byte map used for computing the `Start` configuration
+    /// at the beginning of a search.
+    pub(crate) fn start_map(&self) -> &StartByteMap {
+        &self.st.start_map
     }
 
     /// Returns true only if this DFA has starting states for each pattern.
@@ -2777,7 +2785,7 @@ impl OwnedDFA {
     /// Universal start states occur precisely when the all patterns in the
     /// DFA have no look-around assertions in their prefix.
     fn set_universal_starts(&mut self) {
-        assert_eq!(5, Start::len(), "expected 5 start configurations");
+        assert_eq!(6, Start::len(), "expected 6 start configurations");
 
         let start_id = |dfa: &mut OwnedDFA, inp: &Input<'_>, start: Start| {
             // This OK because we only call 'start' under conditions
@@ -2794,6 +2802,7 @@ impl OwnedDFA {
                 && sid == start_id(self, &inp, Start::Text)
                 && sid == start_id(self, &inp, Start::LineLF)
                 && sid == start_id(self, &inp, Start::LineCR)
+                && sid == start_id(self, &inp, Start::CustomLineTerminator)
             {
                 self.st.universal_start_unanchored = Some(sid);
             }
@@ -2805,6 +2814,7 @@ impl OwnedDFA {
                 && sid == start_id(self, &inp, Start::Text)
                 && sid == start_id(self, &inp, Start::LineLF)
                 && sid == start_id(self, &inp, Start::LineCR)
+                && sid == start_id(self, &inp, Start::CustomLineTerminator)
             {
                 self.st.universal_start_anchored = Some(sid);
             }
@@ -3124,7 +3134,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
                 return Err(MatchError::quit(byte, offset));
             }
         }
-        let start = Start::from_position_fwd(&input);
+        let start = self.st.start_map.fwd(&input);
         self.st.start(input, start)
     }
 
@@ -3140,7 +3150,7 @@ unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
                 return Err(MatchError::quit(byte, offset));
             }
         }
-        let start = Start::from_position_rev(&input);
+        let start = self.st.start_map.rev(&input);
         self.st.start(input, start)
     }
 
@@ -3753,6 +3763,8 @@ pub(crate) struct StartTable<T> {
     /// unanchored and anchored searches work. When 'unanchored', anchored
     /// searches panic. When 'anchored', unanchored searches panic.
     kind: StartKind,
+    /// The start state configuration for every possible byte.
+    start_map: StartByteMap,
     /// The number of starting state IDs per pattern.
     stride: usize,
     /// The total number of patterns for which starting states are encoded.
@@ -3785,6 +3797,7 @@ impl StartTable<Vec<u32>> {
     /// to this point.
     fn dead(
         kind: StartKind,
+        lookm: &LookMatcher,
         pattern_len: Option<usize>,
     ) -> Result<StartTable<Vec<u32>>, BuildError> {
         if let Some(len) = pattern_len {
@@ -3806,9 +3819,11 @@ impl StartTable<Vec<u32>> {
             return Err(BuildError::too_many_start_states());
         }
         let table = vec![DEAD.as_u32(); table_len];
+        let start_map = StartByteMap::new(lookm);
         Ok(StartTable {
             table,
             kind,
+            start_map,
             stride,
             pattern_len,
             universal_start_unanchored: None,
@@ -3848,6 +3863,9 @@ impl<'a> StartTable<&'a [u32]> {
         let slice_start = slice.as_ptr().as_usize();
 
         let (kind, nr) = StartKind::from_bytes(slice)?;
+        slice = &slice[nr..];
+
+        let (start_map, nr) = StartByteMap::from_bytes(slice)?;
         slice = &slice[nr..];
 
         let (stride, nr) =
@@ -3938,6 +3956,7 @@ impl<'a> StartTable<&'a [u32]> {
         let st = StartTable {
             table,
             kind,
+            start_map,
             stride,
             pattern_len,
             universal_start_unanchored,
@@ -3965,6 +3984,9 @@ impl<T: AsRef<[u32]>> StartTable<T> {
 
         // write start kind
         let nw = self.kind.write_to::<E>(dst)?;
+        dst = &mut dst[nw..];
+        // write start byte map
+        let nw = self.start_map.write_to(dst)?;
         dst = &mut dst[nw..];
         // write stride
         // Unwrap is OK since the stride is always 4 (currently).
@@ -4002,6 +4024,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
     /// will use.
     fn write_to_len(&self) -> usize {
         self.kind.write_to_len()
+        + self.start_map.write_to_len()
         + size_of::<u32>() // stride
         + size_of::<u32>() // # patterns
         + size_of::<u32>() // universal unanchored start
@@ -4042,6 +4065,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         StartTable {
             table: self.table.as_ref(),
             kind: self.kind,
+            start_map: self.start_map.clone(),
             stride: self.stride,
             pattern_len: self.pattern_len,
             universal_start_unanchored: self.universal_start_unanchored,
@@ -4055,6 +4079,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
         StartTable {
             table: self.table.as_ref().to_vec(),
             kind: self.kind,
+            start_map: self.start_map.clone(),
             stride: self.stride,
             pattern_len: self.pattern_len,
             universal_start_unanchored: self.universal_start_unanchored,

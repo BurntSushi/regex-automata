@@ -1669,10 +1669,10 @@ mod is_word_char {
 
     #[inline(always)]
     fn is_word_character(c: char) -> bool {
-        use crate::util::unicode_data::perl_word::PERL_WORD;
+        use crate::util::{unicode_data::perl_word::PERL_WORD, utf8};
 
         // MSRV(1.59): Use 'u8::try_from(c)' instead.
-        if u8::try_from(u32::from(c)).map_or(false, is_word_byte) {
+        if u8::try_from(u32::from(c)).map_or(false, utf8::is_word_byte) {
             return true;
         }
         PERL_WORD
@@ -1688,14 +1688,6 @@ mod is_word_char {
                 }
             })
             .is_ok()
-    }
-
-    #[inline(always)]
-    fn is_word_byte(c: u8) -> bool {
-        match c {
-            b'_' | b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' => true,
-            _ => false,
-        }
     }
 }
 
