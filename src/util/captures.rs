@@ -1280,12 +1280,13 @@ impl GroupInfo {
     /// let info = GroupInfo::empty();
     /// // Everything is zero.
     /// assert_eq!(0, info.pattern_len());
+    /// assert_eq!(0, info.all_group_len());
     /// assert_eq!(0, info.slot_len());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn empty() -> GroupInfo {
-        GroupInfo::new(core::iter::empty::<Vec<Option<&str>>>())
+        GroupInfo::new(core::iter::empty::<[Option<&str>; 0]>())
             .expect("empty group info is always valid")
     }
 
@@ -1605,7 +1606,7 @@ impl GroupInfo {
 
     /// Return the number of capture groups in a pattern.
     ///
-    /// If the pattern ID is invalid, then this returns `None`.
+    /// If the pattern ID is invalid, then this returns `0`.
     ///
     /// # Example
     ///
@@ -1642,6 +1643,53 @@ impl GroupInfo {
     #[inline]
     pub fn group_len(&self, pid: PatternID) -> usize {
         self.0.group_len(pid)
+    }
+
+    /// Return the total number of capture groups across all patterns.
+    ///
+    /// This includes implicit groups that represent the entire match of a
+    /// pattern.
+    ///
+    /// # Example
+    ///
+    /// This example shows how the values returned by this routine may vary
+    /// for different patterns and NFA configurations.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, PatternID};
+    ///
+    /// let nfa = NFA::new(r"(a)(b)(c)")?;
+    /// // There are 3 explicit groups in the pattern's concrete syntax and
+    /// // 1 unnamed and implicit group spanning the entire pattern.
+    /// assert_eq!(4, nfa.group_info().all_group_len());
+    ///
+    /// let nfa = NFA::new(r"abc")?;
+    /// // There is just the unnamed implicit group.
+    /// assert_eq!(1, nfa.group_info().all_group_len());
+    ///
+    /// let nfa = NFA::new_many(&["(a)", "b", "(c)"])?;
+    /// // Each pattern has one implicit groups, and two
+    /// // patterns have one explicit group each.
+    /// assert_eq!(5, nfa.group_info().all_group_len());
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build(r"abc")?;
+    /// // We disabled capturing groups, so there are none.
+    /// assert_eq!(0, nfa.group_info().all_group_len());
+    ///
+    /// let nfa = NFA::compiler()
+    ///     .configure(NFA::config().captures(false))
+    ///     .build(r"(a)(b)(c)")?;
+    /// // We disabled capturing groups, so there are none, even if there are
+    /// // explicit groups in the concrete syntax.
+    /// assert_eq!(0, nfa.group_info().group_len(PatternID::ZERO));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn all_group_len(&self) -> usize {
+        self.slot_len() / 2
     }
 
     /// Returns the total number of slots in this `GroupInfo` across all

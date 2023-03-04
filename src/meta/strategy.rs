@@ -104,7 +104,7 @@ impl<T: PrefilterI> Strategy for T {
         // for this regex because the only way this impl gets used is if there
         // are no explicit capturing groups. Thus, asking to resolve capturing
         // groups is always wasteful.
-        let info = GroupInfo::new(vec![vec![None::<&str>]]).unwrap();
+        let info = GroupInfo::new([[None::<&str>]]).unwrap();
         Captures::matches(info)
     }
 

@@ -82,6 +82,132 @@ impl Regex {
         self.info.props().len()
     }
 
+    /// Returns the total number of capturing groups.
+    ///
+    /// This includes the implicit capturing group corresponding to the
+    /// entire match. Therefore, the minimum value returned is `1`.
+    ///
+    /// # Example
+    ///
+    /// This shows a few patterns and how many capture groups they have.
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let len = |pattern| {
+    ///     Regex::new(pattern).map(|re| re.captures_len())
+    /// };
+    ///
+    /// assert_eq!(1, len("a")?);
+    /// assert_eq!(2, len("(a)")?);
+    /// assert_eq!(3, len("(a)|(b)")?);
+    /// assert_eq!(5, len("(a)(b)|(c)(d)")?);
+    /// assert_eq!(2, len("(a)|b")?);
+    /// assert_eq!(2, len("a|(b)")?);
+    /// assert_eq!(2, len("(b)*")?);
+    /// assert_eq!(2, len("(b)+")?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: multiple patterns
+    ///
+    /// This routine also works for multiple patterns. The total number is
+    /// the sum of the capture groups of each pattern.
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let len = |patterns| {
+    ///     Regex::new_many(patterns).map(|re| re.captures_len())
+    /// };
+    ///
+    /// assert_eq!(2, len(&["a", "b"])?);
+    /// assert_eq!(4, len(&["(a)", "(b)"])?);
+    /// assert_eq!(6, len(&["(a)|(b)", "(c)|(d)"])?);
+    /// assert_eq!(8, len(&["(a)(b)|(c)(d)", "(x)(y)"])?);
+    /// assert_eq!(3, len(&["(a)", "b"])?);
+    /// assert_eq!(3, len(&["a", "(b)"])?);
+    /// assert_eq!(4, len(&["(a)", "(b)*"])?);
+    /// assert_eq!(4, len(&["(a)+", "(b)+"])?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn captures_len(&self) -> usize {
+        self.info
+            .props_union()
+            .captures_len()
+            .saturating_add(self.pattern_len())
+    }
+
+    /// Returns the total number of capturing groups that appear in every
+    /// possible match.
+    ///
+    /// If the number of capture groups can vary depending on the match, then
+    /// this returns `None`. That is, a value is only returned when the number
+    /// of matching groups is invariant or "static."
+    ///
+    /// Note that like [`Regex::captures_len`], this **does** include the
+    /// implicit capturing group corresponding to the entire match. Therefore,
+    /// when a non-None value is returned, it is guaranteed to be at least `1`.
+    /// Stated differently, a return value of `Some(0)` is impossible.
+    ///
+    /// # Example
+    ///
+    /// This shows a few cases where a static number of capture groups is
+    /// available and a few cases where it is not.
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let len = |pattern| {
+    ///     Regex::new(pattern).map(|re| re.static_captures_len())
+    /// };
+    ///
+    /// assert_eq!(Some(1), len("a")?);
+    /// assert_eq!(Some(2), len("(a)")?);
+    /// assert_eq!(Some(2), len("(a)|(b)")?);
+    /// assert_eq!(Some(3), len("(a)(b)|(c)(d)")?);
+    /// assert_eq!(None, len("(a)|b")?);
+    /// assert_eq!(None, len("a|(b)")?);
+    /// assert_eq!(None, len("(b)*")?);
+    /// assert_eq!(Some(2), len("(b)+")?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: multiple patterns
+    ///
+    /// This property extends to regexes with multiple patterns as well. In
+    /// order for their to be a static number of capture groups in this case,
+    /// every pattern must have the same static number.
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let len = |patterns| {
+    ///     Regex::new_many(patterns).map(|re| re.static_captures_len())
+    /// };
+    ///
+    /// assert_eq!(Some(1), len(&["a", "b"])?);
+    /// assert_eq!(Some(2), len(&["(a)", "(b)"])?);
+    /// assert_eq!(Some(2), len(&["(a)|(b)", "(c)|(d)"])?);
+    /// assert_eq!(Some(3), len(&["(a)(b)|(c)(d)", "(x)(y)"])?);
+    /// assert_eq!(None, len(&["(a)", "b"])?);
+    /// assert_eq!(None, len(&["a", "(b)"])?);
+    /// assert_eq!(None, len(&["(a)", "(b)*"])?);
+    /// assert_eq!(Some(2), len(&["(a)+", "(b)+"])?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn static_captures_len(&self) -> Option<usize> {
+        self.info
+            .props_union()
+            .static_captures_len()
+            .map(|len| len.saturating_add(1))
+    }
+
     pub fn get_config(&self) -> &Config {
         self.info.config()
     }

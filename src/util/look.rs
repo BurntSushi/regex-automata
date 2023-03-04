@@ -416,9 +416,9 @@ impl LookSet {
     /// contains a Unicode word boundary assertion.
     ///
     /// It can be useful to use this on the result of
-    /// [`NFA::look_set_any`](crate::nfa::thompson::NFA::look_set_any) when
-    /// building a matcher engine to ensure methods like [`LookSet::matches`]
-    /// do not panic at search time.
+    /// [`NFA::look_set_any`](crate::nfa::thompson::NFA::look_set_any)
+    /// when building a matcher engine to ensure methods like
+    /// [`LookMatcher::matches_set`] do not panic at search time.
     pub fn available(self) -> Result<(), UnicodeWordBoundaryError> {
         if self.contains_word_unicode() {
             UnicodeWordBoundaryError::check()?;
@@ -474,7 +474,34 @@ impl Iterator for LookSetIter {
 /// A `LookMatcher` can change the line terminator used for matching multi-line
 /// anchors such as `(?m:^)` and `(?m:$)`.
 ///
-/// TODO add example
+/// ```
+/// use regex_automata::{
+///     nfa::thompson::{self, pikevm::PikeVM},
+///     util::look::LookMatcher,
+///     Match, Input,
+/// };
+///
+/// let mut lookm = LookMatcher::new();
+/// lookm.set_line_terminator(b'\x00');
+///
+/// let re = PikeVM::builder()
+///     .thompson(thompson::Config::new().look_matcher(lookm))
+///     .build(r"(?m)^[a-z]+$")?;
+/// let mut cache = re.create_cache();
+///
+/// // Multi-line assertions now use NUL as a terminator.
+/// assert_eq!(
+///     Some(Match::must(0, 1..4)),
+///     re.find(&mut cache, b"\x00abc\x00"),
+/// );
+/// // ... and \n is no longer recognized as a terminator.
+/// assert_eq!(
+///     None,
+///     re.find(&mut cache, b"\nabc\n"),
+/// );
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct LookMatcher {
     lineterm: DebugByte,
