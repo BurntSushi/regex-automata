@@ -1,7 +1,12 @@
 pub use self::imp::*;
 
+mod aho_corasick;
+mod byteset;
 #[cfg(feature = "alloc")]
 mod imp;
+mod memchr;
+mod memmem;
+mod teddy;
 
 #[cfg(not(feature = "alloc"))]
 mod imp {
