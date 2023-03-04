@@ -126,7 +126,10 @@ fn configure_meta_builder(
         regex_test::MatchKind::LeftmostFirst => MatchKind::LeftmostFirst,
         regex_test::MatchKind::LeftmostLongest => return false,
     };
-    let meta_config = Regex::config().match_kind(match_kind).utf8(test.utf8());
+    let meta_config = Regex::config()
+        .match_kind(match_kind)
+        .utf8(test.utf8())
+        .line_terminator(test.line_terminator());
     builder.configure(meta_config).syntax(config_syntax(test));
     true
 }

@@ -445,6 +445,7 @@ pub struct Config {
     onepass: Option<bool>,
     backtrack: Option<bool>,
     byte_classes: Option<bool>,
+    line_terminator: Option<u8>,
 }
 
 impl Config {
@@ -506,6 +507,10 @@ impl Config {
 
     pub fn byte_classes(self, yes: bool) -> Config {
         Config { byte_classes: Some(yes), ..self }
+    }
+
+    pub fn line_terminator(self, byte: u8) -> Config {
+        Config { line_terminator: Some(byte), ..self }
     }
 
     pub fn get_match_kind(&self) -> MatchKind {
@@ -611,6 +616,10 @@ impl Config {
         self.byte_classes.unwrap_or(true)
     }
 
+    pub fn get_line_terminator(&self) -> u8 {
+        self.line_terminator.unwrap_or(b'\n')
+    }
+
     /// Overwrite the default configuration such that the options in `o` are
     /// always used. If an option in `o` is not set, then the corresponding
     /// option in `self` is used. If it's not set in `self` either, then it
@@ -635,6 +644,7 @@ impl Config {
             onepass: o.onepass.or(self.onepass),
             backtrack: o.backtrack.or(self.backtrack),
             byte_classes: o.byte_classes.or(self.byte_classes),
+            line_terminator: o.line_terminator.or(self.line_terminator),
         }
     }
 }

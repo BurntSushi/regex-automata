@@ -26,6 +26,7 @@ fn suite() -> anyhow::Result<regex_test::RegexTests> {
     load!("flags");
     load!("iter");
     load!("leftmost-all");
+    load!("line-terminator");
     load!("misc");
     load!("multiline");
     load!("no-unicode");

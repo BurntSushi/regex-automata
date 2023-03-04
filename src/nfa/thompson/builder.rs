@@ -421,6 +421,9 @@ impl Builder {
         );
 
         let mut nfa = nfa::Inner::default();
+        nfa.set_utf8(self.utf8);
+        nfa.set_reverse(self.reverse);
+        nfa.set_look_matcher(self.look_matcher.clone());
         // A set of compiler internal state IDs that correspond to states
         // that are exclusively epsilon transitions, i.e., goto instructions,
         // combined with the state that they point to. This is used to
@@ -563,9 +566,6 @@ impl Builder {
         }
         // Finally remap all of the state IDs.
         nfa.remap(&remap);
-        nfa.set_utf8(self.utf8);
-        nfa.set_reverse(self.reverse);
-        nfa.set_look_matcher(self.look_matcher.clone());
         let final_nfa = nfa.into_nfa();
         debug!(
             "NFA compilation via builder complete, \

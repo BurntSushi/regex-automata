@@ -17,6 +17,7 @@ use crate::{
     nfa::thompson::{self, pikevm::PikeVM, NFA},
     util::{
         captures::{Captures, GroupInfo},
+        look::LookMatcher,
         prefilter::{self, Prefilter, PrefilterI},
         primitives::{NonMaxUsize, PatternID},
         search::{
@@ -346,11 +347,14 @@ impl Core {
         pre: Option<Prefilter>,
         hirs: &[&Hir],
     ) -> Result<Core, BuildError> {
+        let mut lookm = LookMatcher::new();
+        lookm.set_line_terminator(info.config().get_line_terminator());
         let thompson_config = thompson::Config::new()
             .utf8(info.config().get_utf8())
             .nfa_size_limit(info.config().get_nfa_size_limit())
             .shrink(false)
-            .captures(true);
+            .captures(true)
+            .look_matcher(lookm);
         let nfa = thompson::Compiler::new()
             .configure(thompson_config.clone())
             .build_many_from_hir(hirs)
@@ -1234,12 +1238,15 @@ impl ReverseInner {
             None => return Err(core),
         };
         debug!("building reverse NFA for prefix before inner literal");
+        let mut lookm = LookMatcher::new();
+        lookm.set_line_terminator(core.info.config().get_line_terminator());
         let thompson_config = thompson::Config::new()
             .reverse(true)
             .utf8(core.info.config().get_utf8())
             .nfa_size_limit(core.info.config().get_nfa_size_limit())
             .shrink(false)
-            .captures(false);
+            .captures(false)
+            .look_matcher(lookm);
         let result = thompson::Compiler::new()
             .configure(thompson_config)
             .build_from_hir(&concat_prefix);

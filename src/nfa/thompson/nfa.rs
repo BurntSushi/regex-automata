@@ -946,7 +946,50 @@ impl NFA {
         self.start_anchored() == self.start_unanchored()
     }
 
-    /// TODO
+    /// Returns the look-around matcher associated with this NFA.
+    ///
+    /// A look-around matcher determines how to match look-around assertions.
+    /// In particular, some assertions are configurable. For example, the
+    /// `(?m:^)` and `(?m:$)` assertions can have their line terminator changed
+    /// from the default of `\n` to any other byte.
+    ///
+    /// If the NFA was built using a [`Compiler`], then this matcher
+    /// can be set via the [`Config::look_matcher`] configuration
+    /// knob. Otherwise, if you've built an NFA by hand, it is set via
+    /// [`Builder::set_look_matcher`].
+    ///
+    /// # Example
+    ///
+    /// This shows how to change the line terminator for multi-line assertions.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{self, pikevm::PikeVM},
+    ///     util::look::LookMatcher,
+    ///     Match, Input,
+    /// };
+    ///
+    /// let mut lookm = LookMatcher::new();
+    /// lookm.set_line_terminator(b'\x00');
+    ///
+    /// let re = PikeVM::builder()
+    ///     .thompson(thompson::Config::new().look_matcher(lookm))
+    ///     .build(r"(?m)^[a-z]+$")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// // Multi-line assertions now use NUL as a terminator.
+    /// assert_eq!(
+    ///     Some(Match::must(0, 1..4)),
+    ///     re.find(&mut cache, b"\x00abc\x00"),
+    /// );
+    /// // ... and \n is no longer recognized as a terminator.
+    /// assert_eq!(
+    ///     None,
+    ///     re.find(&mut cache, b"\nabc\n"),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn look_matcher(&self) -> &LookMatcher {
         &self.0.look_matcher
@@ -1281,9 +1324,10 @@ impl Inner {
                 }
             }
             State::Dense { .. } => unreachable!(),
-            State::Look { ref look, .. } => {
-                look.add_to_byteset(&mut self.byte_class_set);
-                self.look_set_any = self.look_set_any.insert(*look);
+            State::Look { look, .. } => {
+                self.look_matcher
+                    .add_to_byteset(look, &mut self.byte_class_set);
+                self.look_set_any = self.look_set_any.insert(look);
             }
             State::Capture { .. } => {
                 self.has_capture = true;

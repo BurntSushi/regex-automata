@@ -380,7 +380,9 @@ fn configure_regex_builder(
 
 /// Configuration of a Thompson NFA compiler from a regex test.
 fn config_thompson(test: &RegexTest) -> thompson::Config {
-    thompson::Config::new().utf8(test.utf8())
+    let mut lookm = regex_automata::util::look::LookMatcher::new();
+    lookm.set_line_terminator(test.line_terminator());
+    thompson::Config::new().utf8(test.utf8()).look_matcher(lookm)
 }
 
 /// Configuration of the regex syntax from a regex test.

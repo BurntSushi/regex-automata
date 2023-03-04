@@ -2187,7 +2187,11 @@ impl DFA {
             }
             if sid == DEAD
                 || (!epsilons.looks().is_empty()
-                    && !epsilons.looks().matches(input.haystack(), at))
+                    && !self.nfa.look_matcher().matches_set_inline(
+                        epsilons.looks(),
+                        input.haystack(),
+                        at,
+                    ))
             {
                 return Ok(pid);
             }

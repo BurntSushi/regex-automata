@@ -79,6 +79,10 @@ valid UTF-8, only the portions that are valid UTF-8 may be reported in match
 spans. Importantly, this includes zero-width matches. Zero-width matches must
 never split the UTF-8 encoding of a single codepoint when this is enabled. This
 is an optional field and is enabled by default.
+* `line-terminator` - This sets the line terminator used by the multi-line
+assertions `(?m:^)` and `(?m:$)`. It defaults to `\n`. It must be exactly one
+byte. This field is automatically unescaped in order to permit a non-ASCII
+byte.
 * `match-kind` - May be one of `all`, `leftmost-first` or `leftmost-longest`.
 See [`MatchKind`] for more details. This is an optional field and defaults to
 `leftmost-first`.
@@ -169,6 +173,17 @@ impl RegexTests {
                 t.haystack =
                     BString::from(crate::escape::unescape(&t.haystack));
             }
+            if t.line_terminator.is_empty() {
+                t.line_terminator = BString::from("\n");
+            } else {
+                t.line_terminator =
+                    BString::from(crate::escape::unescape(&t.line_terminator));
+                anyhow::ensure!(
+                    t.line_terminator.len() == 1,
+                    "line terminator '{:?}' has length not equal to 1",
+                    t.line_terminator,
+                );
+            }
             if self.seen.contains(t.full_name()) {
                 bail!("found duplicate tests for name '{}'", t.full_name());
             }
@@ -220,6 +235,8 @@ pub struct RegexTest {
     unicode: bool,
     #[serde(default = "default_true")]
     utf8: bool,
+    #[serde(default, rename = "line-terminator")]
+    line_terminator: BString,
     #[serde(default, rename = "match-kind")]
     match_kind: MatchKind,
     #[serde(default, rename = "search-kind")]
@@ -340,6 +357,14 @@ impl RegexTest {
     /// This is enabled by default.
     pub fn utf8(&self) -> bool {
         self.utf8
+    }
+
+    /// Returns the line terminator that should be used for the multi-line
+    /// assertions `(?m:^)` and `(?m:$)`.
+    ///
+    /// If it isn't set, then this defaults to `\n`.
+    pub fn line_terminator(&self) -> u8 {
+        self.line_terminator[0]
     }
 
     /// Return the match semantics required by this test.

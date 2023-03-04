@@ -247,12 +247,18 @@ fn configure_regex_builder(
     if test.search_kind() == SearchKind::Overlapping {
         dfa_config = dfa_config.starts_for_each_pattern(true);
     }
-    let thompson_config = thompson::Config::new().utf8(test.utf8());
     builder
         .syntax(config_syntax(test))
-        .thompson(thompson_config)
+        .thompson(config_thompson(test))
         .dfa(dfa_config);
     true
+}
+
+/// Configuration of a Thompson NFA compiler from a regex test.
+fn config_thompson(test: &RegexTest) -> thompson::Config {
+    let mut lookm = regex_automata::util::look::LookMatcher::new();
+    lookm.set_line_terminator(test.line_terminator());
+    thompson::Config::new().utf8(test.utf8()).look_matcher(lookm)
 }
 
 /// Configuration of the regex parser from a regex test.

@@ -188,31 +188,6 @@ impl Start {
         6
     }
 
-    /// Returns the starting state configuration for the given search
-    /// parameters.
-    #[inline(always)]
-    pub(crate) fn from_position_fwd(input: &Input<'_>) -> Start {
-        match input
-            .start()
-            .checked_sub(1)
-            .and_then(|i| input.haystack().get(i))
-        {
-            None => Start::Text,
-            Some(&byte) => byte_to_start(byte),
-        }
-    }
-
-    /// Returns the starting state configuration for a reverse search with the
-    /// given search parameters. If the given offset range is not valid, then
-    /// this panics.
-    #[inline(always)]
-    pub(crate) fn from_position_rev(input: &Input<'_>) -> Start {
-        match input.haystack().get(input.end()) {
-            None => Start::Text,
-            Some(&byte) => byte_to_start(byte),
-        }
-    }
-
     /// Return this starting configuration as `u8` integer. It is guaranteed to
     /// be less than `Start::len()`.
     #[inline(always)]
@@ -230,63 +205,28 @@ impl Start {
     }
 }
 
-#[inline(always)]
-fn byte_to_start(byte: u8) -> Start {
-    const fn make_mapping() -> [Start; 256] {
-        // FIXME: Use as_usize() once const functions in traits are stable.
-
-        let mut map = [Start::NonWordByte; 256];
-        map[b'\n' as usize] = Start::LineLF;
-        map[b'\r' as usize] = Start::LineCR;
-        map[b'_' as usize] = Start::WordByte;
-
-        let mut byte = b'0';
-        while byte <= b'9' {
-            map[byte as usize] = Start::WordByte;
-            byte += 1;
-        }
-        byte = b'A';
-        while byte <= b'Z' {
-            map[byte as usize] = Start::WordByte;
-            byte += 1;
-        }
-        byte = b'a';
-        while byte <= b'z' {
-            map[byte as usize] = Start::WordByte;
-            byte += 1;
-        }
-        map
-    }
-    const MAPPING: [Start; 256] = make_mapping();
-    MAPPING[byte as usize]
-}
-
 #[cfg(test)]
 mod tests {
-    use super::Start;
-    use crate::Input;
+    use super::*;
 
     #[test]
     fn start_fwd_done_range() {
-        assert_eq!(
-            Start::Text,
-            Start::from_position_fwd(&Input::new("").range(1..0))
-        );
+        let smap = StartByteMap::new(&LookMatcher::default());
+        assert_eq!(Start::Text, smap.fwd(&Input::new("").range(1..0)));
     }
 
     #[test]
     fn start_rev_done_range() {
-        assert_eq!(
-            Start::Text,
-            Start::from_position_rev(&Input::new("").range(1..0))
-        );
+        let smap = StartByteMap::new(&LookMatcher::default());
+        assert_eq!(Start::Text, smap.rev(&Input::new("").range(1..0)));
     }
 
     #[test]
     fn start_fwd() {
         let f = |haystack, start, end| {
+            let smap = StartByteMap::new(&LookMatcher::default());
             let input = &Input::new(haystack).range(start..end);
-            Start::from_position_fwd(input)
+            smap.fwd(input)
         };
 
         assert_eq!(Start::Text, f("", 0, 0));
@@ -305,8 +245,9 @@ mod tests {
     #[test]
     fn start_rev() {
         let f = |haystack, start, end| {
+            let smap = StartByteMap::new(&LookMatcher::default());
             let input = &Input::new(haystack).range(start..end);
-            Start::from_position_rev(input)
+            smap.rev(input)
         };
 
         assert_eq!(Start::Text, f("", 0, 0));

@@ -1,5 +1,3 @@
-#![allow(warnings)]
-
 /*!
 Types and routines for working with look-around assertions.
 
@@ -7,13 +5,8 @@ This module principally defines two types:
 
 * [`Look`] enumerates all of the assertions supported by this crate.
 * [`LookSet`] provides a way to efficiently store a set of [`Look`] values.
-
-Additionally, this module provides a routines for evaluating whether an
-assertion matches at a particular point in a haystack. [`Look::matches`]
-and [`LookSet::matches`] are both intended for this purpose. The underlying
-implementations of matching each look-around assertion are also provided as
-free functions. For example, [`is_start_lf`] implements the [`Look::StartLF`]
-assertion.
+* [`LookMatcher`] provides routines for checking whether a `Look` or a
+`LookSet` matches at a particular position in a haystack.
 */
 
 // LAMENTATION: Sadly, a lot of the API of `Look` and `LookSet` were basically
@@ -178,105 +171,6 @@ impl Look {
             Look::WordAsciiNegate => 'B',
             Look::WordUnicode => '𝛃',
             Look::WordUnicodeNegate => '𝚩',
-        }
-    }
-
-    /// Returns true when the position `at` in `haystack` satisfies this
-    /// look-around assertion.
-    ///
-    /// # Panics
-    ///
-    /// This panics when testing any Unicode word boundary assertion in this
-    /// set and when the Unicode word data is not available. Specifically, this
-    /// only occurs when the `unicode-word-boundary` feature is not enabled.
-    ///
-    /// Since it's generally expected that this routine is called inside of
-    /// a matching engine, callers should check the error condition when
-    /// building the matching engine. If there is a Unicode word boundary
-    /// in the matcher and the data isn't available, then the matcher should
-    /// fail to build.
-    ///
-    /// Callers can check the error condition with [`LookSet::available`].
-    ///
-    /// This also may panic when `at > haystack.len()`. Note that `at ==
-    /// haystack.len()` is legal and guaranteed not to panic.
-    #[inline]
-    pub fn matches(self, haystack: &[u8], at: usize) -> bool {
-        self.matches_inline(haystack, at)
-    }
-
-    /// Like `matches`, but forcefully inlined.
-    #[inline(always)]
-    pub(crate) fn matches_inline(self, haystack: &[u8], at: usize) -> bool {
-        match self {
-            Look::Start => is_start(haystack, at),
-            Look::End => is_end(haystack, at),
-            Look::StartLF => is_start_lf(haystack, at),
-            Look::EndLF => is_end_lf(haystack, at),
-            Look::StartCRLF => is_start_crlf(haystack, at),
-            Look::EndCRLF => is_end_crlf(haystack, at),
-            Look::WordAscii => is_word_ascii(haystack, at),
-            Look::WordAsciiNegate => is_word_ascii_negate(haystack, at),
-            Look::WordUnicode => is_word_unicode(haystack, at).unwrap(),
-            Look::WordUnicodeNegate => {
-                is_word_unicode_negate(haystack, at).unwrap()
-            }
-        }
-    }
-
-    /// Split up the given byte classes into equivalence classes in a way that
-    /// is consistent with this look-around assertion.
-    #[cfg(feature = "alloc")]
-    pub(crate) fn add_to_byteset(
-        self,
-        set: &mut crate::util::alphabet::ByteClassSet,
-    ) {
-        match self {
-            Look::Start | Look::End => {}
-            Look::StartLF | Look::EndLF => {
-                set.set_range(b'\n', b'\n');
-            }
-            Look::StartCRLF | Look::EndCRLF => {
-                set.set_range(b'\r', b'\r');
-                set.set_range(b'\n', b'\n');
-            }
-            Look::WordAscii
-            | Look::WordAsciiNegate
-            | Look::WordUnicode
-            | Look::WordUnicodeNegate => {
-                // We need to mark all ranges of bytes whose pairs result in
-                // evaluating \b differently. This isn't technically correct
-                // for Unicode word boundaries, but DFAs can't handle those
-                // anyway, and thus, the byte classes don't need to either
-                // since they are themselves only used in DFAs.
-                //
-                // FIXME: It seems like the calls to 'set_range' here are
-                // completely invariant, which means we could just hard-code
-                // them here without needing to write a loop. And we only need
-                // to do this dance at most once per regex.
-                //
-                // FIXME: Is this correct for \B?
-                let iswb = utf8::is_word_byte;
-                // This unwrap is OK because we guard every use of 'asu8' with
-                // a check that the input is <= 255.
-                let asu8 = |b: u16| u8::try_from(b).unwrap();
-                let mut b1: u16 = 0;
-                let mut b2: u16;
-                while b1 <= 255 {
-                    b2 = b1 + 1;
-                    while b2 <= 255 && iswb(asu8(b1)) == iswb(asu8(b2)) {
-                        b2 += 1;
-                    }
-                    // The guards above guarantee that b2 can never get any
-                    // bigger.
-                    assert!(b2 <= 256);
-                    // Subtracting 1 from b2 is always OK because it is always
-                    // at least 1 greater than b1, and the assert above
-                    // guarantees that the asu8 conversion will succeed.
-                    set.set_range(asu8(b1), asu8(b2.checked_sub(1).unwrap()));
-                    b1 = b2;
-                }
-            }
         }
     }
 }
@@ -530,90 +424,6 @@ impl LookSet {
             UnicodeWordBoundaryError::check()?;
         }
         Ok(())
-    }
-
-    /// Returns true when _all_ of the assertions in this set match at the
-    /// given position in the haystack.
-    ///
-    /// # Panics
-    ///
-    /// This panics when testing any Unicode word boundary assertion in this
-    /// set and when the Unicode word data is not available. Specifically, this
-    /// only occurs when the `unicode-word-boundary` feature is not enabled.
-    ///
-    /// Since it's generally expected that this routine is called inside of
-    /// a matching engine, callers should check the error condition when
-    /// building the matching engine. If there is a Unicode word boundary
-    /// in the matcher and the data isn't available, then the matcher should
-    /// fail to build.
-    ///
-    /// Callers can check the error condition with [`LookSet::available`].
-    ///
-    /// This also may panic when `at > haystack.len()`. Note that `at ==
-    /// haystack.len()` is legal and guaranteed not to panic.
-    #[inline]
-    pub fn matches(self, haystack: &[u8], at: usize) -> bool {
-        self.matches_inline(haystack, at)
-    }
-
-    /// Like `LookSet::matches`, but forcefully inlined for perf.
-    #[inline(always)]
-    pub(crate) fn matches_inline(self, haystack: &[u8], at: usize) -> bool {
-        // This used to luse LookSet::iter with Look::matches on each element,
-        // but that proved to be quite diastrous for perf. The manual "if
-        // the set has this assertion, check it" turns out to be quite a bit
-        // faster.
-        if self.contains(Look::Start) {
-            if !is_start(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::End) {
-            if !is_end(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::StartLF) {
-            if !is_start_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::EndLF) {
-            if !is_end_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::StartCRLF) {
-            if !is_start_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::EndCRLF) {
-            if !is_end_lf(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::WordAscii) {
-            if !is_word_ascii(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::WordAsciiNegate) {
-            if !is_word_ascii_negate(haystack, at) {
-                return false;
-            }
-        }
-        if self.contains(Look::WordUnicode) {
-            if !is_word_unicode(haystack, at).unwrap() {
-                return false;
-            }
-        }
-        if self.contains(Look::WordUnicodeNegate) {
-            if !is_word_unicode_negate(haystack, at).unwrap() {
-                return false;
-            }
-        }
-        true
     }
 }
 
@@ -1102,192 +912,6 @@ impl Default for LookMatcher {
     }
 }
 
-/// Returns true when [`Look::Start`] is satisfied `at` the given position
-/// in `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_start(_haystack: &[u8], at: usize) -> bool {
-    at == 0
-}
-
-/// Returns true when [`Look::End`] is satisfied `at` the given position in
-/// `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_end(haystack: &[u8], at: usize) -> bool {
-    at == haystack.len()
-}
-
-/// Returns true when [`Look::StartLF`] is satisfied `at` the given position
-/// in `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_start_lf(haystack: &[u8], at: usize) -> bool {
-    is_start(haystack, at) || haystack[at - 1] == b'\n'
-}
-
-/// Returns true when [`Look::EndLF`] is satisfied `at` the given position in
-/// `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_end_lf(haystack: &[u8], at: usize) -> bool {
-    is_end(haystack, at) || haystack[at] == b'\n'
-}
-
-/// Returns true when [`Look::StartCRLF`] is satisfied `at` the given position
-/// in `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_start_crlf(haystack: &[u8], at: usize) -> bool {
-    is_start_lf(haystack, at)
-        || (haystack[at - 1] == b'\r'
-            && (at >= haystack.len() || haystack[at] != b'\n'))
-}
-
-/// Returns true when [`Look::EndCRLF`] is satisfied `at` the given position in
-/// `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_end_crlf(haystack: &[u8], at: usize) -> bool {
-    at == haystack.len()
-        || haystack[at] == b'\r'
-        || (haystack[at] == b'\n' && (at == 0 || haystack[at - 1] != b'\r'))
-}
-
-/// Returns true when [`Look::WordAscii`] is satisfied `at` the given position
-/// in `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_word_ascii(haystack: &[u8], at: usize) -> bool {
-    let word_before = at > 0 && utf8::is_word_byte(haystack[at - 1]);
-    let word_after = at < haystack.len() && utf8::is_word_byte(haystack[at]);
-    word_before != word_after
-}
-
-/// Returns true when [`Look::WordAsciiNegate`] is satisfied `at` the given
-/// position in `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-#[inline]
-pub fn is_word_ascii_negate(haystack: &[u8], at: usize) -> bool {
-    !is_word_ascii(haystack, at)
-}
-
-/// Returns true when [`Look::WordUnicode`] is satisfied `at` the given
-/// position in `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-///
-/// # Errors
-///
-/// This returns an error when Unicode word boundary tables are not available.
-/// Specifically, this only occurs when the `unicode-word-boundary` feature is
-/// not enabled.
-#[inline]
-pub fn is_word_unicode(
-    haystack: &[u8],
-    at: usize,
-) -> Result<bool, UnicodeWordBoundaryError> {
-    let word_before = is_word_char::rev(haystack, at)?;
-    let word_after = is_word_char::fwd(haystack, at)?;
-    Ok(word_before != word_after)
-}
-
-/// Returns true when [`Look::WordUnicodeNegate`] is satisfied `at` the given
-/// position in `haystack`.
-///
-/// # Panics
-///
-/// This may panic when `at > haystack.len()`. Note that `at == haystack.len()`
-/// is legal and guaranteed not to panic.
-///
-/// # Errors
-///
-/// This returns an error when Unicode word boundary tables are not available.
-/// Specifically, this only occurs when the `unicode-word-boundary` feature is
-/// not enabled.
-#[inline]
-pub fn is_word_unicode_negate(
-    haystack: &[u8],
-    at: usize,
-) -> Result<bool, UnicodeWordBoundaryError> {
-    // This is pretty subtle. Why do we need to do UTF-8 decoding here? Well...
-    // at time of writing, the is_word_char_{fwd,rev} routines will only return
-    // true if there is a valid UTF-8 encoding of a "word" codepoint, and
-    // false in every other case (including invalid UTF-8). This means that in
-    // regions of invalid UTF-8 (which might be a subset of valid UTF-8!), it
-    // would result in \B matching. While this would be questionable in the
-    // context of truly invalid UTF-8, it is *certainly* wrong to report match
-    // boundaries that split the encoding of a codepoint. So to work around
-    // this, we ensure that we can decode a codepoint on either side of `at`.
-    // If either direction fails, then we don't permit \B to match at all.
-    //
-    // Now, this isn't exactly optimal from a perf perspective. We could try
-    // and detect this in is_word_char::{fwd,rev}, but it's not clear if it's
-    // worth it. \B is, after all, rarely used. Even worse,
-    // is_word_char::{fwd,rev} could do its own UTF-8 decoding, and so this
-    // will wind up doing UTF-8 decoding twice. Owch. We could fix this with
-    // more code complexity, but it just doesn't feel worth it for \B.
-    //
-    // And in particular, we do *not* have to do this with \b, because \b
-    // *requires* that at least one side of `at` be a "word" codepoint, which
-    // in turn implies one side of `at` must be valid UTF-8. This in turn
-    // implies that \b can never split a valid UTF-8 encoding of a codepoint.
-    // In the case where one side of `at` is truly invalid UTF-8 and the other
-    // side IS a word codepoint, then we want \b to match since it represents
-    // a valid UTF-8 boundary. It also makes sense. For example, you'd want
-    // \b\w+\b to match 'abc' in '\xFFabc\xFF'.
-    //
-    // Note also that this is not just '!is_word_unicode(..)' like it is for
-    // the ASCII case. For example, neither \b nor \B is satisfied within
-    // invalid UTF-8 sequences.
-    let word_before = at > 0
-        && match utf8::decode_last(&haystack[..at]) {
-            None | Some(Err(_)) => return Ok(false),
-            Some(Ok(_)) => is_word_char::rev(haystack, at)?,
-        };
-    let word_after = at < haystack.len()
-        && match utf8::decode(&haystack[at..]) {
-            None | Some(Err(_)) => return Ok(false),
-            Some(Ok(_)) => is_word_char::fwd(haystack, at)?,
-        };
-    Ok(word_before == word_after)
-}
-
 /// An error that occurs when the Unicode-aware `\w` class is unavailable.
 ///
 /// This error can occur when the data tables necessary for the Unicode aware
@@ -1728,7 +1352,7 @@ mod tests {
 
     macro_rules! testlook {
         ($look:expr, $haystack:expr, $at:expr) => {
-            $look.matches(B($haystack), $at)
+            LookMatcher::default().matches($look, B($haystack), $at)
         };
     }
 
@@ -2092,6 +1716,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn look_set_debug() {
         let res = alloc::format!("{:?}", LookSet::empty());
         assert_eq!("∅", res);
