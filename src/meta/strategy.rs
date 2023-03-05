@@ -67,175 +67,14 @@ pub(crate) trait Strategy:
     );
 }
 
-// Implement strategy for anything that implements prefilter.
-//
-// Note that this must only be used for regexes of length 1. Multi-regexes
-// don't work here. The prefilter interface only provides the span of a match
-// and not the pattern ID. (I did consider making it more expressive, but I
-// couldn't figure out how to tie everything together elegantly.) Thus, so long
-// as the regex only contains one pattern, we can simply assume that a match
-// corresponds to PatternID::ZERO. And indeed, that's what we do here.
-//
-// In practice, since this impl is used to report matches directly and thus
-// completely bypasses the regex engine, we only wind up using this under the
-// following restrictions:
-//
-// * There must be only one pattern. As explained above.
-// * The literal sequence must be finite and only contain exact literals.
-// * There must not be any look-around assertions. If there are, the literals
-// extracted might be exact, but a match doesn't necessarily imply an overall
-// match. As a trivial example, 'foo\bbar' does not match 'foobar'.
-// * The pattern must not have any explicit capturing groups. If it does, the
-// caller might expect them to be resolved. e.g., 'foo(bar)'.
-//
-// So when all of those things are true, we use a prefilter directly as a
-// strategy.
-//
-// In the case where the number of patterns is more than 1, we don't use this
-// but do use a special Aho-Corasick strategy if all of the regexes are just
-// simple literals or alternations of literals. (We also use the Aho-Corasick
-// strategy when len(patterns)==1 if the number of literals is large. In that
-// case, literal extraction gives up and will return an infinite set.)
-impl<T: PrefilterI> Strategy for T {
-    fn create_captures(&self) -> Captures {
-        // The only thing we support here is the start and end of the overall
-        // match for a single pattern. In other words, exactly one implicit
-        // capturing group. In theory, capturing groups should never be used
-        // for this regex because the only way this impl gets used is if there
-        // are no explicit capturing groups. Thus, asking to resolve capturing
-        // groups is always wasteful.
-        let info = GroupInfo::new([[None::<&str>]]).unwrap();
-        Captures::matches(info)
-    }
-
-    fn create_cache(&self) -> Cache {
-        Cache {
-            capmatches: self.create_captures(),
-            pikevm: wrappers::PikeVMCache::none(),
-            backtrack: wrappers::BoundedBacktrackerCache::none(),
-            onepass: wrappers::OnePassCache::none(),
-            hybrid: wrappers::HybridCache::none(),
-            revhybrid: wrappers::ReverseHybridCache::none(),
-        }
-    }
-
-    fn reset_cache(&self, cache: &mut Cache) {}
-
-    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
-        if input.is_done() {
-            return None;
-        }
-        if input.get_anchored().is_anchored() {
-            return self
-                .prefix(input.haystack(), input.get_span())
-                .map(|sp| Match::new(PatternID::ZERO, sp));
-        }
-        self.find(input.haystack(), input.get_span())
-            .map(|sp| Match::new(PatternID::ZERO, sp))
-    }
-
-    fn search_half(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Option<HalfMatch> {
-        self.search(cache, input).map(|m| HalfMatch::new(m.pattern(), m.end()))
-    }
-
-    fn search_slots(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-        slots: &mut [Option<NonMaxUsize>],
-    ) -> Option<PatternID> {
-        let m = self.search(cache, input)?;
-        if let Some(slot) = slots.get_mut(0) {
-            *slot = NonMaxUsize::new(m.start());
-        }
-        if let Some(slot) = slots.get_mut(1) {
-            *slot = NonMaxUsize::new(m.end());
-        }
-        Some(m.pattern())
-    }
-
-    fn which_overlapping_matches(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-        patset: &mut PatternSet,
-    ) {
-        if self.search(cache, input).is_some() {
-            patset.insert(PatternID::ZERO);
-        }
-    }
-}
-
 pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
 ) -> Result<Arc<dyn Strategy>, BuildError> {
     let kind = info.config().get_match_kind();
     let lits = Literals::new(kind, hirs);
-    // Check to see if our prefixes are exact, which means we might be able to
-    // bypass the regex engine entirely and just rely on literal searches. We
-    // need to meet a few criteria that basically lets us implement the full
-    // regex API. So for example, we can implement "ask for capturing groups"
-    // so long as they are no capturing groups in the regex.
-    //
-    // We also require that we have a single regex pattern. Namely, we reuse
-    // the prefilter infrastructure to implement search and prefilters only
-    // report spans. Prefilters don't know about pattern IDs. The multi-regex
-    // case isn't a lost cause, we might still use Aho-Corasick and we might
-    // still just use a regular prefilter, but that's done below.
-    //
-    // If we do have only one pattern, then we also require that it has zero
-    // look-around assertions. Namely, literal extraction treats look-around
-    // assertions as if they match *every* empty string. But of course, that
-    // isn't true. So for example, 'foo\bquux' never matches anything, but
-    // 'fooquux' is extracted from that as an exact literal. Such cases should
-    // just run the regex engine. 'fooquux' will be used as a normal prefilter,
-    // and then the regex engine will try to look for an actual match.
-    //
-    // Finally, currently, our prefilters are all oriented around
-    // leftmost-first match semantics, so don't try to use them if the caller
-    // asked for anything else.
-    //
-    // This seems like a lot of requirements to meet, but it applies to a lot
-    // of cases. 'foo', '[abc][123]' and 'foo|bar|quux' all meet the above
-    // criteria, for example.
-    //
-    // Note that this is effectively a latency optimization. If we didn't
-    // do this, then the extracted literals would still get bundled into a
-    // prefilter, and every regex engine capable of running unanchored searches
-    // supports prefilters. So this optimization merely sidesteps having to run
-    // the regex engine at all to confirm the match. Thus, it decreases the
-    // latency of a match.
-    if lits.prefixes().is_exact()
-        && hirs.len() == 1
-        && info.props()[0].look_set().is_empty()
-        && info.props()[0].captures_len() == 0
-        // We require this because our prefilters can't currently handle
-        // assuming the responsibility of being the regex engine in all
-        // cases. For example, when running a leftmost search with 'All'
-        // match semantics for the regex 'foo|foobar', the prefilter will
-        // currently report 'foo' as a match against 'foobar'. 'foo' is a
-        // correct candidate, but it is not the correct leftmost match in this
-        // circumstance, since the 'all' semantic demands that the search
-        // continue until a dead state is reached.
-        && info.config().get_match_kind() == MatchKind::LeftmostFirst
-    {
-        // OK because we know the set is exact and thus finite.
-        let prefixes = lits.prefixes().literals().unwrap();
-        debug!(
-            "trying to bypass regex engine by creating \
-             prefilter from {} literals: {:?}",
-            prefixes.len(),
-            prefixes,
-        );
-        if let Some(pre) = prefilter::new_as_strategy(kind, prefixes) {
-            return Ok(pre);
-        }
-        debug!("regex bypass failed because no prefilter could be built");
+    if let Some(pre) = Pre::new(info, &lits) {
+        return Ok(pre);
     }
     // This now attempts another short-circuit of the regex engine: if we
     // have a huge alternation of just plain literals, then we can just use
@@ -326,6 +165,215 @@ pub(super) fn new(
     };
     debug!("using core strategy");
     Ok(Arc::new(core))
+}
+
+#[derive(Clone, Debug)]
+struct Pre<P> {
+    pre: P,
+    group_info: GroupInfo,
+}
+
+impl Pre<()> {
+    fn new(info: &RegexInfo, lits: &Literals) -> Option<Arc<dyn Strategy>> {
+        let kind = info.config().get_match_kind();
+        // Check to see if our prefixes are exact, which means we might be
+        // able to bypass the regex engine entirely and just rely on literal
+        // searches. We need to meet a few criteria that basically lets us
+        // implement the full regex API. So for example, we can implement "ask
+        // for capturing groups" so long as they are no capturing groups in the
+        // regex.
+        //
+        // We also require that we have a single regex pattern. Namely,
+        // we reuse the prefilter infrastructure to implement search and
+        // prefilters only report spans. Prefilters don't know about pattern
+        // IDs. The multi-regex case isn't a lost cause, we might still use
+        // Aho-Corasick and we might still just use a regular prefilter, but
+        // that's done below.
+        //
+        // If we do have only one pattern, then we also require that it has
+        // zero look-around assertions. Namely, literal extraction treats
+        // look-around assertions as if they match *every* empty string. But of
+        // course, that isn't true. So for example, 'foo\bquux' never matches
+        // anything, but 'fooquux' is extracted from that as an exact literal.
+        // Such cases should just run the regex engine. 'fooquux' will be used
+        // as a normal prefilter, and then the regex engine will try to look
+        // for an actual match.
+        //
+        // Finally, currently, our prefilters are all oriented around
+        // leftmost-first match semantics, so don't try to use them if the
+        // caller asked for anything else.
+        //
+        // This seems like a lot of requirements to meet, but it applies to a
+        // lot of cases. 'foo', '[abc][123]' and 'foo|bar|quux' all meet the
+        // above criteria, for example.
+        //
+        // Note that this is effectively a latency optimization. If we didn't
+        // do this, then the extracted literals would still get bundled into
+        // a prefilter, and every regex engine capable of running unanchored
+        // searches supports prefilters. So this optimization merely sidesteps
+        // having to run the regex engine at all to confirm the match. Thus, it
+        // decreases the latency of a match.
+        if lits.prefixes().is_exact()
+        && info.props().len() == 1
+        && info.props()[0].look_set().is_empty()
+        && info.props()[0].captures_len() == 0
+        // We require this because our prefilters can't currently handle
+        // assuming the responsibility of being the regex engine in all
+        // cases. For example, when running a leftmost search with 'All'
+        // match semantics for the regex 'foo|foobar', the prefilter will
+        // currently report 'foo' as a match against 'foobar'. 'foo' is a
+        // correct candidate, but it is not the correct leftmost match in this
+        // circumstance, since the 'all' semantic demands that the search
+        // continue until a dead state is reached.
+        && kind == MatchKind::LeftmostFirst
+        {
+            // OK because we know the set is exact and thus finite.
+            let prefixes = lits.prefixes().literals().unwrap();
+            debug!(
+                "trying to bypass regex engine by creating \
+                 prefilter from {} literals: {:?}",
+                prefixes.len(),
+                prefixes,
+            );
+            let group_info = GroupInfo::new([[None::<&str>]]).unwrap();
+            let choice = match prefilter::Choice::new(kind, prefixes) {
+                Some(choice) => choice,
+                None => {
+                    debug!("regex bypass failed because no prefilter could be built");
+                    return None;
+                }
+            };
+            let strat: Arc<dyn Strategy> = match choice {
+                prefilter::Choice::Memchr(pre) => {
+                    Arc::new(Pre { pre, group_info })
+                }
+                prefilter::Choice::Memchr2(pre) => {
+                    Arc::new(Pre { pre, group_info })
+                }
+                prefilter::Choice::Memchr3(pre) => {
+                    Arc::new(Pre { pre, group_info })
+                }
+                prefilter::Choice::Memmem(pre) => {
+                    Arc::new(Pre { pre, group_info })
+                }
+                prefilter::Choice::Teddy(pre) => {
+                    Arc::new(Pre { pre, group_info })
+                }
+                prefilter::Choice::ByteSet(pre) => {
+                    Arc::new(Pre { pre, group_info })
+                }
+                prefilter::Choice::AhoCorasick(pre) => {
+                    Arc::new(Pre { pre, group_info })
+                }
+            };
+            return Some(strat);
+        }
+        None
+    }
+}
+
+// Implement strategy for anything that implements prefilter.
+//
+// Note that this must only be used for regexes of length 1. Multi-regexes
+// don't work here. The prefilter interface only provides the span of a match
+// and not the pattern ID. (I did consider making it more expressive, but I
+// couldn't figure out how to tie everything together elegantly.) Thus, so long
+// as the regex only contains one pattern, we can simply assume that a match
+// corresponds to PatternID::ZERO. And indeed, that's what we do here.
+//
+// In practice, since this impl is used to report matches directly and thus
+// completely bypasses the regex engine, we only wind up using this under the
+// following restrictions:
+//
+// * There must be only one pattern. As explained above.
+// * The literal sequence must be finite and only contain exact literals.
+// * There must not be any look-around assertions. If there are, the literals
+// extracted might be exact, but a match doesn't necessarily imply an overall
+// match. As a trivial example, 'foo\bbar' does not match 'foobar'.
+// * The pattern must not have any explicit capturing groups. If it does, the
+// caller might expect them to be resolved. e.g., 'foo(bar)'.
+//
+// So when all of those things are true, we use a prefilter directly as a
+// strategy.
+//
+// In the case where the number of patterns is more than 1, we don't use this
+// but do use a special Aho-Corasick strategy if all of the regexes are just
+// simple literals or alternations of literals. (We also use the Aho-Corasick
+// strategy when len(patterns)==1 if the number of literals is large. In that
+// case, literal extraction gives up and will return an infinite set.)
+impl<P: PrefilterI> Strategy for Pre<P> {
+    fn create_captures(&self) -> Captures {
+        // The only thing we support here is the start and end of the overall
+        // match for a single pattern. In other words, exactly one implicit
+        // capturing group. In theory, capturing groups should never be used
+        // for this regex because the only way this impl gets used is if there
+        // are no explicit capturing groups. Thus, asking to resolve capturing
+        // groups is always wasteful.
+        Captures::matches(self.group_info.clone())
+    }
+
+    fn create_cache(&self) -> Cache {
+        Cache {
+            capmatches: self.create_captures(),
+            pikevm: wrappers::PikeVMCache::none(),
+            backtrack: wrappers::BoundedBacktrackerCache::none(),
+            onepass: wrappers::OnePassCache::none(),
+            hybrid: wrappers::HybridCache::none(),
+            revhybrid: wrappers::ReverseHybridCache::none(),
+        }
+    }
+
+    fn reset_cache(&self, cache: &mut Cache) {}
+
+    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
+        if input.is_done() {
+            return None;
+        }
+        if input.get_anchored().is_anchored() {
+            return self
+                .pre
+                .prefix(input.haystack(), input.get_span())
+                .map(|sp| Match::new(PatternID::ZERO, sp));
+        }
+        self.pre
+            .find(input.haystack(), input.get_span())
+            .map(|sp| Match::new(PatternID::ZERO, sp))
+    }
+
+    fn search_half(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Option<HalfMatch> {
+        self.search(cache, input).map(|m| HalfMatch::new(m.pattern(), m.end()))
+    }
+
+    fn search_slots(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        let m = self.search(cache, input)?;
+        if let Some(slot) = slots.get_mut(0) {
+            *slot = NonMaxUsize::new(m.start());
+        }
+        if let Some(slot) = slots.get_mut(1) {
+            *slot = NonMaxUsize::new(m.end());
+        }
+        Some(m.pattern())
+    }
+
+    fn which_overlapping_matches(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        patset: &mut PatternSet,
+    ) {
+        if self.search(cache, input).is_some() {
+            patset.insert(PatternID::ZERO);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1521,8 +1569,9 @@ fn alternation_literals_to_aho_corasick(
     use crate::util::prefilter::AhoCorasick;
 
     let lits = alternation_literals(info, hirs)?;
-    let ac = AhoCorasick::new(MatchKind::LeftmostFirst, &lits)?;
-    Some(Arc::new(ac))
+    let pre = AhoCorasick::new(MatchKind::LeftmostFirst, &lits)?;
+    let group_info = GroupInfo::new([[None::<&str>]]).unwrap();
+    Some(Arc::new(Pre { pre, group_info }))
 }
 
 /// Pull out an alternation of literals from the given sequence of HIR

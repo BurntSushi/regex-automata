@@ -75,7 +75,6 @@ impl Teddy {
     }
 }
 
-#[cfg(feature = "perf-literal-multisubstring")]
 impl PrefilterI for Teddy {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         #[cfg(not(feature = "perf-literal-multisubstring"))]

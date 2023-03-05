@@ -32,7 +32,6 @@ impl Memmem {
     }
 }
 
-#[cfg(feature = "perf-literal-substring")]
 impl PrefilterI for Memmem {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         #[cfg(not(feature = "perf-literal-substring"))]

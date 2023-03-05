@@ -4,6 +4,7 @@ use core::{
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
+#[cfg(feature = "alloc")]
 use alloc::sync::Arc;
 
 #[cfg(feature = "syntax")]
@@ -19,91 +20,13 @@ pub(crate) use crate::util::prefilter::{
     teddy::Teddy,
 };
 
-// Creates a new prefilter as a trait object. This is wrapped in a macro
-// because we want to create both a Arc<dyn PrefilterI> and also a Arc<dyn
-// meta::Strategy>. I'm not sure there's a way to get code reuse without a
-// macro for this particular case, but if so and it only uses safe code, I'd be
-// happy for a patch.
-macro_rules! new {
-    ($kind:ident, $needles:ident) => {{
-        let kind = $kind;
-        let needles = $needles;
-        // An empty set means the regex matches nothing, so no sense in
-        // building a prefilter.
-        if needles.len() == 0 {
-            debug!("prefilter building failed: found empty set of literals");
-            return None;
-        }
-        // If the regex can match the empty string, then the prefilter will
-        // by definition match at every position. This is obviously completely
-        // ineffective.
-        if needles.iter().any(|n| n.as_ref().is_empty()) {
-            debug!("prefilter building failed: literals match empty string");
-            return None;
-        }
-        if let Some(pre) = Memchr::new(kind, needles) {
-            debug!("prefilter built: memchr");
-            return Some(Arc::new(pre));
-        }
-        if let Some(pre) = Memchr2::new(kind, needles) {
-            debug!("prefilter built: memchr2");
-            return Some(Arc::new(pre));
-        }
-        if let Some(pre) = Memchr3::new(kind, needles) {
-            debug!("prefilter built: memchr3");
-            return Some(Arc::new(pre));
-        }
-        if let Some(pre) = Memmem::new(kind, needles) {
-            debug!("prefilter built: memmem");
-            return Some(Arc::new(pre));
-        }
-        if let Some(pre) = Teddy::new(kind, needles) {
-            debug!("prefilter built: teddy");
-            return Some(Arc::new(pre));
-        }
-        if let Some(pre) = ByteSet::new(kind, needles) {
-            debug!("prefilter built: byteset");
-            return Some(Arc::new(pre));
-        }
-        if let Some(pre) = AhoCorasick::new(kind, needles) {
-            debug!("prefilter built: aho-corasick");
-            return Some(Arc::new(pre));
-        }
-        debug!("prefilter building failed: no strategy could be found");
-        None
-    }};
-}
-
-/// Creates a new prefilter, if possible, from the given set of needles and
-/// returns it as a `PrefilterI` trait object.
-fn new<B: AsRef<[u8]>>(
-    kind: MatchKind,
-    needles: &[B],
-) -> Option<Arc<dyn PrefilterI>> {
-    new!(kind, needles)
-}
-
-/// Creates a new prefilter, if possible, from the given set of needles and
-/// returns it as a `meta::Strategy` trait object. This is used internally
-/// in the meta regex engine so that a prefilter can be used *directly* as a
-/// regex engine. We could use a `PrefilterI` trait object I believe, and turn
-/// that into a `meta::Strategy` trait object, but then I think this would go
-/// through two virtual calls. This should only need one virtual call.
-///
-/// See the docs on the `impl<T: PrefilterI> Strategy for T` for more info.
-/// In particular, it is not always valid to call this. There are a number of
-/// subtle preconditions required that cannot be checked by this function.
-#[cfg(feature = "meta")]
-pub(crate) fn new_as_strategy<B: AsRef<[u8]>>(
-    kind: MatchKind,
-    needles: &[B],
-) -> Option<Arc<dyn crate::meta::Strategy>> {
-    new!(kind, needles)
-}
-
 #[derive(Clone, Debug)]
 pub struct Prefilter {
+    #[cfg(not(feature = "alloc"))]
+    _unused: (),
+    #[cfg(feature = "alloc")]
     pre: Arc<dyn PrefilterI>,
+    #[cfg(feature = "alloc")]
     is_fast: bool,
 }
 
@@ -112,9 +35,39 @@ impl Prefilter {
         kind: MatchKind,
         needles: &[B],
     ) -> Option<Prefilter> {
-        let pre = new(kind, needles)?;
-        let is_fast = pre.is_fast();
-        Some(Prefilter { pre, is_fast })
+        #[cfg(not(feature = "alloc"))]
+        {
+            None
+        }
+        #[cfg(feature = "alloc")]
+        {
+            let choice = Choice::new(kind, needles)?;
+            Some(Prefilter::from_choice(choice))
+        }
+    }
+
+    fn from_choice(choice: Choice) -> Prefilter {
+        // This is a little subtle, but it's impossible to get to this point
+        // because 'Choice::new' always returns 'None' when 'alloc' is
+        // unavailable.
+        #[cfg(not(feature = "alloc"))]
+        {
+            unreachable!()
+        }
+        #[cfg(feature = "alloc")]
+        {
+            let pre: Arc<dyn PrefilterI> = match choice {
+                Choice::Memchr(p) => Arc::new(p),
+                Choice::Memchr2(p) => Arc::new(p),
+                Choice::Memchr3(p) => Arc::new(p),
+                Choice::Memmem(p) => Arc::new(p),
+                Choice::Teddy(p) => Arc::new(p),
+                Choice::ByteSet(p) => Arc::new(p),
+                Choice::AhoCorasick(p) => Arc::new(p),
+            };
+            let is_fast = pre.is_fast();
+            Prefilter { pre, is_fast }
+        }
     }
 
     #[cfg(feature = "syntax")]
@@ -157,19 +110,47 @@ impl Prefilter {
     }
 
     pub fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.pre.find(haystack, span)
+        #[cfg(not(feature = "alloc"))]
+        {
+            unreachable!()
+        }
+        #[cfg(feature = "alloc")]
+        {
+            self.pre.find(haystack, span)
+        }
     }
 
     pub fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
-        self.pre.prefix(haystack, span)
+        #[cfg(not(feature = "alloc"))]
+        {
+            unreachable!()
+        }
+        #[cfg(feature = "alloc")]
+        {
+            self.pre.prefix(haystack, span)
+        }
     }
 
     pub fn memory_usage(&self) -> usize {
-        self.pre.memory_usage()
+        #[cfg(not(feature = "alloc"))]
+        {
+            unreachable!()
+        }
+        #[cfg(feature = "alloc")]
+        {
+            self.pre.memory_usage()
+        }
     }
 
     pub(crate) fn is_fast(&self) -> bool {
-        self.is_fast
+        #[cfg(not(feature = "alloc"))]
+        {
+            unreachable!()
+        }
+        #[cfg(feature = "alloc")]
+        {
+            self.is_fast
+        }
     }
 }
 
@@ -199,6 +180,7 @@ pub(crate) trait PrefilterI:
     fn is_fast(&self) -> bool;
 }
 
+#[cfg(feature = "alloc")]
 impl<P: PrefilterI + ?Sized> PrefilterI for Arc<P> {
     #[inline(always)]
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
@@ -218,5 +200,78 @@ impl<P: PrefilterI + ?Sized> PrefilterI for Arc<P> {
     #[inline(always)]
     fn is_fast(&self) -> bool {
         (&**self).is_fast()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum Choice {
+    Memchr(Memchr),
+    Memchr2(Memchr2),
+    Memchr3(Memchr3),
+    Memmem(Memmem),
+    Teddy(Teddy),
+    ByteSet(ByteSet),
+    AhoCorasick(AhoCorasick),
+}
+
+impl Choice {
+    pub(crate) fn new<B: AsRef<[u8]>>(
+        kind: MatchKind,
+        needles: &[B],
+    ) -> Option<Choice> {
+        #[cfg(not(feature = "alloc"))]
+        {
+            None
+        }
+        #[cfg(feature = "alloc")]
+        {
+            // An empty set means the regex matches nothing, so no sense in
+            // building a prefilter.
+            if needles.len() == 0 {
+                debug!(
+                    "prefilter building failed: found empty set of literals"
+                );
+                return None;
+            }
+            // If the regex can match the empty string, then the prefilter
+            // will by definition match at every position. This is obviously
+            // completely ineffective.
+            if needles.iter().any(|n| n.as_ref().is_empty()) {
+                debug!(
+                    "prefilter building failed: literals match empty string"
+                );
+                return None;
+            }
+            if let Some(pre) = Memchr::new(kind, needles) {
+                debug!("prefilter built: memchr");
+                return Some(Choice::Memchr(pre));
+            }
+            if let Some(pre) = Memchr2::new(kind, needles) {
+                debug!("prefilter built: memchr2");
+                return Some(Choice::Memchr2(pre));
+            }
+            if let Some(pre) = Memchr3::new(kind, needles) {
+                debug!("prefilter built: memchr3");
+                return Some(Choice::Memchr3(pre));
+            }
+            if let Some(pre) = Memmem::new(kind, needles) {
+                debug!("prefilter built: memmem");
+                return Some(Choice::Memmem(pre));
+            }
+            if let Some(pre) = Teddy::new(kind, needles) {
+                debug!("prefilter built: teddy");
+                return Some(Choice::Teddy(pre));
+            }
+            if let Some(pre) = ByteSet::new(kind, needles) {
+                debug!("prefilter built: byteset");
+                return Some(Choice::ByteSet(pre));
+            }
+            if let Some(pre) = AhoCorasick::new(kind, needles) {
+                debug!("prefilter built: aho-corasick");
+                return Some(Choice::AhoCorasick(pre));
+            }
+            debug!("prefilter building failed: no strategy could be found");
+            None
+        }
     }
 }
