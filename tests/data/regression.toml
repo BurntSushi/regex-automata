@@ -492,3 +492,135 @@ anchored = true
 unicode = false
 utf8 = true
 matches = [[[0, 2], [0, 2]]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-0"
+regex = '(?:(?-u:\b)|(?u:h))+'
+haystack = "h"
+unicode = true
+utf8 = false
+matches = [[0, 0], [1, 1]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-1"
+regex = '(?u:\B)'
+haystack = "鋸"
+unicode = true
+utf8 = false
+matches = []
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-2"
+regex = '(?:(?u:\b)|(?s-u:.))+'
+haystack = "oB"
+unicode = true
+utf8 = false
+matches = [[0, 0], [1, 2]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-3"
+regex = '(?:(?-u:\B)|(?su:.))+'
+haystack = "\U000FEF80"
+unicode = true
+utf8 = false
+matches = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-3-utf8"
+regex = '(?:(?-u:\B)|(?su:.))+'
+haystack = "\U000FEF80"
+unicode = true
+utf8 = true
+matches = [[0, 0], [4, 4]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-4"
+regex = '(?m:$)(?m:^)(?su:.)'
+haystack = "\n‣"
+unicode = true
+utf8 = false
+matches = [[0, 1]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-5"
+regex = '(?m:$)^(?m:^)'
+haystack = "\n"
+unicode = true
+utf8 = false
+matches = [[0, 0]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-6"
+regex = '(?P<kp>(?iu:do)(?m:$))*'
+haystack = "dodo"
+unicode = true
+utf8 = false
+matches = [
+  [[0, 0], []],
+  [[1, 1], []],
+  [[2, 4], [2, 4]],
+]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-7"
+regex = '(?u:\B)'
+haystack = "䡁"
+unicode = true
+utf8 = false
+matches = []
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-8"
+regex = '(?:(?-u:\b)|(?u:[\u{0}-W]))+'
+haystack = "0"
+unicode = true
+utf8 = false
+matches = [[0, 0], [1, 1]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-9"
+regex = '((?m:$)(?-u:\B)(?s-u:.)(?-u:\B)$)'
+haystack = "\n\n"
+unicode = true
+utf8 = false
+matches = [
+  [[1, 2], [1, 2]],
+]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-10"
+regex = '(?m:$)(?m:$)^(?su:.)'
+haystack = "\n\u0081¨\u200a"
+unicode = true
+utf8 = false
+matches = [[0, 1]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-11"
+regex = '(?-u:\B)(?m:^)'
+haystack = "0\n"
+unicode = true
+utf8 = false
+matches = [[2, 2]]
+
+# From: https://github.com/rust-lang/regex/issues/429
+[[test]]
+name = "i419-12"
+regex = '(?:(?u:\b)|(?-u:.))+'
+haystack = "0"
+unicode = true
+utf8 = false
+matches = [[0, 0], [1, 1]]
