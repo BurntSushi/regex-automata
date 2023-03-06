@@ -13,11 +13,9 @@ composed.
 
 use regex_syntax::{
     ast,
-    hir::{self, literal, Hir},
+    hir::{self, Hir},
     Error, ParserBuilder,
 };
-
-use crate::util::search::MatchKind;
 
 /// A convenience routine for parsing a regex using a `Config`.
 pub fn parse(config: &Config, pattern: &str) -> Result<Hir, Error> {
@@ -336,100 +334,5 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config::new()
-    }
-}
-
-/// The prefixes and suffixes extracted from zero or more HIR expressions.
-///
-/// The semantic here is that, given a finite sequence of prefixes (or
-/// suffixes), at least one of those prefixes (or suffixes) must match in order
-/// for an overall match of the regex to occur.
-///
-/// These literals are used to accelerate searches (by skipping ahead to
-/// possible matching positions more quickly than what a general regex engine
-/// can do) or even skip the regex engine entirely (when the sequence of
-/// literals is "exact", among other criteria).
-#[derive(Debug)]
-pub(crate) struct Literals {
-    prefixes: literal::Seq,
-    // TODO: Implement suffix literal optimization.
-    #[allow(dead_code)]
-    suffixes: literal::Seq,
-}
-
-impl Literals {
-    /// Extracts all of the prefix and suffix literals from the given HIR
-    /// expressions into a single `Seq` each. The literals in the sequence are
-    /// ordered with respect to the order of the given HIR expressions.
-    ///
-    /// The sequences returned are each "optimized." That is, they may be
-    /// shrunk or even truncated according to heuristics with the intent of
-    /// making them more useful as a prefilter. (Which translates to both
-    /// using faster algorithms and minimizing the false positive rate.)
-    ///
-    /// Note that this erases any connection between the literals and which
-    /// pattern (or patterns) they came from.
-    ///
-    /// The match kind given must correspond to the match semantics of the
-    /// regex that is represented by the HIRs given. The match semantics may
-    /// change the literal sets returned.
-    pub(crate) fn new<H>(kind: MatchKind, hirs: &[H]) -> Literals
-    where
-        H: core::borrow::Borrow<Hir>,
-    {
-        let mut prefix_extractor = literal::Extractor::new();
-        prefix_extractor.kind(literal::ExtractKind::Prefix);
-        let mut suffix_extractor = literal::Extractor::new();
-        suffix_extractor.kind(literal::ExtractKind::Suffix);
-
-        let mut prefixes = literal::Seq::empty();
-        let mut suffixes = literal::Seq::empty();
-        for hir in hirs {
-            prefixes.union(&mut prefix_extractor.extract(hir.borrow()));
-            suffixes.union(&mut suffix_extractor.extract(hir.borrow()));
-        }
-        debug!(
-            "prefixes (len={:?}) extracted before optimization: {:?}",
-            prefixes.len(),
-            prefixes
-        );
-        debug!(
-            "suffixes (len={:?}) extracted before optimization: {:?}",
-            suffixes.len(),
-            suffixes
-        );
-        match kind {
-            MatchKind::All => {
-                prefixes.sort();
-                prefixes.dedup();
-                suffixes.sort();
-                suffixes.dedup();
-            }
-            MatchKind::LeftmostFirst => {
-                prefixes.optimize_for_prefix_by_preference();
-                suffixes.optimize_for_suffix_by_preference();
-            }
-        }
-        debug!(
-            "prefixes (len={:?}) extracted after optimization: {:?}",
-            prefixes.len(),
-            prefixes
-        );
-        debug!(
-            "suffixes (len={:?}) extracted after optimization: {:?}",
-            suffixes.len(),
-            suffixes
-        );
-        Literals { prefixes, suffixes }
-    }
-
-    /// Returns the prefixes extracted.
-    pub(crate) fn prefixes(&self) -> &literal::Seq {
-        &self.prefixes
-    }
-
-    /// Returns the suffixes extracted.
-    pub(crate) fn suffixes(&self) -> &literal::Seq {
-        &self.suffixes
     }
 }

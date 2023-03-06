@@ -24,7 +24,6 @@ use crate::{
             Anchored, HalfMatch, Input, Match, MatchError, MatchKind,
             PatternSet, Span,
         },
-        syntax::Literals,
     },
 };
 
@@ -38,7 +37,7 @@ use crate::nfa::thompson::backtrack;
 pub(crate) trait Strategy:
     Debug + Send + Sync + RefUnwindSafe + UnwindSafe + 'static
 {
-    fn create_captures(&self) -> Captures;
+    fn group_info(&self) -> &GroupInfo;
 
     fn create_cache(&self) -> Cache;
 
@@ -72,30 +71,46 @@ pub(super) fn new(
     hirs: &[&Hir],
 ) -> Result<Arc<dyn Strategy>, BuildError> {
     let kind = info.config().get_match_kind();
-    let lits = Literals::new(kind, hirs);
-    if let Some(pre) = Pre::new(info, &lits) {
+    let prefixes = crate::meta::literal::prefixes(kind, hirs);
+    if let Some(pre) = Pre::from_prefixes(info, &prefixes) {
+        debug!(
+            "found that the regex can be broken down to a literal \
+             search, avoiding the regex engine entirely",
+        );
         return Ok(pre);
     }
     // This now attempts another short-circuit of the regex engine: if we
     // have a huge alternation of just plain literals, then we can just use
     // Aho-Corasick for that and avoid the regex engine entirely.
-    #[cfg(feature = "perf-literal-multisubstring")]
-    if let Some(ac) = alternation_literals_to_aho_corasick(info, hirs) {
+    if let Some(pre) = Pre::from_alternation_literals(info, hirs) {
         debug!(
             "found plain alternation of literals, \
              avoiding regex engine entirely and using Aho-Corasick"
         );
-        return Ok(ac);
+        return Ok(pre);
     }
 
     // At this point, we're committed to a regex engine of some kind. So pull
     // out a prefilter if we can, which will feed to each of the constituent
     // regex engines.
     let pre = if info.is_always_anchored_start() {
-        // TODO: I'm not sure we necessarily want to do this... We may want to
-        // run a prefilter for quickly rejecting in some cases. This might mean
-        // having a notion of whether a prefilter is "fast"? Or maybe it just
-        // depends on haystack length? Or both?
+        // PERF: I'm not sure we necessarily want to do this... We may want to
+        // run a prefilter for quickly rejecting in some cases. The problem is
+        // that anchored searches overlap quite a bit with the use case of
+        // "run a regex on every line to extra data." In that case, the regex
+        // always matches, so running a prefilter doesn't really help us there.
+        // The main place where a prefilter helps in an anchored search is if
+        // the anchored search is not expected to match frequently. That is,
+        // the prefilter gives us a way to possibly reject a haystack very
+        // quickly.
+        //
+        // Maybe we should do use a prefilter, but only for longer haystacks?
+        // Or maybe we should only use a prefilter when we think it's "fast"?
+        //
+        // Interestingly, I think we currently lack the infrastructure for
+        // disabling a prefilter based on haystack length. That would probably
+        // need to be a new 'Input' option. (Interestingly, an 'Input' used to
+        // carry a 'Prefilter' with it, but I moved away from that.)
         debug!("discarding prefixes (if any) since regex is anchored");
         None
     } else if let Some(pre) = info.config().get_prefilter() {
@@ -105,7 +120,7 @@ pub(super) fn new(
         );
         Some(pre.clone())
     } else if info.config().get_auto_prefilter() {
-        lits.prefixes().literals().and_then(|strings| {
+        prefixes.literals().and_then(|strings| {
             debug!(
                 "creating prefilter from {} literals: {:?}",
                 strings.len(),
@@ -116,21 +131,6 @@ pub(super) fn new(
     } else {
         debug!("discarding prefixes (if any) since prefilters were disabled");
         None
-    };
-    let presuf = if !info.config().get_auto_prefilter() {
-        None
-    } else {
-        match lits.suffixes().longest_common_suffix() {
-            None => None,
-            Some(suffix) => {
-                debug!(
-                    "creating suffix prefilter from {} literals: {:?}",
-                    1,
-                    literal::Seq::new(&[suffix]),
-                );
-                Prefilter::new(kind, &[suffix])
-            }
-        }
     };
     let mut core = Core::new(info.clone(), pre.clone(), hirs)?;
     // Now that we have our core regex engines built, there are a few cases
@@ -149,14 +149,14 @@ pub(super) fn new(
             return Ok(Arc::new(ra));
         }
     };
-    core = match ReverseSuffix::new(core, presuf.clone()) {
+    core = match ReverseSuffix::new(core, hirs) {
         Err(core) => core,
         Ok(rs) => {
             debug!("using reverse suffix strategy");
             return Ok(Arc::new(rs));
         }
     };
-    core = match ReverseInner::new(hirs, core) {
+    core = match ReverseInner::new(core, hirs) {
         Err(core) => core,
         Ok(ri) => {
             debug!("using reverse inner strategy");
@@ -173,39 +173,82 @@ struct Pre<P> {
     group_info: GroupInfo,
 }
 
+impl<P: PrefilterI> Pre<P> {
+    fn new(pre: P) -> Arc<dyn Strategy> {
+        // The only thing we support when we use prefilters directly as a
+        // strategy is the start and end of the overall match for a single
+        // pattern. In other words, exactly one implicit capturing group. Which
+        // is exactly what we use here for a GroupInfo.
+        let group_info = GroupInfo::new([[None::<&str>]]).unwrap();
+        Arc::new(Pre { pre, group_info })
+    }
+}
+
+// This is a little weird, but we don't actually care about the type parameter
+// here because we're selecting which underlying prefilter to use. So we just
+// define it on an arbitrary type.
 impl Pre<()> {
-    fn new(info: &RegexInfo, lits: &Literals) -> Option<Arc<dyn Strategy>> {
+    /// Given a sequence of prefixes, attempt to return a full `Strategy` using
+    /// just the prefixes.
+    ///
+    /// Basically, this occurs when the prefixes given not just prefixes,
+    /// but an enumeration of the entire language matched by the regular
+    /// expression.
+    ///
+    /// A number of other conditions need to be true too. For example, there
+    /// can be only one pattern, the number of explicit capture groups is 0, no
+    /// look-around assertions and so on.
+    ///
+    /// Note that this ignores `Config::get_auto_prefilter` because if this
+    /// returns something, then it isn't a prefilter but a matcher itself.
+    /// Therefore, it shouldn't suffer from the problems typical to prefilters
+    /// (such as a high false positive rate).
+    fn from_prefixes(
+        info: &RegexInfo,
+        prefixes: &literal::Seq,
+    ) -> Option<Arc<dyn Strategy>> {
         let kind = info.config().get_match_kind();
         // Check to see if our prefixes are exact, which means we might be
         // able to bypass the regex engine entirely and just rely on literal
-        // searches. We need to meet a few criteria that basically lets us
-        // implement the full regex API. So for example, we can implement "ask
-        // for capturing groups" so long as they are no capturing groups in the
-        // regex.
-        //
+        // searches.
+        if !prefixes.is_exact() {
+            return None;
+        }
         // We also require that we have a single regex pattern. Namely,
         // we reuse the prefilter infrastructure to implement search and
         // prefilters only report spans. Prefilters don't know about pattern
         // IDs. The multi-regex case isn't a lost cause, we might still use
         // Aho-Corasick and we might still just use a regular prefilter, but
         // that's done below.
-        //
-        // If we do have only one pattern, then we also require that it has
-        // zero look-around assertions. Namely, literal extraction treats
-        // look-around assertions as if they match *every* empty string. But of
-        // course, that isn't true. So for example, 'foo\bquux' never matches
-        // anything, but 'fooquux' is extracted from that as an exact literal.
-        // Such cases should just run the regex engine. 'fooquux' will be used
-        // as a normal prefilter, and then the regex engine will try to look
-        // for an actual match.
-        //
+        if info.pattern_len() != 1 {
+            return None;
+        }
+        // We can't have any capture groups either. The literal engines don't
+        // know how to deal with things like '(foo)(bar)'. In that case, a
+        // prefilter will just be used and then the regex engine will resolve
+        // the capture groups.
+        if info.props()[0].explicit_captures_len() != 0 {
+            return None;
+        }
+        // We also require that it has zero look-around assertions. Namely,
+        // literal extraction treats look-around assertions as if they match
+        // *every* empty string. But of course, that isn't true. So for
+        // example, 'foo\bquux' never matches anything, but 'fooquux' is
+        // extracted from that as an exact literal. Such cases should just run
+        // the regex engine. 'fooquux' will be used as a normal prefilter, and
+        // then the regex engine will try to look for an actual match.
+        if !info.props()[0].look_set().is_empty() {
+            return None;
+        }
         // Finally, currently, our prefilters are all oriented around
         // leftmost-first match semantics, so don't try to use them if the
         // caller asked for anything else.
-        //
-        // This seems like a lot of requirements to meet, but it applies to a
-        // lot of cases. 'foo', '[abc][123]' and 'foo|bar|quux' all meet the
-        // above criteria, for example.
+        if kind != MatchKind::LeftmostFirst {
+            return None;
+        }
+        // The above seems like a lot of requirements to meet, but it applies
+        // to a lot of cases. 'foo', '[abc][123]' and 'foo|bar|quux' all meet
+        // the above criteria, for example.
         //
         // Note that this is effectively a latency optimization. If we didn't
         // do this, then the extracted literals would still get bundled into
@@ -213,62 +256,52 @@ impl Pre<()> {
         // searches supports prefilters. So this optimization merely sidesteps
         // having to run the regex engine at all to confirm the match. Thus, it
         // decreases the latency of a match.
-        if lits.prefixes().is_exact()
-        && info.props().len() == 1
-        && info.props()[0].look_set().is_empty()
-        && info.props()[0].captures_len() == 0
-        // We require this because our prefilters can't currently handle
-        // assuming the responsibility of being the regex engine in all
-        // cases. For example, when running a leftmost search with 'All'
-        // match semantics for the regex 'foo|foobar', the prefilter will
-        // currently report 'foo' as a match against 'foobar'. 'foo' is a
-        // correct candidate, but it is not the correct leftmost match in this
-        // circumstance, since the 'all' semantic demands that the search
-        // continue until a dead state is reached.
-        && kind == MatchKind::LeftmostFirst
-        {
-            // OK because we know the set is exact and thus finite.
-            let prefixes = lits.prefixes().literals().unwrap();
-            debug!(
-                "trying to bypass regex engine by creating \
-                 prefilter from {} literals: {:?}",
-                prefixes.len(),
-                prefixes,
-            );
-            let group_info = GroupInfo::new([[None::<&str>]]).unwrap();
-            let choice = match prefilter::Choice::new(kind, prefixes) {
-                Some(choice) => choice,
-                None => {
-                    debug!("regex bypass failed because no prefilter could be built");
-                    return None;
-                }
-            };
-            let strat: Arc<dyn Strategy> = match choice {
-                prefilter::Choice::Memchr(pre) => {
-                    Arc::new(Pre { pre, group_info })
-                }
-                prefilter::Choice::Memchr2(pre) => {
-                    Arc::new(Pre { pre, group_info })
-                }
-                prefilter::Choice::Memchr3(pre) => {
-                    Arc::new(Pre { pre, group_info })
-                }
-                prefilter::Choice::Memmem(pre) => {
-                    Arc::new(Pre { pre, group_info })
-                }
-                prefilter::Choice::Teddy(pre) => {
-                    Arc::new(Pre { pre, group_info })
-                }
-                prefilter::Choice::ByteSet(pre) => {
-                    Arc::new(Pre { pre, group_info })
-                }
-                prefilter::Choice::AhoCorasick(pre) => {
-                    Arc::new(Pre { pre, group_info })
-                }
-            };
-            return Some(strat);
-        }
-        None
+
+        // OK because we know the set is exact and thus finite.
+        let prefixes = prefixes.literals().unwrap();
+        debug!(
+            "trying to bypass regex engine by creating \
+             prefilter from {} literals: {:?}",
+            prefixes.len(),
+            prefixes,
+        );
+        let choice = match prefilter::Choice::new(kind, prefixes) {
+            Some(choice) => choice,
+            None => {
+                debug!(
+                    "regex bypass failed because no prefilter could be built"
+                );
+                return None;
+            }
+        };
+        let strat: Arc<dyn Strategy> = match choice {
+            prefilter::Choice::Memchr(pre) => Pre::new(pre),
+            prefilter::Choice::Memchr2(pre) => Pre::new(pre),
+            prefilter::Choice::Memchr3(pre) => Pre::new(pre),
+            prefilter::Choice::Memmem(pre) => Pre::new(pre),
+            prefilter::Choice::Teddy(pre) => Pre::new(pre),
+            prefilter::Choice::ByteSet(pre) => Pre::new(pre),
+            prefilter::Choice::AhoCorasick(pre) => Pre::new(pre),
+        };
+        Some(strat)
+    }
+
+    /// Attempts to extract an alternation of literals, and if it's deemed
+    /// worth doing, returns an Aho-Corasick prefilter as a strategy.
+    ///
+    /// And currently, this only returns something when 'hirs.len() == 1'. This
+    /// could in theory do something if there are multiple HIRs where all of
+    /// them are alternation of literals, but I haven't had the time to go down
+    /// that path yet.
+    fn from_alternation_literals(
+        info: &RegexInfo,
+        hirs: &[&Hir],
+    ) -> Option<Arc<dyn Strategy>> {
+        use crate::util::prefilter::AhoCorasick;
+
+        let lits = crate::meta::literal::alternation_literals(info, hirs)?;
+        let ac = AhoCorasick::new(MatchKind::LeftmostFirst, &lits)?;
+        Some(Pre::new(ac))
     }
 }
 
@@ -302,19 +335,13 @@ impl Pre<()> {
 // strategy when len(patterns)==1 if the number of literals is large. In that
 // case, literal extraction gives up and will return an infinite set.)
 impl<P: PrefilterI> Strategy for Pre<P> {
-    fn create_captures(&self) -> Captures {
-        // The only thing we support here is the start and end of the overall
-        // match for a single pattern. In other words, exactly one implicit
-        // capturing group. In theory, capturing groups should never be used
-        // for this regex because the only way this impl gets used is if there
-        // are no explicit capturing groups. Thus, asking to resolve capturing
-        // groups is always wasteful.
-        Captures::matches(self.group_info.clone())
+    fn group_info(&self) -> &GroupInfo {
+        &self.group_info
     }
 
     fn create_cache(&self) -> Cache {
         Cache {
-            capmatches: self.create_captures(),
+            capmatches: Captures::all(self.group_info().clone()),
             pikevm: wrappers::PikeVMCache::none(),
             backtrack: wrappers::BoundedBacktrackerCache::none(),
             onepass: wrappers::OnePassCache::none(),
@@ -576,14 +603,14 @@ impl Core {
 
 impl Strategy for Core {
     #[inline(always)]
-    fn create_captures(&self) -> Captures {
-        Captures::all(self.nfa.group_info().clone())
+    fn group_info(&self) -> &GroupInfo {
+        self.nfa.group_info()
     }
 
     #[inline(always)]
     fn create_cache(&self) -> Cache {
         Cache {
-            capmatches: self.create_captures(),
+            capmatches: Captures::all(self.group_info().clone()),
             pikevm: self.pikevm.create_cache(),
             backtrack: self.backtrack.create_cache(),
             onepass: self.onepass.create_cache(),
@@ -837,8 +864,8 @@ impl ReverseAnchored {
 // is equivalent to the length of the haystack.
 impl Strategy for ReverseAnchored {
     #[inline(always)]
-    fn create_captures(&self) -> Captures {
-        self.core.create_captures()
+    fn group_info(&self) -> &GroupInfo {
+        self.core.group_info()
     }
 
     #[inline(always)]
@@ -937,14 +964,11 @@ impl Strategy for ReverseAnchored {
 #[derive(Debug)]
 struct ReverseSuffix {
     core: Core,
-    presuf: Prefilter,
+    pre: Prefilter,
 }
 
 impl ReverseSuffix {
-    fn new(
-        core: Core,
-        presuf: Option<Prefilter>,
-    ) -> Result<ReverseSuffix, Core> {
+    fn new(core: Core, hirs: &[&Hir]) -> Result<ReverseSuffix, Core> {
         // Like the reverse inner optimization, we don't do this for regexes
         // that are always anchored. It could lead to scanning too much, but
         // could say "no match" much more quickly than running the regex
@@ -977,24 +1001,38 @@ impl ReverseSuffix {
             );
             return Err(core);
         }
-        let presuf = match presuf {
-            Some(presuf) => presuf,
+        let kind = core.info.config().get_match_kind();
+        let suffixes = crate::meta::literal::suffixes(kind, hirs);
+        let lcs = match suffixes.longest_common_suffix() {
+            Some(lcs) => lcs,
             None => {
                 debug!(
                     "skipping reverse suffix optimization because \
-					 we don't have a suffix prefilter"
+                     a longest common suffix could not be found",
                 );
                 return Err(core);
             }
         };
-        if !presuf.is_fast() {
+        let pre = match Prefilter::new(kind, &[lcs]) {
+            Some(pre) => pre,
+            None => {
+                debug!(
+                    "skipping reverse suffix optimization because \
+                     a prefilter could not be constructed from the \
+                     longest common suffix",
+                );
+                return Err(core);
+            }
+        };
+        if !pre.is_fast() {
             debug!(
                 "skipping reverse suffix optimization because \
 				 while we have a suffix prefilter, it is not \
 				 believed to be 'fast'"
             );
+            return Err(core);
         }
-        Ok(ReverseSuffix { core, presuf })
+        Ok(ReverseSuffix { core, pre })
     }
 
     #[inline(always)]
@@ -1006,7 +1044,7 @@ impl ReverseSuffix {
         let mut span = input.get_span();
         let mut min_start = 0;
         loop {
-            let litmatch = match self.presuf.find(input.haystack(), span) {
+            let litmatch = match self.pre.find(input.haystack(), span) {
                 None => return Ok(None),
                 Some(span) => span,
             };
@@ -1085,8 +1123,8 @@ impl ReverseSuffix {
 
 impl Strategy for ReverseSuffix {
     #[inline(always)]
-    fn create_captures(&self) -> Captures {
-        self.core.create_captures()
+    fn group_info(&self) -> &GroupInfo {
+        self.core.group_info()
     }
 
     #[inline(always)]
@@ -1227,7 +1265,7 @@ struct ReverseInner {
 }
 
 impl ReverseInner {
-    fn new(hirs: &[&Hir], core: Core) -> Result<ReverseInner, Core> {
+    fn new(core: Core, hirs: &[&Hir]) -> Result<ReverseInner, Core> {
         if !core.info.config().get_auto_prefilter() {
             debug!(
                 "skipping reverse inner optimization because \
@@ -1454,8 +1492,8 @@ impl ReverseInner {
 
 impl Strategy for ReverseInner {
     #[inline(always)]
-    fn create_captures(&self) -> Captures {
-        self.core.create_captures()
+    fn group_info(&self) -> &GroupInfo {
+        self.core.group_info()
     }
 
     #[inline(always)]
@@ -1552,102 +1590,6 @@ impl Strategy for ReverseInner {
     ) {
         self.core.which_overlapping_matches(cache, input, patset)
     }
-}
-
-/// Attempts to extract an alternation of literals, and if it's deemed worth
-/// doing, returns an Aho-Corasick prefilter as a strategy.
-///
-/// And currently, this only returns something when 'hirs.len() == 1'. This
-/// could in theory do something if there are multiple HIRs where all of them
-/// are alternation of literals, but I haven't had the time to go down that
-/// path yet.
-#[cfg(feature = "perf-literal-multisubstring")]
-fn alternation_literals_to_aho_corasick(
-    info: &RegexInfo,
-    hirs: &[&Hir],
-) -> Option<Arc<dyn Strategy>> {
-    use crate::util::prefilter::AhoCorasick;
-
-    let lits = alternation_literals(info, hirs)?;
-    let pre = AhoCorasick::new(MatchKind::LeftmostFirst, &lits)?;
-    let group_info = GroupInfo::new([[None::<&str>]]).unwrap();
-    Some(Arc::new(Pre { pre, group_info }))
-}
-
-/// Pull out an alternation of literals from the given sequence of HIR
-/// expressions.
-///
-/// There are numerous ways for this to fail. Generally, this only applies
-/// to regexes of the form 'foo|bar|baz|...|quux'. It can also fail if there
-/// are "too few" alternates, in which case, the regex engine is likely faster.
-///
-/// And currently, this only returns something when 'hirs.len() == 1'.
-#[cfg(feature = "perf-literal-multisubstring")]
-fn alternation_literals(
-    info: &RegexInfo,
-    hirs: &[&Hir],
-) -> Option<Vec<Vec<u8>>> {
-    use regex_syntax::hir::{HirKind, Literal};
-
-    // This is pretty hacky, but basically, if `is_alternation_literal` is
-    // true, then we can make several assumptions about the structure of our
-    // HIR. This is what justifies the `unreachable!` statements below.
-    //
-    // This code should be refactored once we overhaul this crate's
-    // optimization pipeline, because this is a terribly inflexible way to go
-    // about things.
-    if hirs.len() != 1
-        || !info.props()[0].look_set().is_empty()
-        || info.props()[0].captures_len() > 0
-        || !info.props()[0].is_alternation_literal()
-        || info.config().get_match_kind() != MatchKind::LeftmostFirst
-    {
-        return None;
-    }
-    let hir = &hirs[0];
-    let alts = match *hir.kind() {
-        HirKind::Alternation(ref alts) => alts,
-        _ => return None, // one literal isn't worth it
-    };
-
-    let mut lits = vec![];
-    for alt in alts {
-        let mut lit = vec![];
-        match *alt.kind() {
-            HirKind::Literal(Literal(ref bytes)) => {
-                lit.extend_from_slice(bytes)
-            }
-            HirKind::Concat(ref exprs) => {
-                for e in exprs {
-                    match *e.kind() {
-                        HirKind::Literal(Literal(ref bytes)) => {
-                            lit.extend_from_slice(bytes);
-                        }
-                        _ => unreachable!("expected literal, got {:?}", e),
-                    }
-                }
-            }
-            _ => unreachable!("expected literal or concat, got {:?}", alt),
-        }
-        lits.push(lit);
-    }
-    // Why do this? Well, when the number of literals is small, it's likely
-    // that we'll use the lazy DFA which is in turn likely to be faster than
-    // Aho-Corasick in such cases. Primarily because Aho-Corasick doesn't have
-    // a "lazy DFA" but either a contiguous NFA or a full DFA. We rarely use
-    // the latter because it is so hungry (in time and space), and the former
-    // is decently fast, but not as fast as a well oiled lazy DFA.
-    //
-    // However, once the number starts getting large, the lazy DFA is likely
-    // to start thrashing because of the modest default cache size. When
-    // exactly does this happen? Dunno. But at whatever point that is (we make
-    // a guess below based on ad hoc benchmarking), we'll want to cut over to
-    // Aho-Corasick, where even the contiguous NFA is likely to do much better.
-    if lits.len() < 3000 {
-        debug!("skipping Aho-Corasick because there are too few literals");
-        return None;
-    }
-    Some(lits)
 }
 
 #[inline(always)]

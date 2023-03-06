@@ -16,6 +16,7 @@ pub use self::{
 mod error;
 #[cfg(any(feature = "dfa-build", feature = "hybrid"))]
 mod limited;
+mod literal;
 mod regex;
 mod reverse_inner;
 #[cfg(any(feature = "dfa-build", feature = "hybrid"))]

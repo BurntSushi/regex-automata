@@ -15,7 +15,7 @@ use crate::{
     },
     nfa::thompson::pikevm,
     util::{
-        captures::Captures,
+        captures::{Captures, GroupInfo},
         iter,
         prefilter::{self, Prefilter},
         primitives::{NonMaxUsize, PatternID},
@@ -67,7 +67,7 @@ impl Regex {
     }
 
     pub fn create_captures(&self) -> Captures {
-        self.strat.create_captures()
+        Captures::all(self.group_info().clone())
     }
 
     pub fn create_cache(&self) -> Cache {
@@ -79,7 +79,7 @@ impl Regex {
     }
 
     pub fn pattern_len(&self) -> usize {
-        self.info.props().len()
+        self.info.pattern_len()
     }
 
     /// Returns the total number of capturing groups.
@@ -136,7 +136,7 @@ impl Regex {
     pub fn captures_len(&self) -> usize {
         self.info
             .props_union()
-            .captures_len()
+            .explicit_captures_len()
             .saturating_add(self.pattern_len())
     }
 
@@ -204,8 +204,13 @@ impl Regex {
     pub fn static_captures_len(&self) -> Option<usize> {
         self.info
             .props_union()
-            .static_captures_len()
+            .static_explicit_captures_len()
             .map(|len| len.saturating_add(1))
+    }
+
+    #[inline]
+    pub fn group_info(&self) -> &GroupInfo {
+        self.strat.group_info()
     }
 
     pub fn get_config(&self) -> &Config {
@@ -374,6 +379,10 @@ impl RegexInfo {
 
     pub(crate) fn props_union(&self) -> &hir::Properties {
         &self.0.props_union
+    }
+
+    pub(crate) fn pattern_len(&self) -> usize {
+        self.props().len()
     }
 
     /// Returns true when the search is guaranteed to be anchored. That is,

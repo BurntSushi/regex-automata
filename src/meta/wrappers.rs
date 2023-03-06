@@ -344,7 +344,7 @@ impl OnePassEngine {
             // but in those cases, the underlying regex is almost certainly
             // not one-pass or is too big to fit within the current one-pass
             // implementation limits.
-            if info.props_union().captures_len() == 0
+            if info.props_union().explicit_captures_len() == 0
                 && !info.props_union().look_set().contains_word_unicode()
             {
                 debug!("not building OnePass because it isn't worth it");
