@@ -854,7 +854,7 @@ impl DFAEngine {
             };
             let engine = dfa::regex::Builder::new().build_from_dfas(fwd, rev);
             debug!(
-                "fully compiled DFA built, {} bytes",
+                "fully compiled forward and reverse DFAs built, {} bytes",
                 engine.forward().memory_usage()
                     + engine.reverse().memory_usage(),
             );

@@ -450,6 +450,7 @@ impl Captures {
     /// assert_eq!(Some(Span::from(6..17)), caps.get_group(2));
     /// // Looking for a non-existent capturing group will return None:
     /// assert_eq!(None, caps.get_group(3));
+    /// assert_eq!(None, caps.get_group(9944060567225171988));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -460,7 +461,7 @@ impl Captures {
         // fully general case. But in the overwhelming common case of a single
         // pattern, we can just do some simple arithmetic.
         let (slot_start, slot_end) = if self.group_info().pattern_len() == 1 {
-            (index * 2, index * 2 + 1)
+            (index.checked_mul(2)?, index.checked_mul(2)?.checked_add(1)?)
         } else {
             self.group_info().slots(pid, index)?
         };

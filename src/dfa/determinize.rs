@@ -251,9 +251,12 @@ impl<'a> Runner<'a> {
             }
         }
         debug!(
-            "determinization complete, memory usage: {}, dense DFA size: {}",
+            "determinization complete, memory usage: {}, \
+             dense DFA size: {},
+             is reverse? {}",
             self.memory_usage(),
             self.dfa.memory_usage(),
+            self.nfa.is_reverse(),
         );
 
         // A map from DFA state ID to one or more NFA match IDs. Each NFA match
