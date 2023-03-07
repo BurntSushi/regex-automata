@@ -45,7 +45,7 @@ fn prefilter() -> Result<()> {
             None => return Ok(CompiledRegex::skip()),
             Some(kind) => kind,
         };
-        let pre = Prefilter::from_hirs(kind, &hirs);
+        let pre = Prefilter::from_hirs_prefix(kind, &hirs);
         let mut builder = Regex::builder();
         builder.dfa(DFA::config().prefilter(pre));
         compiler(builder)(test, regexes)

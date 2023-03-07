@@ -46,7 +46,7 @@ fn unminimized_prefilter() -> Result<()> {
             None => return Ok(CompiledRegex::skip()),
             Some(kind) => kind,
         };
-        let pre = Prefilter::from_hirs(kind, &hirs);
+        let pre = Prefilter::from_hirs_prefix(kind, &hirs);
         let mut builder = Regex::builder();
         builder.dense(dense::DFA::config().prefilter(pre));
         compiler(builder, |_, _, re| {
@@ -158,7 +158,7 @@ fn sparse_unminimized_prefilter() -> Result<()> {
             None => return Ok(CompiledRegex::skip()),
             Some(kind) => kind,
         };
-        let pre = Prefilter::from_hirs(kind, &hirs);
+        let pre = Prefilter::from_hirs_prefix(kind, &hirs);
         let mut builder = Regex::builder();
         builder.dense(dense::DFA::config().prefilter(pre));
         compiler(builder, |builder, _, re| {
@@ -279,7 +279,7 @@ fn compiler(
             None => return Ok(CompiledRegex::skip()),
             Some(kind) => kind,
         };
-        let pre = Prefilter::from_hirs(kind, &hirs);
+        let pre = Prefilter::from_hirs_prefix(kind, &hirs);
 
         // Check if our regex contains things that aren't supported by DFAs.
         // That is, Unicode word boundaries when searching non-ASCII text.

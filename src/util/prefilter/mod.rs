@@ -77,44 +77,21 @@ impl Prefilter {
     }
 
     #[cfg(feature = "syntax")]
-    pub fn from_hir(kind: MatchKind, hir: &Hir) -> Option<Prefilter> {
-        Prefilter::from_hirs(kind, &[hir])
+    pub fn from_hir_prefix(kind: MatchKind, hir: &Hir) -> Option<Prefilter> {
+        Prefilter::from_hirs_prefix(kind, &[hir])
     }
 
     #[cfg(feature = "syntax")]
-    pub fn from_hirs<H: Borrow<Hir>>(
+    pub fn from_hirs_prefix<H: Borrow<Hir>>(
         kind: MatchKind,
         hirs: &[H],
     ) -> Option<Prefilter> {
-        let mut extractor = literal::Extractor::new();
-        extractor.kind(literal::ExtractKind::Prefix);
-
-        let mut prefixes = literal::Seq::empty();
-        for hir in hirs.iter() {
-            prefixes.union(&mut extractor.extract(hir.borrow()));
-        }
-        debug!(
-            "prefixes (len={:?}) extracted before optimization: {:?}",
-            prefixes.len(),
-            prefixes
-        );
-        match kind {
-            MatchKind::All => {
-                prefixes.sort();
-                prefixes.dedup();
-            }
-            MatchKind::LeftmostFirst => {
-                prefixes.optimize_for_prefix_by_preference();
-            }
-        }
-        debug!(
-            "prefixes (len={:?}) extracted after optimization: {:?}",
-            prefixes.len(),
-            prefixes
-        );
-        prefixes.literals().and_then(|lits| Prefilter::new(kind, lits))
+        prefixes(kind, hirs)
+            .literals()
+            .and_then(|lits| Prefilter::new(kind, lits))
     }
 
+    #[inline]
     pub fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         #[cfg(not(feature = "alloc"))]
         {
@@ -126,6 +103,7 @@ impl Prefilter {
         }
     }
 
+    #[inline]
     pub fn prefix(&self, haystack: &[u8], span: Span) -> Option<Span> {
         #[cfg(not(feature = "alloc"))]
         {
@@ -137,6 +115,7 @@ impl Prefilter {
         }
     }
 
+    #[inline]
     pub fn memory_usage(&self) -> usize {
         #[cfg(not(feature = "alloc"))]
         {
@@ -148,6 +127,7 @@ impl Prefilter {
         }
     }
 
+    #[inline]
     pub(crate) fn is_fast(&self) -> bool {
         #[cfg(not(feature = "alloc"))]
         {
@@ -280,4 +260,89 @@ impl Choice {
             None
         }
     }
+}
+
+/// Extracts all of the prefix literals from the given HIR expressions into a
+/// single `Seq`. The literals in the sequence are ordered with respect to the
+/// order of the given HIR expressions and consistent with the match semantics
+/// given.
+///
+/// The sequence returned is "optimized." That is, they may be shrunk or even
+/// truncated according to heuristics with the intent of making them more
+/// useful as a prefilter. (Which translates to both using faster algorithms
+/// and minimizing the false positive rate.)
+///
+/// Note that this erases any connection between the literals and which pattern
+/// (or patterns) they came from.
+///
+/// The match kind given must correspond to the match semantics of the regex
+/// that is represented by the HIRs given. The match semantics may change the
+/// literal sequence returned.
+#[cfg(feature = "syntax")]
+pub(crate) fn prefixes<H>(kind: MatchKind, hirs: &[H]) -> literal::Seq
+where
+    H: core::borrow::Borrow<Hir>,
+{
+    let mut extractor = literal::Extractor::new();
+    extractor.kind(literal::ExtractKind::Prefix);
+
+    let mut prefixes = literal::Seq::empty();
+    for hir in hirs {
+        prefixes.union(&mut extractor.extract(hir.borrow()));
+    }
+    debug!(
+        "prefixes (len={:?}) extracted before optimization: {:?}",
+        prefixes.len(),
+        prefixes
+    );
+    match kind {
+        MatchKind::All => {
+            prefixes.sort();
+            prefixes.dedup();
+        }
+        MatchKind::LeftmostFirst => {
+            prefixes.optimize_for_prefix_by_preference();
+        }
+    }
+    debug!(
+        "prefixes (len={:?}) extracted after optimization: {:?}",
+        prefixes.len(),
+        prefixes
+    );
+    prefixes
+}
+
+/// Like `prefixes`, but for all suffixes of all matches for the given HIRs.
+#[cfg(feature = "syntax")]
+pub(crate) fn suffixes<H>(kind: MatchKind, hirs: &[H]) -> literal::Seq
+where
+    H: core::borrow::Borrow<Hir>,
+{
+    let mut extractor = literal::Extractor::new();
+    extractor.kind(literal::ExtractKind::Suffix);
+
+    let mut suffixes = literal::Seq::empty();
+    for hir in hirs {
+        suffixes.union(&mut extractor.extract(hir.borrow()));
+    }
+    debug!(
+        "suffixes (len={:?}) extracted before optimization: {:?}",
+        suffixes.len(),
+        suffixes
+    );
+    match kind {
+        MatchKind::All => {
+            suffixes.sort();
+            suffixes.dedup();
+        }
+        MatchKind::LeftmostFirst => {
+            suffixes.optimize_for_suffix_by_preference();
+        }
+    }
+    debug!(
+        "suffixes (len={:?}) extracted after optimization: {:?}",
+        suffixes.len(),
+        suffixes
+    );
+    suffixes
 }

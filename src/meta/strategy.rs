@@ -71,7 +71,7 @@ pub(super) fn new(
     hirs: &[&Hir],
 ) -> Result<Arc<dyn Strategy>, BuildError> {
     let kind = info.config().get_match_kind();
-    let prefixes = crate::meta::literal::prefixes(kind, hirs);
+    let prefixes = crate::util::prefilter::prefixes(kind, hirs);
     if let Some(pre) = Pre::from_prefixes(info, &prefixes) {
         debug!(
             "found that the regex can be broken down to a literal \
@@ -1002,7 +1002,7 @@ impl ReverseSuffix {
             return Err(core);
         }
         let kind = core.info.config().get_match_kind();
-        let suffixes = crate::meta::literal::suffixes(kind, hirs);
+        let suffixes = crate::util::prefilter::suffixes(kind, hirs);
         let lcs = match suffixes.longest_common_suffix() {
             Some(lcs) => lcs,
             None => {

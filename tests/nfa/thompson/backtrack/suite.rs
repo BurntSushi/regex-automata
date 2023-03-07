@@ -47,7 +47,7 @@ fn prefilter() -> Result<()> {
         }
         // We can always select leftmost-first here because the backtracker
         // only supports leftmost-first matching.
-        let pre = Prefilter::from_hirs(
+        let pre = Prefilter::from_hirs_prefix(
             regex_automata::MatchKind::LeftmostFirst,
             &hirs,
         );
