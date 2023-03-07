@@ -93,7 +93,7 @@ impl PrefilterI for Memchr2 {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         #[cfg(not(feature = "perf-literal-substring"))]
         {
-            None
+            unreachable!()
         }
         #[cfg(feature = "perf-literal-substring")]
         {
@@ -155,7 +155,7 @@ impl PrefilterI for Memchr3 {
     fn find(&self, haystack: &[u8], span: Span) -> Option<Span> {
         #[cfg(not(feature = "perf-literal-substring"))]
         {
-            None
+            unreachable!()
         }
         #[cfg(feature = "perf-literal-substring")]
         {

@@ -40,7 +40,7 @@ fn unminimized_prefilter() -> Result<()> {
         // Parse regexes as HIRs so we can get literals to build a prefilter.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+            hirs.push(syntax::parse_with(pattern, &config_syntax(test))?);
         }
         let kind = match untestify_kind(test.match_kind()) {
             None => return Ok(CompiledRegex::skip()),
@@ -152,7 +152,7 @@ fn sparse_unminimized_prefilter() -> Result<()> {
         // Parse regexes as HIRs so we can get literals to build a prefilter.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+            hirs.push(syntax::parse_with(pattern, &config_syntax(test))?);
         }
         let kind = match untestify_kind(test.match_kind()) {
             None => return Ok(CompiledRegex::skip()),
@@ -271,7 +271,7 @@ fn compiler(
         // Parse regexes as HIRs for some analysis below.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+            hirs.push(syntax::parse_with(pattern, &config_syntax(test))?);
         }
 
         // Get a prefilter in case the test wants it.

@@ -11,17 +11,121 @@ create small config objects like this one that can be passed around and
 composed.
 */
 
+use alloc::{vec, vec::Vec};
+
 use regex_syntax::{
     ast,
     hir::{self, Hir},
     Error, ParserBuilder,
 };
 
-/// A convenience routine for parsing a regex using a `Config`.
-pub fn parse(config: &Config, pattern: &str) -> Result<Hir, Error> {
+/// A convenience routine for parsing a pattern into an HIR value with the
+/// default configuration.
+///
+/// # Example
+///
+/// This shows how to parse a pattern into an HIR value:
+///
+/// ```
+/// use regex_automata::util::syntax;
+///
+/// let hir = syntax::parse(r"([a-z]+)|([0-9]+)")?;
+/// assert_eq!(Some(1), hir.properties().static_explicit_captures_len());
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn parse(pattern: &str) -> Result<Hir, Error> {
+    parse_with(pattern, &Config::default())
+}
+
+/// A convenience routine for parsing many patterns into HIR value with the
+/// default configuration.
+///
+/// # Example
+///
+/// This shows how to parse many patterns into an corresponding HIR values:
+///
+/// ```
+/// use {
+///     regex_automata::util::syntax,
+///     regex_syntax::hir::Properties,
+/// };
+///
+/// let hirs = syntax::parse_many(&[
+///     r"([a-z]+)|([0-9]+)",
+///     r"foo(A-Z]+)bar",
+/// ])?;
+/// let props = Properties::union(hirs.iter().map(|h| h.properties()));
+/// assert_eq!(Some(1), props.static_explicit_captures_len());
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn parse_many<P: AsRef<str>>(patterns: &[P]) -> Result<Vec<Hir>, Error> {
+    parse_many_with(patterns, &Config::default())
+}
+
+/// A convenience routine for parsing a pattern into an HIR value using a
+/// `Config`.
+///
+/// # Example
+///
+/// This shows how to parse a pattern into an HIR value with a non-default
+/// configuration:
+///
+/// ```
+/// use regex_automata::util::syntax;
+///
+/// let hir = syntax::parse_with(
+///     r"^[a-z]+$",
+///     &syntax::Config::new().multi_line(true).crlf(true),
+/// )?;
+/// assert!(hir.properties().look_set().contains_anchor_crlf());
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn parse_with(pattern: &str, config: &Config) -> Result<Hir, Error> {
     let mut builder = ParserBuilder::new();
     config.apply(&mut builder);
     builder.build().parse(pattern)
+}
+
+/// A convenience routine for parsing many patterns into HIR values using a
+/// `Config`.
+///
+/// # Example
+///
+/// This shows how to parse many patterns into an corresponding HIR values
+/// with a non-default configuration:
+///
+/// ```
+/// use {
+///     regex_automata::util::syntax,
+///     regex_syntax::hir::Properties,
+/// };
+///
+/// let patterns = &[
+///     r"([a-z]+)|([0-9]+)",
+///     r"\W",
+///     r"foo(A-Z]+)bar",
+/// ];
+/// let config = syntax::Config::new().unicode(false).utf8(false);
+/// let hirs = syntax::parse_many_with(patterns, &config)?;
+/// let props = Properties::union(hirs.iter().map(|h| h.properties()));
+/// assert!(!props.is_utf8());
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn parse_many_with<P: AsRef<str>>(
+    patterns: &[P],
+    config: &Config,
+) -> Result<Vec<Hir>, Error> {
+    let mut builder = ParserBuilder::new();
+    config.apply(&mut builder);
+    let mut hirs = vec![];
+    for p in patterns.iter() {
+        hirs.push(builder.build().parse(p.as_ref())?);
+    }
+    Ok(hirs)
 }
 
 /// A common set of configuration options that apply to the syntax of a regex.
@@ -300,6 +404,7 @@ impl Config {
             .case_insensitive(self.case_insensitive)
             .multi_line(self.multi_line)
             .dot_matches_new_line(self.dot_matches_new_line)
+            .crlf(self.crlf)
             .swap_greed(self.swap_greed)
             .ignore_whitespace(self.ignore_whitespace)
             .utf8(self.utf8)

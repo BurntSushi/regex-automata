@@ -28,9 +28,20 @@ features=(
   syntax
   syntax,nfa-pikevm
   syntax,hybrid
+  perf-literal-substring
+  perf-literal-multisubstring
 )
 for f in "${features[@]}"; do
   echo "===== FEATURES: $f ==="
+  # It's actually important to do a standard 'cargo build' in addition to a
+  # 'cargo test'. In particular, in the latter case, the dev-dependencies may
+  # wind up enabling features in dependencies (like memchr) that make it look
+  # like everything is well, but actually isn't. For example, the 'regex-test'
+  # dev-dependency uses 'bstr' and enables its 'std' feature, which in turn
+  # unconditionally enables 'memchr's 'std feature. Since we're specifically
+  # looking to test that certain feature combinations work as expected, this
+  # can lead to things testing okay, but would actually fail to build. Yikes.
+  cargo build --no-default-features --lib --features "$f"
   cargo test --no-default-features --lib --features "$f"
 done
 
@@ -38,3 +49,5 @@ done
 # with the integration level tests at all (it's too slow to even load a TOML
 # file), but we can run it on the library and doc tests. (And many which have
 # been cfg'd out on Miri because of speed.)
+cargo miri test --lib
+cargo miri test --doc

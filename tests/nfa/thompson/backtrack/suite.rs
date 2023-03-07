@@ -43,7 +43,7 @@ fn prefilter() -> Result<()> {
         // Parse regexes as HIRs so we can get literals to build a prefilter.
         let mut hirs = vec![];
         for pattern in regexes.iter() {
-            hirs.push(syntax::parse(&config_syntax(test), pattern)?);
+            hirs.push(syntax::parse_with(pattern, &config_syntax(test))?);
         }
         // We can always select leftmost-first here because the backtracker
         // only supports leftmost-first matching.

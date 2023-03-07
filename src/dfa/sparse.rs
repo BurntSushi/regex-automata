@@ -457,6 +457,23 @@ impl<T: AsRef<[u8]>> DFA<T> {
         self.st.pattern_len.is_some()
     }
 
+    /// Returns the equivalence classes that make up the alphabet for this DFA.
+    ///
+    /// Unless [`dense::Config::byte_classes`] was disabled, it is possible
+    /// that multiple distinct bytes are grouped into the same equivalence
+    /// class if it is impossible for them to discriminate between a match and
+    /// a non-match. This has the effect of reducing the overall alphabet size
+    /// and in turn potentially substantially reducing the size of the DFA's
+    /// transition table.
+    ///
+    /// The downside of using equivalence classes like this is that every state
+    /// transition will automatically use this map to convert an arbitrary
+    /// byte to its corresponding equivalence class. In practice this has a
+    /// negligible impact on performance.
+    pub fn byte_classes(&self) -> &ByteClasses {
+        &self.tt.classes
+    }
+
     /// Returns the memory usage, in bytes, of this DFA.
     ///
     /// The memory usage is computed based on the number of bytes used to
@@ -1033,15 +1050,15 @@ impl<'a> DFA<&'a [u8]> {
         let (flags, nread) = Flags::from_bytes(&slice[nr..])?;
         nr += nread;
 
-        let (trans, nread) = Transitions::from_bytes_unchecked(&slice[nr..])?;
+        let (tt, nread) = Transitions::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
-        let (starts, nread) = StartTable::from_bytes_unchecked(&slice[nr..])?;
+        let (st, nread) = StartTable::from_bytes_unchecked(&slice[nr..])?;
         nr += nread;
 
         let (special, nread) = Special::from_bytes(&slice[nr..])?;
         nr += nread;
-        if special.max.as_usize() >= trans.sparse().len() {
+        if special.max.as_usize() >= tt.sparse().len() {
             return Err(DeserializeError::generic(
                 "max should not be greater than or equal to sparse bytes",
             ));
@@ -1052,7 +1069,7 @@ impl<'a> DFA<&'a [u8]> {
 
         // Prefilters don't support serialization, so they're always absent.
         let pre = None;
-        Ok((DFA { tt: trans, st: starts, special, pre, quitset, flags }, nr))
+        Ok((DFA { tt, st, special, pre, quitset, flags }, nr))
     }
 }
 

@@ -1,3 +1,10 @@
+/*!
+A lazily initialized value for safe sharing between threads.
+
+The principal type in this module is `Lazy`, which makes it easy to construct
+values that are shared safely across multiple threads simultaneously.
+*/
+
 use core::fmt;
 
 /// A lazily initialized value that implements `Deref` for `T`.

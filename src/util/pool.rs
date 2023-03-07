@@ -63,13 +63,25 @@
 // Namely, at the time, I was looking to reduce dependencies. And for something
 // like regex, maintenance can be simpler when we own the full dependency tree.
 
+/*!
+A thread safe memory pool.
+
+The principal type in this module is a [`Pool`]. It main use case is for
+holding a thread safe collection of mutable scratch spaces (usually called
+`Cache` in this crate) that regex engines need to execute a search. This then
+permits sharing the same read-only regex object across multiple threads while
+having a quick way of reusing scratch space in a thread safe way. This avoids
+needing to re-create the scratch space for every search, which could wind up
+being quite expensive.
+*/
+
 /// A thread safe pool that works in an `alloc`-only context.
 ///
 /// Getting a value out comes with a guard. When that guard is dropped, the
 /// value is automatically put back in the pool.
 ///
-/// A `Pool` impls `Sync` when `T` is `Send` (even if it's not `Sync`). This
-/// means that T can use interior mutability. This is possible because a pool
+/// A `Pool` impls `Sync` when `T` is `Send` (even if `T` is not `Sync`). This
+/// means that `T` can use interior mutability. This is possible because a pool
 /// is guaranteed to provide a value to exactly one thread at any time.
 ///
 /// Currently, a pool never contracts in size. Its size is proportional to the
@@ -90,9 +102,9 @@
 ///
 /// A `thread_local!` is perhaps the best choice if it works for your use case.
 /// Putting the cache in a mutex or creating a new cache for every search are
-/// perhaps the worst choices. Whether you use this `Pool` or thread through a
-/// cache explicitly in your code is a matter of taste and depends on your code
-/// architecture.
+/// perhaps the worst choices. Of the remaining two choices, whether you use
+/// this `Pool` or thread through a cache explicitly in your code is a matter
+/// of taste and depends on your code architecture.
 ///
 /// # Example
 ///

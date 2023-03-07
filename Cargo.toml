@@ -30,12 +30,12 @@ regex-syntax = { path = "/home/andrew/rust/regex/regex-syntax" }
 
 [features]
 default = ["std", "syntax", "perf", "unicode", "meta", "nfa", "dfa", "hybrid"]
-std = ["regex-syntax/std", "memchr/std", "aho-corasick/std", "alloc"]
+std = ["regex-syntax?/std", "memchr?/std", "aho-corasick?/std", "alloc"]
 alloc = []
 
-transducer = ["fst", "dfa-search"]
-logging = ["log", "aho-corasick/logging"]
-syntax = ["regex-syntax", "alloc"]
+transducer = ["dep:fst", "dfa-search"]
+logging = ["dep:log", "aho-corasick?/logging"]
+syntax = ["dep:regex-syntax", "alloc"]
 
 meta = ["syntax", "nfa-pikevm"]
 
@@ -53,8 +53,8 @@ hybrid = ["alloc", "nfa-thompson"]
 
 perf = ["perf-literal"]
 perf-literal = ["perf-literal-substring", "perf-literal-multisubstring"]
-perf-literal-substring = ["memchr"]
-perf-literal-multisubstring = ["std", "aho-corasick"]
+perf-literal-substring = ["aho-corasick?/perf-literal", "dep:memchr"]
+perf-literal-multisubstring = ["std", "dep:aho-corasick"]
 
 # Enables all Unicode features. This expands if new Unicode features are added.
 unicode = [
@@ -66,22 +66,22 @@ unicode = [
   "unicode-script",
   "unicode-segment",
   "unicode-word-boundary",
-  "regex-syntax/unicode",
+  "regex-syntax?/unicode",
 ]
 # Enables use of the `Age` property, e.g., `\p{Age:3.0}`.
-unicode-age = ["regex-syntax/unicode-age"]
+unicode-age = ["regex-syntax?/unicode-age"]
 # Enables use of a smattering of boolean properties, e.g., `\p{Emoji}`.
-unicode-bool = ["regex-syntax/unicode-bool"]
+unicode-bool = ["regex-syntax?/unicode-bool"]
 # Enables Unicode-aware case insensitive matching, e.g., `(?i)β`.
-unicode-case = ["regex-syntax/unicode-case"]
+unicode-case = ["regex-syntax?/unicode-case"]
 # Enables Unicode general categories, e.g., `\p{Letter}` or `\pL`.
-unicode-gencat = ["regex-syntax/unicode-gencat"]
+unicode-gencat = ["regex-syntax?/unicode-gencat"]
 # Enables Unicode-aware Perl classes corresponding to `\w`, `\s` and `\d`.
-unicode-perl = ["regex-syntax/unicode-perl"]
+unicode-perl = ["regex-syntax?/unicode-perl"]
 # Enables Unicode scripts and script extensions, e.g., `\p{Greek}`.
-unicode-script = ["regex-syntax/unicode-script"]
+unicode-script = ["regex-syntax?/unicode-script"]
 # Enables Unicode segmentation properties, e.g., `\p{gcb=Extend}`.
-unicode-segment = ["regex-syntax/unicode-segment"]
+unicode-segment = ["regex-syntax?/unicode-segment"]
 # Enables Unicode word boundary support. If this is enabled with unicode-perl,
 # then data tables from regex-syntax are used. Otherwise, a new data table
 # inside regex-automata will be included.
