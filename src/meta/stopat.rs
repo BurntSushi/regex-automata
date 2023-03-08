@@ -90,7 +90,7 @@ pub(crate) fn hybrid_try_search_half_fwd(
 }
 
 #[cfg(feature = "dfa-build")]
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn dfa_eoi_fwd(
     dfa: &crate::dfa::dense::DFA<alloc::vec::Vec<u32>>,
     input: &Input<'_>,
@@ -128,7 +128,7 @@ fn dfa_eoi_fwd(
 }
 
 #[cfg(feature = "hybrid")]
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn hybrid_eoi_fwd(
     dfa: &crate::hybrid::dfa::DFA,
     cache: &mut crate::hybrid::dfa::Cache,

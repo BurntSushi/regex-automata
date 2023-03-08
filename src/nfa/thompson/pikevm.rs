@@ -1458,7 +1458,7 @@ impl PikeVM {
     /// When a match is found, the slots for that match state (in 'curr') are
     /// copied to 'caps'. Moreover, once a match is seen, processing for 'curr'
     /// stops (unless the PikeVM was configured with MatchKind::All semantics).
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn nexts(
         &self,
         stack: &mut Vec<FollowEpsilon>,
@@ -1486,7 +1486,7 @@ impl PikeVM {
 
     /// Like 'nexts', but for the overlapping case. This doesn't write any
     /// slots, and instead just writes which pattern matched in 'patset'.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn nexts_overlapping(
         &self,
         stack: &mut Vec<FollowEpsilon>,
@@ -1532,7 +1532,7 @@ impl PikeVM {
     /// 'curr_slot_table' should be the table of slots for the current set of
     /// states being explored. If there is a transition out of 'sid', then
     /// sid's row in the slot table is used to perform the epsilon closure.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn next(
         &self,
         stack: &mut Vec<FollowEpsilon>,
@@ -1602,7 +1602,7 @@ impl PikeVM {
     /// While this routine may write to 'curr_slots', once it returns, any
     /// writes are undone and the original values (even if absent) are
     /// restored.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn epsilon_closure(
         &self,
         stack: &mut Vec<FollowEpsilon>,
@@ -1655,7 +1655,7 @@ impl PikeVM {
     /// conditional epsilon transitions (like look-around) are satisfied at
     /// the current position. If they aren't, then the epsilon closure won't
     /// include them.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn epsilon_closure_explore(
         &self,
         stack: &mut Vec<FollowEpsilon>,

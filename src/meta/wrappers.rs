@@ -43,7 +43,7 @@ impl PikeVM {
         PikeVMCache::new(self)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(&self) -> Option<&PikeVMEngine> {
         self.0.as_ref()
     }
@@ -69,7 +69,7 @@ impl PikeVMEngine {
         Ok(Some(PikeVMEngine(engine)))
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn search_slots(
         &self,
         cache: &mut PikeVMCache,
@@ -81,7 +81,7 @@ impl PikeVMEngine {
             .unwrap()
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn which_overlapping_matches(
         &self,
         cache: &mut PikeVMCache,
@@ -141,7 +141,7 @@ impl BoundedBacktracker {
         BoundedBacktrackerCache::new(self)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(
         &self,
         input: &Input<'_>,
@@ -204,7 +204,7 @@ impl BoundedBacktrackerEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn search_slots(
         &self,
         cache: &mut BoundedBacktrackerCache,
@@ -228,7 +228,7 @@ impl BoundedBacktrackerEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn max_haystack_len(&self) -> usize {
         #[cfg(feature = "nfa-backtrack")]
         {
@@ -304,7 +304,7 @@ impl OnePass {
         OnePassCache::new(self)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(&self, input: &Input<'_>) -> Option<&OnePassEngine> {
         let engine = self.0.as_ref()?;
         if !input.get_anchored().is_anchored()
@@ -378,7 +378,7 @@ impl OnePassEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn search_slots(
         &self,
         cache: &mut OnePassCache,
@@ -401,7 +401,7 @@ impl OnePassEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn get_nfa(&self) -> &NFA {
         #[cfg(feature = "dfa-onepass")]
         {
@@ -478,7 +478,7 @@ impl Hybrid {
         HybridCache::new(self)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(&self, input: &Input<'_>) -> Option<&HybridEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
@@ -573,7 +573,7 @@ impl HybridEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search(
         &self,
         cache: &mut HybridCache,
@@ -592,7 +592,7 @@ impl HybridEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_fwd(
         &self,
         cache: &mut HybridCache,
@@ -612,7 +612,7 @@ impl HybridEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_fwd_stopat(
         &self,
         cache: &mut HybridCache,
@@ -634,7 +634,7 @@ impl HybridEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_rev(
         &self,
         cache: &mut HybridCache,
@@ -654,7 +654,7 @@ impl HybridEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_rev_limited(
         &self,
         cache: &mut HybridCache,
@@ -758,7 +758,7 @@ impl DFA {
         DFA(DFAEngine::new(info, pre, nfa, nfarev))
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(&self, input: &Input<'_>) -> Option<&DFAEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
@@ -866,7 +866,7 @@ impl DFAEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search(
         &self,
         input: &Input<'_>,
@@ -883,7 +883,7 @@ impl DFAEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_fwd(
         &self,
         input: &Input<'_>,
@@ -901,7 +901,7 @@ impl DFAEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_fwd_stopat(
         &self,
         input: &Input<'_>,
@@ -919,7 +919,7 @@ impl DFAEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_rev(
         &self,
         input: &Input<'_>,
@@ -937,7 +937,7 @@ impl DFAEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_rev_limited(
         &self,
         input: &Input<'_>,
@@ -997,7 +997,7 @@ impl ReverseHybrid {
         ReverseHybridCache::new(self)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(
         &self,
         input: &Input<'_>,
@@ -1060,7 +1060,7 @@ impl ReverseHybridEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_rev_limited(
         &self,
         cache: &mut ReverseHybridCache,
@@ -1137,7 +1137,7 @@ impl ReverseDFA {
         ReverseDFA(ReverseDFAEngine::new(info, nfarev))
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(&self, input: &Input<'_>) -> Option<&ReverseDFAEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
@@ -1219,7 +1219,7 @@ impl ReverseDFAEngine {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn try_search_half_rev_limited(
         &self,
         input: &Input<'_>,

@@ -2218,7 +2218,7 @@ impl DFA {
     /// be reported. For example, when the conditional epsilon transitions
     /// leading to the match state aren't satisfied at the given position in
     /// the haystack.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn find_match(
         &self,
         cache: &mut Cache,

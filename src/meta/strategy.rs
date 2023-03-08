@@ -507,7 +507,7 @@ impl Core {
         })
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_mayfail(
         &self,
         cache: &mut Cache,
@@ -602,12 +602,12 @@ impl Core {
 }
 
 impl Strategy for Core {
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn group_info(&self) -> &GroupInfo {
         self.nfa.group_info()
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn create_cache(&self) -> Cache {
         Cache {
             capmatches: Captures::all(self.group_info().clone()),
@@ -619,7 +619,7 @@ impl Strategy for Core {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         cache.pikevm.reset(&self.pikevm);
         cache.backtrack.reset(&self.backtrack);
@@ -627,7 +627,7 @@ impl Strategy for Core {
         cache.hybrid.reset(&self.hybrid);
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         // We manually inline try_search_mayfail here because letting the
         // compiler do it seems to produce pretty crappy codegen.
@@ -654,7 +654,7 @@ impl Strategy for Core {
         };
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_half(
         &self,
         cache: &mut Cache,
@@ -686,7 +686,7 @@ impl Strategy for Core {
         };
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
@@ -751,7 +751,7 @@ impl Strategy for Core {
         )
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
@@ -826,7 +826,7 @@ impl ReverseAnchored {
         Ok(ReverseAnchored { core })
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_half_anchored_rev(
         &self,
         cache: &mut Cache,
@@ -863,22 +863,22 @@ impl ReverseAnchored {
 // Thus, in this impl, we can actually assume that the end position in 'input'
 // is equivalent to the length of the haystack.
 impl Strategy for ReverseAnchored {
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn group_info(&self) -> &GroupInfo {
         self.core.group_info()
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn create_cache(&self) -> Cache {
         self.core.create_cache()
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         self.core.reset_cache(cache);
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_anchored_rev(cache, input) {
             Err(err) => {
@@ -892,7 +892,7 @@ impl Strategy for ReverseAnchored {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_half(
         &self,
         cache: &mut Cache,
@@ -916,7 +916,7 @@ impl Strategy for ReverseAnchored {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
@@ -946,7 +946,7 @@ impl Strategy for ReverseAnchored {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
@@ -1035,7 +1035,7 @@ impl ReverseSuffix {
         Ok(ReverseSuffix { core, pre })
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_half_start(
         &self,
         cache: &mut Cache,
@@ -1069,7 +1069,7 @@ impl ReverseSuffix {
         Ok(None)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_half_fwd(
         &self,
         cache: &mut Cache,
@@ -1092,7 +1092,7 @@ impl ReverseSuffix {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_half_rev_limited(
         &self,
         cache: &mut Cache,
@@ -1122,22 +1122,22 @@ impl ReverseSuffix {
 }
 
 impl Strategy for ReverseSuffix {
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn group_info(&self) -> &GroupInfo {
         self.core.group_info()
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn create_cache(&self) -> Cache {
         self.core.create_cache()
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         self.core.reset_cache(cache);
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_start(cache, input) {
             Err(RetryError::Quadratic(err)) => {
@@ -1177,7 +1177,7 @@ impl Strategy for ReverseSuffix {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_half(
         &self,
         cache: &mut Cache,
@@ -1202,7 +1202,7 @@ impl Strategy for ReverseSuffix {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
@@ -1244,7 +1244,7 @@ impl Strategy for ReverseSuffix {
         self.core.search_slots_nofail(cache, &input, slots)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
@@ -1369,7 +1369,7 @@ impl ReverseInner {
         Ok(ReverseInner { core, preinner, nfarev, hybrid, dfa })
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_full(
         &self,
         cache: &mut Cache,
@@ -1434,7 +1434,7 @@ impl ReverseInner {
         Ok(None)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_half_fwd_stopat(
         &self,
         cache: &mut Cache,
@@ -1457,7 +1457,7 @@ impl ReverseInner {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn try_search_half_rev_limited(
         &self,
         cache: &mut Cache,
@@ -1491,24 +1491,24 @@ impl ReverseInner {
 }
 
 impl Strategy for ReverseInner {
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn group_info(&self) -> &GroupInfo {
         self.core.group_info()
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn create_cache(&self) -> Cache {
         let mut cache = self.core.create_cache();
         cache.revhybrid = self.hybrid.create_cache();
         cache
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         self.core.reset_cache(cache);
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_full(cache, input) {
             Err(RetryError::Quadratic(err)) => {
@@ -1523,7 +1523,7 @@ impl Strategy for ReverseInner {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_half(
         &self,
         cache: &mut Cache,
@@ -1543,7 +1543,7 @@ impl Strategy for ReverseInner {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search_slots(
         &self,
         cache: &mut Cache,
@@ -1581,7 +1581,7 @@ impl Strategy for ReverseInner {
         self.core.search_slots_nofail(cache, &input, slots)
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
@@ -1592,7 +1592,7 @@ impl Strategy for ReverseInner {
     }
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn copy_match_to_slots(m: Match, slots: &mut [Option<NonMaxUsize>]) {
     let slot_start = m.pattern().as_usize() * 2;
     let slot_end = slot_start + 1;

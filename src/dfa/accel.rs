@@ -89,7 +89,7 @@ const ACCEL_CAP: usize = 8;
 /// Search for between 1 and 3 needle bytes in the given haystack, starting the
 /// search at the given position. If `needles` has a length other than 1-3,
 /// then this panics.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn find_fwd(
     needles: &[u8],
     haystack: &[u8],
@@ -109,7 +109,7 @@ pub(crate) fn find_fwd(
 /// Search for between 1 and 3 needle bytes in the given haystack in reverse,
 /// starting the search at the given position. If `needles` has a length other
 /// than 1-3, then this panics.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn find_rev(
     needles: &[u8],
     haystack: &[u8],
@@ -263,7 +263,7 @@ impl<A: AsRef<[AccelTy]>> Accels<A> {
     /// states are stored contiguously in the DFA and have an ordering implied
     /// by their respective state IDs. The state's index in that sequence
     /// corresponds to the index of its corresponding accelerator.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub fn needles(&self, i: usize) -> &[u8] {
         if i >= self.len() {
             panic!("invalid accelerator index {}", i);

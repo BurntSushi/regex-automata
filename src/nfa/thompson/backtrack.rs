@@ -1251,7 +1251,7 @@ impl BoundedBacktracker {
     ///
     /// If no match was found, then the caller should increment `at` and try
     /// at the next position.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn backtrack(
         &self,
         cache: &mut Cache,
@@ -1288,7 +1288,7 @@ impl BoundedBacktracker {
     /// former case, it may have pushed some things on to the backtracking
     /// stack, in which case, those will be tried next as part of the
     /// 'backtrack' routine above.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn step(
         &self,
         cache: &mut Cache,

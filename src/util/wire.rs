@@ -693,7 +693,7 @@ pub(crate) fn try_read_u128(
 ///
 /// Marked as inline to speed up sparse searching which decodes integers from
 /// its automaton at search time.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn read_u16(slice: &[u8]) -> u16 {
     let bytes: [u8; 2] = slice[..size_of::<u16>()].try_into().unwrap();
     u16::from_ne_bytes(bytes)
@@ -704,7 +704,7 @@ pub(crate) fn read_u16(slice: &[u8]) -> u16 {
 ///
 /// Marked as inline to speed up sparse searching which decodes integers from
 /// its automaton at search time.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn read_u32(slice: &[u8]) -> u32 {
     let bytes: [u8; 4] = slice[..size_of::<u32>()].try_into().unwrap();
     u32::from_ne_bytes(bytes)

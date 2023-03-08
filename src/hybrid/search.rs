@@ -46,7 +46,7 @@ pub(crate) fn find_fwd(
     }
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn find_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
@@ -314,7 +314,7 @@ pub(crate) fn find_rev(
     }
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn find_rev_imp(
     dfa: &DFA,
     cache: &mut Cache,
@@ -474,7 +474,7 @@ pub(crate) fn find_overlapping_fwd(
     }
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn find_overlapping_fwd_imp(
     dfa: &DFA,
     cache: &mut Cache,
@@ -681,7 +681,7 @@ pub(crate) fn find_overlapping_rev(
     result
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn init_fwd(
     dfa: &DFA,
     cache: &mut Cache,
@@ -697,7 +697,7 @@ fn init_fwd(
     Ok(Some(sid))
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn init_rev(
     dfa: &DFA,
     cache: &mut Cache,
@@ -713,7 +713,7 @@ fn init_rev(
     Ok(Some(sid))
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn eoi_fwd(
     dfa: &DFA,
     cache: &mut Cache,
@@ -752,7 +752,7 @@ fn eoi_fwd(
     Ok(())
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn eoi_rev(
     dfa: &DFA,
     cache: &mut Cache,
@@ -813,7 +813,7 @@ fn eoi_rev(
 /// Why avoid it? Because while it's not super expensive, it isn't a trivial
 /// operation to compute the start state. It is much better to avoid it and
 /// just state in the current state if you know it to be correct.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn prefilter_restart(
     dfa: &DFA,
     cache: &mut Cache,
@@ -832,7 +832,7 @@ fn prefilter_restart(
 }
 
 /// A convenience routine for constructing a "gave up" match error.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn gave_up(offset: usize) -> MatchError {
     MatchError::gave_up(offset)
 }

@@ -41,7 +41,7 @@ pub fn find_fwd<A: Automaton + ?Sized>(
     }
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn find_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
@@ -204,7 +204,7 @@ pub fn find_rev<A: Automaton + ?Sized>(
     }
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn find_rev_imp<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
@@ -341,7 +341,7 @@ pub fn find_overlapping_fwd<A: Automaton + ?Sized>(
     }
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn find_overlapping_fwd_imp<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
@@ -563,7 +563,7 @@ pub(crate) fn find_overlapping_rev<A: Automaton + ?Sized>(
     result
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn init_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
@@ -578,7 +578,7 @@ fn init_fwd<A: Automaton + ?Sized>(
     Ok(Some(sid))
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn init_rev<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
@@ -593,7 +593,7 @@ fn init_rev<A: Automaton + ?Sized>(
     Ok(Some(sid))
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn eoi_fwd<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
@@ -628,7 +628,7 @@ fn eoi_fwd<A: Automaton + ?Sized>(
     Ok(())
 }
 
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn eoi_rev<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,
@@ -665,7 +665,7 @@ fn eoi_rev<A: Automaton + ?Sized>(
 /// prefilter candidate match at the position `at`.
 ///
 /// The function with the same name has a bit more docs in hybrid/search.rs.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn prefilter_restart<A: Automaton + ?Sized>(
     dfa: &A,
     input: &Input<'_>,

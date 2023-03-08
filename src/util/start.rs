@@ -228,7 +228,7 @@ impl Start {
 
     /// Return this starting configuration as `u8` integer. It is guaranteed to
     /// be less than `Start::len()`.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn as_u8(&self) -> u8 {
         // AFAIK, 'as' is the only way to zero-cost convert an int enum to an
         // actual int.
@@ -237,7 +237,7 @@ impl Start {
 
     /// Return this starting configuration as a `usize` integer. It is
     /// guaranteed to be less than `Start::len()`.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn as_usize(&self) -> usize {
         usize::from(self.as_u8())
     }

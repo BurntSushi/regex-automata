@@ -1568,7 +1568,7 @@ impl DFA {
     /// also panics if `pattern_id` is non-None and does not refer to a valid
     /// pattern, or if the DFA was not configured to build anchored start
     /// states for each pattern.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub fn start_state_forward(
         &self,
         cache: &mut Cache,
@@ -1622,7 +1622,7 @@ impl DFA {
     /// also panics if `pattern_id` is non-None and does not refer to a valid
     /// pattern, or if the DFA was not configured to build anchored start
     /// states for each pattern.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub fn start_state_reverse(
         &self,
         cache: &mut Cache,
@@ -2680,7 +2680,7 @@ impl<'i, 'c> LazyRef<'i, 'c> {
     ///
     /// If the start state has not yet been computed, then this returns an
     /// unknown lazy state ID.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn get_cached_start_id(
         &self,
         input: &Input<'_>,

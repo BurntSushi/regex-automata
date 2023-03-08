@@ -1134,7 +1134,7 @@ unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
 
     // This is marked as inline to help dramatically boost sparse searching,
     // which decodes each state it enters to follow the next transition.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn next_state(&self, current: StateID, input: u8) -> StateID {
         let input = self.tt.classes.get(input);
         self.tt.state(current).next(input)
@@ -1504,7 +1504,7 @@ impl<T: AsRef<[u8]>> Transitions<T> {
     /// functions involved are also inlined, which should hopefully eliminate
     /// a lot of the extraneous decoding that is never needed just to follow
     /// the next transition.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn state(&self, id: StateID) -> State<'_> {
         let mut state = &self.sparse()[id.as_usize()..];
         let mut ntrans = wire::read_u16(&state).as_usize();
@@ -2218,7 +2218,7 @@ impl<'a> State<'a> {
     ///
     /// This is marked as inline to help dramatically boost sparse searching,
     /// which decodes each state it enters to follow the next transition.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn next(&self, input: u8) -> StateID {
         // This straight linear search was observed to be much better than
         // binary search on ASCII haystacks, likely because a binary search
@@ -2409,7 +2409,7 @@ impl<'a> fmt::Debug for StateMut<'a> {
 /// guaranteed to be safe and is thus UB (since I don't think the in-memory
 /// representation of `(u8, u8)` has been nailed down). One could define a
 /// repr(C) type, but the casting doesn't seem justified.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn binary_search_ranges(ranges: &[u8], needle: u8) -> Option<usize> {
     debug_assert!(ranges.len() % 2 == 0, "ranges must have even length");
     debug_assert!(ranges.len() <= 512, "ranges should be short");

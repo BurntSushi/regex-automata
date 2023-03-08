@@ -418,7 +418,7 @@ impl RegexInfo {
     ///
     /// This includes returning true when `input` _isn't_ anchored but the
     /// underlying regex is.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn is_anchored_start(&self, input: &Input<'_>) -> bool {
         input.get_anchored().is_anchored() || self.is_always_anchored_start()
     }
@@ -426,7 +426,7 @@ impl RegexInfo {
     /// Returns true when this regex is always anchored to the start of a
     /// search. And in particular, that regardless of an `Input` configuration,
     /// if any match is reported it must start at `0`.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn is_always_anchored_start(&self) -> bool {
         use regex_syntax::hir::Look;
         self.props_union().look_set_prefix().contains(Look::Start)
@@ -435,7 +435,7 @@ impl RegexInfo {
     /// Returns true when this regex is always anchored to the end of a
     /// search. And in particular, that regardless of an `Input` configuration,
     /// if any match is reported it must end at the end of the haystack.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn is_always_anchored_end(&self) -> bool {
         use regex_syntax::hir::Look;
         self.props_union().look_set_suffix().contains(Look::End)
@@ -444,7 +444,7 @@ impl RegexInfo {
     /// Returns true if and only if it is known that a match is impossible
     /// for the given input. This is useful for short-circuiting and avoiding
     /// running the regex engine if it's known no match can be reported.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn is_impossible(&self, input: &Input<'_>) -> bool {
         // Input has been exhausted, nothing left to do.
         if input.is_done() {

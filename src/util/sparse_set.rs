@@ -168,7 +168,7 @@ impl SparseSet {
     ///
     /// This is marked as inline(always) since the compiler won't inline it
     /// otherwise, and it's a fairly hot piece of code in DFA determinization.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn insert(&mut self, id: StateID) -> bool {
         if self.contains(id) {
             return false;
@@ -232,7 +232,7 @@ pub(crate) struct SparseSetIter<'a>(core::slice::Iter<'a, StateID>);
 impl<'a> Iterator for SparseSetIter<'a> {
     type Item = StateID;
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn next(&mut self) -> Option<StateID> {
         self.0.next().map(|&id| id)
     }

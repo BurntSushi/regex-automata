@@ -12,7 +12,7 @@ incremental decoder.
 /// starting DFA state while searching without depending on regex-syntax. The
 /// definition is never going to change, so there's no maintenance/bit-rot
 /// hazard here.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn is_word_byte(b: u8) -> bool {
     const fn mkwordset() -> [bool; 256] {
         // FIXME: Use as_usize() once const functions in traits are stable.
@@ -52,7 +52,7 @@ pub(crate) fn is_word_byte(b: u8) -> bool {
 /// *WARNING*: This is not designed for performance. If you're looking for a
 /// fast UTF-8 decoder, this is not it. If you feel like you need one in this
 /// crate, then please file an issue and discuss your use case.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn decode(bytes: &[u8]) -> Option<Result<char, u8>> {
     if bytes.is_empty() {
         return None;
@@ -75,7 +75,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<Result<char, u8>> {
 /// slice, then the last byte is returned instead.
 ///
 /// This returns `None` if and only if `bytes` is empty.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn decode_last(bytes: &[u8]) -> Option<Result<char, u8>> {
     if bytes.is_empty() {
         return None;
@@ -97,7 +97,7 @@ pub(crate) fn decode_last(bytes: &[u8]) -> Option<Result<char, u8>> {
 ///
 /// If the given byte is not a valid UTF-8 leading byte, then this returns
 /// `None`.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn len(byte: u8) -> Option<usize> {
     if byte <= 0x7F {
         return Some(1);
@@ -119,7 +119,7 @@ fn len(byte: u8) -> Option<usize> {
 ///
 /// If `bytes` is not valid UTF-8, then the behavior of this routine is
 /// unspecified.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 pub(crate) fn is_boundary(bytes: &[u8], i: usize) -> bool {
     match bytes.get(i) {
         // The position at the end of the bytes always represents an empty
@@ -139,7 +139,7 @@ pub(crate) fn is_boundary(bytes: &[u8], i: usize) -> bool {
 /// Returns true if and only if the given byte is either a valid leading UTF-8
 /// byte, or is otherwise an invalid byte that can never appear anywhere in a
 /// valid UTF-8 sequence.
-#[inline(always)]
+#[cfg_attr(feature = "perf-inline", inline(always))]
 fn is_leading_or_invalid_byte(b: u8) -> bool {
     // In the ASCII case, the most significant bit is never set. The leading
     // byte of a 2/3/4-byte sequence always has the top two most significant

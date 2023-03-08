@@ -566,7 +566,7 @@ impl LookMatcher {
     }
 
     /// Like `matches`, but forcefully inlined.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn matches_inline(
         &self,
         look: Look,
@@ -619,7 +619,7 @@ impl LookMatcher {
     }
 
     /// Like `LookSet::matches`, but forcefully inlined for perf.
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn matches_set_inline(
         &self,
         set: LookSet,
@@ -1076,7 +1076,7 @@ mod is_word_char {
         Ok(())
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn fwd(
         haystack: &[u8],
         mut at: usize,
@@ -1107,7 +1107,7 @@ mod is_word_char {
         Ok(dfa.next_eoi_state(&mut cache, sid).unwrap().is_match())
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn rev(
         haystack: &[u8],
         mut at: usize,
@@ -1167,7 +1167,7 @@ mod is_word_char {
         Ok(())
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn fwd(
         haystack: &[u8],
         mut at: usize,
@@ -1197,7 +1197,7 @@ mod is_word_char {
         Ok(dfa.is_match_state(dfa.next_eoi_state(sid)))
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn rev(
         haystack: &[u8],
         mut at: usize,
@@ -1249,7 +1249,7 @@ mod is_word_char {
         Ok(())
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn fwd(
         haystack: &[u8],
         at: usize,
@@ -1264,7 +1264,7 @@ mod is_word_char {
         })
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn rev(
         haystack: &[u8],
         at: usize,
@@ -1296,7 +1296,7 @@ mod is_word_char {
         Ok(())
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn fwd(
         haystack: &[u8],
         at: usize,
@@ -1307,7 +1307,7 @@ mod is_word_char {
         })
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn rev(
         haystack: &[u8],
         at: usize,
@@ -1318,7 +1318,7 @@ mod is_word_char {
         })
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     fn is_word_character(c: char) -> bool {
         use crate::util::{unicode_data::perl_word::PERL_WORD, utf8};
 
@@ -1351,7 +1351,7 @@ mod is_word_char {
         Err(super::UnicodeWordBoundaryError::new())
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn fwd(
         _bytes: &[u8],
         _at: usize,
@@ -1359,7 +1359,7 @@ mod is_word_char {
         Err(super::UnicodeWordBoundaryError::new())
     }
 
-    #[inline(always)]
+    #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(super) fn rev(
         _bytes: &[u8],
         _at: usize,
