@@ -10,7 +10,7 @@ use crate::nfa::thompson::{
 use crate::{
     nfa::thompson::builder::Builder,
     util::{
-        alphabet::{self, ByteClassSet},
+        alphabet::{self, ByteClassSet, ByteClasses},
         captures::{GroupInfo, GroupInfoError},
         look::{Look, LookMatcher, LookSet},
         primitives::{
@@ -557,17 +557,34 @@ impl NFA {
     /// classes of bytes instead of all possible byte values. The former is
     /// often quite a bit smaller than the latter, which permits the DFA to use
     /// less space for its transition table.
+    #[inline]
+    pub(crate) fn byte_class_set(&self) -> &ByteClassSet {
+        &self.0.byte_class_set
+    }
+
+    /// Get the byte classes for this NFA.
+    ///
+    /// Byte classes represent a partitioning of this NFA's alphabet into
+    /// equivalence classes. Any two bytes in the same equivalence class are
+    /// guaranteed to never discriminate between a match or a non-match. (The
+    /// partitioning may not be minimal.)
+    ///
+    /// Byte classes are used internally by this crate when building DFAs.
+    /// Namely, among other optimizations, they enable a space optimization
+    /// where the DFA's internal alphabet is defined over the equivalence
+    /// classes of bytes instead of all possible byte values. The former is
+    /// often quite a bit smaller than the latter, which permits the DFA to use
+    /// less space for its transition table.
     ///
     /// # Example
     ///
-    /// Typically the only operation one can perform on a `ByteClassSet` is to
-    /// extract the equivalence classes:
+    /// This example shows how to query the class of various bytes.
     ///
     /// ```
     /// use regex_automata::nfa::thompson::NFA;
     ///
     /// let nfa = NFA::new("[a-z]+")?;
-    /// let classes = nfa.byte_class_set().byte_classes();
+    /// let classes = nfa.byte_classes();
     /// // 'a' and 'z' are in the same class for this regex.
     /// assert_eq!(classes.get(b'a'), classes.get(b'z'));
     /// // But 'a' and 'A' are not.
@@ -576,8 +593,8 @@ impl NFA {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn byte_class_set(&self) -> &ByteClassSet {
-        &self.0.byte_class_set
+    pub fn byte_classes(&self) -> &ByteClasses {
+        &self.0.byte_classes
     }
 
     /// Return a reference to the NFA state corresponding to the given ID.
@@ -804,9 +821,9 @@ impl NFA {
     ///
     /// When UTF-8 mode is enabled, all matches reported by a regex engine
     /// derived from this NFA are guaranteed to correspond to spans of valid
-    /// UTF-8. This includes zero-width matches. For example, the empty regex
-    /// will not match at the positions between code units in the UTF-8
-    /// encoding of a single codepoint.
+    /// UTF-8. This includes zero-width matches. For example, the regex engine
+    /// must guarantee that the empty regex will not match at the positions
+    /// between code units in the UTF-8 encoding of a single codepoint.
     ///
     /// See [`Config::utf8`] for more information.
     ///
@@ -1199,6 +1216,16 @@ pub(super) struct Inner {
     /// to represent transitions. Byte classes are most effective in a dense
     /// representation.
     byte_class_set: ByteClassSet,
+    /// This is generated from `byte_class_set`, and essentially represents the
+    /// same thing but supports different access patterns. Namely, this permits
+    /// looking up the equivalence class of a byte very cheaply.
+    ///
+    /// Ideally we would just store this, but because of annoying code
+    /// structure reasons, we keep both this and `byte_class_set` around for
+    /// now. I think I would prefer that `byte_class_set` were computed in the
+    /// `Builder`, but right now, we compute it as states are added to the
+    /// `NFA`.
+    byte_classes: ByteClasses,
     /// Whether this NFA has a `Capture` state anywhere.
     has_capture: bool,
     /// When the empty string is in the language matched by this NFA.
@@ -1233,6 +1260,7 @@ pub(super) struct Inner {
 impl Inner {
     /// Runs any last finalization bits and turns this into a full NFA.
     pub(super) fn into_nfa(mut self) -> NFA {
+        self.byte_classes = self.byte_class_set.byte_classes();
         // Do epsilon closure from the start state of every pattern in order
         // to compute various properties such as look-around assertions and
         // whether the empty string can be matched.
@@ -1442,7 +1470,7 @@ impl fmt::Debug for Inner {
         writeln!(
             f,
             "transition equivalence classes: {:?}",
-            self.byte_class_set.byte_classes(),
+            self.byte_classes,
         )?;
         writeln!(f, ")")?;
         Ok(())
@@ -1780,7 +1808,7 @@ impl SparseTransitions {
     ///
     /// The matching transition is found by looking for a matching byte
     /// range (there is at most one) corresponding to the position `at` in
-    /// `haystack`. If the given alphabet unit is [`EOI`](alphabet::Unit::EOI),
+    /// `haystack`. If the given alphabet unit is [`EOI`](alphabet::Unit::eoi),
     /// then this always returns `None`.
     pub fn matches_unit(&self, unit: alphabet::Unit) -> Option<StateID> {
         unit.as_u8().map_or(None, |byte| self.matches_byte(byte))
@@ -1907,7 +1935,7 @@ impl Transition {
     }
 
     /// Returns true if the given alphabet unit falls in this transition's
-    /// range of bytes. If the given unit is [`EOI`](alphabet::Unit::EOI), then
+    /// range of bytes. If the given unit is [`EOI`](alphabet::Unit::eoi), then
     /// this returns `false`.
     pub fn matches_unit(&self, unit: alphabet::Unit) -> bool {
         unit.as_u8().map_or(false, |byte| self.matches_byte(byte))

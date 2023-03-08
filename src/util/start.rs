@@ -1,15 +1,40 @@
+/*!
+Provides some helpers for dealing with start state configurations in DFAs.
+
+[`Start`] represents the possible starting configurations, while
+[`StartByteMap`] represents a way to retrieve the `Start` configuration for a
+given position in a haystack.
+*/
+
 use crate::util::{
     look::LookMatcher,
     search::Input,
     wire::{self, DeserializeError, SerializeError},
 };
 
+/// A map from every possible byte value to its corresponding starting
+/// configuration.
+///
+/// This map is used in order to lookup the start configuration for a particular
+/// position in a haystack. This start configuration is then used in
+/// combination with things like the anchored mode and pattern ID to fully
+/// determine the start state.
+///
+/// Generally speaking, this map is only used for fully compiled DFAs and lazy
+/// DFAs. For NFAs (including the one-pass DFA), the start state is generally
+/// selected by virtue of traversing the NFA state graph. DFAs do the same
+/// thing, but at build time and not search time. (Well, technically the lazy
+/// DFA does it at search time, but it does enough work to cache the full
+/// result of the epsilon closure that the NFA engines tend to need to do.)
 #[derive(Clone)]
 pub(crate) struct StartByteMap {
     map: [Start; 256],
 }
 
 impl StartByteMap {
+    /// Create a new map from byte values to their corresponding starting
+    /// configurations. The map is determined, in part, by how look-around
+    /// assertions are matched via the matcher given.
     pub(crate) fn new(lookm: &LookMatcher) -> StartByteMap {
         let mut map = [Start::NonWordByte; 256];
         map[usize::from(b'\n')] = Start::LineLF;
@@ -33,12 +58,20 @@ impl StartByteMap {
         }
 
         let lineterm = lookm.get_line_terminator();
+        // If our line terminator is normal, then it is already handled by
+        // the LineLF and LineCR configurations. But if it's weird, then we
+        // overwrite whatever was there before for that terminator with a
+        // special configuration. The trick here is that if the terminator
+        // is, say, a word byte like `a`, then callers seeing this start
+        // configuration need to account for that and build their DFA state as
+        // if it *also* came from a word byte.
         if lineterm != b'\r' && lineterm != b'\n' {
             map[usize::from(lineterm)] = Start::CustomLineTerminator;
         }
         StartByteMap { map }
     }
 
+    /// Return the forward starting configuration for the given `input`.
     pub(crate) fn fwd(&self, input: &Input) -> Start {
         match input
             .start()
@@ -50,6 +83,7 @@ impl StartByteMap {
         }
     }
 
+    /// Return the reverse starting configuration for the given `input`.
     pub(crate) fn rev(&self, input: &Input) -> Start {
         match input.haystack().get(input.end()) {
             None => Start::Text,
@@ -84,11 +118,14 @@ impl StartByteMap {
         Ok((StartByteMap { map }, 256))
     }
 
-    /// Writes this byte class map to the given byte buffer. if the given
-    /// buffer is too small, then an error is returned. Upon success, the total
-    /// number of bytes written is returned. The number of bytes written is
-    /// guaranteed to be a multiple of 8.
-    pub fn write_to(&self, dst: &mut [u8]) -> Result<usize, SerializeError> {
+    /// Writes this map to the given byte buffer. if the given buffer is too
+    /// small, then an error is returned. Upon success, the total number of
+    /// bytes written is returned. The number of bytes written is guaranteed to
+    /// be a multiple of 8.
+    pub(crate) fn write_to(
+        &self,
+        dst: &mut [u8],
+    ) -> Result<usize, SerializeError> {
         let nwrite = self.write_to_len();
         if dst.len() < nwrite {
             return Err(SerializeError::buffer_too_small("start byte map"));
@@ -100,7 +137,7 @@ impl StartByteMap {
     }
 
     /// Returns the total number of bytes written by `write_to`.
-    pub fn write_to_len(&self) -> usize {
+    pub(crate) fn write_to_len(&self) -> usize {
         256
     }
 }
@@ -122,24 +159,25 @@ impl core::fmt::Debug for StartByteMap {
     }
 }
 
-/// Represents the four possible starting configurations of a DFA search.
+/// Represents the six possible starting configurations of a DFA search.
 ///
-/// The starting configuration is determined by inspecting the the beginning of
-/// the haystack (up to 1 byte). Ultimately, this along with a pattern ID (if
-/// specified) is what selects the start state to use in a DFA.
+/// The starting configuration is determined by inspecting the the beginning
+/// of the haystack (up to 1 byte). Ultimately, this along with a pattern ID
+/// (if specified) and the type of search (anchored or not) is what selects the
+/// start state to use in a DFA.
 ///
-/// In a DFA that doesn't have starting states for each pattern, then it will
-/// have a maximum of four DFA start states. If the DFA was compiled with start
-/// states for each pattern, then it will have a maximum of four DFA start
-/// states for searching for any pattern, and then another maximum of four DFA
-/// start states for executing an anchored search for each pattern.
+/// As one example, if a DFA only supports unanchored searches and does not
+/// support anchored searches for each pattern, then it will have at most 6
+/// distinct start states. (Some start states may be reused if determinization
+/// can determine that they will be equivalent.) If the DFA supports both
+/// anchored and unanchored searches, then it will have a maximum of 12
+/// distinct start states. Finally, if the DFA also supports anchored searches
+/// for each pattern, then it can have up to `12 + (N * 6)` start states, where
+/// `N` is the number of patterns.
 ///
-/// This ends up being represented as a table in the DFA (whether lazy or fully
-/// built) where the stride of that table is 4, and each entry is an index into
-/// the state transition table. Note though that multiple entries in the table
-/// might point to the same state if the states would otherwise be equivalent.
-/// (This is guaranteed by DFA minimization and may even be accomplished by
-/// normal determinization, since it attempts to reuse equivalent states too.)
+/// Handling each of these starting configurations in the context of DFA
+/// determinization can be *quite* tricky and subtle. But the code is small
+/// and can be found at `crate::util::determinize::set_lookbehind_from_start`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Start {
     /// This occurs when the starting position is not any of the ones below.
@@ -162,9 +200,9 @@ pub(crate) enum Start {
     ///
     /// If the custom line terminator is a word byte, then this start
     /// configuration is still selected. DFAs that implement word boundary
-    /// assertions will likely need to check whether the customer line
-    /// terminator is a word byte, in which case, it should behave as if the
-    /// byte satisfies `\b` in addition to multi-line anchors.
+    /// assertions will likely need to check whether the custom line terminator
+    /// is a word byte, in which case, it should behave as if the byte
+    /// satisfies `\b` in addition to multi-line anchors.
     CustomLineTerminator = 5,
 }
 

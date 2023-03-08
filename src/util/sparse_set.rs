@@ -1,3 +1,20 @@
+/*!
+This module defines a sparse set data structure. Its most interesting
+properties are:
+
+* They preserve insertion order.
+* Set membership testing is done in constant time.
+* Set insertion is done in constant time.
+* Clearing the set is done in constant time.
+
+The cost for doing this is that the capacity of the set needs to be known up
+front, and the elements in the set are limited to state identifiers.
+
+These sets are principally used when traversing an NFA state graph. This
+happens at search time, for example, in the PikeVM. It also happens during DFA
+determinization.
+*/
+
 use alloc::{vec, vec::Vec};
 
 use crate::util::primitives::StateID;

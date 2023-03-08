@@ -1,3 +1,12 @@
+/*!
+This module defines a few convenience routines for escaping raw bytes. Namely,
+since this crate tends to deal with `&[u8]` everywhere and the default
+`Debug` implementation just shows decimal integers, it makes debugging those
+representations quite difficult. So this module provides types that show
+`&[u8]` as if it were a string, with invalid UTF-8 escaped into its hex
+representation.
+*/
+
 use crate::util::utf8;
 
 /// A type that wraps a single byte with a convenient fmt::Debug impl that

@@ -23,6 +23,33 @@ use crate::{
     },
 };
 
+/// # Example
+///
+/// ```
+/// use regex_automata::{meta::Regex, Anchored, Input, PatternID};
+///
+/// let re = Regex::new(r"[a-z]+")?;
+/// let mut cache = re.create_cache();
+/// assert!(re.is_match(&mut cache, "123 abc"));
+///
+/// let input = Input::new("123 abc").anchored(Anchored::Yes);
+/// assert!(!re.is_match(&mut cache, input));
+///
+/// let input = Input::new("123 abc").anchored(Anchored::Yes).range(4..);
+/// assert!(re.is_match(&mut cache, input));
+///
+/// let input = Input::new("123 abc")
+///     .anchored(Anchored::Pattern(PatternID::ZERO))
+///     .range(4..);
+/// assert!(re.is_match(&mut cache, input));
+///
+/// let input = Input::new("123 abc")
+///     .anchored(Anchored::Pattern(PatternID::must(1)))
+///     .range(4..);
+/// assert!(!re.is_match(&mut cache, input));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct Regex {
     /// The core matching engine.

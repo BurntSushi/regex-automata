@@ -1,23 +1,65 @@
+/*!
+This module provides APIs for dealing with the alphabets of finite state
+machines.
+
+There are two principal types in this module, [`ByteClasses`] and [`Unit`].
+The former defines the alphabet of a finite state machine while the latter
+represents an element of that alphabet.
+
+To a first approximation, the alphabet of all automata in this crate is just
+a `u8`. Namely, every distinct byte value. All 256 of them. In practice, this
+can be quite wasteful when building a transition table for a DFA, since it
+requires storing a state identifier for each element in the alphabet. Instead,
+we collapse the alphabet of an automaton down into equivalence classes, where
+every byte in the same equivalence class never discriminates between a match or
+a non-match from any other byte in the same class. For example, in the regex
+`[a-z]+`, then you could consider it having an alphabet consisting of two
+equivalence classes: `a-z` and everything else. In terms of the transitions on
+an automaton, it doesn't actually require representing every distinct byte.
+Just the equivalence classes.
+
+The downside of equivalence classes is that, of course, searching a haystack
+deals with individual byte values. Those byte values need to be mapped to
+their corresponding equivalence class. This is what `ByteClasses` does. In
+practice, doing this for every state transition has negligible impact on modern
+CPUs. Moreover, it helps make more efficient use of the CPU cache by (possibly
+considerably) shrinking the size of the transition table.
+
+One last hiccup concerns `Unit`. Namely, because of look-around and how the
+DFAs in this crate work, we need to add a sentinel value to our alphabet
+of equivalence classes that represents the "end" of a search. We call that
+sentinel [`Unit::eoi`] or "end of input." Thus, a `Unit` is either an
+equivalence class corresponding to a set of bytes, or it is a special "end of
+input" sentinel.
+
+In general, you should not expect to need either of these types unless you're
+doing lower level shenanigans with DFAs, or even building your own DFAs.
+(Although, you don't have to use these types to build your own DFAs of course.)
+For example, if you're walking a DFA's state graph, it's probably useful to
+make use of [`ByteClasses`] to visit each element in the DFA's alphabet instead
+of just visiting every distinct `u8` value. The latter isn't necessarily wrong,
+but it could be potentially very wasteful.
+*/
 use crate::util::{
     escape::DebugByte,
     wire::{self, DeserializeError, SerializeError},
 };
 
-/// Unit represents a single unit of input for DFA based regex engines.
+/// Unit represents a single unit of haystack for DFA based regex engines.
 ///
-/// **NOTE:** It is not expected for consumers of this crate to need to use
-/// this type unless they are implementing their own DFA. And even then, it's
-/// not required: implementors may use other techniques to handle input.
+/// It is not expected for consumers of this crate to need to use this type
+/// unless they are implementing their own DFA. And even then, it's not
+/// required: implementors may use other techniques to handle haystack units.
 ///
-/// Typically, a single unit of input for a DFA would be a single byte.
+/// Typically, a single unit of haystack for a DFA would be a single byte.
 /// However, for the DFAs in this crate, matches are delayed by a single byte
 /// in order to handle look-ahead assertions (`\b`, `$` and `\z`). Thus, once
 /// we have consumed the haystack, we must run the DFA through one additional
-/// transition using an input that indicates the haystack has ended.
+/// transition using a unit that indicates the haystack has ended.
 ///
-/// Since there is no way to represent a sentinel with a `u8` since all
-/// possible values *may* be valid inputs to a DFA, this type explicitly adds
-/// room for a sentinel value.
+/// There is no way to represent a sentinel with a `u8` since all possible
+/// values *may* be valid haystack units to a DFA, therefore this type
+/// explicitly adds room for a sentinel value.
 ///
 /// The sentinel EOI value is always its own equivalence class and is
 /// ultimately represented by adding 1 to the maximum equivalence class value.
@@ -34,81 +76,108 @@ use crate::util::{
 /// Where EOI is the special sentinel value that is always in its own
 /// singleton equivalence class.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
-pub enum Unit {
+pub struct Unit(UnitKind);
+
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+enum UnitKind {
+    /// Represents a byte value, or more typically, an equivalence class
+    /// represented as a byte value.
     U8(u8),
+    /// Represents the "end of input" sentinel. We regretably use a `u16`
+    /// here since the maximum sentinel value is `256`. Thankfully, we don't
+    /// actually store a `Unit` anywhere, so this extra space shouldn't be too
+    /// bad.
     EOI(u16),
 }
 
 impl Unit {
-    /// Create a new input unit from a byte value.
+    /// Create a new haystack unit from a byte value.
     ///
-    /// All possible byte values are legal. However, when creating an input
-    /// unit for a specific DFA, one should be careful to only construct input
-    /// units that are in that DFA's alphabet. Namely, one way to compact a
-    /// DFA's in-memory representation is to collapse its transitions to a set
-    /// of equivalence classes into a set of all possible byte values. If a
-    /// DFA uses equivalence classes instead of byte values, then the byte
-    /// given here should be the equivalence class.
+    /// All possible byte values are legal. However, when creating a haystack
+    /// unit for a specific DFA, one should be careful to only construct units
+    /// that are in that DFA's alphabet. Namely, one way to compact a DFA's
+    /// in-memory representation is to collapse its transitions to a set of
+    /// equivalence classes into a set of all possible byte values. If a DFA
+    /// uses equivalence classes instead of byte values, then the byte given
+    /// here should be the equivalence class.
     pub fn u8(byte: u8) -> Unit {
-        Unit::U8(byte)
+        Unit(UnitKind::U8(byte))
     }
 
+    /// Create a new "end of input" haystack unit.
+    ///
+    /// The value given is the sentinel value used by this unit to represent
+    /// the "end of input." The value should be the total number of equivalence
+    /// classes in the corresponding alphabet. Its maximum value is `256`,
+    /// which occurs when every byte is its own equivalence class.
+    ///
+    /// # Panics
+    ///
+    /// This panics when `num_byte_equiv_classes` is greater than `256`.
     pub fn eoi(num_byte_equiv_classes: usize) -> Unit {
         assert!(
             num_byte_equiv_classes <= 256,
             "max number of byte-based equivalent classes is 256, but got {}",
             num_byte_equiv_classes,
         );
-        Unit::EOI(u16::try_from(num_byte_equiv_classes).unwrap())
+        Unit(UnitKind::EOI(u16::try_from(num_byte_equiv_classes).unwrap()))
     }
 
+    /// If this unit is not an "end of input" sentinel, then returns its
+    /// underlying byte value. Otherwise return `None`.
     pub fn as_u8(self) -> Option<u8> {
-        match self {
-            Unit::U8(b) => Some(b),
-            Unit::EOI(_) => None,
+        match self.0 {
+            UnitKind::U8(b) => Some(b),
+            UnitKind::EOI(_) => None,
         }
     }
 
-    #[cfg(feature = "alloc")]
-    pub fn as_eoi(self) -> Option<usize> {
-        match self {
-            Unit::U8(_) => None,
-            Unit::EOI(eoi) => Some(usize::from(eoi)),
+    /// If this unit is an "end of input" sentinel, then return the underyling
+    /// sentinel value that was given to [`Unit::eoi`]. Otherwise return
+    /// `None`.
+    pub fn as_eoi(self) -> Option<u16> {
+        match self.0 {
+            UnitKind::U8(_) => None,
+            UnitKind::EOI(sentinel) => Some(sentinel),
         }
     }
 
+    /// Return this unit as a `usize`, regardless of whether it is a byte value
+    /// or an "end of input" sentinel. In the latter case, the underlying
+    /// sentinel value given to [`Unit::eoi`] is returned.
     pub fn as_usize(self) -> usize {
-        match self {
-            Unit::U8(b) => usize::from(b),
-            Unit::EOI(eoi) => usize::from(eoi),
+        match self.0 {
+            UnitKind::U8(b) => usize::from(b),
+            UnitKind::EOI(eoi) => usize::from(eoi),
         }
     }
 
-    pub fn is_byte(&self, byte: u8) -> bool {
-        match *self {
-            Unit::U8(b) if b == byte => true,
-            _ => false,
-        }
+    /// Returns true if and only of this unit is a byte value equivalent to the
+    /// byte given. This always returns false when this is an "end of input"
+    /// sentinel.
+    pub fn is_byte(self, byte: u8) -> bool {
+        self.as_u8().map_or(false, |b| b == byte)
     }
 
-    pub fn is_eoi(&self) -> bool {
-        match *self {
-            Unit::EOI(_) => true,
-            _ => false,
-        }
+    /// Returns true when this unit represents an "end of input" sentinel.
+    pub fn is_eoi(self) -> bool {
+        self.as_eoi().is_some()
     }
 
-    #[cfg(feature = "alloc")]
-    pub fn is_word_byte(&self) -> bool {
+    /// Returns true when this unit corresponds to an ASCII word byte.
+    ///
+    /// This always returns false when this unit represents an "end of input"
+    /// sentinel.
+    pub fn is_word_byte(self) -> bool {
         self.as_u8().map_or(false, crate::util::utf8::is_word_byte)
     }
 }
 
 impl core::fmt::Debug for Unit {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        match *self {
-            Unit::U8(b) => write!(f, "{:?}", DebugByte(b)),
-            Unit::EOI(_) => write!(f, "EOI"),
+        match self.0 {
+            UnitKind::U8(b) => write!(f, "{:?}", DebugByte(b)),
+            UnitKind::EOI(_) => write!(f, "EOI"),
         }
     }
 }
@@ -118,19 +187,44 @@ impl core::fmt::Debug for Unit {
 /// This is used in a DFA to reduce the size of the transition table. This can
 /// have a particularly large impact not only on the total size of a dense DFA,
 /// but also on compile times.
+///
+/// The essential idea here is that the alphabet of a DFA is shrunk from the
+/// usual 256 distinct byte values down to a set of equivalence classes. The
+/// guarantee you get is that any byte belonging to the same equivalence class
+/// can be treated as if it were any other byte in the same class, and the
+/// result of a search wouldn't change.
+///
+/// # Example
+///
+/// This example shows how to get byte classes from an
+/// [`NFA`](crate::nfa::thompson::NFA) and ask for the class of various bytes.
+///
+/// ```
+/// use regex_automata::nfa::thompson::NFA;
+///
+/// let nfa = NFA::new("[a-z]+")?;
+/// let classes = nfa.byte_classes();
+/// // 'a' and 'z' are in the same class for this regex.
+/// assert_eq!(classes.get(b'a'), classes.get(b'z'));
+/// // But 'a' and 'A' are not.
+/// assert_ne!(classes.get(b'a'), classes.get(b'A'));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Copy)]
 pub struct ByteClasses([u8; 256]);
 
 impl ByteClasses {
     /// Creates a new set of equivalence classes where all bytes are mapped to
     /// the same class.
+    #[inline]
     pub fn empty() -> ByteClasses {
         ByteClasses([0; 256])
     }
 
     /// Creates a new set of equivalence classes where each byte belongs to
     /// its own equivalence class.
-    #[cfg(feature = "alloc")]
+    #[inline]
     pub fn singletons() -> ByteClasses {
         let mut classes = ByteClasses::empty();
         for b in 0..=255 {
@@ -144,7 +238,7 @@ impl ByteClasses {
     /// an error is returned. Upon success, the number of bytes read along with
     /// the map are returned. The number of bytes read is always a multiple of
     /// 8.
-    pub fn from_bytes(
+    pub(crate) fn from_bytes(
         slice: &[u8],
     ) -> Result<(ByteClasses, usize), DeserializeError> {
         wire::check_slice_len(slice, 256, "byte class map")?;
@@ -166,7 +260,7 @@ impl ByteClasses {
     /// buffer is too small, then an error is returned. Upon success, the total
     /// number of bytes written is returned. The number of bytes written is
     /// guaranteed to be a multiple of 8.
-    pub fn write_to(
+    pub(crate) fn write_to(
         &self,
         mut dst: &mut [u8],
     ) -> Result<usize, SerializeError> {
@@ -182,7 +276,7 @@ impl ByteClasses {
     }
 
     /// Returns the total number of bytes written by `write_to`.
-    pub fn write_to_len(&self) -> usize {
+    pub(crate) fn write_to_len(&self) -> usize {
         256
     }
 
@@ -198,18 +292,22 @@ impl ByteClasses {
         self.0[usize::from(byte)]
     }
 
-    /// Get the equivalence class for the given input unit and return the
+    /// Get the equivalence class for the given haystack unit and return the
     /// class as a `usize`.
     #[inline]
     pub fn get_by_unit(&self, unit: Unit) -> usize {
-        match unit {
-            Unit::U8(b) => usize::from(self.get(b)),
-            Unit::EOI(b) => usize::from(b),
+        match unit.0 {
+            UnitKind::U8(b) => usize::from(self.get(b)),
+            UnitKind::EOI(b) => usize::from(b),
         }
     }
 
+    /// Create a unit that represents the "end of input" sentinel based on the
+    /// number of equivalence classes.
     #[inline]
     pub fn eoi(&self) -> Unit {
+        // The alphabet length already includes the EOI sentinel, hence why
+        // we subtract 1.
         Unit::eoi(self.alphabet_len().checked_sub(1).unwrap())
     }
 
@@ -228,10 +326,11 @@ impl ByteClasses {
     /// equivalence classes.
     ///
     /// The stride is always the smallest power of 2 that is greater than or
-    /// equal to the alphabet length. This is done so that converting between
-    /// state IDs and indices can be done with shifts alone, which is much
-    /// faster than integer division.
-    #[cfg(feature = "alloc")]
+    /// equal to the alphabet length, and the `stride2` returned here is the
+    /// exponent applied to `2` to get the smallest power. This is done so that
+    /// converting between premultiplied state IDs and indices can be done with
+    /// shifts alone, which is much faster than integer division.
+    #[inline]
     pub fn stride2(&self) -> usize {
         let zeros = self.alphabet_len().next_power_of_two().trailing_zeros();
         usize::try_from(zeros).unwrap()
@@ -239,13 +338,15 @@ impl ByteClasses {
 
     /// Returns true if and only if every byte in this class maps to its own
     /// equivalence class. Equivalently, there are 257 equivalence classes
-    /// and each class contains exactly one byte (plus the special EOI class).
+    /// and each class contains either exactly one byte or corresponds to the
+    /// singleton class containing the "end of input" sentinel.
     #[inline]
     pub fn is_singleton(&self) -> bool {
         self.alphabet_len() == 257
     }
 
     /// Returns an iterator over all equivalence classes in this set.
+    #[inline]
     pub fn iter(&self) -> ByteClassIter<'_> {
         ByteClassIter { classes: self, i: 0 }
     }
@@ -263,7 +364,48 @@ impl ByteClasses {
     /// from each equivalence class then permits a full exploration of the NFA
     /// instead of using every possible byte value and thus potentially saves
     /// quite a lot of redundant work.
-    #[cfg(feature = "alloc")]
+    ///
+    /// # Example
+    ///
+    /// This shows an example of what a complete sequence of representatives
+    /// might look like from a real example.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, util::alphabet::Unit};
+    ///
+    /// let nfa = NFA::new("[a-z]+")?;
+    /// let classes = nfa.byte_classes();
+    /// let reps: Vec<Unit> = classes.representatives(..).collect();
+    /// // Note that the specific byte values yielded are not guaranteed!
+    /// let expected = vec![
+    ///     Unit::u8(b'\x00'),
+    ///     Unit::u8(b'a'),
+    ///     Unit::u8(b'{'),
+    ///     Unit::eoi(3),
+    /// ];
+    /// assert_eq!(expected, reps);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Note though, that you can ask for an arbitrary range of bytes, and only
+    /// representatives for that range will be returned:
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, util::alphabet::Unit};
+    ///
+    /// let nfa = NFA::new("[a-z]+")?;
+    /// let classes = nfa.byte_classes();
+    /// let reps: Vec<Unit> = classes.representatives(b'A'..=b'z').collect();
+    /// // Note that the specific byte values yielded are not guaranteed!
+    /// let expected = vec![
+    ///     Unit::u8(b'A'),
+    ///     Unit::u8(b'a'),
+    /// ];
+    /// assert_eq!(expected, reps);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn representatives<R: core::ops::RangeBounds<u8>>(
         &self,
         range: R,
@@ -296,6 +438,34 @@ impl ByteClasses {
     }
 
     /// Returns an iterator of the bytes in the given equivalence class.
+    ///
+    /// This is useful when one needs to know the actual bytes that belong to
+    /// an equivalence class. For example, conceptually speaking, accelerating
+    /// a DFA state occurs when a state only has a few outgoing transitions.
+    /// But in reality, what is required is that there are only a small
+    /// number of distinct bytes that can lead to an outgoing transition. The
+    /// difference is that any one transition can correspond to an equivalence
+    /// class which may contains many bytes. Therefore, DFA state acceleration
+    /// considers the actual elements in each equivalence class of each
+    /// outgoing transition.
+    ///
+    /// # Example
+    ///
+    /// This shows an example of how to get all of the elements in an
+    /// equivalence class.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::NFA, util::alphabet::Unit};
+    ///
+    /// let nfa = NFA::new("[a-z]+")?;
+    /// let classes = nfa.byte_classes();
+    /// let elements: Vec<Unit> = classes.elements(Unit::u8(1)).collect();
+    /// let expected: Vec<Unit> = (b'a'..=b'z').map(Unit::u8).collect();
+    /// assert_eq!(expected, elements);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
     pub fn elements(&self, class: Unit) -> ByteClassElements {
         ByteClassElements { classes: self, class, byte: 0 }
     }
@@ -306,6 +476,12 @@ impl ByteClasses {
     /// class maps to a single contiguous range.
     fn element_ranges(&self, class: Unit) -> ByteClassElementRanges {
         ByteClassElementRanges { elements: self.elements(class), range: None }
+    }
+}
+
+impl Default for ByteClasses {
+    fn default() -> ByteClasses {
+        ByteClasses::singletons()
     }
 }
 
@@ -335,6 +511,13 @@ impl core::fmt::Debug for ByteClasses {
 }
 
 /// An iterator over each equivalence class.
+///
+/// The last element in this iterator always corresponds to [`Unit::eoi`].
+///
+/// This is created by the [`ByteClasses::iter`] method.
+///
+/// The lifetime `'a` refers to the lifetime of the byte classes that this
+/// iterator was created from.
 #[derive(Debug)]
 pub struct ByteClassIter<'a> {
     classes: &'a ByteClasses,
@@ -359,7 +542,11 @@ impl<'a> Iterator for ByteClassIter<'a> {
 }
 
 /// An iterator over representative bytes from each equivalence class.
-#[cfg(feature = "alloc")]
+///
+/// This is created by the [`ByteClasses::representatives`] method.
+///
+/// The lifetime `'a` refers to the lifetime of the byte classes that this
+/// iterator was created from.
 #[derive(Debug)]
 pub struct ByteClassRepresentatives<'a> {
     classes: &'a ByteClasses,
@@ -368,7 +555,6 @@ pub struct ByteClassRepresentatives<'a> {
     last_class: Option<u8>,
 }
 
-#[cfg(feature = "alloc")]
 impl<'a> Iterator for ByteClassRepresentatives<'a> {
     type Item = Unit;
 
@@ -401,6 +587,11 @@ impl<'a> Iterator for ByteClassRepresentatives<'a> {
 }
 
 /// An iterator over all elements in an equivalence class.
+///
+/// This is created by the [`ByteClasses::elements`] method.
+///
+/// The lifetime `'a` refers to the lifetime of the byte classes that this
+/// iterator was created from.
 #[derive(Debug)]
 pub struct ByteClassElements<'a> {
     classes: &'a ByteClasses,
@@ -415,7 +606,7 @@ impl<'a> Iterator for ByteClassElements<'a> {
         while self.byte < 256 {
             let byte = u8::try_from(self.byte).unwrap();
             self.byte += 1;
-            if self.class.as_u8() == Some(self.classes.get(byte)) {
+            if self.class.is_byte(self.classes.get(byte)) {
                 return Some(Unit::u8(byte));
             }
         }
@@ -432,7 +623,7 @@ impl<'a> Iterator for ByteClassElements<'a> {
 /// An iterator over all elements in an equivalence class expressed as a
 /// sequence of contiguous ranges.
 #[derive(Debug)]
-pub struct ByteClassElementRanges<'a> {
+struct ByteClassElementRanges<'a> {
     elements: ByteClassElements<'a>,
     range: Option<(Unit, Unit)>,
 }
@@ -488,7 +679,7 @@ impl<'a> Iterator for ByteClassElementRanges<'a> {
 /// same equivalence class.)
 #[cfg(feature = "alloc")]
 #[derive(Clone, Debug)]
-pub struct ByteClassSet(ByteSet);
+pub(crate) struct ByteClassSet(ByteSet);
 
 #[cfg(feature = "alloc")]
 impl Default for ByteClassSet {
@@ -525,7 +716,7 @@ impl ByteClassSet {
     /// Convert this boolean set to a map that maps all byte values to their
     /// corresponding equivalence class. The last mapping indicates the largest
     /// equivalence class identifier (which is never bigger than 255).
-    pub fn byte_classes(&self) -> ByteClasses {
+    pub(crate) fn byte_classes(&self) -> ByteClasses {
         let mut classes = ByteClasses::empty();
         let mut class = 0u8;
         let mut b = 0u8;
@@ -545,7 +736,7 @@ impl ByteClassSet {
 
 /// A simple set of bytes that is reasonably cheap to copy and allocation free.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ByteSet {
+pub(crate) struct ByteSet {
     bits: BitSet,
 }
 
@@ -556,44 +747,30 @@ struct BitSet([u128; 2]);
 
 impl ByteSet {
     /// Create an empty set of bytes.
-    pub fn empty() -> ByteSet {
+    pub(crate) fn empty() -> ByteSet {
         ByteSet { bits: BitSet([0; 2]) }
     }
 
     /// Add a byte to this set.
     ///
     /// If the given byte already belongs to this set, then this is a no-op.
-    pub fn add(&mut self, byte: u8) {
+    pub(crate) fn add(&mut self, byte: u8) {
         let bucket = byte / 128;
         let bit = byte % 128;
         self.bits.0[usize::from(bucket)] |= 1 << bit;
     }
 
-    /// Add an inclusive range of bytes.
-    pub fn add_all(&mut self, start: u8, end: u8) {
-        for b in start..=end {
-            self.add(b);
-        }
-    }
-
     /// Remove a byte from this set.
     ///
     /// If the given byte is not in this set, then this is a no-op.
-    pub fn remove(&mut self, byte: u8) {
+    pub(crate) fn remove(&mut self, byte: u8) {
         let bucket = byte / 128;
         let bit = byte % 128;
         self.bits.0[usize::from(bucket)] &= !(1 << bit);
     }
 
-    /// Remove an inclusive range of bytes.
-    pub fn remove_all(&mut self, start: u8, end: u8) {
-        for b in start..=end {
-            self.remove(b);
-        }
-    }
-
     /// Return true if and only if the given byte is in this set.
-    pub fn contains(&self, byte: u8) -> bool {
+    pub(crate) fn contains(&self, byte: u8) -> bool {
         let bucket = byte / 128;
         let bit = byte % 128;
         self.bits.0[usize::from(bucket)] & (1 << bit) > 0
@@ -601,28 +778,22 @@ impl ByteSet {
 
     /// Return true if and only if the given inclusive range of bytes is in
     /// this set.
-    pub fn contains_range(&self, start: u8, end: u8) -> bool {
+    pub(crate) fn contains_range(&self, start: u8, end: u8) -> bool {
         (start..=end).all(|b| self.contains(b))
     }
 
     /// Returns an iterator over all bytes in this set.
-    pub fn iter(&self) -> ByteSetIter {
+    pub(crate) fn iter(&self) -> ByteSetIter {
         ByteSetIter { set: self, b: 0 }
     }
 
     /// Returns an iterator over all contiguous ranges of bytes in this set.
-    pub fn iter_ranges(&self) -> ByteSetRangeIter {
+    pub(crate) fn iter_ranges(&self) -> ByteSetRangeIter {
         ByteSetRangeIter { set: self, b: 0 }
     }
 
-    /// Return the number of bytes in this set.
-    pub fn len(&self) -> usize {
-        let count = self.bits.0[0].count_ones() + self.bits.0[1].count_ones();
-        usize::try_from(count).unwrap()
-    }
-
     /// Return true if and only if this set is empty.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.bits.0 == [0, 0]
     }
 
@@ -691,7 +862,7 @@ impl core::fmt::Debug for BitSet {
 }
 
 #[derive(Debug)]
-pub struct ByteSetIter<'a> {
+pub(crate) struct ByteSetIter<'a> {
     set: &'a ByteSet,
     b: usize,
 }
@@ -712,7 +883,7 @@ impl<'a> Iterator for ByteSetIter<'a> {
 }
 
 #[derive(Debug)]
-pub struct ByteSetRangeIter<'a> {
+pub(crate) struct ByteSetRangeIter<'a> {
     set: &'a ByteSet,
     b: usize,
 }
@@ -885,14 +1056,14 @@ mod tests {
 
         let got: Vec<Unit> = classes.representatives(..).collect();
         let expected = vec![
-            Unit::U8(b'\x00'),
-            Unit::U8(b'b'),
-            Unit::U8(b'e'),
-            Unit::U8(b'g'),
-            Unit::U8(b'n'),
-            Unit::U8(b'z'),
-            Unit::U8(b'\x7B'),
-            Unit::EOI(7),
+            Unit::u8(b'\x00'),
+            Unit::u8(b'b'),
+            Unit::u8(b'e'),
+            Unit::u8(b'g'),
+            Unit::u8(b'n'),
+            Unit::u8(b'z'),
+            Unit::u8(b'\x7B'),
+            Unit::eoi(7),
         ];
         assert_eq!(expected, got);
 
@@ -911,54 +1082,54 @@ mod tests {
                 core::ops::Bound::Unbounded,
             ))
             .collect();
-        let expected = vec![Unit::EOI(7)];
+        let expected = vec![Unit::eoi(7)];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(..=255).collect();
         let expected = vec![
-            Unit::U8(b'\x00'),
-            Unit::U8(b'b'),
-            Unit::U8(b'e'),
-            Unit::U8(b'g'),
-            Unit::U8(b'n'),
-            Unit::U8(b'z'),
-            Unit::U8(b'\x7B'),
+            Unit::u8(b'\x00'),
+            Unit::u8(b'b'),
+            Unit::u8(b'e'),
+            Unit::u8(b'g'),
+            Unit::u8(b'n'),
+            Unit::u8(b'z'),
+            Unit::u8(b'\x7B'),
         ];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(b'b'..=b'd').collect();
-        let expected = vec![Unit::U8(b'b')];
+        let expected = vec![Unit::u8(b'b')];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(b'a'..=b'd').collect();
-        let expected = vec![Unit::U8(b'a'), Unit::U8(b'b')];
+        let expected = vec![Unit::u8(b'a'), Unit::u8(b'b')];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(b'b'..=b'e').collect();
-        let expected = vec![Unit::U8(b'b'), Unit::U8(b'e')];
+        let expected = vec![Unit::u8(b'b'), Unit::u8(b'e')];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(b'A'..=b'Z').collect();
-        let expected = vec![Unit::U8(b'A')];
+        let expected = vec![Unit::u8(b'A')];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(b'A'..=b'z').collect();
         let expected = vec![
-            Unit::U8(b'A'),
-            Unit::U8(b'b'),
-            Unit::U8(b'e'),
-            Unit::U8(b'g'),
-            Unit::U8(b'n'),
-            Unit::U8(b'z'),
+            Unit::u8(b'A'),
+            Unit::u8(b'b'),
+            Unit::u8(b'e'),
+            Unit::u8(b'g'),
+            Unit::u8(b'n'),
+            Unit::u8(b'z'),
         ];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(b'z'..).collect();
-        let expected = vec![Unit::U8(b'z'), Unit::U8(b'\x7B'), Unit::EOI(7)];
+        let expected = vec![Unit::u8(b'z'), Unit::u8(b'\x7B'), Unit::eoi(7)];
         assert_eq!(expected, got);
 
         let got: Vec<Unit> = classes.representatives(b'z'..=0xFF).collect();
-        let expected = vec![Unit::U8(b'z'), Unit::U8(b'\x7B')];
+        let expected = vec![Unit::u8(b'z'), Unit::u8(b'\x7B')];
         assert_eq!(expected, got);
     }
 }

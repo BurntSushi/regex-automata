@@ -660,7 +660,7 @@ impl<'a> InternalBuilder<'a> {
             // much easier to grok as a human.
             ByteClasses::singletons()
         } else {
-            nfa.byte_class_set().byte_classes()
+            nfa.byte_classes().clone()
         };
         // Normally a DFA alphabet includes the EOI symbol, but we don't need
         // that in the one-pass DFA since we handle look-around explicitly

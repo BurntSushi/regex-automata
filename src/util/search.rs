@@ -1,5 +1,9 @@
 /*!
 Types and routines that support the search APIs of most regex engines.
+
+This sub-module isn't exposed directly, but rather, its contents are exported
+at the crate root due to the universality of most of the types and routines in
+this module.
 */
 
 use core::ops::{Range, RangeBounds};
@@ -9,11 +13,11 @@ use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 /// The parameters for a regex search including the haystack to search.
 ///
 /// It turns out that regex searches have a few parameters, and in most cases,
-/// those parameters have defaults that work in the vast majority of cases. This
-/// `Input` type exists to make that common case seamnless while also providing
-/// an avenue for changing the parameters of search. In particular, this type
-/// enables doing so without a combinatorial explosion of different methods
-/// and/or superfluous parameters in the common cases.
+/// those parameters have defaults that work in the vast majority of cases.
+/// This `Input` type exists to make that common case seamnless while also
+/// providing an avenue for changing the parameters of a search. In particular,
+/// this type enables doing so without a combinatorial explosion of different
+/// methods and/or superfluous parameters in the common cases.
 ///
 /// An `Input` permits configuring the following things:
 ///
@@ -89,49 +93,11 @@ use crate::util::{escape::DebugByte, primitives::PatternID, utf8};
 /// be handled outside of `Input`.)
 ///
 /// Supporting other aspects of an `Input` are optional, but regex engines
-/// should return an error when something is requested that it cannot fulfill.
-/// Regex engines may provide infallible routines that panic in such cases,
-/// but they should always expose a fallible API as well whenever an error is
-/// possible.
-///
-/// # Errors
-///
-/// Since `Input` is meant to be a superset of most of the input parameters
-/// to a search for any regex engine in this crate, it is possible to enable
-/// or disable some options that might not have the intended effect. For this
-/// reason, regex engines accepting an `Input` should return an error when
-/// specific options are set but cannot be supported.
-///
-/// What follows is a complete set of rules of when a regex engine should
-/// return an error based on the given `Input` configuration. Every regex
-/// engine in this crate follows these rules.
-///
-/// * An [`Anchored`] setting is provided that isn't supported. For example, a
-/// DFA might be compiled with only an unanchored starting state. Therefore,
-/// if the caller asked for an [`Anchored::Yes`] search, then the regex engine
-/// should return an error. (Note though that if the caller asks for an
-/// `Anchored::No` search and the regex pattern itself is anchored, then so
-/// long as the regex engine can provide a way to search that is unanchored, it
-/// should be permitted. That is, reporting an error should be a property of
-/// the regex engine itself and not a property of the regex pattern.) Another
-/// example of this is using [`Anchored::Pattern`] when the regex engine
-/// does not support anchored searches for individual patterns. Note though
-/// that if `Anchored::Pattern` is given with a pattern ID that is not in the
-/// regex, then the regex engine should report a non-match and not an error.
-/// * If [`Input::earliest`] is enabled and the regex engine doesn't support
-/// returning the "earliest" match, then the regex engine is safe to simply
-/// ignore the option and _not_ return an error. This is because "earliest" is
-/// not defined as a particular match semantic itself, but rather, a mechanism
-/// by which a particular regex engine can "return early" *if the opportunity
-/// arises*. The "earliest" option is generally intended to be used as an
-/// implementation strategy for implementing predicate routines like `is_match`
-/// where the specific offset isn't important, but sometimes the offset is
-/// useful.
-///
-/// Since `Input` itself guarantees that its bounds are valid for its haystack,
-/// regex engines must never panic because of an out-of-bounds access.
-/// This can be guaranteed by ensuring a regex engine never tries to index
-/// [`Input::haystack`] when [`Input::is_done`] returns `true`.
+/// should handle aspects they don't support gracefully. How this is done is
+/// generally up to the regex engine. This crate generally treats unsupported
+/// anchored modes as an error to report for example, but for simplicity, in
+/// the meta regex engine, trying to search with an invalid pattern ID just
+/// results in no match being reported.
 #[derive(Clone)]
 pub struct Input<'h> {
     haystack: &'h [u8],

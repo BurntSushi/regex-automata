@@ -81,11 +81,11 @@ impl Config {
     /// non-empty matches that are valid UTF-8, and an *instruction* to regex
     /// engines that empty matches that split codepoints should be banned.
     ///
-    /// Because UTF-8 mode is fundamentally about avoiding invalid UTF-8
-    /// spans, it only makes sense to enable it when you *know* your haystack
+    /// Because UTF-8 mode is fundamentally about avoiding invalid UTF-8 spans,
+    /// it only makes sense to enable this option when you *know* your haystack
     /// is valid UTF-8. (For example, a `&str`.) Enabling UTF-8 mode and
-    /// searching a haystack that contains invalid UTF-8 leads to
-    /// **unspecified behavior**.
+    /// searching a haystack that contains invalid UTF-8 leads to **unspecified
+    /// behavior**.
     ///
     /// Therefore, it may make sense to enable `syntax::Config::utf8` while
     /// simultaneously *disabling* this option. That would ensure all non-empty

@@ -1,3 +1,10 @@
+/*!
+Utilities for dealing with UTF-8.
+
+This module provides some UTF-8 related helper routines, including an
+incremental decoder.
+*/
+
 /// Returns true if and only if the given byte is considered a word character.
 /// This only applies to ASCII.
 ///
@@ -41,6 +48,10 @@ pub(crate) fn is_word_byte(b: u8) -> bool {
 /// This returns `None` if and only if `bytes` is empty.
 ///
 /// This never panics.
+///
+/// *WARNING*: This is not designed for performance. If you're looking for a
+/// fast UTF-8 decoder, this is not it. If you feel like you need one in this
+/// crate, then please file an issue and discuss your use case.
 #[inline(always)]
 pub(crate) fn decode(bytes: &[u8]) -> Option<Result<char, u8>> {
     if bytes.is_empty() {

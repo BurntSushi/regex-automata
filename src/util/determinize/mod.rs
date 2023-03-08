@@ -13,11 +13,9 @@ in common, as defined by this module:
 word boundaries, line boundaries, etc., is all the same. This also includes
 the look-behind assertions that are satisfied by each starting state
 classification.
-
 * The representation of DFA states as sets of NFA states, including
 convenience types for building these DFA states that are amenable to reusing
 allocations.
-
 * Routines for the "classical" parts of determinization: computing the
 epsilon closure, tracking match states (with corresponding pattern IDs, since
 we support multi-pattern finite automata) and, of course, computing the
