@@ -51,7 +51,8 @@ dfa-onepass = ["nfa-thompson"]
 
 hybrid = ["alloc", "nfa-thompson"]
 
-perf = ["perf-literal"]
+perf = ["perf-inline", "perf-literal"]
+perf-inline = []
 perf-literal = ["perf-literal-substring", "perf-literal-multisubstring"]
 perf-literal-substring = ["aho-corasick?/perf-literal", "dep:memchr"]
 perf-literal-multisubstring = ["std", "dep:aho-corasick"]
