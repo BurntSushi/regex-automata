@@ -38,8 +38,10 @@ use crate::{
 ///
 /// # Capabilities
 ///
-/// Using an NFA for searching provides the most amount of "power" of any
-/// regex engine in this crate. Namely, it supports the following:
+/// Using an NFA for searching via the
+/// [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM) provides the most amount
+/// of "power" of any regex engine in this crate. Namely, it supports the
+/// following in all cases:
 ///
 /// 1. Detection of a match.
 /// 2. Location of a match, including both the start and end offset, in a
@@ -54,12 +56,12 @@ use crate::{
 /// like this, where `exp` is an arbitrary regex:
 ///
 /// * `(exp)` - An unnamed capturing group.
-/// * `(?P<name>exp)` - A named capturing group.
+/// * `(?P<name>exp)` or `(?<name>exp)` - A named capturing group.
 /// * `(?:exp)` - A non-capturing group.
 /// * `(?i:exp)` - A non-capturing group that sets flags.
 ///
-/// Only the first two forms are said to be _capturing_, which means
-/// that the last position at which they match is reportable. The
+/// Only the first two forms are said to be _capturing_. Capturing
+/// means that the last position at which they match is reportable. The
 /// [`Captures`](crate::util::captures::Captures) type provides convenient
 /// access to the match positions of capturing groups, which includes looking
 /// up capturing groups by their name.
@@ -1295,7 +1297,7 @@ impl Inner {
                         // I think we should consider a single contiguous
                         // allocation instead of all this indirection and
                         // potential heap allocations for every state. But this
-                        // is a large design and will require API breaking
+                        // is a large re-design and will require API breaking
                         // changes.
                         // self.memory_extra -= self.states[sid].memory_usage();
                         // let trans = DenseTransitions::from_sparse(sparse);
@@ -1771,14 +1773,6 @@ impl fmt::Debug for State {
     }
 }
 
-// THOUGHT: I wonder if it makes sense to add a DenseTransitions too? The main
-// problem, of course, is that it would use a lot of space, especially without
-// any sort of byte class optimization. (Although, perhaps we can make the
-// byte class optimization for the NFA work..?) Naively, if DenseTransitions
-// had space for 256 transitions, then it would take 256*sizeof(StateID)=1KB.
-// Yikes. So we would really need to figure out *when* to use it, and that
-// seems a little tricky...
-
 /// A sequence of transitions used to represent a sparse state.
 ///
 /// This is the primary representation of a [`Sparse`](State::Sparse) state.
@@ -1800,6 +1794,7 @@ impl SparseTransitions {
     /// `haystack`.
     ///
     /// If `at >= haystack.len()`, then this returns `None`.
+    #[inline]
     pub fn matches(&self, haystack: &[u8], at: usize) -> Option<StateID> {
         haystack.get(at).and_then(|&b| self.matches_byte(b))
     }
@@ -1810,7 +1805,11 @@ impl SparseTransitions {
     /// range (there is at most one) corresponding to the position `at` in
     /// `haystack`. If the given alphabet unit is [`EOI`](alphabet::Unit::eoi),
     /// then this always returns `None`.
-    pub fn matches_unit(&self, unit: alphabet::Unit) -> Option<StateID> {
+    #[inline]
+    pub(crate) fn matches_unit(
+        &self,
+        unit: alphabet::Unit,
+    ) -> Option<StateID> {
         unit.as_u8().map_or(None, |byte| self.matches_byte(byte))
     }
 
@@ -1818,6 +1817,7 @@ impl SparseTransitions {
     ///
     /// The matching transition is found by looking for a matching byte range
     /// (there is at most one) corresponding to the byte given.
+    #[inline]
     pub fn matches_byte(&self, byte: u8) -> Option<StateID> {
         for t in self.transitions.iter() {
             if t.start > byte {
@@ -1859,6 +1859,16 @@ impl SparseTransitions {
     }
 }
 
+/// A sequence of transitions used to represent a dense state.
+///
+/// This is the primary representation of a [`Dense`](State::Dense) state. It
+/// provides constant time matching. That is, given a byte in a haystack and
+/// a `DenseTransitions`, one can determine if the state matches in constant
+/// time.
+///
+/// This is in contrast to `SparseTransitions`, whose time complexity is
+/// necessarily bigger than constant time. Also in contrast, `DenseTransitions`
+/// usually requires (much) more heap memory.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DenseTransitions {
     /// A dense representation of this state's transitions on the heap. This
@@ -1867,14 +1877,41 @@ pub struct DenseTransitions {
 }
 
 impl DenseTransitions {
+    /// This follows the matching transition for a particular byte.
+    ///
+    /// The matching transition is found by looking for a transition that
+    /// doesn't correspond to `StateID::ZERO` for the byte `at` the given
+    /// position in `haystack`.
+    ///
+    /// If `at >= haystack.len()`, then this returns `None`.
+    #[inline]
     pub fn matches(&self, haystack: &[u8], at: usize) -> Option<StateID> {
         haystack.get(at).and_then(|&b| self.matches_byte(b))
     }
 
-    pub fn matches_unit(&self, unit: alphabet::Unit) -> Option<StateID> {
+    /// This follows the matching transition for any member of the alphabet.
+    ///
+    /// The matching transition is found by looking for a transition that
+    /// doesn't correspond to `StateID::ZERO` for the byte `at` the given
+    /// position in `haystack`.
+    ///
+    /// If `at >= haystack.len()` or if the given alphabet unit is
+    /// [`EOI`](alphabet::Unit::eoi), then this returns `None`.
+    #[inline]
+    pub(crate) fn matches_unit(
+        &self,
+        unit: alphabet::Unit,
+    ) -> Option<StateID> {
         unit.as_u8().map_or(None, |byte| self.matches_byte(byte))
     }
 
+    /// This follows the matching transition for a particular byte.
+    ///
+    /// The matching transition is found by looking for a transition that
+    /// doesn't correspond to `StateID::ZERO` for the given `byte`.
+    ///
+    /// If `at >= haystack.len()`, then this returns `None`.
+    #[inline]
     pub fn matches_byte(&self, byte: u8) -> Option<StateID> {
         let next = self.transitions[usize::from(byte)];
         if next == StateID::ZERO {
@@ -1897,6 +1934,8 @@ impl DenseTransitions {
         DenseTransitions { transitions: dense.into_boxed_slice() }
     }
 
+    /// Returns an iterator over all transitions that don't point to
+    /// `StateID::ZERO`.
     pub(crate) fn iter(&self) -> impl Iterator<Item = Transition> + '_ {
         use crate::util::int::Usize;
         self.transitions
