@@ -1690,13 +1690,15 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode. Concrete,
+    /// this occurs when using [`Anchored::Pattern`] without enabling
+    /// [`Config::starts_for_each_pattern`].
     ///
     /// When a search panics, callers cannot know whether a match exists or
     /// not.
     ///
-    /// Use [`DFA::try_search`] if you want to handle these error conditions.
+    /// Use [`DFA::try_search`] if you want to handle these panics as error
+    /// values instead.
     ///
     /// # Example
     ///
@@ -1771,13 +1773,15 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode. Concrete,
+    /// this occurs when using [`Anchored::Pattern`] without enabling
+    /// [`Config::starts_for_each_pattern`].
     ///
     /// When a search panics, callers cannot know whether a match exists or
     /// not.
     ///
-    /// Use [`DFA::try_search`] if you want to handle these error conditions.
+    /// Use [`DFA::try_search`] if you want to handle these panics as error
+    /// values instead.
     ///
     /// # Example
     ///
@@ -1836,8 +1840,9 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode. Concrete,
+    /// this occurs when using [`Anchored::Pattern`] without enabling
+    /// [`Config::starts_for_each_pattern`].
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1966,8 +1971,9 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode. Concrete,
+    /// this occurs when using [`Anchored::Pattern`] without enabling
+    /// [`Config::starts_for_each_pattern`].
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -2285,18 +2291,13 @@ impl DFA {
                 pid,
             )));
         }
-        match self.starts.get(pid.one_more()) {
-            None => {
-                // 'starts' always has non-zero length. The first entry is
-                // always the anchored starting state for all patterns, and
-                // the following entries are optional and correspond to the
-                // anchored starting states for patterns at pid+1. Thus,
-                // starts.len()-1 corresponds to the total number of patterns
-                // that one can explicitly search for. (And it may be zero.)
-                Ok(None)
-            }
-            Some(&sid) => Ok(Some(sid)),
-        }
+        // 'starts' always has non-zero length. The first entry is always the
+        // anchored starting state for all patterns, and the following entries
+        // are optional and correspond to the anchored starting states for
+        // patterns at pid+1. Thus, starts.len()-1 corresponds to the total
+        // number of patterns that one can explicitly search for. (And it may
+        // be zero.)
+        Ok(self.starts.get(pid.one_more()).copied())
     }
 
     /// Returns the transition from the given state ID and byte of input. The

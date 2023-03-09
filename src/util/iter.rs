@@ -294,7 +294,7 @@ impl<'h> Searcher<'h> {
     ///
     /// let expected = Some(Match::must(0, 0..10));
     /// let got = it.advance(|input| {
-    ///     re.try_search(&mut cache, input, &mut caps)?;
+    ///     re.search(&mut cache, input, &mut caps);
     ///     Ok(caps.get_match())
     /// });
     /// // Note that if we wanted to extract capturing group spans, we could
@@ -303,21 +303,21 @@ impl<'h> Searcher<'h> {
     ///
     /// let expected = Some(Match::must(0, 11..21));
     /// let got = it.advance(|input| {
-    ///     re.try_search(&mut cache, input, &mut caps)?;
+    ///     re.search(&mut cache, input, &mut caps);
     ///     Ok(caps.get_match())
     /// });
     /// assert_eq!(expected, got);
     ///
     /// let expected = Some(Match::must(0, 22..32));
     /// let got = it.advance(|input| {
-    ///     re.try_search(&mut cache, input, &mut caps)?;
+    ///     re.search(&mut cache, input, &mut caps);
     ///     Ok(caps.get_match())
     /// });
     /// assert_eq!(expected, got);
     ///
     /// let expected = None;
     /// let got = it.advance(|input| {
-    ///     re.try_search(&mut cache, input, &mut caps)?;
+    ///     re.search(&mut cache, input, &mut caps);
     ///     Ok(caps.get_match())
     /// });
     /// assert_eq!(expected, got);
@@ -534,7 +534,7 @@ impl<'h> Searcher<'h> {
     /// let input = Input::new(haystack);
     /// let mut it = Searcher::new(input)
     ///     .into_captures_iter(caps, |input, caps| {
-    ///         re.try_search(&mut cache, input, caps)?;
+    ///         re.search(&mut cache, input, caps);
     ///         Ok(())
     ///     });
     ///

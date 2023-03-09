@@ -847,33 +847,33 @@ impl NFA {
     ///
     /// // UTF-8 mode is enabled by default.
     /// let mut input = Input::new("☃");
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
     ///
     /// // Even though an empty regex matches at 1..1, our next match is
     /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
     /// // three bytes long).
     /// input.set_start(1);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
     /// let re = PikeVM::builder()
     ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build("")?;
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
     ///
     /// input.set_start(2);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
     ///
     /// input.set_start(3);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
     ///
     /// input.set_start(4);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -2050,12 +2050,12 @@ mod tests {
 
     #[test]
     fn always_match() {
-        let vm = PikeVM::new_from_nfa(NFA::always_match()).unwrap();
-        let mut cache = vm.create_cache();
-        let mut caps = vm.create_captures();
+        let re = PikeVM::new_from_nfa(NFA::always_match()).unwrap();
+        let mut cache = re.create_cache();
+        let mut caps = re.create_captures();
         let mut find = |haystack, start, end| {
             let input = Input::new(haystack).range(start..end);
-            vm.try_search(&mut cache, &input, &mut caps).unwrap();
+            re.search(&mut cache, &input, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 
@@ -2069,12 +2069,12 @@ mod tests {
 
     #[test]
     fn never_match() {
-        let vm = PikeVM::new_from_nfa(NFA::never_match()).unwrap();
-        let mut cache = vm.create_cache();
-        let mut caps = vm.create_captures();
+        let re = PikeVM::new_from_nfa(NFA::never_match()).unwrap();
+        let mut cache = re.create_cache();
+        let mut caps = re.create_captures();
         let mut find = |haystack, start, end| {
             let input = Input::new(haystack).range(start..end);
-            vm.try_search(&mut cache, &input, &mut caps).unwrap();
+            re.search(&mut cache, &input, &mut caps);
             caps.get_match().map(|m| m.end())
         };
 

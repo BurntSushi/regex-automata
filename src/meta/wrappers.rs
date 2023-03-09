@@ -76,9 +76,7 @@ impl PikeVMEngine {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
-        self.0
-            .try_search_slots(cache.0.as_mut().unwrap(), input, slots)
-            .unwrap()
+        self.0.search_slots(cache.0.as_mut().unwrap(), input, slots)
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
@@ -88,13 +86,11 @@ impl PikeVMEngine {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) {
-        self.0
-            .try_which_overlapping_matches(
-                cache.0.as_mut().unwrap(),
-                input,
-                patset,
-            )
-            .unwrap()
+        self.0.which_overlapping_matches(
+            cache.0.as_mut().unwrap(),
+            input,
+            patset,
+        )
     }
 }
 

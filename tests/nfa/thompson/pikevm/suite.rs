@@ -96,8 +96,7 @@ fn run_test(
             }
             SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-                re.try_which_overlapping_matches(cache, &input, &mut patset)
-                    .unwrap();
+                re.which_overlapping_matches(cache, &input, &mut patset);
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },

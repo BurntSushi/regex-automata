@@ -163,7 +163,7 @@ impl<'h> Input<'h> {
     ///
     /// // A standard search finds nothing, as expected.
     /// let input = Input::new(haystack);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// // But if we wanted to search starting at position '1', we might
@@ -171,14 +171,14 @@ impl<'h> Input<'h> {
     /// // anchors to take the surrounding context into account! And thus,
     /// // a match is produced.
     /// let input = Input::new(&haystack[1..3]);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..2)), caps.get_match());
     ///
     /// // But if we specify the span of the search instead of slicing the
     /// // haystack, then the regex engine can "see" outside of the span
     /// // and resolve the anchors correctly.
     /// let input = Input::new(haystack).span(1..3);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(None, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -220,6 +220,9 @@ impl<'h> Input<'h> {
     /// to a valid [`Range`]. For example, this would panic when given
     /// `0..=usize::MAX` since it cannot be represented using a half-open
     /// interval in terms of `usize`.
+    ///
+    /// This also panics if the given range does not correspond to valid bounds
+    /// in the haystack or the termination of a search.
     ///
     /// # Example
     ///
@@ -299,7 +302,7 @@ impl<'h> Input<'h> {
     /// let re = PikeVM::new(r"^a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(2..3).anchored(Anchored::No);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// // No match is found because 2 is not the beginning of the haystack,
     /// // which is what ^ requires.
     /// assert_eq!(None, caps.get_match());
@@ -307,7 +310,7 @@ impl<'h> Input<'h> {
     /// let re = PikeVM::new(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(2..3).anchored(Anchored::Yes);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// // An anchored search can still match anywhere in the haystack, it just
     /// // must begin at the start of the search which is '2' in this case.
     /// assert_eq!(Some(Match::must(0, 2..3)), caps.get_match());
@@ -315,7 +318,7 @@ impl<'h> Input<'h> {
     /// let re = PikeVM::new(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(1..3).anchored(Anchored::Yes);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// // No match is found since we start searching at offset 1 which
     /// // corresponds to 'b'. Since there is no '(?s:.)*?' prefix, no match
     /// // is found.
@@ -324,7 +327,7 @@ impl<'h> Input<'h> {
     /// let re = PikeVM::new(r"a")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     /// let input = Input::new(haystack).span(1..3).anchored(Anchored::No);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// // Since anchored=no, an implicit '(?s:.)*?' prefix was added to the
     /// // pattern. Even though the search starts at 'b', the 'match anything'
     /// // prefix allows the search to match 'a'.
@@ -374,14 +377,14 @@ impl<'h> Input<'h> {
     ///
     /// // A normal search implements greediness like you expect.
     /// let input = Input::new("foo12345");
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..8)), caps.get_match());
     ///
     /// // When 'earliest' is enabled and the regex engine supports
     /// // it, the search will bail once it knows a match has been
     /// // found.
     /// let input = Input::new("foo12345").earliest(true);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(Some(Match::must(0, 0..4)), caps.get_match());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -1387,17 +1390,90 @@ impl<'a> Iterator for PatternSetIter<'a> {
 /// A third option exists that, assuming the regex engine supports it, permits
 /// you to do an anchored search for a specific pattern.
 ///
-/// If a regex engine does not support the anchored mode selected, then the
-/// regex engine will panic. While any non-trivial regex engine should support
-/// at least one of the available anchored modes, there is no singular mode
-/// that is guaranteed to be universally supported. Some regex engines might
-/// only support unanchored searches (DFAs compiled without anchored starting
-/// states) and some regex engines might only support anchored searches (like
-/// the one-pass DFA).
-///
 /// Note that there is no way to run an unanchored search for a specific
 /// pattern. If you need that, you'll need to build separate regexes for each
 /// pattern.
+///
+/// # Errors
+///
+/// If a regex engine does not support the anchored mode selected, then the
+/// regex engine will return an error. While any non-trivial regex engine
+/// should support at least one of the available anchored modes, there is no
+/// singular mode that is guaranteed to be universally supported. Some regex
+/// engines might only support unanchored searches (DFAs compiled without
+/// anchored starting states) and some regex engines might only support
+/// anchored searches (like the one-pass DFA).
+///
+/// The specific error returned is a [`MatchError`] with a
+/// [`MatchErrorKind::UnsupportedAnchored`] kind. The kind includes the
+/// `Anchored` value given that is unsupported.
+///
+/// Note that regex engines should report "no match" if, for example, an
+/// `Anchored::Pattern` is provided with an invalid pattern ID _but_ where
+/// anchored searches for a specific pattern are supported. This is smooths out
+/// behavior such that it's possible to guarantee that an error never occurs
+/// based on how the regex engine is configured. All regex engines in this
+/// crate report "no match" when searching for an invalid pattern ID, but where
+/// searching for a valid pattern ID is otherwise supported.
+///
+/// # Example
+///
+/// This example shows how to use the various `Anchored` modes to run a
+/// search. We use the [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM)
+/// because it supports all modes unconditionally. Some regex engines, like
+/// the [`onepass::DFA`](crate::dfa::onepass::DFA) cannot support unanchored
+/// searches.
+///
+/// ```
+/// use regex_automata::{
+///     nfa::thompson::pikevm::PikeVM,
+///     Anchored, Input, Match, PatternID,
+/// };
+///
+/// let re = PikeVM::new_many(&[
+///     r"Mrs. \w+",
+///     r"Miss \w+",
+///     r"Mr. \w+",
+///     r"Ms. \w+",
+/// ])?;
+/// let mut cache = re.create_cache();
+/// let hay = "Hello Mr. Springsteen!";
+///
+/// // The default is to do an unanchored search.
+/// assert_eq!(Some(Match::must(2, 6..21)), re.find(&mut cache, hay));
+/// // Explicitly ask for an unanchored search. Same as above.
+/// let input = Input::new(hay).anchored(Anchored::No);
+/// assert_eq!(Some(Match::must(2, 6..21)), re.find(&mut cache, hay));
+///
+/// // Now try an anchored search. Since the match doesn't start at the
+/// // beginning of the haystack, no match is found!
+/// let input = Input::new(hay).anchored(Anchored::Yes);
+/// assert_eq!(None, re.find(&mut cache, input));
+///
+/// // We can try an anchored search again, but move the location of where
+/// // we start the search. Note that the offsets reported are still in
+/// // terms of the overall haystack and not relative to where we started
+/// // the search.
+/// let input = Input::new(hay).anchored(Anchored::Yes).range(6..);
+/// assert_eq!(Some(Match::must(2, 6..21)), re.find(&mut cache, input));
+///
+/// // Now try an anchored search for a specific pattern. We specifically
+/// // choose a pattern that we know doesn't match to prove that the search
+/// // only looks for the pattern we provide.
+/// let input = Input::new(hay)
+///     .anchored(Anchored::Pattern(PatternID::must(1)))
+///     .range(6..);
+/// assert_eq!(None, re.find(&mut cache, input));
+///
+/// // But if we switch it to the pattern that we know matches, then we find
+/// // the match.
+/// let input = Input::new(hay)
+///     .anchored(Anchored::Pattern(PatternID::must(2)))
+///     .range(6..);
+/// assert_eq!(Some(Match::must(2, 6..21)), re.find(&mut cache, input));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Anchored {
     /// Run an unanchored search. This means a match may occur anywhere at or
@@ -1460,7 +1536,138 @@ impl Anchored {
 
 /// The kind of match semantics to use for a regex pattern.
 ///
-/// The default match kind is `LeftmostFirst`.
+/// The default match kind is `LeftmostFirst`, and this corresponds to the
+/// match semantics used by most backtracking engines, such as Perl.
+///
+/// # Leftmost first or "preference order" match semantics
+///
+/// Leftmost-first semantics determine which match to report when there are
+/// multiple paths through a regex that match at the same position. The tie is
+/// essentially broken by how a backtracker would behave. For example, consider
+/// running the regex `foofoofoo|foofoo|foo` on the haystack `foofoo`. In this
+/// case, both the `foofoo` and `foo` branches match at position `0`. So should
+/// the end of the match be `3` or `6`?
+///
+/// A backtracker will conceptually work by trying `foofoofoo` and failing.
+/// Then it will try `foofoo`, find the match and stop there. Thus, the
+/// leftmost-first match position is `6`. This is called "leftmost-first" or
+/// "preference order" because the order of the branches as written in the
+/// regex pattern is what determines how to break the tie.
+///
+/// (Note that leftmost-longest match semantics, which break ties by always
+/// taking the longest matching string, are not currently supported by this
+/// crate. These match semantics tend to be found in POSIX regex engines.)
+///
+/// This example shows how leftmost-first semantics work, and how it even
+/// applies to multi-pattern regexes:
+///
+/// ```
+/// use regex_automata::{
+///     nfa::thompson::pikevm::PikeVM,
+///     Match,
+/// };
+///
+/// let re = PikeVM::new_many(&[
+///     r"foofoofoo",
+///     r"foofoo",
+///     r"foo",
+/// ])?;
+/// let mut cache = re.create_cache();
+/// let got: Vec<Match> = re.find_iter(&mut cache, "foofoo").collect();
+/// let expected = vec![Match::must(1, 0..6)];
+/// assert_eq!(expected, got);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # All matches
+///
+/// The `All` match semantics report any and all matches, and generally will
+/// attempt to match as much as possible. It doesn't respect any sort of match
+/// priority at all, so things like non-greedy matching don't work in this
+/// mode.
+///
+/// The fact that non-greedy matching doesn't work generally makes most forms
+/// of unanchored non-overlapping searches have unintuitive behavior. Namely,
+/// unanchored searches behave as if there is a `(?s-u:.)*?` prefix at the
+/// beginning of the pattern, which is specifically non-greedy. Since it will
+/// be treated as greedy in `All` match semantics, this generally means that
+/// it will first attempt to consume all of the haystack and is likely to wind
+/// up skipping matches.
+///
+/// Generally speaking, `All` should only be used in two circumstances:
+///
+/// * When running an anchored search and there is a desire to match as much as
+/// possible. For example, when building a reverse regex matcher to find the
+/// start of a match after finding the end. In this case, the reverse search
+/// is anchored to the end of the match found by the forward search.
+/// * When running overlapping searches. Since `All` encodes all possible
+/// matches, this is generally what you want for an overlapping search. If you
+/// try to use leftmost-first in an overlapping search, it is likely to produce
+/// counter-intuitive results since leftmost-first specifically excludes some
+/// matches from its underlying finite state machine.
+///
+/// This example demonstrates the counter-intuitive behavior of `All` semantics
+/// when using a standard leftmost unanchored search:
+///
+/// ```
+/// use regex_automata::{
+///     nfa::thompson::pikevm::PikeVM,
+///     Match, MatchKind,
+/// };
+///
+/// let re = PikeVM::builder()
+///     .configure(PikeVM::config().match_kind(MatchKind::All))
+///     .build("foo")?;
+/// let hay = "first foo second foo wat";
+/// let mut cache = re.create_cache();
+/// let got: Vec<Match> = re.find_iter(&mut cache, hay).collect();
+/// // Notice that it completely skips the first 'foo'!
+/// let expected = vec![Match::must(0, 17..20)];
+/// assert_eq!(expected, got);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// This second example shows how `All` semantics are useful for an overlapping
+/// search. Note that we use lower level lazy DFA APIs here since the NFA
+/// engines only currently support a very limited form of overlapping search.
+///
+/// ```
+/// use regex_automata::{
+///     hybrid::dfa::{DFA, OverlappingState},
+///     HalfMatch, Input, MatchKind,
+/// };
+///
+/// let re = DFA::builder()
+///     // If we didn't set 'All' semantics here, then the regex would only
+///     // match 'foo' at offset 3 and nothing else. Why? Because the state
+///     // machine implements preference order and knows that the 'foofoo' and
+///     // 'foofoofoo' branches can never match since 'foo' will always match
+///     // when they match and take priority.
+///     .configure(DFA::config().match_kind(MatchKind::All))
+///     .build(r"foo|foofoo|foofoofoo")?;
+/// let mut cache = re.create_cache();
+/// let mut state = OverlappingState::start();
+/// let input = Input::new("foofoofoo");
+/// let mut got = vec![];
+/// loop {
+///     re.try_search_overlapping_fwd(&mut cache, &input, &mut state)?;
+///     let m = match state.get_match() {
+///         None => break,
+///         Some(m) => m,
+///     };
+///     got.push(m);
+/// }
+/// let expected = vec![
+///     HalfMatch::must(0, 3),
+///     HalfMatch::must(0, 6),
+///     HalfMatch::must(0, 9),
+/// ];
+/// assert_eq!(expected, got);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MatchKind {
@@ -1536,21 +1743,17 @@ impl Default for MatchKind {
 /// believes that it is not efficient. This in turn permits callers to choose a
 /// different regex engine.
 ///
-/// # Advice
+/// (Note that DFAs are configured by default to never quit or give up in this
+/// fashion. For example, by default, a DFA will fail to build if the regex
+/// pattern contains a Unicode word boundary. One needs to opt into the "quit"
+/// behavior via options, like
+/// [`hybrid::dfa::Config::unicode_word_boundary`](crate::hybrid::dfa::Config::unicode_word_boundary).)
 ///
-/// While this form of error reporting adds complexity, it is generally
-/// possible for callers to configure regex engines to never give up on a
-/// search, and thus never return an error. Indeed, the default configuration
-/// for every regex engine in this crate is such that they will never stop
-/// searching early. Therefore, the only way to get a match error is if the
-/// regex engine is explicitly configured to do so. Options that enable this
-/// behavior document the new error conditions they imply.
-///
-/// For example, the dense and sparse regex engines in the `dfa` sub-module
-/// will only report `MatchError::quit` if instructed by either
-/// [enabling Unicode word boundaries](crate::dfa::dense::Config::unicode_word_boundary)
-/// or by
-/// [explicitly specifying one or more quit bytes](crate::dfa::dense::Config::quit).
+/// There are a couple other ways a search
+/// can fail. For example, when using the
+/// [`BoundedBacktracker`](crate::nfa::thompson::backtrack::BoundedBacktracker)
+/// with a haystack that is too long, or a trying to run an unanchored search
+/// with a [one-pass DFA](crate::dfa::onepass).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MatchError(
     #[cfg(feature = "alloc")] alloc::boxed::Box<MatchErrorKind>,

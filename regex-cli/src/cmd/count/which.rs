@@ -261,7 +261,7 @@ fn run_nfa_thompson_pikevm(args: &Args) -> anyhow::Result<()> {
 
     cinput.with_input(&chaystack, |input| {
         let (pids, time) =
-            util::timeitr(|| search_pikevm(&re, &mut cache, input))?;
+            util::timeit(|| search_pikevm(&re, &mut cache, input));
         table.add("search time", time);
         table.add("which", pids);
         table.print(stdout())?;
@@ -299,8 +299,8 @@ fn search_pikevm(
     re: &PikeVM,
     cache: &mut pikevm::Cache,
     input: &Input<'_>,
-) -> anyhow::Result<Vec<usize>> {
+) -> Vec<usize> {
     let mut patset = PatternSet::new(re.get_nfa().pattern_len());
-    re.try_which_overlapping_matches(cache, &input, &mut patset)?;
-    Ok(patset.iter().map(|pid| pid.as_usize()).collect())
+    re.which_overlapping_matches(cache, &input, &mut patset);
+    patset.iter().map(|pid| pid.as_usize()).collect()
 }

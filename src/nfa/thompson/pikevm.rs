@@ -17,9 +17,7 @@ use crate::{
         empty, iter,
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID, SmallIndex, StateID},
-        search::{
-            Anchored, Input, Match, MatchError, MatchKind, PatternSet, Span,
-        },
+        search::{Anchored, Input, Match, MatchKind, PatternSet, Span},
         sparse_set::SparseSet,
     },
 };
@@ -276,25 +274,21 @@ impl Builder {
 
 /// A virtual machine for executing regex searches with capturing groups.
 ///
-/// # Fallible APIs
+/// # Infallible APIs
 ///
-/// The PikeVM can only return an error during a search when the caller
-/// provides an [`Input`] that is configured to perform an anchored search
-/// for an invalid pattern ID. Since the pattern ID is usually a static
-/// property of the program and not determined by user input, most of the
-/// APIs on the PikeVM are infallible. That is, if an invalid pattern ID
-/// is given, then the routine will panic.
+/// Unlike most other regex engines in this crate, a `PikeVM` never returns an
+/// error at search time. It supports all [`Anchored`] configurations, never
+/// quits and works on haystacks of arbitrary length.
 ///
-/// However, both [`PikeVM::try_search`] and its lower level sibling
-/// [`PikeVM::try_search_slots`] are both fallible and will never panic.
-/// Instead, an invalid pattern ID will cause them to return an error.
+/// There are two caveats to mention though:
 ///
-/// The PikeVM always supports all anchor configurations. It also supports all
-/// functionality in an [`NFA`] and is never limited by the contents or length
-/// of the haystack.
-///
-/// (The [`PikeVM::try_which_overlapping_matches`] API will also return an
-/// error if the given [`PatternSet`] has insufficient capacity.)
+/// * If an invalid pattern ID is given to a search via [`Anchored::Pattern`],
+/// then the PikeVM will report "no match." This is consistent with all other
+/// regex engines in this crate.
+/// * When using [`PikeVM::which_overlapping_matches`] with a [`PatternSet`]
+/// that has insufficient capacity to store all valid pattern IDs, then if a
+/// match occurs for a `PatternID` that cannot be inserted, it is silently
+/// dropped as if it did not match.
 ///
 /// # Advice
 ///
@@ -729,9 +723,7 @@ impl PikeVM {
         input: I,
     ) -> bool {
         let input = input.into().earliest(true);
-        self.try_search_slots(cache, &input, &mut [])
-            .expect("correct input")
-            .is_some()
+        self.search_slots(cache, &input, &mut []).is_some()
     }
 
     /// Executes a leftmost forward search and returns a `Match` if one exists.
@@ -741,7 +733,18 @@ impl PikeVM {
     ///
     /// # Example
     ///
-    /// This example shows basic usage:
+    /// Leftmost first match semantics corresponds to the match with the
+    /// smallest starting offset, but where the end offset is determined by
+    /// preferring earlier branches in the original regular expression. For
+    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
+    /// will match `Samwise` in `Samwise`.
+    ///
+    /// Generally speaking, the "leftmost first" match is how most backtracking
+    /// regular expressions tend to work. This is in contrast to POSIX-style
+    /// regular expressions that yield "leftmost longest" matches. Namely,
+    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
+    /// leftmost longest semantics. (This crate does not currently support
+    /// leftmost longest semantics.)
     ///
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
@@ -770,8 +773,7 @@ impl PikeVM {
         let input = input.into();
         if self.get_nfa().pattern_len() == 1 {
             let mut slots = [None, None];
-            let pid =
-                self.try_search_slots(cache, &input, &mut slots).unwrap()?;
+            let pid = self.search_slots(cache, &input, &mut slots)?;
             let start = slots[0].unwrap().get();
             let end = slots[1].unwrap().get();
             return Some(Match::new(pid, Span { start, end }));
@@ -779,7 +781,7 @@ impl PikeVM {
         let ginfo = self.get_nfa().group_info();
         let slots_len = ginfo.implicit_slot_len();
         let mut slots = vec![None; slots_len];
-        let pid = self.try_search_slots(cache, &input, &mut slots).unwrap()?;
+        let pid = self.search_slots(cache, &input, &mut slots)?;
         let start = slots[pid.as_usize() * 2].unwrap().get();
         let end = slots[pid.as_usize() * 2 + 1].unwrap().get();
         Some(Match::new(pid, Span { start, end }))
@@ -790,40 +792,23 @@ impl PikeVM {
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
     /// to return `false`.
     ///
-    /// For more control over the input parameters, see [`PikeVM::try_search`].
+    /// For more control over the input parameters, see [`PikeVM::search`].
     ///
     /// # Example
     ///
-    /// Leftmost first match semantics corresponds to the match with the
-    /// smallest starting offset, but where the end offset is determined by
-    /// preferring earlier branches in the original regular expression. For
-    /// example, `Sam|Samwise` will match `Sam` in `Samwise`, but `Samwise|Sam`
-    /// will match `Samwise` in `Samwise`.
-    ///
-    /// Generally speaking, the "leftmost first" match is how most backtracking
-    /// regular expressions tend to work. This is in contrast to POSIX-style
-    /// regular expressions that yield "leftmost longest" matches. Namely,
-    /// both `Sam|Samwise` and `Samwise|Sam` match `Samwise` when using
-    /// leftmost longest semantics. (This crate does not currently support
-    /// leftmost longest semantics.)
+    /// This example shows basic usage:
     ///
     /// ```
-    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Match};
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};
     ///
-    /// let re = PikeVM::new("foo[0-9]+")?;
+    /// let re = PikeVM::new(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// let expected = Match::must(0, 0..8);
-    /// re.captures(&mut cache, "foo12345", &mut caps);
-    /// assert_eq!(Some(expected), caps.get_match());
     ///
-    /// // Even though a match is found after reading the first byte (`a`),
-    /// // the leftmost first match semantics demand that we find the earliest
-    /// // match that prefers earlier parts of the pattern over later parts.
-    /// let re = PikeVM::new("abc|a")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// let expected = Match::must(0, 0..3);
-    /// re.captures(&mut cache, "abc", &mut caps);
-    /// assert_eq!(Some(expected), caps.get_match());
+    /// re.captures(&mut cache, "2010-03-14", &mut caps);
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(Span::from(0..4)), caps.get_group(1));
+    /// assert_eq!(Some(Span::from(5..7)), caps.get_group(2));
+    /// assert_eq!(Some(Span::from(8..10)), caps.get_group(3));
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -834,7 +819,7 @@ impl PikeVM {
         input: I,
         caps: &mut Captures,
     ) {
-        self.try_search(cache, &input.into(), caps).unwrap()
+        self.search(cache, &input.into(), caps)
     }
 
     /// Returns an iterator over all non-overlapping leftmost matches in the
@@ -918,15 +903,8 @@ impl PikeVM {
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
     /// to return `false`.
     ///
-    /// This is like [`PikeVM::find`], except it provides some additional
-    /// control over how the search is executed. Those parameters are
-    /// configured via a [`Input`].
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if the [`Input`] configuration is invalid. This
-    /// only occurs if the `Input` specifies an anchored search for an invalid
-    /// [`PatternID`].
+    /// This is like [`PikeVM::captures`], but it accepts a concrete `&Input`
+    /// instead of an `Into<Input>`.
     ///
     /// # Example: specific pattern search
     ///
@@ -948,7 +926,7 @@ impl PikeVM {
     /// // will be returned in this case when doing a search for any of the
     /// // patterns.
     /// let expected = Some(Match::must(0, 0..6));
-    /// re.try_search(&mut cache, &Input::new(haystack), &mut caps)?;
+    /// re.search(&mut cache, &Input::new(haystack), &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// // But if we want to check whether some other pattern matches, then we
@@ -956,7 +934,7 @@ impl PikeVM {
     /// let expected = Some(Match::must(1, 0..6));
     /// let input = Input::new(haystack)
     ///     .anchored(Anchored::Pattern(PatternID::must(1)));
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -981,7 +959,7 @@ impl PikeVM {
     /// // to the sub-slice as well, which means we get `0..3` instead of
     /// // `3..6`.
     /// let expected = Some(Match::must(0, 0..3));
-    /// re.try_search(&mut cache, &Input::new(&haystack[3..6]), &mut caps)?;
+    /// re.search(&mut cache, &Input::new(&haystack[3..6]), &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// // But if we provide the bounds of the search within the context of the
@@ -990,31 +968,30 @@ impl PikeVM {
     /// // as a valid offset into `haystack` instead of its sub-slice.)
     /// let expected = None;
     /// let input = Input::new(haystack).range(3..6);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
+    /// re.search(&mut cache, &input, &mut caps);
     /// assert_eq!(expected, caps.get_match());
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn try_search(
+    pub fn search(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         caps: &mut Captures,
-    ) -> Result<(), MatchError> {
+    ) {
         caps.set_pattern(None);
-        let pid = self.try_search_slots(cache, input, caps.slots_mut())?;
+        let pid = self.search_slots(cache, input, caps.slots_mut());
         caps.set_pattern(pid);
-        Ok(())
     }
 
     /// Executes a leftmost forward search and writes the spans of capturing
     /// groups that participated in a match into the provided `slots`, and
     /// returns the matching pattern ID. The contents of the slots for patterns
     /// other than the matching pattern are unspecified. If no match was found,
-    /// then `None` is returned and the contents of all `slots` is unspecified.
+    /// then `None` is returned and the contents of `slots` is unspecified.
     ///
-    /// This is like [`PikeVM::try_search`], but it accepts a raw slots slice
+    /// This is like [`PikeVM::search`], but it accepts a raw slots slice
     /// instead of a `Captures` value. This is useful in contexts where you
     /// don't want or need to allocate a `Captures`.
     ///
@@ -1032,12 +1009,6 @@ impl PikeVM {
     /// [`slot_len()`](crate::util::captures::GroupInfo::slot_len) slots, which
     /// permits recording match offsets for every capturing group in every
     /// pattern.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if the [`Input`] configuration is invalid. This
-    /// only occurs if the `Input` specifies an anchored search for an invalid
-    /// [`PatternID`].
     ///
     /// # Example
     ///
@@ -1060,7 +1031,7 @@ impl PikeVM {
     /// // allocate two slots for each pattern. Each slot records the start
     /// // and end of the match.
     /// let mut slots = [None; 4];
-    /// let pid = re.try_search_slots(&mut cache, &input, &mut slots)?;
+    /// let pid = re.search_slots(&mut cache, &input, &mut slots);
     /// assert_eq!(Some(PatternID::must(1)), pid);
     ///
     /// // The overall match offsets are always at 'pid * 2' and 'pid * 2 + 1'.
@@ -1074,15 +1045,15 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn try_search_slots(
+    pub fn search_slots(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
         if !utf8empty {
-            return self.try_search_slots_imp(cache, input, slots);
+            return self.search_slots_imp(cache, input, slots);
         }
         // There is an unfortunate special case where if the regex can
         // match the empty string and UTF-8 mode is enabled, the search
@@ -1097,39 +1068,39 @@ impl PikeVM {
         // this case.
         let min = self.get_nfa().group_info().implicit_slot_len();
         if slots.len() >= min {
-            return self.try_search_slots_imp(cache, input, slots);
+            return self.search_slots_imp(cache, input, slots);
         }
         if self.get_nfa().pattern_len() == 1 {
             let mut enough = [None, None];
-            let got = self.try_search_slots_imp(cache, input, &mut enough)?;
+            let got = self.search_slots_imp(cache, input, &mut enough);
             // This is OK because we know `enough_slots` is strictly bigger
             // than `slots`, otherwise this special case isn't reached.
             slots.copy_from_slice(&enough[..slots.len()]);
-            return Ok(got);
+            return got;
         }
         let mut enough = vec![None; min];
-        let got = self.try_search_slots_imp(cache, input, &mut enough)?;
+        let got = self.search_slots_imp(cache, input, &mut enough);
         // This is OK because we know `enough_slots` is strictly bigger than
         // `slots`, otherwise this special case isn't reached.
         slots.copy_from_slice(&enough[..slots.len()]);
-        Ok(got)
+        got
     }
 
-    /// This is the actual implementation of `try_search_slots_imp` that
+    /// This is the actual implementation of `search_slots_imp` that
     /// doesn't account for the special case when 1) the NFA has UTF-8 mode
     /// enabled, 2) the NFA can match the empty string and 3) the caller has
     /// provided an insufficient number of slots to record match offsets.
     #[inline(never)]
-    fn try_search_slots_imp(
+    fn search_slots_imp(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         let utf8empty = self.get_nfa().has_empty() && self.get_nfa().is_utf8();
-        let (pid, end) = match self.search_imp(cache, input, slots)? {
-            None => return Ok(None),
-            Some(pid) if !utf8empty => return Ok(Some(pid)),
+        let (pid, end) = match self.search_imp(cache, input, slots) {
+            None => return None,
+            Some(pid) if !utf8empty => return Some(pid),
             Some(pid) => {
                 let slot_start = pid.as_usize() * 2;
                 let slot_end = slot_start + 1;
@@ -1142,7 +1113,7 @@ impl PikeVM {
             }
         };
         empty::skip_splits_fwd(input, pid, end, |input| {
-            let pid = match self.search_imp(cache, input, slots)? {
+            let pid = match self.search_imp(cache, input, slots) {
                 None => return Ok(None),
                 Some(pid) => pid,
             };
@@ -1150,6 +1121,8 @@ impl PikeVM {
             let slot_end = slot_start + 1;
             Ok(Some((pid, slots[slot_end].unwrap().get())))
         })
+        // OK because the PikeVM never errors.
+        .unwrap()
     }
 
     /// Writes the set of patterns that match anywhere in the given search
@@ -1169,12 +1142,6 @@ impl PikeVM {
     /// If a pattern ID matched but the given `PatternSet` does not have
     /// sufficient capacity to store it, then it is not inserted and silently
     /// dropped.
-    ///
-    /// # Errors
-    ///
-    /// An error is returned if the [`Input`] configuration is invalid. This
-    /// only occurs if the `Input` specifies an anchored search for an invalid
-    /// [`PatternID`].
     ///
     /// # Example
     ///
@@ -1198,7 +1165,7 @@ impl PikeVM {
     ///
     /// let input = Input::new("foobar");
     /// let mut patset = PatternSet::new(re.pattern_len());
-    /// re.try_which_overlapping_matches(&mut cache, &input, &mut patset)?;
+    /// re.which_overlapping_matches(&mut cache, &input, &mut patset);
     /// let expected = vec![0, 2, 3, 4, 6];
     /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
     /// assert_eq!(expected, got);
@@ -1206,12 +1173,12 @@ impl PikeVM {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[inline]
-    pub fn try_which_overlapping_matches(
+    pub fn which_overlapping_matches(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
+    ) {
         self.which_overlapping_imp(cache, input, patset)
     }
 }
@@ -1229,10 +1196,10 @@ impl PikeVM {
         cache: &mut Cache,
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
-    ) -> Result<Option<PatternID>, MatchError> {
+    ) -> Option<PatternID> {
         cache.setup_search(slots.len());
         if input.is_done() {
-            return Ok(None);
+            return None;
         }
         // Why do we even care about this? Well, in our 'Captures'
         // representation, we use usize::MAX as a sentinel to indicate "no
@@ -1251,7 +1218,7 @@ impl PikeVM {
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
         let (anchored, start_id) = match self.start_config(input) {
-            None => return Ok(None),
+            None => return None,
             Some(config) => config,
         };
 
@@ -1373,7 +1340,7 @@ impl PikeVM {
             at += 1;
         }
         instrument!(|c| c.eprint(&self.nfa));
-        Ok(pid)
+        pid
     }
 
     /// The implementation for the 'which_overlapping_matches' API. Basically,
@@ -1388,7 +1355,7 @@ impl PikeVM {
         cache: &mut Cache,
         input: &Input<'_>,
         patset: &mut PatternSet,
-    ) -> Result<(), MatchError> {
+    ) {
         // NOTE: This is effectively a copy of 'search_imp' above, but with no
         // captures support and instead writes patterns that matched directly
         // to 'patset'. See that routine for better commentary about what's
@@ -1404,7 +1371,7 @@ impl PikeVM {
 
         cache.setup_search(0);
         if input.is_done() {
-            return Ok(());
+            return;
         }
         assert!(
             input.haystack().len() < core::usize::MAX,
@@ -1415,7 +1382,7 @@ impl PikeVM {
         let allmatches =
             self.config.get_match_kind().continue_past_first_match();
         let (anchored, start_id) = match self.start_config(input) {
-            None => return Ok(()),
+            None => return,
             Some(config) => config,
         };
 
@@ -1446,7 +1413,6 @@ impl PikeVM {
             next.set.clear();
         }
         instrument!(|c| c.eprint(&self.nfa));
-        Ok(())
     }
 
     /// Process the active states in 'curr' to find the states (written to
@@ -1782,7 +1748,6 @@ impl PikeVM {
 /// An iterator over all non-overlapping matches for a particular search.
 ///
 /// The iterator yields a [`Match`] value until no more matches could be found.
-/// If the underlying regex engine returns an error, then a panic occurs.
 ///
 /// The lifetime parameters are as follows:
 ///
@@ -1808,11 +1773,9 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
         let FindMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
         // 'advance' converts errors into panics, which is OK here because
-        // the only way the Pike VM can return an error is if it's given an
-        // invalid pattern ID. But since this doesn't set a pattern ID, the
-        // search is guaranteed to succeed.
+        // the PikeVM can never return an error.
         it.advance(|input| {
-            re.try_search(cache, input, caps)?;
+            re.search(cache, input, caps);
             Ok(caps.get_match())
         })
     }
@@ -1822,7 +1785,7 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
 /// groups, for a particular search.
 ///
 /// The iterator yields a [`Captures`] value until no more matches could be
-/// found. If the underlying search returns an error, then this panics.
+/// found.
 ///
 /// The lifetime parameters are as follows:
 ///
@@ -1848,11 +1811,9 @@ impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
         let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
         // 'advance' converts errors into panics, which is OK here because
-        // the only way the Pike VM can return an error is if it's given an
-        // invalid pattern ID. But since this doesn't set a pattern ID, the
-        // search is guaranteed to succeed.
+        // the PikeVM can never return an error.
         it.advance(|input| {
-            re.try_search(cache, input, caps)?;
+            re.search(cache, input, caps);
             Ok(caps.get_match())
         });
         if caps.is_match() {

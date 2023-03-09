@@ -26,9 +26,9 @@ use crate::{
 /// Returns the minimum visited capacity for the given haystack.
 ///
 /// This function can be used as the argument to [`Config::visited_capacity`]
-/// in order to guarantee that a backtracking search for the
-/// given `input.haystack()` won't return an error when using a
-/// [`BoundedBacktracker`] built from the given `NFA`.
+/// in order to guarantee that a backtracking search for the given `input`
+/// won't return an error when using a [`BoundedBacktracker`] built from the
+/// given `NFA`.
 ///
 /// This routine exists primarily as a way to test that the bounded backtracker
 /// works correctly when its capacity is set to the smallest possible amount.
@@ -310,13 +310,13 @@ impl Builder {
 ///
 /// By design, this backtracking regex engine is bounded. This bound is
 /// implemented by not visiting any combination of NFA state ID and position
-/// in a haystack. Thus, the total memory required to bound backtracking is
-/// proportional to `haystack.len() * nfa.states().len()`. This can obviously
-/// get quite large, since large haystacks aren't terribly uncommon. To avoid
-/// using exorbitant memory, the capacity is bounded by a fixed limit set via
-/// [`Config::visited_capacity`]. Thus, if the total capacity required for a
-/// particular regex and a haystack exceeds this capacity, then the search
-/// routine will return an error.
+/// in a haystack more than once. Thus, the total memory required to bound
+/// backtracking is proportional to `haystack.len() * nfa.states().len()`.
+/// This can obviously get quite large, since large haystacks aren't terribly
+/// uncommon. To avoid using exorbitant memory, the capacity is bounded by
+/// a fixed limit set via [`Config::visited_capacity`]. Thus, if the total
+/// capacity required for a particular regex and a haystack exceeds this
+/// capacity, then the search routine will return an error.
 ///
 /// Unlike other regex engines that may return an error at search time (like
 /// the DFA or the hybrid NFA/DFA), there is no way to guarantee that a bounded
@@ -324,7 +324,7 @@ impl Builder {
 /// _only_ exposes fallible search routines to avoid the footgun of panicking
 /// when running a search on a haystack that is too big.
 ///
-/// If want to use the fallible search APIs without handling the
+/// If one wants to use the fallible search APIs without handling the
 /// error, the only way to guarantee an error won't occur from the
 /// haystack length is to ensure the haystack length does not exceed
 /// [`BoundedBacktracker::max_haystack_len`].
@@ -791,6 +791,57 @@ impl BoundedBacktracker {
     ///
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
+    ///
+    /// let re = BoundedBacktracker::new("foo[0-9]+bar")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// assert!(re.try_is_match(&mut cache, "foo12345bar")?);
+    /// assert!(!re.try_is_match(&mut cache, "foobar")?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: consistency with search APIs
+    ///
+    /// `is_match` is guaranteed to return `true` whenever `find` returns a
+    /// match. This includes searches that are executed entirely within a
+    /// codepoint:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     Input,
+    /// };
+    ///
+    /// let re = BoundedBacktracker::new("a*")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// assert!(!re.try_is_match(&mut cache, Input::new("☃").span(1..2))?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Notice that when UTF-8 mode is disabled, then the above reports a
+    /// match because the restriction against zero-width matches that split a
+    /// codepoint has been lifted:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::{backtrack::BoundedBacktracker, NFA},
+    ///     Input,
+    /// };
+    ///
+    /// let re = BoundedBacktracker::builder()
+    ///     .thompson(NFA::config().utf8(false))
+    ///     .build("a*")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// assert!(re.try_is_match(&mut cache, Input::new("☃").span(1..2))?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn try_is_match<'h, I: Into<Input<'h>>>(
         &self,
@@ -807,9 +858,16 @@ impl BoundedBacktracker {
     /// access to the individual spans of each capturing group, use
     /// [`BoundedBacktracker::try_captures`].
     ///
-    /// # Example
+    /// # Errors
     ///
-    /// This example shows basic usage:
+    /// This routine only errors if the search could not complete. For this
+    /// backtracking regex engine, this only occurs when the haystack length
+    /// exceeds [`BoundedBacktracker::max_haystack_len`].
+    ///
+    /// When a search cannot complete, callers cannot know whether a match
+    /// exists or not.
+    ///
+    /// # Example
     ///
     /// ```
     /// use regex_automata::{
@@ -821,14 +879,6 @@ impl BoundedBacktracker {
     /// let mut cache = re.create_cache();
     /// let expected = Match::must(0, 0..8);
     /// assert_eq!(Some(expected), re.try_find(&mut cache, "foo12345")?);
-    ///
-    /// // Even though a match is found after reading the first byte (`a`),
-    /// // the leftmost first match semantics demand that we find the earliest
-    /// // match that prefers earlier parts of the pattern over later parts.
-    /// let re = BoundedBacktracker::new("abc|a")?;
-    /// let mut cache = re.create_cache();
-    /// let expected = Match::must(0, 0..3);
-    /// assert_eq!(Some(expected), re.try_find(&mut cache, "abc")?);
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -874,6 +924,28 @@ impl BoundedBacktracker {
     ///
     /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     Span,
+    /// };
+    ///
+    /// let re = BoundedBacktracker::new(
+    ///     r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$",
+    /// )?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    ///
+    /// re.try_captures(&mut cache, "2010-03-14", &mut caps)?;
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(Span::from(0..4)), caps.get_group(1));
+    /// assert_eq!(Some(Span::from(5..7)), caps.get_group(2));
+    /// assert_eq!(Some(Span::from(8..10)), caps.get_group(3));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn try_captures<'h, I: Into<Input<'h>>>(
         &self,
@@ -889,6 +961,30 @@ impl BoundedBacktracker {
     ///
     /// If the regex engine returns an error at any point, then the iterator
     /// will yield that error.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     Match, MatchError,
+    /// };
+    ///
+    /// let re = BoundedBacktracker::new("foo[0-9]+")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let text = "foo1 foo12 foo123";
+    /// let result: Result<Vec<Match>, MatchError> = re
+    ///     .try_find_iter(&mut cache, text)
+    ///     .collect();
+    /// let matches = result?;
+    /// assert_eq!(matches, vec![
+    ///     Match::must(0, 0..4),
+    ///     Match::must(0, 5..10),
+    ///     Match::must(0, 11..17),
+    /// ]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn try_find_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
@@ -914,6 +1010,32 @@ impl BoundedBacktracker {
     /// how to correctly iterate over all matches in a haystack while avoiding
     /// the creation of a new `Captures` value for every match. (Which you are
     /// forced to do with an `Iterator`.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     Span,
+    /// };
+    ///
+    /// let re = BoundedBacktracker::new("foo(?P<numbers>[0-9]+)")?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let text = "foo1 foo12 foo123";
+    /// let mut spans = vec![];
+    /// for result in re.try_captures_iter(&mut cache, text) {
+    ///     let caps = result?;
+    ///     // The unwrap is OK since 'numbers' matches if the pattern matches.
+    ///     spans.push(caps.get_group_by_name("numbers").unwrap());
+    /// }
+    /// assert_eq!(spans, vec![
+    ///     Span::from(3..4),
+    ///     Span::from(8..10),
+    ///     Span::from(14..17),
+    /// ]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn try_captures_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
         &'r self,
@@ -932,17 +1054,16 @@ impl BoundedBacktracker {
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
     /// to return `false`.
     ///
+    /// This is like [`BoundedBacktracker::try_captures`], but it accepts a
+    /// concrete `&Input` instead of an `Into<Input>`.
+    ///
     /// # Errors
     ///
-    /// This routine errors if the search could not complete. For this
+    /// This routine only errors if the search could not complete. For this
     /// backtracking regex engine, this only occurs when the haystack length
     /// exceeds [`BoundedBacktracker::max_haystack_len`].
     ///
-    /// This also errors if the [`Input`] configuration is invalid. This only
-    /// occurs if the `Input` specifies an anchored search for an invalid
-    /// [`PatternID`].
-    ///
-    /// When an error is returned, callers cannot know whether a match
+    /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
     ///
     /// # Example: specific pattern search
@@ -1059,15 +1180,11 @@ impl BoundedBacktracker {
     ///
     /// # Errors
     ///
-    /// This routine errors if the search could not complete. For this
+    /// This routine only errors if the search could not complete. For this
     /// backtracking regex engine, this only occurs when the haystack length
     /// exceeds [`BoundedBacktracker::max_haystack_len`].
     ///
-    /// This also errors if the [`Input`] configuration is invalid. This only
-    /// occurs if the `Input` specifies an anchored search for an invalid
-    /// [`PatternID`].
-    ///
-    /// When an error is returned, callers cannot know whether a match
+    /// When a search cannot complete, callers cannot know whether a match
     /// exists or not.
     ///
     /// # Example
