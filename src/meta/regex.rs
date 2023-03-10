@@ -1,6 +1,6 @@
 use core::borrow::Borrow;
 
-use alloc::{sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 
 use regex_syntax::{
     ast,
@@ -51,9 +51,14 @@ use crate::{
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone, Debug)]
-pub struct Regex {
+pub struct Regex(Arc<RegexI>);
+
+/// The internal implementation of `Regex`, split out so that it can be wrapped
+/// in an `Arc`.
+#[derive(Debug)]
+struct RegexI {
     /// The core matching engine.
-    strat: Arc<dyn Strategy>,
+    strat: Box<dyn Strategy>,
     /// Metadata about the regexes driving the strategy. The metadata is also
     /// usually stored inside the strategy too, but we put it here as well
     /// so that we can get quick access to it (without virtual calls) before
@@ -61,8 +66,8 @@ pub struct Regex {
     /// detect a subset of cases where we know a match is impossible, and can
     /// thus avoid calling into the strategy at all.
     ///
-    /// This is also why a RegexInfo itself is internally ref-counted so clones
-    /// are cheap.
+    /// Since `RegexInfo` is stored in multiple places, it is also reference
+    /// counted.
     info: RegexInfo,
 }
 
@@ -98,15 +103,15 @@ impl Regex {
     }
 
     pub fn create_cache(&self) -> Cache {
-        self.strat.create_cache()
+        self.0.strat.create_cache()
     }
 
     pub fn reset_cache(&self, cache: &mut Cache) {
-        self.strat.reset_cache(cache)
+        self.0.strat.reset_cache(cache)
     }
 
     pub fn pattern_len(&self) -> usize {
-        self.info.pattern_len()
+        self.0.info.pattern_len()
     }
 
     /// Returns the total number of capturing groups.
@@ -161,7 +166,8 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn captures_len(&self) -> usize {
-        self.info
+        self.0
+            .info
             .props_union()
             .explicit_captures_len()
             .saturating_add(self.pattern_len())
@@ -229,7 +235,8 @@ impl Regex {
     /// ```
     #[inline]
     pub fn static_captures_len(&self) -> Option<usize> {
-        self.info
+        self.0
+            .info
             .props_union()
             .static_explicit_captures_len()
             .map(|len| len.saturating_add(1))
@@ -237,11 +244,11 @@ impl Regex {
 
     #[inline]
     pub fn group_info(&self) -> &GroupInfo {
-        self.strat.group_info()
+        self.0.strat.group_info()
     }
 
     pub fn get_config(&self) -> &Config {
-        self.info.config()
+        self.0.info.config()
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -315,10 +322,10 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<Match> {
-        if self.info.is_impossible(input) {
+        if self.0.info.is_impossible(input) {
             return None;
         }
-        self.strat.search(cache, input)
+        self.0.strat.search(cache, input)
     }
 
     #[inline]
@@ -327,10 +334,10 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
-        if self.info.is_impossible(input) {
+        if self.0.info.is_impossible(input) {
             return None;
         }
-        self.strat.search_half(cache, input)
+        self.0.strat.search_half(cache, input)
     }
 
     #[inline]
@@ -352,10 +359,10 @@ impl Regex {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
-        if self.info.is_impossible(input) {
+        if self.0.info.is_impossible(input) {
             return None;
         }
-        self.strat.search_slots(cache, input, slots)
+        self.0.strat.search_slots(cache, input, slots)
     }
 
     #[inline]
@@ -365,10 +372,10 @@ impl Regex {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) {
-        if self.info.is_impossible(input) {
+        if self.0.info.is_impossible(input) {
             return;
         }
-        self.strat.which_overlapping_matches(cache, input, patset)
+        self.0.strat.which_overlapping_matches(cache, input, patset)
     }
 }
 
@@ -892,7 +899,7 @@ impl Builder {
         let hirs: Vec<&Hir> = hirs.iter().map(|hir| hir.borrow()).collect();
         let info = RegexInfo::new(config, &hirs);
         let strat = strategy::new(&info, &hirs)?;
-        Ok(Regex { strat, info })
+        Ok(Regex(Arc::new(RegexI { strat, info })))
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {
