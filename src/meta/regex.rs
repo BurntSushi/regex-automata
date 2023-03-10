@@ -17,6 +17,7 @@ use crate::{
     util::{
         captures::{Captures, GroupInfo},
         iter,
+        pool::{Pool, PoolGuard},
         prefilter::{self, Prefilter},
         primitives::{NonMaxUsize, PatternID},
         search::{HalfMatch, Input, Match, MatchError, MatchKind, PatternSet},
@@ -29,24 +30,23 @@ use crate::{
 /// use regex_automata::{meta::Regex, Anchored, Input, PatternID};
 ///
 /// let re = Regex::new(r"[a-z]+")?;
-/// let mut cache = re.create_cache();
-/// assert!(re.is_match(&mut cache, "123 abc"));
+/// assert!(re.is_match("123 abc"));
 ///
 /// let input = Input::new("123 abc").anchored(Anchored::Yes);
-/// assert!(!re.is_match(&mut cache, input));
+/// assert!(!re.is_match(input));
 ///
 /// let input = Input::new("123 abc").anchored(Anchored::Yes).range(4..);
-/// assert!(re.is_match(&mut cache, input));
+/// assert!(re.is_match(input));
 ///
 /// let input = Input::new("123 abc")
 ///     .anchored(Anchored::Pattern(PatternID::ZERO))
 ///     .range(4..);
-/// assert!(re.is_match(&mut cache, input));
+/// assert!(re.is_match(input));
 ///
 /// let input = Input::new("123 abc")
 ///     .anchored(Anchored::Pattern(PatternID::must(1)))
 ///     .range(4..);
-/// assert!(!re.is_match(&mut cache, input));
+/// assert!(!re.is_match(input));
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -58,7 +58,15 @@ pub struct Regex(Arc<RegexI>);
 #[derive(Debug)]
 struct RegexI {
     /// The core matching engine.
-    strat: Box<dyn Strategy>,
+    ///
+    /// Why is this reference counted when RegexI is already wrapped in an Arc?
+    /// Well, we need to capture this in a closure to our `Pool` below in order
+    /// to create new `Cache` values when needed. So since it needs to be in
+    /// two places, we make it reference counted.
+    ///
+    /// We make `RegexI` itself reference counted too so that `Regex` itself
+    /// stays extremely small and very cheap to clone.
+    strat: Arc<dyn Strategy>,
     /// Metadata about the regexes driving the strategy. The metadata is also
     /// usually stored inside the strategy too, but we put it here as well
     /// so that we can get quick access to it (without virtual calls) before
@@ -69,6 +77,7 @@ struct RegexI {
     /// Since `RegexInfo` is stored in multiple places, it is also reference
     /// counted.
     info: RegexInfo,
+    pool: Pool<Cache, Box<dyn Fn() -> Cache>>,
 }
 
 impl Regex {
@@ -261,54 +270,44 @@ impl Regex {
     /// use regex_automata::meta::Regex;
     ///
     /// let re = Regex::new(r"\w+$").unwrap();
-    /// let mut cache = re.create_cache();
-    /// assert!(re.is_match(&mut cache, "foo"));
+    /// assert!(re.is_match("foo"));
     /// ```
     #[inline]
-    pub fn is_match<'h, I: Into<Input<'h>>>(
-        &self,
-        cache: &mut Cache,
-        input: I,
-    ) -> bool {
+    pub fn is_match<'h, I: Into<Input<'h>>>(&self, input: I) -> bool {
         let input = input.into().earliest(true);
-        self.search_half(cache, &input).is_some()
+        self.search_half(&input).is_some()
     }
 
     #[inline]
-    pub fn find<'h, I: Into<Input<'h>>>(
-        &self,
-        cache: &mut Cache,
-        input: I,
-    ) -> Option<Match> {
-        self.search(cache, &input.into())
+    pub fn find<'h, I: Into<Input<'h>>>(&self, input: I) -> Option<Match> {
+        self.search(&input.into())
     }
 
     #[inline]
     pub fn captures<'h, I: Into<Input<'h>>>(
         &self,
-        cache: &mut Cache,
         input: I,
         caps: &mut Captures,
     ) {
-        self.search_captures(cache, &input.into(), caps)
+        self.search_captures(&input.into(), caps)
     }
 
     #[inline]
-    pub fn find_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
+    pub fn find_iter<'r, 'h, I: Into<Input<'h>>>(
         &'r self,
-        cache: &'c mut Cache,
         input: I,
-    ) -> FindMatches<'r, 'c, 'h> {
+    ) -> FindMatches<'r, 'h> {
+        let cache = self.0.pool.get();
         let it = iter::Searcher::new(input.into());
         FindMatches { re: self, cache, it }
     }
 
     #[inline]
-    pub fn captures_iter<'r, 'c, 'h, I: Into<Input<'h>>>(
+    pub fn captures_iter<'r, 'h, I: Into<Input<'h>>>(
         &'r self,
-        cache: &'c mut Cache,
         input: I,
-    ) -> CapturesMatches<'r, 'c, 'h> {
+    ) -> CapturesMatches<'r, 'h> {
+        let cache = self.0.pool.get();
         let caps = self.create_captures();
         let it = iter::Searcher::new(input.into());
         CapturesMatches { re: self, cache, caps, it }
@@ -317,7 +316,58 @@ impl Regex {
 
 impl Regex {
     #[inline]
-    pub fn search(
+    pub fn search(&self, input: &Input<'_>) -> Option<Match> {
+        if self.0.info.is_impossible(input) {
+            return None;
+        }
+        self.search_with(&mut self.0.pool.get(), input)
+    }
+
+    #[inline]
+    pub fn search_half(&self, input: &Input<'_>) -> Option<HalfMatch> {
+        if self.0.info.is_impossible(input) {
+            return None;
+        }
+        self.search_half_with(&mut self.0.pool.get(), input)
+    }
+
+    #[inline]
+    pub fn search_captures(&self, input: &Input<'_>, caps: &mut Captures) {
+        self.search_captures_with(&mut self.0.pool.get(), input, caps);
+    }
+
+    #[inline]
+    pub fn search_slots(
+        &self,
+        input: &Input<'_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        if self.0.info.is_impossible(input) {
+            return None;
+        }
+        self.search_slots_with(&mut self.0.pool.get(), input, slots)
+    }
+
+    #[inline]
+    pub fn which_overlapping_matches(
+        &self,
+        input: &Input<'_>,
+        patset: &mut PatternSet,
+    ) {
+        if self.0.info.is_impossible(input) {
+            return;
+        }
+        self.which_overlapping_matches_with(
+            &mut self.0.pool.get(),
+            input,
+            patset,
+        )
+    }
+}
+
+impl Regex {
+    #[inline]
+    pub fn search_with(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -329,7 +379,7 @@ impl Regex {
     }
 
     #[inline]
-    pub fn search_half(
+    pub fn search_half_with(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -341,19 +391,19 @@ impl Regex {
     }
 
     #[inline]
-    pub fn search_captures(
+    pub fn search_captures_with(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
         caps: &mut Captures,
     ) {
         caps.set_pattern(None);
-        let pid = self.search_slots(cache, input, caps.slots_mut());
+        let pid = self.search_slots_with(cache, input, caps.slots_mut());
         caps.set_pattern(pid);
     }
 
     #[inline]
-    pub fn search_slots(
+    pub fn search_slots_with(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -366,7 +416,7 @@ impl Regex {
     }
 
     #[inline]
-    pub fn which_overlapping_matches(
+    pub fn which_overlapping_matches_with(
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
@@ -499,19 +549,19 @@ impl RegexInfo {
 }
 
 #[derive(Debug)]
-pub struct FindMatches<'r, 'c, 'h> {
+pub struct FindMatches<'r, 'h> {
     re: &'r Regex,
-    cache: &'c mut Cache,
+    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache>>,
     it: iter::Searcher<'h>,
 }
 
-impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
+impl<'r, 'h> Iterator for FindMatches<'r, 'h> {
     type Item = Match;
 
     #[inline]
     fn next(&mut self) -> Option<Match> {
         let FindMatches { re, ref mut cache, ref mut it } = *self;
-        it.advance(|input| Ok(re.search(cache, input)))
+        it.advance(|input| Ok(re.search_with(cache, input)))
     }
 
     #[inline]
@@ -520,21 +570,23 @@ impl<'r, 'c, 'h> Iterator for FindMatches<'r, 'c, 'h> {
         // find the end position of each match. This can give us a 2x perf
         // boost in some cases, because it avoids needing to do a reverse scan
         // to find the start of a match.
-        let FindMatches { re, cache, it } = self;
-        it.into_half_matches_iter(|input| Ok(re.search_half(cache, input)))
-            .count()
+        let FindMatches { re, mut cache, it } = self;
+        it.into_half_matches_iter(|input| {
+            Ok(re.search_half_with(&mut cache, input))
+        })
+        .count()
     }
 }
 
 #[derive(Debug)]
-pub struct CapturesMatches<'r, 'c, 'h> {
+pub struct CapturesMatches<'r, 'h> {
     re: &'r Regex,
-    cache: &'c mut Cache,
+    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache>>,
     caps: Captures,
     it: iter::Searcher<'h>,
 }
 
-impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
+impl<'r, 'h> Iterator for CapturesMatches<'r, 'h> {
     type Item = Captures;
 
     #[inline]
@@ -543,7 +595,7 @@ impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
         let CapturesMatches { re, ref mut cache, ref mut caps, ref mut it } =
             *self;
         let _ = it.advance(|input| {
-            re.search_captures(cache, input, caps);
+            re.search_captures_with(cache, input, caps);
             Ok(caps.get_match())
         });
         if caps.is_match() {
@@ -555,9 +607,11 @@ impl<'r, 'c, 'h> Iterator for CapturesMatches<'r, 'c, 'h> {
 
     #[inline]
     fn count(self) -> usize {
-        let CapturesMatches { re, cache, it, .. } = self;
-        it.into_half_matches_iter(|input| Ok(re.search_half(cache, input)))
-            .count()
+        let CapturesMatches { re, mut cache, it, .. } = self;
+        it.into_half_matches_iter(|input| {
+            Ok(re.search_half_with(&mut cache, input))
+        })
+        .count()
     }
 }
 
@@ -899,7 +953,13 @@ impl Builder {
         let hirs: Vec<&Hir> = hirs.iter().map(|hir| hir.borrow()).collect();
         let info = RegexInfo::new(config, &hirs);
         let strat = strategy::new(&info, &hirs)?;
-        Ok(Regex(Arc::new(RegexI { strat, info })))
+        let pool = {
+            let strat = Arc::clone(&strat);
+            let create: Box<dyn Fn() -> Cache> =
+                Box::new(move || strat.create_cache());
+            Pool::new(create)
+        };
+        Ok(Regex(Arc::new(RegexI { strat, info, pool })))
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {

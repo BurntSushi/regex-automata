@@ -4,7 +4,7 @@ use core::{
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
-use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+use alloc::{sync::Arc, vec, vec::Vec};
 
 use regex_syntax::hir::{self, literal, Hir};
 
@@ -69,7 +69,7 @@ pub(super) trait Strategy:
 pub(super) fn new(
     info: &RegexInfo,
     hirs: &[&Hir],
-) -> Result<Box<dyn Strategy>, BuildError> {
+) -> Result<Arc<dyn Strategy>, BuildError> {
     let kind = info.config().get_match_kind();
     let prefixes = crate::util::prefilter::prefixes(kind, hirs);
     if let Some(pre) = Pre::from_prefixes(info, &prefixes) {
@@ -146,25 +146,25 @@ pub(super) fn new(
         Err(core) => core,
         Ok(ra) => {
             debug!("using reverse anchored strategy");
-            return Ok(Box::new(ra));
+            return Ok(Arc::new(ra));
         }
     };
     core = match ReverseSuffix::new(core, hirs) {
         Err(core) => core,
         Ok(rs) => {
             debug!("using reverse suffix strategy");
-            return Ok(Box::new(rs));
+            return Ok(Arc::new(rs));
         }
     };
     core = match ReverseInner::new(core, hirs) {
         Err(core) => core,
         Ok(ri) => {
             debug!("using reverse inner strategy");
-            return Ok(Box::new(ri));
+            return Ok(Arc::new(ri));
         }
     };
     debug!("using core strategy");
-    Ok(Box::new(core))
+    Ok(Arc::new(core))
 }
 
 #[derive(Clone, Debug)]
@@ -174,13 +174,13 @@ struct Pre<P> {
 }
 
 impl<P: PrefilterI> Pre<P> {
-    fn new(pre: P) -> Box<dyn Strategy> {
+    fn new(pre: P) -> Arc<dyn Strategy> {
         // The only thing we support when we use prefilters directly as a
         // strategy is the start and end of the overall match for a single
         // pattern. In other words, exactly one implicit capturing group. Which
         // is exactly what we use here for a GroupInfo.
         let group_info = GroupInfo::new([[None::<&str>]]).unwrap();
-        Box::new(Pre { pre, group_info })
+        Arc::new(Pre { pre, group_info })
     }
 }
 
@@ -206,7 +206,7 @@ impl Pre<()> {
     fn from_prefixes(
         info: &RegexInfo,
         prefixes: &literal::Seq,
-    ) -> Option<Box<dyn Strategy>> {
+    ) -> Option<Arc<dyn Strategy>> {
         let kind = info.config().get_match_kind();
         // Check to see if our prefixes are exact, which means we might be
         // able to bypass the regex engine entirely and just rely on literal
@@ -274,7 +274,7 @@ impl Pre<()> {
                 return None;
             }
         };
-        let strat: Box<dyn Strategy> = match choice {
+        let strat: Arc<dyn Strategy> = match choice {
             prefilter::Choice::Memchr(pre) => Pre::new(pre),
             prefilter::Choice::Memchr2(pre) => Pre::new(pre),
             prefilter::Choice::Memchr3(pre) => Pre::new(pre),
@@ -296,7 +296,7 @@ impl Pre<()> {
     fn from_alternation_literals(
         info: &RegexInfo,
         hirs: &[&Hir],
-    ) -> Option<Box<dyn Strategy>> {
+    ) -> Option<Arc<dyn Strategy>> {
         use crate::util::prefilter::AhoCorasick;
 
         let lits = crate::meta::literal::alternation_literals(info, hirs)?;

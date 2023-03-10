@@ -377,7 +377,7 @@ fn search_meta(
     let mut it = iter::Searcher::new(input.clone());
     loop {
         it.advance(|input| {
-            re.search_captures(cache, input, &mut caps);
+            re.search_captures_with(cache, input, &mut caps);
             Ok(caps.get_match())
         });
         let m = match caps.get_match() {

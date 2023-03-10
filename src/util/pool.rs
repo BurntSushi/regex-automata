@@ -128,7 +128,6 @@ being quite expensive.
 /// let expected = Some(Match::must(0, 3..14));
 /// assert_eq!(expected, RE.find(&mut CACHE.get(), b"zzzfoo12345barzzz"));
 /// ```
-#[derive(Debug)]
 pub struct Pool<T, F = fn() -> T>(inner::Pool<T, F>);
 
 impl<T, F> Pool<T, F> {
@@ -153,11 +152,16 @@ impl<T: Send, F: Fn() -> T> Pool<T, F> {
     }
 }
 
+impl<T: core::fmt::Debug, F> core::fmt::Debug for Pool<T, F> {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_tuple("Pool").field(&self.0).finish()
+    }
+}
+
 /// A guard that is returned when a caller requests a value from the pool.
 ///
 /// The purpose of the guard is to use RAII to automatically put the value
 /// back in the pool once it's dropped.
-#[derive(Debug)]
 pub struct PoolGuard<'a, T: Send, F: Fn() -> T>(inner::PoolGuard<'a, T, F>);
 
 impl<'a, T: Send, F: Fn() -> T> core::ops::Deref for PoolGuard<'a, T, F> {
@@ -171,6 +175,14 @@ impl<'a, T: Send, F: Fn() -> T> core::ops::Deref for PoolGuard<'a, T, F> {
 impl<'a, T: Send, F: Fn() -> T> core::ops::DerefMut for PoolGuard<'a, T, F> {
     fn deref_mut(&mut self) -> &mut T {
         self.0.value_mut()
+    }
+}
+
+impl<'a, T: Send + core::fmt::Debug, F: Fn() -> T> core::fmt::Debug
+    for PoolGuard<'a, T, F>
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_tuple("PoolGuard").field(&self.0).finish()
     }
 }
 
@@ -381,7 +393,6 @@ mod inner {
     }
 
     /// A guard that is returned when a caller requests a value from the pool.
-    #[derive(Debug)]
     pub(super) struct PoolGuard<'a, T: Send, F: Fn() -> T> {
         /// The pool that this guard is attached to.
         pool: &'a Pool<T, F>,
@@ -441,6 +452,17 @@ mod inner {
             if let Some(value) = self.value.take() {
                 self.pool.put(value);
             }
+        }
+    }
+
+    impl<'a, T: Send + core::fmt::Debug, F: Fn() -> T> core::fmt::Debug
+        for PoolGuard<'a, T, F>
+    {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            f.debug_struct("PoolGuard")
+                .field("pool", &self.pool)
+                .field("value", &self.value)
+                .finish()
         }
     }
 }
@@ -511,7 +533,6 @@ mod inner {
     }
 
     /// A guard that is returned when a caller requests a value from the pool.
-    #[derive(Debug)]
     pub(super) struct PoolGuard<'a, T: Send, F: Fn() -> T> {
         /// The pool that this guard is attached to.
         pool: &'a Pool<T, F>,
@@ -537,6 +558,17 @@ mod inner {
             if let Some(value) = self.value.take() {
                 self.pool.put(value);
             }
+        }
+    }
+
+    impl<'a, T: Send + core::fmt::Debug, F: Fn() -> T> core::fmt::Debug
+        for PoolGuard<'a, T, F>
+    {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            f.debug_struct("PoolGuard")
+                .field("pool", &self.pool)
+                .field("value", &self.value)
+                .finish()
         }
     }
 

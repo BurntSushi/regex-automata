@@ -50,24 +50,19 @@ fn compiler(
             return Ok(CompiledRegex::skip());
         }
         let re = builder.build_many(&regexes)?;
-        let mut cache = re.create_cache();
         Ok(CompiledRegex::compiled(move |test| -> TestResult {
-            run_test(&re, &mut cache, test)
+            run_test(&re, test)
         }))
     }
 }
 
-fn run_test(
-    re: &Regex,
-    cache: &mut meta::Cache,
-    test: &RegexTest,
-) -> TestResult {
+fn run_test(re: &Regex, test: &RegexTest) -> TestResult {
     let input = create_input(test);
     match test.additional_name() {
-        "is_match" => TestResult::matched(re.is_match(cache, input)),
+        "is_match" => TestResult::matched(re.is_match(input)),
         "find" => match test.search_kind() {
             SearchKind::Earliest => TestResult::matches(
-                re.find_iter(cache, input.earliest(true))
+                re.find_iter(input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| Match {
                         id: m.pattern().as_usize(),
@@ -75,7 +70,7 @@ fn run_test(
                     }),
             ),
             SearchKind::Leftmost => TestResult::matches(
-                re.find_iter(cache, input)
+                re.find_iter(input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|m| Match {
                         id: m.pattern().as_usize(),
@@ -84,21 +79,21 @@ fn run_test(
             ),
             SearchKind::Overlapping => {
                 let mut patset = PatternSet::new(re.pattern_len());
-                re.which_overlapping_matches(cache, &input, &mut patset);
+                re.which_overlapping_matches(&input, &mut patset);
                 TestResult::which(patset.iter().map(|p| p.as_usize()))
             }
         },
         "captures" => match test.search_kind() {
             SearchKind::Earliest => {
                 let it = re
-                    .captures_iter(cache, input.earliest(true))
+                    .captures_iter(input.earliest(true))
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
             }
             SearchKind::Leftmost => {
                 let it = re
-                    .captures_iter(cache, input)
+                    .captures_iter(input)
                     .take(test.match_limit().unwrap_or(std::usize::MAX))
                     .map(|caps| testify_captures(&caps));
                 TestResult::captures(it)
