@@ -1,3 +1,7 @@
+// Some feature combinations result in some of these macros never being used.
+// Which is fine. Just squash the warnings.
+#![allow(unused_macros)]
+
 macro_rules! log {
     ($($tt:tt)*) => {
         #[cfg(feature = "logging")]

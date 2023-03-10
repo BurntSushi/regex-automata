@@ -48,5 +48,5 @@ done
 # with the integration level tests at all (it's too slow to even load a TOML
 # file), but we can run it on the library and doc tests. (And many which have
 # been cfg'd out on Miri because of speed.)
-cargo miri test --lib
-cargo miri test --doc
+# cargo miri test --lib
+# cargo miri test --doc

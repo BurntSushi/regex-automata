@@ -77,6 +77,12 @@ define_regex_type!(
     /// memory but search faster, while sparse DFAs use less memory but search
     /// more slowly.
     ///
+    /// # Crate features
+    ///
+    /// Note that despite what the documentation auto-generates, the _only_
+    /// crate feature needed to use this type is `dfa-search`. You do _not_
+    /// need to enable the `alloc` feature.
+    ///
     /// By default, a regex's automaton type parameter is set to
     /// `dense::DFA<Vec<u32>>` when the `alloc` feature is enabled. For most
     /// in-memory work loads, this is the most convenient type that gives the
@@ -140,8 +146,7 @@ define_regex_type!(
     /// it saw a quit byte, whether configured explicitly or via heuristic
     /// Unicode word boundary support, although neither are enabled by default.
     /// Or it might fail because an invalid `Input` configuration is given,
-    /// either with an unsupported [`Anchored`] mode or an invalid pattern
-    /// ID.
+    /// for example, with an unsupported [`Anchored`] mode.
     ///
     /// If you need to handle these error cases instead of allowing them to
     /// trigger a panic, then the lower level [`Regex::try_search`] provides
@@ -333,8 +338,7 @@ impl<A: Automaton> Regex<A> {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search panics, callers cannot know whether a match exists or
     /// not.
@@ -372,8 +376,7 @@ impl<A: Automaton> Regex<A> {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search panics, callers cannot know whether a match exists or
     /// not.
@@ -447,18 +450,13 @@ impl<A: Automaton> Regex<A> {
     /// Returns the start and end offset of the leftmost match. If no match
     /// exists, then `None` is returned.
     ///
-    /// # Searching a substring of the haystack
+    /// This is like [`Regex::find`] but with two differences:
     ///
-    /// Being an "at" search routine, this permits callers to search a
-    /// substring of `haystack` by specifying a range in `haystack`.
-    /// Why expose this as an API instead of just asking callers to use
-    /// `&input[start..end]`? The reason is that regex matching often wants
-    /// to take the surrounding context into account in order to handle
-    /// look-around (`^`, `$` and `\b`).
-    ///
-    /// This is useful when implementing an iterator over matches
-    /// within the same haystack, which cannot be done correctly by simply
-    /// providing a subslice of `haystack`.
+    /// 1. It is not generic over `Into<Input>` and instead accepts a
+    /// `&Input`. This permits reusing the same `Input` for multiple searches
+    /// without needing to create a new one. This _may_ help with latency.
+    /// 2. It returns an error if the search could not complete where as
+    /// [`Regex::find`] will panic.
     ///
     /// # Errors
     ///
@@ -470,8 +468,7 @@ impl<A: Automaton> Regex<A> {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -517,8 +514,7 @@ impl<A: Automaton> Regex<A> {
         // the pattern anyway? Well, if it is needed, then leaving it out
         // gives us a chance to find a witness. (Also, if we don't need to
         // specify the pattern, then we don't need to build the reverse DFA
-        // with 'starts_for_each_pattern' enabled. It doesn't matter too much
-        // for the lazy DFA, but does make the overall DFA bigger.)
+        // with 'starts_for_each_pattern' enabled.)
         //
         // We also need to be careful to disable 'earliest' for the reverse
         // search, since it could be enabled for the forward search. In the
@@ -596,6 +592,11 @@ impl<A: Automaton> Regex<A> {
 ///
 /// The iterator yields a [`Match`] value until no more matches could be found.
 /// If the underlying regex engine returns an error, then a panic occurs.
+///
+/// The type parameters are as follows:
+///
+/// * `A` represents the type of the underyling DFA that implements the
+/// [`Automaton`] trait.
 ///
 /// The lifetime parameters are as follows:
 ///
@@ -688,14 +689,7 @@ impl<'r, 'h, A: Automaton> Iterator for FindMatches<'r, 'h, A> {
 /// assert_eq!(expected, got);
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
 /// // but the subsequent `.*` does not! Disabling UTF-8
-/// // on the syntax permits this. Notice also that the
-/// // search was unanchored and skipped over invalid UTF-8.
-/// // Disabling UTF-8 on the Thompson NFA permits this.
-/// //
-/// // N.B. This example does not show the impact of
-/// // disabling UTF-8 mode on Config, since that
-/// // only impacts regexes that can produce matches of
-/// // length 0.
+/// // on the syntax permits this.
 /// assert_eq!(b"foo\xFFarzz", &haystack[got.unwrap().range()]);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -782,7 +776,6 @@ impl Builder {
     /// * It should be anchored.
     /// * It should use [`MatchKind::All`] semantics.
     /// * It should match in reverse.
-    /// * It should have anchored start states compiled for each pattern.
     /// * Otherwise, its configuration should match the forward DFA.
     ///
     /// If these conditions aren't satisfied, then the behavior of searches is
@@ -865,7 +858,7 @@ impl Builder {
     ///
     /// This permits setting things like whether the underlying DFAs should
     /// be minimized.
-    #[cfg(all(feature = "syntax", feature = "dfa-build"))]
+    #[cfg(feature = "dfa-build")]
     pub fn dense(&mut self, config: dense::Config) -> &mut Builder {
         self.dfa.configure(config);
         self
