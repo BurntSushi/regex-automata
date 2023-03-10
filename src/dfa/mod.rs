@@ -358,5 +358,3 @@ mod search;
 mod special;
 #[cfg(feature = "dfa-search")]
 mod start;
-#[cfg(feature = "transducer")]
-mod transducer;

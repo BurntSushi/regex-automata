@@ -24,7 +24,6 @@ features=(
   nfa-backtrack
   std
   alloc
-  transducer
   syntax
   syntax,nfa-pikevm
   syntax,hybrid
