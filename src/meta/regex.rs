@@ -77,7 +77,13 @@ struct RegexI {
     /// Since `RegexInfo` is stored in multiple places, it is also reference
     /// counted.
     info: RegexInfo,
-    pool: Pool<Cache, Box<dyn Fn() -> Cache>>,
+    /// A thread safe pool of caches.
+    ///
+    /// For the higher level search APIs, a `Cache` is automatically plucked
+    /// from this pool before running a search. The lower level `with` methods
+    /// permit the caller to provide their own cache, thereby bypassing
+    /// accesses to this pool.
+    pool: Pool<Cache, Box<dyn Fn() -> Cache + Send>>,
 }
 
 impl Regex {
@@ -551,7 +557,7 @@ impl RegexInfo {
 #[derive(Debug)]
 pub struct FindMatches<'r, 'h> {
     re: &'r Regex,
-    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache>>,
+    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache + Send>>,
     it: iter::Searcher<'h>,
 }
 
@@ -581,7 +587,7 @@ impl<'r, 'h> Iterator for FindMatches<'r, 'h> {
 #[derive(Debug)]
 pub struct CapturesMatches<'r, 'h> {
     re: &'r Regex,
-    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache>>,
+    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache + Send>>,
     caps: Captures,
     it: iter::Searcher<'h>,
 }
@@ -955,7 +961,7 @@ impl Builder {
         let strat = strategy::new(&info, &hirs)?;
         let pool = {
             let strat = Arc::clone(&strat);
-            let create: Box<dyn Fn() -> Cache> =
+            let create: Box<dyn Fn() -> Cache + Send> =
                 Box::new(move || strat.create_cache());
             Pool::new(create)
         };

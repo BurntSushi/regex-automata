@@ -278,13 +278,23 @@ mod inner {
     // below tries to balance safety with performance. The case where a Regex
     // is used from multiple threads simultaneously will suffer a bit since
     // getting a value out of the pool will require unlocking a mutex.
-    unsafe impl<T: Send, F> Sync for Pool<T, F> {}
+    //
+    // We require `F: Send + Sync` because we call `F` at any point on demand,
+    // potentially from multiple threads simultaneously.
+    unsafe impl<T: Send, F: Send + Sync> Sync for Pool<T, F> {}
 
     // If T is UnwindSafe, then since we provide exclusive access to any
     // particular value in the pool, it should therefore also be considered
     // RefUnwindSafe. Also, since we use std::sync::Mutex, we get poisoning
     // from it if another thread panics while the lock is held.
-    impl<T: UnwindSafe, F> RefUnwindSafe for Pool<T, F> {}
+    //
+    // We require `F: UnwindSafe + RefUnwindSafe` because we call `F` at any
+    // point on demand, so it needs to be unwind safe on both dimensions for
+    // the entire Pool to be unwind safe.
+    impl<T: UnwindSafe, F: UnwindSafe + RefUnwindSafe> RefUnwindSafe
+        for Pool<T, F>
+    {
+    }
 
     impl<T, F> Pool<T, F> {
         /// Create a new pool. The given closure is used to create values in
@@ -495,7 +505,7 @@ mod inner {
     // If T is UnwindSafe, then since we provide exclusive access to any
     // particular value in the pool, it should therefore also be considered
     // RefUnwindSafe.
-    impl<T: UnwindSafe, F> RefUnwindSafe for Pool<T, F> {}
+    impl<T: UnwindSafe, F: UnwindSafe> RefUnwindSafe for Pool<T, F> {}
 
     impl<T, F> Pool<T, F> {
         /// Create a new pool. The given closure is used to create values in
@@ -665,7 +675,7 @@ mod inner {
 mod tests {
     use core::panic::{RefUnwindSafe, UnwindSafe};
 
-    use alloc::vec::Vec;
+    use alloc::{boxed::Box, vec::Vec};
 
     use super::*;
 
@@ -674,6 +684,18 @@ mod tests {
         fn assert_oitbits<T: Send + Sync + UnwindSafe + RefUnwindSafe>() {}
         assert_oitbits::<Pool<Vec<u32>>>();
         assert_oitbits::<Pool<core::cell::RefCell<Vec<u32>>>>();
+        assert_oitbits::<
+            Pool<
+                Vec<u32>,
+                Box<
+                    dyn Fn() -> Vec<u32>
+                        + Send
+                        + Sync
+                        + UnwindSafe
+                        + RefUnwindSafe,
+                >,
+            >,
+        >();
     }
 
     // Tests that Pool implements the "single owner" optimization. That is, the

@@ -233,7 +233,10 @@ mod lazy {
     // A reference to a Lazy is unwind safe because we specifically take
     // precautions to poison all accesses to a Lazy if the caller-provided
     // 'create' function panics.
-    impl<T: UnwindSafe, F: RefUnwindSafe> RefUnwindSafe for Lazy<T, F> {}
+    impl<T: UnwindSafe, F: Unwindsafe + RefUnwindSafe> RefUnwindSafe
+        for Lazy<T, F>
+    {
+    }
 
     impl<T, F> Lazy<T, F> {
         /// Create a new non-alloc non-std lazy value that is initialized
