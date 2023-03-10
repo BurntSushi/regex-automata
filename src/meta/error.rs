@@ -1,6 +1,6 @@
 use regex_syntax::{ast, hir};
 
-use crate::{hybrid, nfa, util::search::MatchError};
+use crate::{hybrid, nfa, util::search::MatchError, PatternID};
 
 #[derive(Clone, Debug)]
 pub struct BuildError {
@@ -9,27 +9,36 @@ pub struct BuildError {
 
 #[derive(Clone, Debug)]
 enum BuildErrorKind {
-    AST(ast::Error),
-    HIR(hir::Error),
+    Ast { pid: PatternID, err: ast::Error },
+    Hir { pid: PatternID, err: hir::Error },
     NFA(nfa::thompson::BuildError),
-    Hybrid(hybrid::BuildError),
 }
 
 impl BuildError {
-    pub(crate) fn ast(err: ast::Error) -> BuildError {
-        BuildError { kind: BuildErrorKind::AST(err) }
+    /// If it is known which pattern ID caused this build error to occur, then
+    /// this method returns it.
+    ///
+    /// Some errors are not associated with a particular pattern. However, any
+    /// errors that occur as part of parsing a pattern are guaranteed to be
+    /// associated with a pattern ID.
+    pub fn pattern(&self) -> Option<PatternID> {
+        match self.kind {
+            BuildErrorKind::Ast { pid, .. } => Some(pid),
+            BuildErrorKind::Hir { pid, .. } => Some(pid),
+            _ => None,
+        }
     }
 
-    pub(crate) fn hir(err: hir::Error) -> BuildError {
-        BuildError { kind: BuildErrorKind::HIR(err) }
+    pub(crate) fn ast(pid: PatternID, err: ast::Error) -> BuildError {
+        BuildError { kind: BuildErrorKind::Ast { pid, err } }
+    }
+
+    pub(crate) fn hir(pid: PatternID, err: hir::Error) -> BuildError {
+        BuildError { kind: BuildErrorKind::Hir { pid, err } }
     }
 
     pub(crate) fn nfa(err: nfa::thompson::BuildError) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
-    }
-
-    pub(crate) fn hybrid(err: hybrid::BuildError) -> BuildError {
-        BuildError { kind: BuildErrorKind::Hybrid(err) }
     }
 }
 
@@ -37,10 +46,9 @@ impl BuildError {
 impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind {
-            BuildErrorKind::AST(ref err) => Some(err),
-            BuildErrorKind::HIR(ref err) => Some(err),
+            BuildErrorKind::Ast { ref err, .. } => Some(err),
+            BuildErrorKind::Hir { ref err, .. } => Some(err),
             BuildErrorKind::NFA(ref err) => Some(err),
-            BuildErrorKind::Hybrid(ref err) => Some(err),
         }
     }
 }
@@ -48,12 +56,17 @@ impl std::error::Error for BuildError {
 impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind {
-            BuildErrorKind::AST(_) => write!(f, "error parsing into AST"),
-            BuildErrorKind::HIR(_) => write!(f, "error translating to HIR"),
-            BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
-            BuildErrorKind::Hybrid(_) => {
-                write!(f, "error building hybrid NFA/DFA")
+            BuildErrorKind::Ast { pid, .. } => {
+                write!(f, "error parsing pattern {} into AST", pid.as_usize())
             }
+            BuildErrorKind::Hir { pid, .. } => {
+                write!(
+                    f,
+                    "error translating pattern {} to HIR",
+                    pid.as_usize()
+                )
+            }
+            BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
         }
     }
 }

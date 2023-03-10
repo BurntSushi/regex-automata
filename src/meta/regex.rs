@@ -835,9 +835,8 @@ impl Builder {
         &self,
         patterns: &[P],
     ) -> Result<Regex, BuildError> {
+        use crate::util::primitives::IteratorIndexExt;
         log! {
-            use crate::util::primitives::IteratorIndexExt;
-
             debug!("building meta regex with {} patterns:", patterns.len());
             for (pid, p) in patterns.iter().with_pattern_ids() {
                 let p = p.as_ref();
@@ -857,17 +856,22 @@ impl Builder {
             }
         }
         let (mut asts, mut hirs) = (vec![], vec![]);
-        for p in patterns.iter() {
-            asts.push(
-                self.ast.build().parse(p.as_ref()).map_err(BuildError::ast)?,
-            );
+        for (pid, p) in patterns.iter().with_pattern_ids() {
+            let ast = self
+                .ast
+                .build()
+                .parse(p.as_ref())
+                .map_err(|err| BuildError::ast(pid, err))?;
+            asts.push(ast);
         }
-        for (p, ast) in patterns.iter().zip(asts.iter()) {
+        for ((pid, p), ast) in
+            patterns.iter().with_pattern_ids().zip(asts.iter())
+        {
             let hir = self
                 .hir
                 .build()
                 .translate(p.as_ref(), ast)
-                .map_err(BuildError::hir)?;
+                .map_err(|err| BuildError::hir(pid, err))?;
             hirs.push(hir);
         }
         self.build_many_from_hir(&hirs)
