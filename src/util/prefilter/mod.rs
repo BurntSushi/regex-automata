@@ -71,6 +71,17 @@ pub(crate) use crate::util::prefilter::{
 /// extract literal prefixes for you, optimize them and then select and build a
 /// prefilter matcher.
 ///
+/// A prefilter must have **zero false negatives**. However, by its very
+/// nature, it may produce false positives. That is, a prefilter will never
+/// skip over a position in the haystack that corresponds to a match of the
+/// original regex pattern, but it *may* produce a match for a position
+/// in the haystack that does *not* correspond to a match of the original
+/// regex pattern. If you use either the [`Prefilter::from_hir_prefix`] or
+/// [`Prefilter::from_hirs_prefix`] constructors, then this guarantee is
+/// upheld for you automatically. This guarantee is not preserved if you use
+/// [`Prefilter::new`] though, since it is up to the caller to provide correct
+/// literal strings with respect to the original regex pattern.
+///
 /// # Cloning
 ///
 /// It is an API guarantee that cloning a prefilter is cheap. That is, cloning

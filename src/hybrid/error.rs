@@ -7,6 +7,16 @@ use crate::{hybrid::id::LazyStateIDError, nfa};
 /// to build a lazy DFA without heuristic Unicode support but with an NFA that
 /// contains a Unicode word boundary.)
 ///
+/// This error does not provide many introspection capabilities. There are
+/// generally only two things you can do with it:
+///
+/// * Obtain a human readable message via its `std::fmt::Display` impl.
+/// * Access an underlying
+/// [`nfa::thompson::BuildError`](crate::nfa::thompson::BuildError)
+/// type from its `source` method via the `std::error::Error` trait. This error
+/// only occurs when using convenience routines for building a lazy DFA
+/// directly from a pattern string.
+///
 /// When the `std` feature is enabled, this implements the `std::error::Error`
 /// trait.
 #[derive(Clone, Debug)]
@@ -58,10 +68,7 @@ impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind {
             BuildErrorKind::NFA(ref err) => Some(err),
-            BuildErrorKind::InsufficientCacheCapacity { .. } => None,
-            // LazyStateIDError is an implementation detail, don't expose it.
-            BuildErrorKind::InsufficientStateIDCapacity { .. } => None,
-            BuildErrorKind::Unsupported(_) => None,
+            _ => None,
         }
     }
 }
@@ -99,7 +106,7 @@ impl core::fmt::Display for BuildError {
 /// The default configuration of a lazy DFA in this crate is
 /// set such that a `CacheError` will never occur. Instead,
 /// callers must opt into this behavior with settings like
-/// [`dfa::Config::minimum_cache_clear_count`](crate::hybrid::dfa::Config::minimum_cache_clear_count).
+/// [`dfa::Config::minimum_cache_clear_count`](crate::hybrid::dfa::Config::minimum_cache_clear_count)
 /// and
 /// [`dfa::Config::minimum_bytes_per_state`](crate::hybrid::dfa::Config::minimum_bytes_per_state).
 ///

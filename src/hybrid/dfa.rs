@@ -431,14 +431,6 @@ impl DFA {
         1 << self.stride2()
     }
 
-    /// Returns the total number of elements in the alphabet for this
-    /// transition table. This is always less than or equal to `self.stride()`.
-    /// It is only equal when the alphabet length is a power of 2. Otherwise,
-    /// it is always strictly less.
-    pub fn alphabet_len(&self) -> usize {
-        self.classes.alphabet_len()
-    }
-
     /// Returns the memory usage, in bytes, of this lazy DFA.
     ///
     /// This does **not** include the stack size used up by this lazy DFA. To
@@ -486,8 +478,7 @@ impl DFA {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -644,8 +635,7 @@ impl DFA {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -848,8 +838,7 @@ impl DFA {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -954,8 +943,7 @@ impl DFA {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1102,8 +1090,7 @@ impl DFA {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1541,33 +1528,28 @@ impl DFA {
     }
 
     /// Return the ID of the start state for this lazy DFA when executing a
-    /// forward search.
+    /// forward search. If a match is known to be impossible while computing
+    /// the start state, then `None` is returned.
     ///
     /// Unlike typical DFA implementations, the start state for DFAs in this
     /// crate is dependent on a few different factors:
     ///
-    /// * The pattern ID, if present. When the underlying DFA has been
-    /// configured with multiple patterns _and_ the DFA has been configured to
-    /// build an anchored start state for each pattern, then a pattern ID may
-    /// be specified to execute an anchored search for that specific pattern.
-    /// If `pattern_id` is invalid or if the DFA isn't configured to build
-    /// start states for each pattern, then implementations must panic. DFAs in
-    /// this crate can be configured to build start states for each pattern via
-    /// [`Config::starts_for_each_pattern`].
-    /// * When `start > 0`, the byte at index `start - 1` may influence the
-    /// start state if the regex uses `^` or `\b`.
-    /// * Similarly, when `start == 0`, it may influence the start state when
-    /// the regex uses `^` or `\A`.
-    /// * Currently, `end` is unused.
+    /// * The [`Anchored`] mode of the search. Unanchored, anchored and
+    /// anchored searches for a specific [`PatternID`] all use different start
+    /// states.
+    /// * The position at which the search begins, via [`Input::start`]. This
+    /// and the byte immediately preceding the start of the search (if one
+    /// exists) influence which look-behind assertions are true at the start
+    /// of the search. This in turn influences which start state is selected.
     /// * Whether the search is a forward or reverse search. This routine can
     /// only be used for forward searches.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This panics if `start..end` is not a valid sub-slice of `bytes`. This
-    /// also panics if `pattern_id` is non-None and does not refer to a valid
-    /// pattern, or if the DFA was not configured to build anchored start
-    /// states for each pattern.
+    /// This may return a [`MatchError`] (not a [`CacheError`]!) if the search
+    /// needs to give up when determining the start state (for example, if it
+    /// sees a "quit" byte). This can also return an error if the given `Input`
+    /// contains an unsupported [`Anchored`] configuration.
     #[cfg_attr(feature = "perf-inline", inline(always))]
     pub fn start_state_forward(
         &self,
@@ -1595,33 +1577,28 @@ impl DFA {
     }
 
     /// Return the ID of the start state for this lazy DFA when executing a
-    /// reverse search.
+    /// reverse search. If a match is known to be impossible while computing
+    /// the start state, then `None` is returned.
     ///
     /// Unlike typical DFA implementations, the start state for DFAs in this
     /// crate is dependent on a few different factors:
     ///
-    /// * The pattern ID, if present. When the underlying DFA has been
-    /// configured with multiple patterns _and_ the DFA has been configured to
-    /// build an anchored start state for each pattern, then a pattern ID may
-    /// be specified to execute an anchored search for that specific pattern.
-    /// If `pattern_id` is invalid or if the DFA isn't configured to build
-    /// start states for each pattern, then implementations must panic. DFAs in
-    /// this crate can be configured to build start states for each pattern via
-    /// [`Config::starts_for_each_pattern`].
-    /// * When `end < bytes.len()`, the byte at index `end` may influence the
-    /// start state if the regex uses `$` or `\b`.
-    /// * Similarly, when `end == bytes.len()`, it may influence the start
-    /// state when the regex uses `$` or `\z`.
-    /// * Currently, `start` is unused.
+    /// * The [`Anchored`] mode of the search. Unanchored, anchored and
+    /// anchored searches for a specific [`PatternID`] all use different start
+    /// states.
+    /// * The position at which the search begins, via [`Input::start`]. This
+    /// and the byte immediately preceding the start of the search (if one
+    /// exists) influence which look-behind assertions are true at the start
+    /// of the search. This in turn influences which start state is selected.
     /// * Whether the search is a forward or reverse search. This routine can
     /// only be used for reverse searches.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This panics if `start..end` is not a valid sub-slice of `bytes`. This
-    /// also panics if `pattern_id` is non-None and does not refer to a valid
-    /// pattern, or if the DFA was not configured to build anchored start
-    /// states for each pattern.
+    /// This may return a [`MatchError`] (not a [`CacheError`]!) if the search
+    /// needs to give up when determining the start state (for example, if it
+    /// sees a "quit" byte). This can also return an error if the given `Input`
+    /// contains an unsupported [`Anchored`] configuration.
     #[cfg_attr(feature = "perf-inline", inline(always))]
     pub fn start_state_reverse(
         &self,
@@ -1656,6 +1633,8 @@ impl DFA {
     /// A lazy DFA guarantees that [`DFA::match_pattern`] can be called with
     /// indices up to (but not including) the length returned by this routine
     /// without panicking.
+    ///
+    /// # Panics
     ///
     /// If the given state is not a match state, then this may either panic
     /// or return an incorrect result.
@@ -2859,13 +2838,10 @@ impl StateSaver {
 /// A lazy DFA configuration is a simple data object that is typically used
 /// with [`Builder::configure`].
 ///
-/// The default configuration guarantees that a search will _never_ return
-/// a [`MatchError`] for any haystack or pattern. Setting a quit byte with
-/// [`Config::quit`], enabling heuristic support for Unicode word boundaries
-/// with [`Config::unicode_word_boundary`], or setting a minimum cache clear
-/// count with [`Config::minimum_cache_clear_count`] can in turn cause a search
-/// to return an error. See the corresponding configuration options for more
-/// details on when those error conditions arise.
+/// The default configuration guarantees that a search will never return a
+/// "gave up" or "quit" error, although it is possible for a search to fail
+/// if [`Config::starts_for_each_pattern`] wasn't enabled (which it is not by
+/// default) and an [`Anchored::Pattern`] mode is requested via [`Input`].
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     // As with other configuration types in this crate, we put all our knobs
@@ -3007,8 +2983,82 @@ impl Config {
         self
     }
 
+    /// Set a prefilter to be used whenever a start state is entered.
+    ///
+    /// A [`Prefilter`] in this context is meant to accelerate searches by
+    /// looking for literal prefixes that every match for the corresponding
+    /// pattern (or patterns) must start with. Once a prefilter produces a
+    /// match, the underlying search routine continues on to try and confirm
+    /// the match.
+    ///
+    /// Be warned that setting a prefilter does not guarantee that the search
+    /// will be faster. While it's usually a good bet, if the prefilter
+    /// produces a lot of false positive candidates (i.e., positions matched
+    /// by the prefilter but not by the regex), then the overall result can
+    /// be slower than if you had just executed the regex engine without any
+    /// prefilters.
+    ///
+    /// Note that unless [`Config::specialize_start_states`] has been
+    /// explicitly set, then setting this will also enable (when `pre` is
+    /// `Some`) or disable (when `pre` is `None`) start state specialization.
+    /// This occurs because without start state specialization, a prefilter
+    /// is likely to be less effective. And without a prefilter, start state
+    /// specialization is usually pointless.
+    ///
+    /// By default no prefilter is set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::prefilter::Prefilter,
+    ///     Input, HalfMatch, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["foo", "bar"]);
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().prefilter(pre))
+    ///     .build(r"(foo|bar)[a-z]+")?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("foo1 barfox bar");
+    /// assert_eq!(
+    ///     Some(HalfMatch::must(0, 11)),
+    ///     re.try_search_fwd(&mut cache, &input)?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Be warned though that an incorrect prefilter can lead to incorrect
+    /// results!
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     hybrid::dfa::DFA,
+    ///     util::prefilter::Prefilter,
+    ///     Input, HalfMatch, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["foo", "car"]);
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().prefilter(pre))
+    ///     .build(r"(foo|bar)[a-z]+")?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("foo1 barfox bar");
+    /// assert_eq!(
+    ///     // No match reported even though there clearly is one!
+    ///     None,
+    ///     re.try_search_fwd(&mut cache, &input)?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
         self.pre = Some(pre);
+        if self.specialize_start_states.is_none() {
+            self.specialize_start_states = Some(self.pre.is_some());
+        }
         self
     }
 
@@ -3322,7 +3372,19 @@ impl Config {
     /// in this case. Otherwise, if you have no prefilter, there is likely no
     /// reason to specialize start states.
     ///
-    /// This is disabled by default.
+    /// This is disabled by default, but note that it is automatically
+    /// enabled (or disabled) if [`Config::prefilter`] is set. Namely, unless
+    /// `specialize_start_states` has already been set, [`Config::prefilter`]
+    /// will automatically enable or disable it based on whether a prefilter
+    /// is present or not, respectively. This is done because a prefilter's
+    /// effectiveness is rooted in being executed whenever the DFA is in a
+    /// start state, and that's only possible to do when they are specialized.
+    ///
+    /// Note that it is plausibly reasonable to _disable_ this option
+    /// explicitly while _enabling_ a prefilter. In that case, a prefilter
+    /// will still be run at the beginning of a search, but never again. This
+    /// in theory could strike a good balance if you're in a situation where a
+    /// prefilter is likely to produce many false positive candidates.
     ///
     /// # Example
     ///
@@ -3704,6 +3766,10 @@ impl Config {
         self.minimum_cache_clear_count.unwrap_or(None)
     }
 
+    /// Returns, if set, the minimum number of bytes per state that need to be
+    /// processed in order for the lazy DFA to keep going. If the minimum falls
+    /// below this number (and the cache has been cleared a minimum number of
+    /// times), then the lazy DFA will return a "gave up" error.
     pub fn get_minimum_bytes_per_state(&self) -> Option<usize> {
         self.minimum_bytes_per_state.unwrap_or(None)
     }
@@ -3873,10 +3939,16 @@ impl Config {
 ///   things like `[^a]` that match any byte except for `a` are permitted.
 ///
 /// ```
-/// use regex_automata::{hybrid::dfa::DFA, util::syntax, HalfMatch, Input};
+/// use regex_automata::{
+///     hybrid::dfa::DFA,
+///     nfa::thompson,
+///     util::syntax,
+///     HalfMatch, Input,
+/// };
 ///
 /// let dfa = DFA::builder()
 ///     .configure(DFA::config().cache_capacity(5_000))
+///     .thompson(thompson::Config::new().utf8(false))
 ///     .syntax(syntax::Config::new().unicode(false).utf8(false))
 ///     .build(r"foo[^b]ar.*")?;
 /// let mut cache = dfa.create_cache();
@@ -4076,9 +4148,9 @@ impl Builder {
 /// the search at the next position. Additionally, it also tracks which state
 /// the last search call terminated in.
 ///
-/// This type provides no introspection capabilities. The only thing a caller
-/// can do is construct it and pass it around to permit search routines to use
-/// it to track state.
+/// This type provides little introspection capabilities. The only thing a
+/// caller can do is construct it and pass it around to permit search routines
+/// to use it to track state, and also ask whether a match has been found.
 ///
 /// Callers should always provide a fresh state constructed via
 /// [`OverlappingState::start`] when starting a new search. Reusing state from

@@ -1,7 +1,8 @@
 /*!
 Types and routines that support the wire format of finite automata.
 
-Currently, this module just exports a few error types.
+Currently, this module just exports a few error types and some small helpers
+for deserializing [dense DFAs](crate::dfa::dense::DFA) using correct alignment.
 */
 
 /*
@@ -53,6 +54,25 @@ use crate::util::{
     int::Pointer,
     primitives::{PatternID, PatternIDError, StateID, StateIDError},
 };
+
+/// A hack to align a smaller type `B` with a bigger type `T`.
+///
+/// The usual use of this is with `B = [u8]` and `T = u32`. That is,
+/// it permits aligning a sequence of bytes on a 4-byte boundary. This
+/// is useful in contexts where one wants to embed a serialized [dense
+/// DFA](crate::dfa::dense::DFA) into a Rust a program while guaranteeing the
+/// alignment required for the DFA.
+///
+/// See [`dense::DFA::from_bytes`](crate::dfa::dense::DFA::from_bytes) for an
+/// example of how to use this type.
+#[repr(C)]
+#[derive(Debug)]
+pub struct AlignAs<B: ?Sized, T> {
+    /// A zero-sized field indicating the alignment we want.
+    pub _align: [T; 0],
+    /// A possibly non-sized field containing a sequence of bytes.
+    pub bytes: B,
+}
 
 /// An error that occurs when serializing an object from this crate.
 ///

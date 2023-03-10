@@ -1690,7 +1690,7 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode. Concrete,
+    /// example, by providing an unsupported anchor mode. Concretely,
     /// this occurs when using [`Anchored::Pattern`] without enabling
     /// [`Config::starts_for_each_pattern`].
     ///
@@ -1773,7 +1773,7 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode. Concrete,
+    /// example, by providing an unsupported anchor mode. Concretely,
     /// this occurs when using [`Anchored::Pattern`] without enabling
     /// [`Config::starts_for_each_pattern`].
     ///
@@ -1840,7 +1840,7 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode. Concrete,
+    /// example, by providing an unsupported anchor mode. Concretely,
     /// this occurs when using [`Anchored::Pattern`] without enabling
     /// [`Config::starts_for_each_pattern`].
     ///
@@ -1971,7 +1971,7 @@ impl DFA {
     /// in the following circumstances:
     ///
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode. Concrete,
+    /// example, by providing an unsupported anchor mode. Concretely,
     /// this occurs when using [`Anchored::Pattern`] without enabling
     /// [`Config::starts_for_each_pattern`].
     ///

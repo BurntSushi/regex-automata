@@ -1,10 +1,10 @@
 /*!
 A lazy DFA backed `Regex`.
 
-This module provides [`Regex`] using lazy DFA. A `Regex` implements convenience
-routines you might have come to expect, such as finding a match and iterating
-over all non-overlapping matches. This `Regex` type is limited in its
-capabilities to what a lazy DFA can provide. Therefore, APIs involving
+This module provides a [`Regex`] backed by a lazy DFA. A `Regex` implements
+convenience routines you might have come to expect, such as finding a match
+and iterating over all non-overlapping matches. This `Regex` type is limited
+in its capabilities to what a lazy DFA can provide. Therefore, APIs involving
 capturing groups, for example, are not provided.
 
 Internally, a `Regex` is composed of two DFAs. One is a "forward" DFA that
@@ -45,8 +45,8 @@ use crate::{
 /// word boundary support, although neither are enabled by default. It might
 /// also fail if the underlying DFA determines it isn't making effective use of
 /// the cache (which also never happens by default). Or it might fail because
-/// an invalid `Input` configuration is given, either with an unsupported
-/// [`Anchored`] mode or an invalid pattern ID.
+/// an invalid `Input` configuration is given, for example, with an unsupported
+/// [`Anchored`] mode.
 ///
 /// If you need to handle these error cases instead of allowing them to trigger
 /// a panic, then the lower level [`Regex::try_search`] provides a fallible API
@@ -262,8 +262,7 @@ impl Regex {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search panics, callers cannot know whether a match exists or
     /// not.
@@ -313,8 +312,7 @@ impl Regex {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search panics, callers cannot know whether a match exists or
     /// not.
@@ -368,11 +366,14 @@ impl Regex {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search panics, callers cannot know whether a match exists or
     /// not.
+    ///
+    /// The above conditions also apply to the iterator returned as well. For
+    /// example, if the lazy DFA gives up or quits during a search using this
+    /// method, then a panic will occur during iteration.
     ///
     /// Use [`Regex::try_search`] with [`util::iter::Searcher`](iter::Searcher)
     /// if you want to handle these error conditions.
@@ -433,8 +434,7 @@ impl Regex {
     /// cache. The default configuration does not enable this by default,
     /// although it is typically a good idea to.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -560,12 +560,11 @@ impl Regex {
 ///
 /// The lifetime parameters are as follows:
 ///
+/// * `'r` represents the lifetime of the regex object.
 /// * `'h` represents the lifetime of the haystack being searched.
-/// * `'c` represents the lifetime of the regex cache. The lifetime of the
-/// regex object itself must outlive `'c`.
+/// * `'c` represents the lifetime of the regex cache.
 ///
-/// This iterator can be created with the [`Regex::find_iter`]
-/// method.
+/// This iterator can be created with the [`Regex::find_iter`] method.
 #[derive(Debug)]
 pub struct FindMatches<'r, 'c, 'h> {
     re: &'r Regex,
@@ -760,11 +759,6 @@ impl Cache {
 /// // Notice that `(?-u:[^b])` matches invalid UTF-8,
 /// // but the subsequent `.*` does not! Disabling UTF-8
 /// // on the syntax permits this.
-/// //
-/// // N.B. This example does not show the impact of
-/// // disabling UTF-8 mode on a regex Config, since that
-/// // only impacts regexes that can produce matches of
-/// // length 0.
 /// assert_eq!(b"foo\xFFarzz", &haystack[got.unwrap().range()]);
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())

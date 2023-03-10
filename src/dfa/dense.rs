@@ -57,15 +57,17 @@ const VERSION: u32 = 2;
 
 /// The configuration used for compiling a dense DFA.
 ///
+/// As a convenience, [`DFA::config`] is an alias for [`Config::new`]. The
+/// advantage of the former is that it often lets you avoid importing the
+/// `Config` type directly.
+///
 /// A dense DFA configuration is a simple data object that is typically used
 /// with [`dense::Builder::configure`](self::Builder::configure).
 ///
-/// The default configuration guarantees that a search will _never_ return a
-/// [`MatchError`](crate::MatchError) for any haystack or pattern. Setting a
-/// quit byte with [`Config::quit`] or enabling heuristic support for Unicode
-/// word boundaries with [`Config::unicode_word_boundary`] can in turn cause a
-/// search to return an error. See the corresponding configuration options for
-/// more details on when those error conditions arise.
+/// The default configuration guarantees that a search will never return
+/// a "quit" error, although it is possible for a search to fail if
+/// [`Config::starts_for_each_pattern`] wasn't enabled (which it is not by
+/// default) and an [`Anchored::Pattern`] mode is requested via [`Input`].
 #[cfg(feature = "dfa-build")]
 #[derive(Clone, Debug, Default)]
 pub struct Config {
@@ -120,8 +122,83 @@ impl Config {
         self
     }
 
+    /// Set a prefilter to be used whenever a start state is entered.
+    ///
+    /// A [`Prefilter`] in this context is meant to accelerate searches by
+    /// looking for literal prefixes that every match for the corresponding
+    /// pattern (or patterns) must start with. Once a prefilter produces a
+    /// match, the underlying search routine continues on to try and confirm
+    /// the match.
+    ///
+    /// Be warned that setting a prefilter does not guarantee that the search
+    /// will be faster. While it's usually a good bet, if the prefilter
+    /// produces a lot of false positive candidates (i.e., positions matched
+    /// by the prefilter but not by the regex), then the overall result can
+    /// be slower than if you had just executed the regex engine without any
+    /// prefilters.
+    ///
+    /// Note that unless [`Config::specialize_start_states`] has been
+    /// explicitly set, then setting this will also enable (when `pre` is
+    /// `Some`) or disable (when `pre` is `None`) start state specialization.
+    /// This occurs because without start state specialization, a prefilter
+    /// is likely to be less effective. And without a prefilter, start state
+    /// specialization is usually pointless.
+    ///
+    /// **WARNING:** Note that prefilters are not preserved as part of
+    /// serialization. Serializing a DFA will drop its prefilter.
+    ///
+    /// By default no prefilter is set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{dense::DFA, Automaton},
+    ///     util::prefilter::Prefilter,
+    ///     Input, HalfMatch, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["foo", "bar"]);
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().prefilter(pre))
+    ///     .build(r"(foo|bar)[a-z]+")?;
+    /// let input = Input::new("foo1 barfox bar");
+    /// assert_eq!(
+    ///     Some(HalfMatch::must(0, 11)),
+    ///     re.try_search_fwd(&input)?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Be warned though that an incorrect prefilter can lead to incorrect
+    /// results!
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{dense::DFA, Automaton},
+    ///     util::prefilter::Prefilter,
+    ///     Input, HalfMatch, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["foo", "car"]);
+    /// let re = DFA::builder()
+    ///     .configure(DFA::config().prefilter(pre))
+    ///     .build(r"(foo|bar)[a-z]+")?;
+    /// let input = Input::new("foo1 barfox bar");
+    /// assert_eq!(
+    ///     // No match reported even though there clearly is one!
+    ///     None,
+    ///     re.try_search_fwd(&input)?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
         self.pre = Some(pre);
+        if self.specialize_start_states.is_none() {
+            self.specialize_start_states = Some(self.pre.is_some());
+        }
         self
     }
 
@@ -2192,7 +2269,7 @@ impl<'a> DFA<&'a [u32]> {
     /// ```no_run
     /// use regex_automata::{
     ///     dfa::{Automaton, dense::DFA},
-    ///     util::lazy::Lazy,
+    ///     util::{lazy::Lazy, wire::AlignAs},
     ///     HalfMatch, Input,
     /// };
     ///
@@ -2201,23 +2278,13 @@ impl<'a> DFA<&'a [u32]> {
     /// // no-std environments and let's us write this using completely
     /// // safe code.
     /// static RE: Lazy<DFA<&'static [u32]>> = Lazy::new(|| {
-    ///     // This struct with a generic B is used to permit unsizing
-    ///     // coercions, specifically, where B winds up being a [u8]. We also
-    ///     // need repr(C) to guarantee that _align comes first, which forces
-    ///     // a correct alignment.
-    ///     //
-    ///     // TL;DR - This is a special way to spell "make sure we embed
-    ///     // binary data with an alignment matching u32."
-    ///     #[repr(C)]
-    ///     struct Aligned<B: ?Sized> {
-    ///         _align: [u32; 0],
-    ///         bytes: B,
-    ///     }
-    ///
     ///     # const _: &str = stringify! {
     ///     // This assignment is made possible (implicitly) via the
-    ///     // CoerceUnsized trait.
-    ///     static ALIGNED: &Aligned<[u8]> = &Aligned {
+    ///     // CoerceUnsized trait. This is what guarantees that our
+    ///     // bytes are stored in memory on a 4 byte boundary. You
+    ///     // *must* do this or something equivalent for correct
+    ///     // deserialization.
+    ///     static ALIGNED: &AlignAs<[u8], u32> = &AlignAs {
     ///         _align: [],
     ///         #[cfg(target_endian = "big")]
     ///         bytes: *include_bytes!("foo.bigendian.dfa"),
@@ -2225,7 +2292,7 @@ impl<'a> DFA<&'a [u32]> {
     ///         bytes: *include_bytes!("foo.littleendian.dfa"),
     ///     };
     ///     # };
-    ///     # static ALIGNED: &Aligned<[u8]> = &Aligned {
+    ///     # static ALIGNED: &AlignAs<[u8], u32> = &AlignAs {
     ///     #     _align: [],
     ///     #     bytes: [],
     ///     # };
@@ -2247,10 +2314,10 @@ impl<'a> DFA<&'a [u32]> {
     /// expressive API. But a `Lazy` value from this crate is likely just fine
     /// in most circumstances.
     ///
-    /// Note that regardless of which initialization method you use, you will
-    /// still need to use the `Aligned` trick above to force correct alignment,
-    /// but this is safe to do and `from_bytes` will return an error if you get
-    /// it wrong.
+    /// Note that regardless of which initialization method you use, you
+    /// will still need to use the [`AlignAs`](crate::util::wire::AlignAs)
+    /// trick above to force correct alignment, but this is safe to do and
+    /// `from_bytes` will return an error if you get it wrong.
     pub fn from_bytes(
         slice: &'a [u8],
     ) -> Result<(DFA<&'a [u32]>, usize), DeserializeError> {
@@ -4917,7 +4984,6 @@ pub struct BuildError {
 enum BuildErrorKind {
     /// An error that occurred while constructing an NFA as a precursor step
     /// before a DFA is compiled.
-    #[cfg(feature = "syntax")]
     NFA(thompson::BuildError),
     /// An error that occurred because an unsupported regex feature was used.
     /// The message string describes which unsupported feature was used.
@@ -4954,7 +5020,6 @@ impl BuildError {
         &self.kind
     }
 
-    #[cfg(feature = "syntax")]
     pub(crate) fn nfa(err: thompson::BuildError) -> BuildError {
         BuildError { kind: BuildErrorKind::NFA(err) }
     }
@@ -4994,7 +5059,6 @@ impl BuildError {
 impl std::error::Error for BuildError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self.kind() {
-            #[cfg(feature = "syntax")]
             BuildErrorKind::NFA(ref err) => Some(err),
             _ => None,
         }
@@ -5005,7 +5069,6 @@ impl std::error::Error for BuildError {
 impl core::fmt::Display for BuildError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.kind() {
-            #[cfg(feature = "syntax")]
             BuildErrorKind::NFA(_) => write!(f, "error building NFA"),
             BuildErrorKind::Unsupported(ref msg) => {
                 write!(f, "unsupported regex feature for DFAs: {}", msg)

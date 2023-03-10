@@ -1,6 +1,4 @@
-use core::convert::TryFrom;
-
-/// A state identifier especially tailored for lazy DFAs.
+/// A state identifier specifically tailored for lazy DFAs.
 ///
 /// A lazy state ID logically represents a pointer to a DFA state. In practice,
 /// by limiting the number of DFA states it can address, it reserves some
@@ -14,18 +12,28 @@ use core::convert::TryFrom;
 ///
 /// * **Unknown** - The state has not yet been computed. The
 /// parameters used to get this state ID must be re-passed to
-/// [`DFA::next_state`](crate::hybrid::dfa::DFA), which will never return an
-/// unknown state ID.
+/// [`DFA::next_state`](crate::hybrid::dfa::DFA::next_state), which will never
+/// return an unknown state ID.
 /// * **Dead** - A dead state only has transitions to itself. It indicates that
 /// the search cannot do anything else and should stop with whatever result it
 /// has.
 /// * **Quit** - A quit state indicates that the automaton could not answer
 /// whether a match exists or not. Correct search implementations must return a
-/// [`MatchError::quit`](crate::MatchError::quit).
-/// * **Start** - A start state indicates that the automaton will begin
-/// searching at a starting state. Branching on this isn't required for
-/// correctness, but a common optimization is to use this to more quickly look
-/// for a prefix.
+/// [`MatchError::quit`](crate::MatchError::quit) when a DFA enters a quit
+/// state.
+/// * **Start** - A start state is a state in which a search can begin.
+/// Lazy DFAs usually have more than one start state. Branching on
+/// this isn't required for correctness, but a common optimization is
+/// to run a prefilter when a search enters a start state. Note that
+/// start states are *not* tagged automatically, and one must enable the
+/// [`Config::specialize_start_states`](crate::hybrid::dfa::Config::specialize_start_states)
+/// setting for start states to be tagged. The reason for this is
+/// that a DFA search loop is usually written to execute a prefilter once it
+/// enters a start state. But if there is no prefilter, this handling can be
+/// quite diastrous as the DFA may ping-pong between the special handling code
+/// and a possible optimized hot path for handling untagged states. When start
+/// states aren't specialized, then they are untagged and remain in the hot
+/// path.
 /// * **Match** - A match state indicates that a match has been found.
 /// Depending on the semantics of your search implementation, it may either
 /// continue until the end of the haystack or a dead state, or it might quit

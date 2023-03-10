@@ -79,12 +79,10 @@ use crate::{
 ///     the state can be queried via the [`Automaton::accelerator`] method.
 ///
 /// There are a number of provided methods on this trait that implement
-/// efficient searching (for forwards and backwards) with a DFA using all of
-/// the above features of this trait. In particular, given the complexity of
-/// all these features, implementing a search routine in this trait is not
-/// straight forward. If you need to do this for specialized reasons, then
-/// it's recommended to look at the source of this crate. It is intentionally
-/// well commented to help with this. With that said, it is possible to
+/// efficient searching (for forwards and backwards) with a DFA using
+/// all of the above features of this trait. In particular, given the
+/// complexity of all these features, implementing a search routine in
+/// this trait can be a little subtle. With that said, it is possible to
 /// somewhat simplify the search routine. For example, handling accelerated
 /// states is strictly optional, since it is always correct to assume that
 /// `Automaton::is_accel_state` returns false. However, one complex part of
@@ -93,13 +91,19 @@ use crate::{
 ///
 /// # Safety
 ///
-/// This trait is unsafe to implement because DFA searching may rely on the
-/// correctness of the implementation for memory safety. For example, DFA
-/// searching may use explicit bounds check elision, which will in turn rely
-/// on the correctness of every function that returns a state ID.
+/// This trait is not safe to implement so that code may rely on the
+/// correctness of implementations of this trait to avoid undefined behavior.
+/// The primary correctness guarantees are:
 ///
-/// When implementing this trait, one must uphold the documented correctness
-/// guarantees. Otherwise, undefined behavior may occur.
+/// * `Automaton::start_state` always returns a valid state ID or an error or
+/// panics.
+/// * `Automaton::next_state`, when given a valid state ID, always returns
+/// a valid state ID for all values of `anchored` and `byte`, or otherwise
+/// panics.
+///
+/// In general, the rest of the methods on `Automaton` need to uphold their
+/// contracts as well. For example, `Automaton::is_dead` should only returns
+/// true if the given state ID is actually a dead state.
 pub unsafe trait Automaton {
     /// Transitions from the current state to the next state, given the next
     /// byte of input.
@@ -227,68 +231,57 @@ pub unsafe trait Automaton {
     /// ```
     fn next_eoi_state(&self, current: StateID) -> StateID;
 
-    /// Return the ID of the start state for this DFA when executing a forward
-    /// search.
+    /// Return the ID of the start state for this lazy DFA when executing a
+    /// forward search. If a match is known to be impossible while computing
+    /// the start state, then `None` is returned.
     ///
     /// Unlike typical DFA implementations, the start state for DFAs in this
     /// crate is dependent on a few different factors:
     ///
-    /// * The pattern ID, if present. When the underlying DFA has been compiled
-    /// with multiple patterns _and_ the DFA has been configured to compile
-    /// an anchored start state for each pattern, then a pattern ID may be
-    /// specified to execute an anchored search for that specific pattern.
-    /// If `pattern_id` is invalid or if the DFA doesn't have start states
-    /// compiled for each pattern, then implementations must panic. DFAs in
-    /// this crate can be configured to compile start states for each pattern
-    /// via
-    /// [`dense::Config::starts_for_each_pattern`](crate::dfa::dense::Config::starts_for_each_pattern).
-    /// * When `start > 0`, the byte at index `start - 1` may influence the
-    /// start state if the regex uses `^` or `\b`.
-    /// * Similarly, when `start == 0`, it may influence the start state when
-    /// the regex uses `^` or `\A`.
-    /// * Currently, `end` is unused.
+    /// * The [`Anchored`] mode of the search. Unanchored, anchored and
+    /// anchored searches for a specific [`PatternID`] all use different start
+    /// states.
+    /// * The position at which the search begins, via [`Input::start`]. This
+    /// and the byte immediately preceding the start of the search (if one
+    /// exists) influence which look-behind assertions are true at the start
+    /// of the search. This in turn influences which start state is selected.
     /// * Whether the search is a forward or reverse search. This routine can
     /// only be used for forward searches.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Implementations must panic if `start..end` is not a valid sub-slice of
-    /// `bytes`. Implementations must also panic if `pattern_id` is non-None
-    /// and does not refer to a valid pattern, or if the DFA was not compiled
-    /// with anchored start states for each pattern.
+    /// This may return a [`MatchError`] if the search needs to give up
+    /// when determining the start state (for example, if it sees a "quit"
+    /// byte). This can also return an error if the given `Input` contains an
+    /// unsupported [`Anchored`] configuration.
     fn start_state_forward(
         &self,
         input: &Input<'_>,
     ) -> Result<Option<StateID>, MatchError>;
 
-    /// Return the ID of the start state for this DFA when executing a reverse
-    /// search.
+    /// Return the ID of the start state for this lazy DFA when executing a
+    /// reverse search. If a match is known to be impossible while computing
+    /// the start state, then `None` is returned.
     ///
     /// Unlike typical DFA implementations, the start state for DFAs in this
     /// crate is dependent on a few different factors:
     ///
-    /// * The pattern ID, if present. When the underlying DFA has been compiled
-    /// with multiple patterns _and_ the DFA has been configured to compile an
-    /// anchored start state for each pattern, then a pattern ID may be
-    /// specified to execute an anchored search for that specific pattern. If
-    /// `pattern_id` is invalid or if the DFA doesn't have start states compiled
-    /// for each pattern, then implementations must panic. DFAs in this crate
-    /// can be configured to compile start states for each pattern via
-    /// [`dense::Config::starts_for_each_pattern`](crate::dfa::dense::Config::starts_for_each_pattern).
-    /// * When `end < bytes.len()`, the byte at index `end` may influence the
-    /// start state if the regex uses `$` or `\b`.
-    /// * Similarly, when `end == bytes.len()`, it may influence the start
-    /// state when the regex uses `$` or `\z`.
-    /// * Currently, `start` is unused.
+    /// * The [`Anchored`] mode of the search. Unanchored, anchored and
+    /// anchored searches for a specific [`PatternID`] all use different start
+    /// states.
+    /// * The position at which the search begins, via [`Input::start`]. This
+    /// and the byte immediately preceding the start of the search (if one
+    /// exists) influence which look-behind assertions are true at the start
+    /// of the search. This in turn influences which start state is selected.
     /// * Whether the search is a forward or reverse search. This routine can
     /// only be used for reverse searches.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Implementations must panic if `start..end` is not a valid sub-slice of
-    /// `bytes`. Implementations must also panic if `pattern_id` is non-None
-    /// and does not refer to a valid pattern, or if the DFA was not compiled
-    /// with anchored start states for each pattern.
+    /// This may return a [`MatchError`] if the search needs to give up
+    /// when determining the start state (for example, if it sees a "quit"
+    /// byte). This can also return an error if the given `Input` contains an
+    /// unsupported [`Anchored`] configuration.
     fn start_state_reverse(
         &self,
         input: &Input<'_>,
@@ -309,7 +302,7 @@ pub unsafe trait Automaton {
     /// assertions in their prefix, then the DFA has a universal starting state
     /// and _may_ be returned by this method.
     ///
-    /// It always correct for implementations to return `None`, and indeed,
+    /// It is always correct for implementations to return `None`, and indeed,
     /// this is what the default implementation does. When this returns `None`,
     /// callers must use either `start_state_forward` or `start_state_reverse`
     /// to get the starting state.
@@ -520,13 +513,6 @@ pub unsafe trait Automaton {
     /// following the dead state. (Which is not usually represented by `1`,
     /// since state identifiers are pre-multiplied by the state machine's
     /// alphabet stride, and the alphabet stride varies between DFAs.)
-    ///
-    /// By default, state machines created by this crate will never enter a
-    /// quit state. Since entering a quit state is the only way for a DFA
-    /// in this crate to fail at search time, it follows that the default
-    /// configuration can never produce a match error. Nevertheless, handling
-    /// quit states is necessary to correctly support all configurations in
-    /// this crate.
     ///
     /// The typical way in which a quit state can occur is when heuristic
     /// support for Unicode word boundaries is enabled via the
@@ -975,18 +961,109 @@ pub unsafe trait Automaton {
     /// ```
     fn has_empty(&self) -> bool;
 
-    /// TODO
+    /// Whether UTF-8 mode is enabled for this DFA or not.
+    ///
+    /// When UTF-8 mode is enabled, all matches reported by a DFA are
+    /// guaranteed to correspond to spans of valid UTF-8. This includes
+    /// zero-width matches. For example, the DFA must guarantee that the empty
+    /// regex will not match at the positions between code units in the UTF-8
+    /// encoding of a single codepoint.
+    ///
+    /// See [`thompson::Config::utf8`](crate::nfa::thompson::Config::utf8) for
+    /// more information.
+    ///
+    /// # Example
+    ///
+    /// This example shows how UTF-8 mode can impact the match spans that may
+    /// be reported in certain cases.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     dfa::{dense::DFA, Automaton},
+    ///     nfa::thompson,
+    ///     HalfMatch, Input,
+    /// };
+    ///
+    /// // UTF-8 mode is enabled by default.
+    /// let re = DFA::new("")?;
+    /// assert!(re.is_utf8());
+    /// let mut input = Input::new("☃");
+    /// let got = re.try_search_fwd(&input)?;
+    /// assert_eq!(Some(HalfMatch::must(0, 0)), got);
+    ///
+    /// // Even though an empty regex matches at 1..1, our next match is
+    /// // 3..3 because 1..1 and 2..2 split the snowman codepoint (which is
+    /// // three bytes long).
+    /// input.set_start(1);
+    /// let got = re.try_search_fwd(&input)?;
+    /// assert_eq!(Some(HalfMatch::must(0, 3)), got);
+    ///
+    /// // But if we disable UTF-8, then we'll get matches at 1..1 and 2..2:
+    /// let re = DFA::builder()
+    ///     .thompson(thompson::Config::new().utf8(false))
+    ///     .build("")?;
+    /// assert!(!re.is_utf8());
+    /// let got = re.try_search_fwd(&input)?;
+    /// assert_eq!(Some(HalfMatch::must(0, 1)), got);
+    ///
+    /// input.set_start(2);
+    /// let got = re.try_search_fwd(&input)?;
+    /// assert_eq!(Some(HalfMatch::must(0, 2)), got);
+    ///
+    /// input.set_start(3);
+    /// let got = re.try_search_fwd(&input)?;
+    /// assert_eq!(Some(HalfMatch::must(0, 3)), got);
+    ///
+    /// input.set_start(4);
+    /// let got = re.try_search_fwd(&input)?;
+    /// assert_eq!(None, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn is_utf8(&self) -> bool;
 
-    /// TODO
+    /// Returns true if and only if this DFA is limited to returning matches
+    /// whose start position is `0`.
+    ///
+    /// Note that if you're using DFAs provided by
+    /// this crate, then this is _orthogonal_ to
+    /// [`Config::start_kind`](crate::dfa::dense::Config::start_kind).
+    ///
+    /// This is useful in some cases because if a DFA is limited to producing
+    /// matches that start at offset `0`, then a reverse search is never
+    /// required for finding the start of a match.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::dfa::{dense::DFA, Automaton};
+    ///
+    /// // The empty regex matches anywhere
+    /// let dfa = DFA::new("")?;
+    /// assert!(!dfa.is_always_start_anchored(), "empty matches anywhere");
+    /// // 'a' matches anywhere.
+    /// let dfa = DFA::new("a")?;
+    /// assert!(!dfa.is_always_start_anchored(), "'a' matches anywhere");
+    /// // '^' only matches at offset 0!
+    /// let dfa = DFA::new("^a")?;
+    /// assert!(dfa.is_always_start_anchored(), "'^a' matches only at 0");
+    /// // But '(?m:^)' matches at 0 but at other offsets too.
+    /// let dfa = DFA::new("(?m:^)a")?;
+    /// assert!(!dfa.is_always_start_anchored(), "'(?m:^)a' matches anywhere");
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     fn is_always_start_anchored(&self) -> bool;
 
     /// Return a slice of bytes to accelerate for the given state, if possible.
     ///
     /// If the given state has no accelerator, then an empty slice must be
-    /// returned. If `Automaton::is_accel_state` returns true for the given
-    /// ID, then this routine _must_ return a non-empty slice, but it is not
-    /// required to do so.
+    /// returned. If `Automaton::is_accel_state` returns true for the given ID,
+    /// then this routine _must_ return a non-empty slice. But note that it is
+    /// not required for an implementation of this trait to ever return `true`
+    /// for `is_accel_state`, even if the state _could_ be accelerated. That
+    /// is, acceleration is an optional optimization. But the return values of
+    /// `is_accel_state` and `accelerator` must be in sync.
     ///
     /// If the given ID is not a valid state ID for this automaton, then
     /// implementations may panic or produce incorrect results.
@@ -1036,7 +1113,18 @@ pub unsafe trait Automaton {
         &[]
     }
 
-    /// TODO
+    /// Returns the prefilter associated with a DFA, if one exists.
+    ///
+    /// The default implementation of this trait always returns `None`. And
+    /// indeed, it is always correct to return `None`.
+    ///
+    /// For DFAs in this crate, a prefilter can be attached to a DFA via
+    /// [`dense::Config::prefilter`](crate::dfa::dense::Config::prefilter).
+    ///
+    /// Do note that prefilters are not serialized by DFAs in this crate.
+    /// So if you deserialize a DFA that had a prefilter attached to it
+    /// at serialization time, then it will not have a prefilter after
+    /// deserialization.
     #[inline]
     fn get_prefilter(&self) -> Option<&Prefilter> {
         None
@@ -1061,8 +1149,7 @@ pub unsafe trait Automaton {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1220,8 +1307,7 @@ pub unsafe trait Automaton {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1412,8 +1498,7 @@ pub unsafe trait Automaton {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1507,8 +1592,7 @@ pub unsafe trait Automaton {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1649,8 +1733,7 @@ pub unsafe trait Automaton {
     /// Unicode word boundaries. The default configuration does not enable any
     /// option that could result in the DFA quitting.
     /// * When the provided `Input` configuration is not supported. For
-    /// example, by providing an unsupported anchor mode or an invalid pattern
-    /// ID.
+    /// example, by providing an unsupported anchor mode.
     ///
     /// When a search returns an error, callers cannot know whether a match
     /// exists or not.
@@ -1877,9 +1960,9 @@ unsafe impl<'a, A: Automaton + ?Sized> Automaton for &'a A {
 /// the search at the next position. Additionally, it also tracks which state
 /// the last search call terminated in.
 ///
-/// This type provides no introspection capabilities. The only thing a caller
-/// can do is construct it and pass it around to permit search routines to use
-/// it to track state.
+/// This type provides little introspection capabilities. The only thing a
+/// caller can do is construct it and pass it around to permit search routines
+/// to use it to track state, and also ask whether a match has been found.
 ///
 /// Callers should always provide a fresh state constructed via
 /// [`OverlappingState::start`] when starting a new search. Reusing state from
