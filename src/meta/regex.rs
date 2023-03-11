@@ -1,4 +1,7 @@
-use core::borrow::Borrow;
+use core::{
+    borrow::Borrow,
+    panic::{RefUnwindSafe, UnwindSafe},
+};
 
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 
@@ -23,6 +26,18 @@ use crate::{
         search::{HalfMatch, Input, Match, MatchError, MatchKind, PatternSet},
     },
 };
+
+/// A type alias for our pool of meta::Cache, because it's annoying to write
+/// out every time.
+type CachePool = Pool<Cache, CachePoolFn>;
+
+/// Same as above, but for the guard returned by a pool.
+type CachePoolGuard<'a> = PoolGuard<'a, Cache, CachePoolFn>;
+
+/// The type of the closure we use to create new caches. We need to spell out
+/// all of the marker traits or else we risk leaking !MARKER impls.
+type CachePoolFn =
+    Box<dyn Fn() -> Cache + Send + Sync + UnwindSafe + RefUnwindSafe>;
 
 /// # Example
 ///
@@ -83,7 +98,7 @@ struct RegexI {
     /// from this pool before running a search. The lower level `with` methods
     /// permit the caller to provide their own cache, thereby bypassing
     /// accesses to this pool.
-    pool: Pool<Cache, Box<dyn Fn() -> Cache + Send>>,
+    pool: CachePool,
 }
 
 impl Regex {
@@ -334,6 +349,10 @@ impl Regex {
         if self.0.info.is_impossible(input) {
             return None;
         }
+        // let mut cache = self.0.pool.get();
+        // let result = self.search_half_with(&mut cache, input);
+        // self.0.pool.put(cache);
+        // result
         self.search_half_with(&mut self.0.pool.get(), input)
     }
 
@@ -557,7 +576,7 @@ impl RegexInfo {
 #[derive(Debug)]
 pub struct FindMatches<'r, 'h> {
     re: &'r Regex,
-    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache + Send>>,
+    cache: CachePoolGuard<'r>,
     it: iter::Searcher<'h>,
 }
 
@@ -587,7 +606,7 @@ impl<'r, 'h> Iterator for FindMatches<'r, 'h> {
 #[derive(Debug)]
 pub struct CapturesMatches<'r, 'h> {
     re: &'r Regex,
-    cache: PoolGuard<'r, Cache, Box<dyn Fn() -> Cache + Send>>,
+    cache: CachePoolGuard<'r>,
     caps: Captures,
     it: iter::Searcher<'h>,
 }
@@ -961,8 +980,7 @@ impl Builder {
         let strat = strategy::new(&info, &hirs)?;
         let pool = {
             let strat = Arc::clone(&strat);
-            let create: Box<dyn Fn() -> Cache + Send> =
-                Box::new(move || strat.create_cache());
+            let create: CachePoolFn = Box::new(move || strat.create_cache());
             Pool::new(create)
         };
         Ok(Regex(Arc::new(RegexI { strat, info, pool })))

@@ -150,6 +150,11 @@ impl<T: Send, F: Fn() -> T> Pool<T, F> {
     pub fn get(&self) -> PoolGuard<'_, T, F> {
         PoolGuard(self.0.get())
     }
+
+    /// TODO
+    pub fn put(&self, guard: PoolGuard<'_, T, F>) {
+        self.0.put(guard.0);
+    }
 }
 
 impl<T: core::fmt::Debug, F> core::fmt::Debug for Pool<T, F> {
@@ -373,10 +378,17 @@ mod inner {
             self.guard_stack(value)
         }
 
+        pub(super) fn put(&self, guard: PoolGuard<'_, T, F>) {
+            let mut guard = core::mem::ManuallyDrop::new(guard);
+            if let Some(value) = guard.value.take() {
+                self.put_value(value);
+            }
+        }
+
         /// Puts a value back into the pool. Callers don't need to call this.
         /// Once the guard that's returned by 'get' is dropped, it is put back
         /// into the pool automatically.
-        fn put(&self, value: Box<T>) {
+        fn put_value(&self, value: Box<T>) {
             let mut stack = self.stack.lock().unwrap();
             stack.push(value);
         }
@@ -460,7 +472,7 @@ mod inner {
     impl<'a, T: Send, F: Fn() -> T> Drop for PoolGuard<'a, T, F> {
         fn drop(&mut self) {
             if let Some(value) = self.value.take() {
-                self.pool.put(value);
+                self.pool.put_value(value);
             }
         }
     }
@@ -527,10 +539,17 @@ mod inner {
             PoolGuard { pool: self, value: Some(value) }
         }
 
+        fn put(&self, guard: PoolGuard<'_, T, F>) {
+            let mut guard = core::mem::ManuallyDrop::new(guard);
+            if let Some(value) = guard.value.take() {
+                self.put_value(value);
+            }
+        }
+
         /// Puts a value back into the pool. Callers don't need to call this.
         /// Once the guard that's returned by 'get' is dropped, it is put back
         /// into the pool automatically.
-        fn put(&self, value: Box<T>) {
+        fn put_value(&self, value: Box<T>) {
             let mut stack = self.stack.lock();
             stack.push(value);
         }
@@ -566,7 +585,7 @@ mod inner {
     impl<'a, T: Send, F: Fn() -> T> Drop for PoolGuard<'a, T, F> {
         fn drop(&mut self) {
             if let Some(value) = self.value.take() {
-                self.pool.put(value);
+                self.pool.put_value(value);
             }
         }
     }
