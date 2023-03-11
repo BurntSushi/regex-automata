@@ -27,8 +27,8 @@ use crate::{
     },
 };
 
-/// A type alias for our pool of meta::Cache, because it's annoying to write
-/// out every time.
+/// A type alias for our pool of meta::Cache that fixes the type parameters to
+/// what we use for the meta regex below.
 type CachePool = Pool<Cache, CachePoolFn>;
 
 /// Same as above, but for the guard returned by a pool.
@@ -65,8 +65,25 @@ type CachePoolFn =
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Clone, Debug)]
-pub struct Regex(Arc<RegexI>);
+#[derive(Debug)]
+pub struct Regex {
+    /// The actual regex implementation.
+    imp: Arc<RegexI>,
+    /// A thread safe pool of caches.
+    ///
+    /// For the higher level search APIs, a `Cache` is automatically plucked
+    /// from this pool before running a search. The lower level `with` methods
+    /// permit the caller to provide their own cache, thereby bypassing
+    /// accesses to this pool.
+    ///
+    /// Note that we put this outside the `Arc` so that cloning a `Regex`
+    /// results in creating a fresh `CachePool`. This in turn permits callers
+    /// to clone regexes into separate threads where each such regex gets
+    /// the pool's "thread owner" optimization. Otherwise, if one shares the
+    /// `Regex` directly, then the pool will go through a slower mutex path for
+    /// all threads except for the "owner."
+    pool: CachePool,
+}
 
 /// The internal implementation of `Regex`, split out so that it can be wrapped
 /// in an `Arc`.
@@ -92,13 +109,6 @@ struct RegexI {
     /// Since `RegexInfo` is stored in multiple places, it is also reference
     /// counted.
     info: RegexInfo,
-    /// A thread safe pool of caches.
-    ///
-    /// For the higher level search APIs, a `Cache` is automatically plucked
-    /// from this pool before running a search. The lower level `with` methods
-    /// permit the caller to provide their own cache, thereby bypassing
-    /// accesses to this pool.
-    pool: CachePool,
 }
 
 impl Regex {
@@ -133,15 +143,15 @@ impl Regex {
     }
 
     pub fn create_cache(&self) -> Cache {
-        self.0.strat.create_cache()
+        self.imp.strat.create_cache()
     }
 
     pub fn reset_cache(&self, cache: &mut Cache) {
-        self.0.strat.reset_cache(cache)
+        self.imp.strat.reset_cache(cache)
     }
 
     pub fn pattern_len(&self) -> usize {
-        self.0.info.pattern_len()
+        self.imp.info.pattern_len()
     }
 
     /// Returns the total number of capturing groups.
@@ -196,7 +206,7 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn captures_len(&self) -> usize {
-        self.0
+        self.imp
             .info
             .props_union()
             .explicit_captures_len()
@@ -265,7 +275,7 @@ impl Regex {
     /// ```
     #[inline]
     pub fn static_captures_len(&self) -> Option<usize> {
-        self.0
+        self.imp
             .info
             .props_union()
             .static_explicit_captures_len()
@@ -274,11 +284,11 @@ impl Regex {
 
     #[inline]
     pub fn group_info(&self) -> &GroupInfo {
-        self.0.strat.group_info()
+        self.imp.strat.group_info()
     }
 
     pub fn get_config(&self) -> &Config {
-        self.0.info.config()
+        self.imp.info.config()
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -318,7 +328,7 @@ impl Regex {
         &'r self,
         input: I,
     ) -> FindMatches<'r, 'h> {
-        let cache = self.0.pool.get();
+        let cache = self.pool.get();
         let it = iter::Searcher::new(input.into());
         FindMatches { re: self, cache, it }
     }
@@ -328,7 +338,7 @@ impl Regex {
         &'r self,
         input: I,
     ) -> CapturesMatches<'r, 'h> {
-        let cache = self.0.pool.get();
+        let cache = self.pool.get();
         let caps = self.create_captures();
         let it = iter::Searcher::new(input.into());
         CapturesMatches { re: self, cache, caps, it }
@@ -338,27 +348,50 @@ impl Regex {
 impl Regex {
     #[inline]
     pub fn search(&self, input: &Input<'_>) -> Option<Match> {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return None;
         }
-        self.search_with(&mut self.0.pool.get(), input)
+        let mut guard = self.pool.get();
+        let result = self.imp.strat.search(&mut guard, input);
+        // We do this dance with the guard and explicitly put it back in the
+        // pool because it seems to result in better codegen. If we let the
+        // guard's Drop impl put it back in the pool, then functions like
+        // ptr::drop_in_place get called and they *don't* get inlined. This
+        // isn't usually a big deal, but in latency sensitive benchmarks the
+        // extra function call can matter.
+        //
+        // I used `rebar measure -f '^grep/every-line$' -e meta` to measure
+        // the effects here.
+        //
+        // Note that this doesn't eliminate the latency effects of using the
+        // pool. There is still some (minor) cost for the "thread owner" of the
+        // pool. (i.e., The thread that first calls a regex search routine.)
+        // However, for other threads using the regex, the pool access can be
+        // quite expensive as it goes through a mutex. Callers can avoid this
+        // by either cloning the Regex (which creates a distinct copy of the
+        // pool), or callers can use the lower level APIs that accept a 'Cache'
+        // directly and do their own handling.
+        PoolGuard::put(guard);
+        result
     }
 
     #[inline]
     pub fn search_half(&self, input: &Input<'_>) -> Option<HalfMatch> {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return None;
         }
-        // let mut cache = self.0.pool.get();
-        // let result = self.search_half_with(&mut cache, input);
-        // self.0.pool.put(cache);
-        // result
-        self.search_half_with(&mut self.0.pool.get(), input)
+        let mut guard = self.pool.get();
+        let result = self.imp.strat.search_half(&mut guard, input);
+        // See 'Regex::search' for why we put the guard back explicitly.
+        PoolGuard::put(guard);
+        result
     }
 
     #[inline]
     pub fn search_captures(&self, input: &Input<'_>, caps: &mut Captures) {
-        self.search_captures_with(&mut self.0.pool.get(), input, caps);
+        caps.set_pattern(None);
+        let pid = self.search_slots(input, caps.slots_mut());
+        caps.set_pattern(pid);
     }
 
     #[inline]
@@ -367,10 +400,14 @@ impl Regex {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return None;
         }
-        self.search_slots_with(&mut self.0.pool.get(), input, slots)
+        let mut guard = self.pool.get();
+        let result = self.imp.strat.search_slots(&mut guard, input, slots);
+        // See 'Regex::search' for why we put the guard back explicitly.
+        PoolGuard::put(guard);
+        result
     }
 
     #[inline]
@@ -379,14 +416,17 @@ impl Regex {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return;
         }
-        self.which_overlapping_matches_with(
-            &mut self.0.pool.get(),
-            input,
-            patset,
-        )
+        let mut guard = self.pool.get();
+        let result = self
+            .imp
+            .strat
+            .which_overlapping_matches(&mut guard, input, patset);
+        // See 'Regex::search' for why we put the guard back explicitly.
+        PoolGuard::put(guard);
+        result
     }
 }
 
@@ -397,10 +437,10 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<Match> {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return None;
         }
-        self.0.strat.search(cache, input)
+        self.imp.strat.search(cache, input)
     }
 
     #[inline]
@@ -409,10 +449,10 @@ impl Regex {
         cache: &mut Cache,
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return None;
         }
-        self.0.strat.search_half(cache, input)
+        self.imp.strat.search_half(cache, input)
     }
 
     #[inline]
@@ -434,10 +474,10 @@ impl Regex {
         input: &Input<'_>,
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return None;
         }
-        self.0.strat.search_slots(cache, input, slots)
+        self.imp.strat.search_slots(cache, input, slots)
     }
 
     #[inline]
@@ -447,10 +487,22 @@ impl Regex {
         input: &Input<'_>,
         patset: &mut PatternSet,
     ) {
-        if self.0.info.is_impossible(input) {
+        if self.imp.info.is_impossible(input) {
             return;
         }
-        self.0.strat.which_overlapping_matches(cache, input, patset)
+        self.imp.strat.which_overlapping_matches(cache, input, patset)
+    }
+}
+
+impl Clone for Regex {
+    fn clone(&self) -> Regex {
+        let imp = Arc::clone(&self.imp);
+        let pool = {
+            let strat = Arc::clone(&imp.strat);
+            let create: CachePoolFn = Box::new(move || strat.create_cache());
+            Pool::new(create)
+        };
+        Regex { imp, pool }
     }
 }
 
@@ -596,9 +648,11 @@ impl<'r, 'h> Iterator for FindMatches<'r, 'h> {
         // boost in some cases, because it avoids needing to do a reverse scan
         // to find the start of a match.
         let FindMatches { re, mut cache, it } = self;
-        it.into_half_matches_iter(|input| {
-            Ok(re.search_half_with(&mut cache, input))
-        })
+        // This does the deref for PoolGuard once instead of every iter.
+        let cache = &mut *cache;
+        it.into_half_matches_iter(
+            |input| Ok(re.search_half_with(cache, input)),
+        )
         .count()
     }
 }
@@ -633,9 +687,11 @@ impl<'r, 'h> Iterator for CapturesMatches<'r, 'h> {
     #[inline]
     fn count(self) -> usize {
         let CapturesMatches { re, mut cache, it, .. } = self;
-        it.into_half_matches_iter(|input| {
-            Ok(re.search_half_with(&mut cache, input))
-        })
+        // This does the deref for PoolGuard once instead of every iter.
+        let cache = &mut *cache;
+        it.into_half_matches_iter(
+            |input| Ok(re.search_half_with(cache, input)),
+        )
         .count()
     }
 }
@@ -983,7 +1039,7 @@ impl Builder {
             let create: CachePoolFn = Box::new(move || strat.create_cache());
             Pool::new(create)
         };
-        Ok(Regex(Arc::new(RegexI { strat, info, pool })))
+        Ok(Regex { imp: Arc::new(RegexI { strat, info }), pool })
     }
 
     pub fn configure(&mut self, config: Config) -> &mut Builder {

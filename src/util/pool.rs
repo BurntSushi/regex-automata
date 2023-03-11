@@ -62,6 +62,18 @@
 // There were other weaker reasons for moving off of thread_local as well.
 // Namely, at the time, I was looking to reduce dependencies. And for something
 // like regex, maintenance can be simpler when we own the full dependency tree.
+//
+// Note that I am not entirely happy with this pool. It has some subtle
+// implementation details and is overall still observable (even with the
+// thread owner optimization) in benchmarks. If someone wants to take a crack
+// at building something better, please file an issue. Even if it means a
+// different API. The API exposed by this pool is not the minimal thing that
+// something like a 'Regex' actually needs. It could adapt to, for example,
+// an API more like what is found in the 'thread_local' crate. However, we do
+// really need to support the no-std alloc-only context, or else the regex
+// crate wouldn't be able to support no-std alloc-only. However, I'm generally
+// okay with making the alloc-only context slower (as it is here), although I
+// do find it unfortunate.
 
 /*!
 A thread safe memory pool.
@@ -78,11 +90,13 @@ being quite expensive.
 /// A thread safe pool that works in an `alloc`-only context.
 ///
 /// Getting a value out comes with a guard. When that guard is dropped, the
-/// value is automatically put back in the pool.
+/// value is automatically put back in the pool. The guard provides both a
+/// `Deref` and a `DerefMut` implementation for easy access to an underlying
+/// `T`.
 ///
 /// A `Pool` impls `Sync` when `T` is `Send` (even if `T` is not `Sync`). This
-/// means that `T` can use interior mutability. This is possible because a pool
-/// is guaranteed to provide a value to exactly one thread at any time.
+/// is possible because a pool is guaranteed to provide a value to exactly one
+/// thread at any time.
 ///
 /// Currently, a pool never contracts in size. Its size is proportional to the
 /// maximum number of simultaneous uses. This may change in the future.
@@ -140,7 +154,14 @@ impl<T, F> Pool<T, F> {
 
 impl<T: Send, F: Fn() -> T> Pool<T, F> {
     /// Get a value from the pool. The caller is guaranteed to have
-    /// exclusive access to the given value.
+    /// exclusive access to the given value. Namely, it is guaranteed that
+    /// this will never return a value that was returned by another call to
+    /// `get` but was not put back into the pool.
+    ///
+    /// When the guard goes out of scope and its destructor is called, then
+    /// it will automatically be put back into the pool. Alternatively,
+    /// [`PoolGuard::put`] may be used to explicitly put it back in the pool
+    /// without relying on its destructor.
     ///
     /// Note that there is no guarantee provided about which value in the
     /// pool is returned. That is, calling get, dropping the guard (causing
@@ -149,11 +170,6 @@ impl<T: Send, F: Fn() -> T> Pool<T, F> {
     /// call.
     pub fn get(&self) -> PoolGuard<'_, T, F> {
         PoolGuard(self.0.get())
-    }
-
-    /// TODO
-    pub fn put(&self, guard: PoolGuard<'_, T, F>) {
-        self.0.put(guard.0);
     }
 }
 
@@ -168,6 +184,17 @@ impl<T: core::fmt::Debug, F> core::fmt::Debug for Pool<T, F> {
 /// The purpose of the guard is to use RAII to automatically put the value
 /// back in the pool once it's dropped.
 pub struct PoolGuard<'a, T: Send, F: Fn() -> T>(inner::PoolGuard<'a, T, F>);
+
+impl<'a, T: Send, F: Fn() -> T> PoolGuard<'a, T, F> {
+    /// Consumes this guard and puts it back into the pool.
+    ///
+    /// This circumvents the guard's `Drop` implementation. This can be useful
+    /// in circumstances where the automatic `Drop` results in poorer codegen,
+    /// such as calling non-inlined functions.
+    pub fn put(this: PoolGuard<'_, T, F>) {
+        inner::PoolGuard::put(this.0);
+    }
+}
 
 impl<'a, T: Send, F: Fn() -> T> core::ops::Deref for PoolGuard<'a, T, F> {
     type Target = T;
@@ -204,7 +231,33 @@ mod inner {
     use std::{sync::Mutex, thread_local};
 
     /// An atomic counter used to allocate thread IDs.
-    static COUNTER: AtomicUsize = AtomicUsize::new(1);
+    ///
+    /// We specifically start our counter at 3 so that we can use the values
+    /// less than it as sentinels.
+    static COUNTER: AtomicUsize = AtomicUsize::new(3);
+
+    /// A thread ID indicating that there is no owner. This is the initial
+    /// state of a pool. Once a pool has an owner, there is no way to change
+    /// it.
+    static THREAD_ID_UNOWNED: usize = 0;
+
+    /// A thread ID indicating that the special owner value is in use and not
+    /// available. This state is useful for avoiding a case where the owner
+    /// of a pool calls `get` before putting the result of a previous `get`
+    /// call back into the pool.
+    static THREAD_ID_INUSE: usize = 1;
+
+    /// This sentinel is used to indicate that a guard has already been dropped
+    /// and should not be re-dropped. We use this because our drop code can be
+    /// called outside of Drop and thus there could be a bug in the internal
+    /// implementation that results in trying to put the same guard back into
+    /// the same pool multiple times, and *that* could result in UB if we
+    /// didn't mark the guard as already having been put back in the pool.
+    ///
+    /// So this isn't strictly necessary, but this let's us define some
+    /// routines as safe (like PoolGuard::put_imp) that we couldn't otherwise
+    /// do.
+    static THREAD_ID_DROPPED: usize = 2;
 
     thread_local!(
         /// A thread local used to assign an ID to a thread.
@@ -215,7 +268,10 @@ mod inner {
             // and thus, permit accessing a mutable value from multiple threads
             // simultaneously without synchronization. The intent of this panic
             // is to be a sanity check. It is not expected that the thread ID
-            // space will actually be exhausted in practice.
+            // space will actually be exhausted in practice. Even on a 32-bit
+            // system, it would require spawning 2^32 threads (although they
+            // wouldn't all need to run simultaneously, so it is in theory
+            // possible).
             //
             // This checks that the counter never wraps around, since atomic
             // addition wraps around on overflow.
@@ -310,7 +366,7 @@ mod inner {
             // 'Pool::new' method as 'const' too. (The alloc-only Pool::new
             // is already 'const', so that should "just work" too.) The only
             // thing we're waiting for is Mutex::new to be const.
-            let owner = AtomicUsize::new(0);
+            let owner = AtomicUsize::new(THREAD_ID_UNOWNED);
             let owner_val = UnsafeCell::new(None); // init'd on first access
             Pool { stack: Mutex::new(vec![]), create, owner, owner_val }
         }
@@ -329,11 +385,15 @@ mod inner {
             // to this value. Since a thread is uniquely identified by the
             // THREAD_ID thread local, it follows that if the caller's thread
             // ID is equal to the owner, then only one thread may receive this
-            // value.
+            // value. This is also why we can get away with what looks like a
+            // racy load and a store. We know that if 'owner == caller', then
+            // only one thread can be here, so we don't need to worry about any
+            // other thread setting the owner to something else.
             let caller = THREAD_ID.with(|id| *id);
             let owner = self.owner.load(Ordering::Acquire);
             if caller == owner {
-                return self.guard_owned();
+                self.owner.store(THREAD_ID_INUSE, Ordering::Release);
+                return self.guard_owned(caller);
             }
             self.get_slow(caller, owner)
         }
@@ -349,14 +409,19 @@ mod inner {
             caller: usize,
             owner: usize,
         ) -> PoolGuard<'_, T, F> {
-            if owner == 0 {
-                // The sentinel 0 value means this pool is not yet owned. We
-                // try to atomically set the owner. If we do, then this thread
-                // becomes the owner and we can return a guard that represents
-                // the special T for the owner.
+            if owner == THREAD_ID_UNOWNED {
+                // This sentinel means this pool is not yet owned. We try to
+                // atomically set the owner. If we do, then this thread becomes
+                // the owner and we can return a guard that represents the
+                // special T for the owner.
+                //
+                // Note that we set the owner to a different sentinel that
+                // indicates that the owned value is in use. The owner ID will
+                // get updated to the actual ID of this thread once the guard
+                // returned by this function is put back into the pool.
                 let res = self.owner.compare_exchange(
-                    0,
-                    caller,
+                    THREAD_ID_UNOWNED,
+                    THREAD_ID_INUSE,
                     Ordering::AcqRel,
                     Ordering::Acquire,
                 );
@@ -367,7 +432,7 @@ mod inner {
                     unsafe {
                         *self.owner_val.get() = Some((self.create)());
                     }
-                    return self.guard_owned();
+                    return self.guard_owned(caller);
                 }
             }
             let mut stack = self.stack.lock().unwrap();
@@ -376,13 +441,6 @@ mod inner {
                 Some(value) => value,
             };
             self.guard_stack(value)
-        }
-
-        pub(super) fn put(&self, guard: PoolGuard<'_, T, F>) {
-            let mut guard = core::mem::ManuallyDrop::new(guard);
-            if let Some(value) = guard.value.take() {
-                self.put_value(value);
-            }
         }
 
         /// Puts a value back into the pool. Callers don't need to call this.
@@ -394,13 +452,13 @@ mod inner {
         }
 
         /// Create a guard that represents the special owned T.
-        fn guard_owned(&self) -> PoolGuard<'_, T, F> {
-            PoolGuard { pool: self, value: None }
+        fn guard_owned(&self, caller: usize) -> PoolGuard<'_, T, F> {
+            PoolGuard { pool: self, value: Err(caller) }
         }
 
         /// Create a guard that contains a value from the pool's stack.
         fn guard_stack(&self, value: Box<T>) -> PoolGuard<'_, T, F> {
-            PoolGuard { pool: self, value: Some(value) }
+            PoolGuard { pool: self, value: Ok(value) }
         }
     }
 
@@ -418,15 +476,18 @@ mod inner {
     pub(super) struct PoolGuard<'a, T: Send, F: Fn() -> T> {
         /// The pool that this guard is attached to.
         pool: &'a Pool<T, F>,
-        /// This is None when the guard represents the special "owned" value. In
-        /// which case, the value is retrieved from 'pool.owner_val'.
-        value: Option<Box<T>>,
+        /// This is Err when the guard represents the special "owned" value.
+        /// In which case, the value is retrieved from 'pool.owner_val'. And
+        /// in the special case of `Err(THREAD_ID_DROPPED)`, it means the
+        /// guard has been put back into the pool and should no longer be used.
+        value: Result<Box<T>, usize>,
     }
 
     impl<'a, T: Send, F: Fn() -> T> PoolGuard<'a, T, F> {
         /// Return the underlying value.
         pub(super) fn value(&self) -> &T {
             match self.value {
+                Ok(ref v) => &**v,
                 // SAFETY: This is safe because the only way a PoolGuard gets
                 // created for self.value=None is when the current thread
                 // corresponds to the owning thread, of which there can only
@@ -436,19 +497,20 @@ mod inner {
                 // Also, since 'owner_val' is guaranteed to be initialized
                 // before an owned PoolGuard is created, the unchecked unwrap
                 // is safe.
-                None => unsafe {
+                Err(id) => unsafe {
+                    debug_assert_ne!(THREAD_ID_DROPPED, id);
                     // MSRV(1.58): Use unwrap_unchecked here.
                     (*self.pool.owner_val.get())
                         .as_ref()
                         .unwrap_or_else(|| core::hint::unreachable_unchecked())
                 },
-                Some(ref v) => &**v,
             }
         }
 
         /// Return the underlying value as a mutable borrow.
         pub(super) fn value_mut(&mut self) -> &mut T {
             match self.value {
+                Ok(ref mut v) => &mut **v,
                 // SAFETY: This is safe because the only way a PoolGuard gets
                 // created for self.value=None is when the current thread
                 // corresponds to the owning thread, of which there can only
@@ -458,22 +520,57 @@ mod inner {
                 // Also, since 'owner_val' is guaranteed to be initialized
                 // before an owned PoolGuard is created, the unwrap_unchecked
                 // is safe.
-                None => unsafe {
+                Err(id) => unsafe {
+                    debug_assert_ne!(THREAD_ID_DROPPED, id);
                     // MSRV(1.58): Use unwrap_unchecked here.
                     (*self.pool.owner_val.get())
                         .as_mut()
                         .unwrap_or_else(|| core::hint::unreachable_unchecked())
                 },
-                Some(ref mut v) => &mut **v,
+            }
+        }
+
+        /// Consumes this guard and puts it back into the pool.
+        pub(super) fn put(this: PoolGuard<'_, T, F>) {
+            // Since this is effectively consuming the guard and putting the
+            // value back into the pool, there's no reason to run its Drop
+            // impl after doing this. I don't believe there is a correctness
+            // problem with doing so, but there's definitely a perf problem
+            // by redoing this work. So we avoid it.
+            let mut this = core::mem::ManuallyDrop::new(this);
+            this.put_imp();
+        }
+
+        /// Puts this guard back into the pool by only borrowing the guard as
+        /// mutable. This should be called at most once.
+        #[inline(always)]
+        fn put_imp(&mut self) {
+            match core::mem::replace(&mut self.value, Err(THREAD_ID_DROPPED)) {
+                Ok(value) => self.pool.put_value(value),
+                // If this guard has a value "owned" by the thread, then
+                // the Pool guarantees that this is the ONLY such guard.
+                // Therefore, in order to place it back into the pool and make
+                // it available, we need to change the owner back to the owning
+                // thread's ID. But note that we use the ID that was stored in
+                // the guard, since a guard can be moved to another thread and
+                // dropped. (A previous iteration of this code read from the
+                // THREAD_ID thread local, which uses the ID of the current
+                // thread which may not be the ID of the owning thread! This
+                // also avoids the TLS access, which is likely a hair faster.)
+                Err(owner) => {
+                    // If we hit this point, it implies 'put_imp' has been
+                    // called multiple times for the same guard which in turn
+                    // corresponds to a bug in this implementation.
+                    assert_ne!(THREAD_ID_DROPPED, owner);
+                    self.pool.owner.store(owner, Ordering::Release);
+                }
             }
         }
     }
 
     impl<'a, T: Send, F: Fn() -> T> Drop for PoolGuard<'a, T, F> {
         fn drop(&mut self) {
-            if let Some(value) = self.value.take() {
-                self.pool.put_value(value);
-            }
+            self.put_imp();
         }
     }
 
@@ -565,8 +662,7 @@ mod inner {
     pub(super) struct PoolGuard<'a, T: Send, F: Fn() -> T> {
         /// The pool that this guard is attached to.
         pool: &'a Pool<T, F>,
-        /// This is None when the guard represents the special "owned" value. In
-        /// which case, the value is retrieved from 'pool.owner_val'.
+        /// This is None after the guard has been put back into the pool.
         value: Option<Box<T>>,
     }
 
@@ -580,13 +676,31 @@ mod inner {
         pub(super) fn value_mut(&mut self) -> &mut T {
             self.value.as_deref_mut().unwrap()
         }
+
+        /// Consumes this guard and puts it back into the pool.
+        pub(super) fn put(this: PoolGuard<'_, T, F>) {
+            // Since this is effectively consuming the guard and putting the
+            // value back into the pool, there's no reason to run its Drop
+            // impl after doing this. I don't believe there is a correctness
+            // problem with doing so, but there's definitely a perf problem
+            // by redoing this work. So we avoid it.
+            let mut this = core::mem::ManuallyDrop::new(this);
+            this.put_imp();
+        }
+
+        /// Puts this guard back into the pool by only borrowing the guard as
+        /// mutable. This should be called at most once.
+        #[inline(always)]
+        fn put_imp(&mut self) {
+            if let Some(value) = self.value.take() {
+                self.pool.put_value(value);
+            }
+        }
     }
 
     impl<'a, T: Send, F: Fn() -> T> Drop for PoolGuard<'a, T, F> {
         fn drop(&mut self) {
-            if let Some(value) = self.value.take() {
-                self.pool.put_value(value);
-            }
+            self.put_imp();
         }
     }
 
@@ -694,7 +808,7 @@ mod inner {
 mod tests {
     use core::panic::{RefUnwindSafe, UnwindSafe};
 
-    use alloc::{boxed::Box, vec::Vec};
+    use alloc::{boxed::Box, vec, vec::Vec};
 
     use super::*;
 
@@ -754,5 +868,96 @@ mod tests {
         // (Technically this is an implementation detail and not a contract of
         // Pool's API.)
         assert_eq!(vec!['a', 'x'], *pool.get().borrow());
+    }
+
+    // This tests that if the "owner" of a pool asks for two values, then it
+    // gets two distinct values and not the same one. This test failed in the
+    // course of developing the pool, which in turn resulted in UB because it
+    // permitted getting aliasing &mut borrows to the same place in memory.
+    #[test]
+    fn thread_owner_distinct() {
+        let pool = Pool::new(|| vec!['a']);
+
+        {
+            let mut g1 = pool.get();
+            let v1 = &mut *g1;
+            let mut g2 = pool.get();
+            let v2 = &mut *g2;
+            v1.push('b');
+            v2.push('c');
+            assert_eq!(&mut vec!['a', 'b'], v1);
+            assert_eq!(&mut vec!['a', 'c'], v2);
+        }
+        // This isn't technically guaranteed, but we
+        // expect to now get the "owned" value (the first
+        // call to 'get()' above) now that it's back in
+        // the pool.
+        assert_eq!(&mut vec!['a', 'b'], &mut *pool.get());
+    }
+
+    // This tests that we can share a guard with another thread, mutate the
+    // underlying value and everything works. This failed in the course of
+    // developing a pool since the pool permitted 'get()' to return the same
+    // value to the owner thread, even before the previous value was put back
+    // into the pool. This in turn resulted in this test producing a data race.
+    #[cfg(feature = "std")]
+    #[test]
+    fn thread_owner_sync() {
+        let pool = Pool::new(|| vec!['a']);
+        {
+            let mut g1 = pool.get();
+            let mut g2 = pool.get();
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    g1.push('b');
+                });
+                s.spawn(|| {
+                    g2.push('c');
+                });
+            });
+
+            let v1 = &mut *g1;
+            let v2 = &mut *g2;
+            assert_eq!(&mut vec!['a', 'b'], v1);
+            assert_eq!(&mut vec!['a', 'c'], v2);
+        }
+
+        // This isn't technically guaranteed, but we
+        // expect to now get the "owned" value (the first
+        // call to 'get()' above) now that it's back in
+        // the pool.
+        assert_eq!(&mut vec!['a', 'b'], &mut *pool.get());
+    }
+
+    // This tests that if we move a PoolGuard that is owned by the current
+    // thread to another thread and drop it, then the thread owner doesn't
+    // change. During development of the pool, this test failed because the
+    // PoolGuard assumed it was dropped in the same thread from which it was
+    // created, and thus used the current thread's ID as the owner, which could
+    // be different than the actual owner of the pool.
+    #[cfg(feature = "std")]
+    #[test]
+    fn thread_owner_send_drop() {
+        let pool = Pool::new(|| vec!['a']);
+        // Establishes this thread as the owner.
+        {
+            pool.get().push('b');
+        }
+        std::thread::scope(|s| {
+            // Sanity check that we get the same value back.
+            // (Not technically guaranteed.)
+            let mut g = pool.get();
+            assert_eq!(&vec!['a', 'b'], &*g);
+            // Now push it to another thread and drop it.
+            s.spawn(move || {
+                g.push('c');
+            })
+            .join()
+            .unwrap();
+        });
+        // Now check that we're still the owner. This is not technically
+        // guaranteed by the API, but is true in practice given the thread
+        // owner optimization.
+        assert_eq!(&vec!['a', 'b', 'c'], &*pool.get());
     }
 }

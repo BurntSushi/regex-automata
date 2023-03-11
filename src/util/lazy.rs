@@ -233,7 +233,7 @@ mod lazy {
     // A reference to a Lazy is unwind safe because we specifically take
     // precautions to poison all accesses to a Lazy if the caller-provided
     // 'create' function panics.
-    impl<T: UnwindSafe, F: Unwindsafe + RefUnwindSafe> RefUnwindSafe
+    impl<T: UnwindSafe, F: UnwindSafe + RefUnwindSafe> RefUnwindSafe
         for Lazy<T, F>
     {
     }
