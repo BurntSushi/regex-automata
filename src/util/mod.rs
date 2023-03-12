@@ -29,6 +29,8 @@ with the `regex-syntax` crate.
 pub mod alphabet;
 #[cfg(feature = "alloc")]
 pub mod captures;
+#[cfg(feature = "alloc")]
+pub mod interpolate;
 pub mod iter;
 pub mod lazy;
 pub mod look;

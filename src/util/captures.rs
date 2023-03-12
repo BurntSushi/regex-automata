@@ -35,6 +35,7 @@ underlying `GroupInfo`.
 use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 
 use crate::util::{
+    interpolate,
     primitives::{
         NonMaxUsize, PatternID, PatternIDError, PatternIDIter, SmallIndex,
     },
@@ -675,6 +676,222 @@ impl Captures {
     /// ```
     pub fn group_info(&self) -> &GroupInfo {
         &self.group_info
+    }
+
+    /// Interpolates the capture references in `replacement` with the
+    /// corresponding substrings in `haystack` matched by each reference. The
+    /// interpolated string is returned.
+    ///
+    /// See the [`interpolate` module](interpolate) for documentation on the
+    /// format of the replacement string.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use interpolation, and also shows how it
+    /// can work with multi-pattern regexes.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
+    ///
+    /// let re = PikeVM::new_many(&[
+    ///     r"(?<day>[0-9]{2})-(?<month>[0-9]{2})-(?<year>[0-9]{4})",
+    ///     r"(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})",
+    /// ])?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
+    ///
+    /// let replacement = "year=$year, month=$month, day=$day";
+    ///
+    /// // This matches the first pattern.
+    /// let hay = "On 14-03-2010, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let result = caps.interpolate_string(hay, replacement);
+    /// assert_eq!("year=2010, month=03, day=14", result);
+    ///
+    /// // And this matches the second pattern.
+    /// let hay = "On 2010-03-14, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let result = caps.interpolate_string(hay, replacement);
+    /// assert_eq!("year=2010, month=03, day=14", result);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn interpolate_string(
+        &self,
+        haystack: &str,
+        replacement: &str,
+    ) -> String {
+        let mut dst = String::new();
+        self.interpolate_string_into(haystack, replacement, &mut dst);
+        dst
+    }
+
+    /// Interpolates the capture references in `replacement` with the
+    /// corresponding substrings in `haystack` matched by each reference. The
+    /// interpolated string is written to `dst`.
+    ///
+    /// See the [`interpolate` module](interpolate) for documentation on the
+    /// format of the replacement string.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use interpolation, and also shows how it
+    /// can work with multi-pattern regexes.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
+    ///
+    /// let re = PikeVM::new_many(&[
+    ///     r"(?<day>[0-9]{2})-(?<month>[0-9]{2})-(?<year>[0-9]{4})",
+    ///     r"(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})",
+    /// ])?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
+    ///
+    /// let replacement = "year=$year, month=$month, day=$day";
+    ///
+    /// // This matches the first pattern.
+    /// let hay = "On 14-03-2010, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let mut dst = String::new();
+    /// caps.interpolate_string_into(hay, replacement, &mut dst);
+    /// assert_eq!("year=2010, month=03, day=14", dst);
+    ///
+    /// // And this matches the second pattern.
+    /// let hay = "On 2010-03-14, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let mut dst = String::new();
+    /// caps.interpolate_string_into(hay, replacement, &mut dst);
+    /// assert_eq!("year=2010, month=03, day=14", dst);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn interpolate_string_into(
+        &self,
+        haystack: &str,
+        replacement: &str,
+        dst: &mut String,
+    ) {
+        interpolate::string(
+            replacement,
+            |index, dst| {
+                let span = match self.get_group(index) {
+                    None => return,
+                    Some(span) => span,
+                };
+                dst.push_str(&haystack[span]);
+            },
+            |name| self.group_info().to_index(self.pattern()?, name),
+            dst,
+        );
+    }
+
+    /// Interpolates the capture references in `replacement` with the
+    /// corresponding substrings in `haystack` matched by each reference. The
+    /// interpolated byte string is returned.
+    ///
+    /// See the [`interpolate` module](interpolate) for documentation on the
+    /// format of the replacement string.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use interpolation, and also shows how it
+    /// can work with multi-pattern regexes.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
+    ///
+    /// let re = PikeVM::new_many(&[
+    ///     r"(?<day>[0-9]{2})-(?<month>[0-9]{2})-(?<year>[0-9]{4})",
+    ///     r"(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})",
+    /// ])?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
+    ///
+    /// let replacement = b"year=$year, month=$month, day=$day";
+    ///
+    /// // This matches the first pattern.
+    /// let hay = b"On 14-03-2010, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let result = caps.interpolate_bytes(hay, replacement);
+    /// assert_eq!(&b"year=2010, month=03, day=14"[..], result);
+    ///
+    /// // And this matches the second pattern.
+    /// let hay = b"On 2010-03-14, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let result = caps.interpolate_bytes(hay, replacement);
+    /// assert_eq!(&b"year=2010, month=03, day=14"[..], result);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn interpolate_bytes(
+        &self,
+        haystack: &[u8],
+        replacement: &[u8],
+    ) -> Vec<u8> {
+        let mut dst = vec![];
+        self.interpolate_bytes_into(haystack, replacement, &mut dst);
+        dst
+    }
+
+    /// Interpolates the capture references in `replacement` with the
+    /// corresponding substrings in `haystack` matched by each reference. The
+    /// interpolated byte string is written to `dst`.
+    ///
+    /// See the [`interpolate` module](interpolate) for documentation on the
+    /// format of the replacement string.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to use interpolation, and also shows how it
+    /// can work with multi-pattern regexes.
+    ///
+    /// ```
+    /// use regex_automata::{nfa::thompson::pikevm::PikeVM, PatternID};
+    ///
+    /// let re = PikeVM::new_many(&[
+    ///     r"(?<day>[0-9]{2})-(?<month>[0-9]{2})-(?<year>[0-9]{4})",
+    ///     r"(?<year>[0-9]{4})-(?<month>[0-9]{2})-(?<day>[0-9]{2})",
+    /// ])?;
+    /// let mut cache = re.create_cache();
+    /// let mut caps = re.create_captures();
+    ///
+    /// let replacement = b"year=$year, month=$month, day=$day";
+    ///
+    /// // This matches the first pattern.
+    /// let hay = b"On 14-03-2010, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let mut dst = vec![];
+    /// caps.interpolate_bytes_into(hay, replacement, &mut dst);
+    /// assert_eq!(&b"year=2010, month=03, day=14"[..], dst);
+    ///
+    /// // And this matches the second pattern.
+    /// let hay = b"On 2010-03-14, I became a Tenneessee lamb.";
+    /// re.captures(&mut cache, hay, &mut caps);
+    /// let mut dst = vec![];
+    /// caps.interpolate_bytes_into(hay, replacement, &mut dst);
+    /// assert_eq!(&b"year=2010, month=03, day=14"[..], dst);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn interpolate_bytes_into(
+        &self,
+        haystack: &[u8],
+        replacement: &[u8],
+        dst: &mut Vec<u8>,
+    ) {
+        interpolate::bytes(
+            replacement,
+            |index, dst| {
+                let span = match self.get_group(index) {
+                    None => return,
+                    Some(span) => span,
+                };
+                dst.extend_from_slice(&haystack[span]);
+            },
+            |name| self.group_info().to_index(self.pattern()?, name),
+            dst,
+        );
     }
 }
 
