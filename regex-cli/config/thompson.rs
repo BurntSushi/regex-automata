@@ -55,10 +55,8 @@ impl Configurable for Config {
                 self.thompson = self.thompson.clone().reverse(true);
             }
             Arg::Long("nfa-size-limit") => {
-                // TODO: Permit 'none' to be given here.
-                let limit = args::parse(p, "--nfa-size-limit")?;
-                self.thompson =
-                    self.thompson.clone().nfa_size_limit(Some(limit));
+                let limit = args::parse_maybe(p, "--nfa-size-limit")?;
+                self.thompson = self.thompson.clone().nfa_size_limit(limit);
             }
             Arg::Long("shrink") => {
                 self.thompson = self.thompson.clone().shrink(true);

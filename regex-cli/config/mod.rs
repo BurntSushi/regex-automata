@@ -4,12 +4,13 @@ use lexopt::{Arg, Parser, ValueExt};
 
 use crate::args::{self, Usage};
 
+pub mod common;
 pub mod input;
 pub mod patterns;
 pub mod syntax;
 pub mod thompson;
 
-pub trait Configurable: Debug + 'static {
+pub trait Configurable: Debug {
     fn configure(
         &mut self,
         p: &mut Parser,
@@ -31,14 +32,19 @@ pub fn configure(
                 for t in targets.iter() {
                     usages.extend_from_slice(t.usage());
                 }
-                usages.sort_by_key(|u| u.format);
+                usages.sort_by_key(|u| {
+                    u.format
+                        .split_once(", ")
+                        .map(|(_, long)| long)
+                        .unwrap_or(u.format)
+                });
                 let options = if arg == Arg::Short('h') {
                     Usage::short(&usages)
                 } else {
                     Usage::long(&usages)
                 };
                 let usage = usage.replace("%options%", &options);
-                anyhow::bail!("{}", usage);
+                anyhow::bail!("{}", usage.trim());
             }
             _ => {}
         }
@@ -72,3 +78,43 @@ pub fn configure(
     }
     Ok(())
 }
+
+/*
+pub struct AdHoc<'a> {
+    usage: Usage,
+    configure:
+        Box<dyn FnMut(&mut Parser, &mut Arg) -> anyhow::Result<bool> + 'a>,
+}
+
+impl<'a> AdHoc<'a> {
+    pub fn new(
+        usage: Usage,
+        configure: impl FnMut(&mut Parser, &mut Arg) -> anyhow::Result<bool> + 'a,
+    ) -> AdHoc<'a> {
+        AdHoc { usage, configure: Box::new(configure) }
+    }
+}
+
+impl<'a> Configurable for AdHoc<'a> {
+    fn configure(
+        &mut self,
+        p: &mut Parser,
+        arg: &mut Arg,
+    ) -> anyhow::Result<bool> {
+        (self.configure)(p, arg)
+    }
+
+    fn usage(&self) -> &[Usage] {
+        std::slice::from_ref(&self.usage)
+    }
+}
+
+impl<'a> Debug for AdHoc<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("AdHoc")
+            .field("usage", &self.usage)
+            .field("configure", &"FnMut(..)")
+            .finish()
+    }
+}
+*/

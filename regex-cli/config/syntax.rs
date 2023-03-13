@@ -12,17 +12,15 @@ use crate::{
     config::Configurable,
 };
 
-/// This exposes all of the configuration knobs on a regex_automata::Input via
-/// CLI flags. The only aspect of regex_automata::Input that this does not
-/// cover is the haystack, which should be provided by other means (usually
-/// with `Haystack`).
+/// This exposes all of the configuration knobs on a
+/// regex_automata::util::syntax::Config via CLI flags.
 #[derive(Debug, Default)]
 pub struct Config {
     syntax: syntax::Config,
 }
 
 impl Config {
-    /// Return a `Syntax` object from this configuration.
+    /// Return a `syntax::Config` object from this configuration.
     pub fn syntax(&self) -> anyhow::Result<syntax::Config> {
         Ok(self.syntax.clone())
     }
@@ -141,56 +139,134 @@ impl Configurable for Config {
     fn usage(&self) -> &[Usage] {
         const USAGES: &'static [Usage] = &[
             Usage::new(
-                "--start <bound>",
-                "Set the start of the search.",
+                "-i, --case-insensitive",
+                "Enable case insensitive mode.",
                 r#"
-This sets the start bound of a search. It must be a valid offset for the
-haystack, up to and including the length of the haystack.
+This enables case insensitive mode for all regex patterns given. When absent,
+all patterns are matched case sensitively.
 
-When not set, the start bound is 0.
+Note that individual patterns can have case insensitivity enabled via the
+inline regex flag 'i'. For example, '(?i:abc)'.
 "#,
             ),
             Usage::new(
-                "--end <bound>",
-                "Set the end of the search.",
+                "--multi-line",
+                "Enable multi-line mode.",
                 r#"
-This sets the end bound of a search. It must be a valid offset for the
-haystack, up to and including the length of the haystack.
+This enables multi-line mode for all regex patterns given. When multi-line
+mode is enabled, the anchors '^' and '$' turn into line anchors. That is,
+in addition to matching the start and end of a haystack, they also match at
+the start and end of a line, respectively.
 
-When not set, the end bound is the length of the haystack.
+Note that individual patterns can have multi-line mode enabled via the
+inline regex flag 'm'. For example, '(?m:^)'.
 "#,
             ),
             Usage::new(
-                "--anchored",
-                "Enable anchored mode for the search.",
+                "--dot-matches-new-line",
+                "Make a dot match \\n.",
                 r#"
-Enabled anchored mode for the search. When enabled and if a match is found, the
-start of the match is guaranteed to be equivalent to the start bound of the
-search.
+Enabling this causes a '.' (dot) to match the line terminator. By default, a
+dot is equivalent to '[^\n]'. (When CRLF mode is enabled it is equivalent to
+'[^\r\n]'.)
+
+Note that individual patterns can have this mode enabled via the inline regex
+flag 's'. For example, '(?s:.)'.
 "#,
             ),
             Usage::new(
-                "--pattern-id <pid>",
-                "Set pattern to search for.",
+                "--crlf",
+                "Line anchors are CRLF aware.",
                 r#"
-Set the pattern to search for. This automatically enables anchored mode for the
-search since regex engines for this crate only support anchored searches for
-specific patterns.
+When enabled, line anchors become CRLF aware. That is, patterns like '(?m:^)'
+and '(?m:$)' only consider '\n' by default. But when CRLF mode is enabled, line
+anchors consider both '\r' and '\n'. In particular, line anchors will match
+both '\r' and '\n', but never between '\r' and '\n'.
 
-When set and if a match is found, the start of the match is guaranteed to be
-equivalent to the start bound of the search and the pattern ID is guaranteed
-to be equivalent to the one set by this flag.
+Additionally, when this mode is enabled, '.' is equivalent to '[^\r\n]' instead
+of '[^\n]'.
 
-When not set, a search may match any of the patterns given.
+Note that this does not enable multi-line mode by itself. This only applies to
+'^' and '$' when multi-line mode is enabled.
+
+Note that individual patterns can have CRLF mode enabled via the inline regex
+flag 'R'. For example, '(?Rm:^)'.
 "#,
             ),
             Usage::new(
-                "--earliest",
-                "Returns a match as soon as it is known.",
+                "--swap-greed",
+                "Swap the meaning of greediness.",
                 r#"
-This enables "earliest" mode, which asks the regex engine to stop searching as
-soon as a match is found. The specific offset returned may vary depending on
-the regex engine since not all regex engines detect matches in the same way.
+This enables "swap greed" mode for all regex patterns given. When greediness
+is swapped, greedy patterns like 'a+' become equivalent to 'a+?', and ungreedy
+patterns like 'a+?' become equivalent to 'a+'.
+
+Note that individual patterns can have "swap greed" mode enabled via the inline
+regex flag 'U'. For example, '(?U:a+)'.
+"#,
+            ),
+            Usage::new(
+                "--ignore-whitespace",
+                "Enable whitespace insensitive mode.",
+                r#"
+This enables whitespace insensitive mode for all regex patterns given. When
+enabled, all whitespace in regex patterns is ignored. Moreover, any lines whose
+first non-whitespace character is '#' will be ignored and treated as a comment.
+
+Note that individual patterns can have whitespace insensitivity enabled via the
+inline regex flag 'x'. For example, '(?x:a b c)' is equivalent to 'abc'.
+"#,
+            ),
+            Usage::new(
+                "-U, --no-unicode",
+                "Disable Unicode mode.",
+                r#"
+This disables Unicode mode for all regex patterns given. When Unicode mode is
+disabled, the logical unit of searching is a single byte, where as when it
+is enabled the logical unit of searching is a single codepoint. In practice,
+this means that Unicode mode makes a number of alterations to the syntax and
+semantics of a regex. 1) '[^a]' matches any codepoint that isn't 'a' instead
+of any byte that isn't 'a'. 2) Case insensitive mode takes Unicode simple case
+folding rules into account. 3) Unicode literals and character classes are
+allowed.
+
+Note that individual patterns can have Unicode mode disabled via the inline
+regex flag 'u'. For example, '(?-u:\xFF)' matches the byte '\xFF' where as
+'(?u:\xFF)' matches the UTF-8 encoding of the Unicode codepoint U+00FF.
+"#,
+            ),
+            Usage::new(
+                "-b, --no-utf8-syntax",
+                "Disable UTF-8 mode for the regex syntax.",
+                r#"
+This disables UTF-8 mode for all regex patterns given. Disabling UTF-8 mode
+permits regexes that match invalid UTF-8. When UTF-8 mode is enabled, then
+patterns are limited to matches corresponding to valid UTF-8.
+
+This only applies to non-empty matches. For empty matches, the UTF-8 mode is
+controlled on the NFA, via --no-utf8-nfa (if applicable).
+"#,
+            ),
+            Usage::new(
+                "--nest-limit",
+                "Set the nest limit on the syntax.",
+                r#"
+This sets the nesting limit of the regex syntax on all patterns. This controls
+how many "nested" constructs are permitted in the pattern. This is useful for
+preventing pathological regexes that require too much nesting. For example,
+if one wants to do recursive analysis on the syntax of a regex, you usually
+need to check that it doesn't have too much nesting or else you risk a stack
+overflow.
+
+Note that the default is likely big enough to permit most regex patterns.
+"#,
+            ),
+            Usage::new(
+                "--octal",
+                "Permit octal escapes.",
+                r#"
+This permits octal escape sequences in the regex syntax. For example, it treats
+'\17' as equivalent to '\x0F'. This is disabled by default.
 "#,
             ),
         ];

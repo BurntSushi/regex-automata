@@ -10,6 +10,13 @@ use crate::{
     config::Configurable,
 };
 
+/// A configuration object for reading patterns from the command line.
+///
+/// It supports two different modes. One mode limits it to reading patterns
+/// from optional flags, i.e., `-p/--pattern` and `-f/--pattern-file`. The
+/// other mode permits reading from optional flags, but also reads all
+/// positional arguments as patterns too. The latter is convenient in cases
+/// where patterns are the only input to a command (like `regex-cli debug`).
 #[derive(Debug, Default)]
 pub struct Config {
     patterns: Vec<String>,
@@ -116,56 +123,50 @@ impl Configurable for Config {
     fn usage(&self) -> &[Usage] {
         const USAGES: &'static [Usage] = &[
             Usage::new(
-                "--start <bound>",
-                "Set the start of the search.",
+                "-p, --pattern <pattern>",
+                "Add a pattern to this command.",
                 r#"
-This sets the start bound of a search. It must be a valid offset for the
-haystack, up to and including the length of the haystack.
+This adds a new pattern to the command.
 
-When not set, the start bound is 0.
+All of the patterns provided, whether by this flag, as a positional argument
+(if supported) or via the -f/--pattern-file flag are combined into one regex
+matcher.
+
+All patterns given must be valid UTF-8.
 "#,
             ),
             Usage::new(
-                "--end <bound>",
-                "Set the end of the search.",
+                "-f, --pattern-file",
+                "Read patterns from the file given.",
                 r#"
-This sets the end bound of a search. It must be a valid offset for the
-haystack, up to and including the length of the haystack.
+Reads patterns, one per line, from the file given.
 
-When not set, the end bound is the length of the haystack.
+All of the patterns provided, whether by this flag, as a positional argument
+(if supported) or via the -p/--pattern flag are combined into one regex
+matcher.
+
+All patterns given must be valid UTF-8.
 "#,
             ),
             Usage::new(
-                "--anchored",
-                "Enable anchored mode for the search.",
+                "-F, --fixed-strings",
+                "Interpret all patterns literally.",
                 r#"
-Enabled anchored mode for the search. When enabled and if a match is found, the
-start of the match is guaranteed to be equivalent to the start bound of the
-search.
+When set, all patterns are interpreted as literal strings. So for example,
+special regex meta characters like '+' are matched literally instead of being
+given special significance.
 "#,
             ),
             Usage::new(
-                "--pattern-id <pid>",
-                "Set pattern to search for.",
+                "--combine-patterns",
+                "Combine all patterns into one via an alternation.",
                 r#"
-Set the pattern to search for. This automatically enables anchored mode for the
-search since regex engines for this crate only support anchored searches for
-specific patterns.
-
-When set and if a match is found, the start of the match is guaranteed to be
-equivalent to the start bound of the search and the pattern ID is guaranteed
-to be equivalent to the one set by this flag.
-
-When not set, a search may match any of the patterns given.
-"#,
-            ),
-            Usage::new(
-                "--earliest",
-                "Returns a match as soon as it is known.",
-                r#"
-This enables "earliest" mode, which asks the regex engine to stop searching as
-soon as a match is found. The specific offset returned may vary depending on
-the regex engine since not all regex engines detect matches in the same way.
+This flag combines all patterns given in this command into one by joining
+them together via a '|'. This is useful in cases where you want to provide
+many different things to search for, but explicitly only want one pattern to
+be constructed. In terms of debugging the regex engine, this can be used to
+inspect the practical differences between multi-pattern regexes and single
+pattern regexes, even when they generally match the same thing.
 "#,
             ),
         ];

@@ -48,10 +48,43 @@ where
         }
     };
     let parsed = match strv.parse() {
-        Err(err) => return Err(anyhow::Error::msg(err)),
+        Err(err) => return Err(anyhow::Error::msg(err).context(flag_name)),
         Ok(parsed) => parsed,
     };
     Ok(parsed)
+}
+
+/// Like `parse`, but permits the string value "none" to indicate absent. This
+/// is useful for parsing things like limits, where "no limit" is a legal
+/// value. But it can be used for anything.
+pub fn parse_maybe<T>(
+    p: &mut Parser,
+    flag_name: &'static str,
+) -> anyhow::Result<Option<T>>
+where
+    T: FromStr,
+    <T as FromStr>::Err: Display + Debug + Send + Sync + 'static,
+{
+    // This is written somewhat awkwardly and the type signature is also pretty
+    // funky primarily because of the following two things: 1) the 'FromStr'
+    // impls in this crate just use 'anyhow::Error' for their error type and 2)
+    // 'anyhow::Error' does not impl 'std::error::Error'.
+    let osv = p.value().context(flag_name)?;
+    let strv = match osv.to_str() {
+        Some(strv) => strv,
+        None => {
+            let err = lexopt::Error::NonUnicodeValue(osv.into());
+            return Err(anyhow::Error::from(err).context(flag_name));
+        }
+    };
+    if strv == "none" {
+        return Ok(None);
+    }
+    let parsed = match strv.parse() {
+        Err(err) => return Err(anyhow::Error::msg(err).context(flag_name)),
+        Ok(parsed) => parsed,
+    };
+    Ok(Some(parsed))
 }
 
 /// This defines a flag for controlling the use of color in the output.

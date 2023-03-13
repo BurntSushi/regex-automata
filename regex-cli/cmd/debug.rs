@@ -1,6 +1,11 @@
+use std::io::{stdout, Write};
+
 use crate::{
     args,
-    config::{configure, patterns, syntax, thompson, Configurable},
+    config::{
+        self, common, configure, patterns, syntax, thompson, Configurable,
+    },
+    util::{self, Table},
 };
 
 pub fn run(p: &mut lexopt::Parser) -> anyhow::Result<()> {
@@ -54,16 +59,41 @@ OPTIONS:
 %options%
 ";
 
+    let mut common = common::Config::default();
     let mut patterns = patterns::Config::positional();
     let mut syntax = syntax::Config::default();
     let mut thompson = thompson::Config::default();
-    configure(p, USAGE, &mut [&mut patterns, &mut syntax, &mut thompson])?;
+    configure(
+        p,
+        USAGE,
+        &mut [&mut common, &mut patterns, &mut syntax, &mut thompson],
+    )?;
 
     let pats = patterns.get()?;
-    let asts = syntax.asts(&pats)?;
-    let hirs = syntax.hirs(&pats, &asts)?;
-    let nfa = thompson.from_hirs(&hirs)?;
-
-    println!("{:?}", nfa);
+    let mut table = Table::empty();
+    let (asts, time) = util::timeitr(|| syntax.asts(&pats))?;
+    table.add("parse time", time);
+    let (hirs, time) = util::timeitr(|| syntax.hirs(&pats, &asts))?;
+    table.add("translate time", time);
+    let (nfa, time) = util::timeitr(|| thompson.from_hirs(&hirs))?;
+    table.add("compile nfa time", time);
+    table.add("nfa memory", nfa.memory_usage());
+    table.add("nfa states", nfa.states().len());
+    table.add("pattern len", nfa.pattern_len());
+    table.add("capture len", nfa.group_info().all_group_len());
+    table.add("has empty?", nfa.has_empty());
+    table.add("is utf8?", nfa.is_utf8());
+    table.add("is reverse?", nfa.is_reverse());
+    table.add(
+        "line terminator",
+        bstr::BString::from(&[nfa.look_matcher().get_line_terminator()][..]),
+    );
+    table.add("lookset any", nfa.look_set_any());
+    table.add("lookset prefix any", nfa.look_set_prefix_any());
+    table.add("lookset prefix all", nfa.look_set_prefix_all());
+    table.print(stdout())?;
+    if !common.quiet {
+        writeln!(stdout(), "\n{:?}", nfa)?;
+    }
     Ok(())
 }
