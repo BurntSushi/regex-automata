@@ -9,31 +9,8 @@ use {
     regex::Regex,
 };
 
-pub trait Configurable: Debug + 'static {
-    fn configure(&mut self, arg: &mut Arg) -> anyhow::Result<bool>;
-}
-
-pub fn configure(
-    p: &mut Parser,
-    targets: &mut [Box<dyn Configurable>],
-) -> anyhow::Result<()> {
-    while let Some(mut arg) = p.next()? {
-        let mut recognized = false;
-        for t in targets.iter_mut() {
-            if t.configure(&mut arg)? {
-                recognized = true;
-                break;
-            }
-        }
-        if !recognized {
-            return Err(arg.unexpected().into());
-        }
-    }
-    Ok(())
-}
-
 /// Parses the argument from the given parser as a command name, and returns
-/// it. If the next arg isn't a simple valuem then this returns an error.
+/// it. If the next arg isn't a simple value then this returns an error.
 ///
 /// This also handles the case where -h/--help is given, in which case, the
 /// given usage information is converted into an error and printed.
@@ -241,7 +218,7 @@ impl std::str::FromStr for FilterRule {
 /// The `Usage::short` and `Usage::long` functions take a slice of usages and
 /// format them into a human readable display. It does simple word wrapping and
 /// column alignment for you.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Usage {
     /// The format of the flag, for example, '-k, --match-kind <kind>'.
     pub format: &'static str,

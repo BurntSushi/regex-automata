@@ -3,11 +3,13 @@
 use std::io::Write;
 
 mod args;
+mod cmd;
+mod config;
 mod util;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
-    if let Err(err) = run(&mut lexopt::Parser::from_env()) {
+    if let Err(err) = cmd::run(&mut lexopt::Parser::from_env()) {
         if std::env::var("RUST_BACKTRACE").map_or(false, |v| v == "1") {
             writeln!(&mut std::io::stderr(), "{:?}", err).unwrap();
         } else {
@@ -15,9 +17,5 @@ fn main() -> anyhow::Result<()> {
         }
         std::process::exit(1);
     }
-    Ok(())
-}
-
-fn run(p: &mut lexopt::Parser) -> anyhow::Result<()> {
     Ok(())
 }
