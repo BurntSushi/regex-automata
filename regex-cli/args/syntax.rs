@@ -7,10 +7,7 @@ use {
     regex_syntax::{ast::Ast, hir::Hir},
 };
 
-use crate::{
-    args::{self, Usage},
-    config::Configurable,
-};
+use crate::args::{self, Configurable, Usage};
 
 /// This exposes all of the configuration knobs on a
 /// regex_automata::util::syntax::Config via CLI flags.

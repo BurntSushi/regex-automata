@@ -2,10 +2,7 @@ use regex_automata::{Anchored, Input, PatternID};
 
 use lexopt::{Arg, Parser};
 
-use crate::{
-    args::{self, Usage},
-    config::Configurable,
-};
+use crate::args::{self, Configurable, Usage};
 
 /// This exposes all of the configuration knobs on a regex_automata::Input via
 /// CLI flags. The only aspect of regex_automata::Input that this does not
@@ -57,19 +54,21 @@ impl Config {
         Ok(input)
     }
 
-    /*
-    /// Pass the `Input` (derived from this
-    /// configuration) to the closure given. Any error returned by the closure is
-    /// returned by this routine. Similarly, an error is returned if an `Input`
-    /// could not be constructed from this configuration.
-    pub fn with_input<T>(
+    /// Pass the `Input` (derived from this configuration) to the closure
+    /// given. Any error returned by the closure is returned by this routine.
+    /// Similarly, an error is returned if an `Input` could not be constructed
+    /// from this configuration.
+    ///
+    /// The `Input` is constructed with the given haystack. The intent of this
+    /// routine is that if the haystack is specified via a file path, then this
+    /// will memory map the haystack.
+    pub fn with<T>(
         &self,
-        haystack: &[u8],
+        haystack: &args::haystack::Config,
         mut f: impl FnMut(&Input<'_>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        haystack.with_bytes(|bytes| f(&self.input(bytes)))
+        haystack.with(|bytes| f(&self.input(bytes)?))
     }
-    */
 }
 
 impl Configurable for Config {

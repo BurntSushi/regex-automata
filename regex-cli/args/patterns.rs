@@ -5,10 +5,7 @@ use {
     lexopt::{Arg, Parser, ValueExt},
 };
 
-use crate::{
-    args::{self, Usage},
-    config::Configurable,
-};
+use crate::args::{self, Configurable, Usage};
 
 /// A configuration object for reading patterns from the command line.
 ///
@@ -86,7 +83,7 @@ impl Configurable for Config {
     ) -> anyhow::Result<bool> {
         match *arg {
             Arg::Short('p') | Arg::Long("pattern") => {
-                let pat = p.value().context("-p/--pattern have a value")?;
+                let pat = p.value().context("-p/--pattern needs a value")?;
                 let pat = pat
                     .string()
                     .context("-p/--pattern must be valid UTF-8")?;

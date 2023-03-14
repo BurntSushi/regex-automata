@@ -6,8 +6,124 @@ use std::{
 use {
     anyhow::Context,
     lexopt::{Arg, Parser, ValueExt},
-    regex::Regex,
 };
+
+pub mod common;
+pub mod flags;
+pub mod haystack;
+pub mod input;
+pub mod patterns;
+pub mod syntax;
+pub mod thompson;
+
+pub trait Configurable: Debug {
+    fn configure(
+        &mut self,
+        p: &mut Parser,
+        arg: &mut Arg,
+    ) -> anyhow::Result<bool>;
+
+    fn usage(&self) -> &[Usage];
+}
+
+pub fn configure(
+    p: &mut Parser,
+    usage: &str,
+    targets: &mut [&mut dyn Configurable],
+) -> anyhow::Result<()> {
+    while let Some(mut arg) = p.next()? {
+        match arg {
+            Arg::Short('h') | Arg::Long("help") => {
+                let mut usages = vec![];
+                for t in targets.iter() {
+                    usages.extend_from_slice(t.usage());
+                }
+                usages.sort_by_key(|u| {
+                    u.format
+                        .split_once(", ")
+                        .map(|(_, long)| long)
+                        .unwrap_or(u.format)
+                });
+                let options = if arg == Arg::Short('h') {
+                    Usage::short(&usages)
+                } else {
+                    Usage::long(&usages)
+                };
+                let usage = usage.replace("%options%", &options);
+                anyhow::bail!("{}", usage.trim());
+            }
+            _ => {}
+        }
+        // We do this little dance to disentangle the lifetime of 'p' from the
+        // lifetime on 'arg'. The cost is that we have to clone all long flag
+        // names to give it a place to live that isn't tied to 'p'. Annoying,
+        // but not the end of the world.
+        let long_flag: Option<String> = match arg {
+            Arg::Long(name) => Some(name.to_string()),
+            _ => None,
+        };
+        let mut arg = match long_flag {
+            Some(ref flag) => Arg::Long(flag),
+            None => match arg {
+                Arg::Short(c) => Arg::Short(c),
+                Arg::Long(_) => unreachable!(),
+                Arg::Value(value) => Arg::Value(value),
+            },
+        };
+        // OK, now ask all of our targets whether they want this argument.
+        let mut recognized = false;
+        for t in targets.iter_mut() {
+            if t.configure(p, &mut arg)? {
+                recognized = true;
+                break;
+            }
+        }
+        if !recognized {
+            return Err(arg.unexpected().into());
+        }
+    }
+    Ok(())
+}
+
+/*
+pub struct AdHoc<'a> {
+    usage: Usage,
+    configure:
+        Box<dyn FnMut(&mut Parser, &mut Arg) -> anyhow::Result<bool> + 'a>,
+}
+
+impl<'a> AdHoc<'a> {
+    pub fn new(
+        usage: Usage,
+        configure: impl FnMut(&mut Parser, &mut Arg) -> anyhow::Result<bool> + 'a,
+    ) -> AdHoc<'a> {
+        AdHoc { usage, configure: Box::new(configure) }
+    }
+}
+
+impl<'a> Configurable for AdHoc<'a> {
+    fn configure(
+        &mut self,
+        p: &mut Parser,
+        arg: &mut Arg,
+    ) -> anyhow::Result<bool> {
+        (self.configure)(p, arg)
+    }
+
+    fn usage(&self) -> &[Usage] {
+        std::slice::from_ref(&self.usage)
+    }
+}
+
+impl<'a> Debug for AdHoc<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("AdHoc")
+            .field("usage", &self.usage)
+            .field("configure", &"FnMut(..)")
+            .finish()
+    }
+}
+*/
 
 /// Parses the argument from the given parser as a command name, and returns
 /// it. If the next arg isn't a simple value then this returns an error.
@@ -85,165 +201,6 @@ where
         Ok(parsed) => parsed,
     };
     Ok(Some(parsed))
-}
-
-/// This defines a flag for controlling the use of color in the output.
-#[derive(Debug)]
-pub enum Color {
-    /// Color is only enabled when the output is a tty.
-    Auto,
-    /// Color is always enabled.
-    Always,
-    /// Color is disabled.
-    Never,
-}
-
-impl Color {
-    pub const USAGE: Usage = Usage::new(
-        "-c, --color <mode>",
-        "One of: auto, always, never.",
-        r#"
-Whether to use color (default: auto).
-
-When enabled, a modest amount of color is used to help make the output more
-digestible, typically be enabling quick eye scanning. For example, when enabled
-for the various benchmark comparison commands, the "best" timings are
-colorized. The choices are: auto, always, never.
-"#,
-    );
-
-    /// Return a possibly colorized stdout.
-    #[allow(dead_code)]
-    pub fn stdout(&self) -> Box<dyn termcolor::WriteColor> {
-        use termcolor::{Ansi, NoColor};
-
-        if self.should_color() {
-            Box::new(Ansi::new(std::io::stdout()))
-        } else {
-            Box::new(NoColor::new(std::io::stdout()))
-        }
-    }
-
-    /// Return a possibly colorized stdout, just like 'stdout', except the
-    /// output supports elastic tabstops.
-    pub fn elastic_stdout(&self) -> Box<dyn termcolor::WriteColor> {
-        use {
-            tabwriter::TabWriter,
-            termcolor::{Ansi, NoColor},
-        };
-
-        if self.should_color() {
-            Box::new(Ansi::new(TabWriter::new(std::io::stdout())))
-        } else {
-            Box::new(NoColor::new(TabWriter::new(std::io::stdout())))
-        }
-    }
-
-    /// Return true if colors should be used. When the color choice is 'auto',
-    /// this only returns true if stdout is a tty.
-    pub fn should_color(&self) -> bool {
-        match *self {
-            Color::Auto => atty::is(atty::Stream::Stdout),
-            Color::Always => true,
-            Color::Never => false,
-        }
-    }
-}
-
-impl Default for Color {
-    fn default() -> Color {
-        Color::Auto
-    }
-}
-
-impl std::str::FromStr for Color {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> anyhow::Result<Color> {
-        let color = match s {
-            "auto" => Color::Auto,
-            "always" => Color::Always,
-            "never" => Color::Never,
-            unknown => {
-                anyhow::bail!(
-                    "unrecognized color config '{}', must be \
-                     one of auto, always or never.",
-                    unknown,
-                )
-            }
-        };
-        Ok(color)
-    }
-}
-
-/// Filter is the implementation of whitelist/blacklist rules. If there are no
-/// rules, everything matches. If there's at least one whitelist rule, then you
-/// need at least one whitelist rule to match to get through the filter. If
-/// there are no whitelist regexes, then you can't match any of the blacklist
-/// regexes.
-///
-/// This filter also has precedence built into that. That means that the order
-/// of rules matters. So for example, if you have a whitelist regex that
-/// matches AFTER a blacklist regex matches, then the input is considered to
-/// have matched the filter.
-#[derive(Clone, Debug, Default)]
-pub struct Filter {
-    rules: Vec<FilterRule>,
-}
-
-impl Filter {
-    /// Create a new filter from one whitelist regex pattern.
-    ///
-    /// More rules may be added, but this is a convenience routine for a simple
-    /// filter.
-    pub fn from_pattern(pat: &str) -> anyhow::Result<Filter> {
-        let mut filter = Filter::default();
-        filter.add(pat.parse()?);
-        Ok(filter)
-    }
-
-    /// Add the given rule to this filter.
-    pub fn add(&mut self, rule: FilterRule) {
-        self.rules.push(rule);
-    }
-
-    /// Return true if and only if the given subject passes this filter.
-    pub fn include(&self, subject: &str) -> bool {
-        // If we have no rules, then everything matches.
-        if self.rules.is_empty() {
-            return true;
-        }
-        // If we have any whitelist rules, then 'include' starts off as false,
-        // as we need at least one whitelist rule in that case to match. If all
-        // we have are blacklists though, then we start off with include=true,
-        // and we only get excluded if one of those blacklists is matched.
-        let mut include = self.rules.iter().all(|r| r.blacklist);
-        for rule in &self.rules {
-            if rule.re.is_match(subject) {
-                include = !rule.blacklist;
-            }
-        }
-        include
-    }
-}
-
-/// A single rule in a filter, which is a combination of a regex and whether
-/// it's a blacklist rule or not.
-#[derive(Clone, Debug)]
-pub struct FilterRule {
-    re: Regex,
-    blacklist: bool,
-}
-
-impl std::str::FromStr for FilterRule {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> anyhow::Result<FilterRule> {
-        let (pattern, blacklist) =
-            if s.starts_with('!') { (&s[1..], true) } else { (&*s, false) };
-        let re = Regex::new(pattern).context("filter regex is not valid")?;
-        Ok(FilterRule { re, blacklist })
-    }
 }
 
 /// A type for expressing the documentation of a flag.

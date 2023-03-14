@@ -1,8 +1,7 @@
 use std::io::{stdout, Write};
 
 use crate::{
-    args,
-    config::{
+    args::{
         self, common, configure, patterns, syntax, thompson, Configurable,
     },
     util::{self, Table},

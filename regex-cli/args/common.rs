@@ -1,9 +1,6 @@
 use lexopt::{Arg, Parser};
 
-use crate::{
-    args::{self, Usage},
-    config::Configurable,
-};
+use crate::args::{self, flags, Configurable, Usage};
 
 /// This exposes all of the configuration knobs on a regex_automata::Input via
 /// CLI flags. The only aspect of regex_automata::Input that this does not
@@ -11,6 +8,7 @@ use crate::{
 /// with `Haystack`).
 #[derive(Debug, Default)]
 pub struct Config {
+    pub color: flags::Color,
     pub quiet: bool,
     pub verbose: bool,
 }
@@ -22,6 +20,9 @@ impl Configurable for Config {
         arg: &mut Arg,
     ) -> anyhow::Result<bool> {
         match *arg {
+            Arg::Short('c') | Arg::Long("color") => {
+                self.color = args::parse(p, "-c/--color")?;
+            }
             Arg::Short('q') | Arg::Long("quiet") => {
                 self.quiet = true;
             }
@@ -35,6 +36,7 @@ impl Configurable for Config {
 
     fn usage(&self) -> &[Usage] {
         const USAGES: &'static [Usage] = &[
+            flags::Color::USAGE,
             Usage::new(
                 "-q, --quiet",
                 "Suppress some output.",

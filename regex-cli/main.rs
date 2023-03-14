@@ -4,7 +4,7 @@ use std::io::Write;
 
 mod args;
 mod cmd;
-mod config;
+mod escape;
 mod util;
 
 fn main() -> anyhow::Result<()> {
