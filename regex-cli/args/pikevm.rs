@@ -6,10 +6,7 @@ use {
 
 use crate::args::{self, flags, Configurable, Usage};
 
-/// This exposes all of the configuration knobs on a regex_automata::Input via
-/// CLI flags. The only aspect of regex_automata::Input that this does not
-/// cover is the haystack, which should be provided by other means (usually
-/// with `Haystack`).
+/// This exposes the configuration knobs for a `PikeVM`.
 #[derive(Debug, Default)]
 pub struct Config {
     pikevm: pikevm::Config,
