@@ -265,6 +265,10 @@ OPTIONS:
     Ok(())
 }
 
+struct Literal {
+    kind: ExtractKind,
+}
+
 fn run_literal(p: &mut lexopt::Parser) -> anyhow::Result<()> {
     const USAGE: &'static str = "\
 Prints the debug representation of extract literals from a regex pattern.
