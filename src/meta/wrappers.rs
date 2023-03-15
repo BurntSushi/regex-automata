@@ -348,7 +348,6 @@ impl OnePassEngine {
             }
             let onepass_config = onepass::Config::new()
                 .match_kind(info.config().get_match_kind())
-                .utf8(info.config().get_utf8())
                 // Like for the lazy DFA, we unconditionally enable this
                 // because it doesn't cost much and makes the API more
                 // flexible.

@@ -84,7 +84,7 @@ impl Configurable for Config {
             Arg::Long("end") => {
                 self.end = Some(args::parse(p, "--end")?);
             }
-            Arg::Long("anchored") => {
+            Arg::Short('a') | Arg::Long("anchored") => {
                 self.anchored = true;
             }
             Arg::Long("pattern-id") => {
@@ -122,7 +122,7 @@ When not set, the end bound is the length of the haystack.
 "#,
             ),
             Usage::new(
-                "--anchored",
+                "-a, --anchored",
                 "Enable anchored mode for the search.",
                 r#"
 Enabled anchored mode for the search. When enabled and if a match is found, the

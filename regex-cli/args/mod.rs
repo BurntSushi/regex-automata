@@ -8,11 +8,19 @@ use {
     lexopt::{Arg, Parser, ValueExt},
 };
 
+pub mod api;
+pub mod backtrack;
 pub mod common;
+pub mod dfa;
 pub mod flags;
 pub mod haystack;
+pub mod hybrid;
 pub mod input;
+pub mod meta;
+pub mod onepass;
+pub mod overlapping;
 pub mod patterns;
+pub mod pikevm;
 pub mod syntax;
 pub mod thompson;
 

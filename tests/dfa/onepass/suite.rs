@@ -172,7 +172,7 @@ fn configure_onepass_builder(
         Some(k) => k,
     };
 
-    let config = DFA::config().match_kind(match_kind).utf8(test.utf8());
+    let config = DFA::config().match_kind(match_kind);
     builder
         .configure(config)
         .syntax(config_syntax(test))

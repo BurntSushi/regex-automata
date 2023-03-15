@@ -793,6 +793,14 @@ impl Config {
         Config { dfa_state_limit: Some(limit), ..self }
     }
 
+    pub fn byte_classes(self, yes: bool) -> Config {
+        Config { byte_classes: Some(yes), ..self }
+    }
+
+    pub fn line_terminator(self, byte: u8) -> Config {
+        Config { line_terminator: Some(byte), ..self }
+    }
+
     pub fn hybrid(self, yes: bool) -> Config {
         Config { hybrid: Some(yes), ..self }
     }
@@ -807,14 +815,6 @@ impl Config {
 
     pub fn backtrack(self, yes: bool) -> Config {
         Config { backtrack: Some(yes), ..self }
-    }
-
-    pub fn byte_classes(self, yes: bool) -> Config {
-        Config { byte_classes: Some(yes), ..self }
-    }
-
-    pub fn line_terminator(self, byte: u8) -> Config {
-        Config { line_terminator: Some(byte), ..self }
     }
 
     pub fn get_match_kind(&self) -> MatchKind {
@@ -872,6 +872,14 @@ impl Config {
         self.dfa_state_limit.unwrap_or(Some(30))
     }
 
+    pub fn get_byte_classes(&self) -> bool {
+        self.byte_classes.unwrap_or(true)
+    }
+
+    pub fn get_line_terminator(&self) -> u8 {
+        self.line_terminator.unwrap_or(b'\n')
+    }
+
     pub fn get_hybrid(&self) -> bool {
         #[cfg(feature = "hybrid")]
         {
@@ -914,14 +922,6 @@ impl Config {
         {
             false
         }
-    }
-
-    pub fn get_byte_classes(&self) -> bool {
-        self.byte_classes.unwrap_or(true)
-    }
-
-    pub fn get_line_terminator(&self) -> u8 {
-        self.line_terminator.unwrap_or(b'\n')
     }
 
     /// Overwrite the default configuration such that the options in `o` are

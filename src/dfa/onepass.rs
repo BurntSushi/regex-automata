@@ -66,7 +66,6 @@ use crate::{
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     match_kind: Option<MatchKind>,
-    utf8: Option<bool>,
     starts_for_each_pattern: Option<bool>,
     byte_classes: Option<bool>,
     size_limit: Option<Option<usize>>,
@@ -102,134 +101,6 @@ impl Config {
     /// as possible.
     pub fn match_kind(mut self, kind: MatchKind) -> Config {
         self.match_kind = Some(kind);
-        self
-    }
-
-    /// Whether to enable UTF-8 mode or not.
-    ///
-    /// When UTF-8 mode is enabled (the default) and an empty match is seen,
-    /// the search APIs of a one-pass DFA will never report a match that would
-    /// otherwise split a valid UTF-8 code unit sequence.
-    ///
-    /// If this mode is enabled and invalid UTF-8 is given to search, then
-    /// behavior is unspecified.
-    ///
-    /// Generally speaking, one should enable this when
-    /// [`syntax::Config::utf8`](crate::util::syntax::Config::utf8)
-    /// is enabled, and disable it otherwise.
-    ///
-    /// # Example
-    ///
-    /// This example demonstrates the differences between when this option is
-    /// enabled and disabled. The differences only arise when the one-pass DFA
-    /// can return matches of length zero.
-    ///
-    /// In this first snippet, we show the results when UTF-8 mode is disabled.
-    ///
-    /// ```
-    /// use regex_automata::{
-    ///     dfa::onepass::DFA,
-    ///     nfa::thompson,
-    ///     Anchored,
-    ///     Input,
-    ///     Match,
-    /// };
-    ///
-    /// let re = DFA::builder()
-    ///     .configure(DFA::config().utf8(false))
-    ///     // TODO: I guess we'll be removing the UTF-8 option like this,
-    ///     // but we should incorporate these good doc examples somehow.
-    ///     .thompson(thompson::Config::new().utf8(false))
-    ///     .build(r"")?;
-    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
-    /// let mut input = Input::new("a☃z").anchored(Anchored::Yes);
-    ///
-    /// // The empty string matches at every position.
-    ///
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
-    ///
-    /// input.set_start(1);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
-    ///
-    /// input.set_start(2);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 2..2)), caps.get_match());
-    ///
-    /// input.set_start(3);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 3..3)), caps.get_match());
-    ///
-    /// input.set_start(4);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 4..4)), caps.get_match());
-    ///
-    /// input.set_start(5);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 5..5)), caps.get_match());
-    ///
-    /// // 6 > input.haystack.len(), so there's no match here.
-    /// input.set_start(6);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(None, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// And in this snippet, we execute the same search on the same haystack,
-    /// but with UTF-8 mode enabled. Notice that when we search at offsets that
-    /// would otherwise return a match that splits the encoding of `☃`, we
-    /// get no match.
-    ///
-    /// ```
-    /// use regex_automata::{dfa::onepass::DFA, Anchored, Input, Match};
-    ///
-    /// let re = DFA::builder()
-    ///     .configure(DFA::config().utf8(true))
-    ///     .build(r"")?;
-    /// let mut cache = re.create_cache();
-    /// let mut caps = re.create_captures();
-    /// let mut input = Input::new("a☃z").anchored(Anchored::Yes);
-    ///
-    /// // 0 occurs just before 'a', where the empty string matches.
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 0..0)), caps.get_match());
-    ///
-    /// // 1 occurs just before the snowman.
-    /// input.set_start(1);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 1..1)), caps.get_match());
-    ///
-    /// // 2 splits the first and second bytes of the snowman.
-    /// input.set_start(2);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(None, caps.get_match());
-    ///
-    /// // 3 splits the second and third bytes of the snowman.
-    /// input.set_start(3);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(None, caps.get_match());
-    ///
-    /// // 4 is right past the snowman and before the 'z'
-    /// input.set_start(4);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 4..4)), caps.get_match());
-    ///
-    /// // 5 == input.haystack.len(), at which point, the empty string matches.
-    /// input.set_start(5);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(Some(Match::must(0, 5..5)), caps.get_match());
-    ///
-    /// // 6 > input.haystack.len(), so there's no match here.
-    /// input.set_start(6);
-    /// re.try_search(&mut cache, &input, &mut caps)?;
-    /// assert_eq!(None, caps.get_match());
-    ///
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn utf8(mut self, yes: bool) -> Config {
-        self.utf8 = Some(yes);
         self
     }
 
@@ -371,11 +242,6 @@ impl Config {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
-    /// Returns whether UTF-8 mode should be enabled for searches.
-    pub fn get_utf8(&self) -> bool {
-        self.utf8.unwrap_or(true)
-    }
-
     /// Returns whether this configuration has enabled anchored starting states
     /// for every pattern in the DFA.
     pub fn get_starts_for_each_pattern(&self) -> bool {
@@ -404,7 +270,6 @@ impl Config {
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             match_kind: o.match_kind.or(self.match_kind),
-            utf8: o.utf8.or(self.utf8),
             starts_for_each_pattern: o
                 .starts_for_each_pattern
                 .or(self.starts_for_each_pattern),
@@ -434,16 +299,21 @@ impl Config {
 ///
 /// # Example
 ///
-/// This example shows how to disable UTF-8 mode in the syntax and the regex
-/// itself. This is generally what you want for matching on arbitrary bytes.
+/// This example shows how to disable UTF-8 mode in the syntax and the NFA.
+/// This is generally what you want for matching on arbitrary bytes.
 ///
 /// ```
 /// # if cfg!(miri) { return Ok(()); } // miri takes too long
-/// use regex_automata::{dfa::onepass::DFA, util::syntax, Match};
+/// use regex_automata::{
+///     dfa::onepass::DFA,
+///     nfa::thompson,
+///     util::syntax,
+///     Match,
+/// };
 ///
 /// let re = DFA::builder()
-///     .configure(DFA::config().utf8(false))
 ///     .syntax(syntax::Config::new().utf8(false))
+///     .thompson(thompson::Config::new().utf8(false))
 ///     .build(r"foo(?-u:[^b])ar.*")?;
 /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
 ///
@@ -1453,13 +1323,14 @@ impl DFA {
     /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     dfa::onepass::DFA,
+    ///     nfa::thompson,
     ///     util::syntax,
     ///     Match,
     /// };
     ///
     /// let re = DFA::builder()
-    ///     .configure(DFA::config().utf8(false))
     ///     .syntax(syntax::Config::new().utf8(false))
+    ///     .thompson(thompson::Config::new().utf8(false))
     ///     .build(r"foo(?-u:[^b])ar.*")?;
     /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
     ///

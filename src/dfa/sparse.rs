@@ -444,6 +444,17 @@ impl<T: AsRef<[u8]>> DFA<T> {
         }
     }
 
+    /// Returns the starting state configuration for this DFA.
+    ///
+    /// The default is [`StartKind::Both`], which means the DFA supports both
+    /// unanchored and anchored searches. However, this can generally lead to
+    /// bigger DFAs. Therefore, a DFA might be compiled with support for just
+    /// unanchored or anchored searches. In that case, running a search with
+    /// an unsupported configuration will panic.
+    pub fn start_kind(&self) -> StartKind {
+        self.st.kind
+    }
+
     /// Returns true only if this DFA has starting states for each pattern.
     ///
     /// When a DFA has starting states for each pattern, then a search with the
@@ -1078,7 +1089,7 @@ impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
         writeln!(f, "sparse::DFA(")?;
         for state in self.tt.states() {
             fmt_state_indicator(f, self, state.id())?;
-            writeln!(f, "{:06?}: {:?}", state.id(), state)?;
+            writeln!(f, "{:06?}: {:?}", state.id().as_usize(), state)?;
         }
         writeln!(f, "")?;
         for (i, (start_id, anchored, sty)) in self.st.iter().enumerate() {
@@ -1086,9 +1097,11 @@ impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
                 match anchored {
                     Anchored::No => writeln!(f, "START-GROUP(unanchored)")?,
                     Anchored::Yes => writeln!(f, "START-GROUP(anchored)")?,
-                    Anchored::Pattern(pid) => {
-                        writeln!(f, "START_GROUP(pattern: {:?})", pid)?
-                    }
+                    Anchored::Pattern(pid) => writeln!(
+                        f,
+                        "START_GROUP(pattern: {:?})",
+                        pid.as_usize()
+                    )?,
                 }
             }
             writeln!(f, "  {:?} => {:06?}", sty, start_id.as_usize())?;

@@ -705,7 +705,19 @@ impl Config {
     /// in this case. Otherwise, if you have no prefilter, there is likely no
     /// reason to specialize start states.
     ///
-    /// This is disabled by default.
+    /// This is disabled by default, but note that it is automatically
+    /// enabled (or disabled) if [`Config::prefilter`] is set. Namely, unless
+    /// `specialize_start_states` has already been set, [`Config::prefilter`]
+    /// will automatically enable or disable it based on whether a prefilter
+    /// is present or not, respectively. This is done because a prefilter's
+    /// effectiveness is rooted in being executed whenever the DFA is in a
+    /// start state, and that's only possible to do when they are specialized.
+    ///
+    /// Note that it is plausibly reasonable to _disable_ this option
+    /// explicitly while _enabling_ a prefilter. In that case, a prefilter
+    /// will still be run at the beginning of a search, but never again. This
+    /// in theory could strike a good balance if you're in a situation where a
+    /// prefilter is likely to produce many false positive candidates.
     ///
     /// # Example
     ///

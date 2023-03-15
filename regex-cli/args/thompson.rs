@@ -19,9 +19,17 @@ pub struct Config {
 }
 
 impl Config {
-    /// Return a ``thompson::Config` object from this configuration.
+    /// Return a `thompson::Config` object from this configuration.
     pub fn thompson(&self) -> anyhow::Result<thompson::Config> {
         Ok(self.thompson.clone())
+    }
+
+    /// Returns a new configuration that compiles a reverse NFA.
+    pub fn reversed(&self) -> Config {
+        // Reverse DFAs require that captures are disabled. In practice, there
+        // is no current use case for a reverse NFA with capture groups.
+        let thompson = self.thompson.clone().reverse(true).captures(false);
+        Config { thompson }
     }
 
     /// Compiles the given `Hir` expressions into an NFA. If compilation fails,
