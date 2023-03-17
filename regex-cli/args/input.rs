@@ -65,9 +65,9 @@ impl Config {
     pub fn with<T>(
         &self,
         haystack: &args::haystack::Config,
-        mut f: impl FnMut(&Input<'_>) -> anyhow::Result<T>,
+        mut f: impl FnMut(Input<'_>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        haystack.with(|bytes| f(&self.input(bytes)?))
+        haystack.with(|bytes| f(self.input(bytes)?))
     }
 }
 

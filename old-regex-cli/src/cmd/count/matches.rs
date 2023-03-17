@@ -744,7 +744,7 @@ fn search_pikevm(
             Ok(caps.get_match())
         })?;
         let m = match caps.get_match() {
-            None => break,
+s           None => break,
             Some(m) => m,
         };
         counts[m.pattern()] += 1;

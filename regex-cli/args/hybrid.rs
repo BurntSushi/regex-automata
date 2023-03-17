@@ -1,7 +1,7 @@
 use {
     anyhow::Context,
     lexopt::{Arg, Parser},
-    regex_automata::{hybrid, nfa::thompson::NFA},
+    regex_automata::{hybrid, nfa::thompson::NFA, MatchKind},
 };
 
 use crate::args::{self, flags, Configurable, Usage};
@@ -16,6 +16,14 @@ impl Config {
     /// Return a `hybrid::dfa::Config` object from this configuration.
     pub fn hybrid(&self) -> anyhow::Result<hybrid::dfa::Config> {
         Ok(self.hybrid.clone())
+    }
+
+    /// Returns a new configuration that compiles a reverse lazy DFA from a
+    /// reverse NFA. The caller is responsible for reversing the NFA.
+    pub fn reversed(&self) -> Config {
+        let hybrid =
+            self.hybrid.clone().prefilter(None).match_kind(MatchKind::All);
+        Config { hybrid }
     }
 
     /// Build a lazy DFA from the NFA given.

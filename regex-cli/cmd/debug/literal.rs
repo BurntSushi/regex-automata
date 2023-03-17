@@ -86,7 +86,9 @@ OPTIONS:
         "longest common suffix",
         seq.longest_common_suffix().map(BString::from),
     );
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         let mut out = stdout();
         writeln!(out, "")?;

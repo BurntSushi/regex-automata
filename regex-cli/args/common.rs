@@ -11,6 +11,13 @@ pub struct Config {
     pub color: flags::Color,
     pub quiet: bool,
     pub verbose: bool,
+    pub no_table: bool,
+}
+
+impl Config {
+    pub fn table(&self) -> bool {
+        !self.no_table
+    }
 }
 
 impl Configurable for Config {
@@ -20,14 +27,17 @@ impl Configurable for Config {
         arg: &mut Arg,
     ) -> anyhow::Result<bool> {
         match *arg {
-            Arg::Short('c') | Arg::Long("color") => {
-                self.color = args::parse(p, "-c/--color")?;
+            Arg::Long("color") => {
+                self.color = args::parse(p, "--color")?;
             }
             Arg::Short('q') | Arg::Long("quiet") => {
                 self.quiet = true;
             }
             Arg::Long("verbose") => {
                 self.verbose = true;
+            }
+            Arg::Long("no-table") => {
+                self.no_table = true;
             }
             _ => return Ok(false),
         }
@@ -54,6 +64,14 @@ itself.
                 r#"
 This is a generic flag that expands output beyond the "normal" amount. Which
 output is added depends on the command.
+"#,
+            ),
+            Usage::new(
+                "--no-table",
+                "Omit any table of information from the output.",
+                r#"
+Many commands in this tool will print a table of property information related
+to the task being performed. Passing this flag will suppress that table.
 "#,
             ),
         ];

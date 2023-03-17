@@ -81,7 +81,9 @@ OPTIONS:
     table.add("stride", dfa.stride());
     table.add("has empty?", dfa.has_empty());
     table.add("is utf8?", dfa.is_utf8());
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:?}", dfa)?;
     }
@@ -149,7 +151,9 @@ OPTIONS:
         re.forward().memory_usage() + re.reverse().memory_usage(),
     );
     table.add("pattern len", re.pattern_len());
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:?}", re)?;
     }
@@ -228,7 +232,9 @@ OPTIONS:
     table.add("start kind", dfa.start_kind());
     table.add("has empty?", dfa.has_empty());
     table.add("is utf8?", dfa.is_utf8());
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:?}", dfa)?;
     }
@@ -298,7 +304,9 @@ OPTIONS:
         re.forward().memory_usage() + re.reverse().memory_usage(),
     );
     table.add("pattern len", re.pattern_len());
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:?}", re)?;
     }

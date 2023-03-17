@@ -19,7 +19,7 @@ iterators over capture group names.
 * `pool` provides a way to reuse mutable memory allocated in a thread safe
 manner.
 * `prefilter` provides APIs for building prefilters and using them in searches.
-* `primitives` are what you might use if your doing lower level work on
+* `primitives` are what you might use if you're doing lower level work on
 automata, such as walking an NFA state graph.
 * `syntax` provides some higher level convenience functions for interacting
 with the `regex-syntax` crate.

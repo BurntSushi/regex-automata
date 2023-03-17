@@ -13,6 +13,10 @@ pub fn run(p: &mut lexopt::Parser) -> anyhow::Result<()> {
 Prints the debug representation of various things from regex-automata and
 regex-syntax.
 
+This is useful for ad hoc interactions with objects on the command line. In
+general, most objects support the full suite of configuration available in code
+via the crate.
+
 USAGE:
     regex-cli debug <command> ...
 
@@ -68,7 +72,9 @@ OPTIONS:
     let mut table = Table::empty();
     let (asts, time) = util::timeitr(|| syntax.asts(&pats))?;
     table.add("parse time", time);
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:#?}", &asts[0])?;
     }
@@ -107,7 +113,9 @@ OPTIONS:
     table.add("parse time", time);
     let (hirs, time) = util::timeitr(|| syntax.hirs(&pats, &asts))?;
     table.add("translate time", time);
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:#?}", &hirs[0])?;
     }
@@ -160,7 +168,9 @@ OPTIONS:
     table.add("pattern len", dfa.pattern_len());
     table.add("alphabet len", dfa.alphabet_len());
     table.add("stride", dfa.stride());
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:?}", dfa)?;
     }
@@ -213,7 +223,9 @@ OPTIONS:
     table.add("lookset any", nfa.look_set_any());
     table.add("lookset prefix any", nfa.look_set_prefix_any());
     table.add("lookset prefix all", nfa.look_set_prefix_all());
-    table.print(stdout())?;
+    if common.table() {
+        table.print(stdout())?;
+    }
     if !common.quiet {
         writeln!(stdout(), "\n{:?}", nfa)?;
     }

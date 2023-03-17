@@ -15,7 +15,7 @@ pub enum Color {
 
 impl Color {
     pub const USAGE: Usage = Usage::new(
-        "-c, --color <mode>",
+        "--color <mode>",
         "One of: auto, always, never.",
         r#"
 Whether to use color (default: auto).
