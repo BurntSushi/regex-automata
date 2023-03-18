@@ -2,6 +2,7 @@ use crate::args;
 
 mod debug;
 mod find;
+mod generate;
 
 const USAGE: &'static str = "\
 A tool for interacting with Rust's regex crate on the command line.
@@ -19,6 +20,7 @@ pub fn run(p: &mut lexopt::Parser) -> anyhow::Result<()> {
     match &*cmd {
         "find" => find::run(p),
         "debug" => debug::run(p),
+        "generate" => generate::run(p),
         unk => anyhow::bail!("unrecognized command '{}'", unk),
     }
 }
