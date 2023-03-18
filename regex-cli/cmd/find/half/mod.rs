@@ -2,7 +2,6 @@ use std::io::{stdout, Write};
 
 use {
     anyhow::Context,
-    bstr::ByteSlice,
     lexopt::{Arg, Parser},
     regex_automata::{HalfMatch, Input, MatchError, PatternID},
 };
@@ -58,7 +57,7 @@ struct Args {
 impl Configurable for Args {
     fn configure(
         &mut self,
-        p: &mut Parser,
+        _: &mut Parser,
         arg: &mut Arg,
     ) -> anyhow::Result<bool> {
         match *arg {
@@ -107,7 +106,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut api = args::api::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -130,7 +129,7 @@ OPTIONS:
     // The top-level API doesn't support regex-automata's more granular Input
     // abstraction.
     let input = args::input::Config::default();
-    let mut search = |input: &Input<'_>| {
+    let search = |input: &Input<'_>| {
         Ok(re
             .shortest_match_at(input.haystack(), input.start())
             .map(|offset| HalfMatch::new(PatternID::ZERO, offset)))
@@ -164,7 +163,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut meta = args::meta::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -188,7 +187,7 @@ OPTIONS:
     let (re, time) = util::timeitr(|| meta.from_hirs(&hirs))?;
     table.add("build meta time", time);
 
-    let mut search = |input: &Input<'_>| Ok(re.search_half(input));
+    let search = |input: &Input<'_>| Ok(re.search_half(input));
     if find.count {
         run_counts(
             &mut table,
@@ -210,7 +209,7 @@ OPTIONS:
 fn run_counts(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     pattern_len: usize,
@@ -248,7 +247,7 @@ fn run_counts(
 fn run_search(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     mut search: impl FnMut(&Input<'_>) -> Result<Option<HalfMatch>, MatchError>,
@@ -284,7 +283,7 @@ fn run_search(
 fn run_counts_overlapping<S>(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     pattern_len: usize,
@@ -327,7 +326,7 @@ fn run_counts_overlapping<S>(
 fn run_search_overlapping<S>(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     mut start_state: impl FnMut() -> S,

@@ -38,7 +38,7 @@ impl Config {
     /// determinization fails, then an error is returned.
     pub fn from_nfa(&self, nfa: &NFA) -> anyhow::Result<dense::DFA<Vec<u32>>> {
         dense::Builder::new()
-            .configure(self.dense.clone())
+            .configure(self.dense()?)
             .build_from_nfa(nfa)
             .context("failed to compile dense DFA")
     }

@@ -31,7 +31,7 @@ impl Config {
         hirs: &[H],
     ) -> anyhow::Result<meta::Regex> {
         meta::Builder::new()
-            .configure(self.meta.clone())
+            .configure(self.meta()?)
             .build_many_from_hir(hirs)
             .context("failed to compile meta regex")
     }

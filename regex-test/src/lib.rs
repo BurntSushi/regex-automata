@@ -109,8 +109,6 @@ use {
     serde::Deserialize,
 };
 
-mod escape;
-
 const ENV_REGEX_TEST: &str = "REGEX_TEST";
 const ENV_REGEX_TEST_VERBOSE: &str = "REGEX_TEST_VERBOSE";
 
@@ -170,14 +168,18 @@ impl RegexTests {
             }
             t.full_name = format!("{}/{}", t.group, t.name);
             if t.unescape {
-                t.haystack =
-                    BString::from(crate::escape::unescape(&t.haystack));
+                t.haystack = BString::from(Vec::unescape_bytes(
+                    // OK because TOML requires valid UTF-8.
+                    t.haystack.to_str().unwrap(),
+                ));
             }
             if t.line_terminator.is_empty() {
                 t.line_terminator = BString::from("\n");
             } else {
-                t.line_terminator =
-                    BString::from(crate::escape::unescape(&t.line_terminator));
+                t.line_terminator = BString::from(Vec::unescape_bytes(
+                    // OK because TOML requires valid UTF-8.
+                    t.line_terminator.to_str().unwrap(),
+                ));
                 anyhow::ensure!(
                     t.line_terminator.len() == 1,
                     "line terminator '{:?}' has length not equal to 1",

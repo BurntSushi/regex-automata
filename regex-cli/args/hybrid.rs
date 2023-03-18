@@ -33,7 +33,7 @@ impl Config {
     /// on demand at search time.
     pub fn from_nfa(&self, nfa: &NFA) -> anyhow::Result<hybrid::dfa::DFA> {
         hybrid::dfa::Builder::new()
-            .configure(self.hybrid.clone())
+            .configure(self.hybrid()?)
             .build_from_nfa(nfa.clone())
             .context("failed to compile lazy DFA")
     }

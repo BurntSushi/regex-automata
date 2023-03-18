@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use {
     anyhow::Context,
-    bstr::{BStr, BString, ByteSlice},
+    bstr::{BStr, BString, ByteSlice, ByteVec},
     lexopt::{Arg, Parser, ValueExt},
 };
 
-use crate::args::{self, Configurable, Usage};
+use crate::args::{Configurable, Usage};
 
 /// A configuration object for reading a single haystack from the command line.
 ///
@@ -26,6 +26,7 @@ impl Config {
     ///
     /// If the haystack was specified via a file path, then this returns the
     /// entire contents of the file on to the heap.
+    #[allow(dead_code)]
     pub fn get(&self) -> anyhow::Result<BString> {
         match self.kind {
             Some(Kind::Inline(ref haystack)) => Ok(haystack.clone()),
@@ -90,7 +91,7 @@ impl Configurable for Config {
                 let hay = hay
                     .string()
                     .context("-y/--haystack must be valid UTF-8")?;
-                let hay = crate::escape::unescape(&hay);
+                let hay = Vec::unescape_bytes(&hay);
                 self.kind = Some(Kind::Inline(BString::from(hay)));
             }
             Arg::Value(ref mut v) => {

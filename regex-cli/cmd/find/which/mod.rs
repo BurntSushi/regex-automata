@@ -2,9 +2,8 @@ use std::io::{stdout, Write};
 
 use {
     anyhow::Context,
-    bstr::ByteSlice,
     lexopt::Parser,
-    regex_automata::{Input, Match, MatchError, PatternID, PatternSet},
+    regex_automata::{Input, MatchError, PatternID, PatternSet},
 };
 
 use crate::{
@@ -83,7 +82,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut api = args::api::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -110,7 +109,7 @@ OPTIONS:
     // The top-level API doesn't support regex-automata's more granular Input
     // abstraction.
     let input = args::input::Config::default();
-    let mut search = |input: &Input<'_>, patset: &mut PatternSet| {
+    let search = |input: &Input<'_>, patset: &mut PatternSet| {
         let matches = re.matches(input.haystack());
         for pid in matches.iter() {
             let pid = PatternID::new(pid).unwrap();
@@ -151,7 +150,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut meta = args::meta::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -179,7 +178,7 @@ OPTIONS:
     let (re, time) = util::timeitr(|| meta.from_hirs(&hirs))?;
     table.add("build meta time", time);
 
-    let mut search = |input: &Input<'_>, patset: &mut PatternSet| {
+    let search = |input: &Input<'_>, patset: &mut PatternSet| {
         Ok(re.which_overlapping_matches(input, patset))
     };
     run_search(
@@ -198,7 +197,7 @@ OPTIONS:
 fn run_search(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     pattern_len: usize,

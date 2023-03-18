@@ -1,11 +1,4 @@
-use std::io::{stdout, Write};
-
-use {
-    anyhow::Context,
-    bstr::ByteSlice,
-    lexopt::Parser,
-    regex_automata::{dfa::Automaton, Input},
-};
+use regex_automata::{dfa::Automaton, Input};
 
 use crate::{
     args,
@@ -36,8 +29,8 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut hybrid = args::hybrid::Config::default();
-    let mut find = super::super::Args::default();
-    let mut half = super::Args::default();
+    let mut overlapping = args::overlapping::Config::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -49,8 +42,8 @@ OPTIONS:
             &mut syntax,
             &mut thompson,
             &mut hybrid,
+            &mut overlapping,
             &mut find,
-            &mut half,
         ],
     )?;
 
@@ -67,8 +60,8 @@ OPTIONS:
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("cache creation time", time);
 
-    if half.overlapping {
-        let mut search = |input: &Input<'_>, state: &mut OverlappingState| {
+    if overlapping.enabled {
+        let search = |input: &Input<'_>, state: &mut OverlappingState| {
             re.try_search_overlapping_fwd(&mut cache, input, state)
         };
         if find.count {
@@ -96,8 +89,7 @@ OPTIONS:
             )?;
         }
     } else {
-        let mut search =
-            |input: &Input<'_>| re.try_search_fwd(&mut cache, input);
+        let search = |input: &Input<'_>| re.try_search_fwd(&mut cache, input);
         if find.count {
             super::run_counts(
                 &mut table,
@@ -141,8 +133,8 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut dense = args::dfa::Config::default();
-    let mut find = super::super::Args::default();
-    let mut half = super::Args::default();
+    let mut overlapping = args::overlapping::Config::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -154,8 +146,8 @@ OPTIONS:
             &mut syntax,
             &mut thompson,
             &mut dense,
+            &mut overlapping,
             &mut find,
-            &mut half,
         ],
     )?;
 
@@ -170,9 +162,8 @@ OPTIONS:
     let (re, time) = util::timeitr(|| dense.from_nfa(&nfafwd))?;
     table.add("build forward dense DFA time", time);
 
-    let mut search = |input: &Input<'_>| re.try_search_fwd(input);
-    if half.overlapping {
-        let mut search = |input: &Input<'_>, state: &mut OverlappingState| {
+    if overlapping.enabled {
+        let search = |input: &Input<'_>, state: &mut OverlappingState| {
             re.try_search_overlapping_fwd(input, state)
         };
         if find.count {
@@ -200,6 +191,7 @@ OPTIONS:
             )?;
         }
     } else {
+        let search = |input: &Input<'_>| re.try_search_fwd(input);
         if find.count {
             super::run_counts(
                 &mut table,
@@ -243,8 +235,8 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut sparse = args::dfa::Config::default();
-    let mut find = super::super::Args::default();
-    let mut half = super::Args::default();
+    let mut overlapping = args::overlapping::Config::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -256,8 +248,8 @@ OPTIONS:
             &mut syntax,
             &mut thompson,
             &mut sparse,
+            &mut overlapping,
             &mut find,
-            &mut half,
         ],
     )?;
 
@@ -272,8 +264,8 @@ OPTIONS:
     let (re, time) = util::timeitr(|| sparse.from_nfa_sparse(&nfafwd))?;
     table.add("build forward sparse DFA time", time);
 
-    if half.overlapping {
-        let mut search = |input: &Input<'_>, state: &mut OverlappingState| {
+    if overlapping.enabled {
+        let search = |input: &Input<'_>, state: &mut OverlappingState| {
             re.try_search_overlapping_fwd(input, state)
         };
         if find.count {
@@ -301,7 +293,7 @@ OPTIONS:
             )?;
         }
     } else {
-        let mut search = |input: &Input<'_>| re.try_search_fwd(input);
+        let search = |input: &Input<'_>| re.try_search_fwd(input);
         if find.count {
             super::run_counts(
                 &mut table,

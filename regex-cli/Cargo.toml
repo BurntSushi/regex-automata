@@ -26,7 +26,7 @@ instrument = ["regex-automata/instrument"]
 [dependencies]
 anyhow = "1.0.28"
 atty = "0.2.14"
-bstr = { version = "1.3.0", default-features = false, features = ["std"] }
+bstr = { version = "1.4.0", default-features = false, features = ["std"] }
 # Using an older version here because I am really not a fan of the dependency
 # tree explosion that has happened in 0.10.
 env_logger = "0.9.3"

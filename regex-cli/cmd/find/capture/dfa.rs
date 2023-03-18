@@ -1,11 +1,4 @@
-use std::io::{stdout, Write};
-
-use {
-    anyhow::Context,
-    bstr::ByteSlice,
-    lexopt::Parser,
-    regex_automata::{util::captures::Captures, Input},
-};
+use regex_automata::{util::captures::Captures, Input};
 
 use crate::{
     args,
@@ -34,7 +27,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut onepass = args::onepass::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -63,7 +56,7 @@ OPTIONS:
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("cache creation time", time);
 
-    let mut search = |input: &Input<'_>, caps: &mut Captures| {
+    let search = |input: &Input<'_>, caps: &mut Captures| {
         re.try_search(&mut cache, input, caps)
     };
     if find.count {

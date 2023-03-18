@@ -1,10 +1,7 @@
-#![allow(warnings)]
-
 use std::io::Write;
 
 mod args;
 mod cmd;
-mod escape;
 mod util;
 
 fn main() -> anyhow::Result<()> {

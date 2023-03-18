@@ -1,6 +1,6 @@
 use lexopt::{Arg, Parser};
 
-use crate::args::{self, Configurable, Usage};
+use crate::args::{Configurable, Usage};
 
 /// This defines a configuration for overlapping searches.
 ///
@@ -14,7 +14,7 @@ pub struct Config {
 impl Configurable for Config {
     fn configure(
         &mut self,
-        p: &mut Parser,
+        _: &mut Parser,
         arg: &mut Arg,
     ) -> anyhow::Result<bool> {
         match *arg {

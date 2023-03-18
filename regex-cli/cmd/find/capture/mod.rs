@@ -6,7 +6,7 @@ use {
     lexopt::Parser,
     regex_automata::{
         util::captures::{Captures, GroupInfo},
-        Input, Match, MatchError, PatternID,
+        Input, MatchError, PatternID,
     },
 };
 
@@ -68,7 +68,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut api = args::api::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -96,7 +96,7 @@ OPTIONS:
     let group_info = GroupInfo::new([re.capture_names()])
         .context("could not build capture group info")?;
     let mut locs = re.capture_locations();
-    let mut search = |input: &Input<'_>, caps: &mut Captures| {
+    let search = |input: &Input<'_>, caps: &mut Captures| {
         caps.set_pattern(None);
         if !re
             .captures_read_at(&mut locs, input.haystack(), input.start())
@@ -168,7 +168,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut meta = args::meta::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -192,7 +192,7 @@ OPTIONS:
     let (re, time) = util::timeitr(|| meta.from_hirs(&hirs))?;
     table.add("build meta time", time);
 
-    let mut search = |input: &Input<'_>, caps: &mut Captures| {
+    let search = |input: &Input<'_>, caps: &mut Captures| {
         Ok(re.search_captures(input, caps))
     };
     if find.count {
@@ -224,7 +224,7 @@ OPTIONS:
 fn run_counts(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     group_info: &GroupInfo,
@@ -293,7 +293,7 @@ fn run_counts(
 fn run_search(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     group_info: &GroupInfo,
@@ -305,7 +305,7 @@ fn run_search(
             let mut matches = vec![];
             for _ in 0..find.repeat() {
                 let caps = Captures::all(group_info.clone());
-                let mut it =
+                let it =
                     regex_automata::util::iter::Searcher::new(input.clone())
                         .into_captures_iter(caps, &mut search);
                 for caps in it {
@@ -336,10 +336,10 @@ fn run_search(
                     match caps.get_group(group_index) {
                         None => write!(out, "NONE")?,
                         Some(sp) => {
-                            let string = input.haystack()[sp].as_bstr();
+                            let string = input.haystack()[sp].escape_bytes();
                             write!(
                                 out,
-                                "{}..{}/{:?}",
+                                "{}..{}/{}",
                                 sp.start, sp.end, string
                             )?;
                         }

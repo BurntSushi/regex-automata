@@ -1,4 +1,4 @@
-use {anyhow::Context, regex::Regex};
+use bstr::ByteVec;
 
 use crate::args::Usage;
 
@@ -39,6 +39,7 @@ digestible, typically be enabling quick eye scanning.
 
     /// Return a possibly colorized stdout, just like 'stdout', except the
     /// output supports elastic tabstops.
+    #[allow(dead_code)]
     pub fn elastic_stdout(&self) -> Box<dyn termcolor::WriteColor> {
         use {
             tabwriter::TabWriter,
@@ -89,6 +90,7 @@ impl std::str::FromStr for Color {
     }
 }
 
+/*
 /// Filter is the implementation of whitelist/blacklist rules. If there are no
 /// rules, everything matches. If there's at least one whitelist rule, then you
 /// need at least one whitelist rule to match to get through the filter. If
@@ -158,6 +160,7 @@ impl std::str::FromStr for FilterRule {
         Ok(FilterRule { re, blacklist })
     }
 }
+*/
 
 /// This defines a implementation for a flag that wants a single byte. This is
 /// useful because there are some APIs that require a single byte. For example,
@@ -175,7 +178,7 @@ impl std::str::FromStr for OneByte {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> anyhow::Result<OneByte> {
-        let bytes = crate::escape::unescape(s);
+        let bytes = Vec::unescape_bytes(s);
         anyhow::ensure!(
             bytes.len() == 1,
             "expected exactly one byte, but got {} bytes",
@@ -204,7 +207,7 @@ impl std::str::FromStr for ByteSet {
     fn from_str(s: &str) -> anyhow::Result<ByteSet> {
         let mut set = vec![];
         let mut seen = [false; 256];
-        for &byte in crate::escape::unescape(s).iter() {
+        for &byte in Vec::unescape_bytes(s).iter() {
             anyhow::ensure!(
                 !seen[usize::from(byte)],
                 "saw duplicate byte 0x{:2X} in '{}'",

@@ -1,11 +1,10 @@
 use {
-    anyhow::Context,
     lexopt::{Arg, Parser},
     regex::bytes::{Regex, RegexSet},
     regex_automata::util::syntax,
 };
 
-use crate::args::{self, flags, Configurable, Usage};
+use crate::args::{self, Configurable, Usage};
 
 /// Exposes the configuration for the top-level `Regex` API.
 #[derive(Debug, Default)]

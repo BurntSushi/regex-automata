@@ -4,7 +4,7 @@ use {
     regex_automata::nfa::thompson::{backtrack, NFA},
 };
 
-use crate::args::{self, flags, Configurable, Usage};
+use crate::args::{self, Configurable, Usage};
 
 /// This exposes the configuration knobs for a `BoundedBacktracker`.
 #[derive(Debug, Default)]
@@ -24,7 +24,7 @@ impl Config {
         nfa: &NFA,
     ) -> anyhow::Result<backtrack::BoundedBacktracker> {
         backtrack::Builder::new()
-            .configure(self.backtrack.clone())
+            .configure(self.backtrack()?)
             .build_from_nfa(nfa.clone())
             .context("failed to build BoundedBacktracker matcher")
     }

@@ -1,8 +1,4 @@
-use std::io::{stdout, Write};
-
-use {
-    anyhow::Context, bstr::ByteSlice, lexopt::Parser, regex_automata::Input,
-};
+use regex_automata::Input;
 
 use crate::{
     args,
@@ -31,7 +27,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut hybrid = args::hybrid::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -71,7 +67,7 @@ OPTIONS:
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("cache creation time", time);
 
-    let mut search = |input: &Input<'_>| re.try_search(&mut cache, input);
+    let search = |input: &Input<'_>| re.try_search(&mut cache, input);
     if find.count {
         super::run_counts(
             &mut table,
@@ -112,7 +108,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut dense = args::dfa::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -149,7 +145,7 @@ OPTIONS:
     });
     table.add("build regex time", time);
 
-    let mut search = |input: &Input<'_>| re.try_search(input);
+    let search = |input: &Input<'_>| re.try_search(input);
     if find.count {
         super::run_counts(
             &mut table,
@@ -190,7 +186,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut sparse = args::dfa::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -228,7 +224,7 @@ OPTIONS:
     });
     table.add("build regex time", time);
 
-    let mut search = |input: &Input<'_>| re.try_search(input);
+    let search = |input: &Input<'_>| re.try_search(input);
     if find.count {
         super::run_counts(
             &mut table,
@@ -269,7 +265,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut onepass = args::onepass::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -300,7 +296,7 @@ OPTIONS:
     let (mut caps, time) = util::timeit(|| re.create_captures());
     table.add("captures creation time", time);
 
-    let mut search = |input: &Input<'_>| {
+    let search = |input: &Input<'_>| {
         re.try_search(&mut cache, input, &mut caps)?;
         Ok(caps.get_match())
     };

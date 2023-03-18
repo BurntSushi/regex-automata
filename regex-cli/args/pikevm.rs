@@ -21,7 +21,7 @@ impl Config {
     /// Builds a `PikeVM` regex engine from the NFA given.
     pub fn from_nfa(&self, nfa: &NFA) -> anyhow::Result<pikevm::PikeVM> {
         pikevm::Builder::new()
-            .configure(self.pikevm.clone())
+            .configure(self.pikevm()?)
             .build_from_nfa(nfa.clone())
             .context("failed to build PikeVM matcher")
     }

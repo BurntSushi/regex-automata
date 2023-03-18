@@ -1,11 +1,4 @@
-use std::io::{stdout, Write};
-
-use {
-    anyhow::Context,
-    bstr::ByteSlice,
-    lexopt::Parser,
-    regex_automata::{dfa::Automaton, Input, PatternSet},
-};
+use regex_automata::{dfa::Automaton, Input, PatternSet};
 
 use crate::{
     args,
@@ -34,7 +27,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut hybrid = args::hybrid::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -67,7 +60,7 @@ OPTIONS:
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("cache creation time", time);
 
-    let mut search = |input: &Input<'_>, patset: &mut PatternSet| {
+    let search = |input: &Input<'_>, patset: &mut PatternSet| {
         re.try_which_overlapping_matches(&mut cache, input, patset)
     };
     super::run_search(
@@ -104,7 +97,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut dense = args::dfa::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -135,7 +128,7 @@ OPTIONS:
     let (re, time) = util::timeitr(|| dense.from_nfa(&nfafwd))?;
     table.add("build forward dense DFA time", time);
 
-    let mut search = |input: &Input<'_>, patset: &mut PatternSet| {
+    let search = |input: &Input<'_>, patset: &mut PatternSet| {
         re.try_which_overlapping_matches(input, patset)
     };
     super::run_search(
@@ -172,7 +165,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut sparse = args::dfa::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -203,7 +196,7 @@ OPTIONS:
     let (re, time) = util::timeitr(|| sparse.from_nfa_sparse(&nfafwd))?;
     table.add("build forward sparse DFA time", time);
 
-    let mut search = |input: &Input<'_>, patset: &mut PatternSet| {
+    let search = |input: &Input<'_>, patset: &mut PatternSet| {
         re.try_which_overlapping_matches(input, patset)
     };
     super::run_search(

@@ -5,7 +5,7 @@ use {
     lexopt::{Arg, Parser, ValueExt},
 };
 
-use crate::args::{self, Configurable, Usage};
+use crate::args::{Configurable, Usage};
 
 /// A configuration object for reading patterns from the command line.
 ///

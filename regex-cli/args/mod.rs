@@ -39,7 +39,7 @@ pub fn configure(
     usage: &str,
     targets: &mut [&mut dyn Configurable],
 ) -> anyhow::Result<()> {
-    while let Some(mut arg) = p.next()? {
+    while let Some(arg) = p.next()? {
         match arg {
             Arg::Short('h') | Arg::Long("help") => {
                 let mut usages = vec![];

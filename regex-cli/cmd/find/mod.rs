@@ -36,18 +36,18 @@ COMMANDS:
 }
 
 #[derive(Debug, Default)]
-struct Args {
+struct Config {
     count: bool,
     repeat: Option<u32>,
 }
 
-impl Args {
+impl Config {
     fn repeat(&self) -> u32 {
         self.repeat.unwrap_or(1)
     }
 }
 
-impl Configurable for Args {
+impl Configurable for Config {
     fn configure(
         &mut self,
         p: &mut Parser,

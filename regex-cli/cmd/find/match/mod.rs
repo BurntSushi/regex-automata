@@ -66,7 +66,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut api = args::api::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -89,7 +89,7 @@ OPTIONS:
     // The top-level API doesn't support regex-automata's more granular Input
     // abstraction.
     let input = args::input::Config::default();
-    let mut search = |input: &Input<'_>| {
+    let search = |input: &Input<'_>| {
         Ok(re
             .find_at(input.haystack(), input.start())
             .map(|m| Match::new(PatternID::ZERO, m.start()..m.end())))
@@ -123,7 +123,7 @@ OPTIONS:
     let mut haystack = args::haystack::Config::default();
     let mut syntax = args::syntax::Config::default();
     let mut meta = args::meta::Config::default();
-    let mut find = super::Args::default();
+    let mut find = super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -147,7 +147,7 @@ OPTIONS:
     let (re, time) = util::timeitr(|| meta.from_hirs(&hirs))?;
     table.add("build meta time", time);
 
-    let mut search = |input: &Input<'_>| Ok(re.search(input));
+    let search = |input: &Input<'_>| Ok(re.search(input));
     if find.count {
         run_counts(
             &mut table,
@@ -169,7 +169,7 @@ OPTIONS:
 fn run_counts(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     pattern_len: usize,
@@ -207,7 +207,7 @@ fn run_counts(
 fn run_search(
     table: &mut Table,
     common: &args::common::Config,
-    find: &super::Args,
+    find: &super::Config,
     input: &args::input::Config,
     haystack: &args::haystack::Config,
     mut search: impl FnMut(&Input<'_>) -> Result<Option<Match>, MatchError>,
@@ -238,7 +238,7 @@ fn run_search(
                     m.pattern().as_usize(),
                     m.start(),
                     m.end(),
-                    input.haystack()[m.range()].as_bstr()
+                    input.haystack()[m.range()].escape_bytes()
                 )?;
             }
         }

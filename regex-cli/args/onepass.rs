@@ -23,7 +23,7 @@ impl Config {
     /// is returned.
     pub fn from_nfa(&self, nfa: &NFA) -> anyhow::Result<onepass::DFA> {
         onepass::Builder::new()
-            .configure(self.onepass.clone())
+            .configure(self.onepass()?)
             .build_from_nfa(nfa.clone())
             .context("failed to compile onepass DFA")
     }

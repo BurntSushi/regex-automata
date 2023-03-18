@@ -1,7 +1,5 @@
 use std::io::{self, Write};
 
-use unicode_width::UnicodeWidthStr;
-
 /// Time an arbitrary operation.
 pub fn timeit<T>(run: impl FnOnce() -> T) -> (T, std::time::Duration) {
     let start = std::time::Instant::now();
@@ -17,19 +15,6 @@ pub fn timeitr<T, E>(
     let (result, time) = timeit(run);
     let t = result?;
     Ok((t, time))
-}
-
-/// Print the given text with an ASCII art underline beneath it.
-///
-/// If the given text is empty, then `<empty>` is printed.
-pub fn print_with_underline<W: io::Write>(
-    mut wtr: W,
-    text: &str,
-) -> io::Result<()> {
-    let toprint = if text.is_empty() { "<empty>" } else { text };
-    writeln!(wtr, "{}", toprint)?;
-    writeln!(wtr, "{}", "-".repeat(toprint.width()))?;
-    Ok(())
 }
 
 /// A somewhat silly little thing that prints an aligned table of key-value

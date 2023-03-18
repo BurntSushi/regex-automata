@@ -1,11 +1,4 @@
-use std::io::{stdout, Write};
-
-use {
-    anyhow::Context,
-    bstr::ByteSlice,
-    lexopt::Parser,
-    regex_automata::{Input, PatternSet},
-};
+use regex_automata::{Input, PatternSet};
 
 use crate::{
     args,
@@ -34,7 +27,7 @@ OPTIONS:
     let mut syntax = args::syntax::Config::default();
     let mut thompson = args::thompson::Config::default();
     let mut pikevm = args::pikevm::Config::default();
-    let mut find = super::super::Args::default();
+    let mut find = super::super::Config::default();
     args::configure(
         p,
         USAGE,
@@ -66,10 +59,8 @@ OPTIONS:
     table.add("build pikevm time", time);
     let (mut cache, time) = util::timeit(|| re.create_cache());
     table.add("cache creation time", time);
-    let (mut caps, time) = util::timeit(|| re.create_captures());
-    table.add("captures creation time", time);
 
-    let mut search = |input: &Input<'_>, patset: &mut PatternSet| {
+    let search = |input: &Input<'_>, patset: &mut PatternSet| {
         re.which_overlapping_matches(&mut cache, input, patset);
         Ok(())
     };

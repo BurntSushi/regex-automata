@@ -1,7 +1,7 @@
 use std::io::{stdout, Write};
 
 use crate::{
-    args::{self, Configurable},
+    args,
     util::{self, Table},
 };
 

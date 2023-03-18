@@ -40,7 +40,7 @@ impl Config {
         hirs: &[H],
     ) -> anyhow::Result<thompson::NFA> {
         thompson::Compiler::new()
-            .configure(self.thompson.clone())
+            .configure(self.thompson()?)
             .build_many_from_hir(hirs)
             .context("failed to compile Thompson NFA")
     }
