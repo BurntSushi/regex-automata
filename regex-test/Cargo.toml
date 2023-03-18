@@ -18,6 +18,7 @@ edition = "2018"
 [lib]
 name = "regex_test"
 bench = false
+path = "lib.rs"
 
 [dependencies]
 anyhow = "1.0.27"
