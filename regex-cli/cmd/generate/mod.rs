@@ -1,6 +1,7 @@
 use crate::args;
 
 mod fowler;
+mod serialize;
 mod unicode;
 
 const USAGE: &'static str = r#"
@@ -12,13 +13,15 @@ USAGE:
     regex-cli generate <command>
 
 COMMANDS:
-    fowler    Convert Glenn Fowler's test suite to TOML files.
-    unicode   Generate all Unicode tables required for the regex project.
+    fowler      Convert Glenn Fowler's test suite to TOML files.
+    serialize   Serialize DFAs and generate Rust code to load them.
+    unicode     Generate all Unicode tables required for the regex project.
 "#;
 
 pub fn run(p: &mut lexopt::Parser) -> anyhow::Result<()> {
     match &*args::next_as_command(USAGE, p)? {
         "fowler" => fowler::run(p),
+        "serialize" => serialize::run(p),
         "unicode" => unicode::run(p),
         unk => anyhow::bail!("unrecognized command '{}'", unk),
     }

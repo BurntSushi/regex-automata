@@ -11,7 +11,10 @@ use {
     lexopt::{Arg, Parser},
 };
 
-use crate::args::{self, Usage};
+use crate::{
+    args::{self, Usage},
+    util,
+};
 
 pub fn run(p: &mut Parser) -> anyhow::Result<()> {
     const USAGE: &'static str = "\
@@ -49,7 +52,7 @@ USAGE:
     let pre = outdir.join("src").join("util").join("unicode_data");
     let dest = pre.join("perl_word.rs");
     ucdgen_to(&["perl-word", &ucddir, "--chars"], &dest)?;
-    rustfmt(&dest)?;
+    util::rustfmt(&dest)?;
 
     Ok(())
 }
@@ -131,20 +134,4 @@ fn ucdgen(args: &[&str]) -> anyhow::Result<Vec<u8>> {
         BString::from(out.stderr),
     );
     Ok(out.stdout)
-}
-
-/// Run rustfmt on the given file.
-fn rustfmt<P: AsRef<Path>>(path: P) -> anyhow::Result<()> {
-    let path = path.as_ref();
-    let out = Command::new("rustfmt")
-        .arg(path)
-        .output()
-        .context("rustfmt command failed")?;
-    anyhow::ensure!(
-        out.status.success(),
-        "rustfmt {}: {}",
-        path.display(),
-        BString::from(out.stderr),
-    );
-    Ok(())
 }

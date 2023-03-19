@@ -1,4 +1,10 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::Path,
+    process::Command,
+};
+
+use {anyhow::Context, bstr::BString};
 
 /// Time an arbitrary operation.
 pub fn timeit<T>(run: impl FnOnce() -> T) -> (T, std::time::Duration) {
@@ -15,6 +21,22 @@ pub fn timeitr<T, E>(
     let (result, time) = timeit(run);
     let t = result?;
     Ok((t, time))
+}
+
+/// Run rustfmt on the given file.
+pub fn rustfmt<P: AsRef<Path>>(path: P) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    let out = Command::new("rustfmt")
+        .arg(path)
+        .output()
+        .context("rustfmt command failed")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "rustfmt {}: {}",
+        path.display(),
+        BString::from(out.stderr),
+    );
+    Ok(())
 }
 
 /// A somewhat silly little thing that prints an aligned table of key-value
