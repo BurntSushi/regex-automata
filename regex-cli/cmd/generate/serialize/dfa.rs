@@ -23,7 +23,10 @@ use {
     regex_automata::dfa::{dense, sparse},
 };
 
-use crate::args::{self, Usage};
+use crate::{
+    args::{self, Usage},
+    util,
+};
 
 pub fn run_dense(p: &mut Parser) -> anyhow::Result<()> {
     const USAGE: &'static str = "\
@@ -255,6 +258,7 @@ struct Config {
     outdir: Option<PathBuf>,
     safe: bool,
     rust_kind: RustKind,
+    rustfmt: bool,
 }
 
 impl Config {
@@ -267,6 +271,7 @@ impl Config {
             outdir: self.outdir()?.to_path_buf(),
             safe: self.safe,
             rust_kind: self.rust_kind,
+            rustfmt: self.rustfmt,
         })
     }
 
@@ -293,6 +298,9 @@ impl args::Configurable for Config {
             }
             Arg::Long("rust") => {
                 self.rust_kind = args::parse(p, "--rust")?;
+            }
+            Arg::Long("rustfmt") => {
+                self.rustfmt = true;
             }
             Arg::Value(ref mut value) => {
                 if self.name.is_none() {
@@ -345,6 +353,14 @@ will use the 'Lazy' type from the once_cell crate. 'lazy-static' will use the
 any Rust source code at all.
 "#,
             ),
+            Usage::new(
+                "--rustfmt",
+                "Run rustfmt on the generated code.",
+                r#"
+When set, rustfmt is run on the generated code. Without rustfmt, the code
+formatting may be arbitrarily bad.
+"#,
+            ),
         ];
         USAGES
     }
@@ -385,6 +401,7 @@ struct Writer {
     modname: String,
     safe: bool,
     rust_kind: RustKind,
+    rustfmt: bool,
 }
 
 impl Writer {
@@ -509,6 +526,9 @@ lazy_static::lazy_static! {{
             }
             RustKind::None => unreachable!(),
         }
+        if self.rustfmt {
+            util::rustfmt(&outpath)?;
+        }
         Ok(())
     }
 
@@ -591,6 +611,9 @@ lazy_static::lazy_static! {{
                 )?;
             }
             RustKind::None => unreachable!(),
+        }
+        if self.rustfmt {
+            util::rustfmt(&outpath)?;
         }
         Ok(())
     }
@@ -699,6 +722,9 @@ lazy_static::lazy_static! {{
             }
             RustKind::None => unreachable!(),
         }
+        if self.rustfmt {
+            util::rustfmt(&outpath)?;
+        }
         Ok(())
     }
 
@@ -793,6 +819,9 @@ lazy_static::lazy_static! {{
                 )?;
             }
             RustKind::None => unreachable!(),
+        }
+        if self.rustfmt {
+            util::rustfmt(&outpath)?;
         }
         Ok(())
     }
