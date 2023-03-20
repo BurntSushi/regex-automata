@@ -218,7 +218,7 @@ where
 /// column alignment for you.
 #[derive(Clone, Copy, Debug)]
 pub struct Usage {
-    /// The format of the flag, for example, '-k, --match-kind <kind>'.
+    /// The format of the flag, for example, `-k, --match-kind <kind>`.
     pub format: &'static str,
     /// A very short description of the flag. Should fit on one line along with
     /// the format.

@@ -1,10 +1,15 @@
+#[cfg(any(feature = "dfa-search", feature = "dfa-onepass"))]
 mod dfa;
+#[cfg(feature = "dfa-search")]
 mod gen;
+#[cfg(feature = "hybrid")]
 mod hybrid;
+#[cfg(feature = "meta")]
 mod meta;
+#[cfg(any(feature = "nfa-backtrack", feature = "nfa-pikevm"))]
 mod nfa;
 
-#[cfg(not(miri))]
+#[allow(dead_code)]
 fn suite() -> anyhow::Result<regex_test::RegexTests> {
     let _ = env_logger::try_init();
 
@@ -46,7 +51,7 @@ fn suite() -> anyhow::Result<regex_test::RegexTests> {
 }
 
 /// Configure a regex_automata::Input with the given test configuration.
-#[cfg(not(miri))]
+#[allow(dead_code)]
 fn create_input<'h>(
     test: &'h regex_test::RegexTest,
 ) -> regex_automata::Input<'h> {
@@ -63,7 +68,7 @@ fn create_input<'h>(
 ///
 /// The given captures must represent a valid match, where the first capturing
 /// group has a non-None span. Otherwise this panics.
-#[cfg(not(miri))]
+#[allow(dead_code)]
 fn testify_captures(
     caps: &regex_automata::util::captures::Captures,
 ) -> regex_test::Captures {
@@ -80,6 +85,7 @@ fn testify_captures(
 
 /// Convert a test harness match kind to a regex-automata match kind. If
 /// regex-automata doesn't support the harness kind, then `None` is returned.
+#[allow(dead_code)]
 fn untestify_kind(
     kind: regex_test::MatchKind,
 ) -> Option<regex_automata::MatchKind> {

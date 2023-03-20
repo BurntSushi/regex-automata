@@ -28,7 +28,6 @@ use crate::{
 #[cfg(feature = "alloc")]
 use crate::{
     dfa::{sparse, StartKind},
-    nfa::thompson,
     util::search::MatchKind,
 };
 
@@ -629,9 +628,9 @@ impl<'r, 'h, A: Automaton> Iterator for FindMatches<'r, 'h, A> {
 /// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
 /// whether the pattern itself can contain sub-expressions that match invalid
 /// UTF-8.
-/// * [`thompson::Config::utf8`] controls how the regex iterators themselves
-/// advance the starting position of the next search when a match with zero
-/// length is found.
+/// * [`thompson::Config::utf8`](crate::nfa::thompson::Config::utf8) controls
+/// how the regex iterators themselves advance the starting position of the
+/// next search when a match with zero length is found.
 ///
 /// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.
@@ -742,7 +741,7 @@ impl Builder {
                     .start_kind(StartKind::Anchored)
                     .match_kind(MatchKind::All),
             )
-            .thompson(thompson::Config::new().reverse(true))
+            .thompson(crate::nfa::thompson::Config::new().reverse(true))
             .build_many(patterns)?;
         Ok(self.build_from_dfas(forward, reverse))
     }
@@ -839,12 +838,15 @@ impl Builder {
     }
 
     /// Set the Thompson NFA configuration for this builder using
-    /// [`nfa::thompson::Config`](thompson::Config).
+    /// [`nfa::thompson::Config`](crate::nfa::thompson::Config).
     ///
     /// This permits setting things like whether additional time should be
     /// spent shrinking the size of the NFA.
     #[cfg(all(feature = "syntax", feature = "dfa-build"))]
-    pub fn thompson(&mut self, config: thompson::Config) -> &mut Builder {
+    pub fn thompson(
+        &mut self,
+        config: crate::nfa::thompson::Config,
+    ) -> &mut Builder {
         self.dfa.thompson(config);
         self
     }

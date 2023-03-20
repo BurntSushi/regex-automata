@@ -291,8 +291,8 @@ impl Config {
 /// * [`syntax::Config::utf8`](crate::util::syntax::Config::utf8) controls
 /// whether the pattern itself can contain sub-expressions that match invalid
 /// UTF-8.
-/// * [`Config::utf8`] controls whether empty matches that split a Unicode
-/// codepoint are reported or not.
+/// * [`thompson::Config::utf8`] controls whether empty matches that split a
+/// Unicode codepoint are reported or not.
 ///
 /// Generally speaking, callers will want to either enable all of these or
 /// disable all of these.
@@ -3069,8 +3069,10 @@ mod tests {
         assert!(DFA::new(r"(?Rm)$").is_ok());
 
         // word boundaries
-        assert!(DFA::new(r"\b").is_ok());
-        assert!(DFA::new(r"\B").is_ok());
+        if cfg!(feature = "unicode-word-boundary") {
+            assert!(DFA::new(r"\b").is_ok());
+            assert!(DFA::new(r"\B").is_ok());
+        }
         assert!(DFA::new(r"(?-u)\b").is_ok());
         assert!(DFA::new(r"(?-u)\B").is_ok());
     }
@@ -3081,7 +3083,9 @@ mod tests {
         use crate::util::syntax;
 
         assert!(DFA::new(r"a*b").is_ok());
-        assert!(DFA::new(r"\w").is_ok());
+        if cfg!(feature = "unicode-perl") {
+            assert!(DFA::new(r"\w").is_ok());
+        }
         assert!(DFA::new(r"(?-u)\w*\s").is_ok());
         assert!(DFA::new(r"(?s:.)*?").is_ok());
         assert!(DFA::builder()

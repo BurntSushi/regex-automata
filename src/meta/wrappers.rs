@@ -627,7 +627,7 @@ impl HybridEngine {
         cache: &mut HybridCache,
         input: &Input<'_>,
     ) -> Result<Result<HalfMatch, usize>, RetryFailError> {
-        #[cfg(feature = "dfa-build")]
+        #[cfg(feature = "hybrid")]
         {
             let dfa = self.0.forward();
             let mut cache = cache.0.as_mut().unwrap().as_parts_mut().0;
@@ -635,7 +635,7 @@ impl HybridEngine {
                 dfa, &mut cache, input,
             )
         }
-        #[cfg(not(feature = "dfa-build"))]
+        #[cfg(not(feature = "hybrid"))]
         {
             // Impossible to reach because this engine is never constructed
             // if the requisite features aren't enabled.
@@ -670,7 +670,7 @@ impl HybridEngine {
         input: &Input<'_>,
         min_start: usize,
     ) -> Result<Option<HalfMatch>, RetryError> {
-        #[cfg(feature = "dfa-build")]
+        #[cfg(feature = "hybrid")]
         {
             let dfa = self.0.reverse();
             let mut cache = cache.0.as_mut().unwrap().as_parts_mut().1;
@@ -678,7 +678,7 @@ impl HybridEngine {
                 dfa, &mut cache, input, min_start,
             )
         }
-        #[cfg(not(feature = "dfa-build"))]
+        #[cfg(not(feature = "hybrid"))]
         {
             // Impossible to reach because this engine is never constructed
             // if the requisite features aren't enabled.
@@ -1083,7 +1083,7 @@ impl ReverseHybridEngine {
         input: &Input<'_>,
         min_start: usize,
     ) -> Result<Option<HalfMatch>, RetryError> {
-        #[cfg(feature = "dfa-build")]
+        #[cfg(feature = "hybrid")]
         {
             let dfa = &self.0;
             let mut cache = cache.0.as_mut().unwrap();
@@ -1091,7 +1091,7 @@ impl ReverseHybridEngine {
                 dfa, &mut cache, input, min_start,
             )
         }
-        #[cfg(not(feature = "dfa-build"))]
+        #[cfg(not(feature = "hybrid"))]
         {
             // Impossible to reach because this engine is never constructed
             // if the requisite features aren't enabled.
