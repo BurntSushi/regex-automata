@@ -1,5 +1,3 @@
-#![allow(warnings)]
-
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -411,7 +409,7 @@ strip = "symbols"
 
     fn cargo_toml_regex_automata(&self) -> String {
         let name = self.name();
-        let version = &self.version;
+        // let version = &self.version;
         let features = self
             .features
             .iter()
@@ -497,7 +495,8 @@ fn main() {{
                 r#"
 use regex_automata::nfa::thompson::pikevm::PikeVM;
 "#
-            );
+            )
+            .unwrap();
             writeln!(
                 bufmain,
                 r#"
@@ -508,7 +507,8 @@ use regex_automata::nfa::thompson::pikevm::PikeVM;
     assert_eq!(2, re.find_iter(&mut cache, "aa").count());
     assert_eq!(2, re.captures_iter(&mut cache, "aa").count());
 "#
-            );
+            )
+            .unwrap();
         }
         if self.contains("nfa") || self.contains("nfa-backtrack") {
             writeln!(
@@ -516,7 +516,8 @@ use regex_automata::nfa::thompson::pikevm::PikeVM;
                 r#"
 use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
 "#
-            );
+            )
+            .unwrap();
             writeln!(
                 bufmain,
                 r#"
@@ -527,7 +528,8 @@ use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
     assert_eq!(2, re.try_find_iter(&mut cache, "aa").count());
     assert_eq!(2, re.try_captures_iter(&mut cache, "aa").count());
 "#
-            );
+            )
+            .unwrap();
         }
         if self.contains("hybrid") {
             writeln!(
@@ -535,7 +537,8 @@ use regex_automata::nfa::thompson::backtrack::BoundedBacktracker;
                 r#"
 use regex_automata::hybrid;
 "#
-            );
+            )
+            .unwrap();
             writeln!(
                 bufmain,
                 r#"
@@ -544,7 +547,7 @@ use regex_automata::hybrid;
     let input = regex_automata::Input::new("a");
     assert_eq!(1, re.try_search_fwd(&mut cache, &input).unwrap().unwrap().offset());
 "#
-            );
+            ).unwrap();
         }
         if self.contains("dfa")
             || (self.contains("dfa-build") && self.contains("dfa-search"))
@@ -554,7 +557,8 @@ use regex_automata::hybrid;
                 r#"
 use regex_automata::dfa::{{Automaton, dense, sparse}};
 "#
-            );
+            )
+            .unwrap();
             writeln!(
                 bufmain,
                 r#"
@@ -566,7 +570,8 @@ use regex_automata::dfa::{{Automaton, dense, sparse}};
     let input = regex_automata::Input::new("a");
     assert_eq!(1, re.try_search_fwd(&input).unwrap().unwrap().offset());
 "#
-            );
+            )
+            .unwrap();
         }
         if self.contains("dfa") || self.contains("dfa-onepass") {
             writeln!(
@@ -574,7 +579,8 @@ use regex_automata::dfa::{{Automaton, dense, sparse}};
                 r#"
 use regex_automata::dfa::onepass;
 "#
-            );
+            )
+            .unwrap();
             writeln!(
                 bufmain,
                 r#"
@@ -586,7 +592,8 @@ use regex_automata::dfa::onepass;
     assert!(re.try_search(&mut cache, &input, &mut caps).is_ok());
     assert_eq!(0..1, caps.get_match().unwrap().range());
 "#
-            );
+            )
+            .unwrap();
         }
         if self.contains("meta") {
             writeln!(
@@ -594,7 +601,8 @@ use regex_automata::dfa::onepass;
                 r#"
 use regex_automata::meta;
 "#
-            );
+            )
+            .unwrap();
             writeln!(
                 bufmain,
                 r#"
@@ -607,7 +615,8 @@ use regex_automata::meta;
     assert_eq!(2, re.find_iter("aa").count());
     assert_eq!(2, re.captures_iter("aa").count());
 "#
-            );
+            )
+            .unwrap();
         }
         format!(
             r#"

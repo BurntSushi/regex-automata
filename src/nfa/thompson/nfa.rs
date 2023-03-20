@@ -1921,9 +1921,9 @@ impl DenseTransitions {
         }
     }
 
+    /*
     /// The dense state optimization isn't currently enabled, so permit a
     /// little bit of dead code.
-    #[allow(dead_code)]
     pub(crate) fn from_sparse(sparse: &SparseTransitions) -> DenseTransitions {
         let mut dense = vec![StateID::ZERO; 256];
         for t in sparse.transitions.iter() {
@@ -1933,6 +1933,7 @@ impl DenseTransitions {
         }
         DenseTransitions { transitions: dense.into_boxed_slice() }
     }
+    */
 
     /// Returns an iterator over all transitions that don't point to
     /// `StateID::ZERO`.

@@ -3406,16 +3406,11 @@ impl<'a> TransitionTable<&'a [u32]> {
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
         //
-        // N.B. This is the only not-safe code in this function, so we mark
-        // it explicitly to call it out, even though the mark is technically
-        // superfluous.
-        #[allow(unused_unsafe)]
-        let table = unsafe {
-            core::slice::from_raw_parts(
-                table_bytes.as_ptr().cast::<u32>(),
-                trans_len,
-            )
-        };
+        // N.B. This is the only not-safe code in this function.
+        let table = core::slice::from_raw_parts(
+            table_bytes.as_ptr().cast::<u32>(),
+            trans_len,
+        );
         let tt = TransitionTable { table, classes, stride2 };
         Ok((tt, slice.as_ptr().as_usize() - slice_start))
     }
@@ -4035,16 +4030,11 @@ impl<'a> StartTable<&'a [u32]> {
         // to do is ensure that we have the proper length and alignment. We've
         // checked both above, so the cast below is safe.
         //
-        // N.B. This is the only not-safe code in this function, so we mark
-        // it explicitly to call it out, even though the mark is technically
-        // superfluous.
-        #[allow(unused_unsafe)]
-        let table = unsafe {
-            core::slice::from_raw_parts(
-                table_bytes.as_ptr().cast::<u32>(),
-                start_state_len,
-            )
-        };
+        // N.B. This is the only not-safe code in this function.
+        let table = core::slice::from_raw_parts(
+            table_bytes.as_ptr().cast::<u32>(),
+            start_state_len,
+        );
         let st = StartTable {
             table,
             kind,
@@ -4391,15 +4381,11 @@ impl<'a> MatchStates<&'a [u32]> {
         // We've checked both above, so the cast below is safe.
         //
         // N.B. This is one of the few not-safe snippets in this function,
-        // so we mark it explicitly to call it out, even though the mark is
-        // technically superfluous.
-        #[allow(unused_unsafe)]
-        let slices = unsafe {
-            core::slice::from_raw_parts(
-                slices_bytes.as_ptr().cast::<u32>(),
-                pair_len,
-            )
-        };
+        // so we mark it explicitly to call it out.
+        let slices = core::slice::from_raw_parts(
+            slices_bytes.as_ptr().cast::<u32>(),
+            pair_len,
+        );
 
         // Read the total number of unique pattern IDs (which is always 1 more
         // than the maximum pattern ID in this automaton, since pattern IDs are
@@ -4426,15 +4412,11 @@ impl<'a> MatchStates<&'a [u32]> {
         // We've checked both above, so the cast below is safe.
         //
         // N.B. This is one of the few not-safe snippets in this function,
-        // so we mark it explicitly to call it out, even though the mark is
-        // technically superfluous.
-        #[allow(unused_unsafe)]
-        let pattern_ids = unsafe {
-            core::slice::from_raw_parts(
-                pattern_ids_bytes.as_ptr().cast::<u32>(),
-                idlen,
-            )
-        };
+        // so we mark it explicitly to call it out.
+        let pattern_ids = core::slice::from_raw_parts(
+            pattern_ids_bytes.as_ptr().cast::<u32>(),
+            idlen,
+        );
 
         let ms = MatchStates { slices, pattern_ids, pattern_len };
         Ok((ms, slice.as_ptr().as_usize() - slice_start))

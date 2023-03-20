@@ -22,11 +22,11 @@ pub struct Config {
 }
 
 impl Config {
+    /*
     /// Returns the haystack contents in this configuration.
     ///
     /// If the haystack was specified via a file path, then this returns the
     /// entire contents of the file on to the heap.
-    #[allow(dead_code)]
     pub fn get(&self) -> anyhow::Result<BString> {
         match self.kind {
             Some(Kind::Inline(ref haystack)) => Ok(haystack.clone()),
@@ -42,6 +42,7 @@ impl Config {
             ),
         }
     }
+    */
 
     /// If the haystack is a file, then memory map and pass the contents of the
     /// file to the given closure. Otherwise, if it's an inline literal, then

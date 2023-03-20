@@ -1372,14 +1372,9 @@ mod is_word_char {
 mod tests {
     use super::*;
 
-    #[allow(non_snake_case)]
-    fn B<'a, T: 'a + ?Sized + AsRef<[u8]>>(string: &'a T) -> &'a [u8] {
-        string.as_ref()
-    }
-
     macro_rules! testlook {
         ($look:expr, $haystack:expr, $at:expr) => {
-            LookMatcher::default().matches($look, B($haystack), $at)
+            LookMatcher::default().matches($look, $haystack.as_bytes(), $at)
         };
     }
 
