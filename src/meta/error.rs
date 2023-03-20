@@ -1,6 +1,6 @@
 use regex_syntax::{ast, hir};
 
-use crate::{hybrid, nfa, util::search::MatchError, PatternID};
+use crate::{nfa, util::search::MatchError, PatternID};
 
 #[derive(Clone, Debug)]
 pub struct BuildError {

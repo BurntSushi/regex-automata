@@ -1268,7 +1268,7 @@ pub unsafe trait Automaton {
         input: &Input<'_>,
     ) -> Result<Option<HalfMatch>, MatchError> {
         let utf8empty = self.has_empty() && self.is_utf8();
-        let hm = match search::find_fwd(self, input)? {
+        let hm = match search::find_fwd(&self, input)? {
             None => return Ok(None),
             Some(hm) if !utf8empty => return Ok(Some(hm)),
             Some(hm) => hm,
@@ -1288,7 +1288,7 @@ pub unsafe trait Automaton {
         // invalid UTF-8. But doing so is documented to result in unspecified
         // behavior.
         empty::skip_splits_fwd(input, hm, hm.offset(), |input| {
-            let got = search::find_fwd(self, input)?;
+            let got = search::find_fwd(&self, input)?;
             Ok(got.map(|hm| (hm, hm.offset())))
         })
     }

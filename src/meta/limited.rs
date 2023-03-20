@@ -64,8 +64,6 @@ pub(crate) fn hybrid_try_search_half_rev(
     input: &Input<'_>,
     min_start: usize,
 ) -> Result<Option<HalfMatch>, RetryError> {
-    use crate::dfa::Automaton;
-
     let mut mat = None;
     let mut sid = match dfa.start_state_reverse(cache, input)? {
         None => return Ok(None),

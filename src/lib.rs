@@ -42,7 +42,9 @@ create issues for this release unless it's for a critical bug.
         feature = "std",
         feature = "nfa",
         feature = "dfa",
-        feature = "hybrid"
+        feature = "hybrid",
+        feature = "perf-literal-substring",
+        feature = "perf-literal-multisubstring",
     )),
     allow(dead_code, unused_imports, unused_variables)
 )]

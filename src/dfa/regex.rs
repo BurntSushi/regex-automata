@@ -477,12 +477,8 @@ impl<A: Automaton> Regex<A> {
         &self,
         input: &Input<'_>,
     ) -> Result<Option<Match>, MatchError> {
-        // N.B. We use `&&A` here to call `Automaton` methods, which ensures
-        // that we always use the `impl Automaton for &A` for calling methods.
-        // Since this is the usual way that automata are used, this helps
-        // reduce the number of monomorphized copies of the search code.
         let (fwd, rev) = (self.forward(), self.reverse());
-        let end = match (&fwd).try_search_fwd(input)? {
+        let end = match fwd.try_search_fwd(input)? {
             None => return Ok(None),
             Some(end) => end,
         };
@@ -527,7 +523,7 @@ impl<A: Automaton> Regex<A> {
             .span(input.start()..end.offset())
             .anchored(Anchored::Yes)
             .earliest(false);
-        let start = (&rev)
+        let start = rev
             .try_search_rev(&revsearch)?
             .expect("reverse search must match if forward search does");
         assert_eq!(

@@ -247,7 +247,14 @@ pub(crate) struct BoundedBacktrackerCache(
 
 impl BoundedBacktrackerCache {
     pub(crate) fn none() -> BoundedBacktrackerCache {
-        BoundedBacktrackerCache(None)
+        #[cfg(feature = "nfa-backtrack")]
+        {
+            BoundedBacktrackerCache(None)
+        }
+        #[cfg(not(feature = "nfa-backtrack"))]
+        {
+            BoundedBacktrackerCache(())
+        }
     }
 
     pub(crate) fn new(
@@ -419,7 +426,14 @@ pub(crate) struct OnePassCache(
 
 impl OnePassCache {
     pub(crate) fn none() -> OnePassCache {
-        OnePassCache(None)
+        #[cfg(feature = "dfa-onepass")]
+        {
+            OnePassCache(None)
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            OnePassCache(())
+        }
     }
 
     pub(crate) fn new(builder: &OnePass) -> OnePassCache {
@@ -703,7 +717,14 @@ pub(crate) struct HybridCache(
 
 impl HybridCache {
     pub(crate) fn none() -> HybridCache {
-        HybridCache(None)
+        #[cfg(feature = "hybrid")]
+        {
+            HybridCache(None)
+        }
+        #[cfg(not(feature = "hybrid"))]
+        {
+            HybridCache(())
+        }
     }
 
     pub(crate) fn new(builder: &Hybrid) -> HybridCache {
@@ -1087,7 +1108,14 @@ pub(crate) struct ReverseHybridCache(
 
 impl ReverseHybridCache {
     pub(crate) fn none() -> ReverseHybridCache {
-        ReverseHybridCache(None)
+        #[cfg(feature = "hybrid")]
+        {
+            ReverseHybridCache(None)
+        }
+        #[cfg(not(feature = "hybrid"))]
+        {
+            ReverseHybridCache(())
+        }
     }
 
     pub(crate) fn new(builder: &ReverseHybrid) -> ReverseHybridCache {
