@@ -1,3 +1,37 @@
+/*!
+A module dedicated to plucking inner literals out of a regex pattern, and
+then constructing a prefilter for them. We also include a regex pattern
+"prefix" that corresponds to the bits of the regex that need to match before
+the literals do. The reverse inner optimization then proceeds by looking for
+matches of the inner literal(s), and then doing a reverse search of the prefix
+from the start of the literal match to find the overall start position of the
+match.
+
+The essential invariant we want to uphold here is that the literals we return
+reflect a set where *at least* one of them must match in order for the overall
+regex to match. We also need to maintain the invariant that the regex prefix
+returned corresponds to the entirety of the regex up until the literals we
+return.
+
+This somewhat limits what we can do. That is, if we a regex like
+`\w+(@!|%%)\w+`, then we can pluck the `{@!, %%}` out and build a prefilter
+from it. Then we just need to compile `\w+` in reverse. No fuss no muss. But if
+we have a regex like \d+@!|\w+%%`, then we get kind of stymied. Technically,
+we could still extract `{@!, %%}`, and it is true that at least of them must
+match. But then, what is our regex prefix? Again, in theory, that could be
+`\d+|\w+`, but that's not quite right, because the `\d+` only matches when `@!`
+matches, and `\w+` only matches when `%%` matches.
+
+All of that is technically possible to do, but it seemingly requires a lot of
+sophistication and machinery. Probably the way to tackle that is with some kind
+of formalism and approach this problem more generally.
+
+For now, the code below basically just looks for a top-level concatenation.
+And if it can find one, it looks for literals in each of the direct child
+sub-expressions of that concatenation. If some good ones are found, we return
+those and a concatenation of the Hir expressions seen up to that point.
+*/
+
 use alloc::{boxed::Box, vec, vec::Vec};
 
 use regex_syntax::hir::{self, literal, Hir, HirKind};
@@ -172,15 +206,7 @@ fn flatten(hir: &Hir) -> Hir {
         HirKind::Literal(hir::Literal(ref x)) => Hir::literal(x.clone()),
         HirKind::Class(ref x) => Hir::class(x.clone()),
         HirKind::Look(ref x) => Hir::look(x.clone()),
-        HirKind::Repetition(ref x) => {
-            let rep = hir::Repetition {
-                min: x.min,
-                max: x.max,
-                greedy: x.greedy,
-                sub: Box::new(flatten(&x.sub)),
-            };
-            Hir::repetition(rep)
-        }
+        HirKind::Repetition(ref x) => Hir::repetition(x.with(flatten(&x.sub))),
         // This is the interesting case. We just drop the group information
         // entirely and use the child HIR itself.
         HirKind::Capture(hir::Capture { ref sub, .. }) => flatten(sub),
