@@ -305,7 +305,7 @@ impl Pre<()> {
     }
 }
 
-// Implement strategy for anything that implements prefilter.
+// This implements Strategy for anything that implements PrefilterI.
 //
 // Note that this must only be used for regexes of length 1. Multi-regexes
 // don't work here. The prefilter interface only provides the span of a match
@@ -425,7 +425,7 @@ impl Core {
         let mut lookm = LookMatcher::new();
         lookm.set_line_terminator(info.config().get_line_terminator());
         let thompson_config = thompson::Config::new()
-            .utf8(info.config().get_utf8())
+            .utf8(info.config().get_utf8_empty())
             .nfa_size_limit(info.config().get_nfa_size_limit())
             .shrink(false)
             .captures(true)
@@ -969,6 +969,13 @@ struct ReverseSuffix {
 
 impl ReverseSuffix {
     fn new(core: Core, hirs: &[&Hir]) -> Result<ReverseSuffix, Core> {
+        if !core.info.config().get_auto_prefilter() {
+            debug!(
+                "skipping reverse suffix optimization because \
+                 automatic prefilters are disabled"
+            );
+            return Err(core);
+        }
         // Like the reverse inner optimization, we don't do this for regexes
         // that are always anchored. It could lead to scanning too much, but
         // could say "no match" much more quickly than running the regex
@@ -1328,7 +1335,7 @@ impl ReverseInner {
         lookm.set_line_terminator(core.info.config().get_line_terminator());
         let thompson_config = thompson::Config::new()
             .reverse(true)
-            .utf8(core.info.config().get_utf8())
+            .utf8(core.info.config().get_utf8_empty())
             .nfa_size_limit(core.info.config().get_nfa_size_limit())
             .shrink(false)
             .captures(false)
@@ -1398,6 +1405,12 @@ impl ReverseInner {
                 .clone()
                 .anchored(Anchored::Yes)
                 .span(input.start()..litmatch.start);
+            // Note that in addition to the literal search above scanning past
+            // our minimum start point, this routine can also return an error
+            // as a result of detecting possible quadratic behavior if the
+            // reverse scan goes past the minimum start point. That is, the
+            // literal search might not, but the reverse regex search for the
+            // prefix might!
             match self.try_search_half_rev_limited(
                 cache,
                 &revinput,
@@ -1592,6 +1605,16 @@ impl Strategy for ReverseInner {
     }
 }
 
+/// Copies the offsets in the given match to the corresponding positions in
+/// `slots`.
+///
+/// In effect, this sets the slots corresponding to the implicit group for the
+/// pattern in the given match. If the indices for the corresponding slots do
+/// not exist, then no slots are set.
+///
+/// This is useful when the caller provides slots (or captures), but you use a
+/// regex engine that doesn't operate on slots (like a lazy DFA). This function
+/// lets you map the match you get back to the slots provided by the caller.
 #[cfg_attr(feature = "perf-inline", inline(always))]
 fn copy_match_to_slots(m: Match, slots: &mut [Option<NonMaxUsize>]) {
     let slot_start = m.pattern().as_usize() * 2;
@@ -1602,17 +1625,4 @@ fn copy_match_to_slots(m: Match, slots: &mut [Option<NonMaxUsize>]) {
     if let Some(slot) = slots.get_mut(slot_end) {
         *slot = NonMaxUsize::new(m.end());
     }
-}
-
-/// Returns true only when the given error corresponds to a search that failed
-/// quit because it saw a specific byte, or gave up because it thought itself
-/// to be too slow.
-///
-/// This is useful for checking whether an error returned by the lazy DFA
-/// should be bubbled up or if it should result in running another regex
-/// engine. Errors like "invalid pattern ID" should get bubbled up, while
-/// quitting or giving up should result in trying a different engine.
-fn is_err_quit_or_gaveup(err: &MatchError) -> bool {
-    use crate::MatchErrorKind::*;
-    matches!(*err.kind(), Quit { .. } | GaveUp { .. })
 }

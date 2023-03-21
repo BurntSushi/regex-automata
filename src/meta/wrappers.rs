@@ -1,3 +1,29 @@
+/*!
+This module contains a boat load of wrappers around each of our internal regex
+engines. They encapsulate a few things:
+
+1. The wrappers manage the conditional existence of the regex engine. Namely,
+the PikeVM is the only required regex engine. The rest are optional. These
+wrappers present a uniform API regardless of which engines are available. And
+availability might be determined by compile time features or by dynamic
+configuration via `meta::Config`. Encapsulating the conditional compilation
+features is in particular a huge simplification for the higher level code that
+composes these engines.
+2. The wrappers manage construction of each engine, including skipping it if
+the engine is unavailable or configured to not be used.
+3. The wrappers manage whether an engine *can* be used for a particular
+search configuration. For example, `BoundedBacktracker::get` only returns a
+backtracking engine when the haystack is bigger than the maximum supported
+length. The wrappers also sometimes take a position on when an engine *ought*
+to be used, but only in cases where the logic is extremely local to the engine
+itself. Otherwise, things like "choose between the backtracker and the one-pass
+DFA" are managed by the higher level meta strategy code.
+
+There are also corresponding wrappers for the various `Cache` types for each
+regex engine that needs them. If an engine is unavailable or not used, then a
+cache for it will *not* actually be allocated.
+*/
+
 use alloc::vec::Vec;
 
 use crate::{

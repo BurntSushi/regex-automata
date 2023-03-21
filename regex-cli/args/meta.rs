@@ -50,7 +50,7 @@ impl Configurable for Config {
                 self.meta = self.meta.clone().match_kind(kind.kind);
             }
             Arg::Short('B') | Arg::Long("no-utf8-nfa") => {
-                self.meta = self.meta.clone().utf8(false);
+                self.meta = self.meta.clone().utf8_empty(false);
             }
             Arg::Long("--no-auto-prefilter") => {
                 self.meta = self.meta.clone().auto_prefilter(false);

@@ -26,10 +26,6 @@ pub(crate) fn alternation_literals(
     // This is pretty hacky, but basically, if `is_alternation_literal` is
     // true, then we can make several assumptions about the structure of our
     // HIR. This is what justifies the `unreachable!` statements below.
-    //
-    // This code should be refactored once we overhaul this crate's
-    // optimization pipeline, because this is a terribly inflexible way to go
-    // about things.
     if hirs.len() != 1
         || !info.props()[0].look_set().is_empty()
         || info.props()[0].explicit_captures_len() > 0

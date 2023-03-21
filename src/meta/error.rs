@@ -16,10 +16,11 @@ use crate::{nfa, util::search::MatchError, PatternID};
 /// is available. This is available for things like syntax errors, but not for
 /// cases where build limits are exceeded.
 /// * Ask for a human readable message corresponding to the underlying error.
-/// * The [`BuildError::source`] method may be used to query for
-/// [`regex-syntax::ast::Error`](regex_syntax::ast::Error)
-/// or [`regex-syntax::hir::Error`](regex_syntax::hir::Error). (This requires
-/// the `std` feature.)
+/// * The `BuildError::source` method (from the `std::error::Error`
+/// trait implementation) may be used to query for
+/// [`regex-syntax::ast::Error`](regex_syntax::ast::Error) or
+/// [`regex-syntax::hir::Error`](regex_syntax::hir::Error). (This requires the
+/// `std` feature.)
 ///
 /// When the `std` feature is enabled, this implements `std::error::Error`.
 #[derive(Clone, Debug)]

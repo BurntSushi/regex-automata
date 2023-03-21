@@ -123,7 +123,7 @@ fn configure_meta_builder(
     };
     let meta_config = Regex::config()
         .match_kind(match_kind)
-        .utf8(test.utf8())
+        .utf8_empty(test.utf8())
         .line_terminator(test.line_terminator());
     builder.configure(meta_config).syntax(config_syntax(test));
     true

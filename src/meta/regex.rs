@@ -726,6 +726,29 @@ impl Cache {
     }
 }
 
+/// An object describing the configuration of a [`Regex`].
+///
+/// This configuration only includes options for the
+/// non-syntax behavior of a `Regex`, and can be applied via the
+/// [`Builder::configure`] method. For configuring the syntax options, see
+/// [`util::syntax::Config`](crate::util::syntax::Config).
+///
+/// # Example: lower the NFA size limit
+///
+/// In some cases, the default size limit might be too big. The size limit can
+/// be lowered, which will prevent large regex patterns from compiling.
+///
+/// ```
+/// use regex_automata::meta::Regex;
+///
+/// let result = Regex::builder()
+///     .configure(Regex::config().nfa_size_limit(Some(20 * (1<<10))))
+///     // Not even 20KB is enough to build a single large Unicode class!
+///     .build(r"\pL");
+/// assert!(result.is_err());
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     // As with other configuration types in this crate, we put all our knobs
@@ -736,7 +759,7 @@ pub struct Config {
     //
     // For docs on the fields below, see the corresponding method setters.
     match_kind: Option<MatchKind>,
-    utf8: Option<bool>,
+    utf8_empty: Option<bool>,
     autopre: Option<bool>,
     pre: Option<Option<Prefilter>>,
     nfa_size_limit: Option<Option<usize>>,
@@ -753,26 +776,222 @@ pub struct Config {
 }
 
 impl Config {
+    /// Create a new configuration object for a `Regex`.
     pub fn new() -> Config {
         Config::default()
     }
 
+    /// Set the match semantics for a `Regex`.
+    ///
+    /// The default value is [`MatchKind::LeftmostFirst`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match, MatchKind};
+    ///
+    /// // By default, leftmost-first semantics are used, which
+    /// // disambiguates matches at the same position by selecting
+    /// // the one that corresponds earlier in the pattern.
+    /// let re = Regex::new("sam|samwise")?;
+    /// assert_eq!(Some(Match::must(0, 0..3)), re.find("samwise"));
+    ///
+    /// // But with 'all' semantics, match priority is ignored
+    /// // and all match states are included. When coupled with
+    /// // a leftmost search, the search will report the last
+    /// // possible match.
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().match_kind(MatchKind::All))
+    ///     .build("sam|samwise")?;
+    /// assert_eq!(Some(Match::must(0, 0..7)), re.find("samwise"));
+    /// // Beware that this can lead to skipping matches!
+    /// // Usually 'all' is used for anchored reverse searches
+    /// // only, or for overlapping searches.
+    /// assert_eq!(Some(Match::must(0, 4..11)), re.find("sam samwise"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn match_kind(self, kind: MatchKind) -> Config {
         Config { match_kind: Some(kind), ..self }
     }
 
-    pub fn utf8(self, yes: bool) -> Config {
-        Config { utf8: Some(yes), ..self }
+    /// Toggles whether empty matches are permitted to occur between the code
+    /// units of a UTF-8 encoded codepoint.
+    ///
+    /// This should generally be enabled when search a `&str` or anything that
+    /// you otherwise know is valid UTF-8. It should be disabled in all other
+    /// cases. Namely, if the haystack is not valid UTF-8 and this is enabled,
+    /// then behavior is unspecified.
+    ///
+    /// By default, this is enabled.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::new("")?;
+    /// let got: Vec<Match> = re.find_iter("☃").collect();
+    /// // Matches only occur at the beginning and end of the snowman.
+    /// assert_eq!(got, vec![
+    ///     Match::must(0, 0..0),
+    ///     Match::must(0, 3..3),
+    /// ]);
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8_empty(false))
+    ///     .build("")?;
+    /// let got: Vec<Match> = re.find_iter("☃").collect();
+    /// // Matches now occur at every position!
+    /// assert_eq!(got, vec![
+    ///     Match::must(0, 0..0),
+    ///     Match::must(0, 1..1),
+    ///     Match::must(0, 2..2),
+    ///     Match::must(0, 3..3),
+    /// ]);
+    ///
+    /// Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn utf8_empty(self, yes: bool) -> Config {
+        Config { utf8_empty: Some(yes), ..self }
     }
 
+    /// Toggles whether automatic prefilter support is enabled.
+    ///
+    /// If this is disabled and [`Config::prefilter`] is not set, then the
+    /// meta regex engine will not use any prefilters. This can sometimes
+    /// be beneficial in cases where you know (or have measured) that the
+    /// prefilter leads to overall worse search performance.
+    ///
+    /// By default, this is enabled.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().auto_prefilter(false))
+    ///     .build(r"Bruce \w+")?;
+    /// let hay = "Hello Bruce Springsteen!";
+    /// assert_eq!(Some(Match::must(0, 6..23)), re.find(hay));
+    ///
+    /// Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn auto_prefilter(self, yes: bool) -> Config {
         Config { autopre: Some(yes), ..self }
     }
 
+    /// Overrides and sets the prefilter to use inside a `Regex`.
+    ///
+    /// This permits one to forcefully set a prefilter in cases where the
+    /// caller knows better than whatever the automatic prefilter logic is
+    /// capable of.
+    ///
+    /// By default, this is set to `None` and an automatic prefilter will be
+    /// used if one could be built. (Assuming [`Config::auto_prefilter`] is
+    /// enabled, which it is by default.)
+    ///
+    /// # Example
+    ///
+    /// This example shows how to set your own prefilter. In the case of a
+    /// pattern like `Bruce \w+`, the automatic prefilter is likely to be
+    /// constructed in a way that it will look for occurrences of `Bruce `.
+    /// In most cases, this is the best choice. But in some cases, it may be
+    /// the case that running `memchr` on `B` is the best choice. One can
+    /// achieve that behavior by overriding the automatic prefilter logic
+    /// and providing a prefilter that just matches `B`.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     meta::Regex,
+    ///     util::prefilter::Prefilter,
+    ///     Match, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["B"])
+    ///     .expect("a prefilter");
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().prefilter(Some(pre)))
+    ///     .build(r"Bruce \w+")?;
+    /// let hay = "Hello Bruce Springsteen!";
+    /// assert_eq!(Some(Match::must(0, 6..23)), re.find(hay));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: incorrect prefilters can lead to incorrect results!
+    ///
+    /// Be warned that setting an incorrect prefilter can lead to missed
+    /// matches. So if you use this option, ensure your prefilter can _never_
+    /// report false negatives. (A false positive is, on the other hand, quite
+    /// okay and generally unavoidable.)
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     meta::Regex,
+    ///     util::prefilter::Prefilter,
+    ///     Match, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["Z"])
+    ///     .expect("a prefilter");
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().prefilter(Some(pre)))
+    ///     .build(r"Bruce \w+")?;
+    /// let hay = "Hello Bruce Springsteen!";
+    /// // Oops! No match found, but there should be one!
+    /// assert_eq!(None, re.find(hay));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn prefilter(self, pre: Option<Prefilter>) -> Config {
         Config { pre: Some(pre), ..self }
     }
 
+    /// Sets the size limit to enforce on the construction of every NFA build
+    /// by the meta regex engine.
+    ///
+    /// Note that this limit is applied to _each_ NFA built, and if any of
+    /// them excceed the limit, then construction will fail. This limit does
+    /// _not_ correspond to the total memory used by all NFAs in the meta regex
+    /// engine.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let result = Regex::builder()
+    ///     .configure(Regex::config().nfa_size_limit(Some(20 * (1<<10))))
+    ///     // Not even 20KB is enough to build a single large Unicode class!
+    ///     .build(r"\pL");
+    /// assert!(result.is_err());
+    ///
+    /// // But notice that building such a regex with the exact same limit
+    /// // can succeed depending on other aspects of the configuration. For
+    /// // example, a single *forward* NFA will (at time of writing) fit into
+    /// // the 20KB limit, but a *reverse* NFA of the same pattern will not.
+    /// // So if one configures a meta regex such that a reverse NFA is never
+    /// // needed and thus never built, then the 20KB limit will be enough for
+    /// // a pattern like \pL!
+    /// let result = Regex::builder()
+    ///     .configure(Regex::config()
+    ///         .nfa_size_limit(Some(20 * (1<<10)))
+    ///         // The DFAs are the only thing that (currently) need a reverse
+    ///         // NFA. So if both are disabled, the meta regex engine will
+    ///         // skip building the reverse NFA. Note that this isn't an API
+    ///         // guarantee. A future semver compatible version may introduce
+    ///         // new use cases for a reverse NFA.
+    ///         .hybrid(false)
+    ///         .dfa(false)
+    ///     )
+    ///     // Not even 20KB is enough to build a single large Unicode class!
+    ///     .build(r"\pL");
+    /// assert!(result.is_ok());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn nfa_size_limit(self, limit: Option<usize>) -> Config {
         Config { nfa_size_limit: Some(limit), ..self }
     }
@@ -821,8 +1040,8 @@ impl Config {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
-    pub fn get_utf8(&self) -> bool {
-        self.utf8.unwrap_or(true)
+    pub fn get_utf8_empty(&self) -> bool {
+        self.utf8_empty.unwrap_or(true)
     }
 
     pub fn get_auto_prefilter(&self) -> bool {
@@ -931,7 +1150,7 @@ impl Config {
     pub(crate) fn overwrite(&self, o: Config) -> Config {
         Config {
             match_kind: o.match_kind.or(self.match_kind),
-            utf8: o.utf8.or(self.utf8),
+            utf8_empty: o.utf8_empty.or(self.utf8_empty),
             autopre: o.autopre.or(self.autopre),
             pre: o.pre.or_else(|| self.pre.clone()),
             nfa_size_limit: o.nfa_size_limit.or(self.nfa_size_limit),
@@ -953,6 +1172,91 @@ impl Config {
     }
 }
 
+/// A builder for configuring and constructing a [`Regex`].
+///
+/// The builder permits configuring two different aspects of a `Regex`:
+///
+/// * [`Builder::configure`] will set high-level configuration options as
+/// described by a [`Config`].
+/// * [`Builder::syntax`] will set the syntax level configuration options
+/// as described by a [`util::syntax::Config`](crate::util::syntax::Config).
+/// This only applies when building a `Regex` from pattern strings.
+///
+/// Once configured, the builder can then be used to construct a `Regex` from
+/// one of 4 different inputs:
+///
+/// * [`Builder::build`] creates a regex from a single pattern string.
+/// * [`Builder::build_many`] creates a regex from many pattern strings.
+/// * [`Builder::build_from_hir`] creates a regex from a
+/// [`regex-syntax::Hir`](Hir) expression.
+/// * [`Builder::build_many_from_hir`] creates a regex from many
+/// [`regex-syntax::Hir`](Hir) expressions.
+///
+/// The latter two methods in particular provide a way to construct a fully
+/// feature regular expression matcher directly from an `Hir` expression
+/// without having to first convert it to a string. (This is in contrast to the
+/// top-level `regex` crate which intentionally provides no such API in order
+/// to avoid making `regex-syntax` a public dependency.)
+///
+/// As a convenience, this builder may be created via [`Regex::builder`], which
+/// may help avoid an extra import.
+///
+/// # Example: change the line terminator
+///
+/// This example shows how to enable multi-line mode by default and change the
+/// line terminator to the NUL byte:
+///
+/// ```
+/// use regex_automata::{meta::Regex, util::syntax, Match};
+///
+/// let re = Regex::builder()
+///     .syntax(syntax::Config::new().multi_line(true))
+///     .configure(Regex::config().line_terminator(b'\x00'))
+///     .build(r"^foo$")?;
+/// let hay = "\x00foo\x00";
+/// assert_eq!(Some(Match::must(0, 1..4)), re.find(hay));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Example: disable UTF-8 requirement
+///
+/// By default, regex patterns are required to match UTF-8. This includes
+/// regex patterns that can produce matches of length zero. In the case of an
+/// empty match, by default, matches will not appear between the code units of
+/// a UTF-8 encoded codepoint.
+///
+/// However, it can be useful to disable this requirement, particularly if
+/// you're searching things like `&[u8]` that are not known to be valid UTF-8.
+///
+/// ```
+/// use regex_automata::{meta::Regex, util::syntax, Match};
+///
+/// let mut builder = Regex::builder();
+/// // Disables the requirement that non-empty matches match UTF-8.
+/// builder.syntax(syntax::Config::new().utf8(false));
+/// // Disables the requirement that empty matches match UTF-8 boundaries.
+/// builder.configure(Regex::config().utf8_empty(false));
+///
+/// // We can match raw bytes via \xZZ syntax, but we need to disable
+/// // Unicode mode to do that. We could disable it everywhere, or just
+/// // selectively, as shown here.
+/// let re = builder.build(r"(?-u:\xFF)foo(?-u:\xFF)")?;
+/// let hay = b"\xFFfoo\xFF";
+/// assert_eq!(Some(Match::must(0, 0..5)), re.find(hay));
+///
+/// // We can also match between code units.
+/// let re = builder.build(r"")?;
+/// let hay = "☃";
+/// assert_eq!(re.find_iter(hay).collect::<Vec<Match>>(), vec![
+///     Match::must(0, 0..0),
+///     Match::must(0, 1..1),
+///     Match::must(0, 2..2),
+///     Match::must(0, 3..3),
+/// ]);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct Builder {
     config: Config,
@@ -961,6 +1265,7 @@ pub struct Builder {
 }
 
 impl Builder {
+    /// Creates a new builder for configuring and constructing a [`Regex`].
     pub fn new() -> Builder {
         Builder {
             config: Config::default(),
@@ -969,10 +1274,65 @@ impl Builder {
         }
     }
 
+    /// Builds a `Regex` from a single pattern string.
+    ///
+    /// If there was a problem parsing the pattern or a problem turning it into
+    /// a regex matcher, then an error is returned.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to configure syntax options.
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, util::syntax, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .syntax(syntax::Config::new().crlf(true).multi_line(true))
+    ///     .build(r"^foo$")?;
+    /// let hay = "\r\nfoo\r\n";
+    /// assert_eq!(Some(Match::must(0, 2..5)), re.find(hay));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build(&self, pattern: &str) -> Result<Regex, BuildError> {
         self.build_many(&[pattern])
     }
 
+    /// Builds a `Regex` from a many pattern strings.
+    ///
+    /// If there was a problem parsing any of the patterns or a problem turning
+    /// them into a regex matcher, then an error is returned.
+    ///
+    /// # Example: finding the pattern that caused an error
+    ///
+    /// When a syntax error occurs, it is possible to ask which pattern
+    /// caused the syntax error.
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, PatternID};
+    ///
+    /// let err = Regex::builder()
+    ///     .build_many(&["a", "b", r"\p{Foo}", "c"])
+    ///     .unwrap_err();
+    /// assert_eq!(Some(PatternID::must(2)), err.pattern());
+    /// ```
+    ///
+    /// # Example: zero patterns is a valid number
+    ///
+    /// Building a regex with zero patterns results in a regex that never
+    /// matches anything. Because of the generics, passing an empty slice
+    /// usually requires a turbo-fish (or something else to help type
+    /// inference).
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, util::syntax, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .build_many::<&str>(&[])?;
+    /// assert_eq!(None, re.find(""));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_many<P: AsRef<str>>(
         &self,
         patterns: &[P],
@@ -1019,10 +1379,105 @@ impl Builder {
         self.build_many_from_hir(&hirs)
     }
 
+    /// Builds a `Regex` directly from an `Hir` expression.
+    ///
+    /// This is useful if you needed to parse a pattern string into an `Hir`
+    /// for other reasons (such as analysis or transformations). This routine
+    /// permits building a `Regex` directly from the `Hir` expression instead
+    /// of first converting the `Hir` back to a pattern string.
+    ///
+    /// When using this method, any options set via [`Builder::syntax`] are
+    /// ignored. Namely, the syntax options only apply when parsing a pattern
+    /// string, which isn't relevant here.
+    ///
+    /// If there was a problem building the underlying regex matcher for the
+    /// given `Hir`, then an error is returned.
+    ///
+    /// # Example
+    ///
+    /// This example shows how one can hand-construct an `Hir` expression and
+    /// build a regex from it without doing any parsing at all.
+    ///
+    /// ```
+    /// use {
+    ///     regex_automata::{meta::Regex, Match},
+    ///     regex_syntax::hir::{Hir, Look},
+    /// };
+    ///
+    /// // (?Rm)^foo$
+    /// let hir = Hir::concat(vec![
+    ///     Hir::look(Look::StartCRLF),
+    ///     Hir::literal("foo".as_bytes()),
+    ///     Hir::look(Look::EndCRLF),
+    /// ]);
+    /// let re = Regex::builder()
+    ///     .build_from_hir(&hir)?;
+    /// let hay = "\r\nfoo\r\n";
+    /// assert_eq!(Some(Match::must(0, 2..5)), re.find(hay));
+    ///
+    /// Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_from_hir(&self, hir: &Hir) -> Result<Regex, BuildError> {
         self.build_many_from_hir(&[hir])
     }
 
+    /// Builds a `Regex` directly from many `Hir` expressions.
+    ///
+    /// This is useful if you needed to parse pattern strings into `Hir`
+    /// expressions for other reasons (such as analysis or transformations).
+    /// This routine permits building a `Regex` directly from the `Hir`
+    /// expressions instead of first converting the `Hir` expressions back to
+    /// pattern strings.
+    ///
+    /// When using this method, any options set via [`Builder::syntax`] are
+    /// ignored. Namely, the syntax options only apply when parsing a pattern
+    /// string, which isn't relevant here.
+    ///
+    /// If there was a problem building the underlying regex matcher for the
+    /// given `Hir` expressions, then an error is returned.
+    ///
+    /// Note that unlike [`Builder::build_many`], this can only fail as a
+    /// result of building the underlying matcher. In that case, there is
+    /// no single `Hir` expression that can be isolated as a reason for the
+    /// failure. So if this routine fails, it's not possible to determine which
+    /// `Hir` expression caused the failure.
+    ///
+    /// # Example
+    ///
+    /// This example shows how one can hand-construct multiple `Hir`
+    /// expressions and build a single regex from them without doing any
+    /// parsing at all.
+    ///
+    /// ```
+    /// use {
+    ///     regex_automata::{meta::Regex, Match},
+    ///     regex_syntax::hir::{Hir, Look},
+    /// };
+    ///
+    /// // (?Rm)^foo$
+    /// let hir1 = Hir::concat(vec![
+    ///     Hir::look(Look::StartCRLF),
+    ///     Hir::literal("foo".as_bytes()),
+    ///     Hir::look(Look::EndCRLF),
+    /// ]);
+    /// // (?Rm)^bar$
+    /// let hir2 = Hir::concat(vec![
+    ///     Hir::look(Look::StartCRLF),
+    ///     Hir::literal("bar".as_bytes()),
+    ///     Hir::look(Look::EndCRLF),
+    /// ]);
+    /// let re = Regex::builder()
+    ///     .build_many_from_hir(&[&hir1, &hir2])?;
+    /// let hay = "\r\nfoo\r\nbar";
+    /// let got: Vec<Match> = re.find_iter(hay).collect();
+    /// let expected = vec![
+    ///     Match::must(0, 2..5),
+    ///     Match::must(1, 7..10),
+    /// ];
+    /// assert_eq!(expected, got);
+    ///
+    /// Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn build_many_from_hir<H: Borrow<Hir>>(
         &self,
         hirs: &[H],
@@ -1042,11 +1497,70 @@ impl Builder {
         Ok(Regex { imp: Arc::new(RegexI { strat, info }), pool })
     }
 
+    /// Configure the behavior of a `Regex`.
+    ///
+    /// This configuration controls non-syntax options related to the behavior
+    /// of a `Regex`. This includes things like whether empty matches can split
+    /// a codepoint, prefilters, line terminators and a long list of options
+    /// for configuring which regex engines the meta regex engine will be able
+    /// to use internally.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to disable UTF-8 empty mode. This will permit
+    /// empty matches to occur between the UTF-8 encoding of a codepoint.
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::new("")?;
+    /// let got: Vec<Match> = re.find_iter("☃").collect();
+    /// // Matches only occur at the beginning and end of the snowman.
+    /// assert_eq!(got, vec![
+    ///     Match::must(0, 0..0),
+    ///     Match::must(0, 3..3),
+    /// ]);
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8_empty(false))
+    ///     .build("")?;
+    /// let got: Vec<Match> = re.find_iter("☃").collect();
+    /// // Matches now occur at every position!
+    /// assert_eq!(got, vec![
+    ///     Match::must(0, 0..0),
+    ///     Match::must(0, 1..1),
+    ///     Match::must(0, 2..2),
+    ///     Match::must(0, 3..3),
+    /// ]);
+    ///
+    /// Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn configure(&mut self, config: Config) -> &mut Builder {
         self.config = self.config.overwrite(config);
         self
     }
 
+    /// Configure the syntax options when parsing a pattern string while
+    /// building a `Regex`.
+    ///
+    /// These options _only_ apply when [`Builder::build`] or [`Builder::build_many`]
+    /// are used. The other build methods accept `Hir` values, which have
+    /// already been parsed.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to enable case insensitive mode.
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, util::syntax, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .syntax(syntax::Config::new().case_insensitive(true))
+    ///     .build(r"δ")?;
+    /// assert_eq!(Some(Match::must(0, 0..2)), re.find(r"Δ"));
+    ///
+    /// Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn syntax(
         &mut self,
         config: crate::util::syntax::Config,
