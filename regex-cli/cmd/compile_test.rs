@@ -32,12 +32,23 @@ const REGEX_AUTOMATA_COMBOS: &[&[&str]] = &[
     //
     // First is dropping 'perf' from the default.
     &["std", "syntax", "unicode", "meta", "nfa", "dfa", "hybrid"],
-    // Second is dropping 'dfa', which maybe doesn't carry its weight.
-    &["std", "syntax", "perf", "unicode", "meta", "nfa", "hybrid"],
+    // Second is dropping 'dfa', which maybe doesn't carry its weight. We are
+    // careful to re-enable the one-pass DFA though.
+    &[
+        "std",
+        "syntax",
+        "perf",
+        "unicode",
+        "meta",
+        "nfa",
+        "hybrid",
+        "dfa-onepass",
+    ],
     // This is dropping 'unicode', which comes with a whole bunch of tables.
     &["std", "syntax", "perf", "meta", "nfa", "dfa", "hybrid"],
-    // Drop 'unicode' and also 'dfa'.
-    &["std", "syntax", "perf", "meta", "nfa", "hybrid"],
+    // Drop 'unicode' and also 'dfa'. But again, we keep the one-pass DFA
+    // around.
+    &["std", "syntax", "perf", "meta", "nfa", "hybrid", "dfa-onepass"],
     // "I just want the meta regex API, but just enough to make it work"
     &["std", "meta"],
 ];
