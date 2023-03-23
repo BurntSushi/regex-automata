@@ -297,12 +297,6 @@ impl Regex {
 }
 
 impl Regex {
-    /// ```
-    /// use regex_automata::meta::Regex;
-    ///
-    /// let re = Regex::new(r"\w+$").unwrap();
-    /// assert!(re.is_match("foo"));
-    /// ```
     #[inline]
     pub fn is_match<'h, I: Into<Input<'h>>>(&self, input: I) -> bool {
         let input = input.into().earliest(true);
@@ -625,6 +619,16 @@ impl RegexInfo {
     }
 }
 
+/// An iterator over all non-overlapping matches.
+///
+/// The iterator yields a [`Match`] value until no more matches could be found.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'r` represents the lifetime of the `Regex` that produced this iterator.
+/// * `'h` represents the lifetime of the haystack being searched.
+///
+/// This iterator can be created with the [`Regex::find_iter`] method.
 #[derive(Debug)]
 pub struct FindMatches<'r, 'h> {
     re: &'r Regex,
@@ -657,6 +661,18 @@ impl<'r, 'h> Iterator for FindMatches<'r, 'h> {
     }
 }
 
+/// An iterator over all non-overlapping leftmost matches with their capturing
+/// groups.
+///
+/// The iterator yields a [`Captures`] value until no more matches could be
+/// found.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'r` represents the lifetime of the `Regex` that produced this iterator.
+/// * `'h` represents the lifetime of the haystack being searched.
+///
+/// This iterator can be created with the [`Regex::captures_iter`] method.
 #[derive(Debug)]
 pub struct CapturesMatches<'r, 'h> {
     re: &'r Regex,
@@ -696,6 +712,52 @@ impl<'r, 'h> Iterator for CapturesMatches<'r, 'h> {
     }
 }
 
+/// Represents mutable scratch space used by regex engines during a search.
+///
+/// Most of the regex engines in this crate require some kind of
+/// mutable state in order to execute a search. This mutable state is
+/// explicitly separated from the the core regex object (such as a
+/// [`thompson::NFA`](crate::nfa::thompson::NFA)) so that the read-only regex
+/// object can be shared across multiple threads simultaneously without any
+/// synchronization. Conversly, a `Cache` must either be duplicated if using
+/// the same `Regex` from multiple threads, or else there must be some kind of
+/// synchronization that guarantees exclusive access while it's in use by one
+/// thread.
+///
+/// A `Regex` attempts to do this synchronization for you by using a thread
+/// pool internally. Its size scales roughly with the number of simultaneous
+/// regex searches.
+///
+/// For cases where one does not want to rely on a `Regex`'s internal thread
+/// pool, lower level routines such as [`Regex::search_with`] are provided
+/// that permit callers to pass a `Cache` into the search routine explicitly.
+///
+/// General advice is that the thread pool is often more than good enough.
+/// However, it may be possible to observe the effects of its latency,
+/// especially when searching many small haystacks from many threads
+/// simultaneously.
+///
+/// Caches can be created from their corresponding `Regex` via
+/// [`Regex::create_cache`]. A cache can only be used with either the `Regex`
+/// that created it, or the `Regex` that was most recently used to reset it
+/// with [`Cache::reset`]. Using a cache with any other `Regex` may result in
+/// panics or incorrect results.
+///
+/// # Example
+///
+/// ```
+/// use regex_automata::{meta::Regex, Input, Match};
+///
+/// let re = Regex::new(r"(?-u)m\w+\s+m\w+")?;
+/// let mut cache = re.create_cache();
+/// let input = Input::new("crazy janey and her mission man");
+/// assert_eq!(
+///     Some(Match::must(0, 20..31)),
+///     re.search_with(&mut cache, &input),
+/// );
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Cache {
     pub(crate) capmatches: Captures,
@@ -707,14 +769,60 @@ pub struct Cache {
 }
 
 impl Cache {
+    /// Creates a new `Cache` for use with this regex.
+    ///
+    /// The cache returned should only be used for searches for the given
+    /// `Regex`. If you want to reuse the cache for another `Regex`, then you
+    /// must call [`Cache::reset`] with that `Regex`.
     pub fn new(re: &Regex) -> Cache {
         re.create_cache()
     }
 
+    /// Reset this cache such that it can be used for searching with the given
+    /// `Regex` (and only that `Regex`).
+    ///
+    /// A cache reset permits potentially reusing memory already allocated in
+    /// this cache with a different `Regex`.
+    ///
+    /// # Example
+    ///
+    /// This shows how to re-purpose a cache for use with a different `Regex`.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{meta::Regex, Match, Input};
+    ///
+    /// let re1 = Regex::new(r"\w")?;
+    /// let re2 = Regex::new(r"\W")?;
+    ///
+    /// let mut cache = re1.create_cache();
+    /// assert_eq!(
+    ///     Some(Match::must(0, 0..2)),
+    ///     re1.search_with(&mut cache, &Input::new("Δ")),
+    /// );
+    ///
+    /// // Using 'cache' with re2 is not allowed. It may result in panics or
+    /// // incorrect results. In order to re-purpose the cache, we must reset
+    /// // it with the Regex we'd like to use it with.
+    /// //
+    /// // Similarly, after this reset, using the cache with 're1' is also not
+    /// // allowed.
+    /// cache.reset(&re2);
+    /// assert_eq!(
+    ///     Some(Match::must(0, 0..3)),
+    ///     re2.search_with(&mut cache, &Input::new("☃")),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn reset(&mut self, re: &Regex) {
         re.reset_cache(self)
     }
 
+    /// Returns the heap memory usage, in bytes, of this cache.
+    ///
+    /// This does **not** include the stack size used up by this cache. To
+    /// compute that, use `std::mem::size_of::<Cache>()`.
     pub fn memory_usage(&self) -> usize {
         let mut bytes = 0;
         bytes += self.pikevm.memory_usage();
@@ -726,7 +834,7 @@ impl Cache {
     }
 }
 
-/// An object describing the configuration of a [`Regex`].
+/// An object describing the configuration of a `Regex`.
 ///
 /// This configuration only includes options for the
 /// non-syntax behavior of a `Regex`, and can be applied via the
@@ -739,6 +847,7 @@ impl Cache {
 /// be lowered, which will prevent large regex patterns from compiling.
 ///
 /// ```
+/// # if cfg!(miri) { return Ok(()); } // miri takes too long
 /// use regex_automata::meta::Regex;
 ///
 /// let result = Regex::builder()
@@ -868,6 +977,7 @@ impl Config {
     /// # Example
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{meta::Regex, Match};
     ///
     /// let re = Regex::builder()
@@ -903,6 +1013,7 @@ impl Config {
     /// and providing a prefilter that just matches `B`.
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     meta::Regex,
     ///     util::prefilter::Prefilter,
@@ -928,6 +1039,7 @@ impl Config {
     /// okay and generally unavoidable.)
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::{
     ///     meta::Regex,
     ///     util::prefilter::Prefilter,
@@ -949,17 +1061,24 @@ impl Config {
         Config { pre: Some(pre), ..self }
     }
 
-    /// Sets the size limit to enforce on the construction of every NFA build
-    /// by the meta regex engine.
+    /// Sets the size limit, in bytes, to enforce on the construction of every
+    /// NFA build by the meta regex engine.
+    ///
+    /// Setting it to `None` disables the limit. This is not recommended if
+    /// you're compiling untrusted patterns.
     ///
     /// Note that this limit is applied to _each_ NFA built, and if any of
     /// them excceed the limit, then construction will fail. This limit does
     /// _not_ correspond to the total memory used by all NFAs in the meta regex
     /// engine.
     ///
+    /// This defaults to some reasonable number that permits most reasonable
+    /// patterns.
+    ///
     /// # Example
     ///
     /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
     /// use regex_automata::meta::Regex;
     ///
     /// let result = Regex::builder()
@@ -996,74 +1115,336 @@ impl Config {
         Config { nfa_size_limit: Some(limit), ..self }
     }
 
+    /// Sets the size limit, in bytes, for the one-pass DFA.
+    ///
+    /// Setting it to `None` disables the limit. Disabling the limit is
+    /// strongly discouraged when compiling untrusted patterns. Even if the
+    /// patterns are trusted, it still may not be a good idea, since a one-pass
+    /// DFA can use a lot of memory. With that said, as the size of a regex
+    /// increases, the likelihood of it being one-pass likely decreases.
+    ///
+    /// This defaults to some reasonable number that permits most reasonable
+    /// one-pass patterns.
+    ///
+    /// # Example
+    ///
+    /// This shows how to set the one-pass DFA size limit. Note that since
+    /// a one-pass DFA is an optional component of the meta regex engine,
+    /// this size limit only impacts what is built internally and will never
+    /// determine whether a `Regex` itself fails to build.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let result = Regex::builder()
+    ///     .configure(Regex::config().onepass_size_limit(Some(2 * (1<<20))))
+    ///     .build(r"\pL{5}");
+    /// assert!(result.is_ok());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn onepass_size_limit(self, limit: Option<usize>) -> Config {
         Config { onepass_size_limit: Some(limit), ..self }
     }
 
+    /// Set the cache capacity, in bytes, for the lazy DFA.
+    ///
+    /// The cache capacity of the lazy DFA determines approximately how much
+    /// heap memory it is allowed to use to store its state transitions. The
+    /// state transitions are computed at search time, and if the cache fills
+    /// up it, it is cleared. At this point, any previously generated state
+    /// transitions are lost and are re-generated if they're needed again.
+    ///
+    /// This sort of cache filling and clearing works quite well _so long as
+    /// cache clearing happens infrequently_. If it happens too often, then the
+    /// meta regex engine will stop using the lazy DFA and switch over to a
+    /// different regex engine.
+    ///
+    /// In cases where the cache is cleared too often, it may be possible to
+    /// give the cache more space and reduce (or eliminate) how often it is
+    /// cleared. Similarly, sometimes a regex is so big that the lazy DFA isn't
+    /// used at all if its cache capacity isn't big enough.
+    ///
+    /// The capacity set here is a _limit_ on how much memory is used. The
+    /// actual memory used is only allocated as it's needed.
+    ///
+    /// Determining the right value for this is a little tricky and will likely
+    /// required some profiling. Enabling the `logging` feature and setting the
+    /// log level to `trace` will also tell you how often the cache is being
+    /// cleared.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let result = Regex::builder()
+    ///     .configure(Regex::config().hybrid_cache_capacity(20 * (1<<20)))
+    ///     .build(r"\pL{5}");
+    /// assert!(result.is_ok());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn hybrid_cache_capacity(self, limit: usize) -> Config {
         Config { hybrid_cache_capacity: Some(limit), ..self }
     }
 
+    /// Sets the size limit, in bytes, for heap memory used for a fully
+    /// compiled DFA.
+    ///
+    /// **NOTE:** If you increase this, you'll likely also need to increase
+    /// [`Config::dfa_state_limit`].
+    ///
+    /// In contrast to the lazy DFA, building a full DFA requires computing
+    /// all of its state transitions up front. This can be a very expensive
+    /// process, and runs in worst case `2^n` time and space (where `n` is
+    /// proportional to the size of the regex). However, a full DFA unlocks
+    /// some additional optimization opportunities.
+    ///
+    /// Because full DFAs can be so expensive, the default limits for them are
+    /// incredibly small. Generally speaking, if your regex is moderately big
+    /// or if you're using Unicode features (`\w` is Unicode-aware by default
+    /// for example), then you can expect that the meta regex engine won't even
+    /// attempt to build a DFA for it.
+    ///
+    /// If this and [`Config::dfa_state_limit`] are set to `None`, then the
+    /// meta regex will not use any sort of limits when deciding whether to
+    /// build a DFA. This in turn makes construction of a `Regex` take
+    /// worst case exponential time and space. Even short patterns can result
+    /// in huge space blow ups. So it is strongly recommended to keep some kind
+    /// of limit set!
+    ///
+    /// The default is set to a small number that permits some simple regexes
+    /// to get compiled into DFAs in reasonable time.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let result = Regex::builder()
+    ///     // 100MB is much bigger than the default.
+    ///     .configure(Regex::config()
+    ///         .dfa_size_limit(Some(100 * (1<<20)))
+    ///         // We don't care about size too much here, so just
+    ///         // remove the NFA state limit altogether.
+    ///         .dfa_state_limit(None))
+    ///     .build(r"\pL{5}");
+    /// assert!(result.is_ok());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn dfa_size_limit(self, limit: Option<usize>) -> Config {
         Config { dfa_size_limit: Some(limit), ..self }
     }
 
+    /// Sets a limit on the total number of NFA states, beyond which, a full
+    /// DFA is not attempted to be compiled.
+    ///
+    /// This limit works in concert with [`Config::dfa_size_limit`]. Namely,
+    /// where as `Config::dfa_size_limit` is applied by attempting to construct
+    /// a DFA, this limit is used to avoid the attempt in the first place. This
+    /// is useful to avoid hefty initialization costs associated with building
+    /// a DFA for cases where it is obvious the DFA will ultimately be too big.
+    ///
+    /// By default, this is set to a very small number.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let result = Regex::builder()
+    ///     .configure(Regex::config()
+    ///         // Sometimes the default state limit rejects DFAs even
+    ///         // if they would fit in the size limit. Here, we disable
+    ///         // the check on the number of NFA states and just rely on
+    ///         // the size limit.
+    ///         .dfa_state_limit(None))
+    ///     .build(r"(?-u)\w{30}");
+    /// assert!(result.is_ok());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn dfa_state_limit(self, limit: Option<usize>) -> Config {
         Config { dfa_state_limit: Some(limit), ..self }
     }
 
+    /// Whether to attempt to shrink the size of the alphabet for the regex
+    /// pattern or not. When enabled, the alphabet is shrunk into a set of
+    /// equivalence classes, where every byte in the same equivalence class
+    /// cannot discriminate between a match or non-match.
+    ///
+    /// **WARNING:** This is only useful for debugging DFAs. Disabling this
+    /// does not yield any speed advantages. Indeed, disabling it can result
+    /// in much higher memory usage. Disabling byte classes is useful for
+    /// debugging the actual generated transitions because it lets one see the
+    /// transitions defined on actual bytes instead of the equivalence classes.
+    ///
+    /// This option is enabled by default and should never be disabled unless
+    /// one is debugging the meta regex engine's internals.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().byte_classes(false))
+    ///     .build(r"[a-z]+")?;
+    /// let hay = "!!quux!!";
+    /// assert_eq!(Some(Match::must(0, 2..6)), re.find(hay));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn byte_classes(self, yes: bool) -> Config {
         Config { byte_classes: Some(yes), ..self }
     }
 
+    /// Set the line terminator to be used by the `^` and `$` anchors in
+    /// multi-line mode.
+    ///
+    /// This option has no effect when CRLF mode is enabled. That is,
+    /// regardless of this setting, `(?Rm:^)` and `(?Rm:$)` will always treat
+    /// `\r` and `\n` as line terminators (and will never match between a `\r`
+    /// and a `\n`).
+    ///
+    /// By default, `\n` is the line terminator.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, util::syntax, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .syntax(syntax::Config::new().multi_line(true))
+    ///     .configure(Regex::config().line_terminator(b'\x00'))
+    ///     .build(r"^foo$")?;
+    /// let hay = "\x00foo\x00";
+    /// assert_eq!(Some(Match::must(0, 1..4)), re.find(hay));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn line_terminator(self, byte: u8) -> Config {
         Config { line_terminator: Some(byte), ..self }
     }
 
+    /// Toggle whether the hybrid NFA/DFA (also known as the "lazy DFA") should
+    /// be available for use by the meta regex engine.
+    ///
+    /// Enabling this does not necessarily mean that the lazy DFA will
+    /// definitely be used. It just means that it will be _available_ for use
+    /// if the meta regex engine thinks it will be useful.
+    ///
+    /// When the `hybrid` crate feature is enabled, then this is enabled by
+    /// default. Otherwise, if the crate feature is disabled, then this is
+    /// always disabled, regardless of its setting by the caller.
     pub fn hybrid(self, yes: bool) -> Config {
         Config { hybrid: Some(yes), ..self }
     }
 
+    /// Toggle whether a fully compiled DFA should be available for use by the
+    /// meta regex engine.
+    ///
+    /// Enabling this does not necessarily mean that a DFA will definitely be
+    /// used. It just means that it will be _available_ for use if the meta
+    /// regex engine thinks it will be useful.
+    ///
+    /// When the `dfa-build` crate feature is enabled, then this is enabled by
+    /// default. Otherwise, if the crate feature is disabled, then this is
+    /// always disabled, regardless of its setting by the caller.
     pub fn dfa(self, yes: bool) -> Config {
         Config { dfa: Some(yes), ..self }
     }
 
+    /// Toggle whether a one-pass DFA should be available for use by the meta
+    /// regex engine.
+    ///
+    /// Enabling this does not necessarily mean that a one-pass DFA will
+    /// definitely be used. It just means that it will be _available_ for
+    /// use if the meta regex engine thinks it will be useful. (Indeed, a
+    /// one-pass DFA can only be used when the regex is one-pass. See the
+    /// [`dfa::onepass`](crate::dfa::onepass) module for more details.)
+    ///
+    /// When the `dfa-onepass` crate feature is enabled, then this is enabled
+    /// by default. Otherwise, if the crate feature is disabled, then this is
+    /// always disabled, regardless of its setting by the caller.
     pub fn onepass(self, yes: bool) -> Config {
         Config { onepass: Some(yes), ..self }
     }
 
+    /// Toggle whether a bounded backtracking regex engine should be available
+    /// for use by the meta regex engine.
+    ///
+    /// Enabling this does not necessarily mean that a bounded backtracker will
+    /// definitely be used. It just means that it will be _available_ for use
+    /// if the meta regex engine thinks it will be useful.
+    ///
+    /// When the `nfa-backtrack` crate feature is enabled, then this is enabled
+    /// by default. Otherwise, if the crate feature is disabled, then this is
+    /// always disabled, regardless of its setting by the caller.
     pub fn backtrack(self, yes: bool) -> Config {
         Config { backtrack: Some(yes), ..self }
     }
 
+    /// Returns the match kind on this configuration, as set by
+    /// [`Config::match_kind`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_match_kind(&self) -> MatchKind {
         self.match_kind.unwrap_or(MatchKind::LeftmostFirst)
     }
 
+    /// Returns whether empty matches must fall on valid UTF-8 boundaries, as
+    /// set by [`Config::utf8_empty`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_utf8_empty(&self) -> bool {
         self.utf8_empty.unwrap_or(true)
     }
 
+    /// Returns whether automatic prefilters are enabled, as set by
+    /// [`Config::auto_prefilter`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_auto_prefilter(&self) -> bool {
         self.autopre.unwrap_or(true)
     }
 
+    /// Returns a manually set prefilter, if one was set by
+    /// [`Config::prefilter`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_prefilter(&self) -> Option<&Prefilter> {
         self.pre.as_ref().unwrap_or(&None).as_ref()
     }
 
+    /// Returns NFA size limit, as set by [`Config::nfa_size_limit`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_nfa_size_limit(&self) -> Option<usize> {
         self.nfa_size_limit.unwrap_or(Some(10 * (1 << 20)))
     }
 
+    /// Returns one-pass DFA size limit, as set by
+    /// [`Config::onepass_size_limit`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_onepass_size_limit(&self) -> Option<usize> {
         self.onepass_size_limit.unwrap_or(Some(1 * (1 << 20)))
     }
 
+    /// Returns hybrid NFA/DFA cache capacity, as set by
+    /// [`Config::hybrid_cache_capacity`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_hybrid_cache_capacity(&self) -> usize {
         self.hybrid_cache_capacity.unwrap_or(2 * (1 << 20))
     }
 
+    /// Returns DFA size limit, as set by [`Config::dfa_size_limit`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_dfa_size_limit(&self) -> Option<usize> {
         // The default for this is VERY small because building a full DFA is
         // ridiculously costly. But for regexes that are very small, it can be
@@ -1086,19 +1467,35 @@ impl Config {
         self.dfa_size_limit.unwrap_or(Some(40 * (1 << 10)))
     }
 
+    /// Returns DFA size limit in terms of the number of states in the NFA, as
+    /// set by [`Config::dfa_state_limit`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_dfa_state_limit(&self) -> Option<usize> {
         // Again, as with the size limit, we keep this very small.
         self.dfa_state_limit.unwrap_or(Some(30))
     }
 
+    /// Returns whether byte classes are enabled, as set by
+    /// [`Config::byte_classes`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_byte_classes(&self) -> bool {
         self.byte_classes.unwrap_or(true)
     }
 
+    /// Returns the line terminator for this configuration, as set by
+    /// [`Config::line_terminator`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_line_terminator(&self) -> u8 {
         self.line_terminator.unwrap_or(b'\n')
     }
 
+    /// Returns whether the hybrid NFA/DFA regex engine may be used, as set by
+    /// [`Config::hybrid`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_hybrid(&self) -> bool {
         #[cfg(feature = "hybrid")]
         {
@@ -1110,6 +1507,10 @@ impl Config {
         }
     }
 
+    /// Returns whether the DFA regex engine may be used, as set by
+    /// [`Config::dfa`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_dfa(&self) -> bool {
         #[cfg(feature = "dfa-build")]
         {
@@ -1121,6 +1522,10 @@ impl Config {
         }
     }
 
+    /// Returns whether the one-pass DFA regex engine may be used, as set by
+    /// [`Config::onepass`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_onepass(&self) -> bool {
         #[cfg(feature = "dfa-onepass")]
         {
@@ -1132,6 +1537,10 @@ impl Config {
         }
     }
 
+    /// Returns whether the bounded backtracking regex engine may be used, as
+    /// set by [`Config::backtrack`].
+    ///
+    /// If it was not explicitly set, then a default value is returned.
     pub fn get_backtrack(&self) -> bool {
         #[cfg(feature = "nfa-backtrack")]
         {
@@ -1172,7 +1581,7 @@ impl Config {
     }
 }
 
-/// A builder for configuring and constructing a [`Regex`].
+/// A builder for configuring and constructing a `Regex`.
 ///
 /// The builder permits configuring two different aspects of a `Regex`:
 ///

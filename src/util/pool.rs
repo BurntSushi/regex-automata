@@ -489,7 +489,7 @@ mod inner {
             match self.value {
                 Ok(ref v) => &**v,
                 // SAFETY: This is safe because the only way a PoolGuard gets
-                // created for self.value=None is when the current thread
+                // created for self.value=Err is when the current thread
                 // corresponds to the owning thread, of which there can only
                 // be one. Thus, we are guaranteed to be providing exclusive
                 // access here which makes this safe.
@@ -498,11 +498,12 @@ mod inner {
                 // before an owned PoolGuard is created, the unchecked unwrap
                 // is safe.
                 Err(id) => unsafe {
+                    // This assert is *not* necessary for safety, since we
+                    // should never be here if the guard had been put back into
+                    // the pool. This is a sanity check to make sure we didn't
+                    // break an internal invariant.
                     debug_assert_ne!(THREAD_ID_DROPPED, id);
-                    // MSRV(1.58): Use unwrap_unchecked here.
-                    (*self.pool.owner_val.get())
-                        .as_ref()
-                        .unwrap_or_else(|| core::hint::unreachable_unchecked())
+                    (*self.pool.owner_val.get()).as_ref().unwrap_unchecked()
                 },
             }
         }
@@ -521,11 +522,12 @@ mod inner {
                 // before an owned PoolGuard is created, the unwrap_unchecked
                 // is safe.
                 Err(id) => unsafe {
+                    // This assert is *not* necessary for safety, since we
+                    // should never be here if the guard had been put back into
+                    // the pool. This is a sanity check to make sure we didn't
+                    // break an internal invariant.
                     debug_assert_ne!(THREAD_ID_DROPPED, id);
-                    // MSRV(1.58): Use unwrap_unchecked here.
-                    (*self.pool.owner_val.get())
-                        .as_mut()
-                        .unwrap_or_else(|| core::hint::unreachable_unchecked())
+                    (*self.pool.owner_val.get()).as_mut().unwrap_unchecked()
                 },
             }
         }
