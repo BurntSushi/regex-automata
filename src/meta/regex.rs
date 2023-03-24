@@ -16,14 +16,13 @@ use crate::{
         strategy::{self, Strategy},
         wrappers,
     },
-    nfa::thompson::pikevm,
     util::{
         captures::{Captures, GroupInfo},
         iter,
         pool::{Pool, PoolGuard},
-        prefilter::{self, Prefilter},
+        prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID},
-        search::{HalfMatch, Input, Match, MatchError, MatchKind, PatternSet},
+        search::{HalfMatch, Input, Match, MatchKind, PatternSet},
     },
 };
 

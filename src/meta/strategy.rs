@@ -1,12 +1,11 @@
 use core::{
-    borrow::Borrow,
     fmt::Debug,
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
-use alloc::{sync::Arc, vec, vec::Vec};
+use alloc::sync::Arc;
 
-use regex_syntax::hir::{self, literal, Hir};
+use regex_syntax::hir::{literal, Hir};
 
 use crate::{
     meta::{
@@ -14,25 +13,17 @@ use crate::{
         regex::{Cache, RegexInfo},
         reverse_inner, wrappers,
     },
-    nfa::thompson::{self, pikevm::PikeVM, NFA},
+    nfa::thompson::{self, NFA},
     util::{
         captures::{Captures, GroupInfo},
         look::LookMatcher,
         prefilter::{self, Prefilter, PrefilterI},
         primitives::{NonMaxUsize, PatternID},
         search::{
-            Anchored, HalfMatch, Input, Match, MatchError, MatchKind,
-            PatternSet, Span,
+            Anchored, HalfMatch, Input, Match, MatchKind, PatternSet, Span,
         },
     },
 };
-
-#[cfg(feature = "dfa-onepass")]
-use crate::dfa::onepass;
-#[cfg(feature = "hybrid")]
-use crate::hybrid;
-#[cfg(feature = "nfa-backtrack")]
-use crate::nfa::thompson::backtrack;
 
 pub(super) trait Strategy:
     Debug + Send + Sync + RefUnwindSafe + UnwindSafe + 'static
@@ -352,13 +343,13 @@ impl<P: PrefilterI> Strategy for Pre<P> {
         }
     }
 
-    fn reset_cache(&self, cache: &mut Cache) {}
+    fn reset_cache(&self, _cache: &mut Cache) {}
 
     fn memory_usage(&self) -> usize {
         self.pre.memory_usage()
     }
 
-    fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
+    fn search(&self, _cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         if input.is_done() {
             return None;
         }
@@ -554,7 +545,7 @@ impl Core {
             e.search_slots(&mut cache.backtrack, input, caps.slots_mut())
         } else {
             trace!("using PikeVM for search at {:?}", input.get_span());
-            let e = self.pikevm.get().expect("PikeVM is always available");
+            let e = self.pikevm.get();
             e.search_slots(&mut cache.pikevm, input, caps.slots_mut())
         };
         caps.set_pattern(pid);
@@ -597,7 +588,7 @@ impl Core {
                 "using PikeVM for capture search at {:?}",
                 input.get_span()
             );
-            let e = self.pikevm.get().expect("PikeVM is always available");
+            let e = self.pikevm.get();
             e.search_slots(&mut cache.pikevm, input, slots)
         }
     }
@@ -650,8 +641,8 @@ impl Strategy for Core {
             trace!("using full DFA for search at {:?}", input.get_span());
             match e.try_search(input) {
                 Ok(x) => x,
-                Err(err) => {
-                    trace!("full DFA search failed: {}", err);
+                Err(_err) => {
+                    trace!("full DFA search failed: {}", _err);
                     self.search_nofail(cache, input)
                 }
             }
@@ -659,8 +650,8 @@ impl Strategy for Core {
             trace!("using lazy DFA for search at {:?}", input.get_span());
             match e.try_search(&mut cache.hybrid, input) {
                 Ok(x) => x,
-                Err(err) => {
-                    trace!("lazy DFA search failed: {}", err);
+                Err(_err) => {
+                    trace!("lazy DFA search failed: {}", _err);
                     self.search_nofail(cache, input)
                 }
             }
@@ -682,8 +673,8 @@ impl Strategy for Core {
             trace!("using full DFA for search at {:?}", input.get_span());
             match e.try_search_half_fwd(input) {
                 Ok(x) => x,
-                Err(err) => {
-                    trace!("full DFA half search failed: {}", err);
+                Err(_err) => {
+                    trace!("full DFA half search failed: {}", _err);
                     self.search_half_nofail(cache, input)
                 }
             }
@@ -691,8 +682,8 @@ impl Strategy for Core {
             trace!("using lazy DFA for search at {:?}", input.get_span());
             match e.try_search_half_fwd(&mut cache.hybrid, input) {
                 Ok(x) => x,
-                Err(err) => {
-                    trace!("lazy DFA half search failed: {}", err);
+                Err(_err) => {
+                    trace!("lazy DFA half search failed: {}", _err);
                     self.search_half_nofail(cache, input)
                 }
             }
@@ -738,8 +729,8 @@ impl Strategy for Core {
         let m = match self.try_search_mayfail(cache, input) {
             Some(Ok(Some(m))) => m,
             Some(Ok(None)) => return None,
-            Some(Err(err)) => {
-                trace!("fast capture search failed: {}", err);
+            Some(Err(_err)) => {
+                trace!("fast capture search failed: {}", _err);
                 return self.search_slots_nofail(cache, input, slots);
             }
             None => {
@@ -778,17 +769,17 @@ impl Strategy for Core {
                 "using full DFA for overlapping search at {:?}",
                 input.get_span()
             );
-            let err = match e.try_which_overlapping_matches(input, patset) {
+            let _err = match e.try_which_overlapping_matches(input, patset) {
                 Ok(()) => return,
                 Err(err) => err,
             };
-            trace!("fast overlapping search failed: {}", err);
+            trace!("fast overlapping search failed: {}", _err);
         } else if let Some(e) = self.hybrid.get(input) {
             trace!(
                 "using lazy DFA for overlapping search at {:?}",
                 input.get_span()
             );
-            let err = match e.try_which_overlapping_matches(
+            let _err = match e.try_which_overlapping_matches(
                 &mut cache.hybrid,
                 input,
                 patset,
@@ -796,13 +787,13 @@ impl Strategy for Core {
                 Ok(()) => return,
                 Err(err) => err,
             };
-            trace!("fast overlapping search failed: {}", err);
+            trace!("fast overlapping search failed: {}", _err);
         }
         trace!(
             "using PikeVM for overlapping search at {:?}",
             input.get_span()
         );
-        let e = self.pikevm.get().expect("PikeVM is always available");
+        let e = self.pikevm.get();
         e.which_overlapping_matches(&mut cache.pikevm, input, patset)
     }
 }
@@ -900,8 +891,8 @@ impl Strategy for ReverseAnchored {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(err) => {
-                trace!("fast reverse anchored search failed: {}", err);
+            Err(_err) => {
+                trace!("fast reverse anchored search failed: {}", _err);
                 self.core.search_nofail(cache, input)
             }
             Ok(None) => None,
@@ -918,8 +909,8 @@ impl Strategy for ReverseAnchored {
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(err) => {
-                trace!("fast reverse anchored search failed: {}", err);
+            Err(_err) => {
+                trace!("fast reverse anchored search failed: {}", _err);
                 self.core.search_half_nofail(cache, input)
             }
             Ok(None) => None,
@@ -943,8 +934,8 @@ impl Strategy for ReverseAnchored {
         slots: &mut [Option<NonMaxUsize>],
     ) -> Option<PatternID> {
         match self.try_search_half_anchored_rev(cache, input) {
-            Err(err) => {
-                trace!("fast reverse anchored search failed: {}", err);
+            Err(_err) => {
+                trace!("fast reverse anchored search failed: {}", _err);
                 self.core.search_slots_nofail(cache, input, slots)
             }
             Ok(None) => None,
@@ -1170,12 +1161,12 @@ impl Strategy for ReverseSuffix {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_half_start(cache, input) {
-            Err(RetryError::Quadratic(err)) => {
-                trace!("reverse suffix optimization failed: {}", err);
+            Err(RetryError::Quadratic(_err)) => {
+                trace!("reverse suffix optimization failed: {}", _err);
                 self.core.search(cache, input)
             }
-            Err(RetryError::Fail(err)) => {
-                trace!("reverse suffix reverse fast search failed: {}", err);
+            Err(RetryError::Fail(_err)) => {
+                trace!("reverse suffix reverse fast search failed: {}", _err);
                 self.core.search_nofail(cache, input)
             }
             Ok(None) => None,
@@ -1185,10 +1176,10 @@ impl Strategy for ReverseSuffix {
                     .anchored(Anchored::Pattern(hm_start.pattern()))
                     .span(hm_start.offset()..input.end());
                 match self.try_search_half_fwd(cache, &fwdinput) {
-                    Err(err) => {
+                    Err(_err) => {
                         trace!(
                             "reverse suffix forward fast search failed: {}",
-                            err
+                            _err
                         );
                         self.core.search_nofail(cache, input)
                     }
@@ -1214,14 +1205,14 @@ impl Strategy for ReverseSuffix {
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
         match self.try_search_half_start(cache, input) {
-            Err(RetryError::Quadratic(err)) => {
-                trace!("reverse suffix half optimization failed: {}", err);
+            Err(RetryError::Quadratic(_err)) => {
+                trace!("reverse suffix half optimization failed: {}", _err);
                 self.core.search_half(cache, input)
             }
-            Err(RetryError::Fail(err)) => {
+            Err(RetryError::Fail(_err)) => {
                 trace!(
                     "reverse suffix reverse fast half search failed: {}",
-                    err
+                    _err
                 );
                 self.core.search_half_nofail(cache, input)
             }
@@ -1246,14 +1237,17 @@ impl Strategy for ReverseSuffix {
             return Some(m.pattern());
         }
         let hm_start = match self.try_search_half_start(cache, input) {
-            Err(RetryError::Quadratic(err)) => {
-                trace!("reverse suffix captures optimization failed: {}", err);
+            Err(RetryError::Quadratic(_err)) => {
+                trace!(
+                    "reverse suffix captures optimization failed: {}",
+                    _err
+                );
                 return self.core.search_slots(cache, input, slots);
             }
-            Err(RetryError::Fail(err)) => {
+            Err(RetryError::Fail(_err)) => {
                 trace!(
                     "reverse suffix reverse fast captures search failed: {}",
-                    err
+                    _err
                 );
                 return self.core.search_slots_nofail(cache, input, slots);
             }
@@ -1368,18 +1362,16 @@ impl ReverseInner {
             .build_from_hir(&concat_prefix);
         let nfarev = match result {
             Ok(nfarev) => nfarev,
-            Err(err) => {
+            Err(_err) => {
                 debug!(
                     "skipping reverse inner optimization because the \
 					 reverse NFA failed to build: {}",
-                    err,
+                    _err,
                 );
                 return Err(core);
             }
         };
         debug!("building reverse DFA for prefix before inner literal");
-        let hybrid = wrappers::ReverseHybrid::none();
-        let dfa = wrappers::ReverseDFA::none();
         let dfa = if !core.info.config().get_dfa() {
             wrappers::ReverseDFA::none()
         } else {
@@ -1542,6 +1534,7 @@ impl Strategy for ReverseInner {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         self.core.reset_cache(cache);
+        cache.revhybrid.reset(&self.hybrid);
     }
 
     fn memory_usage(&self) -> usize {
@@ -1554,12 +1547,12 @@ impl Strategy for ReverseInner {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         match self.try_search_full(cache, input) {
-            Err(RetryError::Quadratic(err)) => {
-                trace!("reverse inner optimization failed: {}", err);
+            Err(RetryError::Quadratic(_err)) => {
+                trace!("reverse inner optimization failed: {}", _err);
                 self.core.search(cache, input)
             }
-            Err(RetryError::Fail(err)) => {
-                trace!("reverse inner fast search failed: {}", err);
+            Err(RetryError::Fail(_err)) => {
+                trace!("reverse inner fast search failed: {}", _err);
                 self.core.search_nofail(cache, input)
             }
             Ok(matornot) => matornot,
@@ -1573,12 +1566,12 @@ impl Strategy for ReverseInner {
         input: &Input<'_>,
     ) -> Option<HalfMatch> {
         match self.try_search_full(cache, input) {
-            Err(RetryError::Quadratic(err)) => {
-                trace!("reverse inner half optimization failed: {}", err);
+            Err(RetryError::Quadratic(_err)) => {
+                trace!("reverse inner half optimization failed: {}", _err);
                 self.core.search_half(cache, input)
             }
-            Err(RetryError::Fail(err)) => {
-                trace!("reverse inner fast half search failed: {}", err);
+            Err(RetryError::Fail(_err)) => {
+                trace!("reverse inner fast half search failed: {}", _err);
                 self.core.search_half_nofail(cache, input)
             }
             Ok(None) => None,
@@ -1600,12 +1593,12 @@ impl Strategy for ReverseInner {
             return Some(m.pattern());
         }
         let m = match self.try_search_full(cache, input) {
-            Err(RetryError::Quadratic(err)) => {
-                trace!("reverse inner captures optimization failed: {}", err);
+            Err(RetryError::Quadratic(_err)) => {
+                trace!("reverse inner captures optimization failed: {}", _err);
                 return self.core.search_slots(cache, input, slots);
             }
-            Err(RetryError::Fail(err)) => {
-                trace!("reverse inner fast captures search failed: {}", err);
+            Err(RetryError::Fail(_err)) => {
+                trace!("reverse inner fast captures search failed: {}", _err);
                 return self.core.search_slots_nofail(cache, input, slots);
             }
             Ok(None) => return None,

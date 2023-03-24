@@ -32,7 +32,7 @@ sub-expressions of that concatenation. If some good ones are found, we return
 those and a concatenation of the Hir expressions seen up to that point.
 */
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::vec::Vec;
 
 use regex_syntax::hir::{self, literal, Hir, HirKind};
 

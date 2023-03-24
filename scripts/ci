@@ -45,7 +45,7 @@ for f in "${features[@]}"; do
   # wind up enabling features in dependencies (like memchr) that make it look
   # like everything is well, but actually isn't. For example, the 'regex-test'
   # dev-dependency uses 'bstr' and enables its 'std' feature, which in turn
-  # unconditionally enables 'memchr's 'std feature. Since we're specifically
+  # unconditionally enables 'memchr's 'std' feature. Since we're specifically
   # looking to test that certain feature combinations work as expected, this
   # can lead to things testing okay, but would actually fail to build. Yikes.
   cargo build --no-default-features --lib --features "$f"
@@ -84,4 +84,5 @@ done
 
 # There are a lot of 'cfg(not(miri))' configs spread out through the code and
 # the tests to make this Just Work.
+echo "===== MIRI ==="
 cargo miri test

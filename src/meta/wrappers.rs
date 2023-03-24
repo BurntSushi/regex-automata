@@ -29,15 +29,11 @@ use alloc::vec::Vec;
 use crate::{
     meta::{
         error::{BuildError, RetryError, RetryFailError},
-        regex::{Config, RegexInfo},
+        regex::RegexInfo,
     },
     nfa::thompson::{pikevm, NFA},
-    util::{
-        prefilter::Prefilter,
-        primitives::{NonMaxUsize, StateID},
-    },
-    Anchored, HalfMatch, Input, Match, MatchError, MatchKind, PatternID,
-    PatternSet,
+    util::{prefilter::Prefilter, primitives::NonMaxUsize},
+    HalfMatch, Input, Match, MatchKind, PatternID, PatternSet,
 };
 
 #[cfg(feature = "dfa-build")]
@@ -50,13 +46,9 @@ use crate::hybrid;
 use crate::nfa::thompson::backtrack;
 
 #[derive(Debug)]
-pub(crate) struct PikeVM(Option<PikeVMEngine>);
+pub(crate) struct PikeVM(PikeVMEngine);
 
 impl PikeVM {
-    pub(crate) fn none() -> PikeVM {
-        PikeVM(None)
-    }
-
     pub(crate) fn new(
         info: &RegexInfo,
         pre: Option<Prefilter>,
@@ -70,8 +62,8 @@ impl PikeVM {
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
-    pub(crate) fn get(&self) -> Option<&PikeVMEngine> {
-        self.0.as_ref()
+    pub(crate) fn get(&self) -> &PikeVMEngine {
+        &self.0
     }
 }
 
@@ -83,7 +75,7 @@ impl PikeVMEngine {
         info: &RegexInfo,
         pre: Option<Prefilter>,
         nfa: &NFA,
-    ) -> Result<Option<PikeVMEngine>, BuildError> {
+    ) -> Result<PikeVMEngine, BuildError> {
         let pikevm_config = pikevm::Config::new()
             .match_kind(info.config().get_match_kind())
             .prefilter(pre);
@@ -92,7 +84,7 @@ impl PikeVMEngine {
             .build_from_nfa(nfa.clone())
             .map_err(BuildError::nfa)?;
         debug!("PikeVM built");
-        Ok(Some(PikeVMEngine(engine)))
+        Ok(PikeVMEngine(engine))
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
@@ -129,13 +121,11 @@ impl PikeVMCache {
     }
 
     pub(crate) fn new(builder: &PikeVM) -> PikeVMCache {
-        PikeVMCache(builder.0.as_ref().map(|e| e.0.create_cache()))
+        PikeVMCache(Some(builder.get().0.create_cache()))
     }
 
     pub(crate) fn reset(&mut self, builder: &PikeVM) {
-        if let Some(ref e) = builder.0 {
-            self.0.as_mut().unwrap().reset(&e.0);
-        }
+        self.0.as_mut().unwrap().reset(&builder.get().0);
     }
 
     pub(crate) fn memory_usage(&self) -> usize {
@@ -147,10 +137,6 @@ impl PikeVMCache {
 pub(crate) struct BoundedBacktracker(Option<BoundedBacktrackerEngine>);
 
 impl BoundedBacktracker {
-    pub(crate) fn none() -> BoundedBacktracker {
-        BoundedBacktracker(None)
-    }
-
     pub(crate) fn new(
         info: &RegexInfo,
         pre: Option<Prefilter>,
@@ -321,10 +307,6 @@ impl BoundedBacktrackerCache {
 pub(crate) struct OnePass(Option<OnePassEngine>);
 
 impl OnePass {
-    pub(crate) fn none() -> OnePass {
-        OnePass(None)
-    }
-
     pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> OnePass {
         OnePass(OnePassEngine::new(info, nfa))
     }
@@ -344,10 +326,6 @@ impl OnePass {
         Some(engine)
     }
 
-    pub(crate) fn is_some(&self) -> bool {
-        self.0.is_some()
-    }
-
     pub(crate) fn memory_usage(&self) -> usize {
         self.0.as_ref().map_or(0, |e| e.memory_usage())
     }
@@ -363,8 +341,6 @@ impl OnePassEngine {
     pub(crate) fn new(info: &RegexInfo, nfa: &NFA) -> Option<OnePassEngine> {
         #[cfg(feature = "dfa-onepass")]
         {
-            use regex_syntax::hir::Look;
-
             if !info.config().get_onepass() {
                 return None;
             }
@@ -396,8 +372,8 @@ impl OnePassEngine {
                 .build_from_nfa(nfa.clone());
             let engine = match result {
                 Ok(engine) => engine,
-                Err(err) => {
-                    debug!("OnePass failed to build: {}", err);
+                Err(_err) => {
+                    debug!("OnePass failed to build: {}", _err);
                     return None;
                 }
             };
@@ -531,7 +507,7 @@ impl Hybrid {
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
-    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&HybridEngine> {
+    pub(crate) fn get(&self, _input: &Input<'_>) -> Option<&HybridEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
     }
@@ -594,8 +570,8 @@ impl HybridEngine {
                 .build_from_nfa(nfa.clone());
             let fwd = match result {
                 Ok(fwd) => fwd,
-                Err(err) => {
-                    debug!("forward lazy DFA failed to build: {}", err);
+                Err(_err) => {
+                    debug!("forward lazy DFA failed to build: {}", _err);
                     return None;
                 }
             };
@@ -609,8 +585,8 @@ impl HybridEngine {
                 .build_from_nfa(nfarev.clone());
             let rev = match result {
                 Ok(rev) => rev,
-                Err(err) => {
-                    debug!("reverse lazy DFA failed to build: {}", err);
+                Err(_err) => {
+                    debug!("reverse lazy DFA failed to build: {}", _err);
                     return None;
                 }
             };
@@ -633,7 +609,7 @@ impl HybridEngine {
     ) -> Result<Option<Match>, RetryFailError> {
         #[cfg(feature = "hybrid")]
         {
-            let mut cache = cache.0.as_mut().unwrap();
+            let cache = cache.0.as_mut().unwrap();
             self.0.try_search(cache, input).map_err(|e| e.into())
         }
         #[cfg(not(feature = "hybrid"))]
@@ -818,7 +794,7 @@ impl DFA {
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
-    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&DFAEngine> {
+    pub(crate) fn get(&self, _input: &Input<'_>) -> Option<&DFAEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
     }
@@ -887,8 +863,8 @@ impl DFAEngine {
                 .build_from_nfa(&nfa);
             let fwd = match result {
                 Ok(fwd) => fwd,
-                Err(err) => {
-                    debug!("forward full DFA failed to build: {}", err);
+                Err(_err) => {
+                    debug!("forward full DFA failed to build: {}", _err);
                     return None;
                 }
             };
@@ -910,8 +886,8 @@ impl DFAEngine {
                 .build_from_nfa(&nfarev);
             let rev = match result {
                 Ok(rev) => rev,
-                Err(err) => {
-                    debug!("reverse full DFA failed to build: {}", err);
+                Err(_err) => {
+                    debug!("reverse full DFA failed to build: {}", _err);
                     return None;
                 }
             };
@@ -1076,14 +1052,10 @@ impl ReverseHybrid {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     pub(crate) fn get(
         &self,
-        input: &Input<'_>,
+        _input: &Input<'_>,
     ) -> Option<&ReverseHybridEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
-    }
-
-    pub(crate) fn is_some(&self) -> bool {
-        self.0.is_some()
     }
 }
 
@@ -1122,8 +1094,8 @@ impl ReverseHybridEngine {
                 .build_from_nfa(nfarev.clone());
             let rev = match result {
                 Ok(rev) => rev,
-                Err(err) => {
-                    debug!("lazy reverse DFA failed to build: {}", err);
+                Err(_err) => {
+                    debug!("lazy reverse DFA failed to build: {}", _err);
                     return None;
                 }
             };
@@ -1221,7 +1193,7 @@ impl ReverseDFA {
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
-    pub(crate) fn get(&self, input: &Input<'_>) -> Option<&ReverseDFAEngine> {
+    pub(crate) fn get(&self, _input: &Input<'_>) -> Option<&ReverseDFAEngine> {
         let engine = self.0.as_ref()?;
         Some(engine)
     }
@@ -1289,8 +1261,8 @@ impl ReverseDFAEngine {
                 .build_from_nfa(&nfarev);
             let rev = match result {
                 Ok(rev) => rev,
-                Err(err) => {
-                    debug!("full reverse DFA failed to build: {}", err);
+                Err(_err) => {
+                    debug!("full reverse DFA failed to build: {}", _err);
                     return None;
                 }
             };
