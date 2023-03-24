@@ -58,9 +58,67 @@ impl Config {
         Config::default()
     }
 
-    /// Attach the given prefilter to this configuration.
+    /// Set a prefilter to be used whenever a start state is entered.
     ///
-    /// The given prefilter is automatically applied to every search.
+    /// A [`Prefilter`] in this context is meant to accelerate searches by
+    /// looking for literal prefixes that every match for the corresponding
+    /// pattern (or patterns) must start with. Once a prefilter produces a
+    /// match, the underlying search routine continues on to try and confirm
+    /// the match.
+    ///
+    /// Be warned that setting a prefilter does not guarantee that the search
+    /// will be faster. While it's usually a good bet, if the prefilter
+    /// produces a lot of false positive candidates (i.e., positions matched
+    /// by the prefilter but not by the regex), then the overall result can
+    /// be slower than if you had just executed the regex engine without any
+    /// prefilters.
+    ///
+    /// By default no prefilter is set.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     util::prefilter::Prefilter,
+    ///     Input, Match, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["foo", "bar"]);
+    /// let re = BoundedBacktracker::builder()
+    ///     .configure(BoundedBacktracker::config().prefilter(pre))
+    ///     .build(r"(foo|bar)[a-z]+")?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("foo1 barfox bar");
+    /// assert_eq!(
+    ///     Some(Match::must(0, 5..11)),
+    ///     re.try_find(&mut cache, input)?,
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Be warned though that an incorrect prefilter can lead to incorrect
+    /// results!
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     nfa::thompson::backtrack::BoundedBacktracker,
+    ///     util::prefilter::Prefilter,
+    ///     Input, HalfMatch, MatchKind,
+    /// };
+    ///
+    /// let pre = Prefilter::new(MatchKind::LeftmostFirst, &["foo", "car"]);
+    /// let re = BoundedBacktracker::builder()
+    ///     .configure(BoundedBacktracker::config().prefilter(pre))
+    ///     .build(r"(foo|bar)[a-z]+")?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("foo1 barfox bar");
+    /// // No match reported even though there clearly is one!
+    /// assert_eq!(None, re.try_find(&mut cache, input)?);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn prefilter(mut self, pre: Option<Prefilter>) -> Config {
         self.pre = Some(pre);
         self
@@ -115,6 +173,7 @@ impl Config {
         self
     }
 
+    /// Returns the prefilter set in this configuration, if one at all.
     pub fn get_prefilter(&self) -> Option<&Prefilter> {
         self.pre.as_ref().unwrap_or(&None).as_ref()
     }

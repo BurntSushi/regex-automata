@@ -256,9 +256,6 @@ impl<'h> Input<'h> {
     /// a haystack, regardless of where you begin your search. In contrast,
     /// anchoring a search will allow your regex to match anywhere in your
     /// haystack, but the match must start at the beginning of a search.
-    /// (Most of the higher level convenience search routines make "start of
-    /// haystack" and "start of search" equivalent, but routines that accept an
-    /// `Input` permit treating them as orthogonal.)
     ///
     /// For example, consider the haystack `aba` and the following searches:
     ///

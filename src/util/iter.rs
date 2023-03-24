@@ -166,6 +166,15 @@ impl<'h> Searcher<'h> {
         Searcher { input, last_match_end: None }
     }
 
+    /// Returns the current `Input` used by this searcher.
+    ///
+    /// The `Input` returned is generally equivalent to the one given to
+    /// [`Searcher::new`], but its start position may be different to reflect
+    /// the start of the next search to be executed.
+    pub fn input<'s>(&'s self) -> &'s Input<'h> {
+        &self.input
+    }
+
     /// Return the next half match for an infallible search if one exists, and
     /// advance to the next position.
     ///

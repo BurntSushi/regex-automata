@@ -581,7 +581,9 @@ impl Captures {
     pub fn iter(&self) -> CapturesPatternIter<'_> {
         let names = self
             .pattern()
-            .map(|pid| self.group_info().pattern_names(pid).enumerate());
+            .map_or(GroupInfoPatternNames::empty().enumerate(), |pid| {
+                self.group_info().pattern_names(pid).enumerate()
+            });
         CapturesPatternIter { caps: self, names }
     }
 
@@ -1141,17 +1143,28 @@ impl<'a> core::fmt::Debug for CapturesDebugMap<'a> {
 #[derive(Debug)]
 pub struct CapturesPatternIter<'a> {
     caps: &'a Captures,
-    names: Option<core::iter::Enumerate<GroupInfoPatternNames<'a>>>,
+    names: core::iter::Enumerate<GroupInfoPatternNames<'a>>,
 }
 
 impl<'a> Iterator for CapturesPatternIter<'a> {
     type Item = Option<Span>;
 
     fn next(&mut self) -> Option<Option<Span>> {
-        let (group_index, _) = self.names.as_mut()?.next()?;
+        let (group_index, _) = self.names.next()?;
         Some(self.caps.get_group(group_index))
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.names.size_hint()
+    }
+
+    fn count(self) -> usize {
+        self.names.count()
+    }
 }
+
+impl<'a> ExactSizeIterator for CapturesPatternIter<'a> {}
+impl<'a> core::iter::FusedIterator for CapturesPatternIter<'a> {}
 
 /// Represents information about capturing groups in a compiled regex.
 ///
@@ -2351,13 +2364,30 @@ pub struct GroupInfoPatternNames<'a> {
     it: core::slice::Iter<'a, Option<Arc<str>>>,
 }
 
+impl GroupInfoPatternNames<'static> {
+    fn empty() -> GroupInfoPatternNames<'static> {
+        GroupInfoPatternNames { it: [].iter() }
+    }
+}
+
 impl<'a> Iterator for GroupInfoPatternNames<'a> {
     type Item = Option<&'a str>;
 
     fn next(&mut self) -> Option<Option<&'a str>> {
         self.it.next().map(|x| x.as_deref())
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.it.size_hint()
+    }
+
+    fn count(self) -> usize {
+        self.it.count()
+    }
 }
+
+impl<'a> ExactSizeIterator for GroupInfoPatternNames<'a> {}
+impl<'a> core::iter::FusedIterator for GroupInfoPatternNames<'a> {}
 
 /// An iterator over capturing groups and their names for a `GroupInfo`.
 ///

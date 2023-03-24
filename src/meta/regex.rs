@@ -22,7 +22,7 @@ use crate::{
         pool::{Pool, PoolGuard},
         prefilter::Prefilter,
         primitives::{NonMaxUsize, PatternID},
-        search::{HalfMatch, Input, Match, MatchKind, PatternSet},
+        search::{HalfMatch, Input, Match, MatchKind, PatternSet, Span},
     },
 };
 
@@ -61,8 +61,8 @@ type CachePoolFn =
 /// [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM), the meta regex engine
 /// will usually first look for the bounds of a match with a higher throughput
 /// regex engine like a [lazy DFA](crate::hybrid). Only when a match is found
-/// is the slower `PikeVM` used to find the matching span for each capture
-/// group.
+/// is a slower engine like `PikeVM` used to find the matching span for each
+/// capture group.
 /// * While higher throughout engines like the lazy DFA cannot handle
 /// Unicode word boundaries in general, they can still be used on pure ASCII
 /// haystacks by pretending that Unicode word boundaries are just plain ASCII
@@ -83,6 +83,11 @@ type CachePoolFn =
 /// tension is that the faster engines tend to be less capable, and the more
 /// capable engines tend to be slower.
 ///
+/// Note that the forms of composition that are allowed are determined by
+/// compile time crate features and configuration. For example, if the `hybrid`
+/// feature isn't enabled, or if [`Config::hybrid`] has been disabled, then the
+/// meta regex engine will never use a lazy DFA.
+///
 /// # Synchronization and cloning
 ///
 /// Most of the regex engines in this crate require some kind of mutable
@@ -94,12 +99,13 @@ type CachePoolFn =
 /// a [Thompson `NFA`](crate::nfa::thompson::NFA).
 ///
 /// In order to make the `Regex` API convenient, most of the routines hide
-/// the fact that a `Cache` is needed at all. To achieve this, a memory pool
-/// is used to retrieve `Cache` values in a thread safe way that also permits
-/// reuse. This in turn implies that every such search call requires some form
-/// of synchronization. Usually this synchronization is fast enough to not
-/// notice, but in some cases, it can be a bottleneck. This typically occurs
-/// when all of the following are true:
+/// the fact that a `Cache` is needed at all. To achieve this, a [memory
+/// pool](crate::util::pool::Pool) is used internally to retrieve `Cache`
+/// values in a thread safe way that also permits reuse. This in turn implies
+/// that every such search call requires some form of synchronization. Usually
+/// this synchronization is fast enough to not notice, but in some cases, it
+/// can be a bottleneck. This typically occurs when all of the following are
+/// true:
 ///
 /// * The same `Regex` is shared across multiple threads simultaneously,
 /// usually via a [`util::lazy::Lazy`](crate::util::lazy::Lazy) or something
@@ -138,10 +144,10 @@ type CachePoolFn =
 ///
 /// # Example: anchored search
 ///
-/// This example shows how use [`Input`] to run an anchored search, even when
-/// the regex pattern itself isn't anchored. An anchored search guarantees that
-/// if a match is found, then the start offset of the match corresponds to the
-/// offset at which the search was started.
+/// This example shows how use [`Input::anchored`] to run an anchored search,
+/// even when the regex pattern itself isn't anchored. An anchored search
+/// guarantees that if a match is found, then the start offset of the match
+/// corresponds to the offset at which the search was started.
 ///
 /// ```
 /// use regex_automata::{meta::Regex, Anchored, Input, Match};
@@ -170,8 +176,8 @@ type CachePoolFn =
 ///
 /// # Example: earliest search
 ///
-/// This example shows how to run a search that might stop before finding the
-/// typical leftmost match.
+/// This example shows how to use [`Input::earliest`] to run a search that
+/// might stop before finding the typical leftmost match.
 ///
 /// ```
 /// use regex_automata::{meta::Regex, Anchored, Input, Match};
@@ -334,6 +340,13 @@ impl Regex {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
+    /// One can write a lexer like the above using a regex like
+    /// `(?P<space>[[:space:]])|(?P<ident>[A-Za-z0-9][A-Za-z0-9_]+)|...`,
+    /// but then you need to ask whether capture group matched to determine
+    /// which branch in the regex matched, and thus, which token the match
+    /// corresponds to. In contrast, the above example includes the pattern ID
+    /// in the match. There's no need to use capture groups at all.
+    ///
     /// # Example: finding the pattern that caused an error
     ///
     /// When a syntax error occurs, it is possible to ask which pattern
@@ -481,6 +494,22 @@ impl Regex {
     ///
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
+    ///
+    /// A similar idea applies when using line anchors with CRLF mode enabled,
+    /// which prevents them from matching between a `\r` and a `\n`.
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input, Match};
+    ///
+    /// let re = Regex::new(r"(?Rm:$)")?;
+    /// assert!(!re.is_match(Input::new("\r\n").span(1..1)));
+    /// // A regular line anchor, which only considers \n as a
+    /// // line terminator, will match.
+    /// let re = Regex::new(r"(?m:$)")?;
+    /// assert!(re.is_match(Input::new("\r\n").span(1..1)));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn is_match<'h, I: Into<Input<'h>>>(&self, input: I) -> bool {
         let input = input.into().earliest(true);
@@ -604,6 +633,244 @@ impl Regex {
         let caps = self.create_captures();
         let it = iter::Searcher::new(input.into());
         CapturesMatches { re: self, cache, caps, it }
+    }
+
+    /// Returns an iterator of spans of the haystack given, delimited by a
+    /// match of the regex. Namely, each element of the iterator corresponds to
+    /// a part of the haystack that *isn't* matched by the regular expression.
+    ///
+    /// # Example
+    ///
+    /// To split a string delimited by arbitrary amounts of spaces or tabs:
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r"[ \t]+")?;
+    /// let hay = "a b \t  c\td    e";
+    /// let fields: Vec<&str> = re.split(hay).map(|span| &hay[span]).collect();
+    /// assert_eq!(fields, vec!["a", "b", "c", "d", "e"]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: more cases
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r" ")?;
+    /// let hay = "Mary had a little lamb";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["Mary", "had", "a", "little", "lamb"]);
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec![""]);
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "lionXXtigerXleopard";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["lion", "", "tiger", "leopard"]);
+    ///
+    /// let re = Regex::new(r"::")?;
+    /// let hay = "lion::tiger::leopard";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["lion", "tiger", "leopard"]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// If a haystack contains multiple contiguous matches, you will end up
+    /// with empty spans yielded by the iterator:
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "XXXXaXXbXc";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["", "", "", "", "a", "", "b", "c"]);
+    ///
+    /// let re = Regex::new(r"/")?;
+    /// let hay = "(///)";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["(", "", "", ")"]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Separators at the start or end of a haystack are neighbored by empty
+    /// spans.
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r"0")?;
+    /// let hay = "010";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["", "1", ""]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// When the empty string is used as a regex, it splits every at every
+    /// valid UTF-8 boundary by default (which includes the beginning and
+    /// end of the haystack):
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r"")?;
+    /// let hay = "rust";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["", "r", "u", "s", "t", ""]);
+    ///
+    /// // Splitting by an empty string is UTF-8 aware by default!
+    /// let re = Regex::new(r"")?;
+    /// let hay = "☃";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["", "☃", ""]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// But note that UTF-8 mode for empty strings can be disabled, which will
+    /// then result in a match at every byte offset in the haystack,
+    /// including between every UTF-8 code unit.
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8_empty(false))
+    ///     .build(r"")?;
+    /// let hay = "☃".as_bytes();
+    /// let got: Vec<&[u8]> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec![
+    ///     // Writing byte string slices is just brutal. The problem is that
+    ///     // b"foo" has type &[u8; 3] instead of &[u8].
+    ///     &[][..], &[b'\xE2'][..], &[b'\x98'][..], &[b'\x83'][..], &[][..],
+    /// ]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Contiguous separators (commonly shows up with whitespace), can lead to
+    /// possibly surprising behavior. For example, this code is correct:
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r" ")?;
+    /// let hay = "    a  b c";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["", "", "", "", "a", "", "b", "c"]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// It does *not* give you `["a", "b", "c"]`. For that behavior, you'd want
+    /// to match contiguous space characters:
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r" +")?;
+    /// let hay = "    a  b c";
+    /// let got: Vec<&str> = re.split(hay).map(|sp| &hay[sp]).collect();
+    /// // N.B. This does still include a leading empty span because ' +'
+    /// // matches at the beginning of the haystack.
+    /// assert_eq!(got, vec!["", "a", "b", "c"]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn split<'r, 'h, I: Into<Input<'h>>>(
+        &'r self,
+        input: I,
+    ) -> Split<'r, 'h> {
+        Split { finder: self.find_iter(input), last: 0 }
+    }
+
+    /// Returns an iterator of at most `limit` spans of the haystack given,
+    /// delimited by a match of the regex. (A `limit` of `0` will return no
+    /// spans.) Namely, each element of the iterator corresponds to a part
+    /// of the haystack that *isn't* matched by the regular expression. The
+    /// remainder of the haystack that is not split will be the last element in
+    /// the iterator.
+    ///
+    /// # Example
+    ///
+    /// Get the first two words in some haystack:
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r"\W+").unwrap();
+    /// let hay = "a b \t  c\td    e";
+    /// let hay = "Hey! How are you?";
+    /// let fields: Vec<&str> =
+    ///     re.splitn(hay, 3).map(|span| &hay[span]).collect();
+    /// assert_eq!(fields, vec!("Hey", "How", "are you?"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Examples: more cases
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// use bstr::{B, ByteSlice};
+    ///
+    /// let re = Regex::new(r" ")?;
+    /// let hay = "Mary had a little lamb";
+    /// let got: Vec<&str> = re.splitn(hay, 3).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["Mary", "had", "a little lamb"]);
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "";
+    /// let got: Vec<&str> = re.splitn(hay, 3).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec![""]);
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "lionXXtigerXleopard";
+    /// let got: Vec<&str> = re.splitn(hay, 3).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["lion", "", "tigerXleopard"]);
+    ///
+    /// let re = Regex::new(r"::")?;
+    /// let hay = "lion::tiger::leopard";
+    /// let got: Vec<&str> = re.splitn(hay, 2).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["lion", "tiger::leopard"]);
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "abcXdef";
+    /// let got: Vec<&str> = re.splitn(hay, 1).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["abcXdef"]);
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "abcdef";
+    /// let got: Vec<&str> = re.splitn(hay, 2).map(|sp| &hay[sp]).collect();
+    /// assert_eq!(got, vec!["abcdef"]);
+    ///
+    /// let re = Regex::new(r"X")?;
+    /// let hay = "abcXdef";
+    /// let got: Vec<&str> = re.splitn(hay, 0).map(|sp| &hay[sp]).collect();
+    /// assert!(got.is_empty());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn splitn<'r, 'h, I: Into<Input<'h>>>(
+        &'r self,
+        input: I,
+        limit: usize,
+    ) -> SplitN<'r, 'h> {
+        SplitN { splits: self.split(input), limit }
     }
 }
 
@@ -1740,6 +2007,8 @@ impl<'r, 'h> Iterator for FindMatches<'r, 'h> {
     }
 }
 
+impl<'r, 'h> core::iter::FusedIterator for FindMatches<'r, 'h> {}
+
 /// An iterator over all non-overlapping leftmost matches with their capturing
 /// groups.
 ///
@@ -1790,6 +2059,97 @@ impl<'r, 'h> Iterator for CapturesMatches<'r, 'h> {
         .count()
     }
 }
+
+impl<'r, 'h> core::iter::FusedIterator for CapturesMatches<'r, 'h> {}
+
+/// Yields all substrings delimited by a regular expression match.
+///
+/// The spans correspond to the offsets between matches.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'r` represents the lifetime of the `Regex` that produced this iterator.
+/// * `'h` represents the lifetime of the haystack being searched.
+///
+/// This iterator can be created with the [`Regex::split`] method.
+#[derive(Debug)]
+pub struct Split<'r, 'h> {
+    finder: FindMatches<'r, 'h>,
+    last: usize,
+}
+
+impl<'r, 'h> Iterator for Split<'r, 'h> {
+    type Item = Span;
+
+    fn next(&mut self) -> Option<Span> {
+        match self.finder.next() {
+            None => {
+                let len = self.finder.it.input().haystack().len();
+                if self.last > len {
+                    None
+                } else {
+                    let span = Span::from(self.last..len);
+                    self.last = len + 1; // Next call will return None
+                    Some(span)
+                }
+            }
+            Some(m) => {
+                let span = Span::from(self.last..m.start());
+                self.last = m.end();
+                Some(span)
+            }
+        }
+    }
+}
+
+impl<'r, 'h> core::iter::FusedIterator for Split<'r, 'h> {}
+
+/// Yields at most `N` spans delimited by a regular expression match.
+///
+/// The spans correspond to the offsets between matches. The last span will be
+/// whatever remains after splitting.
+///
+/// The lifetime parameters are as follows:
+///
+/// * `'r` represents the lifetime of the `Regex` that produced this iterator.
+/// * `'h` represents the lifetime of the haystack being searched.
+///
+/// This iterator can be created with the [`Regex::splitn`] method.
+#[derive(Debug)]
+pub struct SplitN<'r, 'h> {
+    splits: Split<'r, 'h>,
+    limit: usize,
+}
+
+impl<'r, 'h> Iterator for SplitN<'r, 'h> {
+    type Item = Span;
+
+    fn next(&mut self) -> Option<Span> {
+        if self.limit == 0 {
+            return None;
+        }
+
+        self.limit -= 1;
+        if self.limit > 0 {
+            return self.splits.next();
+        }
+
+        let len = self.splits.finder.it.input().haystack().len();
+        if self.splits.last > len {
+            // We've already returned all substrings.
+            None
+        } else {
+            // self.n == 0, so future calls will return None immediately
+            Some(Span::from(self.splits.last..len))
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.limit))
+    }
+}
+
+impl<'r, 'h> core::iter::FusedIterator for SplitN<'r, 'h> {}
 
 /// Represents mutable scratch space used by regex engines during a search.
 ///

@@ -19,7 +19,9 @@ haystack itself, which in turn makes it easy to access the matching strings
 without having to slice the haystack yourself. In contrast, a meta `Regex`
 returns match objects that only have offsets in them.
 * At time of writing, a meta `Regex` doesn't have some of the convenience
-routines that the `regex` crate has, such as splitting and replacements.
+routines that the `regex` crate has, such as replacements. Note though that
+[`Captures::interpolate_string`](crate::util::captures::Captures::interpolate_string)
+will handle the replacement string interpolation for you.
 * A meta `Regex` supports the [`Input`](crate::Input) abstraction, which
 provides a way to configure a search in more ways than is supported by the
 `regex` crate. For example, [`Input::anchored`](crate::Input::anchored) can
@@ -42,7 +44,10 @@ level routines such as [`Regex::search_with`].
 
 pub use self::{
     error::BuildError,
-    regex::{Builder, Cache, CapturesMatches, Config, FindMatches, Regex},
+    regex::{
+        Builder, Cache, CapturesMatches, Config, FindMatches, Regex, Split,
+        SplitN,
+    },
 };
 
 mod error;
